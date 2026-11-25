@@ -7,12 +7,13 @@
 //! (no globals, no allocation) and never panics on any input.
 
 use cmux_motion::{
-    AnimationSwitches, MotionFade, MotionKind, MotionPolicy, MotionSpeed, MotionSpring,
-    MotionTween, SpringParameters, TabStripGeometry, TweenCurve, TweenValue, advance_spring,
+    AnimationSwitches, LIGHT_DOMINANT_COUNT, LightField, MotionFade, MotionKind, MotionPolicy,
+    MotionSpeed, MotionSpring, MotionTween, SpringParameters, TabStripGeometry, TweenCurve,
+    TweenValue, advance_spring, light_field, light_point, light_rim, light_style,
 };
 
 /// Bumped on any change to a type or function in the header.
-const ABI_VERSION: u32 = 6;
+const ABI_VERSION: u32 = 8;
 
 /// `SpringParameters`.
 #[repr(C)]
@@ -378,6 +379,226 @@ pub unsafe extern "C" fn cmux_motion_tab_strip_geometry(
     true
 }
 
+/// A wallpaper's light field (cmux-motion `LightField`, `appearance.wallpaperLighting`):
+/// colors are straight sRGB 0..=1, positions 0..=1 of the picture from its top
+/// left. The first `dominant_count` of `dominant` and `dominant_weight` are set.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct CmuxLightField {
+    pub ambient: [f64; 3],
+    pub ambient_luminance: f64,
+    pub key: [f64; 3],
+    pub key_x: f64,
+    pub key_y: f64,
+    pub key_strength: f64,
+    pub key_spread: f64,
+    pub dominant: [[f64; 3]; 4],
+    pub dominant_weight: [f64; 4],
+    pub dominant_count: u32,
+    pub rim: [f64; 3],
+    pub bloom: [f64; 3],
+    pub tint: [f64; 3],
+}
+
+impl From<LightField> for CmuxLightField {
+    fn from(f: LightField) -> Self {
+        Self {
+            ambient: f.ambient,
+            ambient_luminance: f.ambient_luminance,
+            key: f.key,
+            key_x: f.key_x,
+            key_y: f.key_y,
+            key_strength: f.key_strength,
+            key_spread: f.key_spread,
+            dominant: f.dominant,
+            dominant_weight: f.dominant_weight,
+            dominant_count: f.dominant_count as u32,
+            rim: f.rim,
+            bloom: f.bloom,
+            tint: f.tint,
+        }
+    }
+}
+
+impl From<&CmuxLightField> for LightField {
+    fn from(f: &CmuxLightField) -> Self {
+        Self {
+            ambient: f.ambient,
+            ambient_luminance: f.ambient_luminance,
+            key: f.key,
+            key_x: f.key_x,
+            key_y: f.key_y,
+            key_strength: f.key_strength,
+            key_spread: f.key_spread,
+            dominant: f.dominant,
+            dominant_weight: f.dominant_weight,
+            dominant_count: (f.dominant_count as usize).min(LIGHT_DOMINANT_COUNT),
+            rim: f.rim,
+            bloom: f.bloom,
+            tint: f.tint,
+        }
+    }
+}
+
+/// cmux-motion `LightRim`: a rectangle's radial rim gradient toward the key
+/// light, in the rectangle's unit space, and its peak opacity.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct CmuxLightRim {
+    pub center_x: f64,
+    pub center_y: f64,
+    pub radius_x: f64,
+    pub radius_y: f64,
+    pub alpha: f64,
+}
+
+/// The light field of a small RGBA8 picture with premultiplied alpha (a
+/// `CGContext` with `premultipliedLast`), rows top first, `bytes_per_row`
+/// apart, `len` bytes in all. Read once per wallpaper, never per frame. False
+/// for a null pointer, an empty, too large (over 128 by 128) or fully
+/// transparent picture, or a buffer shorter than its size.
+///
+/// # Safety
+/// `pixels` is null or points to `len` readable bytes; `out` is null or points
+/// to a writable `CmuxLightField`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_motion_light_field(
+    pixels: *const u8,
+    len: usize,
+    width: u32,
+    height: u32,
+    bytes_per_row: u32,
+    out: *mut CmuxLightField,
+) -> bool {
+    if pixels.is_null() || out.is_null() {
+        return false;
+    }
+    // SAFETY: non-null and `len` readable bytes per the contract above.
+    let bytes = unsafe { std::slice::from_raw_parts(pixels, len) };
+    let Some(field) = light_field(bytes, width as usize, height as usize, bytes_per_row as usize)
+    else {
+        return false;
+    };
+    // SAFETY: `out` is non-null and writable per the contract.
+    unsafe { out.write(field.into()) };
+    true
+}
+
+/// Where `field`'s key light falls on a `width` by `height` container that a
+/// picture of `picture_aspect` (width over height) fills, aspect fill and
+/// centered, in points from the container's top left (`out_xy[0]`, `[1]`).
+/// False for a null pointer.
+///
+/// # Safety
+/// `field` is null or points to a readable `CmuxLightField`; `out_xy` is null
+/// or points to 2 writable doubles.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_motion_light_point(
+    field: *const CmuxLightField,
+    picture_aspect: f64,
+    width: f64,
+    height: f64,
+    out_xy: *mut f64,
+) -> bool {
+    if field.is_null() || out_xy.is_null() {
+        return false;
+    }
+    // SAFETY: non-null and readable per the contract.
+    let field: LightField = unsafe { &*field }.into();
+    let (x, y) = light_point(&field, picture_aspect, width, height);
+    // SAFETY: `out_xy` is non-null and points to 2 writable doubles.
+    unsafe { *(out_xy as *mut [f64; 2]) = [x, y] };
+    true
+}
+
+/// The rim light of `rect` (x, y, width, height) in a container `diagonal`
+/// points across whose key light sits at `light_x, light_y` (from
+/// `cmux_motion_light_point`). False for a null pointer or a degenerate
+/// rectangle.
+///
+/// # Safety
+/// `field` is null or points to a readable `CmuxLightField`; `rect` is null or
+/// points to 4 readable doubles; `out` is null or points to a writable
+/// `CmuxLightRim`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_motion_light_rim(
+    field: *const CmuxLightField,
+    light_x: f64,
+    light_y: f64,
+    rect: *const f64,
+    diagonal: f64,
+    out: *mut CmuxLightRim,
+) -> bool {
+    if field.is_null() || rect.is_null() || out.is_null() {
+        return false;
+    }
+    // SAFETY: non-null and sized per the contract.
+    let (field, r): (LightField, [f64; 4]) =
+        unsafe { ((&*field).into(), *(rect as *const [f64; 4])) };
+    let Some(rim) = light_rim(&field, light_x, light_y, r[0], r[1], r[2], r[3], diagonal) else {
+        return false;
+    };
+    let c = CmuxLightRim {
+        center_x: rim.center_x,
+        center_y: rim.center_y,
+        radius_x: rim.radius_x,
+        radius_y: rim.radius_y,
+        alpha: rim.alpha,
+    };
+    // SAFETY: `out` is non-null and writable per the contract.
+    unsafe { out.write(c) };
+    true
+}
+
+/// cmux-motion `LightStyle`: what a page's glass draws from the light.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct CmuxLightStyle {
+    pub dx: f64,
+    pub dy: f64,
+    pub rim_alpha: f64,
+    pub bloom_alpha: f64,
+    pub tint_share: f64,
+}
+
+/// The light style of `rect` (x, y, width, height; a window) with the same
+/// inputs as `cmux_motion_light_rim`. False for a null pointer or a
+/// degenerate rectangle.
+///
+/// # Safety
+/// `field` is null or points to a readable `CmuxLightField`; `rect` is null or
+/// points to 4 readable doubles; `out` is null or points to a writable
+/// `CmuxLightStyle`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_motion_light_style(
+    field: *const CmuxLightField,
+    light_x: f64,
+    light_y: f64,
+    rect: *const f64,
+    diagonal: f64,
+    out: *mut CmuxLightStyle,
+) -> bool {
+    if field.is_null() || rect.is_null() || out.is_null() {
+        return false;
+    }
+    // SAFETY: non-null and sized per the contract.
+    let (field, r): (LightField, [f64; 4]) =
+        unsafe { ((&*field).into(), *(rect as *const [f64; 4])) };
+    let Some(s) = light_style(&field, light_x, light_y, r[0], r[1], r[2], r[3], diagonal) else {
+        return false;
+    };
+    let c = CmuxLightStyle {
+        dx: s.dx,
+        dy: s.dy,
+        rim_alpha: s.rim_alpha,
+        bloom_alpha: s.bloom_alpha,
+        tint_share: s.tint_share,
+    };
+    // SAFETY: `out` is non-null and writable per the contract.
+    unsafe { out.write(c) };
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -410,5 +631,37 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The light field crosses the C ABI whole: a warm sun on a navy sky comes
+    /// back with its key light, and the point and rim calls take it back.
+    #[test]
+    fn light_field_round_trips() {
+        let (w, h) = (32u32, 20u32);
+        let mut px = Vec::new();
+        for y in 0..h as i32 {
+            for x in 0..w as i32 {
+                let sun = (x - 25).pow(2) + (y - 4).pow(2) < 9;
+                px.extend_from_slice(&if sun { [255, 200, 120, 255] } else { [12, 18, 40, 255] });
+            }
+        }
+        let mut field = CmuxLightField::default();
+        // SAFETY: `px` is `px.len()` readable bytes; `field` is writable.
+        assert!(unsafe { cmux_motion_light_field(px.as_ptr(), px.len(), w, h, w * 4, &mut field) });
+        assert!(field.key_x > 0.7 && field.key_y < 0.35 && field.key_strength > 0.5, "{field:?}");
+        // SAFETY: a buffer one byte short is refused, never read past.
+        assert!(!unsafe {
+            cmux_motion_light_field(px.as_ptr(), px.len() - 1, w, h, w * 4, &mut field)
+        });
+        let mut xy = [0.; 2];
+        // SAFETY: `field` is readable; `xy` is 2 writable doubles.
+        assert!(unsafe { cmux_motion_light_point(&field, 1.6, 1600., 1000., xy.as_mut_ptr()) });
+        let mut rim = CmuxLightRim::default();
+        let rect = [0., 0., 400., 1000.];
+        // SAFETY: every pointer is valid for its size.
+        assert!(unsafe {
+            cmux_motion_light_rim(&field, xy[0], xy[1], rect.as_ptr(), 1886., &mut rim)
+        });
+        assert!(rim.alpha > 0. && rim.center_x > 1., "the light lies right of a sidebar: {rim:?}");
     }
 }

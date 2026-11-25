@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.paneBackgrounds.help" : {
+      "comment" : "Settings row help for Pane Backgrounds.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "One background behind the window, or a copy in each pane."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "خلفية واحدة خلف النافذة، أو نسخة في كل جزء."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jedna pozadina iza prozora ili kopija u svakom oknu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Én baggrund bag vinduet eller en kopi i hver rude."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ein Hintergrund hinter dem Fenster oder eine Kopie in jedem Bereich."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un fondo detrás de la ventana o una copia en cada panel."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un arrière-plan derrière la fenêtre, ou une copie dans chaque volet."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uno sfondo dietro la finestra o una copia in ogni riquadro."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ウインドウの背後に1つの背景、またはペインごとにコピーを表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្ទៃខាងក្រោយមួយនៅពីក្រោយបង្អួច ឬច្បាប់ចម្លងមួយក្នុងផ្ទាំងនីមួយៗ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "창 뒤에 배경 하나, 또는 각 창 영역에 사본을 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Én bakgrunn bak vinduet, eller en kopi i hver rute."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jedno tło za oknem lub kopia w każdym panelu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Um fundo atrás da janela ou uma cópia em cada painel."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Один фон за окном или копия в каждой панели."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "พื้นหลังเดียวหลังหน้าต่าง หรือสำเนาในแต่ละบานหน้าต่าง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pencerenin arkasında tek bir arka plan ya da her bölmede bir kopya."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Одне тло за вікном або копія в кожній панелі."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Một hình nền phía sau cửa sổ, hoặc một bản sao trong mỗi khung."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "窗口后面一个背景，或每个窗格各有一份副本。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "整個視窗後方一個背景，或每個窗格各有一份副本。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

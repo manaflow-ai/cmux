@@ -85,7 +85,7 @@ function Stack({ agents = [], waiting = new Set<string>() }: { agents?: Subagent
   const side = useTrayHandle();
   const items = trayItems(agents, commands, [], true);
   return tucked
-    ? createElement(TrayPullTab, { chat: CHAT, ...pullTabCounts(items, waiting), working: false, side })
+    ? createElement(TrayPullTab, { chat: CHAT, ...pullTabCounts(items, waiting), side })
     : createElement(SubagentTray, {
         chat: CHAT,
         items,
@@ -121,7 +121,7 @@ describe("the composer hat tucks away and comes back", () => {
       await act(async () => tuck.click());
       expect(host.querySelector(".acpmux-running-tray")).toBeNull();
       const tab = host.querySelector<HTMLButtonElement>(".acpmux-tray-pull__tab")!;
-      expect(tab.getAttribute("aria-label")).toBe("Show Running Work · 2 running");
+      expect(tab.getAttribute("aria-label")).toBe("Show Running Work · 2 subagents");
       await act(async () => tab.click());
       expect(host.querySelector(".acpmux-running-tray")).not.toBeNull();
       // The page sends the host one write 250 ms after the last change (chatDisplay.ts WRITE_DELAY_MS):
@@ -184,14 +184,14 @@ describe("the composer hat tucks away and comes back", () => {
     const root = createRoot(host);
     await act(async () => root.render(createElement(Stack, { agents: [reviewer] })));
     try {
-      expect(host.querySelector(".acpmux-tray-pull__count")?.textContent).toBe("3");
+      expect(host.querySelector<HTMLElement>(".acpmux-tray-pull__count")?.dataset.count).toBe("3");
       expect(host.querySelector(".acpmux-tray-pull__dot")).toBeNull();
       await act(async () => root.render(createElement(Stack, { agents: [reviewer], waiting: new Set([reviewer.id]) })));
       expect(host.querySelector(".acpmux-tray-pull__dot")).not.toBeNull();
       expect(host.querySelector(".acpmux-tray-pull__count")).toBeNull();
       expect(host.querySelector(".acpmux-tray-pull")?.hasAttribute("data-waiting")).toBe(true);
       expect(host.querySelector(".acpmux-tray-pull__tab")?.getAttribute("aria-label")).toBe(
-        "Show Running Work · 1 waiting · 2 running",
+        "Show Running Work · 1 waiting · 2 subagents",
       );
     } finally {
       await act(async () => root.unmount());

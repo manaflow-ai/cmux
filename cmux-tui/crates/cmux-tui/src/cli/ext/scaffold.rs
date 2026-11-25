@@ -111,13 +111,14 @@ fn types() -> &'static str {
 /// The public SDK as this binary was built with it.
 /// The widget place and its layout helpers (`index.ts` re-exports them).
 const SDK_WIDGET: &str = include_str!("../../../../cmux-extension-sdk/typescript/src/widget.ts");
-pub(super) const SDK_INDEX: &str =
-    include_str!("../../../../cmux-extension-sdk/typescript/src/index.ts");
+/// Design systems: cmux's as data, `defineDesign` and the viewer (`index.ts` re-exports them).
+const SDK_DESIGN: &str = include_str!("../../../../cmux-extension-sdk/typescript/src/design.ts");
+const SDK_INDEX: &str = include_str!("../../../../cmux-extension-sdk/typescript/src/index.ts");
 const SDK_PACKAGE: &str = include_str!("../../../../cmux-extension-sdk/typescript/package.json");
 const SDK_README: &str = include_str!("../../../../cmux-extension-sdk/README.md");
 const SDK_EVENTS: &str = include_str!("../../../../cmux-app-host/schema/v2/events.json");
 /// The scope table, whose `apiVersion` is the SDK's `API_VERSION`.
-pub(super) const SDK_SCOPES: &str = cmux_app_manifest::capabilities::SCOPES_JSON;
+const SDK_SCOPES: &str = cmux_app_manifest::capabilities::SCOPES_JSON;
 
 /// The SDK source's paths into the cmux repository, and where the vendored
 /// copy finds the same files (`sdk/src/index.ts` -> `sdk/tables/…`, the
@@ -129,14 +130,17 @@ const SDK_PATHS: &[(&str, &str)] = &[
 ];
 
 /// `sdk/`: the SDK's files with its imports pointed at the copied tables.
-pub(super) fn sdk_files() -> Vec<(&'static str, String)> {
+pub(super) fn runtime_sdk_files() -> Vec<(&'static str, String)> {
     let index =
         SDK_PATHS.iter().fold(SDK_INDEX.to_string(), |text, (from, to)| text.replace(from, to));
     vec![
-        ("sdk/package.json", SDK_PACKAGE.to_string()),
-        ("sdk/README.md", SDK_README.to_string()),
         ("sdk/src/index.ts", index),
         ("sdk/src/widget.ts", SDK_WIDGET.to_string()),
+        ("sdk/src/design.ts", SDK_DESIGN.to_string()),
+        (
+            "sdk/src/tokens.ts",
+            include_str!("../../../../cmux-extension-sdk/typescript/src/tokens.ts").to_owned(),
+        ),
         ("sdk/tables/events.json", SDK_EVENTS.to_string()),
         ("sdk/tables/scopes.json", SDK_SCOPES.to_string()),
     ]
@@ -168,7 +172,10 @@ pub(super) fn cli_name_problem(name: &str) -> Option<String> {
             "--kind command makes `cmux {name} …`, which needs a name of 2 to 24 lowercase letters, digits and single dashes that starts with a letter"
         ));
     }
-    cmux_app_manifest::is_reserved_cli_name(name).then(|| {
+    // Reserved words, and the first word of a built-in command the CLI routes
+    // after its grammar (`tab`, `share`), always win over an app's short form
+    // (`app_commands::short_form_word`), so `cmux NAME hello` would never reach it.
+    (!crate::cli::app_commands::short_form_word(name)).then(|| {
         format!(
             "--kind command makes `cmux {name} …`, but {name} is a cmux command; pick another name"
         )
@@ -199,7 +206,7 @@ fn readme_parts(kind: &str) -> (&'static str, &'static str, &'static str) {
             DESIGN_LINE,
         ),
         "newtab" => (
-            "a whole New Tab page.",
+            "a view over the New Tab composer.",
             "Pick it as your New Tab page: `cmux settings set tabs.newTabApp local/{{NAME}}` (Settings >\nTabs > New Tab App); unset it to get cmux's own page back.",
             DESIGN_LINE,
         ),
@@ -273,7 +280,9 @@ pub(super) fn files_for(
     let mut out: Vec<(&'static str, String)> =
         templates.iter().chain(COMMON).map(|(path, text)| (*path, fill(text))).collect();
     out.push(("cmux-app.d.ts", types().to_owned()));
-    out.extend(sdk_files());
+    out.push(("sdk/package.json", SDK_PACKAGE.to_owned()));
+    out.push(("sdk/README.md", SDK_README.to_owned()));
+    out.extend(runtime_sdk_files());
     Some(out)
 }
 

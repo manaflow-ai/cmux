@@ -20,7 +20,6 @@ pub enum EndpointKind {
 
 /// How a page or peer reaches a provider directly.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct Endpoint {
     pub kind: EndpointKind,
     /// The socket path, for `unix`.
@@ -43,7 +42,6 @@ impl Endpoint {
 
 /// One op a provider serves.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct HelloOpRef {
     pub name: String,
     /// `read`, `mutation` or `stream`.
@@ -53,7 +51,6 @@ pub struct HelloOpRef {
 
 /// One event stream a provider serves.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct HelloEventRef {
     pub name: String,
     pub scope: String,
@@ -61,7 +58,6 @@ pub struct HelloEventRef {
 
 /// The IR (or IR fragment) a provider was generated from.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct HelloIr {
     pub version: String,
     /// Lowercase hex SHA-256 of the IR file.
@@ -70,7 +66,6 @@ pub struct HelloIr {
 
 /// A provider's admission request, its first call on the router connection.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct ProviderHello {
     /// [`PROTO`].
     pub proto: String,
@@ -98,7 +93,6 @@ pub struct ProviderHello {
 
 /// The router's admission reply.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct ProviderWelcome {
     /// Unpadded base64url Ed25519 public key that signs capability tokens.
     pub router_key: String,
@@ -108,7 +102,6 @@ pub struct ProviderWelcome {
 
 /// A live provider of a namespace.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct ProviderInfo {
     pub app_id: String,
     pub namespace: String,
@@ -116,7 +109,6 @@ pub struct ProviderInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct ResolveParams {
     /// A namespace (or an op name inside one).
     pub namespace: String,
@@ -124,7 +116,6 @@ pub struct ResolveParams {
 
 /// Where to reach the namespace's provider, and a data-plane token for it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 #[schemars(transform = crate::ir::require_all)]
 pub struct ResolveResult {
     pub app_id: String,
@@ -143,21 +134,18 @@ pub struct ResolveResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct TokenRefreshParams {
     /// A page token or a data-plane token the router minted, not yet expired.
     pub token: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct TokenRefreshResult {
     pub token: String,
     pub exp: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct InterfacesListParams {
     /// Only this interface (`cmux.diff.source/1`).
     #[serde(default)]
@@ -165,7 +153,6 @@ pub struct InterfacesListParams {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct InterfaceListing {
     pub name: String,
     pub version: u32,
@@ -174,14 +161,13 @@ pub struct InterfaceListing {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct InterfacesListResult {
     pub interfaces: Vec<InterfaceListing>,
 }
 
 /// Who serves a page's namespace.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum PageProvider {
     /// Rust, inside the cmux-tui daemon.
     DaemonModule,
@@ -205,7 +191,6 @@ pub enum PageEngine {
 
 /// A page registration (manifest entry).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct PageManifest {
     /// `cmux.settings`; third party `<publisher>.<name>[.<page>]`.
     pub id: String,
@@ -226,11 +211,11 @@ pub struct PageManifest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
+// skew: strict schema only: keeps the empty params a closed object (not a map) in generated SDKs
+#[schemars(deny_unknown_fields)]
 pub struct PagesListParams {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct PagesListResult {
     pub pages: Vec<PageManifest>,
 }

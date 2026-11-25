@@ -4442,7 +4442,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         )
         .orderBy(desc(cloudVmUsageEvents.createdAt), desc(cloudVmUsageEvents.id))
         .limit(1);
-      return cloudRemoteAuthMode(event?.metadata, cloudRemoteAuthMode(event?.sourceMetadata));
+      return cloudRemoteAuthMode(event?.metadata, cloudRemoteAuthMode(event?.sourceMetadata, "trusted-carrier"));
     }),
 
   findUserVm: (input) =>

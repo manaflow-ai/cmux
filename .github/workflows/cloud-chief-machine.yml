@@ -1,0 +1,211 @@
+name: Cloud Chief machine (optchat-chief Linux build, staging check, publish)
+
+# The Cloud Chief on a cmux Cloud machine (images/cmux-vm/chief, web/scripts/cmux-vm-image/chief-host.ts):
+#
+#   build   a static x86_64 musl optchat-chief, release profile, with the commit in `--version`.
+#   check   (pull requests) scripts/cmux-next/cloud-chief-check.ts on staging: a `cmux-test-chief-<run>` machine,
+#           the image's install.sh with this build, `optchat-chief --version`, cmux-chief.service active and
+#           steady once paired, and a self-update that hands off between turns. The machine is deleted in its
+#           finally path; leftovers of this check older than 3 h are swept by the next run.
+#   publish (feat-cmux-next pushes) R2 cmux-binaries: optchat-chief/<sha>/optchat-chief-x86_64-unknown-linux-musl
+#           and its manifest.json, write-once, then the rolling optchat-chief/latest/manifest.json that every
+#           machine's cmux-chief-update.timer reads (https://files.cmux.com/optchat-chief/latest/manifest.json).
+#
+# Secrets: the staging agent test account in cmux-next-vm-image-dev (as cloud-journey-pr.yml), the R2 pair in
+# artifacts (as cmux-tui-artifacts.yml's publish). Same-repo pull requests only.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - Native/OptChat/optchat-chief/**
+      - cmux-tui/bindings/rust/**
+      - cmux-tui/crates/cmux-conversation/**
+      - cmux-tui/crates/cmux-chief/**
+      - cmux-tui/crates/cmux-server-core/**
+      - cmux-tui/crates/cmux-build-space/**
+      - cmux-tui/crates/cmux-unix-socket/**
+      - cmux-tui/crates/cmux-config/**
+      - cmux-tui/crates/cmux-panic-log/**
+      - cmux-tui/crates/cmux-mcp-connect/**
+      - cmux-tui/crates/cmux-image-linear/**
+      - images/cmux-vm/chief/**
+      - web/scripts/cmux-vm-image/chief-host.ts
+      - scripts/cmux-next/cloud-chief-check.ts
+      - .github/workflows/cloud-chief-machine.yml
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
+    branches: [feat-cmux-next]
+    paths:
+      - Native/OptChat/optchat-chief/**
+      - cmux-tui/bindings/rust/**
+      - cmux-tui/crates/cmux-conversation/**
+      - cmux-tui/crates/cmux-chief/**
+      - cmux-tui/crates/cmux-server-core/**
+      - cmux-tui/crates/cmux-build-space/**
+      - cmux-tui/crates/cmux-unix-socket/**
+      - cmux-tui/crates/cmux-config/**
+      - cmux-tui/crates/cmux-panic-log/**
+      - cmux-tui/crates/cmux-mcp-connect/**
+      - cmux-tui/crates/cmux-image-linear/**
+      - images/cmux-vm/chief/**
+      - web/scripts/cmux-vm-image/chief-host.ts
+      - scripts/cmux-next/cloud-chief-check.ts
+      - .github/workflows/cloud-chief-machine.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-chief-machine-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 45
+    outputs:
+      sha256: ${{ steps.build.outputs.sha256 }}
+      size: ${{ steps.build.outputs.size }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+      - name: Install the musl toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools clang pkg-config
+      - name: Set up cmux-tui Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Give this runner instance its own CARGO_HOME
+        uses: ./.github/actions/runner-cargo-home
+      - name: Build optchat-chief (x86_64-unknown-linux-musl, release)
+        id: build
+        working-directory: Native/OptChat/optchat-chief
+        env:
+          CARGO_NET_RETRY: "10"
+          CARGO_HTTP_TIMEOUT: "120"
+          CC_x86_64_unknown_linux_musl: musl-gcc
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+          OPTCHAT_CHIEF_BUILD_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          rustup target add x86_64-unknown-linux-musl
+          start=$(date +%s)
+          cargo build --release --locked --target x86_64-unknown-linux-musl --bin optchat-chief
+          echo "build_seconds=$(( $(date +%s) - start ))"
+          bin="${CARGO_TARGET_DIR:-target}/x86_64-unknown-linux-musl/release/optchat-chief"
+          mkdir -p "$RUNNER_TEMP/chief"
+          cp "$bin" "$RUNNER_TEMP/chief/optchat-chief-x86_64-unknown-linux-musl"
+          out="$RUNNER_TEMP/chief/optchat-chief-x86_64-unknown-linux-musl"
+          file "$out"
+          file "$out" | grep -q 'statically linked\|static-pie linked'
+          "$out" --version
+          sha=$(sha256sum "$out" | cut -d' ' -f1); size=$(stat -c %s "$out")
+          echo "optchat-chief $size bytes, sha256 $sha" >> "$GITHUB_STEP_SUMMARY"
+          echo "sha256=$sha" >> "$GITHUB_OUTPUT"
+          echo "size=$size" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: optchat-chief-linux-${{ github.run_id }}
+          path: ${{ runner.temp }}/chief/optchat-chief-x86_64-unknown-linux-musl
+          if-no-files-found: error
+          retention-days: 7
+
+  check:
+    needs: build
+    # Same-repository pull requests only (build is skipped for a fork, so this was already); said here so a fork can never reach the pool read below.
+    if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: optchat-chief-linux-${{ github.run_id }}
+          path: ${{ runner.temp }}/chief
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+      - name: Cloud Chief on a fresh staging machine
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
+        run: |
+          bun scripts/cmux-next/cloud-chief-check.ts --target staging \
+            --binary "$RUNNER_TEMP/chief/optchat-chief-x86_64-unknown-linux-musl" \
+            --out "$RUNNER_TEMP/cloud-chief-check" --run "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+      - name: Keep the step table
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloud-chief-check-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/cloud-chief-check/journey.json
+            ${{ runner.temp }}/cloud-chief-check/summary.md
+          if-no-files-found: warn
+          retention-days: 3
+
+  publish:
+    needs: build
+    if: ${{ (github.event_name != 'pull_request' && github.ref == 'refs/heads/feat-cmux-next') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    environment:
+      name: artifacts
+      deployment: false
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: optchat-chief-linux-${{ github.run_id }}
+          path: ${{ runner.temp }}/chief
+      - name: Upload to R2 (commit prefix write-once, then the rolling manifest)
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          SHA256: ${{ needs.build.outputs.sha256 }}
+          SIZE: ${{ needs.build.outputs.size }}
+        run: |
+          set -euo pipefail
+          name=optchat-chief-x86_64-unknown-linux-musl
+          file="$RUNNER_TEMP/chief/$name"
+          test "$(sha256sum "$file" | cut -d' ' -f1)" = "$SHA256"
+          key="optchat-chief/$GITHUB_SHA/$name"
+          python3 scripts/ci/upload-r2-object.py --write-once --file "$file" --endpoint-url "$R2_ENDPOINT" \
+            --bucket cmux-binaries --key "$key" --content-type application/octet-stream \
+            --cache-control "public, max-age=31536000, immutable"
+          python3 - "$RUNNER_TEMP/chief/manifest.json" <<PY
+          import json, sys
+          json.dump({"schema": 1, "commit": "$GITHUB_SHA", "target": "x86_64-unknown-linux-musl",
+                     "url": "https://files.cmux.com/$key", "sha256": "$SHA256", "size": int("$SIZE")},
+                    open(sys.argv[1], "w"), indent=2)
+          PY
+          python3 scripts/ci/upload-r2-object.py --write-once --file "$RUNNER_TEMP/chief/manifest.json" \
+            --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries --key "optchat-chief/$GITHUB_SHA/manifest.json" \
+            --content-type application/json --cache-control "public, max-age=31536000, immutable"
+          python3 scripts/ci/upload-r2-object.py --file "$RUNNER_TEMP/chief/manifest.json" \
+            --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries --key optchat-chief/latest/manifest.json \
+            --content-type application/json --cache-control "public, max-age=300"
+          echo "published https://files.cmux.com/$key ($SIZE bytes) and optchat-chief/latest/manifest.json" >> "$GITHUB_STEP_SUMMARY"

@@ -25,6 +25,18 @@
 #                              pack (scripts/cmux-next/cef-runtime-pack.sh) written to
 #                              CMUX_NEXT_CEF_RUNTIME_OUT, pinned to
 #                              CMUX_NEXT_CEF_RUNTIME_BASE_URL, before the app is signed
+#   CMUX_NEXT_LANGUAGE_PACKS   "1" moves every non-English .lproj of the CmuxNext_*.bundle
+#                              resource bundles into language packs
+#                              (scripts/cmux-next/language-packs.py) written to
+#                              CMUX_NEXT_LANGUAGE_PACKS_OUT, pinned to
+#                              CMUX_NEXT_LANGUAGE_PACKS_BASE_URL (default
+#                              https://files-next.cmux.com/language-packs), before the app is sealed
+#   CMUX_NEXT_TOOL_PACKS       "1" moves bin/cmux-mobile-host (the iPhone host, off unless
+#                              Allow iPhone Connections is on) into a tool pack
+#                              (scripts/cmux-next/tool-packs.py) written to
+#                              CMUX_NEXT_LANGUAGE_PACKS_OUT/tools, pinned to
+#                              CMUX_NEXT_TOOL_PACKS_BASE_URL (default
+#                              https://files-next.cmux.com/tool-packs), before the app is sealed
 #   CMUX_SIGN_MODE             "all" (default) or "main-only" (re-seal only the
 #                              main bundle, keeping every nested signature).
 #
@@ -138,7 +150,7 @@ if [[ "$SIGN_MODE" == "all" ]]; then
   # Developer ID signed; the script re-pins them in the bundled manifest.
   "$SCRIPT_DIR/sign-cmux-tui-ssh-payloads.sh" "$APP_PATH" "$HELPER_ENTITLEMENTS" "$IDENTITY"
 
-  # 2. The Screen Sharing helper app (Contents/Library, bundle-screen-sharing-helper.sh;
+  # 2. The Screen Sharing helper app ("<app> Helper.app" in Contents/Library, bundle-screen-sharing-helper.sh;
   # plans/cmux-next/screen-sharing-helper.md): stamped for this app's final bundle id and name
   # (nightly and RC rename the app after the build, and stable-next-identity.sh and
   # nightly-next-legacy-identity.sh re-identify it), then signed as its own app with the
@@ -148,8 +160,8 @@ if [[ "$SIGN_MODE" == "all" ]]; then
   # its new signature.
   if [[ "$SIGN_MODE" == "all" ]]; then
     "$SCRIPT_DIR/cmux-next/bundle-screen-sharing-helper.sh" --stamp "$APP_PATH"
-    for screen_helper in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
-      [[ -d "$screen_helper" ]] || continue
+    for screen_helper in "$APP_PATH/Contents/Library/"*" Helper.app"; do
+      [[ -e "$screen_helper/Contents/MacOS/cmux-screen-sharing" ]] || continue
       echo "==> signing the Screen Sharing helper $(basename "$screen_helper")"
       "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" "$screen_helper"
     done
@@ -190,7 +202,7 @@ if [[ "$SIGN_MODE" == "all" ]]; then
     fi
     # The remote browser host (Contents/Helpers, embed-remote-browser-host.sh), after
     # the app's CEF framework, which it links through a symlink: its five helper apps
-    # with CEF's per-helper entitlements (allow-jit for the plain, GPU and Renderer helpers), then the host
+    # with CEF's per-helper entitlements (allow-jit for the plain, GPU and Renderer helpers, and disable-library-validation for the plain one, which loads the Widevine CDM), then the host
     # app, all with the hardened runtime and a secure timestamp (rbh_sign).
     for rb_host in "$APP_PATH/Contents/Helpers/"*.app; do
       [[ -d "$rb_host" ]] || continue
@@ -204,6 +216,35 @@ if [[ "$SIGN_MODE" == "all" ]]; then
       echo "==> signing framework $(basename "$framework")"
       "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" --deep "$framework"
     done < <(find "$APP_PATH/Contents/Frameworks" -mindepth 1 -maxdepth 1 -print0)
+  fi
+
+  # 4b. Languages download on first use (CMUX-570). The resource bundles carry no signature of
+  # their own (no _CodeSignature; language-packs.py refuses one that does), and .strings are not
+  # code, so their .lproj leave after the inner code is signed and step 5 seals what is left.
+  # A re-sign of an app already split (it has the pin) keeps its pin and packs.
+  if [[ "${CMUX_NEXT_LANGUAGE_PACKS:-}" == 1 ]]; then
+    if [[ -f "$APP_PATH/Contents/Resources/language-packs.json" ]]; then
+      echo "==> language packs: already split (Contents/Resources/language-packs.json)"
+    else
+      echo "==> moving non-English strings into language packs"
+      python3 -I "$SCRIPT_DIR/cmux-next/language-packs.py" split "$APP_PATH" \
+        "${CMUX_NEXT_LANGUAGE_PACKS_OUT:?CMUX_NEXT_LANGUAGE_PACKS=1 needs CMUX_NEXT_LANGUAGE_PACKS_OUT}" \
+        --base-url "${CMUX_NEXT_LANGUAGE_PACKS_BASE_URL:-https://files-next.cmux.com/language-packs}"
+    fi
+  fi
+
+  # 4c. Tools few people use download on first use (bundle size). Step 1 signed each one; its
+  # signature travels inside the pack, bin/<name> becomes a link to cmux (which answers to the
+  # name: cmux-tui-core tool_packs.rs) and step 5 seals the pin. Same re-sign rule as 4b.
+  if [[ "${CMUX_NEXT_TOOL_PACKS:-}" == 1 ]]; then
+    if [[ -f "$APP_PATH/Contents/Resources/tool-packs.json" ]]; then
+      echo "==> tool packs: already split (Contents/Resources/tool-packs.json)"
+    else
+      echo "==> moving tools few people use into tool packs"
+      python3 -I "$SCRIPT_DIR/cmux-next/tool-packs.py" split "$APP_PATH" \
+        "${CMUX_NEXT_LANGUAGE_PACKS_OUT:?CMUX_NEXT_TOOL_PACKS=1 needs CMUX_NEXT_LANGUAGE_PACKS_OUT}/tools" \
+        --base-url "${CMUX_NEXT_TOOL_PACKS_BASE_URL:-https://files-next.cmux.com/tool-packs}"
+    fi
   fi
 fi
 
@@ -221,8 +262,8 @@ for alias in cmux-tui acpmux; do
     exit 1
   fi
 done
-for screen_helper in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
-  [[ -d "$screen_helper" ]] || continue
+for screen_helper in "$APP_PATH/Contents/Library/"*" Helper.app"; do
+  [[ -e "$screen_helper/Contents/MacOS/cmux-screen-sharing" ]] || continue
   /usr/bin/codesign --verify --strict --verbose=2 "$screen_helper"
 done
 # One Screen Recording holder whose bundle id and requirement stay the same between builds, so a
