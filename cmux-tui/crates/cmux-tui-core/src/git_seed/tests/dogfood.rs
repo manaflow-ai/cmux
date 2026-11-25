@@ -62,7 +62,11 @@ fn dogfood_a_chat_works_before_the_checkout_lands() {
     params["head_first"] = (!today).into();
     let service = GitSeedService::with_config(
         Roots::new([world.home.path.clone()]),
-        Config { git: Git::default(), credentials: Some(vec![Credential::Anonymous]) },
+        Config {
+            git: Git::default(),
+            credentials: Some(vec![Credential::Anonymous]),
+            mirrors: None,
+        },
     );
     let started = Instant::now();
     let job = start(&service, &params).unwrap();
