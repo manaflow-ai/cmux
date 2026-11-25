@@ -36,7 +36,7 @@ env:
 
 jobs:
   version:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     permissions:
       contents: read
     outputs:
@@ -133,7 +133,7 @@ jobs:
   bindings-e2e-go:
     if: inputs.verify_tag != true
     needs: version
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 40
     permissions:
       contents: read
@@ -166,6 +166,27 @@ jobs:
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: "1.22.x"
+          cache: false
+
+      - name: Cache the Go modules and build cache
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-1.22.x-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/go.sum') }}
+
+      - name: Cache the Go modules and build cache (restore only off base branches)
+        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-1.22.x-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/go.sum') }}
 
       - name: Build cmux-tui server
         working-directory: cmux-tui
@@ -184,7 +205,7 @@ jobs:
   validate-go-module:
     if: inputs.verify_tag != true
     needs: bindings-e2e-go
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     permissions:
       contents: read
     steps:
@@ -196,6 +217,27 @@ jobs:
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: "1.22.x"
+          cache: false
+
+      - name: Cache the Go modules and build cache
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-1.22.x-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/go.sum') }}
+
+      - name: Cache the Go modules and build cache (restore only off base branches)
+        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-1.22.x-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/go.sum') }}
 
       - name: Validate Go module
         working-directory: cmux-tui/bindings/go
@@ -207,7 +249,7 @@ jobs:
   verify-versioned-go-module:
     if: inputs.verify_tag == true
     needs: version
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 35
     permissions:
       contents: read
