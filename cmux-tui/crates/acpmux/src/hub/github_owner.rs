@@ -35,6 +35,8 @@ impl Hub {
     pub(crate) fn add_github_owner(&self, conn: &Arc<Conn>) {
         let mut owners = self.github_owners.0.lock().unwrap_or_else(|e| e.into_inner());
         register(&mut owners, conn, Conn::is_open);
+        // Sessions spawned from now on get git, `gh` and GitHub MCP through it (slice 2).
+        crate::github_broker::mark_lent_here();
     }
 
     /// The newest open link that lends its GitHub login, if any.

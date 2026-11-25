@@ -53,10 +53,12 @@ struct NarrowSidebarLayoutTests {
         let avatar = l.avatar.frame
         // The layer's frame is in document coordinates: the list's middle in the layer's.
         let middle = width / 2 - l.frame.minX
-        #expect(avatar.width == SidebarMetrics.avatar, "\(context): avatar \(avatar.width) pt, the row's \(SidebarMetrics.avatar)")
+        // cmux: the strip scales with its width (the narrowest list zoomed).
+        let m = SidebarMetrics(width: width)
+        #expect(avatar.width == m.compactAvatar, "\(context): avatar \(avatar.width) pt, the strip's \(m.compactAvatar)")
         #expect(abs(avatar.midX - middle) <= 1, "\(context): avatar \(avatar) centered on \(middle)")
         #expect(abs(avatar.midY - l.bounds.midY) <= 0.5, "\(context): avatar \(avatar) centred on the row")
-        #expect(l.frame.height == SidebarMetrics.rowHeight, "\(context): row \(l.frame.height) pt, Messages' \(SidebarMetrics.rowHeight)")
+        #expect(l.frame.height == m.listRowHeight, "\(context): row \(l.frame.height) pt, the strip's \(m.listRowHeight)")
         #expect(l.content.isHidden, "\(context): a name shows in the narrow list")
         if !l.dot.isHidden {
             #expect(!l.dot.frame.intersects(avatar), "\(context): the unread dot touches the avatar")

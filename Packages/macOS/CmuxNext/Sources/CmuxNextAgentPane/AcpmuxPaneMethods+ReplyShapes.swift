@@ -61,6 +61,10 @@ nonisolated extension AcpmuxPaneMethods {
                         "over": .list(.string),
 
                     ]),
+                    // AutoCloud (RFD 0172): whether its owner enrolled it, whether it takes work now,
+                    // and its capability words (`macos`, `xcode`) for the picker's badges. The
+                    // owner's policy (team and agent names, hours) stays out of the page.
+                    "autoCloud": .object(["enrolled": .bool, "accepting": .bool, "ownerIdle": .bool, "caps": .list(.string)]),
                 ]),
             ])),
         ]),
@@ -81,6 +85,8 @@ nonisolated extension AcpmuxPaneMethods {
             "placement": .object(["at": .string, "place": .string]),
             "reason": .object(["code": .string]),
             "why": .string,
+            // Fork placement (`cloud.autoCloud`): the parent machine to fork and the key, or why not.
+            "fork": .object(["at": .string, "machine": .string, "clientKey": .string, "why": .string]),
         ]),
         // Reconnect returns the same safe peer state needed by the offline copy's banner. The
         // relay derives transport from `url` and drops the endpoint and all other metadata.

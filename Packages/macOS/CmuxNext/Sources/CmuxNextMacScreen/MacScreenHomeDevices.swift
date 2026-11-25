@@ -128,7 +128,7 @@ struct MacScreenHomeSnapshot: Equatable {
                                     setup: source.setup.row(id: device.id, isMac: device.platform != .ios, online: device.online))
                     })
                 }
-                if hub.thisDevice != nil {
+                if hub.thisDevice != nil || hub.status == .ready {
                     let hubHost = source.hubHost
                     sharing = Sharing(isSharing: hubHost.isSharing, busy: hubHost.busy,
                                       screenRecordingGranted: home.host.screenRecordingGranted,

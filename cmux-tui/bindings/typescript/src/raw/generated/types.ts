@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6ec7f7cebc370abc68d280422ff3451e8146dfb33a1b83b3c8d54a7960383b8b. */
+/* cmux-tui mux protocol 12, IR 06b04f371f590cf85e5a742859b460ba88ba4a337c754058e101b84d90e89315. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -8,7 +8,10 @@ export type JsonObject = { [key: string]: JsonValue };
 
 export type ActivitySnapshot = {
   "attached_clients": number;
+  "echo_at_ms"?: (bigint) | null;
+  "echo_input_at_ms"?: (bigint) | null;
   "last_agent_action_at_ms": (bigint) | null;
+  "last_person_attach_at_ms"?: (bigint) | null;
   "last_user_input_at_ms": (bigint) | null;
   "live_agents": number;
 };
@@ -603,6 +606,7 @@ export type IdMapping = {
 
 export type IdentifyResult = {
   "api_revision"?: (number) | null;
+  "api_version"?: (string) | null;
   "app": "cmux-tui";
   "build_commit"?: (string) | null;
   "build_id"?: (string) | null;
@@ -623,6 +627,7 @@ export type IdentifyResult = {
   "machine_platform"?: MachinePlatform;
   "machine_symbol"?: string;
   "min_api_revision"?: (number) | null;
+  "min_api_version"?: (string) | null;
   "pid": number;
   "protocol": number;
   "registry_id": string;
@@ -722,6 +727,11 @@ export type ListWorkspacesKnown = {
   "terminal_revision"?: (bigint) | null;
   "tree_revision"?: (string) | null;
   "workspace_revision"?: (bigint) | null;
+};
+
+export type ListWorkspacesSince = {
+  "epoch": string;
+  "seq": bigint;
 };
 
 export type LivePane = {
@@ -886,6 +896,13 @@ export type ReadScrollbackResult = {
 export type ReattachViewResult = {
   "participant": string;
   "state": SizeState;
+};
+
+export type ReleaseWorkspaceNamesResult = {
+  /** Workspace names this call handed back to the automatic namer. */
+  "released": bigint;
+  /** User-owned names left pinned: a row renamed between the read and its release. */
+  "still_pinned": bigint;
 };
 
 export type RemoteHostAppPermissions = {
@@ -1362,6 +1379,11 @@ export type ServerStatsWriterPhase = "idle" | "waiting_lock" | "committing";
 export type SetCellPixelsResult = {
   "failures": Array<CellPixelFailure>;
   "resizes": Array<CellPixelResize>;
+};
+
+export type SetClientInfoResult = {
+  "api_revision"?: number;
+  "api_version"?: string;
 };
 
 export type SetHostSizePolicyResult = {
@@ -1847,10 +1869,16 @@ export type TerminalResumeCommandResult = {
 };
 
 export type Tree = {
+  "changed"?: Array<Workspace>;
+  "delta"?: boolean;
+  "epoch"?: string;
   "generation"?: string;
   "next"?: bigint;
+  "order"?: Array<Id>;
   "pane_revision"?: bigint;
   "registry_id"?: string;
+  "removed"?: Array<Id>;
+  "seq"?: bigint;
   "terminal_revision"?: bigint;
   "total"?: bigint;
   "tree_revision"?: string;

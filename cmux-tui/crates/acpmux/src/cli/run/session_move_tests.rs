@@ -361,9 +361,35 @@ async fn move_dry_run_reports_running_and_dirty_together_without_changing_the_ch
                 wr.write_all(Message::ok(id, result).to_line().as_bytes()).await.unwrap();
             }
         });
+        // The target's daemon: a dry run that gets as far as a plan asks it, read-only, whether
+        // it takes the chat (`target_ask`), and nothing else.
+        let target_socket = socket_dir.path().join("target.sock");
+        let target_listener = tokio::net::UnixListener::bind(&target_socket).unwrap();
+        let target_server = tokio::spawn(async move {
+            let (stream, _) = target_listener.accept().await.unwrap();
+            let (rd, mut wr) = stream.into_split();
+            let mut lines = BufReader::new(rd).lines();
+            // The client's own initialize, then the move's (whose reply it keeps).
+            let asked = [method::INITIALIZE, method::INITIALIZE, "_acpmux/transfer_preflight"];
+            for expected in asked {
+                let line = lines.next_line().await.unwrap().unwrap();
+                let Message::Request { id, method: called, params } =
+                    Message::parse(&line).unwrap()
+                else {
+                    panic!("expected read-only request");
+                };
+                assert_eq!(called, expected, "a dry run only asks the target");
+                if called != method::INITIALIZE {
+                    assert_eq!(params.unwrap_or_default()["manifest"]["sessionId"], "chat");
+                }
+                let result = json!({"takes": true});
+                wr.write_all(Message::ok(id, result).to_line().as_bytes()).await.unwrap();
+            }
+        });
         let client = Client::connect(&socket).await.unwrap();
-        let target =
-            Target { name: "target".into(), ssh: String::new(), probed: Some(about_ok(None)) };
+        let about =
+            RemoteDaemon { socket: target_socket.to_string_lossy().into_owned(), ..about_ok(None) };
+        let target = Target { name: "target".into(), ssh: String::new(), probed: Some(about) };
         let mut targets =
             Targets::with_here("target", &json!({"peers": []}), Some(target)).unwrap();
         let args = MoveArgs {
@@ -381,6 +407,7 @@ async fn move_dry_run_reports_running_and_dirty_together_without_changing_the_ch
             from: None,
             slow_ok: false,
             from_snapshot: false,
+            as_harness: None,
         };
         let outcome = move_one(&client, "chat", &args, repo.path(), &mut targets).await;
         assert_eq!(outcome.error_code, expected);
@@ -394,6 +421,12 @@ async fn move_dry_run_reports_running_and_dirty_together_without_changing_the_ch
             assert_eq!(outcome.error.is_some(), expected.is_some());
         }
         server.await.unwrap();
+        if expected.is_none() && !detached {
+            target_server.await.expect("the planned dry run asked the target");
+        } else {
+            // Refused before a plan: the target was never reached.
+            target_server.abort();
+        }
     }
 }
 
@@ -658,6 +691,7 @@ async fn after_turn_waits_at_most_its_timeout_and_names_the_chat_and_step() {
         resume_there: false,
         from: None,
         from_snapshot: false,
+        as_harness: None,
     };
     let mut src = MoveEnd::new("source", &client, None);
     let e = match begin_waiting(&mut src, "chat", "Chat", None, &args, None).await {
@@ -931,6 +965,11 @@ async fn a_move_ends_once_its_chats_are_listed_reachable_where_they_went() {
                 wr.write_all(Message::ok(id, json!({})).to_line().as_bytes()).await.unwrap();
                 continue;
             }
+            if called == "_acpmux/peers" {
+                let peers = json!({"peers": [{"name": "t", "link": "reconnecting"}]});
+                wr.write_all(Message::ok(id, peers).to_line().as_bytes()).await.unwrap();
+                continue;
+            }
             assert_eq!(called, method::MUX_INFO);
             asked.push(params.unwrap_or_default()["sessionIds"].clone());
             let reply = replies
@@ -972,6 +1011,58 @@ async fn a_move_ends_once_its_chats_are_listed_reachable_where_they_went() {
         arrived(&json!({"rows": [{"sessionId": "s1", "status": "closed"}]}), "s1"),
         Err("listed here as closed".to_owned())
     );
+}
+
+/// A move to a peer whose link is offline (never reached, its attempts failed) ends at once,
+/// naming why, instead of waiting out the arrival bound: no row comes from that link within
+/// it, and the wait cost every such move the whole 5 s (the published move bench's floor).
+/// A chat on a local key or a peer on its way back is still waited on.
+#[tokio::test(start_paused = true)]
+async fn a_move_to_an_offline_peer_does_not_wait_out_the_arrival_bound() {
+    use crate::rpc::Message;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let socket_dir = tempfile::tempdir().unwrap();
+    let socket = socket_dir.path().join("daemon.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (rd, mut wr) = stream.into_split();
+        let mut lines = BufReader::new(rd).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            let Message::Request { id, method: called, .. } = Message::parse(&line).unwrap() else {
+                panic!("expected a request");
+            };
+            let reply = match called.as_str() {
+                "_acpmux/peers" => json!({"peers": [
+                    {"name": "gone", "link": "offline", "error": "SSH connection refused"},
+                    {"name": "back", "link": "reconnecting"}]}),
+                _ => json!({"rows": []}),
+            };
+            wr.write_all(Message::ok(id, reply).to_line().as_bytes()).await.unwrap();
+        }
+    });
+    let client = Client::connect(&socket).await.unwrap();
+    let poll = std::time::Duration::from_millis(50);
+    let bound = std::time::Duration::from_secs(5);
+    let started = tokio::time::Instant::now();
+    let one = vec![("gone/s1".to_owned(), "s1".to_owned())];
+    let late = await_arrival(&client, &one, bound, poll).await;
+    assert_eq!(late, vec![("s1".to_owned(), "peer offline: SSH connection refused".to_owned())]);
+    assert_eq!(started.elapsed(), std::time::Duration::ZERO, "no poll waited");
+    // With a chat on a peer on its way back, that one is still waited on to the bound.
+    let both =
+        vec![("gone/s1".to_owned(), "s1".to_owned()), ("back/s2".to_owned(), "s2".to_owned())];
+    let started = tokio::time::Instant::now();
+    let late = await_arrival(&client, &both, bound, poll).await;
+    assert_eq!(late[0], ("s1".to_owned(), "peer offline: SSH connection refused".to_owned()));
+    assert_eq!(late[1].0, "s2");
+    assert!(started.elapsed() >= bound - poll, "{:?}", started.elapsed());
+    assert_eq!(
+        link_gone(&json!({"peers": [{"name": "x", "link": "authFailed"}]}), "x").as_deref(),
+        Some("peer authFailed")
+    );
+    assert_eq!(link_gone(&json!({"peers": [{"name": "x", "link": "connecting"}]}), "x"), None);
+    assert_eq!(link_gone(&json!({"peers": []}), "x"), None);
 }
 
 fn outcome(name: &str, error: Option<&str>) -> Outcome {

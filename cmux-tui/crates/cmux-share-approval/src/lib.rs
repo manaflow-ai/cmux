@@ -14,6 +14,12 @@ use serde_json::Value;
 /// The approval format; the first line of [`ShareApproval::canonical`].
 pub const VERSION: &str = "cmux.share-approval.v1";
 
+/// The same signed yes for a different grant: "control for my other signed-in machines" on the
+/// target Mac (acpmux's `signedInMachines` consent), given from the device the owner is at
+/// instead of by a click at that Mac. It is the first line of the signed bytes, so a tap that
+/// shares a screen is never a control grant, nor the other way round.
+pub const CONTROL_VERSION: &str = "cmux.control-approval.v1";
+
 /// The asker app's answer to one Allow click: what the person allowed, where
 /// and when, signed by the asker's device key. Ids are the device hub's; the
 /// names are for people (the audit and the dialog) and are not signed.
@@ -81,9 +87,25 @@ impl ShareApproval {
         confirmed_at: u64,
         nonce: &str,
     ) -> Result<Self, AskRefused> {
+        Self::asked_for(VERSION, target, asker, account, confirmed_at, nonce)
+    }
+
+    /// [`Self::asked`] for the grant `version` names: [`VERSION`] (share this Mac's screen) or
+    /// [`CONTROL_VERSION`] (control for the person's other signed-in machines).
+    pub fn asked_for(
+        version: &str,
+        target: Device<'_>,
+        asker: Device<'_>,
+        account: &str,
+        confirmed_at: u64,
+        nonce: &str,
+    ) -> Result<Self, AskRefused> {
         let refuse = |code, message: &str| Err(AskRefused { code, message: message.into() });
         let (target_id, asker_id, account, nonce) =
             (target.id.trim(), asker.id.trim(), account.trim(), nonce.trim());
+        if version != VERSION && version != CONTROL_VERSION {
+            return refuse("share.bad_version", "unknown approval format");
+        }
         if target_id.is_empty() {
             return refuse("share.no_target", "no Mac to share");
         }
@@ -107,7 +129,7 @@ impl ShareApproval {
             return refuse("share.bad_field", "an approval field holds a line break");
         }
         Ok(Self {
-            v: VERSION.into(),
+            v: version.into(),
             target: target_id.into(),
             target_name: target.name.trim().into(),
             asker: asker_id.into(),

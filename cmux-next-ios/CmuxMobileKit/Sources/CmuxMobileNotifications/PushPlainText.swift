@@ -6,6 +6,7 @@ public struct PushPlainText: Sendable, Equatable {
     public let text: String
 
     public init(markdown: String) {
+        #if canImport(Darwin)
         let options = AttributedString.MarkdownParsingOptions(
             allowsExtendedAttributes: false, interpretedSyntax: .inlineOnlyPreservingWhitespace, failurePolicy: .returnPartiallyParsedIfPossible)
         if let parsed = try? AttributedString(markdown: markdown, options: options) {
@@ -13,5 +14,9 @@ public struct PushPlainText: Sendable, Equatable {
         } else {
             text = markdown
         }
+        #else
+        // Linux Foundation parses no Markdown; the package lane skips the tests that read this.
+        text = markdown
+        #endif
     }
 }
