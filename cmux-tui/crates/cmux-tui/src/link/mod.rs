@@ -190,6 +190,10 @@ pub(crate) fn run(args: &[String]) -> i32 {
         }
         return machine_update::run(&args[1..]);
     }
+    // `open` and `mint`: runnable links (cli/runnable_link.rs, hq#23807), off by default.
+    if matches!(args.first().map(String::as_str), Some("open" | "mint")) {
+        return crate::cli::runnable_link::run(args, json);
+    }
     if args.first().map(String::as_str) == Some("start-chat") {
         return start_chat_cli::run(args.get(1..).unwrap_or_default());
     }
@@ -627,15 +631,28 @@ fn serve_lock(state: &LinkState) -> anyhow::Result<std::fs::File> {
 /// `~/.config/cmux`: cmux_server_core::layout::macos_user_dir, the layout's own answer);
 /// none without HOME.
 pub(super) fn server_config_path(flags: &Flags) -> Option<PathBuf> {
-    match flags.get("--server-config") {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    server_config_path_in(
+        flags.get("--server-config").map(String::as_str),
+        home.as_deref(),
+        cfg!(target_os = "macos"),
+    )
+}
+
+/// [`server_config_path`] for a given `--server-config`, `home` and platform (tests).
+pub(super) fn server_config_path_in(
+    flag: Option<&str>,
+    home: Option<&Path>,
+    macos: bool,
+) -> Option<PathBuf> {
+    match flag {
         Some(path) => Some(PathBuf::from(path)),
         // Shortcut: duplicates the user-mode layout of cmux-server-core; use
         // its layout code when the next Cargo WINDOW allows the dependency
         // (bead cx-uu3).
-        None => std::env::var_os("HOME").map(|home| {
-            let home = PathBuf::from(home);
-            let dir = if cfg!(target_os = "macos") {
-                cmux_server_core::layout::macos_user_dir(&home, false)
+        None => home.map(|home| {
+            let dir = if macos {
+                cmux_server_core::layout::macos_user_dir(home, false)
             } else {
                 cmux_server_core::layout::MACOS_USER_LEGACY_DIR
             };
