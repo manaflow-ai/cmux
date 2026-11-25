@@ -358,12 +358,14 @@ const CODE_MODE_TOOLS: [&str; 2] = ["cmux_exec", "cmux_docs"];
 /// Deny rules for the other agent tool servers, the second guard for an
 /// acpmux without `TURN_TOOL_SERVERS` (their tools leave the list; their
 /// instructions stay).
-pub const TURN_DENIED_SERVERS: [&str; 4] = [
+pub const TURN_DENIED_SERVERS: [&str; 5] = [
     "mcp__cmux-cua",
     "mcp__cmux-secrets",
     "mcp__cmux-sessions",
     // Without the cmux fold, acpmux has no per-tool filter. Keep its standalone
-    // server denied; the six `mcp__cmux__acpmux_*` tools are still available.
+    // server denied, under its name (`cmux-agent`) and the one before the
+    // rename; the six `mcp__cmux__acpmux_*` tools are still available.
+    "mcp__cmux-agent",
     "mcp__acpmux",
 ];
 

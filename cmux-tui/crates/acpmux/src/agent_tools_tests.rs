@@ -282,6 +282,30 @@ fn a_tool_allowlist_reaches_a_standalone_acpmux_server() {
     );
 }
 
+/// A person's own config entry still named `acpmux` that starts cmux's agent server: the chat's
+/// entry takes that name (its HTTP endpoint too), so the harness replaces theirs with it and runs
+/// one server, not two.
+#[test]
+fn the_agent_server_takes_a_leftover_entrys_name() {
+    let ours = crate::acpmux_mcp_names::SERVER_NAME;
+    let server = |name: &str| super::McpServer {
+        name: name.to_owned(),
+        command: "acpmux".into(),
+        args: vec!["acpmux-mcp".into()],
+        env: vec![],
+    };
+    let tools = super::AgentTools {
+        servers: vec![server(ours), server("cmux-forum")],
+        ..Default::default()
+    };
+    let renamed = tools.server_named("acpmux");
+    let names: Vec<&str> = renamed.servers.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(names, ["acpmux", "cmux-forum"]);
+    let config = renamed.mcp_config().unwrap();
+    assert!(config["mcpServers"].get("acpmux").is_some(), "{config}");
+    assert!(config["mcpServers"].get(ours).is_none(), "{config}");
+}
+
 /// CMUX-288: the `acpmux` server's `pr_state` runs `gh` with the server's env, and a client that
 /// passes a stdio server only an allowlisted env (Codex) left out the agent's gh sign-in. The
 /// server now gets the agent's own `GH_TOKEN`, `GITHUB_TOKEN` and `GH_CONFIG_DIR` after

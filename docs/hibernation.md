@@ -102,11 +102,12 @@ instead:
   into `acpmux process start -- COMMAND` in the foreground (`updatedInput`, no permission
   decision). That starts the same command as a daemon-owned task on the chat's own daemon (its
   caller token) and answers at once with the task's id and the chat's own call that reads it:
-  `mcp__acpmux__bg_output {...}`, `mcp__cmux__acpmux_bg_output {...}` when cmux lists every tool
-  or a preset allows it, or `cmux.acpmux_bg_output(...)` in a `cmux_exec` script in code mode. It
+  `mcp__cmux-agent__bg_output {...}` (`mcp__acpmux__bg_output` where a person's own config
+  still names the server `acpmux`), `mcp__cmux__acpmux_bg_output {...}` when cmux lists every
+  tool or a preset allows it, or `cmux.acpmux_bg_output(...)` in a `cmux_exec` script in code mode. It
   used to turn the call away with the `bg_start` call to make instead, which cost a turn each
-  time. When the chat's MCP config has no `acpmux` server, a preset's allowlist leaves
-  `bg_start` out, or the hook cannot read the config, the hook says nothing and the native
+  time. When the chat's MCP config has no `cmux-agent` (or `acpmux`) server, a preset's
+  allowlist leaves `bg_start` out, or the hook cannot read the config, the hook says nothing and the native
   background shell runs, so the agent is never stranded. A start can still fail, so the hook
   remembers each call it rewrote (the newest 64 per chat): a task that started takes its call
   out again, and after a failed start the same call again runs natively, as its error says.
