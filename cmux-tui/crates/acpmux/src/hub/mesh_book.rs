@@ -478,6 +478,20 @@ impl Hub {
         rows
     }
 
+    /// A session the hub lists on machine `host`, the one a machine read goes through: the hub
+    /// takes a read only when it names one session (cmux-platform `Core.ts`, `mesh.invalid: a read
+    /// names one session by sessionId or name`), and the far daemon answers a health read before
+    /// it looks the session up (`mesh_read.rs` `HOST_HEALTH`). None when it lists none there.
+    pub(crate) fn mesh_book_session_on(&self, host: &str) -> Option<String> {
+        let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
+        let prefix = format!("{host}/");
+        book.rows
+            .range(prefix.clone()..)
+            .take_while(|(key, _)| key.starts_with(&prefix))
+            .map(|(_, (_, r))| r.receipt.mux_session_id.clone())
+            .find(|id| !id.is_empty())
+    }
+
     /// The session id of the one hub row `key` names: its bare id, `HOST/ID` or `HOST/name`.
     pub(crate) fn mesh_book_resolve(&self, key: &str) -> Option<String> {
         let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());

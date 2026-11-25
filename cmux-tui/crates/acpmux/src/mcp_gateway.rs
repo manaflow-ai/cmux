@@ -1278,10 +1278,8 @@ async fn tool_answer(
         for_server(&mut message, name);
     }
     chat.touch();
-    if message.get("id").is_none() {
-        // `initialized` and the like: the servers here keep no state for them.
-        return None;
-    }
+    // `initialized` and the like carry no id: the servers here keep no state for them.
+    message.get("id")?;
     let launch = chat.kept.lock().unwrap_or_else(PoisonError::into_inner).launch.clone();
     let env = gateway.tools_env(&chat.id, &launch);
     let servers = chat.tools(&launch, &env);
