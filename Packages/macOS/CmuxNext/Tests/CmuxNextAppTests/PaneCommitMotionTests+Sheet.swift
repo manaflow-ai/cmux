@@ -161,9 +161,11 @@ extension PaneCommitMotionTests {
     }
 
     /// A hold of the close key: 10 closes, each in the move of the one before. A close adds no layer to a pane host
-    /// and puts no mask on a pane's clip: the count is the count at rest after the fourth key and after the tenth.
-    /// Each pane that moves has the window's colour on its own layer.
-    @Test func aHoldOfTheCloseKeyAddsNoLayerAndNoMask() throws {
+    /// and puts no mask on the clip of a pane of the layout: the count is the count at rest after the fourth key and
+    /// after the tenth. Only a pane that the move keeps under one pane that moves has a mask
+    /// (`PaneCommitMotion+Under`), and at rest after the hold no pane has one. Each pane that moves has the window's
+    /// colour on its own layer.
+    @Test func aHoldOfTheCloseKeyAddsNoLayerAndNoMaskOnAPaneOfTheLayout() throws {
         let harness = Commit.Harness(Commit.screen(Self.tree(12)), focused: "p", holds: false) { $0.splitSizingOverride = .even }
         defer { harness.window.closeAfterTest() }
         Self.movePanes(harness)
@@ -172,9 +174,9 @@ extension PaneCommitMotionTests {
         let all = screen.subviews.compactMap { $0 as? PaneHostView }.filter { !$0.isHidden }
         try #require(all.count == 12, "SETUP: the screen shows \(all.count) panes at rest, not 12")
         func layers() -> Int { all.reduce(0) { $0 + ($1.layer.map { Self.layers(in: $0).count } ?? 0) } }
-        func masks() -> Int { all.filter { $0.clipView.layer?.mask != nil }.count }
+        func masks(kept: Bool = false) -> Int { all.filter { (kept || !$0.isLeaving) && $0.clipView.layer?.mask != nil }.count }
         let rest = layers()
-        try #require(masks() == 0, "SETUP: \(masks()) panes have a mask on their clip at rest")
+        try #require(masks(kept: true) == 0, "SETUP: \(masks(kept: true)) panes have a mask on their clip at rest")
         for key in 1...10 {
             let pane = try #require(harness.model.focusedPane, "SETUP: no pane has the focus before key \(key)")
             _ = try #require(harness.model.showPaneClose(pane), "SETUP: the model does not show the close of \(pane) at key \(key)")
@@ -183,10 +185,12 @@ extension PaneCommitMotionTests {
             try #require(Self.inFlight(screen), "SETUP: key \(key) ended the motion")
             guard key == 4 || key == 10 else { continue }
             #expect(layers() == rest, "after key \(key) the pane hosts have \(layers()) layers; at rest they had \(rest)")
-            #expect(masks() == 0, "after key \(key) \(masks()) panes have a mask on their clip")
+            #expect(masks() == 0, "after key \(key) \(masks()) panes of the layout have a mask on their clip")
             let bare = all.filter { host in !host.isHidden && (host.layer.map { Self.move(of: $0).moves } ?? false) && (host.layer?.backgroundColor?.alpha ?? 0) < 1 }
             #expect(bare.isEmpty, "after key \(key) the panes \(bare.map(\.pane)) move with no colour of alpha 1 on their layer")
         }
+        Commit.rest(harness)
+        #expect(masks(kept: true) == 0, "at rest after the hold \(masks(kept: true)) panes have a mask on their clip")
     }
 
     /// A window that shows what is behind it (not opaque, a background with alpha below 1) has no plain colour under

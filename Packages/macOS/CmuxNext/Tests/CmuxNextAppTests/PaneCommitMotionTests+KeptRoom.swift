@@ -237,15 +237,16 @@ extension PaneCommitMotionTests {
     }
 
     /// A change in the move takes a kept pane back into the layout: an unzoom in the zoom's move, and, in a close's
-    /// move, the layout with the closed pane again (a close that was refused). In the frame that shows that
-    /// change the pane has no mask on its clip: it shows whole again. No move puts a mask on a pane's clip, so this
-    /// row is a guard: it is red if a change makes one and keeps it on a pane that came back.
+    /// move, the layout with the closed pane again (a close that was refused). The move of the one pane over it put
+    /// a mask on its clip (`PaneCommitMotion+Under`). In the frame that shows that change the pane has no mask on
+    /// its clip: it shows whole again. The row is red if a change keeps the mask on a pane that came back.
     @Test(arguments: [true, false])
     func aPaneThatComesBackInTheMoveHasNoMask(zoomed: Bool) throws {
         let alone = try Self.alone(zoomed: zoomed)
         defer { alone.harness.window.closeAfterTest() }
         let left = try #require(alone.screen.subviews.compactMap { $0 as? PaneHostView }.first { $0 !== alone.host && !$0.isHidden },
                                 "SETUP: the pane that left does not show in the move")
+        try #require(left.clipView.layer?.mask != nil, "SETUP: the move put no mask on the clip of the pane that left")
         alone.harness.model.apply(screens: Commit.pair)
         alone.harness.root.syncWithModel()
         _ = alone.harness.root.advanceFrame(Self.dt)
@@ -254,11 +255,12 @@ extension PaneCommitMotionTests {
         #expect(left.clipView.layer?.mask == nil, "in the frame that shows the pane again it keeps a mask on its clip")
     }
 
-    /// In a window whose sheet is one plain colour a move puts no mask on the clip of a pane that it keeps: a mask
-    /// costs a pass of its own in each frame of the move. 3 columns side by side that do not fill the screen, and the
-    /// first and the last close in one turn: the middle column goes over the first one's place, and nothing goes
-    /// over the last one's. The first shows nowhere under the middle one, and the last shows whole.
-    @Test func inAnOpaqueWindowAKeptPaneHasNoMask() throws {
+    /// In a window whose sheet is one plain colour too, the move of one pane puts a mask on the clip of each pane
+    /// that it keeps (`PaneCommitMotion+Under`: the cut is the same in each kind of window). 3 columns side by side
+    /// that do not fill the screen, and the first and the last close in one turn: the middle column goes over the
+    /// first one's place, and nothing goes over the last one's. By its clip and the mask alone (the ground of the
+    /// middle pane does not count) the first shows nowhere under the middle one, and the last shows whole.
+    @Test func inAnOpaqueWindowAKeptPaneShowsOnlyOutsideTheOnePaneThatMoves() throws {
         func strip(_ numbers: [Int]) -> [LayoutScreen] {
             let columns = numbers.map { LayoutColumn(id: ColumnID("c\($0)"), width: 0.3, root: .leaf(PaneID("p\($0)"))) }
             return [LayoutScreen(id: "s", name: "s", layout: .columns(columns), zoomed: false)]
@@ -282,11 +284,12 @@ extension PaneCommitMotionTests {
         try #require(move.moves && Self.area(move.end.intersection(first.frame)) > 1, "SETUP: the middle pane does not move over the first one's place: \(move.start) to \(move.end)")
         try #require(Self.area(move.start.union(move.end).intersection(place)) < 1, "SETUP: the middle pane is over the last one's place \(place): \(move.start) to \(move.end)")
         try #require(harness.window.isOpaque, "SETUP: the test's window is not opaque")
-        #expect(first.clipView.layer?.mask == nil && last.clipView.layer?.mask == nil, "a pane that the move keeps has a mask on its clip")
+        #expect(first.clipView.layer?.mask != nil && last.clipView.layer?.mask != nil, "a pane that the move of one pane keeps has no mask on its clip")
         for part in [0, 0.25, 0.5, 0.75, 1] as [CGFloat] {
-            let under = Self.kept(first, on: screen, over: [middle], at: part), free = Self.kept(last, on: screen, over: [middle], at: part)
-            #expect(under.area(in: move.rect(at: part)) < 1 && under.through < 1,
-                    "at \(part) the screen shows \(under.area(in: move.rect(at: part))) pt2 of the first pane under the middle one, \(under.through) pt2 through it")
+            let under = Self.kept(first, on: screen, over: [], at: part), free = Self.kept(last, on: screen, over: [], at: part)
+            let over = move.rect(at: part), room = Self.area(under.shows) - Self.area(under.shows.intersection(over))
+            #expect(under.area(in: over) < 1, "at \(part) the mask shows \(under.area(in: over)) pt2 of the first pane under the middle one")
+            #expect(under.area(in: under.shows) >= room - 1, "at \(part) the first pane shows in \(under.area(in: under.shows)) pt2 of the \(room) pt2 of its place outside the middle one")
             #expect(free.area(in: free.shows) >= Self.area(free.shows) - 1, "at \(part) the pane that no pane moves over shows in \(free.area(in: free.shows)) pt2 of \(free.shows)")
         }
     }

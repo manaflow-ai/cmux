@@ -11,7 +11,7 @@ import Testing
 /// - A kept pane shows only where no pane over it shows. A pane's tab strip has no ground of its own, so a kept pane
 ///   that shows under the pane that goes over it shows through that pane's tabs. What the screen shows of a pane in a
 ///   frame is read from the layers (``kept(_:on:over:at:)``): the pane's clip, less what a mask on that clip takes
-///   away (no move puts a mask there; the read takes one away if a change makes one), less the rect of each pane over it that has a ground of alpha 1 on its whole cell. Under a pane over it
+///   away (the move of one pane puts one there, `PaneCommitMotion+Under`), less the rect of each pane over it that has a ground of alpha 1 on its whole cell. Under a pane over it
 ///   that has no such ground the pane shows through: text over text (`PaneCommitMotionTests+KeptRoom`, `+Sheet`).
 /// - A pane's ring leaves out the rects of the panes in front of it (`ScreenContentView.panesAbove()`). Between the
 ///   turn of a change and the pass that shows it the screen shows the layout before the change, so the rings read the

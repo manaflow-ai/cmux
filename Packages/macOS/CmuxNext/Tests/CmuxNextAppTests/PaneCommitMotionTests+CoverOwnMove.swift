@@ -6,40 +6,33 @@ import CmuxNextTestSupport
 import QuartzCore
 import Testing
 
-/// `PaneCommitMotionTests`, a second act in a move with no ground that gives a pane with a window a move of its own,
+/// `PaneCommitMotionTests`, a second act in a move with no ground that gives a pane with a cut a move of its own,
 /// and the light of the other panes over 2 acts.
 ///
-/// The pane that grows is opaque and whole in each frame; only the other panes dim. A window of an act before is made
-/// for the place that its pane had then. A second act that moves that pane, or that takes it back, takes the window
-/// off its layer (`PaneCommitMotion+Cover`): the pane is not cut at a place that is not its own.
+/// The pane that grows is opaque and whole in each frame; only the other panes dim. A cut of an act before (a mask
+/// under one pane that moves, `PaneCommitMotion+Under`; a window under several, `PaneCommitMotion+Cover`) is made
+/// for the place that its pane had then. A second act that moves that pane, or that takes it back, takes the cut
+/// off it: the pane is not cut at a place that is not its own.
 extension PaneCommitMotionTests {
-    /// The keys of the window that the act `act` put on the layer of `host`.
-    static func windowKeys(on host: PaneHostView, of act: Int) -> [String] {
-        let keys = ["position", "bounds.origin", "bounds.size"].map { "pane.commit.\(act).\($0)" }
-        return commitKeys(on: host).filter { keys.contains($0) }
-    }
-
-    /// What is wrong with `host`, a pane that had the window `had` of an act before and has a move of its own now:
-    /// it does not show, it or its clip has a mask, its layer still has an animation of that window, or the motion
-    /// keeps a window for it.
-    static func stillCut(_ host: PaneHostView, had: [String], by motion: PaneCommitMotion) -> [String] {
+    /// What is wrong with `host`, a pane that had a cut of an act before and has a move of its own now, or is back
+    /// in the layout: it does not show, it or its clip has a mask, or the motion keeps a cut or a window for it.
+    static func stillCut(_ host: PaneHostView, by motion: PaneCommitMotion) -> [String] {
         var wrong: [String] = []
         if host.isHidden || host.layer?.isHidden ?? true { wrong.append("it does not show") }
         if host.layer?.mask != nil || host.clipView.layer?.mask != nil { wrong.append("it has a mask") }
-        let old = commitKeys(on: host).filter { had.contains($0) }
-        if !old.isEmpty { wrong.append("its layer has the window of the act before: \(old)") }
+        if motion.cuts[ObjectIdentifier(host)] != nil { wrong.append("the motion keeps a cut for it") }
         if motion.covers[ObjectIdentifier(host)] != nil { wrong.append("the motion keeps a window for it") }
         return wrong
     }
 
     /// An unzoom in a glass window, and in its move the close of another pane. The pane that takes the room of the
-    /// closed one was under the pane that the unzoom closes, and has that act's window on its layer. From the frame
-    /// that shows the close it has a move of its own: it shows with no mask, its layer has no animation of the
-    /// unzoom's window, and the motion keeps no window for it. So it is not cut at a place that is not its own; and
-    /// it shows under the pane that the unzoom still closes, to the motion's end (a known limit). At the motion's
-    /// end no pane host has an animation of the motion.
+    /// closed one was under the pane that the unzoom closes, and has that act's mask on its clip. From the frame
+    /// that shows the close it has a move of its own: it shows with no mask, and the motion keeps no cut and no
+    /// window for it. So it is not cut at a place that is not its own; and it shows under the pane that the unzoom
+    /// still closes, to the motion's end (a known limit). At the motion's end no pane host has an animation of the
+    /// motion or a mask on its clip.
     @Test(arguments: movingSpeeds)
-    func aPaneThatGetsItsOwnMoveInAnUnzoomsMoveKeepsNoWindow(_ speed: MotionSpeed) throws {
+    func aPaneThatGetsItsOwnMoveInAnUnzoomsMoveKeepsNoCut(_ speed: MotionSpeed) throws {
         let over = try Self.overPicture("unzoom", panes: 6, gap: "glass", speed: speed)
         defer { over.harness.window.closeAfterTest() }
         try Self.requireKind("glass", of: over)
@@ -49,24 +42,23 @@ extension PaneCommitMotionTests {
         try #require(Self.inFlight(screen), "SETUP: no pane moves \(Self.framesBeforeTheKey) frames after the frame that showed the unzoom")
         let first = motion.serial, gone = PaneID("pbab")
         try #require(mover.pane != gone, "SETUP: the pane that the unzoom closes is the pane of the second act")
-        var had: [ObjectIdentifier: [String]] = [:]
-        for host in Self.paneHosts(screen) where host !== mover && !host.isHidden && motion.covers[ObjectIdentifier(host)] != nil {
-            had[ObjectIdentifier(host)] = Self.windowKeys(on: host, of: first)
+        // The panes that the unzoom cut: the motion keeps a cut for each, and its clip has the mask.
+        let had = Self.paneHosts(screen).filter { host in
+            host !== mover && !host.isHidden && motion.cuts[ObjectIdentifier(host)] != nil && host.clipView.layer?.mask != nil
         }
 
         _ = try #require(harness.model.showPaneClose(gone), "SETUP: the model does not show the close of \(gone)")
         harness.root.syncWithModel()
         _ = harness.root.advanceFrame(Self.dt)
         try #require(motion.serial == first + 1, "SETUP: the close in the unzoom's move shows in one frame: no second act moves")
-        let own = Self.paneHosts(screen).filter { host in
-            host !== mover && !host.isLeaving && !(had[ObjectIdentifier(host)] ?? []).isEmpty
-                && Self.commitKeys(on: host).contains { $0.hasPrefix("pane.commit.\(first + 1).") }
+        let own = had.filter { host in
+            !host.isLeaving && Self.commitKeys(on: host).contains { $0.hasPrefix("pane.commit.\(first + 1).") }
         }
-        try #require(!own.isEmpty, "SETUP: the close moves no pane that had a window of the unzoom")
+        try #require(!own.isEmpty, "SETUP: the close moves no pane that had a cut of the unzoom")
         var faults: [String] = [], tick = 0
         while tick < 2 * Commit.frames {
             for host in own {
-                let wrong = Self.stillCut(host, had: had[ObjectIdentifier(host)] ?? [], by: motion)
+                let wrong = Self.stillCut(host, by: motion)
                 if !wrong.isEmpty { faults.append("tick \(tick), \(host.pane): \(wrong.joined(separator: "; "))") }
             }
             guard Self.inFlight(screen) else { break }
@@ -76,16 +68,17 @@ extension PaneCommitMotionTests {
         try #require(!Self.inFlight(screen), "SETUP: a pane still moves \(tick) frames after the frame that showed the close")
         #expect(faults.isEmpty, "\(faults.count) reads of a pane with its own move in the unzoom's move are wrong; the first: \(faults.prefix(3))")
         let left = Self.leftovers(on: screen, origins: [:])
-        #expect(left.isEmpty && motion.covers.isEmpty, "at the motion's end a pane host is not at rest: \(left.prefix(3)); windows that the motion keeps: \(motion.covers.count)")
+        #expect(left.isEmpty && motion.covers.isEmpty && motion.cuts.isEmpty,
+                "at the motion's end a pane host is not at rest: \(left.prefix(3)); the motion keeps \(motion.covers.count) windows and \(motion.cuts.count) cuts")
     }
 
     /// A close in a glass window, and in its move the close is taken back. The pane that left was kept under the
-    /// panes that took its room, and has the close's window on its layer: a window that ends with nothing of the
-    /// pane in sight. From the frame that shows the pane again it shows with no mask, its layer has no animation of
-    /// that window, and the motion keeps no window for it. At the motion's end no pane host has an animation of the
-    /// motion.
+    /// one pane that took its room, and has the close's mask on its clip: a mask that ends with nothing of the pane
+    /// in sight under that pane. From the frame that shows the pane again it shows with no mask, and the motion
+    /// keeps no cut and no window for it. At the motion's end no pane host has an animation of the motion or a mask
+    /// on its clip.
     @Test(arguments: movingSpeeds)
-    func aCloseTakenBackInItsMoveLeavesNoWindowOnItsPane(_ speed: MotionSpeed) throws {
+    func aCloseTakenBackInItsMoveLeavesNoCutOnItsPane(_ speed: MotionSpeed) throws {
         let over = try Self.overPicture("close", panes: 6, gap: "glass", speed: speed)
         defer { over.harness.window.closeAfterTest() }
         try Self.requireKind("glass", of: over)
@@ -94,9 +87,8 @@ extension PaneCommitMotionTests {
         for _ in 0..<Self.framesBeforeTheKey { _ = harness.root.advanceFrame(Self.dt) }
         try #require(Self.inFlight(screen), "SETUP: no pane moves \(Self.framesBeforeTheKey) frames after the frame that showed the close")
         let first = motion.serial, pane = gone.pane
-        try #require(motion.covers[ObjectIdentifier(gone)] != nil, "SETUP: the pane that leaves has no window in the close's move")
-        let had = Self.windowKeys(on: gone, of: first)
-        try #require(!had.isEmpty, "SETUP: the pane that leaves has a window and no animation of it on its layer")
+        try #require(motion.cuts[ObjectIdentifier(gone)] != nil, "SETUP: the pane that leaves has no cut in the close's move")
+        try #require(gone.clipView.layer?.mask != nil, "SETUP: the motion keeps a cut for the pane that leaves, and its clip has no mask")
 
         try #require(harness.model.withdrawPaneClose(pane), "SETUP: the model has no close of \(pane) to take back")
         harness.root.syncWithModel()
@@ -106,7 +98,7 @@ extension PaneCommitMotionTests {
         let back = try #require(found, "SETUP: the screen does not show \(pane) again")
         var faults: [String] = [], tick = 0
         while tick < 2 * Commit.frames {
-            let wrong = Self.stillCut(back, had: had, by: motion)
+            let wrong = Self.stillCut(back, by: motion)
             if !wrong.isEmpty { faults.append("tick \(tick), \(pane): \(wrong.joined(separator: "; "))") }
             guard Self.inFlight(screen) else { break }
             _ = harness.root.advanceFrame(Self.dt)
@@ -115,11 +107,9 @@ extension PaneCommitMotionTests {
         try #require(!Self.inFlight(screen), "SETUP: a pane still moves \(tick) frames after the frame that showed \(pane) again")
         #expect(faults.isEmpty, "\(faults.count) reads of the pane that comes back are wrong; the first: \(faults.prefix(3))")
         let left = Self.leftovers(on: screen, origins: [:])
-        #expect(left.isEmpty && motion.covers.isEmpty, "at the motion's end a pane host is not at rest: \(left.prefix(3)); windows that the motion keeps: \(motion.covers.count)")
+        #expect(left.isEmpty && motion.covers.isEmpty && motion.cuts.isEmpty,
+                "at the motion's end a pane host is not at rest: \(left.prefix(3)); the motion keeps \(motion.covers.count) windows and \(motion.cuts.count) cuts")
     }
-
-    /// The 5 panes of the 6 that an unzoom of the last one does not close: the zoom in that unzoom's move is of one of them.
-    nonisolated static let othersOfSix = ["p", "paab", "pab", "pb", "pbab"]
 
     /// How far `host` is from its place at rest, in points, when the moves of each act are at `part(act)` of their
     /// way: how far its content is from where it is at rest, and how far a part of the pane that shows is past an
@@ -137,66 +127,6 @@ extension PaneCommitMotionTests {
         return far
     }
 
-    /// An unzoom in a glass window, and in its move the zoom of another pane (`name`). In each frame from the one that
-    /// shows that zoom, no part of another pane that shows is inside the rect of the pane that grows now, and the
-    /// pane that the unzoom closed is at its place at rest: its own move ends in the pass that shows the zoom, so the
-    /// zoom's window is on a pane at rest. The eye gets that pane at its place in one frame. The row prints how far
-    /// the pane was from its place in the frame before, and how much of it shows past the edge of the pane that grows
-    /// in the frame of the jump. A layer's animations are read each at its own part of its act.
-    @Test(arguments: movingSpeeds, othersOfSix)
-    func aZoomOfAnotherPaneInAnUnzoomsMoveShowsNoOtherPaneInsideIt(_ speed: MotionSpeed, _ name: String) throws {
-        let over = try Self.overPicture("unzoom", panes: 6, gap: "glass", speed: speed)
-        defer { over.harness.window.closeAfterTest() }
-        try Self.requireKind("glass", of: over)
-        let screen = over.screen, harness = over.harness, motion = screen.zoomDim.motion
-        let mover = try #require(Self.movers(of: "unzoom", on: screen).first, "SETUP: the unzoom puts no pane over another")
-        for _ in 0..<Self.framesBeforeTheKey { _ = harness.root.advanceFrame(Self.dt) }
-        try #require(Self.inFlight(screen), "SETUP: no pane moves \(Self.framesBeforeTheKey) frames after the frame that showed the unzoom")
-        let first = motion.serial
-        let found = Self.paneHosts(screen).first { host in host !== mover && !host.isHidden && host.pane == PaneID(name) }
-        let next = try #require(found, "SETUP: the screen shows no other pane `\(name)` in the unzoom's move")
-        let jump = Self.awayFromRest(mover, on: screen, at: { _ in Self.way(of: "unzoom", at: speed, tick: Self.framesBeforeTheKey) })
-        try #require(jump > 0.5, "SETUP: the pane that the unzoom closes is at its place \(Self.framesBeforeTheKey) frames into its move")
-
-        harness.model.focus(next.pane, notify: false)
-        try Self.secondAct(on: over, zoomed: next.pane, of: 6, closing: nil)
-        try #require(motion.serial == first + 1, "SETUP: the zoom of \(next.pane) in the unzoom's move shows in one frame: no second act moves")
-        try #require(!Self.hasFullGround(next), "SETUP: the pane that grows has a ground in a glass window")
-        let others = Self.paneHosts(screen).filter { $0 !== next }
-        var faults: [String] = [], under = 0, tick = 0, away: [String] = [], past: CGFloat = 0
-        while Self.inFlight(screen), tick < 2 * Commit.frames {
-            let now = tick
-            let part: (Int) -> CGFloat = { act in
-                act == first
-                    ? Self.way(of: "unzoom", at: speed, tick: Self.framesBeforeTheKey + 1 + now)
-                    : Self.way(of: "zoom", at: speed, tick: now)
-            }
-            if let layer = next.layer {
-                let rect = Self.rect(of: layer, at: part)
-                var shows: [String] = []
-                for other in others {
-                    if !other.isHidden, Self.area(other.frame.intersection(rect)) >= 1 { under += 1 }
-                    let shown = Self.showing(other, on: screen, at: part)
-                    let inside = shown.reduce(CGFloat(0)) { $0 + Self.area($1.intersection(rect)) }
-                    if inside >= 1 { shows.append("\(other.pane) in \(Int(inside)) pt2") }
-                    if other === mover, tick == 0 { past = shown.reduce(CGFloat(0)) { $0 + Self.area($1) } - inside }
-                }
-                if !shows.isEmpty { faults.append("tick \(tick), inside \(next.pane) at \(rect): \(shows.joined(separator: ", "))") }
-            }
-            let far = mover.isHidden ? 0 : Self.awayFromRest(mover, on: screen, at: part)
-            if far > 0.5 { away.append("tick \(tick): \((far * 10).rounded() / 10) pt") }
-            _ = harness.root.advanceFrame(Self.dt)
-            tick += 1
-        }
-        try #require(!Self.inFlight(screen), "SETUP: a pane still moves \(tick) frames after the frame that showed the zoom of \(next.pane)")
-        try #require(under > 0, "SETUP: in no frame after the zoom is the place of another pane under the pane that grows")
-        print("ROW (A): \(speed), the zoom of \(next.pane) in the unzoom of \(mover.pane): in the frame before, \(mover.pane) is",
-              "\((jump * 10).rounded() / 10) pt from its place; in the frame of the jump it shows \(Int(past)) pt2 past the edge of the pane",
-              "that grows; its place has \(Int(Self.area(mover.frame))) pt2; frames read: \(tick); frames with \(mover.pane) not at its place: \(away.count)")
-        #expect(away.isEmpty, "in \(away.count) frames from the one that shows the zoom of \(next.pane), \(mover.pane) is not at its place; the first: \(away.prefix(3))")
-        #expect(faults.isEmpty, "\(faults.count) reads after the zoom of \(next.pane) in the unzoom's move show another pane inside it; the first: \(faults.prefix(3))")
-    }
-
     /// How far an edge of the layer of `host` is from its place at rest, in points, at `part`: the largest of its 4 edges.
     static func edgesFromRest(_ host: PaneHostView, at part: (Int) -> CGFloat) -> CGFloat {
         guard let layer = host.layer else { return 0 }
@@ -205,8 +135,9 @@ extension PaneCommitMotionTests {
     }
 
     /// A close in a glass window, and in its move the close of a pane that the first close made grow. The move keeps
-    /// that pane under the panes that take its room, and it still had its own move: that move ends in the pass that
-    /// shows the second close, so the pane is at its place in one frame. In each frame from the one that shows the
+    /// that pane under the panes that take its room (more than one: the way of `PaneCommitMotion+Cover`), and it
+    /// still had its own move: that move ends in the pass that shows the second close, so the pane is at its place
+    /// in one frame. In each frame from the one that shows the
     /// second close, no part of another pane that shows is inside the rect of a pane that grows, and each pane that
     /// the move keeps under and that had its own move is at its place. The row prints how far each such pane was from
     /// its place in the frame before, and how much of one pane that left shows inside another pane that left.
@@ -221,7 +152,7 @@ extension PaneCommitMotionTests {
         for _ in 0..<Self.framesBeforeTheKey { _ = harness.root.advanceFrame(Self.dt) }
         try #require(Self.inFlight(screen), "SETUP: no pane moves \(Self.framesBeforeTheKey) frames after the frame that showed the first close")
         let first = motion.serial
-        // A pane with a window of the first close has no move of its own: its layer's rect is its window.
+        // A pane with a window (one under several panes that grow) has no move of its own: its layer's rect is its window.
         var jumps: [ObjectIdentifier: CGFloat] = [:]
         for host in Self.paneHosts(screen) where !host.isHidden && motion.covers[ObjectIdentifier(host)] == nil {
             jumps[ObjectIdentifier(host)] = Self.edgesFromRest(host, at: { _ in Self.way(of: "close", at: speed, tick: Self.framesBeforeTheKey) })
@@ -235,7 +166,7 @@ extension PaneCommitMotionTests {
         try #require(second.isLeaving && !second.isHidden, "SETUP: the move does not keep \(second.pane) under the panes that take its room")
         let left = Self.paneHosts(screen).filter { $0.isLeaving && !$0.isHidden }
         let grows = Self.movers(of: "close", on: screen)
-        try #require(!grows.isEmpty, "SETUP: the second close makes no pane grow")
+        try #require(grows.count > 1, "SETUP: the second close makes \(grows.count) panes grow, not more than 1")
         try #require(!grows.contains { Self.hasFullGround($0) }, "SETUP: a pane that grows has a ground in a glass window")
         let others = Self.paneHosts(screen).filter { host in !grows.contains { $0 === host } }
         var faults: [String] = [], away: [String] = [], under = 0, tick = 0, mixed = 0, most: CGFloat = 0

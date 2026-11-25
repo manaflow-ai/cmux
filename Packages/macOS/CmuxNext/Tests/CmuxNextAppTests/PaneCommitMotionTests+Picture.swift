@@ -340,8 +340,9 @@ extension PaneCommitMotionTests {
     }
 
     /// A hold of the close key over a picture: 10 closes, each in the move of the one before. After the fourth key
-    /// and after the tenth each pane that moves has one copy and no pane has 2, and no pane has a mask on its clip.
-    /// At rest after the hold no pane has a copy.
+    /// and after the tenth each pane that moves has one copy and no pane has 2, and no pane of the layout has a mask
+    /// on its clip: only a pane that the move keeps under one pane that moves has one (`PaneCommitMotion+Under`).
+    /// At rest after the hold no pane has a copy or a mask.
     @Test func aHoldOfTheCloseKeyOverAPictureKeepsOneCopyForEachPaneThatMoves() throws {
         let harness = Commit.Harness(Commit.screen(Self.tree(12)), focused: "p", holds: false) { $0.splitSizingOverride = .even }
         defer { harness.window.closeAfterTest() }
@@ -360,14 +361,16 @@ extension PaneCommitMotionTests {
             guard key == 4 || key == 10 else { continue }
             let piles = all.filter { Self.pictures(on: $0).count > 1 }.map(\.pane)
             let bare = all.filter { Self.moves($0) && Self.pictures(on: $0).isEmpty }.map(\.pane)
-            let masks = all.filter { $0.clipView.layer?.mask != nil }.map(\.pane)
+            let masks = all.filter { !$0.isLeaving && $0.clipView.layer?.mask != nil }.map(\.pane)
             #expect(piles.isEmpty, "after key \(key) the panes \(piles) have more than 1 copy of the window's picture")
             #expect(bare.isEmpty, "after key \(key) the panes \(bare) move with no copy of the window's picture under them")
-            #expect(masks.isEmpty, "after key \(key) the panes \(masks) have a mask on their clip")
+            #expect(masks.isEmpty, "after key \(key) the panes \(masks) of the layout have a mask on their clip")
         }
         Commit.rest(harness)
         let left = all.flatMap { Self.pictures(on: $0) }
         #expect(left.isEmpty, "at rest after the hold \(left.count) copies of the window's picture stay on the pane hosts")
+        let masks = all.filter { $0.clipView.layer?.mask != nil }.map(\.pane)
+        #expect(masks.isEmpty, "at rest after the hold the panes \(masks) have a mask on their clip")
     }
 
     /// A close of one of 2 panes of a column at the screen's edge, over a window's picture. The pane that grows has

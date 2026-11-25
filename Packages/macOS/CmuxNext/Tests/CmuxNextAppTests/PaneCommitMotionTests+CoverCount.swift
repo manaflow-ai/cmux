@@ -6,14 +6,16 @@ import CmuxNextTestSupport
 import QuartzCore
 import Testing
 
-/// `PaneCommitMotionTests`, what a clip of the other panes costs: the count of animations in the frame that shows a
-/// zoom key's move, and how much of a pane a clip on one edge takes that the pane that grows does not cover.
+/// `PaneCommitMotionTests`, what a clip of the other panes costs: the count of masks and animations in the frame that
+/// shows a zoom key's move, and how much of a pane a clip on one edge takes that the pane that grows does not cover.
 ///
-/// - The count is a fact of the layers, on each Mac. In an opaque window and over one still picture the pane that
-///   moves has a ground: no other pane gets a clip or an animation for the move.
-/// - A clip that goes with one edge of the rect of the pane that grows shows nothing of a pane inside that rect. For
-///   a pane in the row or the column of the pane that grows it takes no more than the rect covers. A pane in
-///   another row and another column loses a corner in some frames: the part beside the rect that is past that edge.
+/// - The count is a fact of the layers, on each Mac. Under ONE pane that moves each other pane has one mask on its
+///   clip, in each kind of window (`PaneCommitMotion+Under`), and no animation on its own layer or its clip's.
+/// - A clip on one edge is the way under several panes that move with no ground (`PaneCommitMotion+Cover`); the math
+///   is read here on a zoom's rects, the largest move of a rect. A clip that goes with one edge of the rect of the
+///   pane that grows shows nothing of a pane inside that rect. For a pane in the row or the column of the pane that
+///   grows it takes no more than the rect covers. A pane in another row and another column loses a corner in some
+///   frames: the part beside the rect that is past that edge.
 extension PaneCommitMotionTests {
     /// One zoom key's move over `panes` panes in one kind of window.
     struct Crowd: CustomTestStringConvertible, Sendable {
@@ -38,9 +40,11 @@ extension PaneCommitMotionTests {
         /// The animations on the layers of the screen's panes, and on the dim's layers.
         var all = 0, dim = 0
         /// The animations on the layers and the clips' layers of the panes other than the one that the key moves,
-        /// and the count of those layers that have a mask.
-        var others = 0, masks = 0
-        var description: String { "\(all) animations on the panes, \(dim) on the dim, \(others) on the other panes' layers and clips, \(masks) masks there" }
+        /// the count of those layers that have a mask, and the animations on the layers of those masks.
+        var others = 0, masks = 0, holes = 0
+        var description: String {
+            "\(all) animations on the panes, \(dim) on the dim, \(others) on the other panes' layers and clips, \(masks) masks there with \(holes) animations"
+        }
     }
 
     /// The cost of the frame that `over` shows now. `others`: the panes other than the one that the key moves.
@@ -53,18 +57,18 @@ extension PaneCommitMotionTests {
             for layer in [host.layer, host.clipView.layer].compactMap({ $0 }) {
                 cost.others += layer.animationKeys()?.count ?? 0
                 cost.masks += layer.mask == nil ? 0 : 1
+                cost.holes += layer.mask.map { animations(in: $0) } ?? 0
             }
         }
         return cost
     }
 
-    /// The frame that shows a zoom or an unzoom of 4 and of 30 panes, and the frame after it: in an opaque window and
-    /// over one still picture, no pane other than the one that the key moves has an animation on its layer or on its
-    /// clip's layer, and none has a mask there. In a glass window each other pane shows through a window on its own
-    /// layer (`PaneCommitMotion+Cover`): at most 3 animations for each, on the layer or its clip's, and no mask. The
-    /// row prints the counts of each case.
+    /// The frame that shows a zoom or an unzoom of 4 and of 30 panes, and the frame after it, in a glass window, over
+    /// one still picture and in an opaque window: each pane other than the one that the key moves has one mask, on
+    /// its clip's layer, with at most 8 animations on the mask's 4 parts (`PaneHoleMaskLayer`), and no animation on
+    /// its own layer or on its clip's layer. The row prints the counts of each case.
     @Test(arguments: crowds)
-    func aMoveOverAGroundGivesNoOtherPaneAClipOrAnAnimation(_ crowd: Crowd) throws {
+    func aMoveOfOnePaneGivesEachOtherPaneOneMaskAndNoAnimationOfItsOwn(_ crowd: Crowd) throws {
         let over = try Self.overPicture(crowd.scene, panes: crowd.panes, gap: crowd.kind == "still" ? nil : crowd.kind, speed: .fast)
         defer { over.harness.window.closeAfterTest() }
         try Self.requireKind(crowd.kind, of: over)
@@ -78,15 +82,12 @@ extension PaneCommitMotionTests {
         let second = Self.cost(of: over, others: others)
         print("COUNT ROW: \(crowd.testDescription): \(others.count) other panes show; the motion holds \(moved) animations;",
               "the frame that shows the act: \(first); the frame after it: \(second)")
-        guard crowd.kind != "glass" else {
-            for (frame, cost) in [("that shows the \(crowd.scene)", first), ("after the one that shows the \(crowd.scene)", second)] {
-                #expect(cost.masks == 0 && cost.others > 0 && cost.others <= 3 * others.count,
-                        "the frame \(frame) with no ground, \(others.count) other panes: \(cost)")
-            }
-            return
+        let masked = others.filter { $0.layer?.mask == nil && $0.clipView.layer?.mask != nil }.count
+        #expect(masked == others.count, "\(masked) of the \(others.count) other panes have a mask on their clip and none on their own layer")
+        for (frame, cost) in [("that shows the \(crowd.scene)", first), ("after the one that shows the \(crowd.scene)", second)] {
+            #expect(cost.masks == others.count && cost.others == 0 && cost.holes <= 8 * others.count,
+                    "the frame \(frame), \(others.count) other panes: \(cost)")
         }
-        #expect(first.others == 0 && first.masks == 0, "the frame that shows the \(crowd.scene) over a ground: \(first)")
-        #expect(second.others == 0 && second.masks == 0, "the frame after the one that shows the \(crowd.scene) over a ground: \(second)")
     }
 
     /// One edge of the rect of the pane that grows, as the clip of a pane on that side of it.
@@ -165,7 +166,7 @@ extension PaneCommitMotionTests {
     /// The side that the product code takes for each pane of the same grid (`PaneCommitMotion.coverSide`), read at
     /// each frame of the zoom's spring: a window on that side shows nothing of the pane inside the rect of the pane
     /// that grows; a pane in the row or the column of that pane loses nothing that the rect does not cover; and the
-    /// move back takes the same side, so a zoom and the unzoom in its move give one window.
+    /// move back takes the same side, so a move and the move back in it give one window.
     @Test(arguments: movingSpeeds)
     func theSideOfAPanesWindowTakesNothingInTheRowAndTheColumnOfThePaneThatGrows(_ speed: MotionSpeed) {
         let screen = CGRect(x: 0, y: 0, width: 1600, height: 1000), columns = 6, rows = 5
