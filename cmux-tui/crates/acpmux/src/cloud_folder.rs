@@ -193,6 +193,19 @@ mod tests {
     }
 
     #[test]
+    fn a_projected_git_folder_says_so_and_still_comes_back_on_bring_back() {
+        let path = Path::new("/home/cmux/work/empty folder");
+        let answer = describe_with(path, TABLE, Some(path.into()));
+        assert_eq!(answer["projected"], true);
+        assert_eq!(answer["git"], true);
+        let summary = answer["summary"].as_str().unwrap();
+        assert!(
+            summary.contains("is a git repository") && summary.contains("Bring Back"),
+            "{summary}"
+        );
+    }
+
+    #[test]
     fn the_machines_own_folder_and_another_fuse_mount_are_no_projection() {
         for path in ["/home/cmux/work/plain", "/home/cmux/work/other"] {
             let answer = describe_with(Path::new(path), TABLE, None);
