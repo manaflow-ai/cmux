@@ -117,10 +117,13 @@ public final class LoadFrameProbe {
         if next != text { text = next }
     }
 
+    // Main-actor isolated, so the display link's callback (added to the main run loop) reaches
+    // the probe without sending a task-isolated `self` into a main-actor closure.
+    @MainActor
     private final class Ticker: NSObject {
         weak var probe: LoadFrameProbe?
         init(_ probe: LoadFrameProbe) { self.probe = probe }
-        @objc func tick() { MainActor.assumeIsolated { probe?.tick() } }
+        @objc func tick() { probe?.tick() }
     }
 }
 
