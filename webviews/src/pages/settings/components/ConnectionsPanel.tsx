@@ -13,9 +13,12 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
-import { useSettingsState, useStore } from "../context";
+import { useRowState, useSettingsState, useStore } from "../context";
 import type { ConnectionEntry, ConnectionsRun, ConnectionsState } from "../ops";
 import { t } from "../strings";
+
+/** The Labs toggle that lists the servers which cannot be connected yet (Slack, Google). */
+export const UPCOMING_KEY = "labs.connectionsUpcoming";
 
 /** How often, and how long, the card reads the catalog again after Connect opened a sign-in page. */
 export const CONNECT_POLL_MS = 2000;
@@ -106,6 +109,8 @@ function Tile({
       className="connections-tile"
       data-connections-entry={entry.name}
       data-connections-state={entry.state}
+      data-connections-loopback={entry.loopback ? "" : undefined}
+      data-connections-upcoming={entry.upcoming ? "" : undefined}
       aria-labelledby={titleId}
       role="group"
     >
@@ -223,6 +228,7 @@ export function ConnectionsPanel({ refreshSignal = 0 }: { refreshSignal?: number
   const [busy, setBusy] = useState(false);
   const [owner, setOwner] = useState<"me" | "team">("me");
   const pollUntil = useRef(0);
+  const showUpcoming = useRowState(UPCOMING_KEY).value === true;
 
   const refresh = useCallback(async () => {
     setState(await store.runConnections({ action: "refresh" }));
@@ -280,7 +286,13 @@ export function ConnectionsPanel({ refreshSignal = 0 }: { refreshSignal?: number
 
   const catalog = state?.catalog ?? null;
   const ready = catalog?.ok === true && catalog.available ? catalog : null;
-  const entries = ready ? [...ready.entries].sort((a, b) => a.rank - b.rank) : [];
+  // Slack and Google say "Not set up" until cmux's client for each is registered; they list only
+  // with the Labs toggle on, or once connected.
+  const entries = ready
+    ? ready.entries
+        .filter((entry) => showUpcoming || !entry.upcoming || entry.connectionId)
+        .sort((a, b) => a.rank - b.rank)
+    : [];
   const whose: Owner = owner === "team" && team ? { owner: "team", team: team.id } : { owner: "me" };
   return (
     <div className="connections-panel" data-connections="">
