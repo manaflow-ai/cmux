@@ -305,7 +305,11 @@ PARTS = [
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
-    {"name": "web-ui", "where": "linux", "kind": "webui", "needs": "web-ui"},
+    # run_seconds: since the part's runner job takes the mixed cmux-linux pool (2026-11-23), a small runner built the
+    # agent pane in 81 s, and seven benches, each building its page cold inside its own timeout, were killed with exit
+    # 137 (Actions run 45457645242, 2026-11-24): no web-ui row stored. The suite now makes those builds once before the
+    # benches, within its SHARED_BUILDS_CAP_MS, and the sum of its timeouts and that (SUITE_CAP_MS) sits 30 s under.
+    {"name": "web-ui", "where": "linux", "kind": "webui", "needs": "web-ui", "run_seconds": 3000},
     # The update-one bench (webviews/bench/update-one.bench.ts): one session's change at 100, 1,000 and 3,000 listed
     # sessions, its cost and its growth. Its own part, so the suite's other benches keep their 30-minute cap.
     {"name": "web-ui-scale", "where": "linux", "kind": "webui", "needs": "web-ui-scale"},

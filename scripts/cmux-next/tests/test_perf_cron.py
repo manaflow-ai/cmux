@@ -1209,7 +1209,7 @@ class WebUiTests(unittest.TestCase):
         # job left no result and the part ended yielded_out.
         self.assertEqual(cron.linux_job_minutes("infinite-items"), 70)
         self.assertEqual(cron.linux_job_minutes("chat-disk"), 70)
-        self.assertEqual(cron.linux_job_minutes("web-ui"), 40)
+        self.assertEqual(cron.linux_job_minutes("web-ui"), 60)  # the suite\'s shared builds, then its benches
         # web-ui-god's paired rounds stop starting at GOD_PAIRED_DEADLINE_S, and the last may run one round more.
         self.assertGreaterEqual(cron.linux_job_minutes("web-ui-god") * 60,
                                 cron.GOD_PAIRED_DEADLINE_S + cron.GOD_PAIRED_ROUND_TIMEOUT_S)
@@ -1235,6 +1235,10 @@ class WebUiTests(unittest.TestCase):
                         checked += 1
                         self.assertLess(timeouts[bench] / 1000, cron.linux_run_seconds(part["name"]), (part["name"], bench))
         self.assertGreater(checked, 5)
+        # The default suite's timeouts and shared builds sum to SUITE_CAP_MS (web-ui-suite-order.test.ts), which must sit
+        # inside the web-ui part's run cap.
+        cap = int(cron.re.search(r"export const SUITE_CAP_MS = ([\d_]+);", suite).group(1).replace("_", ""))
+        self.assertLess(cap / 1000, cron.linux_run_seconds("web-ui"))
         self.assertEqual(cron.linux_job_minutes("web-ui-flat"), 55)
         self.assertEqual(cron.linux_job_minutes("web-ui-flat-grown"), 65)
 
@@ -4304,7 +4308,7 @@ class LinuxMatrixTests(unittest.TestCase):
         """2026-11-17: chat-100k-flat-grown (about 28 minutes) timed out against its 1770 s bench cap."""
         self.assertGreaterEqual(cron.linux_run_seconds("web-ui-flat-grown"), 2700)
         self.assertGreaterEqual(cron.linux_job_minutes("web-ui-flat-grown"), 55)
-        self.assertEqual(cron.linux_run_seconds("web-ui"), cron.LINUX_RUN_TIMEOUT_S)
+        self.assertEqual(cron.linux_run_seconds("web-ui-scale"), cron.LINUX_RUN_TIMEOUT_S)  # a part without run_seconds
 
     def test_the_matrix_output_is_one_line_of_json_with_a_timeout_per_part(self):
         out = cron.linux_matrix(["web-ui", "infinite-items"])
