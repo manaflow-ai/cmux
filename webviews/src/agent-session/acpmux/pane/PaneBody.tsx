@@ -1439,8 +1439,8 @@ export function drawPaneBody({
                       onChanges={toggleChanges}
                       // Files shows the chat's folder on its own machine, a Cloud chat's too (cmux#55413).
                       onFiles={
-                        filesFolder(chatCwd)
-                          ? (mode) => runSplitAction(HEADER_ACTIONS.files, filesFolder(chatCwd), mode)
+                        filesFolder(snapshot.summary)
+                          ? (mode) => runSplitAction(HEADER_ACTIONS.files, filesFolder(snapshot.summary), mode)
                           : undefined
                       }
                       previewUrl={previewUrl}

@@ -92,9 +92,10 @@ test("Files is off until added from the right-click menu, then runs and lights l
 
 test("Files opens the chat's folder on any machine, a Cloud chat's included (cmux#55413)", async () => {
   const { filesFolder } = await import("../src/agent-session/acpmux/header/chatHeaderToolsModel");
-  expect(filesFolder("/home/cmux/chats/r1")).toBe("/home/cmux/chats/r1");
-  expect(filesFolder("/Users/me/app")).toBe("/Users/me/app");
+  expect(filesFolder({ cwd: "/home/cmux/chats/r1" })).toBe("/home/cmux/chats/r1");
+  expect(filesFolder({ cwd: "/Users/me/app" })).toBe("/Users/me/app");
+  expect(filesFolder({ cwd: "/home/peer/app", peer: "my-vm" })).toBeUndefined();
   expect(filesFolder(undefined)).toBeUndefined();
-  expect(filesFolder("")).toBeUndefined();
-  expect(filesFolder("relative/dir")).toBeUndefined();
+  expect(filesFolder({ cwd: "" })).toBeUndefined();
+  expect(filesFolder({ cwd: "relative/dir" })).toBeUndefined();
 });

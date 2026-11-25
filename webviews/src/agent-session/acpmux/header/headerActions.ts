@@ -20,7 +20,8 @@ export const HEADER_ACTIONS = {
 
 /// The folder the header's Files opens (cmux#55413): the chat's folder on whichever machine runs it, since the App
 /// reads a Cloud or SSH chat's tree through that machine's daemon (CmuxNextApp CloudFrontedChats.filesPlace), never
-/// this Mac's. None for a chat with no absolute folder.
-export function filesFolder(chatCwd: string | undefined): string | undefined {
-  return chatCwd?.startsWith("/") ? chatCwd : undefined;
+/// this Mac's. None for a peer's chat (its folder is the peer's, which no daemon here reads) or one with no absolute folder.
+export function filesFolder(summary: { cwd?: string; peer?: string } | null | undefined): string | undefined {
+  if (!summary || summary.peer) return undefined;
+  return summary.cwd?.startsWith("/") ? summary.cwd : undefined;
 }

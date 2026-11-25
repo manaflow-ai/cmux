@@ -67,8 +67,20 @@ struct CloudChatToolsTests {
         #expect(try #require(CloudFrontedChats.filesPlace(chat, services: services)).beside == "mac-files",
                 "a chat a Mac tab shows in place opens its tree beside that tab, in a window")
 
-        let local = try #require(CloudFrontedChats.filesPlace(AgentTabKey(machine: services.machines.local.machineID, key: "local-chat"), services: services))
+        // A chat of this Mac's acpmux keeps this Mac's tree; a peer's chat this Mac lists reads the local link too, but its
+        // folder is the peer's path, so it opens nothing here.
+        services.agentTabs.localHost = AgentSessionRef.host(installID: "files-local-fixture")
+        var mine = TabSnapshot(surface: SurfaceID(rawValue: 1), tabResourceID: "local-chat", kind: .conversation, cwd: "/Users/me/app")
+        mine.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: services.agentTabs.localHost ?? "", session: "s-local", harness: "claude"))
+        var peer = TabSnapshot(surface: SurfaceID(rawValue: 2), tabResourceID: "peer-chat", kind: .conversation, cwd: "/home/peer/app")
+        peer.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "install:a-peer", session: "s-peer", harness: "claude"))
+        let here = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [mine, peer])])
+        services.machines.local.store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: "ws-here", name: "Here", screens: [here])]))
+        let localID = services.machines.local.machineID
+        let local = try #require(CloudFrontedChats.filesPlace(AgentTabKey(machine: localID, key: "local-chat"), services: services))
         #expect(local.link === services.agentGit.local && local.machine == nil && local.beside == "local-chat")
+        #expect(CloudFrontedChats.filesPlace(AgentTabKey(machine: localID, key: "peer-chat"), services: services) == nil,
+                "a peer's folder is never read from this Mac's tree")
         // The same tab id on another machine is not this chat: no tree of the wrong machine.
         #expect(CloudFrontedChats.filesPlace(AgentTabKey(machine: "vm-other", key: "chat-files"), services: services) == nil)
         services.agentTabs.gitLinkScoped = { _ in nil }

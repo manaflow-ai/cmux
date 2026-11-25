@@ -26,13 +26,14 @@ extension AgentTabStore {
         // and its new watch must push without waiting for another read.
         watch.read()
         // The page names the chat's folder once its session summary came; until then (and for a
-        // split beside another split) the chat's exact folder from here (terminalFolder).
+        // split beside another split) the chat's exact folder from here (terminalFolder), on the chat's own machine
+        // for a Cloud or SSH chat, so its Terminal and Split Down start there in its folder (cmux#55413).
         model.header = AgentPaneHeaderHooks(run: { [weak self] id, cwd in
             let chat = self?.resolve(provisional, machine: scoped.machine) ?? provisional
-            toggles.open(id, cwd: cwd ?? self?.terminalFolder(of: chat, machine: scoped.machine), chat: chat, store: self?.record(for: self?.resolvedKey(scoped) ?? scoped)?.store, actions: actions)
+            toggles.open(id, cwd: cwd ?? self?.terminalFolder(of: chat, machine: scoped.machine, on: self?.daemon(for: scoped)), chat: chat, store: self?.record(for: self?.resolvedKey(scoped) ?? scoped)?.store, actions: actions)
         }, toggle: { [weak self] id, cwd in
             let chat = self?.resolve(provisional, machine: scoped.machine) ?? provisional
-            toggles.toggle(id, cwd: cwd ?? self?.terminalFolder(of: chat, machine: scoped.machine), chat: chat, store: self?.record(for: self?.resolvedKey(scoped) ?? scoped)?.store, actions: actions)
+            toggles.toggle(id, cwd: cwd ?? self?.terminalFolder(of: chat, machine: scoped.machine, on: self?.daemon(for: scoped)), chat: chat, store: self?.record(for: self?.resolvedKey(scoped) ?? scoped)?.store, actions: actions)
         }, tabState: {
             // The page reads the state when a chat opens; its changes are pushed.
             watch.read()
