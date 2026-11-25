@@ -257,3 +257,15 @@ fn workspace_name_source_release_hands_a_user_name_back_to_auto() {
         .unwrap_err();
     assert_eq!(resource_code(&error), Some("validation.invalid"));
 }
+
+#[test]
+fn workspace_name_source_explicit_creation_name_is_pinned() {
+    assert_eq!(
+        NameSource::for_created_workspace(Some("56151: Plan bar"), true),
+        (NameSource::User, 1)
+    );
+    assert_eq!(NameSource::for_created_workspace(Some("workspace-3"), true), (NameSource::User, 1));
+    assert_eq!(NameSource::for_created_workspace(Some("  "), true), (NameSource::Auto, 0));
+    assert_eq!(NameSource::for_created_workspace(None, true), (NameSource::Auto, 0));
+    assert_eq!(NameSource::for_created_workspace(Some("Billing"), false), (NameSource::Auto, 0));
+}
