@@ -1522,7 +1522,7 @@ while True:
                       {"content": "Cover it", "status": "in_progress", "activeForm": "Covering it"},
                       {"content": "Update docs", "status": "pending", "activeForm": "Updating docs"}]}}]}})
         # "task-probe": the turn keeps its list with Claude Code 2.1's TaskCreate and TaskUpdate,
-        # which Claude Code offers only with CLAUDE_CODE_ENABLE_TODO_TOOLS=1 (acpmux sets it).
+        # which Claude Code offers only with CLAUDE_CODE_ENABLE_TODO_TOOLS=1 (acpmux never sets it).
         if said.strip() == "task-probe" and os.environ.get("CLAUDE_CODE_ENABLE_TODO_TOOLS") == "1":
             def task_call(tool_id, name, tool_input, result_text, tool_use_result):
                 send({"type": "assistant", "message": {"content": [
