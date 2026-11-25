@@ -17,6 +17,9 @@
 //! running background processes (`hub/processes.rs`), as the daemon reports them
 //! (`host_pressure.heavy`). Never a process scan (plans/cmux-next/pty-holder.md 4):
 //! the agents report what they run.
+//!
+//! `--watch` samples once a second and prints one JSON line when a line is crossed
+//! (`host_load_watch.rs`).
 
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -373,7 +376,7 @@ fn read_host() -> Load {
 }
 
 #[cfg(unix)]
-fn disk(load: &mut Load) {
+pub(crate) fn disk(load: &mut Load) {
     use std::os::unix::ffi::OsStrExt;
     let Some(home) = std::env::var_os("HOME") else { return };
     let Ok(path) = std::ffi::CString::new(home.as_bytes()) else { return };
@@ -391,7 +394,7 @@ fn disk(load: &mut Load) {
 }
 
 #[cfg(not(unix))]
-fn disk(_: &mut Load) {}
+pub(crate) fn disk(_: &mut Load) {}
 
 #[cfg(target_os = "linux")]
 fn linux(load: &mut Load) {

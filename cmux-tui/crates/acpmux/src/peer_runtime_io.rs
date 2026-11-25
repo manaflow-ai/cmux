@@ -541,6 +541,9 @@ impl Peer {
         let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": CLIENT_NAME, "version": crate::hub::VERSION},
             // Large replies (the session list) may come compressed (`frame_compress.rs`).
             "_meta": {"acpmux": {"compression": crate::frame_compress::offer(),
+                // Each chat's row change after the first as a patch, which the read loop makes
+                // whole again (`peer_row_patch.rs`); a peer before version 2 sends whole rows.
+                "sessionChangedDelta": crate::peer_row_patch::VERSION,
                 // What this build reads (`server/client_features.rs`): the peer sends a gated
                 // notification only once it is listed.
                 crate::server::client_features::FIELD: crate::server::client_features::own()}}});
@@ -549,6 +552,22 @@ impl Peer {
             hello.set_path(&["_meta", "acpmux", "githubBroker"], json!(true));
         }
         hello
+    }
+
+    /// Asks the peer for `id`'s row whole (`_acpmux/session_resync`): a patch of it did not apply
+    /// to what this link holds. Its answer is not waited for here: the row comes as a
+    /// `session_changed` on this link, which the read loop holds.
+    pub(super) fn resync_row(self: &Arc<Self>, link: u64, id: String) {
+        let me = self.clone();
+        self.scope.spawn_named("peer-row-resync", async move {
+            let asked = json!({"sessionId": id});
+            if let Err(e) = me
+                .send_request(method::MUX_SESSION_RESYNC, asked, Some(link), ListKey::None)
+                .await
+            {
+                tracing::debug!(peer = %me.name, session = %id, error = %e.message, "row resync not sent");
+            }
+        });
     }
 
     /// The `initialize` request for the upgrade's own flight: its id, and its masked WebSocket
@@ -651,6 +670,7 @@ impl Peer {
             Err(error) if !self.stop.load(Ordering::SeqCst) => {
                 self.path_failed(via);
                 if self.another_path_alive(via) && self.link().is_ready() {
+                    self.went_down(Some(crate::protocol::peer_state::DialFail::PathChanged));
                     tracing::info!(peer = %self.name, via = via.as_str(), "the link's path failed ({error}); moving to another path");
                     return Ok(LinkEnd::Switching);
                 }
@@ -819,6 +839,13 @@ impl Peer {
                     ids.iter().any(|id| id.as_str() == Some(crate::capabilities::SESSION_MESSAGES))
                 });
             me.session_messages.store(messages, Ordering::SeqCst);
+            let channels = init
+                .pointer("/_meta/acpmux/capabilities")
+                .and_then(Value::as_array)
+                .is_some_and(|ids| {
+                    ids.iter().any(|id| id.as_str() == Some(crate::server::channels::CAPABILITY))
+                });
+            me.agent_channels.store(channels, Ordering::SeqCst);
             let follows =
                 init.pointer("/_meta/acpmux/capabilities").and_then(Value::as_array).is_some_and(
                     |ids| ids.iter().any(|id| id.as_str() == Some(crate::hub::row_log::CAPABILITY)),
@@ -965,6 +992,7 @@ impl Peer {
         }
         let mut frame_gap = Duration::ZERO;
         let budget = timings.send;
+        let wrote = heard.as_ref().map(Heard::wrote);
         let mut ping = tokio::time::interval_at(
             tokio::time::Instant::now() + timings.ping_every,
             timings.ping_every,
@@ -1015,7 +1043,7 @@ impl Peer {
                     match tokio::time::timeout_at(deadline, sink.send(Frame::Ping(Vec::new().into()))).await {
                         Ok(Ok(())) => (wake_probe, probe_cause, request_probe) = (Some(deadline), None, false),
                         Ok(Err(e)) => break Err(e.to_string()),
-                        Err(_) => break Err(stopped_reading(WAKE_PROBE)),
+                        Err(_) => break Err(self.deadline_passed(stopped_reading(WAKE_PROBE))),
                     }
                 }
             };
@@ -1029,6 +1057,9 @@ impl Peer {
         // hub holds the last link's list and misses what changed while no link was up.
         let mut list_at: Option<(String, u64)> = None;
         let mut listed = false;
+        // Each chat's last row this link heard, which the peer's patches apply to
+        // (`peer_row_patch.rs`): the peer forgets what it sent at each `initialize`, so this does too.
+        let mut held_rows = crate::peer_row_patch::HeldRows::default();
         // A reply to this daemon's request: a watch list's (`watch_key`) is published here, before
         // the next frame is read.
         macro_rules! watch_reply {
@@ -1127,10 +1158,10 @@ impl Peer {
                         // Bounded like any frame: a peer that asks and never reads cannot hold
                         // this loop.
                         let refusal = Frame::Text(Message::err(id, e).to_value().to_string().into());
-                        match tokio::time::timeout(budget, sink.send(refusal)).await {
+                        match write_within(sink.send(refusal), budget, None, wrote).await.ok_or(()) {
                             Ok(Ok(())) => {}
                             Ok(Err(e)) => break $link Err(e.to_string()),
-                            Err(_) => break $link Err(stopped_reading(budget)),
+                            Err(_) => break $link Err(self.deadline_passed(stopped_reading(budget))),
                         }
                     }
                 }
@@ -1174,10 +1205,10 @@ impl Peer {
                     if request_probe {
                         self.with_silence(SilenceBudget::probe_dropped);
                     }
-                    break Err(match probe_cause {
+                    break Err(self.deadline_passed(match probe_cause {
                         Some(why) => why,
                         None => format!("no answer {}s after this computer woke", WAKE_PROBE.as_secs()),
-                    });
+                    }));
                 }
                 // This computer's network changed (`peer_network.rs`): the link may ride a route that
                 // is gone. A ping goes out at once and the link is dropped and redialed when nothing
@@ -1196,7 +1227,7 @@ impl Peer {
                                 ));
                             }
                             Ok(Err(e)) => break Err(e.to_string()),
-                            Err(_) => break Err(stopped_reading(network::NETWORK_PROBE)),
+                            Err(_) => break Err(self.deadline_passed(stopped_reading(network::NETWORK_PROBE))),
                         }
                     }
                 }
@@ -1240,7 +1271,7 @@ impl Peer {
                     }
                 }
                 _ = &mut handshake_deadline, if !self.link().is_ready() || !listed => {
-                    break Err(timed_out(handshake_started));
+                    break Err(self.deadline_passed(timed_out(handshake_started)));
                 }
                 due = ping.tick() => {
                     // The selector moved the session to a faster path: the link moves while no
@@ -1270,20 +1301,19 @@ impl Peer {
                     let late = now.saturating_duration_since(due);
                     if silent.saturating_sub(late) >= silence {
                         self.with_silence(|b| b.dropped(now));
-                        break Err(format!("peer stopped answering ({}s without a frame)", silent.as_secs()));
+                        break Err(self.deadline_passed(format!("peer stopped answering ({}s without a frame)", silent.as_secs())));
                     }
                     if silent >= timings.ping_every {
                         self.with_link(Link::overdue);
                     }
                     check_wake!();
-                    let until = write_deadline(tokio::time::Instant::now(), budget, wake_probe);
                     // Stamped, so its pong measures this path's round trip (`peer_paths.rs`).
-                    match tokio::time::timeout_at(until, sink.send(Frame::Ping(carriers::ping_stamp().into()))).await {
+                    match write_within(sink.send(Frame::Ping(carriers::ping_stamp().into())), budget, wake_probe, wrote).await.ok_or(()) {
                         Ok(Ok(())) => {
                             ping_out.get_or_insert_with(tokio::time::Instant::now);
                         }
                         Ok(Err(e)) => break Err(e.to_string()),
-                        Err(_) => break Err(write_late(budget, wake_probe)),
+                        Err(_) => break Err(self.deadline_passed(write_late(budget, wake_probe))),
                     }
                     let now = tokio::time::Instant::now();
                     if self.link().is_ready() && health::health_due(health_asked, now) {
@@ -1297,7 +1327,7 @@ impl Peer {
                     // `select!` is unbiased: a frame read as the deadline passes may not finish
                     // the handshake (or move the deadline on past its cap).
                     if (!self.link().is_ready() || !listed) && handshake_deadline.is_elapsed() {
-                        break Err(timed_out(handshake_started));
+                        break Err(self.deadline_passed(timed_out(handshake_started)));
                     }
                     frame_gap = frame_gap.max(last_frame.elapsed());
                     last_frame = tokio::time::Instant::now();
@@ -1370,8 +1400,23 @@ impl Peer {
                             }
                             watch_reply!(key, reply, tx);
                         }
-                        Message::Notification { method: m, params } => {
+                        Message::Notification { method: mut m, params } => {
                             let mut p = params.unwrap_or(Value::Null);
+                            // A patch of a row this link holds is that row whole again, as the
+                            // `session_changed` the hub reads; one that does not apply asks for
+                            // the row whole (`peer_row_patch.rs`).
+                            match held_rows.read(&m, &mut p, text.len()) {
+                                crate::peer_row_patch::Read::Pass => {}
+                                crate::peer_row_patch::Read::Changed => {
+                                    m = method::MUX_SESSION_CHANGED.to_owned();
+                                }
+                                crate::peer_row_patch::Read::Drop(ask) => {
+                                    if let Some(id) = ask {
+                                        self.resync_row(link, id);
+                                    }
+                                    continue;
+                                }
+                            }
                             if m == crate::server::controls::NOTICE {
                                 if let Err(error) = self.controls_notice(link, p).await {
                                     tracing::warn!(peer = %self.name, error = %error.message, "controls stream ended; keeping link up");
@@ -1496,10 +1541,10 @@ impl Peer {
                             let refusal = Frame::Text(
                                 Message::err(id, RpcError::method_not_found("client-side request")).to_value().to_string().into(),
                             );
-                            match tokio::time::timeout(budget, sink.send(refusal)).await {
+                            match write_within(sink.send(refusal), budget, None, wrote).await.ok_or(()) {
                                 Ok(Ok(())) => {}
                                 Ok(Err(e)) => break Err(e.to_string()),
-                                Err(_) => break Err(stopped_reading(budget)),
+                                Err(_) => break Err(self.deadline_passed(stopped_reading(budget))),
                             }
                         }
                     }
@@ -1523,8 +1568,9 @@ impl Peer {
                     let text = line.trim_end_matches('\n').to_owned();
                     // While this path is in doubt the frame goes on another path too.
                     let text = self.dual_copy(text, prompt_key.map(String::as_str), link);
-                    let until = write_deadline(tokio::time::Instant::now(), budget, wake_probe);
-                    match tokio::time::timeout_at(until, sink.send(Frame::Text(text.into()))).await {
+                    // A large frame on a slow uplink keeps going while its bytes move
+                    // (`write_within`): only `budget` with no byte taken drops the link.
+                    match write_within(sink.send(Frame::Text(text.into())), budget, wake_probe, wrote).await.ok_or(()) {
                         Ok(Ok(())) => {
                             // Once the prompt frame reaches the socket, the remote may have
                             // accepted it even if its acceptance notification is still queued
@@ -1537,7 +1583,7 @@ impl Peer {
                             }
                         }
                         Ok(Err(e)) => break Err(e.to_string()),
-                        Err(_) => break Err(write_late(budget, wake_probe)),
+                        Err(_) => break Err(self.deadline_passed(write_late(budget, wake_probe))),
                     }
                     // A request on a link silent for a ping interval: a network gone without a
                     // reset takes the write into the kernel's buffer and answers nothing. A ping
@@ -1562,7 +1608,7 @@ impl Peer {
                             Ok(Err(e)) => break Err(e.to_string()),
                             Err(_) => {
                                 self.with_silence(SilenceBudget::probe_dropped);
-                                break Err(stopped_reading(wait));
+                                break Err(self.deadline_passed(stopped_reading(wait)));
                             }
                         }
                     }
