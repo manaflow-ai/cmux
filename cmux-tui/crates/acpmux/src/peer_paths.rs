@@ -430,6 +430,7 @@ impl Paths {
     pub fn failed(&mut self, via: Via, now: u64) -> Option<Option<Via>> {
         let answering = self.answering(via)?;
         self.stats.failed(via, answering);
+        self.stats.attempt_failed(via, now);
         let path = self.find_mut(via)?;
         let id = path.id;
         if path.dead_at.is_none() {
