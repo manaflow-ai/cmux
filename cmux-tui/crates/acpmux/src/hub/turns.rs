@@ -545,6 +545,10 @@ impl Hub {
                     admission.release();
                     return match unanswered {
                         Unanswered::Defer(deferral) => self.defer_unanswered(session, deferral, admission.stage_now()).await,
+                        Unanswered::Guarded(guard) => {
+                            guard()?;
+                            Err(super::auto_resume::retry_turn::busy())
+                        }
                         Unanswered::Busy => Err(super::auto_resume::retry_turn::busy()),
                         Unanswered::SteerUnavailable => Err(super::turn_cap::steer_unavailable(false)),
                     };
