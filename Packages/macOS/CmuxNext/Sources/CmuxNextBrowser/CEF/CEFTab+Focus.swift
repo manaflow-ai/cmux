@@ -98,14 +98,9 @@ extension CEFTab {
                 pendingFocus = true
                 return
             }
-            let keyBefore = keyWindows.keyWindow()
+            // The fork never makes the page's headless window key (fork API 36, cef#48 one window): SetFocus makes the
+            // page view the first responder of this window, which keeps the keys.
             host.hostView.inTree.grantFocus { runtime.shim?.setFocus(browser, 1) }
-            // SetFocus made the page's own (headless) window key: the keys go back to the cmux window, as after a click.
-            if let owner = container.window, InTreePageFocus.takesKeysBack(from: keyWindows.keyWindow(), before: keyBefore, owner: owner) {
-                host.lifecycleTrace.record(id, "grant: keys back to the cmux window")
-                InTreePageFocus.shared.noteKeysTakenBack()
-                keyWindows.makeKey(owner)
-            }
             return
         }
         runtime.shim?.setFocus(browser, 1)

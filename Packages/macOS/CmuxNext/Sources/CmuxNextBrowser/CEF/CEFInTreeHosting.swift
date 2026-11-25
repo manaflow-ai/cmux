@@ -68,6 +68,12 @@ struct CEFInTreeCalls {
 ///
 /// It clips the page to the pane's page area, and pins its content to the top-left corner: when a page's frame at a new
 /// size misses the resize fence, its last frame shows clipped at the top-left until the new one comes, never stretched.
+///
+/// Its frame is whole points, pinned to the host's top-left corner (``wholePointFrame(in:flipped:)``): Chromium sizes a
+/// page in whole points (a `RenderWidgetHostViewCocoa` reports its bounds as an integer `gfx::Rect`, its frames are
+/// floored DIP sizes), and panes take half-point sizes, so a half-point page view and Chromium's size could differ by up
+/// to a point (the viewport a point off its pane). With a whole-point container they are equal by construction; at most
+/// the host's last point on the right and bottom shows its backdrop.
 final class CEFInTreePageView: NSView, InTreePageContainer {
     /// The page's census, from its hosting (set by ``CEFInTreeHosting``).
     var census: () -> (contentInWindow: Bool, widgetDrawing: Int) = { (false, -1) }
@@ -108,8 +114,22 @@ final class CEFInTreePageView: NSView, InTreePageContainer {
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         if case .rect = hole { applyHole() }
-        // After super: AppKit resized the page's views; their drawing layers take the same size in this pass.
-        CEFInTreeLayerFit.shared.fit(self)
+    }
+
+    /// The host resized: the page takes its whole-point frame (never AppKit's autoresized half points).
+    override func resizeWithOldSuperviewSize(_ oldSize: NSSize) {
+        guard let superview else { return super.resizeWithOldSuperviewSize(oldSize) }
+        let fitted = Self.wholePointFrame(in: superview.bounds, flipped: superview.isFlipped)
+        if frame != fitted { frame = fitted }
+    }
+
+    /// The container's frame in a host with `bounds`: whole-point width and height (rounded down, so the page never
+    /// overhangs its pane), its top-left corner on the host's.
+    nonisolated static func wholePointFrame(in bounds: NSRect, flipped: Bool) -> NSRect {
+        let width = max(0, bounds.width.rounded(.down))
+        let height = max(0, bounds.height.rounded(.down))
+        let y = flipped ? bounds.minY : bounds.maxY - height
+        return NSRect(x: bounds.minX, y: y, width: width, height: height)
     }
 
     private func applyHole() {
@@ -205,8 +225,6 @@ final class CEFInTreeHosting {
         guard let container, page != nil else { return }
         let content = calls.contentView(browser)
         if let content, !content.isDescendant(of: container) { return attach(retry: true) }
-        // A new renderer brings a new view with a new drawing layer.
-        CEFInTreeLayerFit.shared.fit(container)
     }
 
     /// The page window's tabs changed; a live one names the window from now on.
@@ -244,7 +262,6 @@ final class CEFInTreeHosting {
         if let page = calls.setInTreeHosting(browser, container) {
             let was = self.page
             self.page = page
-            CEFInTreeLayerFit.shared.fit(container)
             CEFHostView.trackerStats.inTreeAttaches += 1
             if was == nil { onAttached?() }
             return
@@ -271,7 +288,7 @@ final class CEFInTreeHosting {
     }
 
     private func makeContainer(in view: CEFHostView) -> CEFInTreePageView {
-        let made = CEFInTreePageView(frame: view.bounds)
+        let made = CEFInTreePageView(frame: CEFInTreePageView.wholePointFrame(in: view.bounds, flipped: view.isFlipped))
         made.census = { [weak self, weak made] in
             guard let self, let made else { return (false, -1) }
             let content = self.contentView
@@ -282,13 +299,6 @@ final class CEFInTreeHosting {
         view.addSubview(made, positioned: .below, relativeTo: nil)
         container = made
         return made
-    }
-
-    /// Fits the page's drawing layers to their views now (``CEFInTreeLayerFit``): a navigation's new renderer view, which
-    /// Chromium sizes itself after the load, gets the fit and its layout manager before any pane resize.
-    func refit() {
-        guard page != nil, let container else { return }
-        CEFInTreeLayerFit.shared.fit(container)
     }
 
     /// The page's current main-frame view (re-read each time: it changes with the renderer).
@@ -320,9 +330,8 @@ final class CEFInTreeHosting {
     /// every page's frame (the user's recording: the window at about 28 of 60 frames a second, defects.md 8), and the
     /// full screen transitions held theirs (defects.md 5, 6).
     func pageViewResized() { // perf-hot: 0.05ms cef-geometry (each in-tree page, each motion frame)
+        // The page's drawing layer follows its view exactly in the fork (cef#48 one window, `cmux_in_tree_display`).
         guard page != nil, let browser else { return }
-        // The page's drawing layers follow their views exactly (CEFInTreeLayerFit), never by Core Animation's autoresizing.
-        CEFInTreeLayerFit.shared.fit(container)
         guard let fence = calls?.resizeFence, let view, let window = view.window,
               let layer = view.layer else { return }
         let windowSize = window.frame.size
