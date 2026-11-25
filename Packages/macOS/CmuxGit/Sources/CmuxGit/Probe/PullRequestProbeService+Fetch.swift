@@ -330,6 +330,7 @@ extension PullRequestProbeService {
             url: pullRequest.htmlURL,
             updatedAt: pullRequest.updatedAt,
             mergedAt: pullRequest.mergedAt,
+            closedAt: pullRequest.closedAt,
             headRefName: pullRequest.head.ref,
             baseRefName: pullRequest.base?.ref
         )
