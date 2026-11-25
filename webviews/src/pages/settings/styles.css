@@ -2569,7 +2569,7 @@ button.menu-disclosure {
   inset-inline-end: 0;
   top: 50%;
   transform: translateY(-50%);
-  z-index: 1;
+  z-index: var(--layer-raised);
   display: inline-flex;
   opacity: 0;
   transition: var(--cmux-hover-reveal-out-transition);
