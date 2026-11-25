@@ -184,6 +184,8 @@ mod repo_mcp_lazy;
 mod safe_mode;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
 #[cfg(unix)]
+mod repro;
+#[cfg(unix)]
 mod sandbox_run;
 #[cfg(unix)]
 mod start_stages;
@@ -1085,6 +1087,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| live_code::run_if_requested(args))
         .or_else(|| sandbox_run::run_if_requested(args))
         .or_else(|| cloud_journey::run_if_requested(args))
+        .or_else(|| repro::run_if_requested(args))
         .or_else(|| migrate::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| vnc::run_if_requested(args))
