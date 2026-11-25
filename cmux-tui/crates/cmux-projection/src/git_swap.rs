@@ -367,9 +367,20 @@ fn copy_mac_state(projected: &Path, local: &Path, seed_url: Option<&str>) -> any
     // HEAD may be detached and unreachable from any named ref. Transfer it alongside refs.
     fetch.arg(projected).args(["+refs/*:refs/*", "HEAD"]);
     output(fetch)?;
-    // An index can name staged blobs that no ref reaches. Fetch those object IDs from the
-    // projected repository explicitly; the carry pack stays blobless while staged work still
-    // survives the swap without consulting the configured remote.
+    // HEAD's tree is already covered by the refs/HEAD transfer (or the legacy seed's
+    // promisor). Only index objects outside that tree need an extra projected transfer.
+    // Fetching every index object would force ordinary promisor blobs over the Mac's link.
+    let mut tree = git(projected);
+    tree.args(["ls-tree", "-r", "-z", "HEAD"]);
+    let committed: std::collections::HashSet<String> = text(tree)?
+        .split('\0')
+        .filter_map(|entry| {
+            let (metadata, _) = entry.split_once('\t')?;
+            metadata.split_whitespace().nth(2).map(str::to_owned)
+        })
+        .collect();
+    // An index can name staged blobs that no ref reaches. Fetch those object IDs explicitly,
+    // including every conflict stage; a gitlink belongs to a separate repository.
     let mut staged = git(projected);
     staged.args(["ls-files", "--stage", "-z"]);
     let staged: std::collections::BTreeSet<String> = text(staged)?
@@ -380,8 +391,11 @@ fn copy_mac_state(projected: &Path, local: &Path, seed_url: Option<&str>) -> any
             let mode = fields.next()?;
             let object = fields.next()?;
             // A gitlink belongs to the submodule's object store, not this repository.
-            (mode != "160000" && valid_object_name(object) && object.bytes().any(|b| b != b'0'))
-                .then(|| object.to_owned())
+            (mode != "160000"
+                && valid_object_name(object)
+                && object.bytes().any(|b| b != b'0')
+                && !committed.contains(object))
+            .then(|| object.to_owned())
         })
         .collect();
     if !staged.is_empty() {

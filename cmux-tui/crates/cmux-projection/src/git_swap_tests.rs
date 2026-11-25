@@ -417,6 +417,17 @@ fn prepared_git_preserves_refs_across_both_lookup_orders() {
 
 #[test]
 fn a_git_reading_through_the_swap_sees_one_repository() {
+    readers_through_swap(false);
+}
+
+#[test]
+fn a_git_reading_through_the_carry_swap_sees_one_repository() {
+    for _ in 0..10 {
+        readers_through_swap(true);
+    }
+}
+
+fn readers_through_swap(carry: bool) {
     let repo = repo(12, 2048);
     let Some(p) = mount(&repo.mac) else { return };
     let expected = view(p.at.path()).unwrap();
@@ -431,8 +442,13 @@ fn a_git_reading_through_the_swap_sees_one_repository() {
         .unwrap();
     let projected = p.at.path().join(".git");
     let local = p.state.path().join(LOCAL_DIR);
-    let (_, url) = seed_remote(&projected).unwrap();
-    let ready = prepare(&projected, &local, &url).unwrap();
+    let ready = if carry {
+        let base = std::fs::read_to_string(projected.join(CARRY_BASE)).unwrap();
+        prepare_carry(&projected, &local, &projected.join(CARRY_PACK), base.trim()).unwrap()
+    } else {
+        let (_, url) = seed_remote(&projected).unwrap();
+        prepare(&projected, &local, &url).unwrap()
+    };
     let stop = Arc::new(AtomicBool::new(false));
     let readers: Vec<_> = (0..4)
         .map(|_| {
