@@ -188,7 +188,7 @@ fn landed_reads_commit_ranges_and_unlanded_words() {
 }
 
 #[test]
-fn fresh_install_sends_no_analytics_until_opt_in_and_nothing_turns_it_off() {
+fn consent_sends_only_after_the_person_turns_it_on() {
     let none = BTreeMap::new();
     let no_env = |_: &str| None;
     let base = |forced: &'static BTreeMap<String, Value>,
@@ -205,10 +205,10 @@ fn fresh_install_sends_no_analytics_until_opt_in_and_nothing_turns_it_off() {
     };
     let none: &'static BTreeMap<String, Value> = Box::leak(Box::new(none));
     let no_env: &'static dyn Fn(&str) -> Option<String> = Box::leak(Box::new(no_env));
-    // A fresh install (nothing set) sends nothing; an explicit opt-in sends.
+    // A fresh install (no choice anywhere) sends nothing: analytics are opt-in.
     assert_eq!(
         base(none, None, true, no_env),
-        Consent::Off("sendAnonymousTelemetry is not turned on")
+        Consent::Off("anonymous telemetry was never turned on")
     );
     let on: &'static Value = Box::leak(Box::new(json!({"app": {"sendAnonymousTelemetry": true}})));
     assert_eq!(

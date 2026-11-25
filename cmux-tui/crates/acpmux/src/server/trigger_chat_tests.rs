@@ -372,7 +372,7 @@ async fn a_retried_trigger_delivery_runs_its_turn_once_in_turn_or_at_once() {
     let admitted = admitted_turns(&hub, &session.id, &scoped.delivery);
     assert_eq!(
         admitted.into_iter().collect::<Vec<_>>(),
-        [turn.clone()],
+        std::slice::from_ref(&turn),
         "one turn, not one per retry"
     );
 
