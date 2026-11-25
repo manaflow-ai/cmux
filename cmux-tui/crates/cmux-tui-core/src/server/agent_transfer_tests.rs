@@ -167,6 +167,10 @@ fn the_capability_is_advertised_with_an_acpmux_socket_and_a_host() {
     assert!(!advertised(&mux), "no host: the daemon cannot build a guard");
     mux.set_agent_transfer_host(Some(AgentTransferHost { cloud: false, home: home.path.clone() }));
     assert!(advertised(&mux));
+    // With it, a finish takes the owner's login (the pump sends one only to a daemon that says so).
+    let listed = run(&mux, json!({"cmd":"identify"}))["capabilities"].clone();
+    let credentials = json!(super::AGENT_TRANSFER_CREDENTIALS_CAPABILITY);
+    assert!(listed.as_array().unwrap().contains(&credentials), "{listed}");
     mux.set_acpmux_socket(None);
     assert!(!advertised(&mux));
 }
@@ -553,6 +557,44 @@ fn source_verbs_take_the_chat_from_the_surface_tab() {
     assert_eq!(fake.frame()["params"], json!({"sessionId":SESSION,"transferId":"xfer_1"}));
 }
 
+/// A restart restores every tab in a new slot, so `surface` is this run's only: the source
+/// answers the tab's public id, which a pump names it by to end a move after a restart.
+#[test]
+fn source_verbs_take_the_tab_by_its_public_id() {
+    let fake = FakeAcpmux::start("xtabid");
+    let home = Home::new("tabid");
+    let mux = transfer_mux(&fake, "atx-tabid", &home, false);
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "xtabid");
+    let by_surface = client.request(json!({"cmd":"agent-transfer-source","surface":surface}));
+    let tab = ok_data(&by_surface)["tab"].as_str().expect("the tab's public id").to_owned();
+    assert!(tab.starts_with("tab_"), "{by_surface}");
+    let by_tab = client.request(json!({"cmd":"agent-transfer-source","tab":tab}));
+    assert_eq!(ok_data(&by_tab), &json!({"session":SESSION,"tab":tab}));
+    let begun = client.request(json!({"cmd":"agent-transfer-begin","tab":tab}));
+    assert_eq!(ok_data(&begun)["tab"], json!(tab));
+    assert_eq!(ok_data(&begun)["source_session"], json!(SESSION));
+    skip_begin(&fake);
+    let abort =
+        client.request(json!({"cmd":"agent-transfer-abort","tab":tab,"transfer_id":"xfer_1"}));
+    ok_data(&abort);
+    let sent = fake.frame();
+    assert_eq!(sent["method"], json!("_acpmux/transfer_abort"), "{sent}");
+    assert_eq!(sent["params"]["sessionId"], json!(SESSION), "{sent}");
+    // Exactly one of the two; a tab id no tab here has is an unknown tab.
+    let both = json!({"cmd":"agent-transfer-source","surface":surface,"tab":tab});
+    assert_code(&client.request(both), "agent_transfer.bad_request");
+    assert_code(
+        &client.request(json!({"cmd":"agent-transfer-source"})),
+        "agent_transfer.bad_request",
+    );
+    let stranger = format!("tab_{:032x}", 7);
+    let unknown = json!({"cmd":"agent-transfer-commit","tab":stranger,"transfer_id":"xfer_1",
+                         "to":"vm"});
+    assert_code(&client.request(unknown), "agent_transfer.unknown_tab");
+    fake.no_frame();
+}
+
 #[test]
 fn begin_strips_absolute_source_paths_from_the_bundle_manifest() {
     let fake = FakeAcpmux::start("xstrip");
@@ -752,6 +794,62 @@ fn finish_reads_the_host_kind_again() {
     let finish = client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1"}));
     assert_code(&finish, "agent_session.team_vm_blocked");
     fake.no_frame();
+}
+
+// MARK: The owner's login on a finish
+
+const TOKEN: &str = "sk-ant-oat01-moved-owner-token";
+
+/// A chat moved to a new Cloud machine answered "Claude is not signed in here": the finish carries
+/// the owner's login now. The owner's word on the owner's own Cloud VM forwards it to acpmux's
+/// finish, as `agent-session-credentials` takes one.
+#[test]
+fn an_owner_finish_forwards_the_login_to_acpmux() {
+    let fake = FakeAcpmux::start("xcred");
+    let home = Home::new("cred");
+    let mux = transfer_mux(&fake, "atx-cred", &home, true);
+    mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+    let mut client = Client::connect(&mux, "xcred");
+    let owner = json!({"cmd":"agent-transfer-receive","manifest":manifest(),
+                       "cwd":home.text("work/project"),"vm_kind":"owner"});
+    ok_data(&client.request(owner));
+    let _ = fake.frame();
+    let finish = client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1",
+        "vm_kind":"owner","credentials":{"env":{"CLAUDE_CODE_OAUTH_TOKEN":TOKEN}}}));
+    ok_data(&finish);
+    assert!(!finish.to_string().contains(TOKEN), "{finish}");
+    let sent = fake.frame();
+    assert_eq!(sent["method"], json!("_acpmux/transfer_finish"));
+    assert_eq!(
+        sent["params"],
+        json!({"receiveId":"rcv_1","cwd":home.canonical("work/project"),
+               "credentials":{"env":{"CLAUDE_CODE_OAUTH_TOKEN":TOKEN}}})
+    );
+}
+
+/// A login is refused before acpmux on a Mac or SSH host (no owner Cloud VM), and a malformed one
+/// on any host; neither answer holds the value, and the receive still finishes without one.
+#[test]
+fn a_login_off_the_owners_cloud_vm_or_malformed_is_refused_before_acpmux() {
+    let fake = FakeAcpmux::start("xcredno");
+    let home = Home::new("credno");
+    let mux = transfer_mux(&fake, "atx-credno", &home, true);
+    let mut client = Client::connect(&mux, "xcredno");
+    ok_data(&receive(&mut client, &home.text("work/project")));
+    let _ = fake.frame();
+    let mac = client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1",
+        "credentials":{"env":{"CLAUDE_CODE_OAUTH_TOKEN":TOKEN}}}));
+    assert_code(&mac, "agent_session.owner_only");
+    assert!(!mac.to_string().contains(TOKEN), "{mac}");
+    for env in [json!({"HOME": TOKEN}), json!({"CLAUDE_CODE_OAUTH_TOKEN": "has space"}), json!({})]
+    {
+        let bad = client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1",
+                                        "credentials":{"env":env}}));
+        assert_code(&bad, "agent_transfer.bad_request");
+        assert!(!bad.to_string().contains(TOKEN), "{bad}");
+    }
+    fake.no_frame();
+    ok_data(&client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1"})));
 }
 
 // MARK: Receive and move slots
@@ -1078,7 +1176,10 @@ fn source_names_the_session_a_tab_is_bound_to_without_reaching_acpmux() {
     let surface = agent_tab(&mux, Some(SESSION));
     let mut client = Client::connect(&mux, "xsource");
     let read = client.request(json!({"cmd":"agent-transfer-source","surface":surface}));
-    assert_eq!(ok_data(&read), &json!({"session": SESSION}));
+    let read = ok_data(&read);
+    assert_eq!(read["session"], json!(SESSION));
+    // The tab's public id, which a daemon restart keeps, so a pump can name the tab by it.
+    assert!(read["tab"].as_str().is_some_and(|t| t.starts_with("tab_")), "{read}");
     // Begin answers the same session it froze, so a pump can pin it.
     let begun = client.request(json!({"cmd":"agent-transfer-begin","surface":surface}));
     assert_eq!(ok_data(&begun)["source_session"], json!(SESSION));
@@ -1097,7 +1198,7 @@ fn verbs_ignore_a_field_a_newer_client_adds() {
     let mut client = Client::connect(&mux, "xnewer");
     let read = client
         .request(json!({"cmd":"agent-transfer-source","surface":surface,"future_field":{"v":2}}));
-    assert_eq!(ok_data(&read), &json!({"session": SESSION}));
+    assert_eq!(ok_data(&read)["session"], json!(SESSION));
     // Every verb answers as it would without the field, never a bad request.
     for frame in every_verb(surface, &home.text("work/project")) {
         let mut frame = frame;

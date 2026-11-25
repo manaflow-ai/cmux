@@ -20,7 +20,7 @@ public struct KeychainAccountLabelSalt: AccountLabelSaltProviding {
     }
 
     public static func service(bundleID: String?) -> String {
-        "\(bundleID?.isEmpty == false ? bundleID ?? "" : "com.cmuxterm.app").account-label-salt"
+        "\(bundleID?.isEmpty == false ? bundleID ?? "" : "com.cmuxterm.app.next").account-label-salt"
     }
 
     public func salt() throws -> Data {

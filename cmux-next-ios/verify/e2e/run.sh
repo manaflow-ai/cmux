@@ -31,7 +31,7 @@ case "${1:-}" in
     [[ -d "$src" ]] || git -C "$repo" worktree add -q --detach "$src" "$sha"
     mkdir -p "$dest"
     hq="${HQ_ROOT:-$(cd "$repo/../.." && pwd)}"
-    job=$(cd "$src" && ~/.local/bin/cmux-ci build cmux --ref "$sha" --tag "$tag" --priority -10 \
+    job=$(cd "$src" && ~/.local/bin/cmux-ci build cmux --ref "$sha" --tag "$tag" --priority -10 --build \
           --workspace "${E2E_PR_URL:-https://github.com/manaflow-ai/cmux/pull/20414}" \
           --backend-helper "$hq/scripts/dev-backend.sh" --receipt "$dest/submit.json" | tee "$dest/submit.log" \
           | python3 -c 'import json,sys; print([json.loads(l) for l in sys.stdin if l.startswith("{")][-1]["id"])')

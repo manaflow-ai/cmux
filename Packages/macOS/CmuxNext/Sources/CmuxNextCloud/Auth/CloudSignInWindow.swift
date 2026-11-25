@@ -11,8 +11,10 @@ import Foundation
 /// saved passwords, so ``automatic`` keeps the popup for Safari only
 /// (cmux-cloud-config `auth::POPUP_BROWSERS`).
 public nonisolated enum CloudSignInWindow: String, Sendable, CaseIterable {
-    /// The popup when the default browser is Safari, else the default browser.
+    /// cmux's in-app browser tab when the app can open one, else the popup with Safari, else the default browser.
     case automatic
+    /// Always cmux's in-app browser tab (the automatic rule when the app cannot open one).
+    case inApp
     /// Always the popup (a browser that ends it at once still falls back).
     case popup
     /// Always the default browser.
@@ -28,6 +30,17 @@ public nonisolated enum CloudSignInWindow: String, Sendable, CaseIterable {
                                      as: Reply.self)?.opensDefaultBrowser ?? false
     }
 
+    /// Where one sign-in opens (Rust's `sign_in_place`): `inApp` is whether the app can open the page in its own
+    /// browser now. An FFI that does not answer keeps the older rule (``opensDefaultBrowser(defaultBrowser:)``).
+    public func place(defaultBrowser: String?, inApp: Bool) -> CloudSignInPlace {
+        struct Request: Encodable { var window: String, defaultBrowser: String?, inApp: Bool }
+        struct Reply: Decodable { var place: String }
+        if let reply = CloudStartCore().call("cloud_auth_sign_in_place",
+                                             Request(window: rawValue, defaultBrowser: defaultBrowser, inApp: inApp), as: Reply.self),
+           let place = CloudSignInPlace(rawValue: reply.place) { return place }
+        return opensDefaultBrowser(defaultBrowser: defaultBrowser) ? .defaultBrowser : .popup
+    }
+
     /// The default browser's bundle identifier (a Launch Services lookup).
     @MainActor
     public static func currentDefaultBrowser() -> String? {
@@ -35,4 +48,14 @@ public nonisolated enum CloudSignInWindow: String, Sendable, CaseIterable {
               let app = NSWorkspace.shared.urlForApplication(toOpen: probe) else { return nil }
         return Bundle(url: app)?.bundleIdentifier
     }
+}
+
+/// Where one cmux sign-in opens (Rust's `auth::SignInPlace`).
+public nonisolated enum CloudSignInPlace: String, Sendable {
+    /// A cmux browser tab: passkeys and the emailed code work there, and the callback comes back in-process.
+    case inApp
+    /// The `ASWebAuthenticationSession` popup.
+    case popup
+    /// The person's default browser.
+    case defaultBrowser
 }

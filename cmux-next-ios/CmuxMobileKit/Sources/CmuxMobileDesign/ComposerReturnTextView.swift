@@ -49,7 +49,9 @@ open class ComposerReturnTextView: UITextView {
 
     public init(policy: ComposerReturnPolicy) {
         returnPolicy = policy
-        super.init(frame: .zero, textContainer: nil)
+        let stack = Self.textKit1Stack()
+        ownedTextStorage = stack?.storage
+        super.init(frame: .zero, textContainer: stack?.container)
         isScrollEnabled = true
         alwaysBounceVertical = false
         showsHorizontalScrollIndicator = false
@@ -70,6 +72,61 @@ open class ComposerReturnTextView: UITextView {
 
     @available(*, unavailable)
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    // MARK: Text system
+
+    /// The view's text storage, held here: a text view made with its own container keeps
+    /// the container, the container only points back at its layout manager, and the layout
+    /// manager at its storage, so nothing else keeps the storage alive.
+    private let ownedTextStorage: NSTextStorage?
+
+    /// TextKit 1 with noncontiguous layout: the text storage, layout manager and container
+    /// a composer (and its measuring probes) is made with.
+    ///
+    /// TextKit 2 lays a paragraph out and draws it as one layout fragment, so a key typed
+    /// into a 10,000-character draft with no line break laid out and drew all 10,000
+    /// characters (70-100 ms per key, in stacks of `NSTextLayoutFragment _layout`,
+    /// `CTTypesetterCreateWithAttributedStringAndOptions` and `_UITextLayoutFragmentView
+    /// drawRect` with no composer code on them; Leo, 2026-11-24: "for really lo gb text
+    /// messages actually, it lags"; ComposerTypingLagUITests' one-paragraph cells).
+    /// TextKit 1 lays lines out from the edit on, only as far as the field shows
+    /// (`allowsNonContiguousLayout`), and draws only the lines that changed.
+    /// Nil (TextKit 2, the system's default) under `-cmux-mobile-composer-textkit2`, the
+    /// bench's other side.
+    static func textKit1Stack() -> (storage: NSTextStorage, container: NSTextContainer)? {
+        #if DEBUG
+        if usesTextKit2 { return nil }
+        #endif
+        let storage = NSTextStorage()
+        let manager = NSLayoutManager()
+        manager.allowsNonContiguousLayout = true
+        storage.addLayoutManager(manager)
+        let container = NSTextContainer(size: CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        container.widthTracksTextView = true
+        manager.addTextContainer(container)
+        return (storage, container)
+    }
+
+    #if DEBUG
+    /// `-cmux-mobile-composer-textkit2`: composers on TextKit 2, as before
+    /// (ComposerTypingLagUITests' `testLongTextMatrixTextKit2`).
+    public static let usesTextKit2 = CommandLine.arguments.contains("-cmux-mobile-composer-textkit2")
+    #endif
+
+    /// A plain text view on the composer's text system, for measuring: a probe on another
+    /// text system lays lines out to other heights than the field it measures.
+    final class Probe: UITextView {
+        private let ownedTextStorage: NSTextStorage?
+
+        init() {
+            let stack = ComposerReturnTextView.textKit1Stack()
+            ownedTextStorage = stack?.storage
+            super.init(frame: .zero, textContainer: stack?.container)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+    }
 
     public var placeholder: String = "" {
         didSet {
@@ -169,6 +226,20 @@ open class ComposerReturnTextView: UITextView {
                             maxLines: returnPolicy.maxLines)
     }
 
+    /// Shares the card with `reserved` points above the field (the attachment strip): the
+    /// field grows to `baseMaxLines` less the lines the strip takes
+    /// (``ComposerFieldHeight/maxLines(_:sharing:lineHeight:)``). True when that changed the
+    /// field's limit; its size is asked again then.
+    @discardableResult
+    public func shareCard(reserved: CGFloat, baseMaxLines: Int) -> Bool {
+        let lineHeight = Self.laidOutLineHeight(font ?? .preferredFont(forTextStyle: .body))
+        let lines = ComposerFieldHeight.maxLines(baseMaxLines, sharing: reserved, lineHeight: lineHeight)
+        guard lines != returnPolicy.maxLines else { return false }
+        returnPolicy = ComposerReturnPolicy(style: returnPolicy.style, maxLines: lines)
+        invalidateIntrinsicContentSize()
+        return true
+    }
+
     /// One line's height as a text view lays it out in `font`. It is taller
     /// than `font.lineHeight` (22 pt against 20.3 for the 17 pt body), so a
     /// maximum computed from the font cut the sixth line in half and
@@ -177,7 +248,7 @@ open class ComposerReturnTextView: UITextView {
 
     private static func laidOutLineHeight(_ font: UIFont) -> CGFloat {
         if let height = lineHeights[font] { return height }
-        let probe = UITextView(frame: .zero, textContainer: nil)
+        let probe = Probe()
         probe.font = font
         probe.textContainerInset = .zero
         probe.textContainer.lineFragmentPadding = 0
@@ -268,7 +339,7 @@ open class ComposerReturnTextView: UITextView {
     }
 
     private lazy var measureProbe: UITextView = {
-        let probe = UITextView(frame: .zero, textContainer: nil)
+        let probe = Probe()
         probe.isScrollEnabled = isScrollEnabled
         return probe
     }()
@@ -438,6 +509,7 @@ open class ComposerReturnTextView: UITextView {
         let id = accessibilityIdentifier ?? "composer"
         let start = CACurrentMediaTime()
         trace.typed()
+        trace.beginKey("\(id)_key_frame")
         let cpu = InputLatencyTrace.threadCPUms()
         let units = Self.measuredUnits
         let calls = Self.measureCalls

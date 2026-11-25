@@ -107,7 +107,7 @@ where
 /// integration tests. Each arming fires once, and counts every pass of its point after
 /// ([`armed_passes`]), so a test sees a supervised loop come back to it. Release builds have no
 /// seam.
-#[cfg(debug_assertions)]
+#[cfg(any(test, debug_assertions))]
 pub(crate) fn panic_point(point: &str, text: &str) {
     let fire = {
         let mut seam = PANIC_SEAM.lock().unwrap_or_else(|e| e.into_inner());
@@ -135,12 +135,12 @@ pub(crate) fn panic_point(point: &str, text: &str) {
     }
 }
 
-#[cfg(not(debug_assertions))]
+#[cfg(not(any(test, debug_assertions)))]
 #[inline(always)]
 pub(crate) fn panic_point(_point: &str, _text: &str) {}
 
 /// [`panic_point`] whose text is made only while something is armed at `point`.
-#[cfg(debug_assertions)]
+#[cfg(any(test, debug_assertions))]
 pub(crate) fn panic_point_with(point: &str, text: impl FnOnce() -> String) {
     let armed = {
         let seam = PANIC_SEAM.lock().unwrap_or_else(|e| e.into_inner());
@@ -151,11 +151,11 @@ pub(crate) fn panic_point_with(point: &str, text: impl FnOnce() -> String) {
     }
 }
 
-#[cfg(not(debug_assertions))]
+#[cfg(not(any(test, debug_assertions)))]
 #[inline(always)]
 pub(crate) fn panic_point_with(_point: &str, _text: impl FnOnce() -> String) {}
 
-#[cfg(debug_assertions)]
+#[cfg(any(test, debug_assertions))]
 #[derive(Default)]
 struct Armed {
     point: String,
@@ -164,13 +164,13 @@ struct Armed {
     passes: usize,
 }
 
-#[cfg(debug_assertions)]
+#[cfg(any(test, debug_assertions))]
 struct PanicSeam {
     read_env: bool,
     armed: Vec<Armed>,
 }
 
-#[cfg(debug_assertions)]
+#[cfg(any(test, debug_assertions))]
 static PANIC_SEAM: std::sync::Mutex<PanicSeam> =
     std::sync::Mutex::new(PanicSeam { read_env: false, armed: Vec::new() });
 
