@@ -1,6 +1,7 @@
 import CmuxEgress
 public import CMUXAuthCore
 public import Foundation
+import CCmuxDaemonConnFFI
 import CmuxNextWakeups
 
 /// The Cloud machine event socket. `/v1/wire/cloud` carries ephemeral VM events;
@@ -72,16 +73,26 @@ public final class CloudMachineWire {
     /// One socket's reconnect loop: the active team's (`only` nil, read again per connection) or `only`'s, whose
     /// socket has no `sink` (its port changes stay with the active team's socket, as before).
     private func run(_ generation: Int, only: String?, sink: (@MainActor (CloudPortChange) -> Void)?) async {
-        var backoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
-        // wakeup-allow: one pass per connection; each pass awaits the socket and, after a failure, a Backoff delay.
+        // Rust owns the reconnect policy. Swift keeps the socket, ticket and frame lifecycle here.
+        var retry = cmux_retry_pacer_new(cmux_retry_policy_new(500_000_000, 30_000_000_000, 10, 0, true))
+        // wakeup-allow: one pass per connection; each pass awaits the socket and, after a failure, a Rust-paced delay.
         while !Task.isCancelled, generation == self.generation {
             do {
-                try await session(generation, only: only, sink: sink, onSubscribed: { backoff.reset() })
+                try await session(generation, only: only, sink: sink, onSubscribed: {
+                    cmux_retry_pacer_reset(&retry)
+                })
             } catch is CancellationError {
                 return
             } catch {}
-            // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
-            do { try await backoff.wait(owner: "cloud.machine.wire.reconnect") } catch { return }
+            let delay = cmux_retry_pacer_failed(&retry, Double.random(in: 0..<1))
+            guard delay >= 0 else { return }
+            // concurrency-allow: this is a cancellable async sleep after an actual socket failure, not a blocking wait.
+            do {
+                try await ContinuousClock().sleep(for: .nanoseconds(delay))
+                WakeupLedger.shared.record("cloud.machine.wire.reconnect", reason: "backoff")
+            } catch {
+                return
+            }
         }
     }
 
