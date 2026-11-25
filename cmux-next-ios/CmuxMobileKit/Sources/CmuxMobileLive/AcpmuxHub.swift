@@ -2002,6 +2002,13 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     // What is before the first prompt belongs to an older turn: it comes with
                     // that turn's page, never twice.
                     out.page.removeFirst(first)
+                } else if let opener = out.result["turnOpener"], Self.isPrompt(opener),
+                          let seq = opener["seq"]?.numberValue {
+                    // acpmux read the turn's prompt with the page (cmux-tui
+                    // `requests/turn_opener.rs`): the page has its turn with no read of its own.
+                    // An older Mac sends none (or null when its read found none): the read below.
+                    out.page = [opener] + out.page
+                    out.earlier = seq > 1
                 } else if let oldest = out.page.first?["seq"]?.numberValue {
                     // The page is inside one turn longer than itself (a long run): its prompt
                     // alone is read, so the page has a turn to go in. Without it the chat
