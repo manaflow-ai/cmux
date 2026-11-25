@@ -218,8 +218,7 @@ impl Supervisor {
     /// the staged package an install of the same reference takes.
     pub(crate) fn git_stage(&self, reference: &str) -> Result<Staged, ApiError> {
         let reference = RepoRef::parse(reference).map_err(git_error("apps.git.reference"))?;
-        // The person named this repository (its consent card, an update of what they
-        // installed): the egress gate lets its host through.
+        // The person named this repository: its host passes the egress gate.
         cmux_egress::allow_named(&reference.host);
         let git_dir = self.git_dir()?;
         let transport = self.git_transport();
@@ -440,6 +439,8 @@ impl Supervisor {
             return Err(ApiError::new("apps.origin", "installing an app needs a user action"));
         }
         let parsed = RepoRef::parse(reference).map_err(git_error("apps.git.reference"))?;
+        // The person named this repository: its host passes the egress gate.
+        cmux_egress::allow_named(&parsed.host);
         let request = format!("install {} {grant_optional}", parsed.reference());
         if let Some(app) = self.replayed(idempotency_key, &request, Some(commit))? {
             return self.git_result(&app);

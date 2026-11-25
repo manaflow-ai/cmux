@@ -36,6 +36,7 @@ dependencies = [
  "cmux-command-class",
  "cmux-computer-use",
  "cmux-config",
+ "cmux-deadline",
  "cmux-device-kind",
  "cmux-egress",
  "cmux-embed",
@@ -213,6 +214,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "acpmux-team-space"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "acpmux-tui"
 version = "1.0.0"
 dependencies = [
@@ -232,14 +241,6 @@ dependencies = [
  "tokio",
  "unicode-width",
  "uuid",
-]
-
-[[package]]
-name = "acpmux-team-space"
-version = "1.0.0"
-dependencies = [
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -2318,6 +2319,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-mobile-last-place"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-motion"
 version = "0.1.0"
 dependencies = [
@@ -2981,6 +2990,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "axum",
+ "backtrace",
  "base64",
  "bytes",
  "cmux-action-catalog",

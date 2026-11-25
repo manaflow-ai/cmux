@@ -1093,8 +1093,8 @@ impl HttpTransport {
     }
 
     fn client() -> Result<reqwest::Client, String> {
-        // Through the egress gate: the repository's host is the person's (git_stage names it),
-        // and the archive and release hosts it redirects to are docs/privacy.md rows.
+        // Through the egress gate (docs/privacy.md): the person's own repository host is
+        // allowed where they name it (`git_install`), the archive hosts are listed.
         cmux_egress::client_builder("cmux_tui_core::apps::git_source")
             .redirect(reqwest::redirect::Policy::custom(|attempt| {
                 if attempt.previous().len() >= 5 || attempt.url().scheme() != "https" {

@@ -83,6 +83,7 @@ fn save(session: &Session) -> Result<PathBuf> {
 
 fn client() -> Result<reqwest::Client> {
     crate::install_tls();
+    // Through the egress gate (docs/privacy.md): cmux.com's config and Stack Auth are listed hosts.
     Ok(cmux_egress::client_builder("cmux_autocloud::login")
         .timeout(Duration::from_secs(20))
         .build()?)
