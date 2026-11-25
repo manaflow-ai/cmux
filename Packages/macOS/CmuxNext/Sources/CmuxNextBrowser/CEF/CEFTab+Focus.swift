@@ -138,20 +138,19 @@ extension CEFTab {
 
     /// Re-asks a kept grant once the window shows or the app activates (one-shot).
     private func watchForKeyableWindow(_ window: NSWindow) {
-        guard keyableObservers.isEmpty else { return }
-        let center = NotificationCenter.default
-        let fire: @Sendable (Notification) -> Void = { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.keyableObservers.forEach(center.removeObserver)
-                self.keyableObservers = []
-                AfterFrameCommit().run { [weak self] in self?.grantPendingFocusIfShown() }
+        guard keyableWatch == nil else { return }
+        keyableWatch = Task { @MainActor [weak self] in
+            let center = NotificationCenter.default
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { for await _ in center.notifications(named: NSWindow.didChangeOcclusionStateNotification, object: window).map({ _ in () }) { return } }
+                group.addTask { for await _ in center.notifications(named: NSApplication.didBecomeActiveNotification).map({ _ in () }) { return } }
+                await group.next()
+                group.cancelAll()
             }
+            guard !Task.isCancelled, let self else { return }
+            self.keyableWatch = nil
+            AfterFrameCommit().run { [weak self] in self?.grantPendingFocusIfShown() }
         }
-        keyableObservers = [
-            center.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main, using: fire),
-            center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main, using: fire),
-        ]
     }
 
     /// `cmux app clicks`: the grant's outcome, on the newest press in the page's cmux window.
