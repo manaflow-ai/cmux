@@ -17,10 +17,10 @@ use tokio::runtime::Runtime;
 
 mod auto_chats;
 mod browser;
-mod catch_up;
-mod chat_prompt_outbox;
 #[doc(hidden)]
 pub mod bundle;
+mod catch_up;
+mod chat_prompt_outbox;
 mod classic_leftovers;
 mod composer_outbox;
 mod follow_camera;

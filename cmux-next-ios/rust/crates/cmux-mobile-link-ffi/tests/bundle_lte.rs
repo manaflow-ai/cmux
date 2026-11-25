@@ -57,6 +57,7 @@ async fn rig(profile: &str, seed: u64) -> Rig {
         agent_tab_host: None,
         uploads_dir: dirs.path().join("uploads"),
         pairing: None,
+        viewport_sync: None,
     });
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let link_profile = ProfileFile::builtin().get(profile).cloned().expect("profile");
@@ -74,6 +75,7 @@ async fn rig(profile: &str, seed: u64) -> Rig {
             session_exposure: None,
             route: None,
             path: None,
+            viewport: None,
         };
         while let Some(incoming) = mac.accept().await {
             tokio::spawn(cmux_mobile_host::services::serve(

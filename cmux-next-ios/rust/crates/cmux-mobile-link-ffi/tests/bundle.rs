@@ -52,6 +52,7 @@ async fn rig_with(old_host: bool) -> Rig {
         agent_tab_host: None,
         uploads_dir: dirs.path().join("uploads"),
         pairing: None,
+        viewport_sync: None,
     };
     let mac_id = uuid::Uuid::new_v4().to_string();
     let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
@@ -87,6 +88,7 @@ async fn rig_with(old_host: bool) -> Rig {
                 video_lane: false,
                 webrtc_media: false,
                 ultra: cmux_mobile_link::UltraSetting::Off,
+                force_relay: false,
             },
             None,
         )
@@ -130,7 +132,7 @@ async fn serve_old_host(signaling: SignalingClient, uploads: PathBuf) {
                     while (bytes.len() as u64) < size {
                         match receiver.recv().await {
                             Some(cmux_mobile_link::ChannelEvent::Data(data)) => {
-                                bytes.extend_from_slice(&data)
+                                bytes.extend_from_slice(&data);
                             }
                             _ => return,
                         }
