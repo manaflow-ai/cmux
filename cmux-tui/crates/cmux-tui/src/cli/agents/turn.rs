@@ -78,6 +78,8 @@ pub(in crate::cli) trait Port {
     fn turn_start(&mut self, chat: &str) -> Result<u64, Value>;
     /// The chat's transcript items after `after`, each whole.
     fn read(&mut self, chat: &str, after: u64) -> Result<Vec<Value>, Value>;
+    /// The chat's harness id (`_acpmux/info`'s `harness`), when it can be read.
+    fn harness(&mut self, chat: &str) -> Option<String>;
     fn pause(&mut self, duration: Duration);
     fn now(&mut self) -> Instant;
 }
@@ -325,8 +327,11 @@ pub(in crate::cli) fn run_turn(port: &mut dyn Port, begin: &Begin, timeout: Dura
                 if FAILED.contains(&ended.status.as_str()) {
                     // The agent's own words when it said any, else the status; an account out of
                     // usage or turned off says so, and the ways on (cmux#55066).
-                    let harness =
-                        answer.get("agent").and_then(Value::as_str).unwrap_or_default().to_owned();
+                    // A send or a wait names no agent in its answer: the chat's own harness.
+                    let harness = match answer.get("agent").and_then(Value::as_str) {
+                        Some(agent) => agent.to_owned(),
+                        None => port.harness(&chat).unwrap_or_default(),
+                    };
                     let message = ended
                         .error
                         .clone()
@@ -489,6 +494,12 @@ impl<B: Backend> Port for Live<'_, B> {
     fn read(&mut self, chat: &str, after: u64) -> Result<Vec<Value>, Value> {
         let (id, app) = self.socket(chat)?;
         chat::turn_items_of(&chat::Chat { id, app }, after).map_err(call_error)
+    }
+
+    fn harness(&mut self, chat: &str) -> Option<String> {
+        let (chat, socket) = self.socket(chat).ok()?;
+        let (_, info) = chat::acp::lookup(&chat, socket.as_deref()).ok()?;
+        info.get("harness").and_then(Value::as_str).map(str::to_owned)
     }
 
     fn pause(&mut self, duration: Duration) {

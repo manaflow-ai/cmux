@@ -109,3 +109,42 @@ fn parses_router_claude_and_http_hints() {
         Some(200_000)
     );
 }
+
+/// cmux#55066: Claude's weekly window names its day ("resets Nov 27, 7am (UTC)"). Unread, the chat
+/// out of usage was sent its continuation every few minutes until then.
+#[test]
+fn a_reset_on_a_named_day_is_that_days_clock() {
+    let at = |month, day, hour| {
+        time::PrimitiveDateTime::new(
+            time::Date::from_calendar_date(2026, month, day).unwrap(),
+            time::Time::from_hms(hour, 0, 0).unwrap(),
+        )
+        .assume_utc()
+        .unix_timestamp_nanos() as u64
+            / 1_000_000
+    };
+    let now = at(time::Month::November, 24, 12);
+    let reset = at(time::Month::November, 27, 7);
+    let weekly = "You've hit your weekly limit · resets Nov 27, 7am (UTC)";
+    assert_eq!(reset_at(weekly, None, now), Some(reset));
+    assert_eq!(reset_at("You've hit your limit · resets Nov 27 at 7am", None, now), Some(reset));
+    assert_eq!(
+        reset_at("hit your limit · resets November 27, 7am (+00:00)", None, now),
+        Some(reset)
+    );
+    // In its own zone: 7am in Los Angeles is 3pm UTC that day.
+    let la = "You've hit your weekly limit · resets Nov 27, 7am (America/Los_Angeles)";
+    assert_eq!(reset_at(la, None, now), Some(at(time::Month::November, 27, 15)));
+    // Over the year's end, and never past the hint bound or for a day already gone.
+    let new_year = at(time::Month::December, 30, 12);
+    let jan = time::PrimitiveDateTime::new(
+        time::Date::from_calendar_date(2027, time::Month::January, 2).unwrap(),
+        time::Time::from_hms(7, 0, 0).unwrap(),
+    )
+    .assume_utc()
+    .unix_timestamp_nanos() as u64
+        / 1_000_000;
+    assert_eq!(reset_at("hit your limit · resets Jan 2, 7am (UTC)", None, new_year), Some(jan));
+    assert_eq!(reset_at("hit your limit · resets Dec 20, 7am (UTC)", None, now), None);
+    assert_eq!(reset_at("hit your limit · resets Nov 23, 7am (UTC)", None, now), None);
+}

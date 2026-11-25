@@ -86,10 +86,33 @@ fn named_deadline_ms(
         })
 }
 
+/// A leading "nov 27, " (Claude's weekly window: "resets Nov 27, 7am (UTC)"): its month (1-12),
+/// day and the words after it. A clock alone ("resets 7am") has none.
+fn month_day(tail: &str) -> Option<(u32, u32, &str)> {
+    const MONTHS: [&str; 12] =
+        ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+    let word = tail.bytes().take_while(u8::is_ascii_alphabetic).count();
+    let (name, rest) = tail.split_at_checked(word)?;
+    let month = MONTHS.iter().position(|m| name.len() >= 3 && name.starts_with(m))? as u32 + 1;
+    let rest = rest.trim_start_matches('.').trim_start();
+    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+    let (day, rest) = rest.split_at_checked(digits)?;
+    let day = day.parse::<u32>().ok().filter(|d| (1..=31).contains(d))?;
+    let rest = rest.trim_start_matches(',').trim_start();
+    let rest = rest.strip_prefix("at ").unwrap_or(rest).trim_start();
+    Some((month, day, rest))
+}
+
 fn clock_reset(error: &str, now_ms: u64) -> Option<u64> {
     let lower = error.to_ascii_lowercase();
     let at = lower.find("resets ")? + "resets ".len();
     let tail = lower.get(at..)?.trim_start();
+    // A reset on a named day is that day's clock (cmux#55066: with the date unread, a chat out of
+    // its weekly usage was sent its continuation every few minutes until the reset).
+    let (date, tail) = match month_day(tail) {
+        Some((month, day, rest)) => (Some((month, day)), rest),
+        None => (None, tail),
+    };
     let end = tail.bytes().take_while(u8::is_ascii_digit).count();
     if end == 0 {
         return None;
@@ -121,6 +144,16 @@ fn clock_reset(error: &str, now_ms: u64) -> Option<u64> {
     if let Ok(named) = zone.parse::<Tz>() {
         let utc = Utc.timestamp_millis_opt(now_ms as i64).single()?;
         let local_now = utc.with_timezone(&named);
+        if let Some((month, day)) = date {
+            use chrono::Datelike as _;
+            let on = |year: i32| chrono::NaiveDate::from_ymd_opt(year, month, day);
+            let year = local_now.year();
+            let mut deadline = named_deadline_ms(named, on(year)?, hour, minute, now_ms)?;
+            if deadline <= now_ms {
+                deadline = named_deadline_ms(named, on(year + 1)?, hour, minute, now_ms)?;
+            }
+            return bounded_deadline(deadline, now_ms);
+        }
         let mut deadline = named_deadline_ms(named, local_now.date_naive(), hour, minute, now_ms)?;
         if deadline <= now_ms {
             deadline = named_deadline_ms(
@@ -136,6 +169,19 @@ fn clock_reset(error: &str, now_ms: u64) -> Option<u64> {
     let offset = fixed_offset(&zone.to_ascii_lowercase())?;
     let local_now = now.to_offset(offset);
     let clock = time::Time::from_hms(hour, minute, 0).ok()?;
+    if let Some((month, day)) = date {
+        let at = |year: i32| -> Option<u64> {
+            let month = time::Month::try_from(u8::try_from(month).ok()?).ok()?;
+            let date = time::Date::from_calendar_date(year, month, u8::try_from(day).ok()?).ok()?;
+            let nanos = time::PrimitiveDateTime::new(date, clock).assume_offset(offset);
+            u64::try_from(nanos.unix_timestamp_nanos() / 1_000_000).ok()
+        };
+        let mut deadline = at(local_now.year())?;
+        if deadline <= now_ms {
+            deadline = at(local_now.year() + 1)?;
+        }
+        return bounded_deadline(deadline, now_ms);
+    }
     let mut deadline = u64::try_from(
         time::PrimitiveDateTime::new(local_now.date(), clock)
             .assume_offset(offset)
