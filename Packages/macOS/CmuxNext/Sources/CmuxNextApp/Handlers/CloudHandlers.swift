@@ -1,5 +1,4 @@
 import AppKit
-import OSLog
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextCloudUI
@@ -365,22 +364,11 @@ enum CloudHandlers {
         if let reason = CloudStrings.machineChanging(session.machine.shownStatus) { throw ActionFailure(message: reason) }
     }
 
-    /// ``requireAttachableState(_:)`` after the machine settles (``CloudWait/settle(of:within:log:read:)``, Rust's
-    /// `cloud_move_settle`): a machine that is resuming (prod, 2026-11-05) or pausing (ask-259986a6c4, 2026-11-25: a
-    /// composer's leased machine idled out before Send, and the start showed "This machine is pausing") is waited for,
-    /// up to `limit`, and a paused one goes on to the attach, which resumes it. A delete still refuses at once, and so
-    /// does a transition still running at `limit`. `CMUX_CLOUD_SETTLE=0` refuses a pause or resume in flight at once.
+    /// ``requireAttachableState(_:)`` once the machine settles (Rust's `cloud_move_settle`): a resume (prod, 2026-11-05)
+    /// or a pause in flight (ask-259986a6c4: a leased machine idled out before Send) is waited out up to `limit`, and a
+    /// paused one goes on to the attach, which resumes it. A delete, a change still running at `limit`, or
+    /// `CMUX_CLOUD_SETTLE=0` refuses at once.
     static func requireAttachableState(_ session: CloudMachineSession, waitingOutResume limit: Duration) async throws {
-        let settled = await CloudWait.settle(of: { session.machine.shownStatus }, within: limit,
-                                             log: { CloudHandlers.logSettle($0) }) { await session.refresher?(false) }
-        guard settled != .proceed else { return }
-        try requireAttachableState(session)
-    }
-
-    /// The settle wait's line in the app log, which the probe reads (`cloud machine settle:`).
-    private static func logSettle(_ line: String) {
-        settleLogger.notice("\(line, privacy: .public)")
-    }
-
-    private nonisolated static let settleLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud")
+        let settled = await CloudWait.settle(of: { session.machine.shownStatus }, within: limit) { await session.refresher?(false) }
+        if settled != .proceed { try requireAttachableState(session) }
 }

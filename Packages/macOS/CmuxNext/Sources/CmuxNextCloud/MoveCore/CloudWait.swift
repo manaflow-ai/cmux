@@ -2,6 +2,7 @@ import CmuxNextCompat
 public import CmuxNextDaemon
 import CryptoKit
 import Foundation
+import OSLog
 public import CmuxNextWakeups
 
 /// Bounded waits on main-actor state for the Cloud flows: the observation glue. What counts as done, the
@@ -162,6 +163,9 @@ extension CloudWait {
         }) { status() != .pausing }
     }
 
+    /// The settle wait's line in the app log, which the probe reads (`cloud machine settle:`).
+    nonisolated static let settleLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud")
+
     /// What ``settle(of:within:log:read:)`` ended on, as Rust's `cloud_move_settle` answers it.
     public enum Settled: Equatable, Sendable {
         /// The machine runs (or is paused, and the caller's attach resumes it).
@@ -176,7 +180,7 @@ extension CloudWait {
     /// what happened here"). A paused machine proceeds: the caller's attach resumes it. Logs one
     /// `cloud machine settle:` line when it waited. Only the host loop; the rule is Rust's.
     public static func settle(of status: @escaping @MainActor @Sendable () -> CloudMachine.Status, within limit: Duration,
-                              log: (String) -> Void,
+                              log: (String) -> Void = { settleLogger.notice("\($0, privacy: .public)") },
                               read: @escaping @MainActor @Sendable () async -> Void) async -> Settled {
         struct Look: Encodable { var status: CloudMachine.Status, waitedMs: UInt64, resumes: UInt32, limitMs: UInt64 }
         struct Act: Decodable { var act: String, reason: String? }
