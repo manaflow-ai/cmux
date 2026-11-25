@@ -2,6 +2,11 @@ public import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
+#if canImport(os)
+import os
+#else
+import Synchronization
+#endif
 
 /// ``AppChannelDownloading`` backed by a `URLSession` download task.
 public struct URLSessionAppChannelDownloader: AppChannelDownloading {
@@ -35,17 +40,23 @@ public struct URLSessionAppChannelDownloader: AppChannelDownloading {
     }
 }
 
-// crash-allow: URLSession serializes callbacks and the lock protects completion racing with cancellation.
-private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
-    // lint:allow lock - cancellation and delegate completion share the continuation.
-    private let lock = NSLock()
+/// State the delegate's callbacks and the cancelling task share; one lock guards all of it.
+private struct DownloadState: Sendable {
+    var continuation: CheckedContinuation<Void, any Error>?
+    var moveError: (any Error)?
+    /// Set when the task completes before the continuation is installed (a cancel that
+    /// raced the start), so ``DownloadDelegate/setContinuation(_:)`` can resume it immediately.
+    var completion: Result<Void, any Error>?
+}
+
+private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, Sendable {
+    #if canImport(os)
+    private let state = OSAllocatedUnfairLock(initialState: DownloadState())
+    #else
+    private let state = Mutex(DownloadState())
+    #endif
     private let destination: URL
     private let progress: @Sendable (Double?) -> Void
-    private var continuation: CheckedContinuation<Void, any Error>?
-    private var moveError: (any Error)?
-    /// Set when the task completes before the continuation is installed (a cancel that
-    /// raced the start), so ``setContinuation(_:)`` can resume it immediately.
-    private var completion: Result<Void, any Error>?
 
     init(destination: URL, progress: @escaping @Sendable (Double?) -> Void) {
         self.destination = destination
@@ -53,9 +64,9 @@ private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, @unc
     }
 
     func setContinuation(_ continuation: CheckedContinuation<Void, any Error>) {
-        let early: Result<Void, any Error>? = lock.withLock {
-            if let completion { return completion }
-            self.continuation = continuation
+        let early: Result<Void, any Error>? = state.withLock { state in
+            if let completion = state.completion { return completion }
+            state.continuation = continuation
             return nil
         }
         if let early { continuation.resume(with: early) }
@@ -84,21 +95,21 @@ private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, @unc
             try? FileManager.default.removeItem(at: destination)
             try FileManager.default.moveItem(at: location, to: destination)
         } catch {
-            lock.withLock { moveError = error }
+            state.withLock { $0.moveError = error }
         }
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
-        let (continuation, result): (CheckedContinuation<Void, any Error>?, Result<Void, any Error>) = lock.withLock {
+        let (continuation, result): (CheckedContinuation<Void, any Error>?, Result<Void, any Error>) = state.withLock { state in
             let result: Result<Void, any Error>
-            if let failure = error ?? moveError {
+            if let failure = error ?? state.moveError {
                 result = .failure(failure)
             } else {
                 result = .success(())
             }
-            completion = result
-            let pending = self.continuation
-            self.continuation = nil
+            state.completion = result
+            let pending = state.continuation
+            state.continuation = nil
             return (pending, result)
         }
         continuation?.resume(with: result)
