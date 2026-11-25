@@ -180,7 +180,7 @@ fn a_steer_that_runs_as_the_next_prompt_keeps_its_row_where_it_is() {
 }
 
 #[test]
-fn a_superseded_message_and_a_cleared_checklist_hide_their_rows_in_place() {
+fn a_superseded_message_hides_its_row_in_place_and_an_old_plan_draws_none() {
     let entries = json!([{"content": "x", "status": "pending"}]);
     let log = [
         mux(1, "user_message", json!({"promptId": "p", "turnId": "t", "text": "go"})),
@@ -192,10 +192,9 @@ fn a_superseded_message_and_a_cleared_checklist_hide_their_rows_in_place() {
     ];
     let table = RowTable::fold(&log);
     let rows = table.rows();
-    assert_eq!(rows.len(), 4);
-    assert!(rows[1].head.hidden && rows[1].head.kind == RowKind::Plan);
-    assert!(rows[2].head.hidden && rows[2].text == "partial");
-    assert!(!rows[3].head.hidden && rows[3].text == "whole");
+    assert_eq!(rows.len(), 3);
+    assert!(rows[1].head.hidden && rows[1].text == "partial");
+    assert!(!rows[2].head.hidden && rows[2].text == "whole");
 }
 
 #[test]
@@ -220,17 +219,45 @@ fn a_row_larger_than_a_page_goes_cut_and_says_how_long_it_is() {
 
 #[derive(Debug, Clone)]
 enum Op {
-    Prompt { id: Option<u8>, steer: bool, turn: u8 },
-    TurnStarted { turn: u8 },
-    TurnResult { turn: Option<u8> },
-    Chunk { message: Option<u8>, text: String },
-    Thought { text: String },
-    ToolCall { id: u8, status: u8 },
-    ToolUpdate { id: u8, status: u8, content: Option<String>, out: Option<String> },
-    Plan { entries: u8 },
-    Compaction { done: bool },
+    Prompt {
+        id: Option<u8>,
+        steer: bool,
+        turn: u8,
+    },
+    TurnStarted {
+        turn: u8,
+    },
+    TurnResult {
+        turn: Option<u8>,
+    },
+    Chunk {
+        message: Option<u8>,
+        text: String,
+    },
+    Thought {
+        text: String,
+    },
+    ToolCall {
+        id: u8,
+        status: u8,
+    },
+    ToolUpdate {
+        id: u8,
+        status: u8,
+        content: Option<String>,
+        out: Option<String>,
+    },
+    /// An old log's agent to-do list, which draws no row.
+    Plan {
+        entries: u8,
+    },
+    Compaction {
+        done: bool,
+    },
     Usage,
-    Superseded { message: u8 },
+    Superseded {
+        message: u8,
+    },
     Notice,
 }
 
@@ -515,4 +542,25 @@ fn a_follower_too_far_behind_is_told_it_lagged() {
 
 fn folded_version(folded: &super::serve::Folded) -> u64 {
     super::serve::version(folded)
+}
+
+/// A Stop hook that sent the agent back draws one notice row with its reason, between the reply
+/// it blocked and the one the agent wrote next (Leo, 2026-11-22: "if you did get hooked, i think it
+/// should get displayed better").
+#[test]
+fn a_stop_hook_block_is_a_notice_row_between_the_two_replies() {
+    let log = [
+        mux(1, "user_message", json!({"promptId": "p", "turnId": "t", "text": "go"})),
+        mux(2, "turn_started", json!({"turnId": "t", "promptId": "p"})),
+        chunk(3, "Done.", Some("m1"), None),
+        update(4, json!({"sessionUpdate": "stop_hook_feedback", "text": "2 tests still fail."})),
+        chunk(5, "Fixed the two tests.", Some("m2"), None),
+    ];
+    let table = RowTable::fold(&log);
+    let rows = table.rows();
+    assert_eq!(ids(rows), ["prompt:p", "reply:t.1", "stop_hook_feedback@4", "reply:t.2"]);
+    assert_eq!(rows[2].head.kind, RowKind::Notice);
+    assert_eq!(rows[2].head.notice.as_deref(), Some("stop_hook_feedback"));
+    assert_eq!(rows[2].text, "2 tests still fail.");
+    assert!(!rows[1].head.streaming, "the hook ends the reply before it");
 }

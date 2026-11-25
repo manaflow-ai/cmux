@@ -44,6 +44,7 @@ export function ManagedBannerDesigns({ design, manager, rows, now = Date.now() }
     <div className="acpmux-composer" data-design="placeholder">
       <div
         className="acpmux-composer-box"
+        data-page-glass="a gallery design candidate drawn in place of the composer card, no glass of its own"
         style={{ padding: "12px 16px", color: "var(--acpmux-composer-placeholder)" }}
       >
         {name} is sending messages here. Type to reply as you

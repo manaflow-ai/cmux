@@ -322,7 +322,7 @@ async fn run_workspace_http_server(
     let mut connections = JoinSet::new();
     // Spacing for accept errors that persist (descriptor exhaustion).
     let mut accept_backoff =
-        cmux_tui_core::backoff::Backoff::new(Duration::from_millis(10), Duration::from_secs(1));
+        cmux_tui_util::backoff::Backoff::new(Duration::from_millis(10), Duration::from_secs(1));
     loop {
         tokio::select! {
             biased;
@@ -371,7 +371,7 @@ async fn run_workspace_http_server(
                     }
                     Err(error) => {
                         drop(permit);
-                        if cmux_tui_core::backoff::accept_error_needs_backoff(&error) {
+                        if cmux_tui_util::backoff::accept_error_needs_backoff(&error) {
                             tokio::select! {
                                 biased;
                                 _ = &mut shutdown => break,

@@ -28,7 +28,6 @@ pub const HISTORY_KINDS: &[&str] = &[
     "agent_thought_chunk",
     "tool_call",
     "tool_call_update",
-    "plan",
     "turn_started",
     "turn_result",
     "turn_end",
@@ -905,6 +904,9 @@ impl Store for ForkView {
     }
     fn on_segment_sealed(&self, hook: SealHook) {
         self.inner.on_segment_sealed(hook)
+    }
+    fn on_log_grown(&self, hook: SealHook) {
+        self.inner.on_log_grown(hook)
     }
     /// Under `dropping`, as a reservation is: one that came first is written in here (or, still
     /// being made, fails this), and one after is refused until `end_release`.

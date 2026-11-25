@@ -68,12 +68,16 @@ fn invalid_vectors_are_refused() {
             RelayFrameError::Kind(_) => expected == "kind",
             RelayFrameError::TooLarge(_) => expected == "too_large",
             RelayFrameError::BadBatch => expected == "bad_batch",
+            RelayFrameError::BadHub => expected == "bad_hub",
         };
         assert!(matches, "vector expected {expected}, got {error:?}");
         checked += 1;
     }
     assert!(checked >= 3, "vector file lost its invalid cases");
 }
+
+/// One tagged record: class, optional (key, key seq), body.
+type Rec = (u8, Option<(u32, u32)>, Vec<u8>);
 
 const TAGGED: &str = include_str!("vectors/relay-tagged-frames.json");
 
@@ -84,6 +88,7 @@ fn tagged_error_matches(error: RelayFrameError, expected: &str) -> bool {
         RelayFrameError::Kind(_) => expected == "kind",
         RelayFrameError::TooLarge(_) => expected == "too_large",
         RelayFrameError::BadBatch => expected == "bad_batch",
+        RelayFrameError::BadHub => expected == "bad_hub",
     }
 }
 
@@ -97,7 +102,7 @@ fn tagged_valid_vectors_round_trip() {
         assert_eq!(field(line, "kind"), Some("tagged-datagrams"));
         assert_eq!(frame.payload, hex(field(line, "payload").expect("payload field")));
         let records = frame.split_tagged().expect("valid records");
-        let expected: Vec<(u8, Option<(u32, u32)>, Vec<u8>)> = field(line, "records")
+        let expected: Vec<Rec> = field(line, "records")
             .expect("records field")
             .split(',')
             .map(|record| {
@@ -116,7 +121,7 @@ fn tagged_valid_vectors_round_trip() {
                 (class, tag, hex(parts.next().expect("data")))
             })
             .collect();
-        let got: Vec<(u8, Option<(u32, u32)>, Vec<u8>)> =
+        let got: Vec<Rec> =
             records.iter().map(|record| (record.class, record.tag, record.data.to_vec())).collect();
         assert_eq!(got, expected);
         assert_eq!(frame.encode().expect("encodes"), bytes);

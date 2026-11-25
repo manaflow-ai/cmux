@@ -44,6 +44,14 @@ pub struct ClientConfig {
 pub const ADVANCED_CREATE_FIELDS: &[&str] =
     &["size_name", "idle_seconds", "bootstrap", "machine_config_base64"];
 
+/// The Mac applies these fields itself once the machine exists (bootstrap, idle pause, named size); the create op
+/// never receives them. The backend's `capabilities.create` block answers whether it lets the Mac apply each,
+/// while `capabilities.machine_create` answers whether the create op itself takes it (cmux-platform
+/// CreateOptions.ts, #1703), which is false for all of them. So a field with a key here is read from `create`,
+/// and from `machine_create` only when the backend's `create` does not name it.
+const MAC_APPLIED_CREATE_KEYS: &[(&str, &str)] =
+    &[("size_name", "size"), ("idle_seconds", "idlePause"), ("bootstrap", "bootstrap")];
+
 /// Fail closed before a machine-create request is sent when a parameter needs
 /// a backend capability that was not advertised by `/v1/client-config`.
 /// `null` values are equivalent to an omitted optional field.
@@ -55,16 +63,24 @@ pub fn check_create_capabilities(selection: &Selection, params: &Value) -> Resul
         if object.get(*field).is_none_or(Value::is_null) {
             continue;
         }
-        let advertised = selection
-            .capabilities
-            .get("machine_create")
-            .and_then(Value::as_object)
-            .and_then(|capabilities| capabilities.get(*field));
+        let read = |group: &str, key: &str| {
+            selection
+                .capabilities
+                .get(group)
+                .and_then(Value::as_object)
+                .and_then(|capabilities| capabilities.get(key))
+                .map(|value| (format!("{group}.{key}"), value))
+        };
+        let mac_applied = MAC_APPLIED_CREATE_KEYS
+            .iter()
+            .find(|(name, _)| name == field)
+            .and_then(|(_, key)| read("create", key));
+        let advertised = mac_applied.or_else(|| read("machine_create", field));
         match advertised {
-            Some(Value::Bool(true)) => {}
-            Some(Value::Bool(false)) => {
+            Some((_, Value::Bool(true))) => {}
+            Some((name, Value::Bool(false))) => {
                 return Err(format!(
-                    "backend capability refused: machine_create.{field} (backend {})",
+                    "backend capability refused: {name} (backend {})",
                     selection.api_origin
                 ));
             }
@@ -152,7 +168,7 @@ pub(crate) async fn resolve(
     let _ = rustls::crypto::ring::default_provider().install_default();
     // Short bounded fetches keep launch responsive; cache or the known-origin
     // fallback covers backend outages without mixing sign-in credentials.
-    let client = reqwest::Client::builder()
+    let client = cmux_egress::client_builder("cmux_cloud_environment::client_config")
         .default_headers(cmux_build_space::headers().map_err(|error| error.to_string())?)
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(2))
@@ -210,8 +226,14 @@ fn cached_or_fallback(
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             // Temporary compatibility only for known deployments. A custom
-            // local API must expose its actual configuration.
-            if matches!(Environment::parse(origin)?, Environment::LocalOrigin(_)) {
+            // local API must expose its actual configuration, and so must a tag
+            // stack: the development table would register the Mac with the shared
+            // mobile service and device hub while the tag's iPhone build, on the
+            // stack's, looks for it there (the launch then has no cloud, and says why).
+            if matches!(
+                Environment::parse(origin)?,
+                Environment::LocalOrigin(_) | Environment::Tailnet(_)
+            ) {
                 return Err(format!("client-config unavailable and no cache for {origin}"));
             }
             selection.config_source = ConfigSource::KnownOriginFallback;
@@ -530,6 +552,36 @@ mod tests {
         check_create_capabilities(&selection, &serde_json::json!({"size_name": "large"})).unwrap();
     }
 
+    #[test]
+    fn a_mac_applied_field_reads_the_backends_create_block() {
+        // Production since cmux-platform #1703: the op takes none of these (`machine_create` false), and the
+        // backend lets the Mac apply them (`create` true). A repo create's bootstrap must pass.
+        let home = Home::new();
+        let resolver = Resolver::new(crate::DEV_BUNDLE, &home.0).unwrap();
+        let mut selection = resolver.resolve(Some("dev")).unwrap();
+        selection.capabilities = serde_json::json!({
+            "machine_create": {"size_name": false, "idle_seconds": false, "name": true, "bootstrap": false,
+                               "machine_config_base64": false},
+            "create": {"size": true, "idlePause": true, "name": true, "bootstrap": true}
+        });
+        let mac_applied = serde_json::json!({"bootstrap": {"kind": "shell"}, "idle_seconds": 0, "size_name": "md"});
+        check_create_capabilities(&selection, &mac_applied).unwrap();
+        // A field the backend's create block does not name still reads machine_create.
+        let config = check_create_capabilities(
+            &selection,
+            &serde_json::json!({"machine_config_base64": "x"}),
+        )
+        .unwrap_err();
+        assert!(
+            config.contains("backend capability refused: machine_create.machine_config_base64")
+        );
+        // A backend that does not let the Mac apply it refuses by its create block's name.
+        selection.capabilities["create"]["bootstrap"] = serde_json::json!(false);
+        let refused = check_create_capabilities(&selection, &serde_json::json!({"bootstrap": "x"}))
+            .unwrap_err();
+        assert!(refused.contains("backend capability refused: create.bootstrap"));
+    }
+
     #[tokio::test]
     async fn check_create_reads_the_backend_only_for_a_field_that_needs_a_capability() {
         // The app runs check-create before every Cloud create, on the create's path. A create that names no
@@ -739,7 +791,7 @@ mod tests {
     }
 
     #[test]
-    fn a_tailnet_launch_fetches_the_stacks_own_services_once_and_an_outage_falls_back_to_dev() {
+    fn a_tailnet_launch_fetches_the_stacks_own_services_once_and_an_outage_never_uses_dev() {
         let stack = "https://cmux-dev-backend-1.tail137216.ts.net:3850";
         let home = Home::new();
         let resolver = Resolver::new("com.cmuxterm.app.debug.cnx-tag", &home.0).unwrap();
@@ -759,10 +811,27 @@ mod tests {
         assert_eq!(launch.config_source, ConfigSource::Cache);
         assert_eq!(launch.mobile_origin, served.configuration.mobile_origin);
         assert_eq!(launch.device_hub_origin, served.configuration.device_hub_origin);
-        // A stack that never answered and left no cache: the development services, as before.
+        // A stack that never answered and left no cache fails closed: the development table would
+        // put the Mac on the shared mobile Worker, where the tag's iPhone never finds it.
         fs::remove_file(&path).unwrap();
-        let fallback = cached_or_fallback(selected, &path, stack).unwrap();
-        assert_eq!(fallback.platform_origin, crate::DEVELOPMENT_PLATFORM);
+        let error = cached_or_fallback(selected, &path, stack).unwrap_err();
+        assert!(error.contains("no cache"), "{error}");
+        // Its public origin too.
+        let public = "https://api.s7.wdev.cmux.dev";
+        let selected = resolver.resolve(Some(public)).unwrap();
+        let path = cache_path(&resolver, public).unwrap();
+        assert!(cached_or_fallback(selected, &path, public).is_err());
+    }
+
+    /// The egress gate (enforced for a DEV app's Rust children) passes a tag stack's tailnet origin:
+    /// refused, the launch's client-config fetch failed and the Mac app ran on the development table.
+    #[test]
+    fn the_egress_gate_passes_a_tailnet_stack() {
+        for origin in
+            ["https://cmux-dev-backend-1.tail137216.ts.net:4693", "https://api.s7.wdev.cmux.dev"]
+        {
+            assert_ne!(cmux_egress::verdict(origin), cmux_egress::Verdict::Unlisted, "{origin}");
+        }
     }
 
     #[tokio::test]

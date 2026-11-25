@@ -20,7 +20,6 @@ export type GapEvent =
   | { kind: "reply"; text?: string; streaming?: boolean }
   | { kind: "steer" }
   | { kind: "message" }
-  | { kind: "plan" }
   | { kind: "width"; px: number }
   | { kind: "scroll"; to: "up" | "down" };
 
@@ -214,19 +213,6 @@ export function playTurn(events: readonly GapEvent[], start = Date.now() - 60_00
           version: ++version,
         });
         break;
-      case "plan":
-        turn.push({
-          id: `plan-${++rowsMade}`,
-          version: ++version,
-          at,
-          kind: "plan",
-          plan: [
-            { content: "Check lanes", status: "completed" },
-            { content: "Land green PRs", status: "in_progress" },
-            { content: "Report", status: "pending" },
-          ],
-        } as AcpmuxRow);
-        break;
       case "width":
         width = event.px;
         break;
@@ -272,7 +258,6 @@ export function randomTurn(seed: number, count: number): GapEvent[] {
     [{ kind: "reply", streaming: false }, 1],
     [{ kind: "message" }, 2],
     [{ kind: "steer" }, 1],
-    [{ kind: "plan" }, 0.3],
   ];
   const total = kinds.reduce((sum, [, weight]) => sum + weight, 0);
   const out: GapEvent[] = [];
