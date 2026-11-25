@@ -585,14 +585,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         }
     }
     /// The pinned slot under a document point (clamped to the grid).
-    private func slotAt(_ p: CGPoint) -> Int {
-        let cols = metrics.columns, tw = metrics.tileWidth, th = metrics.tileHeight
-        let x0 = tileRect(0).minX
-        // no trap on NaN (a zero tile size) or a huge position
-        let c = min(cols - 1, max(0, CrashGuard.int((p.x - x0) / tw, in: CrashGuard.rowRange)))
-        let r = max(0, CrashGuard.int(p.y / th, in: CrashGuard.rowRange))
-        return min(pinnedItems.count - 1, r * cols + c)
-    }
+    private func slotAt(_ p: CGPoint) -> Int { metrics.tileSlot(at: p, count: pinnedItems.count) } // cmux: the centred last row
 
     // MARK: Filter (v1.2)
 
@@ -828,7 +821,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         // cmux: the compact slab, centred on the avatar (`SidebarMetrics.compactSelectionX`).
         return CGRect(x: row.minX + metrics.compactSelectionX, y: row.minY, width: min(row.width, metrics.compactSelectionWidth), height: row.height)
     }
-    func tileRect(_ t: Int) -> CGRect { metrics.tileRect(t) }
+    func tileRect(_ t: Int) -> CGRect { metrics.tileRect(t, count: pinnedItems.count) } // cmux: the centred last row
 
     func hit(_ p: CGPoint) -> Hit? {
         if p.y < pinnedHeight {
