@@ -961,8 +961,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// How long a held prompt has waited with nothing moving: since its hold, the link's last
     /// progress or an upload's last acked byte, whichever is newest.
     private func stalled(_ prompt: HeldPrompt, at instant: ContinuousClock.Instant) -> Duration {
-        let since = [prompt.waitStart, lastProgress, uploadAdvancedAt()].compactMap { $0 }.max() ?? prompt.waitStart
-        return instant - since
+        // Fails-first proof: the old fixed window, progress ignored.
+        return instant - prompt.waitStart
     }
 
     /// The last message's send, which the next one waits for (``send(_:)``).
