@@ -663,7 +663,7 @@ pub async fn serve_attested_link(
         origin,
         auth,
         None,
-        false,
+        super::Transport::Messages,
         crate::sender_harness::SocketPeer::Unknown,
         None,
         None,

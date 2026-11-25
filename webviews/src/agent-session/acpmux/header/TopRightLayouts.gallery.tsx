@@ -5,6 +5,7 @@
 import { createElement } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
+import { FORK_ICON } from "../icons/forkIcon";
 import type { ChatMenuItem } from "./chatHeaderToolsModel";
 import { PanelToggle } from "./PanelToggle";
 import type { TopRightLayout } from "./topRightLayout";
@@ -13,7 +14,7 @@ type Props = Parameters<typeof import("./ChatHeaderTools").ChatHeaderTools>[0];
 
 const menuRows = (): ChatMenuItem[] => [
   { key: "rename", label: "Rename", icon: "action.edit", onSelect: () => undefined },
-  { key: "fork", label: "Fork", icon: "agent.fork", onSelect: () => undefined },
+  { key: "fork", label: "Fork", icon: FORK_ICON, onSelect: () => undefined },
 ];
 
 const base: Props = {

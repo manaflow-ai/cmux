@@ -1,7 +1,9 @@
 import Foundation
 import Testing
 import CmuxHomeCoreTestSupport
+#if canImport(UniformTypeIdentifiers)
 import UniformTypeIdentifiers
+#endif
 @testable import CmuxHomeCore
 
 // Leo, 2026-10-26: "why the FUCK SHOULD THERE BE A FUCKING SIZE CAP ANYWAYS ... I ALREADY SAID WE NEED

@@ -319,6 +319,7 @@ cmux agent wait A B --all --timeout 600 --print  # every named session, print ea
 cmux agent wait NAME --until running             # the prompt was accepted
 cmux agent wait NAME --until done                # turn ended while no client was attached
 cmux agent wait NAME --match "tests pass"        # or --regex; existing text matches at once
+cmux agent session tail NAME --since seen       # recap the records since the reader’s cutover, as JSON lines
 cmux agent session tail NAME --since CURSOR -f   # raw events as JSON lines; cursor = sessionId:seq
 ```
 
@@ -517,13 +518,17 @@ surface, one line each in `acpmux --help`: `race` and `compare` (one task on
 several models), `fork-run` (fork a Cloud machine N ways, keep one), `continue`
 (move a chat to another harness), `briefs` and `task` (tracked work), `watch`
 (wake me when others finish), `inbox` and `deliver` (durable messages, reports),
-`trigger` (wake a Cloud chat on a CI failure or PR comment), `forum`, `bridge`,
+`trigger` (wake a Cloud chat on a CI failure or PR comment), `forum`, `run-ask`
+(run an accepted forum run ask here or through the scheduler), `bridge`,
 `desktop` and `register` (desktop apps), `group` (sidebar
 groups), `account` (sign the Codex, Claude and GitHub accounts in or out, add,
 switch, remove, list; `account readiness` says which still need installing or a
 sign-in), `harness`, `capabilities`,
 `machine-auth`, `hand`, `share-host`, `router`, `web`, `board`, `attach`, `resume-here`,
-`stdio`, `cli-agent`, `uniichat-agent`, and `skill` (this guide).
+`stdio`, `cli-agent`, `uniichat-agent`, `pr-wait` and `ci` (wait on a pull request's checks or a
+workflow run with one shared poller), `scorecard` (tokens and steering per settled pull request),
+`fetch` (one large download over parallel ranges), `channel` (named byte channels to an agent on
+another machine: `channel listen SERVICE`, `channel open PEER SERVICE`), and `skill` (this guide).
 
 ## 8. Output
 
