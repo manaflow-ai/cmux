@@ -2267,6 +2267,11 @@ def main():
             sys.exit(1)
         if m in ("session/new", "session/load", "session/fork"):
             LAST_MCP_SERVERS = params.get("mcpServers")
+# FAKE_MCP_OUT=<dir>: each start writes the servers it was given to <dir>/<pid>.json.
+if os.environ.get("FAKE_MCP_OUT"):
+    os.makedirs(os.environ["FAKE_MCP_OUT"], exist_ok=True)
+    with open(os.path.join(os.environ["FAKE_MCP_OUT"], f"{os.getpid()}.json"), "w") as f:
+        json.dump(LAST_MCP_SERVERS, f)
             LAST_DIRS = params.get("additionalDirectories")
         if m == "session/new" and os.environ.get("FAKE_CLASS_LOG"):
             with open(os.environ["FAKE_CLASS_LOG"], "a") as log:
@@ -2390,6 +2395,9 @@ def main():
                 "_meta": {"steering": {"supported": "1" in (os.environ.get("FAKE_CODEX_STEER"), os.environ.get("FAKE_CLAUDE_STEER"))}},
                 "agentInfo": {"name": os.environ.get("FAKE_AGENT_NAME", "fake"), "version": "0"},
                 "agentCapabilities": {"loadSession": os.environ.get("FAKE_NO_LOAD") != "1", "sessionCapabilities": {} if os.environ.get("FAKE_NO_FORK") == "1" else {"fork": {}},
+                                      # FAKE_MCP_HTTP=1: it takes HTTP MCP servers, as Codex
+                                      # (cmux-codex-acp) and Claude Code do.
+                                      **({"mcpCapabilities": {"http": True, "sse": False}} if os.environ.get("FAKE_MCP_HTTP") == "1" else {}),
                                       # It asks (session/request_permission) before every tool call
                                       # it makes, so it keeps any acpmux policy (acpmux believes it
                                       # only from a harness entry of its config); FAKE_ASK_CLAIM=0
