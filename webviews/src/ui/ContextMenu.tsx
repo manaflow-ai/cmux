@@ -106,7 +106,7 @@ const NATIVE_ROW_PX = 28;
  */
 /// The side the panel opens on: the page's flip applies only to the default "bottom"; a caller's own side stays.
 export function popupSide<S extends string>(callerSide: S, flipped: "top" | "bottom"): S | "top" {
-  return callerSide === "bottom" ? flipped : callerSide;
+  return callerSide === "bottom" ? (flipped as S | "top") : callerSide;
 }
 
 export function opensUp(y: number, rows: number, viewportHeight = window.innerHeight): boolean {
