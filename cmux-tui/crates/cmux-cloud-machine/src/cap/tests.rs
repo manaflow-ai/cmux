@@ -81,6 +81,29 @@ fn the_teams_machine_limit_offers_upgrade_and_never_pause() {
     assert_eq!(wire["machineLimit"], json!({"limit": 20, "used": 20}), "the app reads camelCase");
 }
 
+#[test]
+fn the_teams_hourly_create_limit_says_when_it_frees_up() {
+    let details =
+        json!({"retry_after_ms": 600_000, "limit": 20, "used": 20, "window_ms": 3_600_000});
+    let cap = refusal("cmux.cloud.rate_limited", Some(&details)).unwrap();
+    assert_eq!(
+        cap.create_rate,
+        Some(CreateRate { limit: Some(20), retry_after_ms: Some(600_000) })
+    );
+    assert!(
+        cap.busy.is_empty() && cap.machine_limit.is_none(),
+        "neither Pause nor the machine limit"
+    );
+    assert!(refusal("cloud.rate_limited", Some(&details)).is_some(), "upstream's spelling");
+    assert!(
+        refusal("cloud.rate_limited", Some(&json!({"retry_after_ms": 30_000}))).is_none(),
+        "the per-minute request limit names no window and keeps its own words"
+    );
+    assert!(refusal("cloud.rate_limited", None).is_none());
+    let wire = serde_json::to_value(cap).unwrap();
+    assert_eq!(wire["createRate"], json!({"limit": 20, "retryAfterMs": 600_000}));
+}
+
 fn owned(id: &str, status: Status, user: &str) -> Machine {
     let mut machine = Machine::new(id, status);
     machine.created_by = Some(user.into());
@@ -110,7 +133,7 @@ fn the_classic_card_lists_only_the_persons_own_running_machines() {
     assert!(busy_machines(std::slice::from_ref(&mine), Some("")).is_empty());
     assert_eq!(
         plan(true, true, &[mine], Some("alice")),
-        Cap { busy: Vec::new(), free_plan: true, machine_limit: None }
+        Cap { busy: Vec::new(), free_plan: true, ..Cap::default() }
     );
 }
 

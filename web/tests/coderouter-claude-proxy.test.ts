@@ -667,64 +667,6 @@ describe("claude proxy failover across accounts", () => {
     expect(outcome).toMatchObject({ outcome: "success", attempts: 2, upstreamAccountId: "acct-api-2" });
   });
 
-  // cmux#56154: a spent weekly window rested the account a minute (the unified resets are epoch seconds, which
-  // Date.parse ignored), so it kept answering "You've hit your weekly limit" to the team's Cloud chats.
-  test("a spent weekly window rests the account until its reset and the request moves on", async () => {
-    upstream = apiKeyUpstream;
-    moreAccounts = [secondApiKey];
-    const resetSeconds = Math.floor(Date.now() / 1000) + 3 * 24 * 3600;
-    const responses = [
-      () => new Response("{}", {
-        status: 429,
-        headers: {
-          "retry-after": "60",
-          "anthropic-ratelimit-unified-status": "rejected",
-          "anthropic-ratelimit-unified-representative-claim": "seven_day",
-          "anthropic-ratelimit-unified-5h-reset": String(resetSeconds - 2 * 24 * 3600),
-          "anthropic-ratelimit-unified-7d-reset": String(resetSeconds),
-        },
-      }),
-      () => Response.json({ id: "msg_weekly", model: "claude-sonnet-4-5", usage: { input_tokens: 1, output_tokens: 1 } }),
-    ];
-    upstreamResponse = () => responses.shift()!();
-    const { response } = await routed(messagesRequest({ model: "claude-sonnet-4-5", max_tokens: 8, messages: [{ role: "user", content: "hi" }] }));
-    expect(response.status).toBe(200);
-    expect(fetchCalls).toHaveLength(2);
-    expect(cooldowns).toHaveLength(1);
-    expect(cooldowns[0]).toMatchObject({ accountId: "acct-api-1", failureCode: "usage_limit" });
-    const expected = resetSeconds * 1000 - Date.now();
-    expect(Math.abs(cooldowns[0]!.durationMs - expected)).toBeLessThan(10_000);
-  });
-
-  test("a lone account at its weekly limit answers the refusal at once instead of holding", async () => {
-    upstream = apiKeyUpstream;
-    moreAccounts = [];
-    upstreamResponse = () => new Response('{"type":"error","error":{"type":"rate_limit_error","message":"weekly"}}', {
-      status: 429,
-      headers: { "anthropic-ratelimit-unified-status": "rejected", "anthropic-ratelimit-unified-reset": String(Math.floor(Date.now() / 1000) + 3600) },
-    });
-    const { response } = await routed(messagesRequest({ model: "claude-sonnet-4-5", max_tokens: 8, messages: [{ role: "user", content: "hi" }] }));
-    expect(response.status).toBe(429);
-    expect(response.headers.get("anthropic-ratelimit-unified-status")).toBe("rejected");
-    expect(fetchCalls).toHaveLength(1);
-    expect(cooldowns[0]).toMatchObject({ failureCode: "usage_limit" });
-  });
-
-  test("a request rate limit without a spent window keeps its short rest", async () => {
-    upstream = apiKeyUpstream;
-    moreAccounts = [secondApiKey];
-    const responses = [
-      () => new Response("{}", { status: 429, headers: { "anthropic-ratelimit-unified-status": "allowed", "anthropic-ratelimit-requests-reset": String(Math.floor(Date.now() / 1000) + 30) } }),
-      () => Response.json({ id: "msg_rate", model: "claude-sonnet-4-5", usage: { input_tokens: 1, output_tokens: 1 } }),
-    ];
-    upstreamResponse = () => responses.shift()!();
-    const { response } = await routed(messagesRequest({ model: "claude-sonnet-4-5", max_tokens: 8, messages: [{ role: "user", content: "hi" }] }));
-    expect(response.status).toBe(200);
-    expect(cooldowns[0]).toMatchObject({ accountId: "acct-api-1", failureCode: "rate_limited" });
-    expect(cooldowns[0]!.durationMs).toBeGreaterThan(20_000);
-    expect(cooldowns[0]!.durationMs).toBeLessThanOrEqual(30_000);
-  });
-
   test("fails over retryable Claude 408 and 409 responses", async () => {
     upstream = apiKeyUpstream;
     moreAccounts = [secondApiKey];

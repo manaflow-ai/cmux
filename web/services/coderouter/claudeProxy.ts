@@ -48,7 +48,6 @@ import {
   recordUsageEvent,
 } from "./usageLedger";
 import { usageOriginFromHeaders } from "./usageOrigin";
-import { isNonTransientFailureCode } from "./cooldownWrite";
 import { observeClaudeUsage, observeClaudeUsageCharged, type ClaudeUsage } from "./claudeUsage";
 import {
   currentCoderouterRequestId,
@@ -696,7 +695,7 @@ async function routeRounds(
       cooldown_ms: verdict.cooldownMs,
       status: attempt.kind === "response" ? attempt.response.status : 0,
     }, "warning");
-    lastFailureTransient = !isNonTransientFailureCode(verdict.failureCode);
+    lastFailureTransient = verdict.failureCode !== "invalid_credential";
     lastFailure = {
       upstream,
       stage: verdict.stage,
@@ -951,11 +950,6 @@ function classifyAttempt(attempt: Attempt): Verdict {
   }
   const { status, headers } = attempt.response;
   if (status === 429) {
-    // A spent subscription window (the weekly or 5-hour limit) rests the account until that window resets, so a
-    // team's other accounts serve its Cloud chats meanwhile (cmux#56154: a capped account returned after a minute
-    // and kept answering "You've hit your weekly limit").
-    const usage = usageLimitDelay(headers);
-    if (usage !== null) return { kind: "failover", cooldownMs: usage, failureCode: USAGE_LIMIT_FAILURE_CODE, stage: "upstream_response" };
     return { kind: "failover", cooldownMs: rateLimitDelay(headers), failureCode: "rate_limited", stage: "upstream_response" };
   }
   if (status === 401 || status === 403) {
@@ -979,7 +973,7 @@ function classifyAttempt(attempt: Attempt): Verdict {
 
 /**
  * How long a rate-limited account rests: Anthropic's `retry-after` seconds,
- * else the earliest `anthropic-ratelimit-*-reset` time, else a minute.
+ * else the earliest `anthropic-ratelimit-*-reset` timestamp, else a minute.
  */
 export function rateLimitDelay(headers: Headers, now: Date = new Date()): number {
   const retryAfter = headers.get("retry-after");
@@ -989,62 +983,12 @@ export function rateLimitDelay(headers: Headers, now: Date = new Date()): number
   let soonest: number | null = null;
   headers.forEach((value, name) => {
     if (!name.toLowerCase().startsWith("anthropic-ratelimit-") || !name.toLowerCase().endsWith("-reset")) return;
-    const at = resetTime(value);
-    if (at === null) return;
+    const at = Date.parse(value);
+    if (!Number.isFinite(at)) return;
     const delta = at - now.getTime();
     if (delta > 0 && (soonest === null || delta < soonest)) soonest = delta;
   });
   return soonest ?? DEFAULT_RATE_LIMIT_COOLDOWN_MS;
-}
-
-/** The failure code of an account whose subscription usage window (weekly or 5-hour) is spent. */
-export const USAGE_LIMIT_FAILURE_CODE = "usage_limit";
-
-/** The unified window each `representative-claim` names, by its reset header. */
-const UNIFIED_CLAIM_RESET: Readonly<Record<string, string>> = {
-  five_hour: "anthropic-ratelimit-unified-5h-reset",
-  seven_day: "anthropic-ratelimit-unified-7d-reset",
-  seven_day_opus: "anthropic-ratelimit-unified-7d-reset",
-  seven_day_sonnet: "anthropic-ratelimit-unified-7d-reset",
-};
-
-/**
- * How long an account whose subscription usage window is spent rests: until that window resets. Anthropic marks it
- * `anthropic-ratelimit-unified-status: rejected`, with the reset in `anthropic-ratelimit-unified-reset` or the
- * reset header of the window `anthropic-ratelimit-unified-representative-claim` names (epoch seconds), else the
- * latest unified reset it sent. Null for any other 429 (a request or token rate limit). With no usable reset the
- * account still rests an hour: retrying a spent window every minute only sends the person its refusal again.
- */
-export function usageLimitDelay(headers: Headers, now: Date = new Date()): number | null {
-  if (headers.get("anthropic-ratelimit-unified-status")?.trim().toLowerCase() !== "rejected") return null;
-  const claim = headers.get("anthropic-ratelimit-unified-representative-claim")?.trim().toLowerCase() ?? "";
-  const named = [headers.get("anthropic-ratelimit-unified-reset"), UNIFIED_CLAIM_RESET[claim] ? headers.get(UNIFIED_CLAIM_RESET[claim]!) : null];
-  for (const value of named) {
-    const at = value ? resetTime(value) : null;
-    if (at !== null && at > now.getTime()) return at - now.getTime();
-  }
-  let latest: number | null = null;
-  headers.forEach((value, name) => {
-    const key = name.toLowerCase();
-    if (!key.startsWith("anthropic-ratelimit-unified-") || !key.endsWith("-reset")) return;
-    const at = resetTime(value);
-    if (at !== null && at > now.getTime() && (latest === null || at > latest)) latest = at;
-  });
-  return latest === null ? USAGE_LIMIT_FALLBACK_COOLDOWN_MS : latest - now.getTime();
-}
-
-/** A spent usage window whose reset Anthropic did not say. */
-const USAGE_LIMIT_FALLBACK_COOLDOWN_MS = 60 * 60_000;
-
-/** A reset header's time in ms: epoch seconds (the unified headers), epoch ms, or an RFC 3339 date. */
-function resetTime(value: string): number | null {
-  const trimmed = value.trim();
-  if (/^\d+(\.\d+)?$/.test(trimmed)) {
-    const n = Number(trimmed);
-    return n < 1e11 ? n * 1_000 : n;
-  }
-  const at = Date.parse(trimmed);
-  return Number.isFinite(at) ? at : null;
 }
 
 function authFailureMessage(reason: "missing_route_token" | "invalid_route_token" | "vm_mismatch"): string {

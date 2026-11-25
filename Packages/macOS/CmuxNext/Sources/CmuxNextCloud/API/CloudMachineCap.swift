@@ -59,17 +59,34 @@ public nonisolated struct CloudMachineCap: Equatable, Sendable {
         }
     }
 
+    /// The team made as many machines as it may in an hour (`cloud.rate_limited` with `window_ms`): the card says when
+    /// the next create fits and offers Run on This Mac; neither Pause nor Upgrade frees it (cmux#56154).
+    public struct CreateRate: Equatable, Sendable, Codable {
+        /// The creates an hour the team may make, when the refusal names it.
+        public var limit: Int?
+        /// How long until the next create fits, in ms.
+        public var retryAfterMs: Int?
+
+        public init(limit: Int? = nil, retryAfterMs: Int? = nil) {
+            self.limit = limit
+            self.retryAfterMs = retryAfterMs
+        }
+    }
+
     /// Newest activity first; empty on a free plan.
     public var busy: [Busy]
     /// The plan has no Cloud machines at all: the card offers no pause.
     public var freePlan: Bool
     /// The team is at its machine-count limit: the card offers no pause.
     public var machineLimit: MachineLimit?
+    /// The team is at its hourly create limit: the card offers no pause and no upgrade.
+    public var createRate: CreateRate?
 
-    public init(busy: [Busy] = [], freePlan: Bool = false, machineLimit: MachineLimit? = nil) {
+    public init(busy: [Busy] = [], freePlan: Bool = false, machineLimit: MachineLimit? = nil, createRate: CreateRate? = nil) {
         self.busy = busy
         self.freePlan = freePlan
         self.machineLimit = machineLimit
+        self.createRate = createRate
     }
 
     /// The card as cmux-cloud-machine `cap.rs` answers it.
@@ -77,6 +94,7 @@ public nonisolated struct CloudMachineCap: Equatable, Sendable {
         var busy: [Busy]
         var freePlan: Bool
         var machineLimit: MachineLimit?
+        var createRate: CreateRate?
     }
 
     /// The card for an app-server refusal at the cap (`cmux.cloud.quota_exceeded`, upstream `cloud.quota.exceeded`, its
@@ -86,7 +104,7 @@ public nonisolated struct CloudMachineCap: Equatable, Sendable {
         struct Request: Encodable { var code: String, details: JSONValue? }
         struct Reply: Decodable { var cap: Card? }
         let reply = CloudMachineRules().call("cloud_machine_cap_refusal", Request(code: failure.code, details: failure.details), as: Reply.self)
-        return reply?.cap.map { CloudMachineCap(busy: $0.busy, freePlan: $0.freePlan, machineLimit: $0.machineLimit) }
+        return reply?.cap.map { CloudMachineCap(busy: $0.busy, freePlan: $0.freePlan, machineLimit: $0.machineLimit, createRate: $0.createRate) }
     }
 
     /// The card for a refusal the app read itself (its plan gate, the classic link's 402): `user`'s own live machines,

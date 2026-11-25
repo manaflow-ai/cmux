@@ -17,6 +17,7 @@ public nonisolated struct CloudMachineCapCard {
     /// The card for `cap`; `now` dates each machine's last activity. `freePlanDetail`: the app's upgrade card text
     /// (its plans and prices), which a free plan's card keeps.
     public static func spec(_ cap: CloudMachineCap, now: Date = Date(), freePlanDetail: String? = nil) -> CmuxDialogSpec {
+        if let rate = cap.createRate { return rateSpec(rate) }
         let shown = cap.freePlan || cap.machineLimit != nil ? [] : Array(cap.busy.prefix(pauseButtons))
         let relative = RelativeDateTimeFormatter()
         relative.unitsStyle = .short
@@ -33,6 +34,21 @@ public nonisolated struct CloudMachineCapCard {
                 CmuxDialogButton(id: "runHere", title: Strings.runHere, role: .normal),
                 CmuxDialogButton(id: "upgrade", title: Strings.upgrade, role: .default),
             ],
+            identifier: identifier)
+    }
+
+    /// The hourly create limit's card: when the next create fits, Run on This Mac (the default) and Not Now. Neither
+    /// Pause nor Upgrade frees it, so it offers neither.
+    static func rateSpec(_ rate: CloudMachineCap.CreateRate) -> CmuxDialogSpec {
+        let detail = rate.retryAfterMs.map { ms in
+            let wait = DateComponentsFormatter()
+            wait.unitsStyle = .short
+            wait.allowedUnits = ms >= 3_600_000 ? [.hour, .minute] : ms >= 60_000 ? [.minute] : [.second]
+            return Strings.rateDetail(wait.string(from: max(1, Double(ms) / 1000).rounded(.up)) ?? "")
+        } ?? Strings.rateDetailSoon
+        return CmuxDialogSpec(
+            title: Strings.rateTitle, lines: [detail],
+            buttons: [.cancel(Strings.notNow), CmuxDialogButton(id: "runHere", title: Strings.runHere, role: .default)],
             identifier: identifier)
     }
 
@@ -72,16 +88,27 @@ public nonisolated struct CloudMachineCapCard {
                    table: "Cloud", bundle: .localizedModule)
         }
         static var limitTitle: String {
-            String(localized: "cloud.atCap.limitTitle", defaultValue: "Your team is at its Cloud machine limit", table: "Cloud", bundle: .localizedModule)
+            String(localized: "cloud.atCap.limitTitle", defaultValue: "Cloud machine limit reached", table: "Cloud", bundle: .localizedModule)
         }
         /// The limit's detail: its count when the refusal names it (paused machines count, so pausing frees nothing).
         static func limitDetail(_ limit: CloudMachineCap.MachineLimit) -> String {
             guard let max = limit.limit else {
-                return String(localized: "cloud.atCap.limitDetail", defaultValue: "Paused machines count toward it. Upgrade for more, delete a machine you no longer need, or run this on your Mac.",
+                return String(localized: "cloud.atCap.limitDetail", defaultValue: "Paused machines count. Upgrade for more, delete one, or run this on your Mac.",
                               table: "Cloud", bundle: .localizedModule)
             }
-            return String(format: String(localized: "cloud.atCap.limitDetailCount", defaultValue: "Your team has %1$ld of %2$ld Cloud machines, paused ones included. Upgrade for more, delete a machine you no longer need, or run this on your Mac.",
+            return String(format: String(localized: "cloud.atCap.limitDetailCount", defaultValue: "Your team has %1$ld of %2$ld machines, paused ones included. Upgrade for more, delete one, or run this on your Mac.",
                                          table: "Cloud", bundle: .localizedModule), limit.used ?? max, max)
+        }
+        static var rateTitle: String {
+            String(localized: "cloud.atCap.rateTitle", defaultValue: "Hourly machine limit reached", table: "Cloud", bundle: .localizedModule)
+        }
+        static func rateDetail(_ wait: String) -> String {
+            String(format: String(localized: "cloud.atCap.rateDetail", defaultValue: "Your team can start another Cloud machine in %@. Until then, run this on your Mac.",
+                                  table: "Cloud", bundle: .localizedModule), wait)
+        }
+        static var rateDetailSoon: String {
+            String(localized: "cloud.atCap.rateDetailSoon", defaultValue: "Your team can start another Cloud machine within the hour. Until then, run this on your Mac.",
+                   table: "Cloud", bundle: .localizedModule)
         }
         static var freePlanTitle: String {
             String(localized: "cloud.atCap.freeTitle", defaultValue: "Cloud machines need a paid plan", table: "Cloud", bundle: .localizedModule)

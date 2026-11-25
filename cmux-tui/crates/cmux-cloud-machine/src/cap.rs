@@ -43,6 +43,20 @@ pub struct MachineLimit {
     pub used: Option<u64>,
 }
 
+/// The team made as many machines as it may in an hour (`cloud.rate_limited` with `window_ms`,
+/// cmux-platform's CLOUD_CREATE_PER_HOUR): the card says when the next create fits and offers Run
+/// on This Mac. Neither Pause nor Upgrade frees it, so it offers neither.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateRate {
+    /// The creates an hour the team may make, when the refusal names it.
+    #[serde(default)]
+    pub limit: Option<u64>,
+    /// How long until the oldest create leaves the hour, in ms.
+    #[serde(default)]
+    pub retry_after_ms: Option<u64>,
+}
+
 /// The card.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -54,6 +68,9 @@ pub struct Cap {
     /// The team is at its machine-count limit (paused ones count): Upgrade, never Pause.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub machine_limit: Option<MachineLimit>,
+    /// The team is at its hourly create limit: when it frees up, Run on This Mac.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub create_rate: Option<CreateRate>,
 }
 
 /// The card for an app-server refusal (its `code` and `details`) at a machine limit; None for any
@@ -61,6 +78,8 @@ pub struct Cap {
 ///
 /// - The running cap (`cmux.cloud.quota_exceeded`, upstream `cloud.quota.exceeded`, `resource`
 ///   `active` or unnamed): Pause one of `details.busy`, Upgrade, or Run on This Mac.
+/// - The team's hourly create limit (`cloud.rate_limited` with `window_ms`): when it frees up,
+///   and Run on This Mac (cmux#56154: it read as raw text).
 /// - The team's machine-count limit, paused machines included (`cloud.quota.vm_limit`, the app
 ///   server's `cmux.cloud.vm_limit`, cmux-platform#1192; or a `quota_exceeded` on `machines`,
 ///   every machine held): Pause frees nothing, so the card offers Upgrade and Run on This Mac (cmux#56154: a
@@ -73,6 +92,13 @@ pub fn refusal(code: &str, details: Option<&Value>) -> Option<Cap> {
             used: count("team_vms").or_else(|| count("used")),
         };
         return Some(Cap { machine_limit: Some(limit), ..Cap::default() });
+    }
+    // The hourly create limit names its window; the per-minute request limit (also
+    // `rate_limited`) does not, and keeps its own words: it frees within a minute.
+    if code.ends_with("rate_limited") {
+        details.and_then(|details| details.get("window_ms"))?;
+        let rate = CreateRate { limit: count("limit"), retry_after_ms: count("retry_after_ms") };
+        return Some(Cap { create_rate: Some(rate), ..Cap::default() });
     }
     if !(code.ends_with("quota_exceeded") || code.ends_with("quota.exceeded")) {
         return None;
@@ -117,7 +143,7 @@ pub fn busy_details(details: Option<&Value>) -> Vec<Busy> {
 /// pool refusal, which counts running machines alone, offers Pause (cmux#32710).
 pub fn plan(free_plan: bool, pause_frees: bool, machines: &[Machine], user: Option<&str>) -> Cap {
     let busy = if free_plan || !pause_frees { Vec::new() } else { busy_machines(machines, user) };
-    Cap { busy, free_plan, machine_limit: None }
+    Cap { busy, free_plan, ..Cap::default() }
 }
 
 /// `user`'s own machines that count against the cap (running or on their way, with no change of

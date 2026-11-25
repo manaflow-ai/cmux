@@ -31,7 +31,7 @@ import Testing
         let spec = CloudMachineCapCard.spec(cap)
         #expect(spec.buttons.map(\.id) == ["cancel", "runHere", "upgrade"])
         #expect(spec.buttons.last?.role == .default, "Upgrade is the default button")
-        #expect(spec.title == "Your team is at its Cloud machine limit")
+        #expect(spec.title == "Cloud machine limit reached")
         #expect(spec.lines.count == 1 && spec.lines[0].contains("20 of 20"), "\(spec.lines)")
         let unnamed = CloudMachineCapCard.spec(CloudMachineCap(machineLimit: .init()))
         #expect(unnamed.lines.count == 1 && unnamed.lines[0].hasPrefix("Paused machines count"), "\(unnamed.lines)")
@@ -42,6 +42,25 @@ import Testing
         #expect(CloudMachineCap.refusal(refusal) == CloudMachineCap(machineLimit: .init(limit: 20, used: 20)))
         let held = CloudAppOpFailure(code: "cmux.cloud.quota_exceeded", message: "", details: .object(["resource": .string("machines"), "limit": .number(50), "used": .number(50)]))
         #expect(CloudMachineCap.refusal(held)?.machineLimit == .init(limit: 50, used: 50))
+    }
+
+    /// cmux#56154: the hourly create limit read as raw text; its card says when it frees up and offers Run on This Mac.
+    @Test func theHourlyCreateLimitSaysWhenItFreesUp() {
+        let spec = CloudMachineCapCard.spec(CloudMachineCap(busy: [.init(machine: "vm_a", name: "docs")], createRate: .init(limit: 20, retryAfterMs: 600_000)))
+        #expect(spec.title == "Hourly machine limit reached")
+        #expect(spec.buttons.map(\.id) == ["cancel", "runHere"], "neither Pause nor Upgrade frees the hour")
+        #expect(spec.buttons.last?.role == .default)
+        #expect(spec.lines.count == 1 && spec.lines[0].contains("10"), "\(spec.lines)")
+        let soon = CloudMachineCapCard.spec(CloudMachineCap(createRate: .init()))
+        #expect(soon.lines == ["Your team can start another Cloud machine within the hour. Until then, run this on your Mac."])
+    }
+
+    @Test func theHourlyCreateLimitRefusalReadsAsItsCard() {
+        let details: JSONValue = .object(["retry_after_ms": .number(600_000), "limit": .number(20), "used": .number(20), "window_ms": .number(3_600_000)])
+        let refusal = CloudAppOpFailure(code: "cmux.cloud.rate_limited", message: "too many machine creates", details: details)
+        #expect(CloudMachineCap.refusal(refusal)?.createRate == .init(limit: 20, retryAfterMs: 600_000))
+        let perMinute = CloudAppOpFailure(code: "cmux.cloud.rate_limited", message: "", details: .object(["retry_after_ms": .number(30_000)]))
+        #expect(CloudMachineCap.refusal(perMinute) == nil, "the per-minute limit keeps its own words")
     }
 
     @Test func theAnswerNamesTheChoice() {
