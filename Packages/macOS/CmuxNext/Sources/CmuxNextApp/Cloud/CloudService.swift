@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextApps
 import CmuxNextCloud
 import CmuxNextCloudCredentials
+import CmuxNextCloudPlace
 import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextControl
@@ -127,6 +128,10 @@ final class CloudService {
     @ObservationIgnored let moveRetries = CloudMoveRetries(key: "cmux.cloud.moveRetries")
     /// What Retry does for each machine chat whose Bring Back Local stopped, by its tab there.
     @ObservationIgnored let bringBackRetries = CloudMoveRetries(key: "cmux.cloud.bringBackRetries")
+    /// Where each chat runs, its place mode and its move's progress (``CloudPlaceFlows``).
+    @ObservationIgnored let place = CloudPlaceFlows()
+    /// Reads this computer's signals for Auto and runs its moves (started once, with the move actions).
+    @ObservationIgnored var placeDriver: CloudPlaceDriver?
     /// The chats moved from this Mac, for Bring Back Local.
     @ObservationIgnored let movedChats = CloudMovedChats()
     /// Agents' asks to move their chats, and the cards they raise in chats.
@@ -333,7 +338,14 @@ final class CloudService {
         // machines while the lid was closed. acpmux is told of the wake too, for its Auto chats.
         observers.append(Task { [weak self] in
             for await _ in NSWorkspace.shared.notificationCenter.notifications(named: NSWorkspace.didWakeNotification) {
+                self?.placeDriver?.slept(false)
                 await AcpmuxEnvironment.relaySystemWake(build: LaunchIdentity.current().build) { await self?.refresh(ifOlderThan: .seconds(30)) }
+            }
+        })
+        // Auto starts its moves as the system is about to sleep.
+        observers.append(Task { [weak self] in
+            for await _ in NSWorkspace.shared.notificationCenter.notifications(named: NSWorkspace.willSleepNotification) {
+                self?.placeDriver?.slept(true)
             }
         })
         // A sign-out or a team switch (the user signed in may stay) ends start-session asks and
