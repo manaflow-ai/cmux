@@ -2513,12 +2513,26 @@ mark {
   height: var(--ds-space-4);
 }
 
+/* A row's title takes the row's whole width at rest: its buttons show only on hover, so they lie
+   over the title's end instead of holding a slot (Leo, 2026-11-24: "if the buttons show on hover,
+   then we should show the whole line before ellipsis-ing. and when the area is hovered over,
+   there's that whatever some amount of good fading that makes it all feel like one motion";
+   "you're early ellipsis-ing because of a button that doesnt even always show"). The title is a
+   .ui-reveal-text (ui/motion/motion.css): its end fades, not an ellipsis, and fades under the
+   buttons while they show. The row is the host (data-reveal-overlap: a chevron or badge may follow
+   a short title, and gives way under the buttons). */
 .menu-row-title {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.menu-row-body {
+  position: relative;
+}
+
+/* A drag shows no buttons, so the title's end shows whole. */
+.menu-preview[data-reordering] .menu-row-body .ui-reveal-text {
+  --ui-reveal-cover: 0px;
 }
 
 button.menu-disclosure {
@@ -2535,6 +2549,11 @@ button.menu-disclosure {
 }
 
 .menu-row-actions {
+  position: absolute;
+  inset-inline-end: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1;
   display: inline-flex;
   opacity: 0;
   transition: var(--cmux-hover-reveal-out-transition);
@@ -2550,6 +2569,13 @@ button.menu-disclosure {
 /* It follows the pointer's dwell (pages/shared/desktop.css --cmux-hover-reveal-*): in for as long as the pointer stays, out a little faster, at once from the keyboard. */
 .menu-row:has(:focus-visible) .menu-row-actions {
   transition: none;
+}
+
+/* Renaming a submenu puts its field where the title was; the buttons then take their place beside it
+   (only in that state). */
+.menu-row-body:has(.menu-rename) .menu-row-actions {
+  position: static;
+  transform: none;
 }
 
 .menu-separator .menu-separator-line {
@@ -3021,6 +3047,18 @@ button.menu-disclosure {
 }
 
 .library-beaten {
+  color: var(--ds-color-attention);
+}
+
+/* A PR entry's lines (`cmux customize use pr:N`): what it cannot carry wraps as one muted sentence
+   each, and the last refresh's note keeps the attention color while the entry is off (it says why
+   it turned off) and reads muted while it is on. */
+.library-needs-build,
+.library-note {
+  overflow-wrap: anywhere;
+}
+
+[data-library-code]:not([data-on]) .library-note {
   color: var(--ds-color-attention);
 }
 
@@ -3776,6 +3814,27 @@ button.menu-disclosure {
   list-style: none;
 }
 
+/* Updates > App Update's Go Back to Previous Build (PreviousBuildRow). `line`: an inline link-weight
+   button after the sentence; `panel`: the build in a box of its own. */
+.previous-build-line .previous-build-link {
+  min-height: 0;
+  padding: 0 var(--ds-space-1);
+  vertical-align: baseline;
+  color: var(--accent-text);
+  background: transparent;
+}
+
+.previous-build-panel .previous-build-box {
+  padding: var(--ds-space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-md);
+  background: var(--input-bg);
+}
+
+.previous-build-version {
+  font-variant-numeric: tabular-nums;
+}
+
 /* Settings > General's Customize cmux card (CustomizeProgressCard): progress, then the steps left, each
  * with a check and an Open link to where it is done. */
 .customize-progress {
@@ -3872,7 +3931,6 @@ button.menu-disclosure {
   inset: 0;
   margin: 0;
   opacity: 0;
-  cursor: pointer;
 }
 
 .customize-progress__check input:disabled {

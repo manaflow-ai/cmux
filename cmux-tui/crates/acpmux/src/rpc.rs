@@ -629,6 +629,8 @@ pub mod method {
     pub const MUX_TEAM_INBOX: &str = "_acpmux/team/inbox";
     pub const MUX_TEAM_READ: &str = "_acpmux/team/read";
     pub const MUX_TEAM_ACK: &str = "_acpmux/team/ack";
+    /// Open, list and close a listen on another member's agent address, and read what it receives.
+    pub const MUX_TEAM_LISTEN: &str = "_acpmux/team/listen";
     /// An image a session's prompt sent, by its id (`hub/prompt_images.rs`).
     pub const MUX_ATTACHMENT: &str = "_acpmux/attachment";
     /// A turn's before and after picture of the chat's page (`hub/turn_shots.rs`).
@@ -958,6 +960,15 @@ pub mod method {
     pub const MUX_SECRET_REQUEST: &str = "_acpmux/secret_request";
     pub const MUX_SECRET_SUBMIT: &str = "_acpmux/secret_submit";
     pub const MUX_SECRET_RUN: &str = "_acpmux/secret_run";
+    /// Secrets for one chat only (`chat_secrets.rs`): the person's connection sets them,
+    /// `{sessionId, secrets: {NAME: value}, ttlSeconds?}` -> `{sessionId, names, applied}`; its
+    /// agent restarts on them. Held in memory only, never written, never answered back.
+    pub const MUX_CHAT_SECRETS_SET: &str = "_acpmux/chat_secrets_set";
+    /// Drops a chat's secrets: `{sessionId}` -> `{sessionId, cleared, applied}`; the person's.
+    pub const MUX_CHAT_SECRETS_CLEAR: &str = "_acpmux/chat_secrets_clear";
+    /// A chat's secret names and seconds left, never a value: `{sessionId}` ->
+    /// `{sessionId, secrets: [{name, expiresInSeconds}]}`.
+    pub const MUX_CHAT_SECRETS_LIST: &str = "_acpmux/chat_secrets_list";
     /// An agent asks to run one command as root (`hub/elevation.rs`); the person's card
     /// answers with `secret_submit`, the password, and the daemon runs sudo itself.
     pub const MUX_ELEVATION_REQUEST: &str = "_acpmux/elevation_request";
@@ -1056,6 +1067,10 @@ pub mod method {
     /// Auto mode for one chat (`auto_session/surface.rs`): `{sessionId, auto, keepInCloud?}` ->
     /// `{autoSession}`, the chat's row field after the switch.
     pub const MUX_AUTO_SESSION_SET: &str = "_acpmux/auto_session/set";
+    /// Move one chat between Local, Cloud and AutoCloud (`chat_place.rs`): `{sessionId, on,
+    /// reason?}` -> `{status: moved|already|needs_person, from, to, autoSession?, command?, why?}`.
+    /// The person may make any move; a chat's own agent only the ones `chat_place::consent` allows.
+    pub const MUX_CHAT_MOVE: &str = "_acpmux/chat_move";
     /// The changes kept aside when the Cloud took a chat: `{sessionId, action}` with `show` ->
     /// `{files, patch?}`, `apply` or `discard` -> `{autoSession}`.
     pub const MUX_AUTO_SESSION_LEFTOVER: &str = "_acpmux/auto_session/leftover";
