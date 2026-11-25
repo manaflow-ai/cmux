@@ -52,7 +52,7 @@ fn var(name: &str) -> Option<String> {
 pub fn layout_env() -> LayoutEnv {
     let home = if cfg!(windows) { var("USERPROFILE") } else { var("HOME") };
     LayoutEnv {
-        home,
+        home: home.clone(),
         xdg_data_home: var("XDG_DATA_HOME"),
         xdg_state_home: var("XDG_STATE_HOME"),
         xdg_config_home: var("XDG_CONFIG_HOME"),
@@ -62,6 +62,10 @@ pub fn layout_env() -> LayoutEnv {
         program_files: var("ProgramFiles"),
         mac_app_bundle: var("CMUX_SERVER_APP_BUNDLE"),
         uid: cfg!(unix).then(sys::uid),
+        mac_legacy_install: cfg!(target_os = "macos")
+            && home.as_deref().is_some_and(|home| {
+                layout::macos_user_keeps_legacy_layout(std::path::Path::new(home))
+            }),
     }
 }
 

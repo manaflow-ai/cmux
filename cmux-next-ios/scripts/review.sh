@@ -350,7 +350,8 @@ fleet_submit_mac() {
   ref="$(mac_build_ref)"
   # The base's build: any tag's equal build answers at once (--any-tag), and swap-first never stands in for it.
   [[ "$ref" == "$SHA" ]] || reuse=(--any-tag --build)
-  out="$(cmux_ci build cmux --ref "$ref" "${reuse[@]}" --tag "$SLUG" --workspace "$WORKSPACE" --backend-mode local)" ||
+  # ${reuse[@]+...}: macOS's /bin/bash 3.2 (what `env bash` finds) calls an empty array unbound under set -u.
+  out="$(cmux_ci build cmux --ref "$ref" ${reuse[@]+"${reuse[@]}"} --tag "$SLUG" --workspace "$WORKSPACE" --backend-mode local)" ||
     { REPORT_MAC="BLOCKED: cmux-ci build cmux was refused"; return 1; }
   MAC_JOB="$(printf '%s' "$out" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')" ||
     { REPORT_MAC="BLOCKED: cmux-ci build cmux printed no job id"; return 1; }

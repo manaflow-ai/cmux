@@ -11,7 +11,30 @@ public struct CloudMoveStrings {
     public static func moved(_ machine: String) -> String {
         String(format: String(localized: "cloud.move.moved", defaultValue: "This chat now runs on %@.", table: "Cloud", bundle: .localizedModule), machine)
     }
+    /// This chat's own Cloud VM could not start; `cause` is Rust's (`signIn`, `planLimit`, `capacity`, `offline`), none when not known.
+    /// Each chat has its own VM, so this never says a shared pool had none free.
+    public static func vmCouldNotStart(cause: String?) -> String {
+        switch cause {
+        case "signIn": String(localized: "cloud.move.vmCouldNotStart.signIn", defaultValue: "Its Cloud VM could not start: sign in to cmux Cloud first.", table: "Cloud", bundle: .localizedModule)
+        case "planLimit": String(localized: "cloud.move.vmCouldNotStart.planLimit", defaultValue: "Its Cloud VM could not start: your plan's limit of Cloud machines is reached.", table: "Cloud", bundle: .localizedModule)
+        case "capacity": String(localized: "cloud.move.vmCouldNotStart.capacity", defaultValue: "Its Cloud VM could not start: Cloud has no capacity for it right now. Try again in a moment.", table: "Cloud", bundle: .localizedModule)
+        case "offline": String(localized: "cloud.move.vmCouldNotStart.offline", defaultValue: "Its Cloud VM could not start: this Mac could not reach Cloud.", table: "Cloud", bundle: .localizedModule)
+        default: String(localized: "cloud.move.vmCouldNotStart", defaultValue: "Its Cloud VM could not start.", table: "Cloud", bundle: .localizedModule)
+        }
+    }
     public static var retry: String { String(localized: "cloud.move.retry", defaultValue: "Retry", table: "Cloud", bundle: .localizedModule) }
+    /// An agent's or a socket's run of a chat place action (Local, Cloud, Auto, Evacuate, Bring Back All, Cancel, Retry).
+    public static var placeIsPersons: String {
+        String(localized: "cloud.place.personOnly", defaultValue: "Only you can move chats between this Mac and Cloud, with a click in cmux.", table: "Cloud", bundle: .localizedModule)
+    }
+    /// A second Evacuate or Bring Back All while one runs.
+    public static var bulkRunning: String {
+        String(localized: "cloud.place.bulkRunning", defaultValue: "Chats are already moving. Wait for that to finish, or cancel it.", table: "Cloud", bundle: .localizedModule)
+    }
+    /// An Evacuate or Bring Back All's chats that never started because the Cloud account or team changed under it.
+    public static var identityChanged: String {
+        String(localized: "cloud.place.identityChanged", defaultValue: "Not moved: the Cloud account or team changed after this started.", table: "Cloud", bundle: .localizedModule)
+    }
     public static var notAChat: String {
         String(localized: "cloud.move.notAChat", defaultValue: "Move to Cloud works on a chat tab.", table: "Cloud", bundle: .localizedModule)
     }

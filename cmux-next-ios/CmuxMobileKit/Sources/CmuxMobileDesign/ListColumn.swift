@@ -56,6 +56,22 @@ public struct CmuxMobileListColumn: Equatable, Sendable {
     }
 }
 
+/// A plain list row's geometry (Workspaces), in one place: the real rows and the
+/// placeholder rows standing in for them both read it, so the placeholder cannot
+/// drift from the rows it stands for (Leo, 2026-11-24: "i noticed the skeleton
+/// for this was a bit off on ios"; it was off because each kept its own copy).
+public enum CmuxMobileListRowMetrics {
+    /// A row's insets in its cell.
+    public static let insets = EdgeInsets(top: 10, leading: 0, bottom: 10, trailing: 20)
+    /// Between the title line and the status line.
+    public static let lineSpacing: CGFloat = 3
+    /// The text block's least height with its status line, and without.
+    public static let minHeight: CGFloat = 40
+    public static let compactMinHeight: CGFloat = 32
+    /// The hairline ends this far from the trailing edge.
+    public static let separatorTrailing: CGFloat = 16
+}
+
 /// Which list family a header, footer or label sits in.
 public enum CmuxMobileListKind: Sendable {
     /// `.plain` lists whose rows start at the screen edge (Workspaces).

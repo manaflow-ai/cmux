@@ -251,6 +251,9 @@ pub struct Catalog {
     pub defaults: Vec<String>,
     /// Packages that failed validation: (directory, first issue).
     pub rejected: Vec<(PathBuf, String)>,
+    /// Where each app installed from a git repository came from
+    /// (`git_source.rs`), by app id.
+    pub git: BTreeMap<String, super::git_source::GitSource>,
     /// The setups' views layers that loaded, top first (`Sources::setups`).
     pub setup_layers: Vec<String>,
 }
@@ -275,7 +278,7 @@ pub struct Sources {
     pub local: Option<PathBuf>,
     /// The user's own customization app (cx-swovq.1): one package folder,
     /// `$CMUX_CUSTOMIZE_DIR`, else `$XDG_CONFIG_HOME/cmux/customize`, else
-    /// `~/.config/cmux/customize`. Its id is `local/customize`; it installs
+    /// `~/.config/cmux/customize` (`cmux-next` on macOS). Its id is `local/customize`; it installs
     /// by itself with its required scopes (the user wrote it) and reloads
     /// when its files change (`local_reload.rs`).
     pub customize: Option<PathBuf>,
@@ -287,8 +290,8 @@ pub struct Sources {
     pub setups: Option<PathBuf>,
     /// The person's saved prompts (`cmux agent-config commands add --agent cmux`): one `NAME.md`
     /// each, `$CMUX_COMMANDS_DIR`, else `$XDG_CONFIG_HOME/cmux/commands`, else
-    /// `~/.config/cmux/commands`. `apps.composer.list` answers them first, so the composer's `/`
-    /// menu lists them in every chat (`composer.rs`).
+    /// `~/.config/cmux/commands` (`cmux-next` on macOS). `apps.composer.list` answers them
+    /// first, so the composer's `/` menu lists them in every chat (`composer.rs`).
     pub saved_prompts: Option<PathBuf>,
     /// `CMUX_APPS_DEFAULT` (comma separated): replaces the first-party
     /// directory as the default set when present.
@@ -338,7 +341,7 @@ pub fn customize_dir() -> Option<PathBuf> {
     }
     let config =
         non_empty("XDG_CONFIG_HOME").or_else(|| non_empty("HOME").map(|h| h.join(".config")))?;
-    Some(config.join("cmux").join("customize"))
+    Some(config.join(cmux_config::NEXT_DIR).join("customize"))
 }
 
 /// The setups' layers folder (`Sources::setups`): `setups` next to the
@@ -410,11 +413,13 @@ fn setup_layers(root: &Path) -> (Layers, Refused) {
 pub const CUSTOMIZE_APP: &str = "local/customize";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum DirKind {
+pub(super) enum DirKind {
     FirstParty,
     Bundled,
     Extra,
     Local,
+    /// A package fetched from a git repository (`<state>/apps/git`).
+    Git,
 }
 
 pub fn load(sources: &Sources) -> Catalog {
@@ -495,6 +500,7 @@ pub fn load_reusing(sources: &Sources, reuse: &Reuse<'_>, listed: &Listed<'_>) -
             }
         }
     }
+    super::git_source::load_into(&mut catalog, sources);
     if let Some(dir) = sources
         .customize
         .as_ref()
@@ -593,7 +599,7 @@ pub(super) mod work {
     }
 }
 
-fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
+pub(super) fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
     #[cfg(test)]
     work::count(|w| w.packages_validated += 1);
     let report = cmux_app_manifest::validate_package_file(
@@ -641,7 +647,9 @@ fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
     } else {
         Tier::Unverified
     };
-    let source = if kind == DirKind::Local || publisher == "local" {
+    let source = if kind == DirKind::Git {
+        Source::Git
+    } else if kind == DirKind::Local || publisher == "local" {
         Source::Local
     } else {
         Source::Bundled

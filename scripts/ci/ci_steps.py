@@ -29,11 +29,27 @@ A step's `inputs` are path globs (`**` crosses `/`, `*` and `?` do not). A chang
 step when it touches one of them; a step with no inputs, an unknown change, and a change to
 the pipeline itself (PIPELINE_PATHS: the table, this runner, the entry, the workflow) route it
 always.
+
+Step results by input hash (the CI v2 design, "Caches: three, content-addressed", item 3). Before a
+routed step runs, `run` keys it: sha256 over the step's own table entry, the job's setup and the
+tools it needs, this runner, its entry and the workflow, the machine kind (RUNNER_OS, RUNNER_ARCH,
+ImageOS, DEVELOPER_DIR), every tracked file of the checkout its `inputs` match (path, mode, blob
+id; a step with no inputs keys on the whole tree) and the changed paths its inputs match. It asks the
+fleet controller (GET /v1/ci/step-results) for a pass under that key; a pass is reported as the step's
+result ("reused", with the run that passed it) and the step does not run. When every routed step is
+reused the job's setup and tools do not run either. A step that passes posts its result under its key
+(POST); a fork's pull request never writes. AUDIT_PERCENT of hits run anyway and post their outcome:
+a fail evicts the key on the controller, and the step's real result is the job's. The key is never
+weaker than routing: the runner already skips a step whose inputs a change does not touch, which
+trusts the same `inputs` with the same tree. Steps that read the event (the advisory job, a step with
+`labels`, a run that names one of EVENT_VARS) or set `reuse = false` always run. Any controller error
+is a miss. Off: CI_STEP_RESULTS=off; controller: CI_STEP_RESULTS_URL (default the fleet's).
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -44,6 +60,9 @@ import tempfile
 import threading
 import time
 import tomllib
+import urllib.error
+import urllib.parse
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -55,6 +74,16 @@ SETUP_TIMEOUT = 600
 # Each `[tools]` command, all started together after the setup: a download and a checksum, not a build.
 TOOL_TIMEOUT = 180
 # The pipeline's own definition: a change to any of them routes every step, so the change runs what it moved.
+CONTROLLER = "http://100.89.225.106:18765"
+STEP_KEY_VERSION = 1
+AUDIT_PERCENT = 5
+# A run that reads one of these depends on the event, not only on the tree: it is never reused.
+EVENT_VARS = (
+    "PR", "HEAD_SHA", "BODY", "MERGE_SHA", "BASE_SHA", "PATHS_LISTED", "HEAD_REF", "BASE_REF", "LABELS", "URL",
+    "TREE_LISTED", "CAPTURE_LISTED", "TITLE", "GITHUB_EVENT_PATH", "DELETIONS", "ADDITIONS", "REPOSITORY",
+    "GITHUB_ENV", "GITHUB_PATH", "GITHUB_OUTPUT", "SERVER", "FEED_URL", "GITHUB_SHA", "GITHUB_RUN_ID",
+)
+MACHINE_VARS = ("RUNNER_OS", "RUNNER_ARCH", "ImageOS", "DEVELOPER_DIR")
 PIPELINE_PATHS = ("ci/steps.toml", "ci/run", "scripts/ci/ci_steps.py", ".github/workflows/pr-pipeline.yml")
 ADVISORY_JOB = "advisory"
 LOG_LOCK = threading.Lock()
@@ -73,12 +102,16 @@ class Step:
     blocks: bool = True
     klass: str = "pr"
     inputs: tuple[str, ...] = ()
+    # Globs a path of `inputs` may still match and route nothing (notes beside the code a step builds); a later
+    # `!glob` takes a path back, as in a workflow's `paths` (the last glob that matches decides).
+    ignore: tuple[str, ...] = ()
     labels: tuple[str, ...] = ()
     timeout: int = 600
     title: str = ""
     about: str = ""
     needs: tuple[str, ...] = ()
     alone: bool = False
+    reuse: bool = True
 
 
 @dataclass
@@ -144,12 +177,14 @@ def parse(doc: dict) -> Table:
             blocks=raw.get("blocks", True),
             klass=raw.get("class", "pr"),
             inputs=tuple(raw.get("inputs", ())),
+            ignore=tuple(raw.get("ignore", ())),
             labels=tuple(raw.get("labels", ())),
             timeout=raw.get("timeout", 600),
             title=raw.get("title", ""),
             about=raw.get("about", ""),
             needs=tuple(raw.get("needs", ())),
             alone=raw.get("alone", False),
+            reuse=raw.get("reuse", True),
         )
         if step.job not in jobs:
             raise TableError(f"step {name}: job {step.job!r} is not one of [jobs] {sorted(jobs)}")
@@ -157,6 +192,8 @@ def parse(doc: dict) -> Table:
             raise TableError(f"step {name}: `blocks` is true or false")
         if not isinstance(step.alone, bool):
             raise TableError(f"step {name}: `alone` is true or false")
+        if not isinstance(step.reuse, bool):
+            raise TableError(f"step {name}: `reuse` is true or false")
         if step.klass not in CLASSES:
             raise TableError(f"step {name}: class {step.klass!r} is not one of {CLASSES}")
         if not step.blocks and (step.job != ADVISORY_JOB or step.klass != "idle"):
@@ -169,6 +206,9 @@ def parse(doc: dict) -> Table:
             raise TableError(f"step {name}: `timeout` is a positive number of seconds")
         if not all(isinstance(g, str) and g and not g.startswith(("/", "!")) for g in step.inputs):
             raise TableError(f"step {name}: `inputs` are repo-relative path globs")
+        if not all(isinstance(g, str) and g.lstrip("!") and not g.lstrip("!").startswith("/") for g in step.ignore) or (
+                step.ignore and (not step.inputs or step.ignore[0].startswith("!"))):
+            raise TableError(f"step {name}: `ignore` holds repo-relative path globs, beside `inputs`")
         steps[name] = step
     return Table(jobs=dict(jobs), steps=steps, setup=dict(setup), tools=dict(tools))
 
@@ -182,7 +222,12 @@ def routed(step: Step, paths: list[str] | None) -> bool:
     if not step.inputs or paths is None or any(p in PIPELINE_PATHS for p in paths):
         return True
     patterns = [glob_pattern(g) for g in step.inputs]
-    return any(p.match(path) for path in paths for p in patterns)
+    ignored = [(g.startswith("!"), glob_pattern(g.lstrip("!"))) for g in reversed(step.ignore)]
+
+    def kept(path: str) -> bool:
+        return next((back for back, i in ignored if i.match(path)), True)
+
+    return any(p.match(path) and kept(path) for path in paths for p in patterns)
 
 
 def route(table: Table, paths: list[str] | None, label: str | None = None) -> dict[str, list[str]]:
@@ -201,10 +246,127 @@ class Result:
     code: int | None  # None: ran past its timeout
     seconds: float
     output: str
+    reused: str = ""  # the run whose pass this step reused; empty when it ran
 
     @property
     def ok(self) -> bool:
         return self.code == 0
+
+
+def reusable(step: Step) -> bool:
+    """Whether the step's result is a function of the tree alone (see the module's "Step results")."""
+    if not step.reuse or step.job == ADVISORY_JOB or step.labels or not step.blocks:
+        return False
+    return not any(re.search(r"\$\{?" + var + r"\b", step.run) for var in EVENT_VARS)
+
+
+def tracked_files(root: Path) -> list[tuple[str, str, str]] | None:
+    """(path, mode, object id) of every tracked path of the checkout's HEAD; None when git cannot say."""
+    try:
+        out = subprocess.run(["git", "ls-tree", "-r", "-z", "--full-tree", "HEAD"], cwd=root, capture_output=True,
+                             timeout=60, check=True).stdout.decode("utf-8", "surrogateescape")
+    except (OSError, subprocess.SubprocessError):
+        return None
+    files = []
+    for entry in out.split("\0"):
+        if not entry:
+            continue
+        meta, _, path = entry.partition("\t")
+        mode, _kind, oid = meta.split(" ", 2)
+        files.append((path, mode, oid))
+    return files
+
+
+def head_tree(root: Path) -> str | None:
+    try:
+        return subprocess.run(["git", "rev-parse", "HEAD^{tree}"], cwd=root, capture_output=True, text=True,
+                              timeout=30, check=True).stdout.strip() or None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def step_key(step: Step, table: Table, files: list[tuple[str, str, str]], tree: str, paths: list[str] | None,
+             env: dict[str, str]) -> str:
+    """The step's input hash: what it runs, where, and every tracked file its inputs match."""
+    oids = {path: oid for path, _mode, oid in files}
+    if step.inputs:
+        pattern = re.compile("|".join(f"(?:{glob_pattern(g).pattern})" for g in step.inputs))
+        matched: list | str = [[path, mode, oid] for path, mode, oid in files if pattern.match(path)]
+        changed = None if paths is None else sorted(p for p in paths if pattern.match(p))
+    else:
+        matched = tree
+        changed = None if paths is None else sorted(paths)
+    doc = {
+        "v": STEP_KEY_VERSION,
+        "step": {f: getattr(step, f) for f in Step.__dataclass_fields__ if f not in ("title", "about")},
+        "setup": table.setup.get(step.job, ""),
+        "tools": {t: table.tools[t] for t in sorted(step.needs)},
+        "pipeline": {p: oids.get(p, "") for p in PIPELINE_PATHS if p != "ci/steps.toml"},
+        "machine": {v: env.get(v, "") for v in MACHINE_VARS},
+        "files": matched,
+        "changed": changed,
+    }
+    raw = json.dumps(doc, sort_keys=True, separators=(",", ":"), default=list)
+    return hashlib.sha256(raw.encode("utf-8", "surrogateescape")).hexdigest()
+
+
+class StepResults:
+    """The fleet controller's step-result store. Every error is a miss and a write that did not happen."""
+
+    def __init__(self, url: str, write: bool, meta: dict[str, str], timeout: float = 4.0) -> None:
+        self.url = url.rstrip("/") + "/v1/ci/step-results"
+        self.write = write
+        self.meta = meta
+        self.timeout = timeout
+
+    @classmethod
+    def from_env(cls, env: dict[str, str]) -> "StepResults | None":
+        if env.get("CI_STEP_RESULTS", "").lower() in ("off", "0", "false") or env.get("GITHUB_ACTIONS") != "true":
+            return None
+        if env.get("RUNNER_ENVIRONMENT") == "github-hosted":
+            return None  # a GitHub VM is not on the tailnet: every lookup would wait to fail
+        write = True
+        if env.get("GITHUB_EVENT_NAME", "").startswith("pull_request"):
+            try:
+                event = json.loads(Path(env.get("GITHUB_EVENT_PATH", "")).read_text(encoding="utf-8"))
+                head_repo = event["pull_request"]["head"]["repo"]["full_name"]
+            except (OSError, ValueError, KeyError, TypeError):
+                head_repo = ""
+            write = head_repo == env.get("GITHUB_REPOSITORY")  # a fork's pull request reads, never writes
+        server = env.get("GITHUB_SERVER_URL", "https://github.com")
+        run_url = f"{server}/{env.get('GITHUB_REPOSITORY', '')}/actions/runs/{env.get('GITHUB_RUN_ID', '')}"
+        if env.get("GITHUB_RUN_ATTEMPT"):
+            run_url += f"/attempts/{env['GITHUB_RUN_ATTEMPT']}"
+        meta = {"repo": env.get("GITHUB_REPOSITORY", ""), "sha": env.get("GITHUB_SHA", ""), "run_url": run_url,
+                "runner": env.get("RUNNER_NAME", "")}
+        return cls(env.get("CI_STEP_RESULTS_URL") or CONTROLLER, write, meta)
+
+    def lookup(self, key: str, step: str, audit: bool = False) -> dict | None:
+        query = urllib.parse.urlencode({"key": key, "step": step, **({"audit": "1"} if audit else {})})
+        try:
+            with urllib.request.urlopen(f"{self.url}?{query}", timeout=self.timeout) as resp:
+                found = json.loads(resp.read())
+        except (OSError, ValueError, urllib.error.URLError):
+            return None
+        return found if isinstance(found, dict) and found.get("key") == key else None
+
+    def post(self, key: str, step: str, outcome: str, seconds: float, audit: bool = False) -> None:
+        if not self.write:
+            return
+        body = json.dumps({"key": key, "step": step, "outcome": outcome, "seconds": round(seconds, 1),
+                           "audit": audit, **self.meta}).encode()
+        req = urllib.request.Request(self.url, data=body, method="POST",
+                                     headers={"Content-Type": "application/json"})
+        try:
+            urllib.request.urlopen(req, timeout=self.timeout).close()
+        except (OSError, urllib.error.URLError):
+            pass
+
+
+def audited(key: str, env: dict[str, str]) -> bool:
+    """AUDIT_PERCENT of hits run anyway, seeded by the key and the run so a rerun does not re-roll it."""
+    seed = f"{key}:{env.get('GITHUB_RUN_ID', '')}".encode()
+    return int(hashlib.sha256(seed).hexdigest()[:8], 16) % 100 < AUDIT_PERCENT
 
 
 def run_step(step: Step, env: dict[str, str] | None = None) -> Result:
@@ -242,7 +404,7 @@ def report(results: list[Result], job: str, out=sys.stdout, logs: bool = True) -
     for r in results:
         if logs:
             print_log(r, out)
-        result = "passed" if r.ok else ("timed out" if r.code is None else f"exit {r.code}")
+        result = "reused" if r.reused else "passed" if r.ok else ("timed out" if r.code is None else f"exit {r.code}")
         if not r.ok:
             level = "error" if r.step.blocks else "warning"
             what = f"ran past its {r.step.timeout} s" if r.code is None else f"exited {r.code}"
@@ -257,8 +419,37 @@ def parse_only(text: str | None) -> list[str]:
     return [name for name in re.split(r"[\s,]+", text or "") if name]
 
 
+def reuse_passes(table: Table, steps: list[Step], paths: list[str] | None, store: StepResults,
+                 env: dict[str, str], root: Path, out=sys.stdout) -> tuple[list[Result], dict[str, str], set[str]]:
+    """Ask the store for each reusable step's key: the reused results, every step's key, the audited names."""
+    candidates = [s for s in steps if reusable(s)]
+    files = tracked_files(root) if candidates else None
+    tree = head_tree(root) if files is not None else None
+    if files is None or tree is None:
+        return [], {}, set()
+    keys = {s.name: step_key(s, table, files, tree, paths, env) for s in candidates}
+    with ThreadPoolExecutor(max_workers=min(16, len(candidates))) as pool:
+        found = dict(zip(keys, pool.map(lambda s: store.lookup(keys[s.name], s.name, audited(keys[s.name], env)),
+                                        candidates)))
+    reused, audit = [], set()
+    for name, hit in found.items():
+        if not hit:
+            continue
+        if audited(keys[name], env):
+            audit.add(name)
+            print(f"Step {name}: a pass under its key ({hit.get('run_url', '?')}); audited, so it runs anyway.",
+                  file=out)
+            continue
+        where = f"ran {hit.get('at', '?')} on {hit.get('runner') or '?'}, {hit.get('seconds', '?')} s"
+        reused.append(Result(table.steps[name], 0, 0.0,
+                             f"Reused: this step's inputs (key {keys[name][:16]}) passed in {hit.get('run_url', '?')} "
+                             f"({where}); it did not run again.", reused=hit.get("run_url") or "?"))
+    return reused, keys, audit
+
+
 def run_job(table: Table, job: str, paths: list[str] | None, label: str | None = None, out=sys.stdout,
-            workers: int | None = None, only: list[str] | None = None) -> int:
+            workers: int | None = None, only: list[str] | None = None, store: StepResults | None = None,
+            root: Path = ROOT) -> int:
     names = route(table, paths, label).get(job, [])
     if only:
         for name in only:
@@ -271,7 +462,22 @@ def run_job(table: Table, job: str, paths: list[str] | None, label: str | None =
         print(f"No step of job {job} is routed for this change.", file=out)
         return 0
     results: list[Result] = []
-    with tempfile.TemporaryDirectory(prefix="ci-tools-", dir=os.environ.get("RUNNER_TEMP") or None) as tools:
+    keys: dict[str, str] = {}
+    audit: set[str] = set()
+    if store is not None:
+        reused, keys, audit = reuse_passes(table, steps, paths, store, dict(os.environ), root, out)
+        for r in reused:
+            print_log(r, out)
+        results += reused
+        done = {r.step.name for r in reused}
+        steps = [s for s in steps if s.name not in done]
+        print(f"Step results: {len(done)} of {len(done) + len(steps)} routed steps reused, {len(keys)} keyed.",
+              file=out)
+    if not steps:
+        return finish(results, job, out)
+    # A tool a step leaves unremovable (a root-owned install) must not turn a job of green steps red at cleanup.
+    with tempfile.TemporaryDirectory(prefix="ci-tools-", dir=os.environ.get("RUNNER_TEMP") or None,
+                                     ignore_cleanup_errors=True) as tools:
         env = dict(os.environ, CI_TOOLS=tools, PATH=f"{tools}/bin{os.pathsep}{os.environ.get('PATH', '')}")
         # The change's paths, one a line, for a step whose own router is finer than path globs (a web subarea):
         # unset when the change is unknown, which a step reads as "everything changed".
@@ -312,6 +518,20 @@ def run_job(table: Table, job: str, paths: list[str] | None, label: str | None =
                 results += pool.map(run_and_print, [s for s in steps if not s.alone])
             # An `alone` step takes the whole machine: it runs by itself, after the others, in table order.
             results += [run_and_print(s) for s in steps if s.alone]
+    if store is not None:
+        for r in results:
+            key = keys.get(r.step.name)
+            if not key or r.reused or r.code is None:
+                continue
+            if r.ok or r.step.name in audit:
+                store.post(key, r.step.name, "pass" if r.ok else "fail", r.seconds, audit=r.step.name in audit)
+            if r.step.name in audit and not r.ok:
+                print(f"::error title=Step results::step {r.step.name} failed its audit: a stored pass of the same "
+                      f"inputs did not hold (the key is evicted)", file=out)
+    return finish(results, job, out)
+
+
+def finish(results: list[Result], job: str, out=sys.stdout) -> int:
     summary = report(results, job, out, logs=False)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
@@ -350,8 +570,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.job not in table.jobs:
         parser.error(f"--job {args.job!r} is not one of {sorted(table.jobs)}")
+    # A label event runs only the steps that name the label: those read the event, so none is reused.
+    store = None if args.label else StepResults.from_env(dict(os.environ))
     return run_job(table, args.job, paths, args.label or None, workers=args.workers or None,
-                   only=parse_only(args.only))
+                   only=parse_only(args.only), store=store, root=Path.cwd())
 
 
 if __name__ == "__main__":

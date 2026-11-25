@@ -98,7 +98,8 @@ while IFS= read -r crate; do paths+=("$crate"); done < <(ffi_crates)
 # must not mark the pin stale; the app passes its own token values to the
 # motion C ABI (cmux_motion_resolve), and scripts/cmux-next/motion-parity.py
 # compares them with the spec's.
-paths+=(cmux-tui/rust-toolchain.toml scripts/cmux-next/build-app-ffi.sh)
+# cmux-keymap embeds its table (include_str!), so a table edit changes the library.
+paths+=(cmux-tui/rust-toolchain.toml scripts/cmux-next/build-app-ffi.sh schemas/keymap/key-styles.json)
 # The pin is read only through scripts/ci/app_ffi_pin.py: the pin file strictly,
 # and Package.swift only for its one fixed loader block, whose checksum line
 # must equal the pin file's, and no pin of its own (the classifier, the repin

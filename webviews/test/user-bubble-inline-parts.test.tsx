@@ -261,7 +261,7 @@ try {
     const body = host.querySelector(".cv-user__text")!;
     expect(body.classList.contains("is-clamped")).toBe(true);
     // The one fold; Save as Prompt's popover button is not a fold.
-    expect(host.querySelectorAll("[aria-expanded]:not(.cv-save-prompt)")).toHaveLength(1);
+    expect(host.querySelectorAll("[aria-expanded]")).toHaveLength(1);
     await act(async () => host.querySelector<HTMLButtonElement>(".cv-user__more")!.click());
     expect(body.classList.contains("is-clamped")).toBe(false);
     expect(body.textContent).toContain("before pasted details\nline 1");

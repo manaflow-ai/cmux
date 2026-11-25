@@ -13,6 +13,8 @@ extension AgentPaneView {
     /// injected end in tests): logged with its siblings (``AgentPageTerminations``), then a retry
     /// or the notice.
     func webContentProcessDidTerminate(_ termination: PageTermination = .unknown) {
+        // The old host has no page to tell it: its last frame stays until a new document paints.
+        documentWillChange(.contentEnded)
         contentEnded(termination.withPid(fallback: knownWebContentPid))
     }
 
@@ -47,6 +49,8 @@ extension AgentPaneView {
 
     private func showCrashNotice() {
         guard crashNotice == nil else { return }
+        // It kept ending: the notice says so, over the page, not over a picture of a chat that works.
+        endDocumentCover(painted: false, reason: "crash notice")
         let message = ChromeLabel(wrappingLabelWithString: Self.crashedMessage)
         message.alignment = .center
         let reload = ThemedBezelButton(title: Self.reloadTitle, target: self, action: #selector(reloadAfterCrashes))
@@ -110,5 +114,17 @@ extension AgentPaneView {
         crashRetry.cancel()
         crashRetry.budget.reset()
         if let page { page.reloadAfterCrashes() } else { source.load(into: webView) }
+    }
+}
+
+extension AgentPaneView {
+    /// The person's reload (Cmd-R, "Agent Chat: Reload", the tab's Reload): a crash notice's Reload when one
+    /// shows, else the page saves its draft and reloads under a picture of itself (``PageWebView/reloadForPerson(saveWait:)``),
+    /// so the chat never blanks. The old host (no page host) loads its document again.
+    public func reloadForPerson() {
+        if crashNotice != nil { return reloadAfterCrash() }
+        guard let page else { return source.load(into: webView) }
+        // task-owner: one save-then-reload; ends when the page reloaded under its picture
+        Task { await page.reloadForPerson() }
     }
 }

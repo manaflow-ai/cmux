@@ -166,6 +166,7 @@ fn always_identified() -> Vec<&'static str> {
     #[cfg(unix)]
     capabilities.push(mobile_chat::CLOUD_CHAT_RELAY_CAPABILITY);
     capabilities.push(activity::CAPABILITY);
+    capabilities.push(activity::ECHO_CAPABILITY);
     capabilities.push(page_credential::PAGE_CREDENTIAL_CAPABILITY);
     capabilities.push(page_credential::SCOPED_PAGE_CREDENTIAL_CAPABILITY);
     #[cfg(unix)]
@@ -241,6 +242,7 @@ pub fn build_capabilities() -> Vec<&'static str> {
             && *capability != crate::git_seed::GIT_SEED_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_EXPORT_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_HOLD_CAPABILITY
+            && *capability != crate::git_seed::GIT_SEED_CARRY_CAPABILITY
             && *capability != crate::blob_fetch::BLOB_FETCH_CAPABILITY
             && *capability != crate::projection::PROJECTION_CAPABILITY
             && *capability != crate::projection::PROJECTION_EXTEND_CAPABILITY
@@ -273,6 +275,7 @@ pub(super) fn advertised_capabilities(
         creating_input::CREATING_INPUT_CANCEL_CAPABILITY,
         cmd_terminal_io::SEND_EXPECT_FOREGROUND_CAPABILITY,
         cmd_terminal_io::SEND_EXPECT_AGENT_CAPABILITY,
+        cmd_terminal_io::SEND_TYPED_SUBMIT_CAPABILITY,
         send_once::SEND_KEY_CAPABILITY,
         WORKSPACE_REGISTRY_CAPABILITY,
         DAEMON_HANDOFF_FORCE_CAPABILITY,
@@ -314,6 +317,7 @@ pub(super) fn advertised_capabilities(
         TERMINAL_COLOR_OVERRIDES_CAPABILITY,
         TERMINAL_PENDING_SEQUENCE_CAPABILITY,
         TERMINAL_RESUME_CAPABILITY,
+        TERMINAL_RESUME_BOUNDED_CAPABILITY,
         ATTACH_REPLAY_HISTORY_ROWS_CAPABILITY,
         ATTACH_OUTPUT_COALESCE_CAPABILITY,
         AGENT_CLI_HYBRID_CAPABILITY,
@@ -395,6 +399,7 @@ pub(super) fn advertised_capabilities(
         BOOKMARK_ICON_CAPABILITY,
         crate::mux::settings::SETTINGS_CAPABILITY,
         crate::mux::settings::SETTINGS_EDIT_CAPABILITY,
+        crate::mux::settings::SETTINGS_HISTORY_CAPABILITY,
         crate::mux::keybindings::KEYBINDINGS_CAPABILITY,
         crate::mux::feed_local::FEED_LOCAL_OWNER_CAPABILITY,
         crate::feed_client::FEED_CLIENT_CAPABILITY,
@@ -411,6 +416,7 @@ pub(super) fn advertised_capabilities(
         conversations::CONVERSATION_TREE_CAPABILITY,
         conversations::CONVERSATION_THREAD_OBJECTS_CAPABILITY,
         conversations::CONVERSATION_INBOX_STATE_CAPABILITY,
+        crate::conversation_inbox_once::CAPABILITY,
         conversations::HOME_INBOX_CAPABILITY,
         conversation_scheduled::CONVERSATION_SCHEDULED_CAPABILITY,
         conversations::HOME_INBOX_SINCE_CAPABILITY,
@@ -440,6 +446,7 @@ pub(super) fn advertised_capabilities(
         LIST_WORKSPACES_KNOWN_CAPABILITY,
         LIST_WORKSPACES_LIMIT_CAPABILITY,
         LIST_WORKSPACES_PAGE_CAPABILITY,
+        WORKSPACE_LIST_DELTA_CAPABILITY,
         STATE_RESOURCES_CAPABILITY,
         WINDOW_RECORDS_CAPABILITY,
         TERMINAL_STATE_CAPABILITY,

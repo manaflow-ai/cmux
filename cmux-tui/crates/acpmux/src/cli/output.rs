@@ -190,6 +190,9 @@ pub(crate) struct PromptId {
     /// inbox would hold without waking it is refused at once (`send.not_woken`) instead of
     /// leaving the send waiting for a turn that does not come (`hub/inbox.rs`).
     pub wake_or_fail: bool,
+    /// `--gather`: the message waits for the receiver's cold batch (`_meta.acpmux.gather`,
+    /// `hub/cold_wake.rs`).
+    pub gather: bool,
 }
 
 impl PromptId {
@@ -212,6 +215,7 @@ impl PromptId {
                 subagent: None,
                 sender_token: None,
                 wake_or_fail: false,
+                gather: false,
             },
             None => Self {
                 id: uuid::Uuid::now_v7().to_string(),
@@ -230,6 +234,7 @@ impl PromptId {
                 subagent: None,
                 sender_token: None,
                 wake_or_fail: false,
+                gather: false,
             },
         }
     }
@@ -288,6 +293,9 @@ impl PromptId {
         }
         if self.wake_or_fail {
             mux.set(WAKE_OR_FAIL_META, json!(true));
+        }
+        if self.gather {
+            mux.set(crate::hub::cold_wake::GATHER_META, json!(true));
         }
         if let Some(token) = &self.sender_token {
             mux.set(crate::sender_token::META_KEY, token.to_value());

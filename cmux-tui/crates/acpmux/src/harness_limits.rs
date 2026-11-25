@@ -40,7 +40,8 @@ pub const CLAUDE_ENV: &[(&str, &str)] = &[
 /// reads against 400k too.
 pub const CLAUDE_AUTOCOMPACT_WINDOW: (&str, &str) = ("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "400000");
 
-/// What a `claude` started in a cmux terminal gets on top of [`CLAUDE_ENV`] (Leo 2026-11-24:
+/// What a `claude` started in a cmux terminal gets on top of [`CLAUDE_ENV`] (agent chats get
+/// [`CLAUDE_CHAT_RETRY_ENV`]; Leo 2026-11-24:
 /// "in terminals and guis alike perhaps terminal simply needs to also have the fixes and
 /// enhancements"). An agent chat survives a capacity outage in acpmux: a turn that Claude
 /// Code ends with "Repeated 529 Overloaded errors" is continued after a wait, with no limit
@@ -139,6 +140,9 @@ pub fn lift_claude(
         for (key, value) in claude_env(&have) {
             cmd.env(key, value);
         }
+        for (key, value) in claude_retry_env(&have) {
+            cmd.env(key, value);
+        }
         let source = crate::usage_stats::Source {
             family: "claude".into(),
             argv: Some(command_line(cmd)),
@@ -192,6 +196,51 @@ pub fn launch_args(
 /// acpmux's values.
 pub fn claude_env(env: &[(String, String)]) -> Vec<(&'static str, &'static str)> {
     CLAUDE_ENV.iter().copied().filter(|(k, _)| !env.iter().any(|(key, _)| key == k)).collect()
+}
+
+/// What an agent chat's Claude Code gets so its helpers (Agent tool, in the chat's own process,
+/// out of acpmux's reach) wait out a capacity outage. Unlike [`CLAUDE_TERMINAL_ENV`] it keeps
+/// the watchdog's default scope: the `capacity` scope covers a 529 but not the gateway's
+/// `503 [no non-exhausted claude accounts] available` (or its 502 "call limit"), which is what
+/// killed helpers. Measured on Claude Code 2.1.331 against a fake gateway, 300 s each:
+/// 503 with no watchdog, and 503 with the capacity scope, both gave up after 11 requests
+/// (184 s, 180 s); 503 with the default scope was still retrying at 300 s (14 requests); 529
+/// with the capacity scope was too, against 11 requests without. The usage-limit wait stays 0,
+/// so a spend, credit or plan limit still fails fast, as before.
+///
+/// Both outage shapes end the turn just past 5 minutes, so acpmux's own capacity resume (and
+/// its sustained-overload model failover) takes over and the chat never sits silent through a
+/// long storm. Claude Code 2.1.331 bounds them by different knobs:
+/// - a 529 (or 429) is the watchdog's capacity class: `CLAUDE_CODE_RETRY_WATCHDOG_MAX_WAIT_MS`
+///   is a total budget from the first failure. 300000 gave up at 304 s (11 requests).
+/// - a 503 (or 500, 502, a dropped connection) is not counted against that budget: it was
+///   still retrying at 480 s (18 requests). The watchdog lifts its retry cap to 300 and spaces
+///   retries about 38 s apart once the backoff tops out, and `CLAUDE_CODE_MAX_RETRIES` bounds
+///   it unclamped. 14 retries ended at about 340 s (15 requests).
+pub const CLAUDE_CHAT_RETRY_ENV: &[(&str, &str)] = &[
+    ("CLAUDE_CODE_RETRY_WATCHDOG", "1"),
+    ("CLAUDE_CODE_RETRY_WATCHDOG_MAX_WAIT_MS", CLAUDE_CHAT_RETRY_MAX_WAIT_MS),
+    ("CLAUDE_CODE_MAX_RETRIES", CLAUDE_CHAT_MAX_RETRIES),
+    ("CLAUDE_CODE_RETRY_WATCHDOG_MAX_USAGE_LIMIT_WAIT_MS", "0"),
+];
+
+/// How long in all a chat's Claude Code waits out a 529 before its turn ends (5 minutes): long
+/// enough for a helper to ride out a short burst, short enough that acpmux's capacity resume and
+/// model failover still act on a sustained one.
+pub const CLAUDE_CHAT_RETRY_MAX_WAIT_MS: &str = "300000";
+
+/// How many times a chat's Claude Code retries a 503 or another non-capacity error: the count
+/// whose last retry lands just past [`CLAUDE_CHAT_RETRY_MAX_WAIT_MS`] (13 would end at ~300 s).
+pub const CLAUDE_CHAT_MAX_RETRIES: &str = "14";
+
+/// [`CLAUDE_CHAT_RETRY_ENV`] for a chat whose `env` sets none of [`CLAUDE_RETRY_CHOICES`];
+/// nothing when the person chose how Claude Code retries.
+pub fn claude_retry_env(env: &[(String, String)]) -> &'static [(&'static str, &'static str)] {
+    if CLAUDE_RETRY_CHOICES.iter().any(|name| env.iter().any(|(key, _)| key == name)) {
+        &[]
+    } else {
+        CLAUDE_CHAT_RETRY_ENV
+    }
 }
 
 /// `args` of a `codex app-server` launch with acpmux's config overrides
@@ -438,6 +487,34 @@ mod tests {
             launch_args(false, &words(&["exec", "-c", "a=1"]), None),
             words(&["exec", "-c", "a=1"])
         );
+    }
+
+    #[test]
+    fn a_chat_waits_out_capacity_unless_the_person_chose_its_retries() {
+        let none: Vec<(String, String)> = vec![("PATH".into(), "/bin".into())];
+        let lifted = claude_retry_env(&none);
+        assert!(lifted.contains(&("CLAUDE_CODE_RETRY_WATCHDOG", "1")), "{lifted:?}");
+        // The default scope: the capacity scope lets the gateway's 503 "no accounts" through.
+        assert!(
+            !lifted.iter().any(|(k, _)| *k == "CLAUDE_CODE_RETRY_WATCHDOG_SCOPE"),
+            "{lifted:?}"
+        );
+        // Bounded, so acpmux's capacity resume and failover still see a sustained outage.
+        assert!(
+            lifted.contains(&("CLAUDE_CODE_RETRY_WATCHDOG_MAX_WAIT_MS", "300000")),
+            "{lifted:?}"
+        );
+        // A 503 is bounded by the retry count, not the wait budget.
+        assert!(lifted.contains(&("CLAUDE_CODE_MAX_RETRIES", "14")), "{lifted:?}");
+        // A spend or plan limit still fails fast: no usage-limit wait.
+        assert!(
+            lifted.contains(&("CLAUDE_CODE_RETRY_WATCHDOG_MAX_USAGE_LIMIT_WAIT_MS", "0")),
+            "{lifted:?}"
+        );
+        for choice in CLAUDE_RETRY_CHOICES {
+            let chosen = vec![((*choice).to_owned(), "7".to_owned())];
+            assert!(claude_retry_env(&chosen).is_empty(), "{choice}");
+        }
     }
 
     #[test]

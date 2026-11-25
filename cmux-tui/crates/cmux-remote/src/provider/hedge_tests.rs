@@ -223,6 +223,7 @@ async fn a_reconnect_starts_at_the_address_that_won_last_time() {
             "Relay.example",
             443,
             &[v4, v6],
+            0,
             HedgePolicy::INTERNET,
             dial,
         )
@@ -232,4 +233,42 @@ async fn a_reconnect_starts_at_the_address_that_won_last_time() {
         assert_eq!(began.elapsed(), ms(expected));
     }
     assert_eq!(memory.get(&("relay.example".to_owned(), 443)).unwrap().target, v4);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_preferred_prefix_dials_first_and_the_last_good_route_still_leads() {
+    use std::net::SocketAddr;
+    use std::sync::{Arc, Mutex};
+
+    use cmux_braid_path::LastGood;
+
+    let tailnet: SocketAddr = "100.64.0.3:443".parse().unwrap();
+    let v6: SocketAddr = "[2001:db8::1]:443".parse().unwrap();
+    let memory = LastGood::new(Duration::from_secs(60));
+    for (winner, expected_first) in [(tailnet, tailnet), (v6, tailnet), (tailnet, v6)] {
+        let tried = Arc::new(Mutex::new(Vec::new()));
+        let log = Arc::clone(&tried);
+        let dial = move |address: SocketAddr| {
+            log.lock().unwrap().push(address);
+            async move {
+                if address != winner {
+                    std::future::pending::<()>().await;
+                }
+                Ok::<_, io::Error>(address)
+            }
+        };
+        let won = super::connect_remembered(
+            &memory,
+            "peer",
+            443,
+            &[tailnet, v6],
+            1,
+            HedgePolicy::INTERNET,
+            dial,
+        )
+        .await
+        .unwrap();
+        assert_eq!(won, winner);
+        assert_eq!(tried.lock().unwrap()[0], expected_first);
+    }
 }

@@ -221,8 +221,8 @@ fn a_read_while_the_mac_is_away_fails_with_ehostdown() {
     let (state, manifest, fake) = setup(true);
     let overlay = open(state.path(), &manifest, &fake);
     let readme = path_ino(&overlay, "README.md");
-    assert_eq!(overlay.read(readme, 0, 10), Err(112));
-    assert_eq!(overlay.read(path_ino(&overlay, "big.bin"), 0, 10), Err(112));
+    assert_eq!(overlay.read(readme, 0, 10), Err(libc::EHOSTDOWN));
+    assert_eq!(overlay.read(path_ino(&overlay, "big.bin"), 0, 10), Err(libc::EHOSTDOWN));
 }
 
 /// RFD 0007: the agent is told once that the Mac is away, naming the reads that failed: one
@@ -354,11 +354,15 @@ fn fifos_sockets_and_hard_links_are_made() {
     // pjdfstest mkfifo/*, mknod/*, link/*: ENOSYS / EPERM on the base.
     let (state, manifest, fake) = setup(false);
     let overlay = open(state.path(), &manifest, &fake);
-    let fifo = overlay.mknod(overlay.root(), "p", libc::S_IFIFO | 0o640, 0, me()).unwrap();
+    let fifo = overlay.mknod(overlay.root(), "p", fmt::S_IFIFO | 0o640, 0, me()).unwrap();
     assert_eq!((fifo.kind, fifo.mode), (Type::Fifo, 0o640));
-    let sock = overlay.mknod(overlay.root(), "s", libc::S_IFSOCK | 0o600, 0, me()).unwrap();
-    assert_eq!(sock.kind, Type::Socket);
-    let plain = overlay.mknod(overlay.root(), "r", libc::S_IFREG | 0o600, 0, me()).unwrap();
+    // macOS lets only root mknod a socket (EPERM); the Mac mount serves NFS, which makes none.
+    #[cfg(target_os = "linux")]
+    {
+        let sock = overlay.mknod(overlay.root(), "s", fmt::S_IFSOCK | 0o600, 0, me()).unwrap();
+        assert_eq!(sock.kind, Type::Socket);
+    }
+    let plain = overlay.mknod(overlay.root(), "r", fmt::S_IFREG | 0o600, 0, me()).unwrap();
     assert_eq!(plain.kind, Type::File);
     // A hard link of a lower file copies it up once; both names are one file, one number.
     let readme = path_ino(&overlay, "README.md");
@@ -406,15 +410,15 @@ fn rename_flags_noreplace_and_exchange() {
     let (state, manifest, fake) = setup(false);
     let overlay = open(state.path(), &manifest, &fake);
     let src = path_ino(&overlay, "src");
-    let noreplace = libc::RENAME_NOREPLACE;
+    let noreplace = RENAME_NOREPLACE;
     assert_eq!(overlay.rename(src, "a.rs", src, "b.rs", noreplace), Err(EEXIST));
     overlay.rename(src, "a.rs", src, "n.rs", noreplace).unwrap();
     let (a, b) = (path_ino(&overlay, "src/n.rs"), path_ino(&overlay, "src/b.rs"));
-    overlay.rename(src, "n.rs", src, "b.rs", libc::RENAME_EXCHANGE).unwrap();
+    overlay.rename(src, "n.rs", src, "b.rs", RENAME_EXCHANGE).unwrap();
     assert_eq!(overlay.read(path_ino(&overlay, "src/b.rs"), 0, 100).unwrap(), b"fn a() {}");
     assert_eq!(overlay.read(path_ino(&overlay, "src/n.rs"), 0, 100).unwrap(), b"fn b() {}");
     assert_eq!((path_ino(&overlay, "src/b.rs"), path_ino(&overlay, "src/n.rs")), (a, b));
-    assert_eq!(overlay.rename(src, "c.rs", src, "none", libc::RENAME_EXCHANGE), Err(ENOENT));
+    assert_eq!(overlay.rename(src, "c.rs", src, "none", RENAME_EXCHANGE), Err(ENOENT));
     // A folder never moves below itself.
     let made = overlay.mkdir(overlay.root(), "x", 0o755, me()).unwrap();
     overlay.mkdir(made.ino, "y", 0o755, me()).unwrap();
@@ -498,10 +502,16 @@ fn an_open_folder_keeps_its_attributes_after_it_is_renamed_over() {
     let handle = overlay.open_handle(to.ino, libc::O_RDONLY | libc::O_DIRECTORY).unwrap();
     overlay.rename(root, "from", root, "to", 0).unwrap();
     let gone = overlay.getattr(to.ino).unwrap();
-    assert_eq!((gone.kind, gone.nlink), (Type::Dir, 0));
+    assert_eq!(gone.kind, Type::Dir);
+    // APFS still counts a removed folder's two links; Linux says 0.
+    #[cfg(target_os = "linux")]
+    assert_eq!(gone.nlink, 0);
     overlay.release(handle);
 }
 
+// Linux only: macOS has no O_NOATIME, so a read moves the upper file's atime (the Mac mount's NFS
+// client caches attributes, and nothing in a checkout reads atime).
+#[cfg(target_os = "linux")]
 #[test]
 fn reads_leave_access_times_alone_as_the_mount_says_noatime() {
     // xfstests generic/120: the base's reads moved atime on the disk under it (its relatime).
@@ -973,6 +983,34 @@ fn hydration_after_a_restart_keeps_the_disk_reserve() {
     assert_eq!(report.first_error, Some(libc::ENOSPC));
     assert_eq!(report.fetched_bytes, 0);
     assert_eq!(fake.calls.load(Ordering::Relaxed), calls);
+}
+
+#[test]
+fn pin_states_show_each_pin_and_how_much_of_it_is_on_disk() {
+    let (state, manifest, _) = setup(false);
+    let (_, _, away) = setup(true);
+    // Pinned with the Mac away: on record, nothing on disk yet.
+    let overlay = open(state.path(), &manifest, &away).with_pin_reserve(0);
+    assert!(overlay.pin_states().is_empty());
+    overlay.pin("src").unwrap();
+    let pending = overlay.pin_states();
+    assert_eq!(pending.len(), 1);
+    let first = pending.first().cloned().unwrap_or_default();
+    assert_eq!((first.path.as_str(), first.files, first.bytes), ("src", 4, 36));
+    assert_eq!(first.local_bytes, 0);
+    assert!(first.present && !first.complete());
+    drop(overlay);
+
+    // Back online, a hydration fills it; a second pin of a deeper folder shows on its own.
+    let (_, _, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake).with_pin_reserve(0);
+    overlay.hydrate_pins();
+    overlay.pin("src/deep").unwrap();
+    let states = overlay.pin_states();
+    let paths: Vec<&str> = states.iter().map(|pin| pin.path.as_str()).collect();
+    assert_eq!(paths, ["src", "src/deep"]);
+    assert!(states.iter().all(pin::PinState::complete), "{states:?}");
+    assert_eq!(states.iter().map(|pin| pin.local_bytes).collect::<Vec<_>>(), [36, 9]);
 }
 
 fn file_item(path: &str, size: u64) -> Item {

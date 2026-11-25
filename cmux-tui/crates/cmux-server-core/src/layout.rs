@@ -31,6 +31,27 @@ pub struct LayoutEnv {
     /// The installing user's numeric id. Required in macOS user mode, where
     /// the Postgres socket lives under `/tmp/cmux-<uid>` (server.md 8.2).
     pub uid: Option<u32>,
+    /// macOS user mode only: this Mac already has a server installed in the
+    /// old layout (`~/.config/cmux/server.json`, `Application Support/cmux`)
+    /// and none in cmux NEXT's own (`~/.config/cmux-next/server.json`), so it
+    /// keeps the old one: moving a running server's store and Postgres is not
+    /// safe. New installs use `cmux-next`. The caller reads it with
+    /// [`macos_user_keeps_legacy_layout`].
+    pub mac_legacy_install: bool,
+}
+
+/// macOS user mode's directory name under `Application Support` and
+/// `~/.config` for a new install: cmux NEXT's own, not cmux Classic's `cmux`.
+pub const MACOS_USER_DIR: &str = "cmux-next";
+/// The directory name an install made before cmux NEXT had its own roots kept.
+pub const MACOS_USER_LEGACY_DIR: &str = "cmux";
+
+/// Whether the macOS user-mode server under `home` stays in the legacy
+/// layout ([`LayoutEnv::mac_legacy_install`]): its old config file exists
+/// and cmux NEXT's own does not.
+pub fn macos_user_keeps_legacy_layout(home: &std::path::Path) -> bool {
+    let config = |dir: &str| home.join(".config").join(dir).join("server.json");
+    config(MACOS_USER_LEGACY_DIR).is_file() && !config(MACOS_USER_DIR).exists()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -276,8 +297,9 @@ fn linux_system() -> Parts {
 fn macos_user(env: &LayoutEnv) -> Result<Parts, LayoutError> {
     let p = Platform::MacOs;
     let home = required(p, &env.home, "HOME")?;
-    let support = home.join("Library/Application Support/cmux");
-    let config_file = home.join(".config/cmux/server.json");
+    let dir = if env.mac_legacy_install { MACOS_USER_LEGACY_DIR } else { MACOS_USER_DIR };
+    let support = home.join("Library/Application Support").join(dir);
+    let config_file = home.join(".config").join(dir).join("server.json");
     let state = support.join("server");
     let plist = format!("{LAUNCHD_LABEL}.plist");
     match env_path(p, &env.mac_app_bundle, "app bundle")? {
@@ -354,3 +376,7 @@ fn windows_system(env: &LayoutEnv) -> Result<Parts, LayoutError> {
         service: ServiceKind::WindowsService { service_name: WINDOWS_SERVICE },
     })
 }
+
+#[cfg(test)]
+#[path = "layout_tests.rs"]
+mod tests;

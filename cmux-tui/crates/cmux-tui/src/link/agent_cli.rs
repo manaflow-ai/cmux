@@ -1135,14 +1135,19 @@ const FINISHING_PAUSE: Duration = Duration::from_millis(250);
 /// running, after a finish answer was lost or a rerun came in during it),
 /// the pump asks again until that finish's own bound has passed: a cut
 /// connection that dropped only the answer otherwise left the chat open
-/// there and frozen here until someone ran the move again.
+/// there and frozen here until someone ran the move again. A target daemon
+/// that answers while its acpmux is not back yet (`agent_transfer.unavailable`:
+/// the machine's processes were killed and are restarting) is waited for the
+/// same way: it cannot say yet, and it will once acpmux is up.
 fn ask_landed(record: &Record) -> Option<bool> {
     let deadline = Instant::now() + FINISH_TIMEOUT + CALL_TIMEOUT;
     loop {
         match ask_landed_once(record) {
             Asked::Settled(landed) => return Some(landed),
-            Asked::Finishing if Instant::now() < deadline => std::thread::sleep(FINISHING_PAUSE),
-            Asked::Finishing | Asked::NoAnswer => return None,
+            Asked::Finishing | Asked::Restarting if Instant::now() < deadline => {
+                std::thread::sleep(FINISHING_PAUSE)
+            }
+            Asked::Finishing | Asked::Restarting | Asked::NoAnswer => return None,
         }
     }
 }
@@ -1151,17 +1156,22 @@ enum Asked {
     Settled(bool),
     /// The target answered and cannot say yet: nothing was forgotten there.
     Finishing,
+    /// The target daemon answered without its acpmux (restarting): nothing was forgotten there.
+    Restarting,
     NoAnswer,
 }
 
 fn ask_landed_once(record: &Record) -> Asked {
     let Some(receive_id) = record.receive_id.as_deref() else { return Asked::NoAnswer };
     let params = json!({"receive_id": receive_id});
-    let Ok(answer) =
-        call_once(&record.to_socket, "agent-transfer-receive-abort", params, CALL_TIMEOUT)
-    else {
-        return Asked::NoAnswer;
-    };
+    let answer =
+        match call_once(&record.to_socket, "agent-transfer-receive-abort", params, CALL_TIMEOUT) {
+            Ok(answer) => answer,
+            Err(CallError::Refused { code, .. }) if code == "agent_transfer.unavailable" => {
+                return Asked::Restarting;
+            }
+            Err(_) => return Asked::NoAnswer,
+        };
     match (answer["landed"].as_bool(), answer["forgotten"].as_bool()) {
         (Some(true), _) => Asked::Settled(true),
         // Only a forgotten move stays not landed.

@@ -230,6 +230,7 @@ impl Hub {
                     tracing::warn!("store flush failed: {error}");
                 }
                 hub.outbox.compact();
+                flush_disk_writer();
                 hub.peer_snapshots.flush_now();
             })
         };
@@ -517,11 +518,23 @@ impl Hub {
         // The outbox's journal folded into its snapshot (`hub/outbox.rs`): the next daemon to
         // start, an older one too, reads every delivery from `outbox.json` alone.
         self.outbox.compact();
+        flush_disk_writer();
         // What peers' sessions streamed in the last seconds (`peer_snapshot.rs`): the shutdown's
         // is its last step, after the teardown, and a shutdown past its budget calls it too.
         self.peer_snapshots.flush_now();
         // The approvals audit trail: every answer is written already; its last lines are synced.
         self.audit.close(AUDIT_DRAIN);
+    }
+}
+
+/// How long the shutdown waits for the disk writer (`disk_writer.rs`) to write what waits.
+const DISK_WRITER_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Writes what the disk writer holds (caches, views, the outbox's saves no caller waited on),
+/// within [`DISK_WRITER_DRAIN`]: a disk that stopped never holds the shutdown.
+fn flush_disk_writer() {
+    if !crate::disk_writer::flush(DISK_WRITER_DRAIN) {
+        tracing::warn!("disk writer: writes still waiting at shutdown after {DISK_WRITER_DRAIN:?}");
     }
 }
 

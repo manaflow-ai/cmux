@@ -33,6 +33,7 @@ stopped by exact pid.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import signal
 import hashlib
 import json
@@ -67,6 +68,115 @@ SAMPLE_KINDS = re.compile(r"^(acpmux-.*|tui-daemon.*|optchat-chief)$")
 # half the app's idle CPU (0.47-0.54 % against 0.24-0.28 %) and of the renderer's (0.37-0.45 % against 0.13-0.18 %),
 # and runs of one build varied with it. 'none' turns it back on.
 BENCH_CEF_SWITCHES = "disable-component-update"
+
+
+# --cef-trace: Chromium's startup trace as a ring buffer (the idle tail stays, the startup goes) of at most this size;
+# the JSON file is a few times that, in a temporary folder removed once read.
+CEF_TRACE_BUFFER_KB = 65536
+CEF_TRACE_CATEGORIES = "toplevel,toplevel.flow,ipc,mojom"
+
+
+BROWSER_THREADS = ("CrBrowserMain", "Chrome_IOThread")
+
+
+@contextlib.contextmanager
+def host_load(count: int):
+    """`count` busy-loop processes (children of this bench) while the block runs, each ended after it: a busy Mac,
+    where every timer wakes late, for a daemon's wakeups under load."""
+    loops = [subprocess.Popen([sys.executable, "-I", "-c", "while True: pass"], stdin=subprocess.DEVNULL,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) for _ in range(count)]
+    try:
+        yield loops
+    finally:
+        for loop in loops:
+            loop.kill()
+        for loop in loops:
+            loop.wait()
+
+
+def cef_trace_switches(path: str, seconds: int) -> str:
+    """The Chromium switches (colon-separated, as CMUX_NEXT_CEF_EXTRA_SWITCHES takes them) for a startup trace of
+    `seconds` into `path`."""
+    if ":" in path:
+        raise ValueError(f"a trace path with ':' cannot pass as a switch: {path}")
+    return ":".join([f"trace-startup={CEF_TRACE_CATEGORIES}", f"trace-startup-duration={int(seconds)}",
+                     "trace-startup-record-mode=record-continuously", f"trace-buffer-size-in-kb={CEF_TRACE_BUFFER_KB}",
+                     "trace-startup-format=json", f"trace-startup-file={path}"])
+
+
+def join_switches(base: str, extra: str) -> str:
+    """The bench's switches (`none`: none) and `extra`, colon-separated."""
+    return ":".join(part for part in ((base if base != "none" else ""), extra) if part)
+
+
+def _posted_from(args: dict) -> str:
+    """`function (file)` of a RunTask event's posting place, in the old (`src_func`) or the typed (`task.posted_from`)
+    argument shape."""
+    func, file = args.get("src_func"), args.get("src_file")
+    if func is None:
+        posted = (args.get("task") or {}).get("posted_from") or {}
+        func, file = posted.get("function_name"), posted.get("file_name")
+    return f"{func or '?'} ({file or '?'})"
+
+
+def cef_trace_tasks(trace, skip_s: float = 30.0, top: int = 40) -> dict:
+    """Tasks per second of a Chromium JSON trace after its first `skip_s` seconds (the startup), for each process,
+    thread and posting place, busiest first."""
+    events = trace.get("traceEvents", []) if isinstance(trace, dict) else trace
+    processes = {e.get("pid"): (e.get("args") or {}).get("name", "?") for e in events
+                 if e.get("ph") == "M" and e.get("name") == "process_name"}
+    threads = {(e.get("pid"), e.get("tid")): (e.get("args") or {}).get("name", "?") for e in events
+               if e.get("ph") == "M" and e.get("name") == "thread_name"}
+    stamps = [e["ts"] for e in events if e.get("ph") != "M" and isinstance(e.get("ts"), (int, float))]
+    if not stamps:
+        return {"seconds": 0.0, "tasks": []}
+    start, end = min(stamps) + skip_s * 1e6, max(stamps)
+    seconds = max((end - start) / 1e6, 1e-3)
+    counts: dict = {}
+    for e in events:
+        if e.get("name") != "ThreadControllerImpl::RunTask" or not start <= e.get("ts", -1) <= end:
+            continue
+        key = (processes.get(e.get("pid"), str(e.get("pid"))), threads.get((e.get("pid"), e.get("tid")), str(e.get("tid"))),
+               _posted_from(e.get("args") or {}))
+        counts[key] = counts.get(key, 0) + 1
+    rows = [{"process": p, "thread": t, "posted_from": f, "count": n, "per_s": round(n / seconds, 2)}
+            for (p, t, f), n in counts.items()]
+    rows.sort(key=lambda r: (-r["count"], r["process"], r["thread"], r["posted_from"]))
+    # The browser process's main and I/O threads (only it names them so: a renderer's is Chrome_ChildIOThread): every
+    # other event there by name, the mojom category's IPC messages among them, which RunTask rows do not name.
+    named = {}
+    for e in events:
+        thread = threads.get((e.get("pid"), e.get("tid")))
+        if thread not in BROWSER_THREADS or e.get("ph") not in ("X", "B", "i", "I", "n") \
+                or e.get("name") == "ThreadControllerImpl::RunTask" or not start <= e.get("ts", -1) <= end:
+            continue
+        key = (thread, e.get("name", "?"))
+        named[key] = named.get(key, 0) + 1
+    event_rows = [{"thread": t, "name": n, "count": c, "per_s": round(c / seconds, 2)} for (t, n), c in named.items()]
+    event_rows.sort(key=lambda r: (-r["count"], r["thread"], r["name"]))
+    return {"seconds": round(seconds, 1), "tasks": rows[:top], "events": event_rows[:top]}
+
+
+def _settled(path: str, wait_s: float = 3.0) -> bool:
+    """True when `path` stopped growing over `wait_s` (Chromium finished writing it)."""
+    size = os.path.getsize(path)
+    time.sleep(wait_s)
+    return os.path.getsize(path) == size and size > 0
+
+
+def read_cef_trace(folder: str, skip_s: float = 30.0) -> dict:
+    """cef_trace_tasks of `folder`/cef-trace.json, or {"error"}; the folder is removed either way."""
+    path = os.path.join(folder, "cef-trace.json")
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            trace = json.load(handle)
+        got = cef_trace_tasks(trace, skip_s)
+        got["bytes"] = os.path.getsize(path)
+        return got
+    except (OSError, ValueError) as error:
+        return {"error": str(error)[:300]}
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
 
 
 def with_cef_switches(prepare, switches: str):
@@ -736,6 +846,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="after the windows: the app's own wakeup ledger over them (debug.wakeups), its main run "
                              "loop timers, and a System Trace of this many seconds (1-15; capped in size and "
                              "refused below 30 GiB free, thread_wakes.record) naming each app thread's wakeups")
+    parser.add_argument("--cef-trace", type=int, default=0,
+                        help="Chromium's own startup trace for this many seconds (30-600; a ring buffer of "
+                             f"{CEF_TRACE_BUFFER_KB >> 10} MiB in a temporary folder removed after): tasks per second for "
+                             "each thread and the place that posted them, the first 30 s (startup) left out")
+    parser.add_argument("--host-load", type=int, default=0,
+                        help="busy-loop processes run through the measured windows (0-64): the daemons' wakeups on "
+                             "a busy Mac, where every timer wakes late")
     parser.add_argument("--out")
     args = parser.parse_args(argv)
     args.parser = parser
@@ -744,6 +861,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def check_args(args: argparse.Namespace) -> None:
     parser = args.parser
+    if not 0 <= args.host_load <= 64:
+        parser.error("--host-load must be 0 to 64 loops")
+    if args.cef_trace != 0 and not 30 <= args.cef_trace <= 600:
+        parser.error("--cef-trace must be 0 (off) or 30 to 600 seconds")
     if not 0 <= args.wake_trace <= 15:
         parser.error("--wake-trace must be 0 (off) to 15 seconds")
     if (args.windows < 1 or args.window <= 0 or args.minutes < 0 or args.chats < 0 or args.history < 0
@@ -843,8 +964,11 @@ def main(argv: list[str] | None = None) -> int:
         renderer_threads: list = []
         wake_call = lambda: client.call("debug.wakeups", {"run_loop": True}, timeout=30)  # noqa: E731
         wakes_before = wake_call() if args.wake_trace else None
-        rows = measure(process.pid, bundle, args.windows, args.window,
-                       each if args.sample_each_window and not args.no_sample else None, threads, renderer_threads)
+        with host_load(args.host_load) as loops:
+            if loops:
+                log(f"idle-cpu: {len(loops)} busy loops run through the windows (--host-load)")
+            rows = measure(process.pid, bundle, args.windows, args.window,
+                           each if args.sample_each_window and not args.no_sample else None, threads, renderer_threads)
         result["processes"] = rows
         if args.wake_trace:
             import thread_wakes
@@ -855,6 +979,15 @@ def main(argv: list[str] | None = None) -> int:
             sampled = thread_wakes.sample_threads(sample(process.pid, "app-wake", out))
             result["thread_wakes"] = traced.get("error") or thread_wake_rows(traced, sampled, executable_name(bundle))
             log("IDLE-CPU-WAKE-THREADS " + json.dumps(result["thread_wakes"])[:4000])
+        if cef_trace_dir:
+            # Chromium writes the file when the trace's duration from its start has passed.
+            deadline = time.monotonic() + args.cef_trace + 120
+            target = os.path.join(cef_trace_dir, "cef-trace.json")
+            while time.monotonic() < deadline and not (os.path.exists(target) and _settled(target)):
+                time.sleep(2)
+            result["cef_trace"] = read_cef_trace(cef_trace_dir)
+            log("IDLE-CPU-CEF-TRACE " + json.dumps({k: v for k, v in result["cef_trace"].items() if k != "events"})[:6000])
+            log("IDLE-CPU-CEF-EVENTS " + json.dumps(result["cef_trace"].get("events", []))[:6000])
         result["app_threads"] = threads
         result["renderer_threads"] = [{str(pid): groups for pid, groups in window.items()} for window in renderer_threads]
         result["pages"] = page_activity(lambda method, params=None: client.call(method, params, timeout=30))
@@ -920,6 +1053,15 @@ def main(argv: list[str] | None = None) -> int:
     smoke.READY = lambda snap: smoke.visible_windows(snap) > 0
     state: dict = {}
     writer_dir = (out or Path(tempfile.mkdtemp(prefix="idle-cpu-"))) / "writers"
+    cef_trace_dir = None
+    if args.cef_trace:
+        import thread_wakes
+        free = thread_wakes.free_bytes(tempfile.gettempdir())
+        if free < thread_wakes.MIN_FREE:
+            raise SystemExit(f"idle-cpu: only {free >> 30} GiB free; --cef-trace needs {thread_wakes.MIN_FREE >> 30} GiB")
+        cef_trace_dir = tempfile.mkdtemp(prefix="cef-trace-")
+        args.cef_switches = join_switches(args.cef_switches, cef_trace_switches(
+            os.path.join(cef_trace_dir, "cef-trace.json"), args.cef_trace))
     # A person's home has a login keychain: without one Chromium's Safe Storage dialog sits there (cmuxterm-hq#11994).
     smoke.PREPARE_HOME = with_cef_switches(smoke.login_keychain, args.cef_switches)
     if args.history > 0:

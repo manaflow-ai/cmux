@@ -650,7 +650,7 @@ extension AgentPaneTransport {
             let retry = proved && single && !remoteWire && peerApprover?.enroll != nil ? box.encoded(id: nil) : nil
             decisions.sent(pageID: pageID, proved: proved, single: single, retry: retry)
         }
-        if let error = await Self.encodeAndSend(box, relayID: relayID, socket: socket) {
+        if let error = await Self.encodeAndSend(box, relayID: relayID, socket: socket, ids: ids) {
             socket.pageFrameNotSent(method: facts.method)
             if answer, let pageID = facts.pageID { decisions.notSent(pageID: pageID) }
             if let relayID { ids.cancel(relayID) }

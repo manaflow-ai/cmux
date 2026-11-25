@@ -1123,10 +1123,12 @@ fleet_start_sim; fleet_finish_sim || echo "SIM=$REPORT_SIM"''', {'CMUX_CI': str(
 
     def test_handoff_mode_takes_one_tag(self):
         for args, want in ((['handoff'], 'handoff takes one argument, tag=TAG'),
-                           (['handoff', 'tag=Bad_Tag'], 'handoff tag= wants lowercase'),
-                           (['handoff', 'tag=default'], 'handoff tag= wants lowercase'),
+                           # The shared tag rule (scripts/lib/mobile-attach.sh cmux_attach_validate_dev_tag).
+                           (['handoff', 'tag=Bad_Tag'], "'Bad_Tag' is not a canonical tag"),
+                           (['handoff', 'tag=bad--tag'], "'bad--tag' is not a canonical tag"),
+                           (['handoff', 'tag=default'], 'reserved for the stable app instance'),
                            # The fleet controller's form of the same step.
-                           (['shots', 'handoff=Bad_Tag'], 'handoff tag= wants lowercase')):
+                           (['shots', 'handoff=Bad_Tag'], 'handoff tag=Bad_Tag refused')):
             with self.subTest(args=args):
                 r = subprocess.run(['bash', str(SIM), *args], capture_output=True, text=True,
                                    env=dict(os.environ, CMUX_CI_STEP_KEY='test'), timeout=30)

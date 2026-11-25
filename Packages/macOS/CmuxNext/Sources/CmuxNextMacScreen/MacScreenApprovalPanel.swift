@@ -216,6 +216,9 @@ final class MacScreenApprovalPanel: CmuxFloatingDialogPanel {
     init(prompt: MacScreenApprovalPrompt) {
         self.prompt = prompt
         super.init(identifier: "macScreen.approval.panel")
+        // It shows looking like a window, so it drags like one by its glass and words (Leo, on the screen share card:
+        // "it pops up looking like a window and you can't drag it around like one"). Its buttons keep their clicks.
+        isMovableByPerson = true
         personClick.isPersonEvent = prompt.isPersonEvent
         personClick.eventInHand = prompt.eventInHand
     }

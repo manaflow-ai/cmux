@@ -143,6 +143,8 @@ pub(crate) async fn move_out(
         from: None,
         slow_ok: false,
         from_snapshot: false,
+        // A move asked for through the hub keeps the chat's harness.
+        as_harness: None,
     };
     let result = async {
         // Resolve here before the CLI sees the key. A remote name must not expand against
@@ -216,6 +218,11 @@ async fn steps(
     o.session_id = id.clone();
     let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await?;
     o.name = info.get("name").and_then(Value::as_str).unwrap_or(&id).to_owned();
+    // The hub's pull (`hub/transfer_pull.rs`) does not carry `--as` to the target: refused
+    // before the freeze rather than landed on the old name.
+    if let Some(name) = &args.as_harness {
+        bail!("--as {name} does not reach a machine over the team hub yet; move it over ssh");
+    }
     if info.get("peer").is_some_and(|p| !p.is_null()) {
         bail!("it runs on {}, not here: move it from there", field(&info, "peer"));
     }
