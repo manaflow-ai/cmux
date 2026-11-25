@@ -340,6 +340,9 @@ export type PaneBodyDeps = NewTabShown &
     parkedVisible: boolean;
     chatName: string;
     renameFromTitle: (() => void) | undefined;
+    /// What the header names (subagentPanes.ts `paneHeading`): a subagent's own pane heads with the
+    /// subagent, never its chat's title and summary.
+    heading: { title: string; renamable: boolean };
     tabRowTools: (element: HTMLElement | null) => void;
     liveTreeEnabled: boolean;
     readLiveTree: () => Promise<unknown>;
@@ -614,6 +617,7 @@ export function drawPaneBody({
   parkedVisible,
   chatName,
   renameFromTitle,
+  heading,
   tabRowTools,
   liveTreeEnabled,
   readLiveTree,
@@ -1274,10 +1278,10 @@ export function drawPaneBody({
                       <span className="acpmux-header-status-content">
                         <ThreadTitle
                           key={snapshot.sessionId}
-                          title={chatName}
-                          onRename={renameFromTitle}
-                          icon={snapshot.summary?.icon}
-                          formerNames={snapshot.summary?.formerNames}
+                          title={heading.title}
+                          onRename={heading.renamable ? renameFromTitle : undefined}
+                          icon={heading.renamable ? snapshot.summary?.icon : undefined}
+                          formerNames={heading.renamable ? snapshot.summary?.formerNames : undefined}
                         />
                       </span>
                     )}
