@@ -595,10 +595,14 @@ pub(super) fn check_cut(
 
 pub(super) fn check_capacity_cut(session: &Session, cut: &str) -> Result<(), RpcError> {
     let pending = session.auto_resume.lock();
-    if matches!(pending.as_ref(), Some(Mark::Stopping(t) | Mark::Stopped(t)) if t == cut) {
+    let stopped = matches!(
+        pending.as_ref(),
+        Some(Mark::Stopping { turn, .. } | Mark::Stopped(turn)) if turn == cut
+    );
+    if stopped {
         return Err(stopped());
     }
-    check_cut(session, Some(cut), false)
+    check_cut(session, Some(cut), false, None)
 }
 
 /// Whether `session`'s account rate limit holds it while its compaction runs (`rate_hold.rs`):

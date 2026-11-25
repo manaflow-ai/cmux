@@ -307,7 +307,7 @@ impl Hub {
             replaced: &replaced,
             no_queue: false,
             admitted: d.admitted,
-            after_turn: false,
+            after_turn: None,
             steer_on_start: false,
             answer_due: None,
         };

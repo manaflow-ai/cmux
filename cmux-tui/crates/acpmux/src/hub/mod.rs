@@ -485,8 +485,6 @@ mod web_control;
 mod web_token;
 mod wip_ref;
 mod work_below;
-#[cfg(test)]
-mod worker_lock_tests;
 mod workflow_activity;
 pub(crate) mod workflow_ci;
 pub(crate) mod workflow_index;
@@ -500,7 +498,6 @@ pub(crate) use crate::turn_errors;
 pub use agent_pairs::PairGuard;
 pub use auto_background::AUTO_BACKGROUND_ENV;
 pub(crate) use auto_hold::{AUTO_AWAY, AUTO_CLIENT};
-pub use bg_tasks::{BgScope, bg_owner_words};
 pub(crate) use cold_archive::COLD_CHANGED;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 /// The windowed upload sender (`file_uploads/window.rs`), for the upload bench.
