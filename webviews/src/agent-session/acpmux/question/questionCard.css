@@ -298,6 +298,7 @@
   border-radius: 0;
   color: var(--agent-muted);
 }
+.acpmux-question-footer > .acpmux-question-other-room { flex: 1 1 180px; }
 .acpmux-question-footer > .acpmux-question-row:is(:hover, [data-highlighted], :focus-visible) { background: transparent; }
 .acpmux-question-footer > .acpmux-question-row:is([data-highlighted], :focus-visible) { color: var(--agent-text); }
 .acpmux-question-footer .acpmux-question-other :is(input, textarea) {

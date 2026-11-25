@@ -710,8 +710,18 @@ function PendingQuestion({
             {refused.reason && <span className="acpmux-question-error-reason">{refused.reason}</span>}
           </p>
         )}
-        <div className="acpmux-question-footer" data-bare={item.options.length === 0 || undefined}>
-          {other}
+        {/* Bare (no gap or hairline over it) only when no question of the ask has options, so a free-text
+            page of a longer ask keeps the footer where the others put it. */}
+        <div
+          className="acpmux-question-footer"
+          data-bare={state.question.items.every((each) => each.options.length === 0) || undefined}
+        >
+          {other ||
+            // A page with no typed answer keeps its room when another question of the ask has one, so
+            // a narrow card wraps Skip and Send under it on every page or on none.
+            (others.some((each) => each.allowsOther) && (
+              <span className="acpmux-question-other-room" aria-hidden="true" />
+            ))}
           <div className="acpmux-question-actions">
             <button
               type="button"

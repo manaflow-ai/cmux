@@ -279,7 +279,8 @@ function questionHeight(question: AgentQuestion, width: number, bubbleScale = 1)
   height += rows;
   // The last row (8 px gap with its hairline, unless it is the only row); a narrow card wraps Skip
   // and Send under the typed answer.
-  height += (item.options.length ? 8 : 0) + 36 + (item.allowsOther && inner < 320 ? 28 : 0);
+  height +=
+    (question.items.some((each) => each.options.length > 0) ? 8 : 0) + 36 + (item.allowsOther && inner < 320 ? 28 : 0);
   return height;
 }
 

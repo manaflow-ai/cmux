@@ -5,7 +5,8 @@
 //
 // 1. Stepping through every question with the pager's arrows, then back, and with the footer's Next,
 //    the card, its title, its rows, its last row, Skip, Next/Send, the pager and the × keep their
-//    boxes, at a narrow and a wide pane and at a larger interface scale.
+//    boxes, in a pane narrow enough to wrap the last row, a narrow and a wide one, and at a larger
+//    interface scale.
 // 2. The pager's and the ×'s tooltips open above the bar, never over the question under it.
 // 3. The bar's icons share one set: the pager's two chevrons are the same glyph, the × is the pack's
 //    close, and every glyph on the card grows with --cmux-interface-scale as its words do.
@@ -107,6 +108,8 @@ await requireBrowserLane("agent-question-card-paging.browser.test.ts", async () 
 
   describe("agent question card paging", () => {
     for (const [width, scale] of [
+      // Narrow enough that Skip and Send wrap under the typed answer.
+      [340, 1],
       [420, 1],
       [820, 1],
       [640, 1.25],
