@@ -41,7 +41,6 @@
   border: 0;
   background: none;
   color: inherit;
-  cursor: pointer;
   border-radius: 999px;
 }
 .cv-subagent-started__face:disabled {
@@ -53,6 +52,16 @@
   gap: var(--ds-space-1, 4px);
   margin-inline-end: var(--ds-space-2, 8px);
   vertical-align: middle;
+}
+/* In a narrow pane the icons that do not fit drop whole, as the composer hat's kinds do, and the
+   count's words stay whole: the strip wraps onto a line it never shows. It used to shrink with no
+   wrap, which sliced the third icon down the middle in a 280px pane (Leo, 2026-11-23: "the fuck are
+   these cutting off into ellipses so soon anyways?"). One face's height (AgentIdentity size 14). */
+.cv-subagent-started .cv-agent-activity__sentence > .cv-subagent-started__faces {
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  height: var(--cmux-menu-icon-size);
+  overflow: hidden;
 }
 .cv-subagent-started__more {
   flex: none;

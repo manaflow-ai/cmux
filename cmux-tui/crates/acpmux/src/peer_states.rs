@@ -12,6 +12,7 @@
 //! short-lived peers does not grow it without bound.
 
 use crate::no_panic::LockExt;
+use crate::protocol::composer_status::machine_link_item;
 use crate::protocol::peer_state::{
     Carrier, DialFail, DownCause, MachineLink, OfflineReason, PeerStateChanged,
 };
@@ -189,16 +190,20 @@ impl Observed {
 
     fn note(self, name: &str) -> PeerStateChanged {
         let at = crate::store::now_ms();
+        let since = if self.since == 0 { at } else { self.since };
+        let removed = self.error.as_deref() == Some(REMOVED);
         PeerStateChanged {
             peer: name.to_owned(),
             state: self.link.folded(),
             link: self.link,
             carrier: self.carrier,
             cause: self.cause,
-            since: if self.since == 0 { at } else { self.since },
+            since,
             next_retry_at: self.next_retry_at,
             reason: self.reason,
             action: self.reason.map(OfflineReason::action),
+            // The composer dot's item for this link, decided here with the link.
+            status: machine_link_item(name, self.link, Some(since), self.reason, removed),
             down_reason: self.down_reason,
             last_seen: self.last_seen,
             error: self.error,
@@ -265,6 +270,33 @@ mod tests {
         // Added again: its first state goes out.
         states.register("b", 3, seen(Connecting));
         assert_eq!(drain(&mut rx), [("b".to_owned(), Connecting, None)]);
+    }
+
+    /// Each note carries the composer dot's item for its link: none while connected or coming
+    /// back on its own (reconnects are silent), and a removal named as one.
+    #[test]
+    fn a_note_carries_its_status_item() {
+        let states = PeerStates::default();
+        let mut rx = states.subscribe();
+        let mut reconnecting = seen(Reconnecting);
+        reconnecting.since = 1_000;
+        states.register("b", 1, seen(Connected));
+        states.changed("b", 1, reconnecting);
+        states.removed("b", 1, None);
+        let notes: Vec<PeerStateChanged> = std::iter::from_fn(|| rx.try_recv().ok())
+            .map(|v| serde_json::from_value(v[STATE_NOTE].clone()).unwrap())
+            .collect();
+        assert_eq!(notes.len(), 3);
+        assert_eq!(notes[0].status, None);
+        assert_eq!(notes[1].status, None);
+        let gone = notes[2].status.clone().unwrap();
+        assert_eq!(gone.words, "status.machineLink.removed");
+        assert_eq!(gone.action, None);
+        // An older daemon's note, with no `status`, still reads.
+        let mut old = serde_json::to_value(&notes[1]).unwrap();
+        old.as_object_mut().unwrap().remove("status");
+        let read: PeerStateChanged = serde_json::from_value(old).unwrap();
+        assert_eq!(read.status, None);
     }
 
     /// A watcher that fell behind gets each name's last note, a removed one's included.
