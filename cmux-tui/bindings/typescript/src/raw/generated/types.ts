@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 06b04f371f590cf85e5a742859b460ba88ba4a337c754058e101b84d90e89315. */
+/* cmux-tui mux protocol 12, IR 4ddd55d37274301cf2ab3d3c45a6564077c293d7341bff5e6230b27ced4d14d7. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -245,6 +245,7 @@ export type ColumnMoveDirection = "left" | "right";
 export type ColumnPin = {
   "edge": string;
   "mode": string;
+  "pinned"?: (boolean) | null;
   "role"?: (string) | null;
 };
 

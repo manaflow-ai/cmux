@@ -772,8 +772,8 @@
     },
     {
       "path": "ColumnPin.java",
-      "sha256": "0f51dd9469d96aafbee6b410b85f75254beb13eda57444816a2073c278f92a55",
-      "size": 3014
+      "sha256": "64c61fb8644611722b50ec633504e71012125da37d5df582ebf34fcb6d488254",
+      "size": 3637
     },
     {
       "path": "ColumnSide.java",
@@ -787,8 +787,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "18c4838c494139d1cbccca1f4dc108fd9186341294d1f455461716d1ce508cd5",
-      "size": 87497
+      "sha256": "558939055caad5d79f017e907f8b68c723f2165e5389623639fa3c69be1126ed",
+      "size": 87592
     },
     {
       "path": "ComputerUseApprovalsRequest.java",
@@ -2067,13 +2067,13 @@
     },
     {
       "path": "NewConversationTabRequest.java",
-      "sha256": "e79a7fed3d1529b122f062e29cca0c0ae9ea25f909473af127eb80c26f11e10c",
-      "size": 11125
+      "sha256": "36c692853ec43732b6b176d274517240b774de39a11cbf806f3216431566633a",
+      "size": 12594
     },
     {
       "path": "NewConversationTabResult.java",
-      "sha256": "12c917523d22eeaa139cd3dca95b06ff5efe21735a0959c3a5b83a1077c60b2c",
-      "size": 6124
+      "sha256": "86d676ac99debd7b6110ff73e7490feb2ad5a31ec5e89c48bb8d24e09325dd7e",
+      "size": 6840
     },
     {
       "path": "NewFrontendBrowserTabRequest.java",
@@ -2297,7 +2297,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "8571e9789d80e57bc6e063d4f4c82c4fb6b2c43ce705f82f8cbfe22be0e69d6a",
+      "sha256": "14a65c72c99fc49ef2a792044cdf07a9ba3bbc4858e7f317279f2d123b75742c",
       "size": 8511
     },
     {
@@ -3857,7 +3857,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "06b04f371f590cf85e5a742859b460ba88ba4a337c754058e101b84d90e89315",
+  "ir_sha256": "4ddd55d37274301cf2ab3d3c45a6564077c293d7341bff5e6230b27ced4d14d7",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
