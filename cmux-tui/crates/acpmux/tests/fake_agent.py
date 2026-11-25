@@ -113,6 +113,8 @@ FAKE_CLASS_LOG=<path>: on session/new, append {"pid", "pri", "nice"} (its own, a
 "class-probe: <path>": start `sleep 120` (a tool its turn runs) and write {"sleeper": pid, "diskio": n}
 to <path>: n is its own process's disk I/O policy (`getiopolicy_np`, macOS; the tool inherits it),
 None elsewhere.
+"class-wait: <path>": the same, then nothing until the test writes the FIFO <path>.gate; then its
+first token, and the turn ends at the next write.
 FAKE_BG_ONCE=<path>: the first agent to get `initialize` (<path> does not exist yet) creates <path>,
 has another process put it in background class (an outside cause, not its own call), answers that
 `initialize` with an error and stays alive, as a harness that fails its start at background class.
@@ -1567,6 +1569,22 @@ def handle_prompt(rid, params):
         shell.kill()
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "class-wait: <path>": as "class-probe", then the turn says nothing until the test writes to
+    # the FIFO <path>.gate: a turn the person waits on, before its first token.
+    if text.startswith("class-wait:"):
+        import subprocess
+        sleeper = subprocess.Popen(["sleep", "120"], stdin=subprocess.DEVNULL)
+        out = text[len("class-wait:"):].split("<", 1)[0].strip()
+        with open(f"{out}.tmp", "w") as f:
+            f.write(json.dumps({"sleeper": sleeper.pid, "diskio": own_disk_io()}))
+        os.replace(f"{out}.tmp", out)
+        with open(f"{out}.gate") as gate:
+            gate.read()
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "done"}})
+        with open(f"{out}.gate") as gate:
+            gate.read()
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "class-probe: <path>": a tool the turn runs, its pid to <path> (module docs).
     if text.startswith("class-probe:"):
         import subprocess
@@ -1755,9 +1773,8 @@ def handle_prompt(rid, params):
     # usage tick; then a chunk with no messageId, a thought and a tool call the person sees,
     # and another chunk with none. acpmux stamps one segment per message, ended also where the pane
     # cuts the row (hub/stream.rs `cuts_reply`).
-    # "reply-checklist" streams one message (m1) across the turn's first TodoWrite call and first
-    # plan, where the pane cuts the row, then across a second TodoWrite and plan update, which the
-    # pane hides behind the checklist; a cleared list and a new plan cut again.
+    # "reply-checklist" streams one message (m1) across TodoWrite calls and plans, cleared and new:
+    # acpmux drops each (todo_tools.rs), so none cuts the row.
     if text == "reply-checklist":
         chunk = lambda t: update(sid, {"sessionUpdate": "agent_message_chunk", "messageId": "m1", "content": {"type": "text", "text": t}})
         todo = lambda n: update(sid, {"sessionUpdate": "tool_call", "toolCallId": f"todo-{n}", "title": "TodoWrite", "kind": "other", "status": "completed", "_meta": {"claude": {"tool": "TodoWrite"}}})
@@ -1778,9 +1795,9 @@ def handle_prompt(rid, params):
         chunk("g")
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
-    # "reply-checklist-ticks" draws the turn's checklist, then streams one message (m1) across a
-    # usage tick, a call's update and the checklist's update: none is a new turn, so the pane keeps
-    # the message one row and acpmux one segment (#41540 review F1).
+    # "reply-checklist-ticks" sends a plan, then streams one message (m1) across a usage tick, a
+    # call's update and another plan: none is a new turn, so the pane keeps the message one row
+    # and acpmux one segment (#41540 review F1).
     if text == "reply-checklist-ticks":
         chunk = lambda t: update(sid, {"sessionUpdate": "agent_message_chunk", "messageId": "m1", "content": {"type": "text", "text": t}})
         step = [{"content": "step", "status": "pending", "priority": "medium"}]
@@ -1792,9 +1809,9 @@ def handle_prompt(rid, params):
         chunk("b")
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
-    # "reply-dsh-todo" streams one message (m1) across DeepSeek Harness todo_write calls, which
-    # acpmux hides and turns into the plan (acp_todo_plan.rs): a | call 1 | b | its result, the
-    # turn's first plan | c | call 2 | d | its result, a plan update | e (#41540 review F2).
+    # "reply-dsh-todo" streams one message (m1) across DeepSeek Harness todo_write calls and their
+    # results, which acpmux drops (todo_tools.rs): a | call 1 | b | its result | c | call 2 | d |
+    # its result | e (#41540 review F2).
     if text == "reply-dsh-todo":
         chunk = lambda t: update(sid, {"sessionUpdate": "agent_message_chunk", "messageId": "m1", "content": {"type": "text", "text": t}})
         todos = lambda status: {"todos": [{"content": "step", "status": status}]}
@@ -2254,8 +2271,7 @@ def stdin_lines(early):
 
 
 def own_disk_io():
-    """This process's disk I/O policy (`getiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_PROCESS)`):
-    4 at utility, 0 or 1 at the default tier. None off macOS."""
+    """This process's disk I/O policy (`getiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_PROCESS)`)."""
     if sys.platform != "darwin":
         return None
     import ctypes
