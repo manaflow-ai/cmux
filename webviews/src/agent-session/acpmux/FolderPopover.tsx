@@ -12,7 +12,6 @@ import { folderUsedAt, mergeByRecentUse, readAddedRepos, rememberAddedRepo, type
 import { githubFolder, githubFolderRepo } from "./githubRepos";
 import { useT } from "./i18n";
 import { FOLDER_MENU_LIST_CAP, folderMenuShortest, useLocationOpener, useLocationPopover } from "./locationPopover";
-import { ProjectBadge } from "./ProjectBadge";
 import { projectSuffixes } from "./projectSuffix";
 import {
   folderRepo,
@@ -202,10 +201,27 @@ export function FolderPopover({
   // The two actions under the list: Add project… and No folder (always there; checked while nothing is
   // picked and no new project is the choice).
   const pinned = sources ? [ACTION_ADD, ...(onNoProject ? [ACTION_NONE] : [])] : onBrowse ? [ACTION_BROWSE] : [];
-  const listValues = useMemo(
+  const rowBlocks = useMemo(
     () => orderedRows({ cloud, cloudRows, githubRows, shown, typed, typedPath }),
     [cloud, cloudRows, githubRows, shown, typed, typedPath],
   );
+  // The rows the menu first showed, kept while it stays open with nothing typed (keptBlocks); a row fills in place.
+  // Typing orders by the search; clearing it starts from the list as it is then.
+  const [shownBlocks, setShownBlocks] = useState<readonly string[]>();
+  const blockOrder =
+    open && !typed
+      ? keptBlocks(
+          shownBlocks,
+          rowBlocks.map((block) => block.key),
+        )
+      : undefined;
+  if (blockOrder !== shownBlocks && !(blockOrder && shownBlocks && sameKeys(blockOrder, shownBlocks)))
+    setShownBlocks(blockOrder);
+  const listValues = useMemo(() => {
+    if (!blockOrder) return rowBlocks.flatMap((block) => block.rows);
+    const byKey = new Map(rowBlocks.map((block) => [block.key, block.rows]));
+    return blockOrder.flatMap((key) => byKey.get(key) ?? []);
+  }, [rowBlocks, blockOrder]);
   // A heading under other rows opens with a hairline; the list's first row has the field's line over it.
   const dividerOf = (value: string) => (sections.has(value) && value !== listValues[0] ? "" : undefined);
   const suggestions = [...pinned, ...listValues];
@@ -359,7 +375,7 @@ export function FolderPopover({
           data-current={checked ? "" : undefined}
         >
           <span className="acpmux-location-action-icon" aria-hidden="true">
-            {githubRepo ? <GitHubGlyph /> : <MenuFolderIcon />}
+            <LocationGlyph location={githubRepo ? githubFolder(githubRepo.fullName) : cloudFolder?.id} />
           </span>
           <span className="acpmux-menu-text acpmux-location-name">
             <span className="acpmux-menu-label">{githubRepo?.fullName ?? cloudFolder?.label}</span>
@@ -424,16 +440,10 @@ export function FolderPopover({
         title={folder.id}
         data-current={leadCurrent ? "" : undefined}
         data-expanded={disclosure ? String(disclosure.open) : undefined}
-        data-github={repo?.github ? "" : undefined}
       >
-        {repo?.github ? (
-          // A clone of a GitHub repository reads as one, like a repository added as a project.
-          <span className="acpmux-location-action-icon" aria-hidden="true">
-            <GitHubGlyph />
-          </span>
-        ) : (
-          <ProjectBadge project={{ cwd: folder.id, label: folder.label, repo }} />
-        )}
+        <span className="acpmux-location-action-icon" aria-hidden="true">
+          <LocationGlyph location={folder.id} />
+        </span>
         <span className="acpmux-menu-text acpmux-location-name">
           <span className="acpmux-menu-label">{group.name}</span>
           {suffix && (
@@ -665,25 +675,50 @@ function orderedRows({
   shown: ReadonlyMap<string, { group: { key: string; members: readonly FolderChoice[] } }>;
   typed: string;
   typedPath: string | undefined;
-}): string[] {
-  const repos: { repo: AddedRepo; block: string[] }[] = [];
-  githubRows.forEach((repo, value) => repos.push({ repo, block: [value] }));
-  const blocks: { block: string[]; at: number | undefined }[] = [];
+}): RowBlock[] {
+  const repos: { repo: AddedRepo; block: RowBlock }[] = [];
+  githubRows.forEach((repo, value) => repos.push({ repo, block: { key: value, rows: [value] } }));
+  const blocks: { block: RowBlock; at: number | undefined }[] = [];
   let previous: string | undefined;
   shown.forEach((place, value) => {
     const group = place.group;
     if (group.key !== previous) {
-      blocks.push({ block: [], at: newestUse(group.members) });
+      // Keyed by its repository (or its folder), not its lead row: a worktree that becomes the lead keeps the place.
+      blocks.push({ block: { key: "\u0000repo:" + group.key, rows: [] }, at: newestUse(group.members) });
       previous = group.key;
     }
-    blocks[blocks.length - 1]!.block.push(value);
+    blocks[blocks.length - 1]!.block.rows.push(value);
   });
-  const path = typedPath ? [typedPath] : [];
+  const path = typedPath ? [{ key: typedPath, rows: [typedPath] }] : [];
   // Cloud: the machines' own folders under their headings, after the one list.
-  const machines = cloud ? [...cloudRows.keys()] : [];
-  if (typed)
-    return [...blocks.flatMap(({ block }) => block), ...path, ...repos.flatMap(({ block }) => block), ...machines];
-  return [...mergeByRecentUse(blocks, repos).flat(), ...path, ...machines];
+  const machines = cloud ? [...cloudRows.keys()].map((value) => ({ key: value, rows: [value] })) : [];
+  if (typed) return [...blocks.map(({ block }) => block), ...path, ...repos.map(({ block }) => block), ...machines];
+  return [...mergeByRecentUse(blocks, repos), ...path, ...machines];
+}
+
+/// A run of the list's rows that stays together: a repository's rows, an added repository, a machine folder.
+type RowBlock = { key: string; rows: string[] };
+
+/// The blocks the menu showed at its first paint with rows, in that order: while it stays open with nothing typed a
+/// block that arrives later waits for the next open and a block that went away leaves (cmux#53226: rows moved under
+/// the pointer as chats, folders and repositories arrived or re-sorted, and the menu grows up from its chip, so even a
+/// row added at the end moved every row above it). An empty menu takes its first rows.
+export function keptBlocks(kept: readonly string[] | undefined, keys: readonly string[]): readonly string[] {
+  if (!kept || kept.length === 0) return keys;
+  const now = new Set(keys);
+  const order = kept.filter((key) => now.has(key));
+  return order.length === kept.length ? kept : order;
+}
+
+/// The one place a location's icon is chosen: GitHub's mark only for a repository from the GitHub connection
+/// (`github:owner/name`), which is no folder here. Any folder on this Mac, or on a Cloud machine, is a folder: a
+/// clone or a worktree whose `origin` is on GitHub too (cmux#53226).
+export function LocationGlyph({ location }: { location: string | undefined }) {
+  return githubFolderRepo(location) ? <GitHubGlyph /> : <MenuFolderIcon />;
+}
+
+function sameKeys(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((key, at) => key === right[at]);
 }
 
 /// When a chat here last worked in any of `members`, if one did.

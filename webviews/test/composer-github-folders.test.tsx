@@ -631,7 +631,7 @@ test("the filesystem root stays out of the projects list and can still be used a
     expect(fit.textContent).toBe("");
     expect(labels(".ui-combobox-pinned [role=option]")).toEqual(["Add project…", "No folder"]);
     expect(option("No folder")?.querySelector("[data-no-folder] .acpmux-location-action-icon svg")).toBeTruthy();
-    expect(option("notes")?.querySelector(".acpmux-project-badge svg")).toBeTruthy();
+    expect(option("notes")?.querySelector(".acpmux-location-action-icon svg")).toBeTruthy();
     await type("/");
     const usePath = option("Use /");
     expect(usePath?.textContent).toBe("Use /");
@@ -1256,7 +1256,7 @@ test("one list, most recently used first: an added GitHub repository sits among 
   }
 });
 
-test("a folder that is a clone of an added GitHub repository is its one row, with the GitHub glyph (cmux#53226)", async () => {
+test("a folder that is a clone of an added GitHub repository is its one row, with the folder icon (cmux#53226)", async () => {
   const gh = host({ "github.status": ready, "github.repos.list": installed });
   rememberAddedRepo({ fullName: "acme/api", private: true }, 2000);
   rememberAddedRepo({ fullName: "acme/web", private: false }, 1000);
@@ -1280,7 +1280,9 @@ test("a folder that is a clone of an added GitHub repository is its one row, wit
     // Before, the clone was listed as a folder and the repository again under GitHub.
     expect(labels(".ui-combobox-scroll [role=option]")).toEqual(["acme/web", "app", "api"]);
     const clone = listRow("api")!;
-    expect(clone.querySelector("[data-github] .acpmux-location-action-icon svg")).not.toBeNull();
+    // A clone is a folder on this Mac: the folder icon, never GitHub's mark (cmux#53226).
+    expect(clone.querySelector("[data-github]")).toBeNull();
+    expect(clone.querySelector(".acpmux-location-action-icon svg")).not.toBeNull();
     // A plain folder keeps its own icon.
     expect(listRow("app")?.querySelector("[data-github]")).toBeNull();
     await type("api");
@@ -1383,13 +1385,102 @@ test("with Cloud picked, this Mac's folders and the added repositories are one r
     // Before: only GitHub repositories, every one on the account, under a GitHub heading.
     expect(labels(".ui-combobox-scroll [role=option]")).toEqual(["app", "notes", "web"]);
     expect(doc().querySelectorAll(".ui-combobox-scroll [data-section]")).toHaveLength(0);
-    expect(listRow("web")?.querySelector("[data-github] .acpmux-location-action-icon svg")).not.toBeNull();
+    expect(listRow("web")?.querySelector("[data-github]")).toBeNull();
     expect(listRow("notes")?.querySelector("[data-github]")).toBeNull();
     await press(listRow("notes")!);
     expect(picked).toEqual([["/Users/me/notes", undefined]]);
     // The chip names the picked folder; it is not dropped for having no GitHub repository.
     expect(face()).toContain("notes");
     expect(cloudStartFolder(picked[0]?.[0])).toEqual({ cwd: "/Users/me/notes" });
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+// The user's screenshots (2026-11-25): my-first-project and strauss, cmux chat worktrees of clones whose `origin` is on
+// GitHub, showed GitHub's mark. Any folder on this Mac is a folder; GitHub's mark is only for a repository from the
+// GitHub connection that is no folder here.
+test("a worktree of a clone with a GitHub origin shows the folder icon; only a repository from GitHub shows the mark (cmux#53226)", async () => {
+  const gh = host({ "github.status": ready, "github.repos.list": installed });
+  rememberAddedRepo({ fullName: "acme/web", private: false }, 1000);
+  const worktree = "/Users/me/.cmux/worktrees.noindex/strauss/chat-2e499e";
+  const { root } = await renderTray(
+    {
+      ...persistent,
+      projectChoices: [
+        { cwd: FOLDER, label: "app" },
+        {
+          cwd: worktree,
+          label: "strauss",
+          repo: { root: "/Users/me/cmux/repos/me/strauss", name: "strauss", github: "me/strauss" },
+        },
+      ],
+    },
+    gh.store,
+  );
+  try {
+    await openFolderMenu();
+    const strauss = listRow("strauss")!;
+    expect(strauss).toBeTruthy();
+    expect(strauss.querySelector("[data-github]")).toBeNull();
+    expect(strauss.querySelector(".acpmux-location-action-icon svg")).not.toBeNull();
+    // The repository listed from GitHub, with no folder here, is the one row with the mark.
+    expect(listRow("acme/web")?.querySelector("[data-github]")).not.toBeNull();
+    expect(doc().querySelectorAll(".acpmux-folder-popover [data-github]")).toHaveLength(1);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+// The user (2026-11-25): "the folder picker still shifts rows up and down sometimes when he clicks into it". The folders
+// arrive and re-sort after the menu opens (the daemon's list, a chat working elsewhere), and the menu grows up from its
+// chip, so any row added moved the rows under the pointer.
+test("the folder menu's rows keep their order and places from its first paint while it stays open (cmux#53226)", async () => {
+  const gh = host({ "github.status": ready, "github.repos.list": installed });
+  let setChoices: (choices: { cwd: string; label: string }[]) => void = () => {};
+  function Tray() {
+    const github = useGitHubPicker(gh.store);
+    const [choices, set] = useState([
+      { cwd: FOLDER, label: "app" },
+      { cwd: "/Users/me/notes", label: "notes" },
+    ]);
+    setChoices = set;
+    return (
+      <ComposerContext
+        summary={{ sessionId: "", cwd: FOLDER }}
+        projectChoices={choices}
+        onProject={() => {}}
+        onNoProject={() => {}}
+        localName="This Mac"
+        runMode={{ mode: "persistent", onMode: () => {} }}
+        github={github}
+      />
+    );
+  }
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  await act(async () => root.render(<Tray />));
+  try {
+    await openFolderMenu();
+    const rows = () => labels(".ui-combobox-scroll [role=option]");
+    const first = rows();
+    expect(first).toEqual(expect.arrayContaining(["app", "notes"]));
+    // Folders arrive late, a new one on top and the list re-sorted, while the pointer is over the menu.
+    setFolderUseTimes((folder) => ({ "/Users/me/notes": 5000, "/Users/me/late": 9000 })[folder]);
+    await act(async () =>
+      setChoices([
+        { cwd: "/Users/me/late", label: "late" },
+        { cwd: "/Users/me/notes", label: "notes" },
+        { cwd: FOLDER, label: "app" },
+      ]),
+    );
+    await settle();
+    // Before: late on top, every row under it moved down a row.
+    expect(rows()).toEqual(first);
+    // The next open lists it.
+    await act(async () => doc().querySelector<HTMLButtonElement>(".acpmux-location-button")!.click());
+    await settle();
+    await openFolderMenu();
+    expect(rows()).toContain("late");
   } finally {
     await act(async () => root.unmount());
   }

@@ -1093,7 +1093,8 @@ export function ComposerContext({
               face={
                 <LocationFace
                   icon={
-                    currentGitHub ? (
+                    // A folder on this Mac is a folder, its `origin` on GitHub or not (FolderPopover LocationGlyph).
+                    githubFolderRepo(currentFolder) ? (
                       <GitHubGlyph />
                     ) : currentLocation ? (
                       <ProjectBadge
