@@ -533,6 +533,31 @@
           ]
         },
         {
+          "key": "experiments.expandedEditsEstimate",
+          "note": "Agent chat estimates an opened \"Edited N files\" group at its files' diff cards (conversation/editDiffBox.ts) instead of its 22 px closed line, so no gap opens under it before it mounts (model.ts editsEstimateOn, from experimentSwitchOn(\"expandedEditsEstimate\")). Off by default (Leo's UI hold, 2026-11-24, ask-82b08b7ed7); off keeps the old estimate.",
+          "title": {
+            "key": "settings.experiments.expandedEditsEstimate",
+            "text": "Expanded Edits Estimate"
+          },
+          "help": {
+            "key": "settings.experiments.expandedEditsEstimate.help",
+            "text": "Agent chat places the rows under an expanded Edited files group at its real height, so no gap opens under it."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiment",
+            "experimental",
+            "labs",
+            "agent",
+            "chat",
+            "edits",
+            "diff",
+            "gap",
+            "scroll"
+          ]
+        },
+        {
           "key": "experiments.introWalk",
           "note": "Make cmux Yours as the intro walk's four screens (hq RFD 0057): look bundles with light and dark faces and a Tidy switch, how you work, trust and noise (agents' permission, banners and sound), then tune (density, background). The onboarding page reads it from its state (MakeItYoursStepModel.introWalk; webviews onboarding walk.ts). Off by default; off keeps today's one Make cmux Yours screen.",
           "title": {
