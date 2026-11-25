@@ -555,6 +555,10 @@ impl Hub {
         admission.release();
         match unanswered {
             Unanswered::Defer(deferral) => self.defer_unanswered(session, deferral, stage).await,
+            Unanswered::Guarded(guard) => {
+                guard()?;
+                Err(super::auto_resume::retry_turn::busy())
+            }
             Unanswered::Busy => Err(super::auto_resume::retry_turn::busy()),
             Unanswered::SteerUnavailable => Err(super::turn_cap::steer_unavailable(false)),
         }
@@ -712,7 +716,6 @@ impl Hub {
             super::inbox::Route::Plain => None,
             super::inbox::Route::Inbox(agent, class) => {
                 admission.enter("inbox");
-                admission.commit();
                 return Box::pin(self.inbox_accept(
                     session,
                     &blocks,
@@ -846,7 +849,6 @@ impl Hub {
             // Steer setup can still wait on the child or family gate. Its first write and
             // acceptance happen together, and the acceptance callback commits the admission.
             admission.enter("steer");
-            admission.commit();
             let opts = PromptOptions { prompt_id: Some(prompt_id), on_accepted: None, ..opts };
             // Boxed: the steer's future stays out of this one, which every prompt's caller holds
             // on its stack (a debug build's test thread has little room).
