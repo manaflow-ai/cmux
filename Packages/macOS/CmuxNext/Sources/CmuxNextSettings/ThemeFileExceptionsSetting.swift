@@ -14,39 +14,27 @@ public nonisolated struct ThemeFileExceptionsSetting: Sendable {
     /// The dotted keys in `root`'s list, without repeats; a missing or bad value is none.
     /// Entries that are no look setting a theme file may set, or that never take an exception
     /// (``unexceptionable``), are ignored: a hand-written `"appearance"` must not switch the whole
-    /// file off.
+    /// file off. Rust answers (`theme.exceptions`).
     public static func keys(in root: JSONValue) -> Set<String> {
-        Set((root.value(at: configPath)?.arrayValue ?? []).compactMap(\.stringValue).filter { key in
-            !unexceptionable.contains(key) && SettingsSchema.descriptor(for: CmuxConfigFile.keyPath(from: key)).map(ThemeFileOverlay.isLook) == true
-        })
+        Set(SettingsRust.answer("theme.exceptions", .object(["root": root]))["keys"]?.arrayValue?.compactMap(\.stringValue) ?? [])
     }
 
     /// The list edit for writing `writes` (dotted key, whether the write sets a value) while `overlay`
     /// is the active theme file, read against `root` (the document before the write). A set adds
-    /// each key the file sets, a reset removes it; choosing a theme file clears the list. Nil when the
-    /// list stays as it is.
+    /// each key the file sets, a reset removes it; choosing a theme file clears the list. Rust answers
+    /// (`theme.exception_edit`).
     ///
     /// - Returns: The new list value, or `.some(nil)` to remove the key, or nil for no edit.
     static func edit(writing writes: [(key: String, sets: Bool)], overlay: ThemeFileOverlay?,
                      in root: JSONValue) -> JSONValue?? {
-        let current = keys(in: root)
-        let themeFileKey = ThemeFileSetting.configPath.joined(separator: ".")
-        var next = current
-        if writes.contains(where: { $0.key == themeFileKey }) {
-            next = []
-        } else if let overlay {
-            let fileKeys = Set(overlay.values.map { $0.path.joined(separator: ".") })
-            for write in writes where !unexceptionable.contains(write.key) {
-                if write.sets {
-                    if fileKeys.contains(write.key) { next.insert(write.key) }
-                } else {
-                    next.remove(write.key)
-                }
-            }
-        } else {
-            for write in writes where !write.sets { next.remove(write.key) }
-        }
-        guard next != current else { return nil }
-        return .some(next.isEmpty ? nil : .array(next.sorted().map(JSONValue.string)))
+        var request: [String: JSONValue] = [
+            "root": root,
+            "writes": .array(writes.map { .object(["key": .string($0.key), "sets": .bool($0.sets)]) }),
+        ]
+        if let overlay { request["file_keys"] = .array(overlay.values.map { .string($0.path.joined(separator: ".")) }) }
+        let reply = SettingsRust.answer("theme.exception_edit", .object(request))
+        guard reply["change"]?.boolValue == true, let value = reply["value"] else { return nil }
+        if case .null = value { return .some(nil) }
+        return .some(value)
     }
 }

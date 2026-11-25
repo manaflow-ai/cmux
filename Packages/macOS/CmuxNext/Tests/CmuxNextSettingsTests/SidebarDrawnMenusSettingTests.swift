@@ -17,8 +17,9 @@ import Testing
         #expect(SidebarDrawnMenusSetting().value(in: .object(["sidebar": .object(["drawnMenus": .bool(true)])])))
     }
 
-    @Test func aThemeFileMaySetIt() {
-        #expect(ThemeFileOverlay.lookKeys.contains("sidebar.drawnMenus"))
+    @Test func aThemeFileMaySetIt() throws {
+        let row = try #require(SettingsSchema.all.first { $0.path == SidebarDrawnMenusSetting.configPath })
+        #expect(ThemeFileOverlay.isLook(row))
     }
 
     @Test func applyingTurnsItOnAndOffAgain() {
