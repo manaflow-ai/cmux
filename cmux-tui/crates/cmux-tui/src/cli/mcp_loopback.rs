@@ -131,7 +131,7 @@ pub(super) fn serve_main(words: &[String]) -> i32 {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--port" => {
-                port = args.next().and_then(|v| v.parse::<u16>().ok()).filter(|p| *p >= 1024)
+                port = args.next().and_then(|v| v.parse::<u16>().ok()).filter(|p| *p >= 1024);
             }
             "--forward" => forward = args.next().filter(|v| valid_forward(v)).cloned(),
             _ => return 2,
