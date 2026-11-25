@@ -12,6 +12,9 @@ import Testing
             ["op": "read", "after": 12, "limit": 500, "waitMs": 20_000],
             ["op": "report", "page": "chat", "windowMs": 1_000, "spans": [], "renders": ["Row": 2],
              "frames": [60], "layoutShifts": [], "bytes": []],
+            // frameTally.ts: refused, every tally was dropped and counted as a chat refusal.
+            ["op": "tally", "bucketMs": 0.1, "gaps": [[83, 10]]],
+            ["op": "frames"],
         ]
         for params in sent {
             #expect(!AcpmuxPaneMethods.breaksParamsRule(["method": "_acpmux/perf", "params": params], modeFields: nil))

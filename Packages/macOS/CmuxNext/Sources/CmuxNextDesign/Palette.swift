@@ -101,6 +101,8 @@ public struct Palette {
 
     /// Hover fill for rows and tabs.
     public static var hoverFill: NSColor { color(\.hoverFill, dynamic: PaletteDynamic.hoverFill) }
+    /// A grouped form's rows at rest (an info panel's groups, ``ThemeTokens/groupFill``); not a hover state.
+    public static var groupFill: NSColor { color(\.groupFill, dynamic: PaletteDynamic.groupFill) }
     /// Selected row or tab fill. Replaces the system blue selection.
     public static var selectionFill: NSColor { color(\.selectionFill, dynamic: PaletteDynamic.selectionFill) }
     /// The selected folder tab (the flush corner's tab that runs into the content card, `TabCell`): the

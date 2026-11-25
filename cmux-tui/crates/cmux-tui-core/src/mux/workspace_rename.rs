@@ -258,7 +258,7 @@ impl Mux {
             drop(state);
             let receipt = registry
                 .commit_registry_intent(crate::workspace_registry::RegistryIntent::Workspace(
-                    intent,
+                    Box::new(intent),
                 ))?
                 .into_workspace()?;
             let commit = receipt.commit;
