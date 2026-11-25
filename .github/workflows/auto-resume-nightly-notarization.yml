@@ -147,15 +147,17 @@ jobs:
 
           artifacts = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")).get("artifacts", [])
           channel, short_sha = sys.argv[2:]
+          # Nightly is arm64 only; Intel and universal ship from the stable release.
+          NIGHTLY_VARIANTS = ("arm64",)
           names = {artifact["name"] for artifact in artifacts if not artifact.get("expired")}
-          expected = [f"cmux-{channel}-notarization-recovery-{variant}-{short_sha}" for variant in ("arm64", "x86_64", "universal")]
+          expected = [f"cmux-{channel}-notarization-recovery-{variant}-{short_sha}" for variant in NIGHTLY_VARIANTS]
           missing = [name for name in expected if name not in names]
           if missing:
               print("ready=false")
               print("reason=no-published-recovery-artifacts")
               raise SystemExit(0)
           print("ready=true")
-          metadata = [f"cmux-{channel}-notarization-metadata-{variant}-{short_sha}" for variant in ("arm64", "x86_64", "universal")]
+          metadata = [f"cmux-{channel}-notarization-metadata-{variant}-{short_sha}" for variant in NIGHTLY_VARIANTS]
           print(f"metadata_only={'true' if all(name in names for name in metadata) else 'false'}")
           PY
           if grep -Fxq 'ready=true' "$RUNNER_TEMP/artifact-check"; then
@@ -163,7 +165,7 @@ jobs:
             # Publish a variant only when the latest run of its verify job passed.
             gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/jobs?filter=latest&per_page=100" \
               --jq '.jobs[] | [.name, (.conclusion // "")] | @tsv' > "$RUNNER_TEMP/source-jobs.tsv"
-            for variant in arm64 x86_64 universal; do
+            for variant in $NIGHTLY_VARIANTS; do
               if ! grep -Fxq "$(printf 'Verify signed nightly app (%s)\tsuccess' "$variant")" "$RUNNER_TEMP/source-jobs.tsv"; then
                 echo "::warning::Verify signed nightly app ($variant) did not pass in run $SOURCE_RUN_ID; nothing is continued."
                 printf 'ready=false\nreason=verify-job-did-not-pass\n' > "$RUNNER_TEMP/artifact-check"
@@ -225,7 +227,7 @@ jobs:
           mkdir -p recovery
           kind=recovery
           [ "$RECOVERY_METADATA_ONLY" != true ] || kind=metadata
-          for variant in arm64 x86_64 universal; do
+          for variant in $NIGHTLY_VARIANTS; do
             artifact="cmux-${CHANNEL}-notarization-${kind}-${variant}-${SHORT_SHA}"
             gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
               --name "$artifact" --dir "recovery/$variant"
@@ -248,7 +250,7 @@ jobs:
           if [ "$RECOVERY_METADATA_ONLY" = true ]; then
             resolve_args=(--metadata-only)
           fi
-          for variant in arm64 x86_64 universal; do
+          for variant in $NIGHTLY_VARIANTS; do
             manifest="recovery/$variant/cmux-nightly-notarization-recovery.json"
             if ! python3 scripts/ci/resolve-notarization-recovery.py \
                 "$manifest" "$SOURCE_RUN_ID" "$SOURCE_HEAD_SHA" "$CHANNEL" "$variant" \
@@ -269,7 +271,7 @@ jobs:
           while :; do
             pending=false
             terminal_failure=false
-            for variant in arm64 x86_64 universal; do
+            for variant in $NIGHTLY_VARIANTS; do
               state_file="$(cat "$RUNNER_TEMP/recovery-$variant.state-file")"
               report="poll-reports/$variant.log"
               set +e
@@ -319,7 +321,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [arm64, x86_64, universal]
+        variant: [arm64]
     environment: release
     permissions:
       actions: read
@@ -588,7 +590,7 @@ jobs:
           set -euo pipefail
           mkdir -p outer
           variants=()
-          for variant in arm64 x86_64 universal; do
+          for variant in $NIGHTLY_VARIANTS; do
             artifact="cmux-${CHANNEL}-outer-notarization-metadata-${variant}-${SHORT_SHA}"
             if gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$artifact" --dir "outer/$variant"; then
               variants+=("$variant")
@@ -860,7 +862,7 @@ jobs:
           set -euo pipefail
           mkdir -p outer
           variants=()
-          for variant in arm64 x86_64 universal; do
+          for variant in $NIGHTLY_VARIANTS; do
             artifact="cmux-${CHANNEL}-stapled-app-notarization-metadata-${variant}-${SHORT_SHA}"
             if gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$artifact" --dir "outer/$variant"; then
               variants+=("$variant")
@@ -1005,7 +1007,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [arm64, x86_64, universal]
+        variant: [arm64]
     permissions:
       contents: read
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
@@ -1133,7 +1135,7 @@ jobs:
           set -euo pipefail
           mkdir -p nightly-out
           nightly_build=""
-          for variant in arm64 x86_64 universal; do
+          for variant in $NIGHTLY_VARIANTS; do
             manifest="$(find verified -type f -name cmux-nightly-notarization-recovery.json -path "*-${variant}-${SHORT_SHA}/*" -print -quit)"
             [ -n "$manifest" ] || { echo "missing accepted $variant artifact" >&2; exit 1; }
             dir="$(dirname "$manifest")"
@@ -1163,11 +1165,9 @@ jobs:
           done
           test -n "$nightly_build"
           echo "NIGHTLY_BUILD=$nightly_build" >> "$GITHUB_ENV"
-          cp nightly-out/appcast.xml nightly-out/appcast-universal.xml
-          cp "nightly-out/${DMG_PREFIX}-universal.dmg" "nightly-out/${DMG_PREFIX}.dmg"
-          for feed in appcast-arm64.xml appcast-x86_64.xml appcast-universal.xml appcast.xml; do
-            test -s "nightly-out/$feed"
-          done
+          # The x86_64, universal and legacy feeds and the universal
+          # `${DMG_PREFIX}.dmg` download stay at the last build that had them.
+          test -s nightly-out/appcast-arm64.xml
 
       - name: Verify immutable remote daemon assets
         run: |
@@ -1306,18 +1306,13 @@ jobs:
           python3 scripts/ci/publish-release-assets.py \
             --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" \
             --immutable nightly-out/${DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg \
-            --immutable nightly-out/${DMG_PREFIX}-x86_64-${NIGHTLY_BUILD}.dmg \
-            --immutable nightly-out/${DMG_PREFIX}-universal-${NIGHTLY_BUILD}.dmg \
             --immutable nightly-out/cmuxd-remote-linux-arm64-${NIGHTLY_BUILD} \
             --immutable nightly-out/cmuxd-remote-linux-amd64-${NIGHTLY_BUILD} \
             --immutable nightly-out/cmuxd-remote-darwin-arm64-${NIGHTLY_BUILD} \
             --immutable nightly-out/cmuxd-remote-darwin-amd64-${NIGHTLY_BUILD} \
             --immutable nightly-out/cmuxd-remote-checksums-${NIGHTLY_BUILD}.txt \
             --immutable nightly-out/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json \
-            --alias nightly-out/${DMG_PREFIX}-arm64.dmg \
-            --alias nightly-out/${DMG_PREFIX}-x86_64.dmg \
-            --alias nightly-out/${DMG_PREFIX}-universal.dmg \
-            --alias nightly-out/${DMG_PREFIX}.dmg
+            --alias nightly-out/${DMG_PREFIX}-arm64.dmg
 
       - name: Prepare publication notes
         if: env.ALREADY_PUBLISHED != 'true'
@@ -1325,8 +1320,7 @@ jobs:
           set -euo pipefail
           cat > nightly-downloads.md <<EOF
           - [Apple silicon: ${DMG_PREFIX}-arm64.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${DMG_PREFIX}-arm64.dmg), feed \`appcast-arm64.xml\`
-          - [Intel: ${DMG_PREFIX}-x86_64.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${DMG_PREFIX}-x86_64.dmg), feed \`appcast-x86_64.xml\`
-          - [Universal: ${DMG_PREFIX}.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${DMG_PREFIX}.dmg), feed \`appcast.xml\`
+          - Intel and universal builds ship from the stable release; the Intel and universal nightly downloads and feeds stay at their last build.
           EOF
           python3 scripts/ci/nightly_release_notes.py \
             --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" \
@@ -1357,12 +1351,9 @@ jobs:
           python3 scripts/ci/classic_publish_lease.py check
           python3 scripts/ci/publish-release-assets.py \
             --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" \
-            --immutable nightly-out/${DMG_PREFIX}-universal-${NIGHTLY_BUILD}.dmg \
+            --immutable nightly-out/${DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg \
             --replace-feeds \
-            --feed nightly-out/appcast-arm64.xml \
-            --feed nightly-out/appcast-x86_64.xml \
-            --feed nightly-out/appcast-universal.xml \
-            --feed nightly-out/appcast.xml
+            --feed nightly-out/appcast-arm64.xml
 
       - name: Upload accepted appcasts to R2
         if: env.ALREADY_PUBLISHED != 'true'
@@ -1375,7 +1366,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/ci/classic_publish_lease.py check
-          for feed in appcast-arm64.xml appcast-x86_64.xml appcast-universal.xml appcast.xml; do
+          for feed in appcast-arm64.xml; do
             python3 scripts/ci/upload-r2-object.py --file "nightly-out/$feed" --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries --key "${RELEASE_TAG}/$feed" --content-type application/xml --cache-control 'no-cache, no-store, must-revalidate'
           done
 
@@ -1485,7 +1476,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [arm64, x86_64, universal]
+        variant: [arm64]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 45
     env:
