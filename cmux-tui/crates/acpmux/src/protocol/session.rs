@@ -216,12 +216,6 @@ pub struct SessionSummary {
     #[serde(default)]
     #[schemars(default)]
     pub task_list: Option<crate::task_list::TaskListSummary>,
-    /// Where the chat stands and its next action (`hub/rolling_summary.rs`), for the sidebar
-    /// and the chat header. Absent before the first turn that makes one, and from a peer on an
-    /// older acpmux.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(default)]
-    pub rolling_summary: Option<crate::store::RollingSummary>,
     /// The plan the person last approved in this chat (`hub/plan_build.rs`), which the pane keeps
     /// in sight while the agent builds it. Absent until one, and from a peer on an older acpmux.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -275,6 +269,15 @@ pub struct SessionSummary {
     #[serde(default)]
     #[schemars(default)]
     pub starting: bool,
+    /// It holds its owner's launch credential (`agent_credentials.rs`) while its agent is
+    /// hibernated, so the credential is in this daemon's memory and nowhere else: a daemon restart
+    /// now loses it, and the chat's next start runs without it. `acpmux session wake` starts the
+    /// agent, whose env then carries the credential across the restart; a machine update does that
+    /// before it restarts this daemon. Says only that one is held, never its name or value. Absent
+    /// otherwise, and from an older acpmux.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(default)]
+    pub credential_only_here: bool,
     /// Being moved to another daemon; it takes no prompt meanwhile.
     pub moving: bool,
     /// Moved to another daemon (`acpmux session move`): where it runs now,
@@ -294,8 +297,11 @@ pub struct SessionSummary {
     pub turn: Option<TurnSummary>,
     pub queue: Vec<QueuedPromptSummary>,
     pub pending_permissions: u64,
-    /// What it waits on the person for: `question` (an agent question) or
-    /// `permission`; null while nothing is pending. Only the person allows a permission.
+    /// What it waits on the person for: `question` (an agent question), `permission`,
+    /// `secret` (a private card asking a secret's value), `elevation` (a card asking the
+    /// password to run one command as root) or `mcp_connect` (a card asking to connect an MCP
+    /// server); null while it waits on nothing. A `waiting` status always has one. Only the
+    /// person allows a permission or answers a card.
     pub waiting_on: Option<String>,
     /// The first prompt of the question it waits on, cut to 120 characters.
     pub waiting_prompt: Option<String>,
@@ -340,6 +346,11 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(default)]
     pub retry_deciding: bool,
+    /// It waits for capacity and goes on by itself (`hub/capacity_wait.rs`). Absent otherwise,
+    /// and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub capacity_wait: Option<CapacityWait>,
     /// Attached clients.
     pub attached: u64,
     /// Some attached client shows the chat.
@@ -796,8 +807,12 @@ pub struct Enforcement {
 pub struct LastTurn {
     pub turn_id: Option<String>,
     pub prompt_id: Option<String>,
-    /// `completed`, `failed` or `cancelled`.
+    /// `completed`, `failed` or `cancelled`; on a session row, `capacity` for a failed turn a
+    /// capacity error cut whose continuation acpmux waits for or runs (`hub/auto_resume.rs`).
     pub status: Option<String>,
+    /// When a `capacity` turn's continuation runs, while it waits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub held_until: Option<u64>,
     pub stop_reason: Option<String>,
     pub error_text: Option<String>,
     pub error_source: Option<String>,
@@ -851,6 +866,34 @@ pub struct ErrorDetails {
     pub retry_after_ms: Option<u64>,
 }
 
+/// A chat waiting for capacity (`hub/capacity_wait.rs`): a turn cut by an overloaded model, an
+/// exhausted account pool or the account's rate limit, which acpmux continues by itself. A
+/// client draws it as one calm state ("Waiting for capacity, about 40 s"; in a list "paused for
+/// capacity, resumes ~22:41"), never as a failed turn, and keeps `error` for a details
+/// disclosure.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CapacityWait {
+    /// `capacity` or `rate_limit`.
+    pub reason: RetryReason,
+    /// When it goes on (epoch ms); absent while the continuation is still being decided.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub resumes_at: Option<u64>,
+    /// The cut turn the wait continues, when there is one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub turn_id: Option<String>,
+    /// Since when it waits (epoch ms): the cut turn's end.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub since: Option<u64>,
+    /// The harness's raw error, cut to 600 characters, for a details disclosure only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub error: Option<String>,
+}
+
 /// An automatic retry of a failed turn that waits (`hub/auto_resume.rs`): attempt `attempt`
 /// of `of`, at `nextAt` (epoch ms). It sends the prompt `promptId~resume-<attempt>` in the same
 /// session, for the cut turn `turnId`.
@@ -869,8 +912,9 @@ pub struct RetrySummary {
 /// Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no
 /// capacity (HTTP 503 or 529, overloaded, no account free), the account hit its usage or rate
 /// limit (`rate_limit`, HTTP 429: the chat holds every turn until the reset, `hub/rate_hold.rs`),
-/// the connection dropped, the agent process died mid-turn, or the chat outgrew its model's
-/// context window (`context`: it is compacted, then continued at once).
+/// the connection dropped, the agent process died mid-turn, the chat outgrew its model's
+/// context window (`context`: it is compacted, then continued at once), or the machine's disk
+/// was full (`disk`: it goes on once space is free again).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum RetryReason {
@@ -879,6 +923,7 @@ pub enum RetryReason {
     Transport,
     AgentExited,
     Context,
+    Disk,
 }
 
 impl RetryReason {
@@ -890,6 +935,7 @@ impl RetryReason {
             "transport" => Some(Self::Transport),
             "agent_exited" => Some(Self::AgentExited),
             "context" => Some(Self::Context),
+            "disk" => Some(Self::Disk),
             _ => None,
         }
     }
@@ -901,6 +947,7 @@ impl RetryReason {
             Self::Transport => "transport",
             Self::AgentExited => "agent_exited",
             Self::Context => "context",
+            Self::Disk => "disk",
         }
     }
 }
@@ -970,6 +1017,11 @@ pub struct SessionsParams {
     /// `_acpmux/sessions` only: exclude peer sessions before pagination.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local_only: Option<bool>,
+    /// `_acpmux/sessions` only (a watch refuses it): exclude side chats (a `side` tag) and
+    /// sessions another chat's agent started (`spawnedBy`, `startedBy`) before pagination: the
+    /// chats a list shows on their own (capability `session-list-top-level-v1`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top_level_only: Option<bool>,
     /// `_acpmux/sessions` only: `sessionId` orders by immutable ID for complete scans.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub order_by: Option<String>,

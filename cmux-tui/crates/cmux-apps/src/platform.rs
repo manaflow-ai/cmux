@@ -77,6 +77,16 @@ pub trait PlatformApi {
     /// publish, whose app is made at promote). The values go only into that process's start;
     /// never to disk, a log, or version state.
     fn process_env(&self, slug: &str, machine: &str) -> Result<Vec<(String, String)>, ApiError>;
+    /// `PUT /v1/cloud/apps/{slug}/versions/{n}/frame` `{png}` (base64): version `n`'s first
+    /// frame, `n` being the platform's number. cmux-platform#1732 keeps one only for the live
+    /// version and the one before it.
+    fn put_frame(&self, slug: &str, n: u32, png: &[u8]) -> Result<(), ApiError>;
+}
+
+/// The body of a frame upload: `{png}`, the PNG in standard base64.
+pub fn frame_body(png: &[u8]) -> Value {
+    use base64::Engine as _;
+    json!({"png": base64::engine::general_purpose::STANDARD.encode(png)})
 }
 
 /// [`PlatformApi`] through this machine's agent (`apps.call`), which holds the `vm-self`
@@ -225,5 +235,10 @@ impl PlatformApi for PlatformClient<'_> {
         env.iter()
             .map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_owned())).ok_or_else(malformed))
             .collect()
+    }
+
+    fn put_frame(&self, slug: &str, n: u32, png: &[u8]) -> Result<(), ApiError> {
+        let path = format!("{APPS}/{slug}/versions/{n}/frame");
+        self.call("PUT", &path, Some(&frame_body(png)), None, 1).map(|_| ())
     }
 }
