@@ -54,6 +54,8 @@ mod computer_use_worker;
 mod config;
 mod daemon_build;
 #[cfg(unix)]
+mod dev_reaper;
+#[cfg(unix)]
 mod files_lister;
 mod headless;
 mod heap_profile;
