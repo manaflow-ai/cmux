@@ -1039,21 +1039,22 @@ jobs:
           mkdir -p "$RUNNER_TEMP/autofix"
           if [[ -f "$RUNNER_TEMP/pr-autofix-context/generator-inputs-verified" ]]; then
             base_manifest="$RUNNER_TEMP/autofix-base-manifest"
+            # Compare the two complete manifests in batches. The old per-file
+            # ls-tree/hash/grep loop spawned ~9,000 processes for this tree.
             git ls-tree -r --full-tree "$BASE_SHA" -- scripts/cmux-next scripts/ci |
-              awk '$2 == "blob" && $4 !~ /\/\.gitignore$/ { print $4 }' > "$base_manifest"
+              awk '$2 == "blob" && $4 !~ /\/\.gitignore$/ { print $4 "\t" $3 }' |
+              LC_ALL=C sort > "$base_manifest"
+            artifact_names="$RUNNER_TEMP/autofix-artifact-names"
+            find "$RUNNER_TEMP/pr-autofix-context/scripts" -type f ! -name .gitignore -printf '%P\n' |
+              sed 's#^#scripts/#' | LC_ALL=C sort > "$artifact_names"
+            artifact_paths="$RUNNER_TEMP/autofix-artifact-paths"
+            sed "s#^scripts/#$RUNNER_TEMP/pr-autofix-context/scripts/#" "$artifact_names" > "$artifact_paths"
+            artifact_hashes="$RUNNER_TEMP/autofix-artifact-hashes"
+            git hash-object --stdin-paths < "$artifact_paths" > "$artifact_hashes"
+            paste "$artifact_names" "$artifact_hashes" | LC_ALL=C sort > "$RUNNER_TEMP/autofix-artifact-manifest"
             artifact_ok=true
-            while IFS= read -r helper; do
-              [[ -f "$RUNNER_TEMP/pr-autofix-context/$helper" ]] || { artifact_ok=false; break; }
-              expected=$(git ls-tree -r --full-tree "$BASE_SHA" -- "$helper" | awk '$2 == "blob" { print $3; exit }')
-              actual=$(git hash-object "$RUNNER_TEMP/pr-autofix-context/$helper")
-              [[ "$actual" == "$expected" ]] || { artifact_ok=false; break; }
-            done < "$base_manifest"
-            if [[ "$artifact_ok" == true ]]; then
-              while IFS= read -r helper; do
-                rel="${helper#"$RUNNER_TEMP/pr-autofix-context/"}"
-                [[ "$rel" == */.gitignore ]] && continue
-                grep -Fxq "$rel" "$base_manifest" || { artifact_ok=false; break; }
-              done < <(find "$RUNNER_TEMP/pr-autofix-context/scripts" -type f -print)
+            if ! cmp -s "$base_manifest" "$RUNNER_TEMP/autofix-artifact-manifest"; then
+              artifact_ok=false
             fi
             if [[ "$artifact_ok" != true ]]; then
               echo "::warning::PR autofix context artifact did not match the immutable base; using the batched restore."
