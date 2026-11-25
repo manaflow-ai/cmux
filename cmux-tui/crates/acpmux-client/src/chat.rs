@@ -16,6 +16,7 @@ use serde_json::value::RawValue;
 /// The most rows a chat's window or page holds, a refused row counted as one.
 pub const MAX_CHAT_ROWS: usize = 400;
 /// The most `blob` requests one handle holds unanswered.
+/// Measured: each reply is up to MAX_BLOB_READ (256 KiB) held until read: 16 MiB a handle.
 pub const MAX_PENDING_BLOBS: usize = 64;
 
 /// A chat stream's change. None depends on the list's row type.

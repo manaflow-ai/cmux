@@ -39,6 +39,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | acpmux-watch-bytes | acpmux `hub/stream_tell_tests.rs` (cargo, Linux CI) | Bytes one acpmux watcher is sent while 20 chats stream and the list is read 60 times. |
 | typing | `webviews/bench/composer-typing.bench.ts` (load modes L0-L3, Chromium and WebKit) on Linux CI | Composer keydown-to-paint p95/p99 and key integrity under idle, stream, ten streaming documents and a 100k-row stream. |
 | mcp-fanout | `mcp-fanout.sh` (`mcp-fanout.py`) on a fleet Mac, any published app (`app=`) | MCP tool-server processes, RSS, idle CPU per kind at N open chats; first cmux tool call latency. |
+| wallpaper_cost | `wallpaper-cost.sh` (`wallpaper-cost.py`) on a fleet Mac nobody uses (it moves the pointer) | A live wallpaper's app CPU %, GPU % and footprint against a painting, and idle, occluded, minimized and Low Power holds. |
 | transcript-shifts | `webviews/scripts/agent-pane/transcript-shifts.bench.ts` on Linux CI (headless Chrome, synthetic daemon) | Agent chat transcript: visible-row shifts per replay phase (stream, page up, fold, composer) and first paint at 500 and 50k rows. |
 | ext-reload | `ext-reload-nightly.sh` (`ext-reload-nightly.py`, `edit-repaint.py` in read-back mode) on a fleet Mac, any published app (`dmg=`) | Extension hot reload on a NIGHTLY: save to the watcher's reload, and save to shown in the window per case, with no rebuild asked. |
 | workspace-factory | `workspace-factory.sh` (`workspace-factory/`, the `wsfactory` Rust factory) on a fleet Mac | A per-job throwaway workspace (APFS clone of a read-only seed) against today's cold and warm-slot step workspaces: start, build, cache hit, disk left behind. |
@@ -170,6 +171,8 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `mcp-fanout.sh` | MCP tool-server processes, RSS and idle CPU per kind at N open chats (Claude, Codex) on any build (`app=`). | nightly-mcp-fanout | 2026-11-17 | active |
 | `mcp-fanout.py` | Python driver for mcp-fanout.sh. | nightly-mcp-fanout | 2026-11-17 | active |
 | `perf-10x-idle.sh` | Idle CPU, wakeups and RSS at 1, 10 and 50 workspaces; with `axes=`, the marginal idle cost (CPU, footprint, wakeups, disk bytes per hour, GPU utilization) of one more chat or terminal, hidden or visible, per process. | perf-10x, CMUX-672 | 2026-11-19 | active |
+| `wallpaper-cost.sh` | A live wallpaper's CPU, GPU time and footprint per wallpaper and per hold (bench wallpaper_cost). | live wallpapers | 2026-11-17 | active |
+| `wallpaper-cost.py` | Python driver for wallpaper-cost.sh. | live wallpapers | 2026-11-17 | active |
 | `perf-idle-ab.sh` | Interleaved base vs head idle A/B in one step. | - | 2026-11-14 | active |
 | `perf-idle-power.sh` | Idle power and wakeups in the scenarios of a browser comparison. | msg 2654 | 2026-11-15 | active |
 | `perf-bench.sh` | xbench: cmux NEXT against other browsers (power, scroll, video, tab switch, launch). | msg 2654 | 2026-11-15 | active |
@@ -293,6 +296,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `ext-rows-nightly.py` | App half of ext-rows-nightly.sh: one function per row. | - | 2026-11-19 | active |
 | `meet-browser.sh` | What a video-call page needs, on a published NIGHTLY side instance (Chromium, WebKit) against Google Chrome on the same Mac: getUserMedia with and without fake-device switches, getDisplayMedia, Picture-in-Picture, notifications, a loopback 720p WebRTC call with CPU, meet.google.com load cold and warm, hidden-tab timer drift. | - | 2026-11-22 | active |
 | `meet-browser.py` | Driver half of meet-browser.sh: the local test page, cmux over its control socket, Chrome over DevTools. | - | 2026-11-22 | active |
+| `browser-auth-webkit.sh` | Login flows in a NIGHTLY side instance's browser tab (`engine=webkit` or `chromium`): popup with opener and postMessage, window.close, cross-host redirect, SameSite and Secure cookies, third-party iframe cookie and storage (runs scripts/cmux-next/browser-auth-flows-live.py). | - | 2026-11-25 | active |
 | `rift-eval.sh` | APFS clone workspaces vs git worktree for an agent's first green build. | - | 2026-11-11 | active |
 | `cloud-partial-hydrate.sh` | A Cloud checkout's time to first read with the rest downloading in the background (hot files, wants, kill and resume) against the whole checkout. | - | 2026-11-24 | active |
 | `nightly-cas-identity.sh` | Byte proof: a build with a reused compilation cache equals a clean build. | - | 2026-10-20 | active |

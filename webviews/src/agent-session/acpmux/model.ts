@@ -35,6 +35,7 @@ import {
 } from "./transcriptGrid";
 import type { MachineResources } from "./machineResources";
 import type { AutoResumeStatus } from "./autoResumeStatus";
+import type { AutoSession } from "./autoSession/autoSession";
 import type { CapacityWaitState } from "./capacityWait";
 import type { VideoInfo } from "./composer/videoAttachments";
 import type { AttachmentSource } from "./attachments";
@@ -753,6 +754,9 @@ export type AcpmuxRow = {
   /// behind, by id and version, while that text still moves.
   doingAt?: number;
   doingShell?: boolean;
+  /// The acpmux tool kind of the call the live line names (`execute`, `read`, ...): a look's thinking
+  /// glyph plays the document's trigger for it (conversation/thinkingGlyphModel.ts `glyphTrigger`).
+  doingKind?: string;
   /// The Codex-style live line names a command still running in an earlier run, which that run
   /// draws no row for (conversation/turns.ts `lineCall`, `codexRuns`): its call id. While the reader
   /// is scrolled up, the call stays out of its run when the line lets go of it
@@ -1291,6 +1295,8 @@ export type AcpmuxTimeBreakdown = {
 
 export type AcpmuxSnapshot = {
   type: "snapshot";
+  /// The one-shot admission warning returned by `session/new`, while its chat is starting.
+  startupAdmission?: { sessionId: string; scalingUp: true };
   /** The selected chat's daemon-owned retry, including the last automatic attempt. */
   autoResume?: AutoResumeStatus;
   /** The chat acpmux holds for capacity (hub/capacity_wait.rs): one calm state, never red. */
@@ -1387,6 +1393,9 @@ export type AcpmuxSnapshot = {
     machine?: string;
     peer?: string;
     hostKind?: "local" | "cloud";
+    /// Where an Auto chat stands (acpmux `autoSession`, autoSession/autoSession.ts): unset from an
+    /// acpmux without Auto, and the pane then offers and draws nothing of it.
+    autoSession?: AutoSession;
     /// The folders the chat sees beside its own (acpmux `additionalDirectories`, cmux#32811).
     additionalDirectories?: readonly string[];
     branch?: string;
