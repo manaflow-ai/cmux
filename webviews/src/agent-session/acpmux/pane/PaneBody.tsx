@@ -1414,8 +1414,9 @@ export function drawPaneBody({
                       }
                       // The glass toolbar's search chip (Settings > Advanced > Experiments): the palette's chats page.
                       onSearch={showAllChats}
-                      // Send to Cloud: the floating chat has no tab to move.
-                      cloudSend={quick ? undefined : cloudSend}
+                      // Send to Cloud: the floating chat has no tab to move, and a subagent's own pane shows the
+                      // parent chat, whose move is its own tab's (as the pull request chip is).
+                      cloudSend={quick || readOnlySubagent ? undefined : cloudSend}
                       onTerminal={(mode) => runSplitAction(HEADER_ACTIONS.terminal, localCwd, mode)}
                       onSplitDown={(mode) => runSplitAction(HEADER_ACTIONS.splitDown, localCwd, mode)}
                       onBrowser={(mode) => runSplitAction(HEADER_ACTIONS.browser, undefined, mode)}

@@ -24,9 +24,10 @@ export interface CloudSendButton {
   readonly reason?: string;
 }
 
-/// What the button shows for `session`, or nothing when the chat has no move to Cloud: the header
-/// offers Move to Cloud only for a chat on this Mac (a Cloud chat's tab hides it), so the button
-/// never shows on a chat already in Cloud, on another machine, or in a page with no chat.
+/// What the button shows for `session`, or nothing when the chat has no move to Cloud: a Cloud
+/// chat's tab hides Move to Cloud (CloudMove.hiddenMenuItems), so the button never shows on a chat
+/// already in Cloud or in a page with no chat. A chat of another machine the app does not hide it
+/// for gets the greyed button with the app's reason.
 export function cloudSendButton({
   session,
   offloads,
