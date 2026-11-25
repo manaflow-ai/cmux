@@ -9,6 +9,7 @@ Behaviour per prompt text:
   "xai-question: <q>" / "xai-plan: <p>" -> Grok's x.ai ask / exit-plan requests
   "cursor-question: <q>" / "cursor-plan: <p>" -> Cursor's ask / create-plan requests
   "slow"       -> streams three chunks with delays, honours session/cancel
+  "ticking:N:MS" -> a word every MS ms, N times; honours session/cancel
   "until-cancel" -> streams "running", then waits for session/cancel
   "until-cancel-then-exit" -> "until-cancel", then the agent exits between turns
   "deaf-to-cancel" -> streams "running", ignores session/cancel, answers end_turn after 20 s
@@ -109,7 +110,9 @@ call through the ACP permission flow: announced, asked, run only after an allow.
 
 CPU class (macOS, tests/cpu_class.rs; `ps -o pri=` is 4 at background class):
 FAKE_CLASS_LOG=<path>: on session/new, append {"pid", "pri", "nice"} (its own, as it starts) to <path>.
-"class-probe: <path>": start `sleep 120` (a tool its turn runs) and write {"sleeper": pid} to <path>.
+"class-probe: <path>": start `sleep 120` (a tool its turn runs) and write {"sleeper": pid, "diskio": n}
+to <path>: n is its own process's disk I/O policy (`getiopolicy_np`, macOS; the tool inherits it),
+None elsewhere.
 FAKE_BG_ONCE=<path>: the first agent to get `initialize` (<path> does not exist yet) creates <path>,
 has another process put it in background class (an outside cause, not its own call), answers that
 `initialize` with an error and stays alive, as a harness that fails its start at background class.
@@ -1570,7 +1573,7 @@ def handle_prompt(rid, params):
         sleeper = subprocess.Popen(["sleep", "120"], stdin=subprocess.DEVNULL)
         out = text[len("class-probe:"):].strip()
         with open(f"{out}.tmp", "w") as f:
-            f.write(json.dumps({"sleeper": sleeper.pid}))
+            f.write(json.dumps({"sleeper": sleeper.pid, "diskio": own_disk_io()}))
         os.replace(f"{out}.tmp", out)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
@@ -2171,6 +2174,10 @@ def handle_prompt(rid, params):
     if text.startswith("ticking:"):
         n, ms = (int(v) for v in text[len("ticking:"):].split(":"))
         for i in range(n):
+            if sid in cancelled:
+                send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+                cancelled.discard(sid)
+                return
             update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"tick{i} "}})
             time.sleep(ms / 1000)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
@@ -2244,6 +2251,15 @@ def stdin_lines(early):
         import io
         yield from io.TextIOWrapper(io.BytesIO(early), encoding=sys.stdin.encoding, errors=sys.stdin.errors)
     yield from sys.stdin
+
+
+def own_disk_io():
+    """This process's disk I/O policy (`getiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_PROCESS)`):
+    4 at utility, 0 or 1 at the default tier. None off macOS."""
+    if sys.platform != "darwin":
+        return None
+    import ctypes
+    return ctypes.CDLL(None).getiopolicy_np(0, 0)
 
 
 def own_pri():
@@ -2343,6 +2359,11 @@ def main():
             sys.exit(1)
         if m in ("session/new", "session/load", "session/fork"):
             LAST_MCP_SERVERS = params.get("mcpServers")
+            # FAKE_MCP_OUT=<dir>: each start writes the servers it was given to <dir>/<pid>.json.
+            if os.environ.get("FAKE_MCP_OUT"):
+                os.makedirs(os.environ["FAKE_MCP_OUT"], exist_ok=True)
+                with open(os.path.join(os.environ["FAKE_MCP_OUT"], f"{os.getpid()}.json"), "w") as out:
+                    json.dump(LAST_MCP_SERVERS, out)
             LAST_DIRS = params.get("additionalDirectories")
         if m == "session/new" and os.environ.get("FAKE_CLASS_LOG"):
             with open(os.environ["FAKE_CLASS_LOG"], "a") as log:
@@ -2466,6 +2487,9 @@ def main():
                 "_meta": {"steering": {"supported": "1" in (os.environ.get("FAKE_CODEX_STEER"), os.environ.get("FAKE_CLAUDE_STEER"))}},
                 "agentInfo": {"name": os.environ.get("FAKE_AGENT_NAME", "fake"), "version": "0"},
                 "agentCapabilities": {"loadSession": os.environ.get("FAKE_NO_LOAD") != "1", "sessionCapabilities": {} if os.environ.get("FAKE_NO_FORK") == "1" else {"fork": {}},
+                                      # FAKE_MCP_HTTP=1: it takes HTTP MCP servers, as Codex
+                                      # (cmux-codex-acp) and Claude Code do.
+                                      **({"mcpCapabilities": {"http": True, "sse": False}} if os.environ.get("FAKE_MCP_HTTP") == "1" else {}),
                                       # It asks (session/request_permission) before every tool call
                                       # it makes, so it keeps any acpmux policy (acpmux believes it
                                       # only from a harness entry of its config); FAKE_ASK_CLAIM=0

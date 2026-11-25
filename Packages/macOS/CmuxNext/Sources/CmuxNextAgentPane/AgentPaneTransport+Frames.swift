@@ -400,7 +400,7 @@ extension AgentPaneTransport {
     private func checkPathsInScope(_ box: FrameBox) async -> Result<[String], AcpmuxPathPolicy.Refusal> {
         let scope = AcpmuxPathPolicy.Scope(roots: roots(), gestureRoots: gestureRoots(), fillCwd: primaryRoot(),
                                            agentHome: agentHome(), home: homeFolder, granted: addedRoots,
-                                           workspaceID: workspaceID())
+                                           workspaceID: workspaceID(), inheritedCwds: inheritedFolders())
         return await Self.checkPaths(box, scope: scope)
     }
 
@@ -457,7 +457,8 @@ extension AgentPaneTransport {
                     addedRoots += gestureRootsUsed.filter { !addedRoots.contains($0) }
                 }
             case .failure(let refusal):
-                let detail = refusal.reason == AgentPaneGitHubFolder.cloudOnlyReason ? AgentPaneModel.gitHubFolderCloudOnlyMessage : nil
+                // A folder that is gone: its path, which the page names ("The folder X no longer exists").
+                let detail = refusal.reason == AgentPaneGitHubFolder.cloudOnlyReason ? AgentPaneModel.gitHubFolderCloudOnlyMessage : refusal.missingPath
                 return Self.refuse(.refuse(refusal.error, method: refusal.method, requestID: refusal.requestID), socket: socket, detail: detail, reason: refusal.reason)
             }
         }
