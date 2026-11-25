@@ -339,7 +339,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// One palette warm-up step per idle moment (`PaletteController.prepare`), then `done` at the next idle moment.
     private static func preparePalette(_ palette: PaletteController?, step: Int, done: @escaping @MainActor () -> Void) {
-        IdleOnce.schedule {
+        IdleOnce().schedule {
             guard let palette, palette.prepare(step: step) else { return IdleOnce.schedule(done) }
             preparePalette(palette, step: step + 1, done: done)
         }
