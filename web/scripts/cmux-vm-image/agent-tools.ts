@@ -939,6 +939,22 @@ export function agentToolsFiles(lock: InputsLock): Array<{ path: string; text: s
   ];
 }
 
+/** The names an agent types for a headless browser (`chromium --headless`), on every PATH. */
+export const BROWSER_PATH_NAMES = ["chromium", "chromium-browser", "google-chrome"] as const;
+
+/**
+ * Links the baked Chrome for Testing into /usr/local/bin under the names agents look for. Without
+ * them the image carried Chrome only at its store path (the browser host's env), and an agent's
+ * `command -v chromium` found nothing (the AutoCloud proof's missing browser).
+ */
+export function browserPathCommand(chrome: string): string {
+  return [
+    `test -x ${sq(chrome)}`,
+    ...BROWSER_PATH_NAMES.map((name) => `ln -sfn ${sq(chrome)} /usr/local/bin/${name}`),
+    "chromium --version",
+  ].join(" && ");
+}
+
 /** The role whose closure the desktop session runs (openbox, xterm), baked with the agent tools. */
 export const DISPLAY_WM_ROLE = "display-wm";
 /** The first-use roles the agent tools bake in: their closures are installed, not refused (bake.ts refusedFirstUsePackages). */
@@ -953,6 +969,7 @@ export function browserRoleBakePhases(lock: InputsLock): Array<{ name: string; c
   return [
     ...firstUseInstallPhases(manifest, BROWSER_ROLE).map((p) => ({ name: `agent-tools-browser-${p.name}`, command: p.command })),
     ...firstUseInstallPhases(manifest, DISPLAY_WM_ROLE).map((p) => ({ name: `agent-tools-display-wm-${p.name}`, command: p.command })),
+    { name: "agent-tools-browser-path", command: browserPathCommand(browserHostPaths(manifest).chromium) },
     { name: "agent-tools-browser-lists", command: "rm -rf /var/lib/cmux/apt-snapshot && echo browser-role-baked" },
   ];
 }
