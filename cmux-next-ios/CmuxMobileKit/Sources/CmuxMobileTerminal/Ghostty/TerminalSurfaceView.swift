@@ -221,7 +221,12 @@ final class TerminalSurfaceView: UIView {
         ghostty_surface_set_focus(surface, visible)
         // Seen again: a frame of what was parsed while hidden (no batch asks
         // for one then, `setNeedsTerminalDraw`).
-        if visible { ghostty_surface_refresh(surface) }
+        if visible {
+            ghostty_surface_refresh(surface)
+            #if DEBUG
+            ResumeMarks.shared?.note("surface_shown")
+            #endif
+        }
     }
 
     private func observeAppState() {
@@ -762,6 +767,9 @@ final class TerminalSurfaceView: UIView {
                 TerminalModel.debugPresentsTotal += 1
                 #endif
                 self.presentPending = true
+                #if DEBUG
+                ResumeMarks.shared?.note("terminal_contents")
+                #endif
                 self.observeCommits()
             }
         }
