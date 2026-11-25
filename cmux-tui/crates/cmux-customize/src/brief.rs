@@ -62,6 +62,8 @@ The keys most asks need ({surfaces}). A feature on or off is a toggle key: find 
 \n\
 Recipes and working templates are in the cmux-customization skill; read the one that fits before you write.\n\
 \n\
+{card}\
+\n\
 Do this:\n\
 1. Make the smallest change that does what they asked. Change only what the ask needs.\n\
 2. After each save, check it: run `cmux customize status --json` (or the customize_status tool). \
@@ -77,6 +79,7 @@ what changed on screen, and that it is a preview they can Apply, keep refining b
         views_dir = roots.customize_dir.display(),
         styles = Part::Styles.about(),
         automations = Part::Automations.about(),
+        card = crate::docs::card_text(),
         surfaces = SURFACE_KEYS
             .iter()
             .map(|(what, keys)| format!("{what}: {}", keys.iter().map(|key| format!("`{key}`")).collect::<Vec<_>>().join(", ")))

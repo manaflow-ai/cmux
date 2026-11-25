@@ -82,6 +82,9 @@ For an agent (the customize_* MCP tools are these verbs):
   cmux customize brief 'WISH'                 Open the draft and print what to edit and how; starts no chat
   cmux customize check                        Validate what is live, and mark your turn done
   cmux customize schema [PART]                Every key you can change (settings, theme, views, extensions); --typescript, --rust
+  cmux customize docs [SURFACE]               What each surface offers (settings, theme, slots, motion, extensions, scene,
+                                              kit, behavior), each item drawn, daemon-only, draft or missing, with
+                                              copy-paste prompts; --card for the short card
 
 Ask options:
   --harness HARNESS   The agent that does it: claude (default), codex, ...
@@ -123,6 +126,7 @@ const VERBS: &[&str] = &[
     "check",
     "ask",
     "schema",
+    "docs",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -199,6 +203,12 @@ pub(super) enum Request {
     Schema {
         section: Option<Section>,
         format: SchemaFormat,
+    },
+    /// `docs [SURFACE] [--card]`: the customize docs, generated from the
+    /// registries (cmux_customize::docs).
+    Docs {
+        surface: Option<String>,
+        card: bool,
     },
 }
 
@@ -293,6 +303,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
         },
         "ask" => wish_of(rest).map(|(wish, options)| Request::Ask { wish, options }),
         "schema" => schema_of(rest),
+        "docs" | "doc" => docs_of(rest),
         // A wish is said in words: one quoted argument with a space in it, or
         // several words. One bare word is a verb, so a typo gets a suggestion
         // instead of an agent.
@@ -359,6 +370,32 @@ fn checklist_of(words: &[String]) -> Result<Request, String> {
         }
     }
     Ok(Request::Checklist { connected })
+}
+
+/// `docs [SURFACE] [--card]`.
+fn docs_of(words: &[String]) -> Result<Request, String> {
+    let (mut surface, mut card) = (None, false);
+    for word in words {
+        match word.as_str() {
+            "--card" => card = true,
+            name if !name.starts_with('-') && surface.is_none() => surface = Some(name.to_owned()),
+            other => return Err(format!("customize docs does not take {other:?}")),
+        }
+    }
+    if card && surface.is_some() {
+        return Err("customize docs --card covers every surface; drop the surface".to_owned());
+    }
+    Ok(Request::Docs { surface, card })
+}
+
+/// The docs answer: reads only this build's tables, no store.
+fn docs_answer(surface: Option<&str>, card: bool) -> Result<render::Answer, Failure> {
+    use cmux_customize::docs;
+    if card {
+        return Ok(render::Answer::Library { json: docs::card(), human: docs::card_text() });
+    }
+    let surfaces = docs::docs(surface).map_err(Failure::usage)?;
+    Ok(render::Answer::Library { json: docs::json(&surfaces), human: docs::text(&surfaces) })
 }
 
 /// `schema [PART] [--typescript|--rust]`.
@@ -517,6 +554,21 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         }
         return Some(0);
     }
+    if let Request::Docs { surface, card } = &request {
+        return Some(match docs_answer(surface.as_deref(), *card) {
+            Ok(answer) => {
+                if json_out {
+                    println!("{}", answer.json());
+                } else if global.output != OutputMode::Quiet {
+                    print!("{}", answer.human(now_ms()));
+                }
+                0
+            }
+            Err(failure) => {
+                super::scope_usage_failure(global.output, "customize", &failure.message, HELP)
+            }
+        });
+    }
     let chat = ask::Child { globals: child_globals(&global) };
     let result = Customize::from_env().map_err(Failure::from).and_then(|customize| {
         let answer = execute(&customize, request, "cli", now_ms(), &chat)?;
@@ -570,6 +622,11 @@ pub(super) fn run_json(
     }
     if let Request::Schema { section, format } = request {
         return Ok(render::Answer::Schema(Schema::current(), section, format).json());
+    }
+    if let Request::Docs { surface, card } = &request {
+        return docs_answer(surface.as_deref(), *card)
+            .map(|answer| answer.json())
+            .map_err(|failure| failure.envelope());
     }
     let customize = Customize::from_env().map_err(|error| Failure::from(error).envelope())?;
     let answer = execute(&customize, request, origin, now_ms(), &ask::NoChat)
@@ -761,6 +818,7 @@ pub(super) fn execute(
         Request::Doctor(request) => doctor::execute(customize, request, origin, now_ms)?,
         Request::Paths => Answer::Paths(customize.roots().clone()),
         Request::Schema { section, format } => Answer::Schema(Schema::current(), section, format),
+        Request::Docs { surface, card } => docs_answer(surface.as_deref(), card)?,
     })
 }
 

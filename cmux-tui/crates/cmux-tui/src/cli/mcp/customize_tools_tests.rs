@@ -15,6 +15,8 @@ fn customize_tool_arguments_become_the_cli_words() {
     assert_eq!(w("customize_recipes", json!({})).unwrap(), ["recipes"]);
     assert_eq!(w("customize_schema", json!({})).unwrap(), ["schema"]);
     assert_eq!(w("customize_schema", json!({"part": "views"})).unwrap(), ["schema", "views"]);
+    assert_eq!(w("customize_docs", json!({})).unwrap(), ["docs"]);
+    assert_eq!(w("customize_docs", json!({"surface": "motion"})).unwrap(), ["docs", "motion"]);
     assert_eq!(w("customize_apply", json!({"note": "compact"})).unwrap(), ["apply", "compact"]);
     assert_eq!(w("customize_apply", json!({})).unwrap(), ["apply"]);
     assert_eq!(w("customize_rollback", json!({})).unwrap(), ["rollback"]);
@@ -58,6 +60,6 @@ fn customize_tool_arguments_become_the_cli_words() {
     assert!(w("customize_keep", json!({"minutes": 5})).is_err());
     assert_eq!(w("customize_doctor", json!({})).unwrap(), ["doctor"]);
     assert!(w("customize_doctor", json!({"id": "broken:settings.json"})).is_err());
-    assert_eq!(names.len(), 18);
+    assert_eq!(names.len(), 19);
     assert!(names.iter().all(|name| name.starts_with("customize_")));
 }

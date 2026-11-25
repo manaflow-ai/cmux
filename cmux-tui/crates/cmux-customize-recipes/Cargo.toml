@@ -18,4 +18,6 @@ serde_json.workspace = true
 
 [dev-dependencies]
 cmux-action-catalog.workspace = true
+cmux-app-manifest.workspace = true
+cmux-theme-pack.workspace = true
 tempfile = "3"

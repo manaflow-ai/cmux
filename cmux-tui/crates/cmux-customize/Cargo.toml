@@ -12,6 +12,7 @@ workspace = true
 
 [dependencies]
 cmux-action-catalog.workspace = true
+cmux-app-host.workspace = true
 cmux-app-manifest.workspace = true
 cmux-config.workspace = true
 cmux-theme-tokens.workspace = true

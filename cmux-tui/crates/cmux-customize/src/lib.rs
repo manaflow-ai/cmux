@@ -21,6 +21,7 @@ mod brief;
 pub mod checklist;
 pub mod community;
 mod diff;
+pub mod docs;
 mod engine;
 mod file_refs;
 pub mod library;

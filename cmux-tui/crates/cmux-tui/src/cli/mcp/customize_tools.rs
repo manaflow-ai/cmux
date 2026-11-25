@@ -197,6 +197,20 @@ const TOOLS: &[CustomizeTool] = &[
         mutation: false,
     },
     CustomizeTool {
+        name: "customize_docs",
+        verb: "docs",
+        description: "What each customize surface offers, generated from this build's registries (settings, theme, slots, motion, extensions, scene, kit, behavior): every item marked drawn, daemon-only, draft or missing, so you never build on something nothing draws, plus copy-paste prompts with a working result each. Build views only from the kit components it lists. Reads only.",
+        argument: Some((
+            "surface",
+            false,
+            Kind::Text,
+            "Only one surface: settings, theme, slots, motion, extensions, scene, kit or behavior. Omit for all of them.",
+        )),
+        note: None,
+        minutes: false,
+        mutation: false,
+    },
+    CustomizeTool {
         name: "customize_profiles",
         verb: "profiles",
         description: "The saved profiles: name, description, how many settings and files each holds.",

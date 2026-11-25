@@ -616,8 +616,93 @@ cmux customize use ~/.local/state/cmux/customize/recipes/web-coding-app.json
 
 Or ask: "make cmux look like a light web coding agent, with workspaces as tabs"
 
+## Copy-paste prompts for behavior and motion
+
+Each prompt below is one to paste into an agent as it is. It names what to read first, keeps the
+agent to what cmux can draw, and ends on a check. Next to it is the working result it should
+reach; a test installs or validates each one, so a prompt never points at something that does
+not work.
+
+Before any change, an agent reads `cmux customize docs SURFACE` (settings, theme, slots, motion,
+extensions, scene, kit, behavior). It lists every item from the registries, each marked drawn,
+daemon-only, draft or missing, so an agent never builds on a key or an interface nothing draws.
+`cmux customize docs --card` is the short form, and `cmux customize brief` carries it. Views are
+built only from kit components: `cmux customize docs kit` names each one, and the kit.primitives
+gallery entry shows them in light and dark.
+
+### Motion
+
+**Turn motion off** (`motion-off`)
+
+```text
+Turn off motion in my cmux: nothing slides, pulses or blinks. Run `cmux customize docs motion` and change only the chrome motion settings it lists. Preview it, check `cmux customize status --json` has no problems, and leave Apply to me.
+```
+
+It should reach: the `calm` recipe above.
+
+**Counters that roll and cards that slide in** (`motion-cockpit`)
+
+```text
+Make my New Tab page a cockpit: a greeting, live counters that roll when they change, and cards that slide in. Build only from kit components (`cmux customize docs kit`; the kit.primitives gallery shows each one in light and dark). Animate only with cmux.motion/1 values from `cmux customize docs motion`: `.contentTransition("numericText")` on counters, `.transition("slide")` on cards, `.animation("smooth")` on changes. Preview it and fix every problem `cmux customize status --json` lists.
+```
+
+It should reach: `examples/customize-demo/last-demo/cockpit.json`.
+
+**A different thinking indicator** (`motion-thinking-slot`)
+
+```text
+Change how the chat shows that an agent is thinking: use the pulse variant of the chat.thinkingIndicator slot in a theme pack. Pick the slot and the variant from `cmux customize docs slots`; set nothing else, and draw no indicator of your own.
+```
+
+It should reach: the theme pack `examples/theme-packs/sakura`.
+
+**A moving background** (`motion-background`)
+
+```text
+Put a moving aurora behind the window, as a live wallpaper the theme names. It must stop under Reduce Motion. Use only settings `cmux customize docs settings` lists and preview it with `cmux customize use`.
+```
+
+It should reach: the `aurora-night` recipe above.
+
+### Behavior
+
+**Keys that move between panes** (`behavior-pane-keys`)
+
+```text
+Let me move between panes with Control-Command-H, J, K and L, like Vim. Bind only actions cmux has (`cmux customize docs behavior` says where keybindings go) and keep every key I already bound.
+```
+
+It should reach: the `pane-keys` recipe above.
+
+**A leader key for panes** (`behavior-leader`)
+
+```text
+Give me a leader key: Command-J, then one key to split, zoom, even out, resize or move panes. Use cmux's own leader and actions cmux has, so no key a terminal or a chat types is taken.
+```
+
+It should reach: the `leader` recipe above.
+
+**A slash command in the chat composer** (`behavior-slash-command`)
+
+```text
+Add a /standup command to the agent chat composer that writes: "Write my standup: what I did yesterday, what I do today, what blocks me." Implement cmux.composer.command/1 from the manifest alone, with no script (`cmux customize docs extensions` lists it), and check it with `cmux ext dev --once --json`.
+```
+
+It should reach: `skills/cmux-extension-author/recipes/composer-command.md`.
+
+### Built from the kit
+
+**A sidebar section built from the kit** (`kit-section`)
+
+```text
+Add a sidebar section with today's tasks: a lead line, one row per task with a symbol, and the actions in a menu. Build only from kit components (`cmux customize docs kit`: Panel, Row, Button, Menu, Toggle, Badge, EmptyState); use tones, never a literal color or size, and draw every state. Check it with `cmux customize status --json`.
+```
+
+It should reach: the starter extension `skills/cmux-customization/templates/starter`.
 ## For agents and scripts
 
+- `cmux customize docs [SURFACE] --json` is what each surface offers, generated from the
+  registries; `--card` is the compact card.
 - `cmux customize recipes --json` lists every recipe: its name, title, group, wish, what it
   changes and the path of its file. The MCP tool `customize_recipes` returns the same.
 - Try one with `cmux customize use PATH` (MCP `customize_use {profile: PATH}`). It is checked
