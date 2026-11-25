@@ -391,8 +391,8 @@ struct CloudMove {
     }
 
     static func connected(_ session: CloudMachineSession, _ invocation: ActionInvocation) async throws -> CloudMachineSession {
-        // A paused machine (idle auto-pause) resumes on this attach; a live one connects. A
-        // record that may be stale (paused behind the app) is read again first.
+        // A paused machine (idle auto-pause) resumes on this attach; a live one connects; a pause or resume in flight is
+        // waited out (Rust's settle, ask-259986a6c4). A record that may be stale (paused behind the app) is read again first.
         try await CloudHandlers.requireAttachableState(session, waitingOutResume: CloudStartSession.connectWait)
         // A new machine that still binds: the app link's connect waits in the Cloud app server until it runs
         // (cloud.machine.upsert or its own read of that machine), never a list read from here.
