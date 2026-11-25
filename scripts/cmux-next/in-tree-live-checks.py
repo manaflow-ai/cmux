@@ -1773,10 +1773,15 @@ def check_chaos_resize(tab, pane):
                                       for m in ("steps", "p50_ms", "p95_ms", "max_ms", "total_ms")}
                                   for k, v in steps.items()} if isinstance(steps, dict) else steps)
 
+    def passes_by_class():
+        reply = rpc("debug.layers") or {}
+        return {e.get("view_class"): e.get("passes") or 0 for e in (reply.get("layout_passes") or {}).get("top_classes") or []}
+
     results = {}
     for name, start, axis, reach in targets:
         drives = [("held", held)] + ([("cua", cua_strokes)] if name == "divider" and CUA_DRIVER and pid else [])
         for route, drive in drives:
+            passes0 = passes_by_class()
             per = []
             for seed in (1, 2, 3):
                 rng = pointer_paths.seeded(zlib.crc32(f"{name}/{seed}".encode()))
@@ -1788,6 +1793,13 @@ def check_chaos_resize(tab, pane):
                 time.sleep(0.6)  # test harness: the window rests between drags
             key = name if route == "held" else f"{name}_{route}"
             results[key] = per
+            # Window layout calls per resize step by view class (LayoutPassGuard, top 20 classes since launch): a view
+            # laid out more than once a step does the step's work twice.
+            passes1 = passes_by_class()
+            step_count = sum(((r["resize_steps"] or {}).get("set_frame") or {}).get("steps") or 0 for r in per) or None
+            per_step = {c: round((passes1.get(c, 0) - passes0.get(c, 0)) / step_count, 2) for c in passes1
+                        if step_count and passes1.get(c, 0) - passes0.get(c, 0) > 0}
+            RAW.setdefault("chaos_passes_per_step", {})[key] = dict(sorted(per_step.items(), key=lambda kv: -kv[1])[:20])
             window_drag = name != "divider"
             # A divider drag moves panes without a root layout pass: its panes' chrome follows each move (a drag that
             # missed the divider updates none).
@@ -1806,6 +1818,15 @@ def check_chaos_resize(tab, pane):
                        "root_fit_p50_ms": [f.get("p50_ms") for f in fit],
                        "layouts": [r.get("layouts") for r in per],
                        "app_p95_ms_worst": round(p95, 1), "app_max_ms_worst": round(worst, 1), "runs": per}
+            # Each phase's mean ms per resize step (its total over the 3 drags over their set_frame steps): the parts of
+            # a step (builds with ResizeStepTimes.live phases: pane_content.<kind>, sidebar_layout, root_overlay_sync).
+            steps_all = sum((s.get("steps") or 0) for s in set_frame)
+            if steps_all:
+                totals = {}
+                for r in per:
+                    for phase, v in (r["resize_steps"] or {}).items():
+                        totals[phase] = totals.get(phase, 0) + (v.get("total_ms") or 0)
+                summary["per_step_ms"] = {k: round(v / steps_all, 2) for k, v in sorted(totals.items(), key=lambda kv: -kv[1])}
             if not resized:
                 row(False, f"chaos_resize.{key}", dict(summary, note="the drag made no resize step: it did not reach "
                                                        "the window's edge or the divider (not a result)"))
