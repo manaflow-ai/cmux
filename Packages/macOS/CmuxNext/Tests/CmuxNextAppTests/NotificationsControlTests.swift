@@ -173,6 +173,27 @@ import Testing
         withExtendedLifetime(services) {}
     }
 
+    /// A tab banner id this launch did not post looks in Notification Center (an earlier launch's banner);
+    /// with none delivered there (tests have no system center) it is still `not_found` and opens nothing.
+    @Test func anUnpostedTabBannerWithNoDeliveredBannerIsNotFound() async throws {
+        let services = appServices()
+        let router = makeReleaseRouter(services)
+        let desktop = services.notifications.desktop
+        var opened = 0
+        desktop.onOpen = { _, _ in opened += 1 }
+        desktop.onOpenTab = { _, _ in opened += 1 }
+
+        let result = await router.handle(ControlRequest(id: "1", method: "notifications.open",
+                                                        params: ["id": .string("cmux-notification-earlier-launch")]))
+        guard case .failure(let error) = result else {
+            Issue.record("notifications.open of an undelivered banner answered \(result)")
+            return
+        }
+        #expect(error.code == "not_found", "\(error)")
+        #expect(opened == 0, "an undelivered banner's open ran a click")
+        withExtendedLifetime(services) {}
+    }
+
     /// A passkey banner's click starts a WebAuthn ceremony, which runs only on the person's own click
     /// (agent-browser-passkey-DESIGN.md); the other special banners (iPhone pairing, attention, Runs,
     /// a page's notification) likewise act on the person's intent. A script's open runs none of them.
