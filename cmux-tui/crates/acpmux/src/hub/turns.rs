@@ -179,10 +179,10 @@ fn outcome_token(outcome: &PromptOutcome) -> usize {
 fn begin_outcome(
     session: &Session,
     prompt_id: &str,
-) -> Result<PromptOutcome, tokio::sync::watch::Receiver<Option<Result<Value, RpcError>>>> {
+) -> Result<PromptOutcome, (usize, tokio::sync::watch::Receiver<Option<Result<Value, RpcError>>>)> {
     let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
     match ledger.iter().find(|(id, _)| id == prompt_id) {
-        Some((_, outcome)) => Err(outcome.subscribe()),
+        Some((_, outcome)) => Err((outcome_token(outcome), outcome.subscribe())),
         None => {
             // Keep the lock order identical to keep_acceptance (prompts, then accepted).
             // A pending outcome cannot be pruned, so this only retires a receipt whose
@@ -424,7 +424,7 @@ impl Hub {
         };
         let seen = begin_outcome(session, &prompt_id);
         let outcome = match seen {
-            Err(mut first) => {
+            Err((token, mut first)) => {
                 // A copy never reaches the queue: it lets the chat's prompt admission go
                 // (#52381) before it waits for the first run. Held, it kept every later prompt
                 // of the chat from its queue for the whole first run, and that run's own queue
@@ -438,13 +438,8 @@ impl Hub {
                     // first run's end), so it never answers "taken, no turn" for a run that may
                     // yet be refused, nor waits out a whole inbox message's answer (an outbox
                     // retry did, every 120 s, forever: 2026-11-25).
-                    if let Some(kept) = Box::pin(first_acceptance(
-                        session,
-                        &prompt_id,
-                        outcome_token(&outcome),
-                        &mut first,
-                    ))
-                    .await
+                    if let Some(kept) =
+                        Box::pin(first_acceptance(session, &prompt_id, token, &mut first)).await
                     {
                         let mut notice = duplicate(json!({"_meta": {"acpmux": {
                             "turnId": kept.get("turnId"),
