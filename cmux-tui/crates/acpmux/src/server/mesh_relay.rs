@@ -207,8 +207,18 @@ pub async fn start_configured(hub: &Arc<Hub>) -> Option<MeshRelay> {
     let shown = config.shown();
     tracing::info!("mesh relay: on, through {shown}");
     let ledger = hub.store.handoff_dir().map(|dir| dir.join("mesh-controls.json"));
+    // A joined relay's `sameUser` entry an older join wrote (no `maxPolicy`, untouched by its
+    // owner) runs as the one a join writes now (`MeshControlFrom::same_user`, approve-all), as
+    // `host join --status` would rewrite it. Before, only that command upgraded it, and only
+    // the next daemon start read it: every fleet lane VM joined before `maxPolicy` kept the `ask`
+    // cap, so `acpmux new --machine LANE-VM --policy approve-all` from the coordinator's Mac was
+    // refused ("an approve-all start relayed through the mesh hub", 2026-11-25).
+    let mut control_from = config.control_from;
+    if joined {
+        crate::mesh_relay_config::upgrade_join_entries(&mut control_from);
+    }
     let control = Arc::new(
-        MeshControlHook::new(config.control_from, ledger)
+        MeshControlHook::new(control_from, ledger)
             .with_own_user(Arc::new(crate::cli::cloud_join::machine_user_id)),
     );
     // A joined relay's reconnect: a machine joined before the hub recorded capabilities states
@@ -518,6 +528,7 @@ async fn inbox(
                         continue;
                     }
                     let Some(hub) = hub.upgrade() else { return };
+                    hub.outbox.note_relay_lease(message.attempt);
                     let (client, control, in_flight, beat) =
                         (client.clone(), control.clone(), in_flight.clone(), beat.clone());
                     let own_id = own.borrow().clone();
@@ -572,19 +583,71 @@ async fn inbox(
     }
 }
 
-/// A connection of the origin a relayed request runs as: a peer daemon's, proven
-/// (`ConnAuth::PeerToken`). The control hook sends a start, resume or stop on one.
+/// A connection of the origin a relayed read runs as: a peer daemon's, proven
+/// (`ConnAuth::PeerToken`).
 pub fn relay_connection(hub: &Arc<Hub>) -> (mpsc::Sender<String>, mpsc::Receiver<String>) {
+    relay_connection_as(hub, ConnAuth::PeerToken)
+}
+
+/// A relayed request's connection of `Origin::Peer` with `auth`: `ConnAuth::PeerToken` for a
+/// control the owner granted `maxPolicy: approve-all`, else `ConnAuth::MeshControl`
+/// ([`control_auth`]).
+fn relay_connection_as(
+    hub: &Arc<Hub>,
+    auth: ConnAuth,
+) -> (mpsc::Sender<String>, mpsc::Receiver<String>) {
     let (in_tx, in_rx) = mpsc::channel(16);
     let (out_tx, out_rx) = mpsc::channel(1024);
-    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Peer));
+    tokio::spawn(serve_connection_authed(hub.clone(), in_rx, out_tx, Origin::Peer, auth));
     (in_tx, out_rx)
+}
+
+/// The proof a relayed control runs with, by the widest `maxPolicy` the matching entries grant
+/// (`mesh_relay_config::control_cap`): only `approve-all` is owner control (cmux#50026); any
+/// narrower cap is `ConnAuth::MeshControl`, a remote start that settles into asking mode.
+fn control_auth(cap: crate::config::PermissionPolicy) -> ConnAuth {
+    if cap == crate::config::PermissionPolicy::ApproveAll {
+        ConnAuth::PeerToken
+    } else {
+        ConnAuth::MeshControl
+    }
+}
+
+/// A relayed start's params held to `cap`: a `policy` or `_meta.acpmux.policy` that runs more
+/// without asking than `cap` allows becomes `cap`. None named stays none, and the remote start
+/// rule settles it into `ask` (`remote_guard::web_starts_asking`). Owner control (`approve-all`)
+/// is left as asked.
+fn capped_start(
+    mut params: serde_json::Value,
+    cap: crate::config::PermissionPolicy,
+) -> serde_json::Value {
+    use crate::mesh_relay_config::policy_reach;
+    let over = |value: Option<&serde_json::Value>| {
+        value.filter(|v| !v.is_null()).is_some_and(|v| {
+            // A value this build does not read, or no string, is held to the cap too.
+            v.as_str()
+                .and_then(|s| s.parse::<crate::config::PermissionPolicy>().ok())
+                .is_none_or(|asked| policy_reach(asked) > policy_reach(cap))
+        })
+    };
+    let to = serde_json::Value::String(cap.to_string());
+    if over(params.get("policy")) {
+        params["policy"] = to.clone();
+    }
+    if over(params.pointer("/_meta/acpmux/policy"))
+        && let Some(meta) =
+            params.pointer_mut("/_meta/acpmux").and_then(serde_json::Value::as_object_mut)
+    {
+        meta.insert("policy".into(), to);
+    }
+    params
 }
 
 /// What runs a control message (start, resume or stop a session). The hub grants nothing: a hook
 /// first checks the stamped sender daemon against the owner's `meshRelay.controlFrom` allowlist,
 /// then acts through requests on a connection of `Origin::Peer` (`server::mesh_relay::
-/// relay_connection`, proven as `ConnAuth::PeerToken`). The message has already been checked to be
+/// relay_connection_as`): `ConnAuth::MeshControl` unless the matching entry's `maxPolicy` is
+/// `approve-all`, which runs it as the owner's peer daemon (`ConnAuth::PeerToken`). The message has already been checked to be
 /// for this daemon (`Hub::mesh_for_here`). None leaves the message unacked (its lease ends and it
 /// comes back). Moved from `mesh.rs`: it takes the hub, which `mesh.rs` (a lower module) does
 /// not reach.
@@ -675,10 +738,18 @@ impl ControlHook for MeshControlHook {
             {
                 return Some(Ack::refused("mesh.control_not_allowed"));
             }
+            // The widest policy the owner granted this sender for `op` here (`maxPolicy`).
+            let cap = crate::mesh_relay_config::control_cap(
+                &self.allowed,
+                &message.from,
+                own_user.as_deref(),
+                op,
+            )
+            .unwrap_or_default();
             // A read changes nothing, so it needs no ledger: a repeat runs again and answers
             // the session as it is then.
             if op == "read" {
-                // A rename through the hub is a change: only a sender trusted with a lifecycle op
+                // A rename or retry through the hub is a change: only a sender trusted with a lifecycle op
                 // here may make one (`read::WRITE_METHODS`), never one granted `read` alone.
                 let writes = ["start", "resume", "stop"].iter().any(|op| {
                     self.allowed
@@ -722,7 +793,7 @@ impl ControlHook for MeshControlHook {
                             return;
                         }
                         let outcome = tokio::select! {
-                            ack = run_control(&hub, &message) => ack,
+                            ack = run_control(&hub, &message, cap) => ack,
                             () = &mut shutdown => None,
                         };
                         if let Some(ack) = outcome {
@@ -773,7 +844,11 @@ fn without_unsent_answer(mut params: serde_json::Value, message: &InMessage) -> 
     params
 }
 
-async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
+async fn run_control(
+    hub: &Arc<Hub>,
+    message: &InMessage,
+    cap: crate::config::PermissionPolicy,
+) -> Option<Ack> {
     let Some(op) = message.op.as_deref() else {
         return Some(Ack::refused("control message has no operation"));
     };
@@ -784,8 +859,13 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
         Ok(body) => body,
         Err(e) => return Some(Ack::refused(format!("invalid control body: {e}"))),
     };
-    if body.get("version").and_then(serde_json::Value::as_u64) != Some(1) {
-        return Some(Ack::refused("unsupported control body version"));
+    // Version 2 is a `move` whose manifest the target pulls over the circuit
+    // (`hub/transfer_pull.rs` `MANIFEST_PULL_WIRE_VERSION`); every other op stays at 1.
+    let version = body.get("version").and_then(serde_json::Value::as_u64);
+    let pulled_move = op == crate::mesh_relay_config::MOVE_OP
+        && version == Some(crate::hub::transfer_pull::MANIFEST_PULL_WIRE_VERSION);
+    if version != Some(1) && !pulled_move {
+        return Some(Ack::refused(crate::hub::transfer_pull::OLD_VERSION_REFUSAL));
     }
     // A chat pulled here from the sender (`hub/transfer_pull.rs`), as a local actor: the source
     // is the daemon the hub stamped, never one the body names. The hook admitted only this
@@ -802,6 +882,21 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
             Err(error) => Ack::refused(error.message),
         });
     }
+    if op == crate::mesh_relay_config::MOVE_OUT_OP {
+        let mut args = match crate::mesh_control::MoveOutParams::parse(body, "version") {
+            Ok(args) => args,
+            Err(why) => return Some(Ack::refused(why)),
+        };
+        // Only the hub's authenticated sender stamp identifies the requesting machine.
+        if args.to.eq_ignore_ascii_case("local") {
+            args.to = message.from.daemon_id.clone()?;
+        }
+        let result = crate::cli::run::session_move::move_out(hub, args).await;
+        return Some(match result {
+            Ok(result) => Ack::answered(&message.message_id, result.to_string()),
+            Err(error) => Ack::refused(format!("{error:#}")),
+        });
+    }
     let mut params = match op {
         "start" => {
             let Some(params) = body.get("params").filter(|value| value.is_object()) else {
@@ -814,9 +909,30 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
             {
                 return Some(Ack::refused("mesh control start cannot forward to another daemon"));
             }
-            without_unsent_answer(params, message)
+            capped_start(without_unsent_answer(params, message), cap)
         }
-        "resume" | "stop" => serde_json::json!({}),
+        "resume" => serde_json::json!({}),
+        // A peer's stop carries its closer's reason and outcome and the host the hub stamped
+        // (`close_why.rs`): recorded with the close, never a condition on it.
+        "stop" => {
+            let asked = body.get("params");
+            let text = |key: &str| {
+                asked
+                    .and_then(|p| p.get(key))
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned)
+            };
+            let from = message.from.host.as_deref().unwrap_or("an unnamed machine");
+            let reason = match text("reason") {
+                Some(reason) => format!("mesh stop from {from}: {reason}"),
+                None => format!("mesh stop from {from}"),
+            };
+            let mut params = serde_json::json!({"reason": reason});
+            if let Some(outcome) = text("outcome") {
+                params["outcome"] = serde_json::Value::String(outcome);
+            }
+            params
+        }
         _ => return Some(Ack::refused(format!("unsupported control operation {op:?}"))),
     };
     if matches!(op, "resume" | "stop") {
@@ -834,7 +950,7 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
         params["sessionId"] = serde_json::Value::String(session.id.clone());
     }
     let session_id = params.get("sessionId").cloned();
-    let (tx, mut rx) = relay_connection(hub);
+    let (tx, mut rx) = relay_connection_as(hub, control_auth(cap));
     let initialized = rpc_call(
         &tx,
         &mut rx,
@@ -1119,13 +1235,18 @@ pub async fn deliver(
     if team && !hub.register_team_work(&session, prompt_id) {
         return None;
     }
+    // The class the sending daemon inlined as the text's first line (`mesh_send.rs` `carried`):
+    // the hub carries text only, so without it a block or question files as fyi and an idle
+    // receiver never starts a turn.
+    let (class, text) =
+        if team { (None, message.body.as_str()) } else { inline_class(&message.body) };
     let body = if team {
         format!(
             "Team message from {}: {}\nThe team hub allows this message to start work; normal session permissions still apply.",
             from_name, message.body
         )
     } else {
-        message.body.clone()
+        text.to_owned()
     };
     let mut request = json!({
         "sessionId": session.id,
@@ -1139,6 +1260,12 @@ pub async fn deliver(
             "startWork": message.start_work,
         }},
     });
+    if let Some(class) = class
+        && let Some(mux) =
+            request.pointer_mut("/_meta/acpmux").and_then(serde_json::Value::as_object_mut)
+    {
+        mux.insert("class".into(), class.as_str().into());
+    }
     // The sending session's id, which its daemon set from the caller it proved
     // (`mesh_send.rs`), for display (`prompt_provenance::FROM_SESSION_ID`). The sender's harness
     // claim comes separately below, never as a bound harness.
@@ -1210,10 +1337,53 @@ fn start_work_allowed(message: &InMessage) -> bool {
     matches!(message.start_work, Some(StartWork::Allowed))
 }
 
+/// The class a relayed text's first line names (`[block]`, `[question]`, `[result]`, `[fyi]`, as
+/// `mesh_send.rs` `class_line` writes it) and the text after that line; no class and the whole
+/// text otherwise.
+fn inline_class(body: &str) -> (Option<crate::prompt_class::PromptClass>, &str) {
+    let (first, rest) = body.split_once('\n').unwrap_or((body, ""));
+    let class = first
+        .trim()
+        .strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .and_then(crate::prompt_class::PromptClass::parse);
+    match class {
+        Some(class) if !rest.trim().is_empty() => (Some(class), rest.trim_start_matches('\n')),
+        _ => (None, body),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::mesh::{AckState, Sender, Target};
+
+    /// A block or question sent over the mesh files as that class on the receiver, so an idle
+    /// receiver wakes (`hub/inbox.rs`): the sender's inline line (`mesh_send.rs`) parses back.
+    #[test]
+    fn inline_class_round_trips_the_senders_line() {
+        use crate::prompt_class::PromptClass;
+        for class in PromptClass::ALL {
+            let body =
+                format!("{}\n\nYou stopped on a 529.", super::super::mesh_send::class_line(class));
+            assert_eq!(inline_class(&body), (Some(class), "You stopped on a 529."), "{class}");
+        }
+        assert_eq!(inline_class("[blocker]\nfix it"), (Some(PromptClass::Block), "fix it"));
+    }
+
+    #[test]
+    fn inline_class_leaves_other_texts_whole() {
+        for body in [
+            "plain text",
+            "[block]",
+            "[block]\n\n  ",
+            "[nope]\nx",
+            "see [block]\nx",
+            "[block] x\ny",
+        ] {
+            assert_eq!(inline_class(body), (None, body), "{body:?}");
+        }
+    }
 
     fn from(host: &str, name: &str) -> InMessage {
         InMessage {
@@ -1229,6 +1399,32 @@ mod tests {
             state: Some("queued".into()),
             subject: None,
         }
+    }
+
+    #[test]
+    fn a_relayed_start_is_held_to_its_cap_and_only_approve_all_is_owner_control() {
+        use crate::config::PermissionPolicy as P;
+        assert_eq!(control_auth(P::ApproveAll), ConnAuth::PeerToken);
+        for cap in [P::Ask, P::DenyAll, P::ApproveReads, P::Review, P::ApproveEdits] {
+            assert_eq!(control_auth(cap), ConnAuth::MeshControl, "{cap}");
+        }
+        let start = |policy: Value| json!({"cwd": "/w", "policy": policy, "_meta": {"acpmux": {"policy": policy}}});
+        let held = capped_start(start(json!("approve-all")), P::Ask);
+        assert_eq!(held["policy"], "ask");
+        assert_eq!(held["_meta"]["acpmux"]["policy"], "ask");
+        // Within the cap, or none named: as asked (the remote start rule settles none to `ask`).
+        let within = capped_start(start(json!("approve-reads")), P::ApproveEdits);
+        assert_eq!(within, start(json!("approve-reads")));
+        assert_eq!(capped_start(json!({"cwd": "/w"}), P::Ask), json!({"cwd": "/w"}));
+        assert_eq!(capped_start(start(Value::Null), P::Ask), start(Value::Null));
+        // A value this build does not read is held to the cap as well.
+        assert_eq!(capped_start(start(json!("yolo")), P::Ask)["policy"], "ask");
+        assert_eq!(capped_start(start(json!(7)), P::Ask)["_meta"]["acpmux"]["policy"], "ask");
+        // Owner control keeps what it asked.
+        assert_eq!(
+            capped_start(start(json!("approve-all")), P::ApproveAll),
+            start(json!("approve-all"))
+        );
     }
 
     #[test]

@@ -21,7 +21,7 @@ nonisolated enum AcpmuxPaneMethods {
         // Sessions (direct.ts).
         "session/new", "session/prompt", "session/set_model", "session/set_mode", "session/set_config_option", "chat.fix_from_link", "chat.fix_from_link.prepare",
         // acpmux extensions (direct.ts). `_acpmux/attachment` reads a sent prompt's image by content hash.
-        "_acpmux/watch", "_acpmux/events", "_acpmux/attachment", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/typing", "_acpmux/warm",
+        "_acpmux/watch", "_acpmux/events", "_acpmux/attachment", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/seen", "_acpmux/typing", "_acpmux/warm",
         // The session list's later pages (sessionPages.ts, cx-2lv1k): the same summaries watch answers,
         // read by cursor after watch's first page.
         "_acpmux/sessions",
@@ -45,7 +45,7 @@ nonisolated enum AcpmuxPaneMethods {
         // the child chat, which the click's scope credit brings in (``sourceScoped``). Only `sessionId` and `subagentId` (``knownParams``): never `_meta`,
         // which carries acpmux's control and trust-gate marks.
         "_acpmux/retry",
-        "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond", "_acpmux/perf",
+        "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond", "_acpmux/perf", "_acpmux/host_overload", "_acpmux/trace/spans", "_acpmux/trace/status",
         // The model picker's catalog (direct.ts modelCatalog, App.tsx `models.catalog`): acpmux's
         // public model list, and its Refresh, which fetches the same feeds acpmux reads on its own.
         // Neither grants anything. Left off this list, every pane's picker was refused at each open.
@@ -57,8 +57,15 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/watch_take_over", "_acpmux/project_new", // New project: AgentPaneProjectNewRelayTests.
         // Read-only, and its reply is filtered to ``replyShapes`` (ad349).
         "_acpmux/status", "_acpmux/peers", "_acpmux/move_targets", "_acpmux/draft_get",
+        // Which page requests the daemon still runs, in page ids (AcpmuxRequestIds.requestStateMethod).
+        "_acpmux/request_state",
         // Session-scoped draft writes are kept separate from the filtered replies above.
         "_acpmux/draft_set",
+        // Auto's Where (direct.ts placeChat, autoWhereModel.ts): a read-only decision. acpmux reads this
+        // machine's budget and answers here or a place from the targets the page passed; it starts,
+        // moves and writes nothing. Its reply is cut to ``replyShapes``; acpmux answers this Mac's
+        // app and unix socket only.
+        "_acpmux/place_chat",
         // An inbox notice's thread the person opened (direct.ts inboxThread, InboxNoticeCard):
         // the messages of one thread of the chat in the pane's scope, read without marking them.
         "_acpmux/inbox_thread",
@@ -158,6 +165,9 @@ nonisolated enum AcpmuxPaneMethods {
         // for that child (claude_stdio/workflows.rs). It stops work like `_acpmux/kill`, so no
         // gesture; caller params never reach Claude.
         "_acpmux/subagent_stop", "_acpmux/subagent_transcript",
+        // Every subagent of a chat in the pane's scope, running and latest ended, for the
+        // Background tasks panel (direct.ts listSubagents; acpmux hub/subagent_list.rs). Read only.
+        "_acpmux/subagents",
         // Page a chat's older turns in from its Claude Code transcript, past the newest page its log
         // was seeded with (direct.ts fetchNativeOlder; acpmux hub/native_history.rs). A read of the
         // pane's own chat: `before` is a byte cursor acpmux gave, never a path.
@@ -256,6 +266,15 @@ nonisolated enum AcpmuxPaneMethods {
         // small-model call that rewrites a chat in the pane's scope's own prompt into a `coach`
         // record. It sends the chat nothing and runs no turn, so no gesture.
         "_acpmux/prompt_coach",
+        // The wrap-up card's Try it on, Keep and Revert (direct.ts customizeRun; acpmux customize_run.rs):
+        // one of three typed `cmux customize` requests, checked against an allowlist and run without a
+        // shell. The person's click in the card sends it.
+        "_acpmux/customize_run",
+        // Auto (plans/cmux-next/auto-mode/DESIGN.md; direct.ts setAutoSession, autoLeftover): the chat
+        // menu's Auto and Keep in Cloud, and Show, Apply or Discard of the changes this Mac made after
+        // the chat moved to the Cloud. Only the chat in scope, and only on a gesture (``gestureRules``).
+        // Transcript reads the Cloud's events of the chat while the Cloud runs it: read only, no gesture.
+        "_acpmux/auto_session/set", "_acpmux/auto_session/leftover", "_acpmux/auto_session/transcript",
     ]
 
     /// Notifications (no `id`).
@@ -353,8 +372,8 @@ nonisolated enum AcpmuxPaneMethods {
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/inbox_thread", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/turn_shots", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/queue_approve", "_acpmux/queue_decline", "_acpmux/queue_get",
-        "_acpmux/secret_submit", "_acpmux/presets", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
-        "_acpmux/side_chat", "_acpmux/offer_respond", "_acpmux/memory_resolve", "_acpmux/agent_home", "_acpmux/agent_home_resolve", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply",
+        "_acpmux/seen", "_acpmux/secret_submit", "_acpmux/presets", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
+        "_acpmux/side_chat", "_acpmux/offer_respond", "_acpmux/memory_resolve", "_acpmux/agent_home", "_acpmux/agent_home_resolve", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/subagents", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply",
         "_acpmux/watch_take_over",
         "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
         "_acpmux/mcp/reconnect", "_acpmux/subsession/limits", "_acpmux/context", "_acpmux/context_override",
@@ -362,6 +381,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
         "_acpmux/run_elsewhere/plan", "_acpmux/run_elsewhere/start", "_acpmux/bg/output", "_acpmux/bg/stop",
         "_acpmux/cold_archive", "_acpmux/prompt_coach",
+        "_acpmux/auto_session/set", "_acpmux/auto_session/leftover", "_acpmux/auto_session/transcript",
         "_acpmux/account/sign_in", "_acpmux/account/sign_in.finish", "_acpmux/account/sign_in.cancel",
     ]
 
@@ -501,6 +521,13 @@ nonisolated enum AcpmuxPaneMethods {
         // Run on a bigger machine's Run sends the chat's command, and the files the person ticked, to
         // another machine: only on the person's click or Return in its panel.
         "_acpmux/run_elsewhere/start": .always,
+        // A wrap-up card's Try it on, Keep or Revert runs `cmux customize` on this machine (a dir:
+        // trial builds that checkout): only on the person's click.
+        "_acpmux/customize_run": .always,
+        // Auto on sends the chat and its folder to the person's Cloud machine; Apply writes the kept
+        // changes into the folder and Discard deletes them. Each is the person's click.
+        "_acpmux/auto_session/set": .always,
+        "_acpmux/auto_session/leftover": .always,
         // _acpmux/permission_chat_revoke revokes: no gesture.
         // _acpmux/offer_respond declines, or links the page's own new chat: no gesture (the work
         // Start begins is its session/prompt, which has one).
@@ -517,6 +544,7 @@ nonisolated enum AcpmuxPaneMethods {
         // A preset approval lets agents start chats with no prompts from then on: a click, never typing.
         let answers = method == "_acpmux/permission_respond" || method == "_acpmux/permission_group_respond"
             || method == "_acpmux/plan/build" || method == "_acpmux/presets"
+            || method == "_acpmux/customize_run"
         return !answers || gestures.hasFreshAnswerGesture
     }
 
