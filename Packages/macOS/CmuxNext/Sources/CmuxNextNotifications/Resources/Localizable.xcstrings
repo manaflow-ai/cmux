@@ -1320,133 +1320,133 @@
       }
     },
     "notifications.permission.deniedNotice": {
-      "comment": "One-time toast when macOS denies cmux notifications (cmux#55600). Banners are the macOS notification popups; sounds still play inside cmux.",
+      "comment": "Toast when the person turns cmux notifications on but macOS blocks them (cmux#55600). Banners are the macOS notification popups; sounds stay off too.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS is blocking cmux notifications, so banners don’t show. Sounds still play in cmux."
+            "value": "macOS is blocking cmux notifications, so banners and sounds are off."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يحظر macOS إشعارات cmux، لذا لا تظهر اللافتات. لا تزال الأصوات تُشغَّل في cmux."
+            "value": "يحظر macOS إشعارات cmux، لذا اللافتات والأصوات متوقفة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS blokira cmux obavještenja, pa se baneri ne prikazuju. Zvukovi se i dalje reproduciraju u cmuxu."
+            "value": "macOS blokira cmux obavještenja, pa su baneri i zvukovi isključeni."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS blokerer notifikationer fra cmux, så bannere vises ikke. Lyde afspilles stadig i cmux."
+            "value": "macOS blokerer notifikationer fra cmux, så bannere og lyde er slået fra."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS blockiert cmux-Mitteilungen, daher werden keine Banner angezeigt. Töne werden weiterhin in cmux abgespielt."
+            "value": "macOS blockiert cmux-Mitteilungen, daher sind Banner und Töne aus."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS está bloqueando las notificaciones de cmux, así que no se muestran avisos. Los sonidos siguen sonando en cmux."
+            "value": "macOS está bloqueando las notificaciones de cmux, así que los avisos y los sonidos están desactivados."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS bloque les notifications de cmux : les bannières ne s’affichent pas. Les sons sont toujours joués dans cmux."
+            "value": "macOS bloque les notifications de cmux : les bannières et les sons sont désactivés."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS sta bloccando le notifiche di cmux, quindi i banner non vengono mostrati. I suoni vengono comunque riprodotti in cmux."
+            "value": "macOS sta bloccando le notifiche di cmux, quindi banner e suoni sono disattivati."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS が cmux の通知をブロックしているため、バナーは表示されません。サウンドは引き続き cmux で再生されます。"
+            "value": "macOS が cmux の通知をブロックしているため、バナーとサウンドはオフです。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS កំពុងរារាំងការជូនដំណឹង cmux ដូច្នេះផ្ទាំងជូនដំណឹងមិនបង្ហាញទេ។ សំឡេងនៅតែចាក់ក្នុង cmux។"
+            "value": "macOS កំពុងរារាំងការជូនដំណឹង cmux ដូច្នេះផ្ទាំងជូនដំណឹង និងសំឡេងត្រូវបានបិទ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS가 cmux 알림을 차단하고 있어 배너가 표시되지 않습니다. 사운드는 cmux에서 계속 재생됩니다."
+            "value": "macOS가 cmux 알림을 차단하고 있어 배너와 사운드가 꺼져 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS blokkerer varsler fra cmux, så bannere vises ikke. Lyder spilles fortsatt av i cmux."
+            "value": "macOS blokkerer varsler fra cmux, så bannere og lyder er slått av."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS blokuje powiadomienia cmux, więc banery się nie pojawiają. Dźwięki nadal są odtwarzane w cmux."
+            "value": "macOS blokuje powiadomienia cmux, więc banery i dźwięki są wyłączone."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O macOS está bloqueando as notificações do cmux, então os banners não aparecem. Os sons continuam tocando no cmux."
+            "value": "O macOS está bloqueando as notificações do cmux, então os banners e os sons estão desativados."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS блокирует уведомления cmux, поэтому баннеры не показываются. Звуки по-прежнему воспроизводятся в cmux."
+            "value": "macOS блокирует уведомления cmux, поэтому баннеры и звуки выключены."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS กำลังบล็อกการแจ้งเตือนของ cmux จึงไม่มีแบนเนอร์แสดง เสียงยังคงเล่นใน cmux"
+            "value": "macOS กำลังบล็อกการแจ้งเตือนของ cmux แบนเนอร์และเสียงจึงปิดอยู่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS, cmux bildirimlerini engelliyor, bu yüzden afişler gösterilmiyor. Sesler cmux’ta çalmaya devam ediyor."
+            "value": "macOS, cmux bildirimlerini engelliyor, bu yüzden afişler ve sesler kapalı."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS блокує сповіщення cmux, тому банери не показуються. Звуки й надалі відтворюються в cmux."
+            "value": "macOS блокує сповіщення cmux, тому банери та звуки вимкнено."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS đang chặn thông báo của cmux nên biểu ngữ không hiển thị. Âm thanh vẫn phát trong cmux."
+            "value": "macOS đang chặn thông báo của cmux nên biểu ngữ và âm thanh đang tắt."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS 正在阻止 cmux 的通知，因此不会显示横幅。声音仍会在 cmux 中播放。"
+            "value": "macOS 正在阻止 cmux 的通知，因此横幅和声音已关闭。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS 正在阻擋 cmux 的通知，因此不會顯示橫幅。聲音仍會在 cmux 中播放。"
+            "value": "macOS 正在阻擋 cmux 的通知，因此橫幅和聲音已關閉。"
           }
         }
       }

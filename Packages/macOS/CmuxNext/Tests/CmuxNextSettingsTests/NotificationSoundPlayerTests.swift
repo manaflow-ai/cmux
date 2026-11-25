@@ -8,9 +8,9 @@ import Testing
 /// its length, 0 lets it play to its end, and the gate hands the player the library's files and the
 /// length the person set.
 ///
-/// cmux#55600: on a Mac that denies cmux notifications, Settings > Sounds' play buttons and every
-/// "Default" sound were silent, because "default" only rode a banner. The player plays every sound
-/// through the app's own audio; a banner carries "default" only while macOS sounds it.
+/// cmux#55600: notification sounds follow the person's notification permission. Until macOS allows cmux
+/// notifications with sound, nothing plays, previews included; then "default" rides its banner, and plays
+/// here as the Mac's alert sound when no banner carries it (a preview).
 @MainActor
 struct NotificationSoundPlayerTests {
     /// A sound that records what the player did to it.
@@ -70,9 +70,9 @@ struct NotificationSoundPlayerTests {
 
     private let clock = HeldClock()
 
-    private func player(carry: Bool) -> (NotificationSoundPlayer, () -> [(name: String, file: URL?)]) {
+    private func player(allowed: Bool) -> (NotificationSoundPlayer, () -> [(name: String, file: URL?)]) {
         let (player, _, loaded) = player()
-        player.bannersCarrySound = { carry }
+        player.soundsAllowed = { allowed }
         return (player, loaded)
     }
 
@@ -152,32 +152,28 @@ struct NotificationSoundPlayerTests {
     }
 
     @Test func aDefaultPreviewPlaysTheAlertSoundInTheApp() {
-        let (player, loaded) = player(carry: true)
+        let (player, loaded) = player(allowed: true)
         player.play("default", volume: 0.4, banner: false)
-        #expect(loaded().map(\.name) == [NotificationSoundPlayer.alertSoundName()], "a preview of Default plays the alert sound, no banner needed")
+        #expect(loaded().map(\.name) == [NotificationSoundPlayer.alertSoundName()], "a preview of Default plays the alert sound")
     }
 
-    @Test func aDefaultSoundPlaysInTheAppWhenBannersAreDenied() {
-        let (player, loaded) = player(carry: false)
+    @Test func nothingPlaysUntilNotificationsAreAllowed() {
+        let (player, loaded) = player(allowed: false)
+        player.play("default", volume: 1, banner: false)
         player.play("default", volume: 1, banner: true)
-        #expect(loaded().count == 1, "a banner macOS will not sound leaves Default to the app")
+        player.play("Glass", volume: 1, banner: false)
+        player.play("Glass", volume: 1, banner: true)
+        #expect(loaded().isEmpty, "denied or not yet allowed: no preview, no event sound")
     }
 
-    @Test func aBannerMacOSSoundsCarriesDefaultAlone() {
-        let (player, loaded) = player(carry: true)
+    @Test func anAllowedBannerCarriesDefaultAlone() {
+        let (player, loaded) = player(allowed: true)
         player.play("default", volume: 1, banner: true)
         #expect(loaded().isEmpty, "the banner plays Default; the app would double it")
-    }
-
-    @Test func aNamedSoundPlaysWhateverTheBanner() {
-        for carry in [true, false] {
-            let (player, loaded) = player(carry: carry)
-            player.play("Glass", volume: 1, banner: true)
-            #expect(loaded().map(\.name) == ["Glass"])
-        }
-        let (player, loaded) = player(carry: false)
+        player.play("Glass", volume: 1, banner: true)
+        #expect(loaded().map(\.name) == ["Glass"], "a named sound plays in the app")
         player.play("none", volume: 1, banner: false)
-        #expect(loaded().isEmpty)
+        #expect(loaded().count == 1)
     }
 
     @Test func theAlertSoundIsSoundSettingsChoiceElseTink() {

@@ -115,16 +115,11 @@ package final class DesktopNotifier: NSObject {
     }
     /// What macOS last said about this app's notifications, observed (Settings > Notifications' status row).
     package let permissionState = NotificationPermissionState(authorization: DesktopNotifier.usesSystemCenter ? "unknown" : "automation")
-    /// Plays the `"default"` sound in the app, for a banner that cannot carry it (denied, not yet asked,
-    /// provisional or with its sound off in System Settings): the app's sound player (cmux#55600).
-    package var playsDefaultSound: (@MainActor () -> Void)?
     /// Extra launch reads while none has landed (``followPermission``), `delay` apart.
     package var launchRereads = (count: 6, delay: Duration.seconds(5))
     let launchRereadTimer = DemandTimer(owner: "notification-permission-launch-read")
-    /// macOS denies cmux notifications (read at launch, on activation, or the person's answer to the prompt).
+    /// The person turned notifications on while macOS blocks them (``turnOn()``): the app tells them, with Open System Settings.
     package var onDenied: (@MainActor () -> Void)?
-    /// The one-time denied notice's record (tests pass their own defaults).
-    package var deniedNotice = NotificationDeniedNotice()
     /// The permission ``refreshPermission()`` reads and asks; nil: the system center (tests set one).
     package var permissionCenterOverride: (any NotificationPermissionCenter)?
     /// False in a showcase capture: the permission is never read, so its card never shows the host Mac's.
@@ -133,8 +128,6 @@ package final class DesktopNotifier: NSObject {
     private var permissionReads = 0
     private var appliedPermissionRead = 0
     private var center: UNUserNotificationCenter?
-    /// Whether this launch asked for authorization (a banner or `notifications.request`).
-    private var askedAuthorization = false
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "notifications")
     private static let postedLimit = 32
 
@@ -155,8 +148,6 @@ package final class DesktopNotifier: NSObject {
                              sound: defaultSound ? "default" : nil, attachment: attachment, reply: reply,
                              approval: approval, category: category, incognito: incognito))
         if posted.count > Self.postedLimit { posted.removeFirst(posted.count - Self.postedLimit) }
-        // A banner macOS will not sound (denied, not asked, provisional, sound off) still makes its sound, in the app.
-        if defaultSound, !permissionState.bannersCarrySound { playsDefaultSound?() }
         guard let center = resolvedCenter() else { return }
         let content = UNMutableNotificationContent()
         content.title = title
@@ -266,17 +257,10 @@ package final class DesktopNotifier: NSObject {
         return true
     }
 
-    /// The center for a banner: the first one asks for authorization.
+    /// The center for a banner. It never asks for authorization: only the person turning notifications on does
+    /// (``turnOn()``, Settings > Notifications, `cmux setup notifications`; cmux#55600).
     private func resolvedCenter() -> UNUserNotificationCenter? {
-        guard let center = configuredCenter() else { return nil }
-        // Asked once; a GUI job (NX_REMOTE=1, CMUX_TEST_REQUIRE_GUI=1) never asks: the banner catches its clicks.
-        if !askedAuthorization, Self.asksPermission {
-            askedAuthorization = true
-            center.requestAuthorization(options: [.alert, .sound, .badge]) { [weak self] _, _ in
-                Task { @MainActor in await self?.refreshPermission(asking: false) }
-            }
-        }
-        return center
+        configuredCenter()
     }
 
     /// The system center with this app's delegate and banner categories, made once; nil when
@@ -315,42 +299,26 @@ package final class DesktopNotifier: NSObject {
             throw ControlError(code: "unavailable", message: NotificationPermissionStrings.unavailable)
         }
         // `notifications.status` and `.request` answers are reads too: the app shows what they found.
-        return SystemNotificationPermission(bundleID: Bundle.main.bundleIdentifier) { [weak self] permission, asked in
-            Task { @MainActor in
-                if asked { self?.askedAuthorization = true }
-                self?.applyPermission(permission)
-            }
+        return SystemNotificationPermission(bundleID: Bundle.main.bundleIdentifier) { [weak self] permission, _ in
+            Task { @MainActor in self?.applyPermission(permission) }
         }
     }
 
     /// Reads this app's permission into ``permissionState`` without prompting, at launch and each time
-    /// cmux comes forward (the person may have changed it in System Settings). Not yet asked: asks once
-    /// (`asking`, the macOS prompt). Denied: ``onDenied``. A launch that never asks reads nothing.
-    package func refreshPermission(asking: Bool = true) async {
+    /// cmux comes forward (the person may have changed it in System Settings). A launch that never asks reads nothing.
+    package func refreshPermission() async {
         guard readsPermission, let center = permissionCenterOverride ?? statusCenter() else { return }
         permissionReads += 1
-        var read = permissionReads
-        var permission = await center.status()
-        // Only a launch that asks shows the prompt; a GUI job still reads, so its banners' sounds follow the real permission.
-        if asking, Self.asksPermission || permissionCenterOverride != nil, permission.authorization == "not_determined", !askedAuthorization {
-            askedAuthorization = true
-            if let answered = try? await center.request() {
-                permission = answered
-                permissionReads += 1 // the answer is newer than any read started while the prompt waited
-                read = permissionReads
-            }
-        }
-        applyPermission(permission, read: read)
+        let read = permissionReads
+        applyPermission(await center.status(), read: read)
     }
 
-    /// Takes `permission` from read number `read` unless a newer read already landed; a denial tells the person (once),
-    /// and anything else re-arms the one-time notice, so a later denial is told again.
+    /// Takes `permission` from read number `read` unless a newer read already landed.
     package func applyPermission(_ permission: NotificationPermission, read: Int? = nil) {
         let read = read ?? { permissionReads += 1; return permissionReads }()
         guard read > appliedPermissionRead else { return }
         appliedPermissionRead = read
         permissionState.update(permission)
-        if permission.isDenied { onDenied?() } else if onDenied != nil { _ = deniedNotice.claim(for: permission.authorization) }
     }
 
     /// The system center to read the permission from without prompting: every launch that uses it from the main app bundle,

@@ -99,13 +99,15 @@ public final class NotificationSoundGate {
     }
 
     /// Plays `decision`'s sound itself when the policy posts no banner for it (`decision.desktop` false), `"default"`
-    /// included: no banner carries it, whatever the poster allowed (cmux#55600). The cooldown already ran (``admit(_:cooldownSeconds:)``).
+    /// included: no banner carries it (cmux#55600). The player still plays only while notifications are allowed.
+    /// The cooldown already ran (``admit(_:cooldownSeconds:)``).
     public func playWithoutBanner(_ decision: NotificationPolicy.Decision) {
         guard !decision.desktop, let sound = decision.sound else { return }
         player.play(sound, volume: decision.soundVolume, banner: false)
     }
 
-    /// Plays `name` at `volume` now, past the cooldown: a preview the person asked for.
+    /// Plays `name` at `volume` now, past the cooldown: a preview the person asked for (silent, like every
+    /// notification sound, while macOS does not allow cmux notifications).
     public func preview(_ name: String, volume: Double) {
         player.play(name, volume: volume, banner: false)
     }

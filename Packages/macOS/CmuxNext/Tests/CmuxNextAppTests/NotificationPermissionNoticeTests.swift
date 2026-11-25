@@ -9,10 +9,9 @@ import CmuxNextTestSupport
 import Foundation
 import Testing
 
-/// cmux#55600: macOS denied cmux NIGHTLY notifications, 28 banners and every finish sound were dropped,
-/// and nothing in cmux said so. The permission is read into an observed state (Settings > Notifications'
-/// card), a denial is told once, not yet asked is asked, and a "default" sound a denied banner cannot
-/// carry plays in the app.
+/// cmux#55600: notification permission in the app. cmux reads it (Settings > Notifications' card) but never asks
+/// on its own: only the person turning notifications on shows the macOS prompt, and a denial then is told with
+/// Open System Settings. Until macOS allows cmux notifications, banners and every notification sound stay off.
 @MainActor @Suite(.serialized) struct NotificationPermissionNoticeTests {
     actor FakeCenter: NotificationPermissionCenter {
         var current: NotificationPermission
@@ -54,46 +53,116 @@ import Testing
         func play(_ name: String, volume: Double, banner: Bool) { played.append((name, banner)) }
     }
 
-    /// A notifier whose one-time notice writes to its own defaults, never the test host's.
-    private func notifier() throws -> (DesktopNotifier, UserDefaults) {
-        let defaults = try #require(UserDefaults(suiteName: "cmux-55600-\(UUID().uuidString)"))
-        let desktop = DesktopNotifier()
-        desktop.deniedNotice = NotificationDeniedNotice(defaults: defaults)
-        return (desktop, defaults)
-    }
-
     private static func permission(_ authorization: String, sound: Bool = true) -> NotificationPermission {
         NotificationPermission(authorization: authorization, alert: authorization == "authorized", alertStyle: "banner", sound: sound,
                                badge: false, bundleID: nil)
     }
 
-    @Test func aRealPlayerSoundsADeniedDefaultBannerOnceAndAnAllowedOneNever() throws {
-        let (desktop, _) = try notifier()
-        let recorder = Recorder()
-        let gate = NotificationSoundGate(player: recorder)
-        _ = desktop.followPermission(sounds: gate, volume: { 1 }, asks: false) { nil }
+    /// A real player whose loads are recorded instead of played.
+    private static func player() -> (NotificationSoundPlayer, () -> [String]) {
+        final class Box { var loaded: [String] = [] }
+        let box = Box()
+        let player = NotificationSoundPlayer { name, _ in
+            box.loaded.append(name)
+            return NSSound(named: NSSound.Name("Tink"))?.copy() as? NSSound
+        }
+        return (player, { box.loaded })
+    }
+
+    @Test func launchAndActivationReadsNeverAskOrTell() async throws {
+        for state in ["denied", "not_determined"] {
+            let desktop = DesktopNotifier()
+            let center = FakeCenter(state)
+            desktop.permissionCenterOverride = center
+            var told = 0
+            desktop.onDenied = { told += 1 }
+            await desktop.refreshPermission()
+            await desktop.refreshPermission()
+            #expect(desktop.authorization == state)
+            #expect(await center.requests == 0, "cmux never shows the macOS prompt on its own (\(state))")
+            #expect(told == 0, "nothing is shown to someone who never turned notifications on (\(state))")
+        }
+    }
+
+    @Test func turningNotificationsOnAsksOnceAndTellsADenial() async throws {
+        let desktop = DesktopNotifier()
+        let center = FakeCenter("not_determined", answer: false)
+        desktop.permissionCenterOverride = center
+        var told = 0
+        desktop.onDenied = { told += 1 }
+        await desktop.turnOn()
+        #expect(await center.requests == 1, "turning notifications on shows the macOS prompt")
+        #expect(desktop.authorization == "denied")
+        #expect(told == 1, "the person said no: the toast points at System Settings")
+        await desktop.turnOn()
+        #expect(await center.requests == 1, "macOS asks once; after a denial only System Settings undoes it")
+        #expect(told == 2, "turning them on again while blocked tells the person again")
+    }
+
+    @Test func turningNotificationsOnWhileAllowedTellsNothing() async throws {
+        let desktop = DesktopNotifier()
+        let center = FakeCenter("not_determined", answer: true)
+        desktop.permissionCenterOverride = center
+        var told = 0
+        desktop.onDenied = { told += 1 }
+        await desktop.turnOn()
+        #expect(desktop.authorization == "authorized")
+        await desktop.turnOn()
+        #expect(await center.requests == 1)
+        #expect(told == 0)
+    }
+
+    @Test func settingsAllowButtonAsksAndADenialThereIsTold() async throws {
+        let desktop = DesktopNotifier()
+        desktop.permissionCenterOverride = FakeCenter("not_determined", answer: false)
+        var told = 0
+        desktop.onDenied = { told += 1 }
+        try await desktop.allowFromSettings()
+        #expect(desktop.authorization == "denied")
+        #expect(told == 1)
+    }
+
+    @Test func soundsPlayOnlyWhileMacOSAllowsThem() {
+        #expect(NotificationPermissionState.allowsSounds(authorization: "authorized", sound: true))
+        #expect(NotificationPermissionState.allowsSounds(authorization: "unknown", sound: nil))
+        #expect(NotificationPermissionState.allowsSounds(authorization: "automation", sound: nil))
+        #expect(!NotificationPermissionState.allowsSounds(authorization: "authorized", sound: false), "Play sound off in System Settings")
+        for silent in ["denied", "not_determined", "provisional"] {
+            #expect(!NotificationPermissionState.allowsSounds(authorization: silent, sound: true), "\(silent)")
+        }
+    }
+
+    @Test func previewsAndEventSoundsAreSilentUntilAllowed() {
+        let desktop = DesktopNotifier()
+        let (player, loaded) = Self.player()
+        let gate = NotificationSoundGate(player: player)
+        _ = desktop.followPermission(sounds: gate, asks: false) { nil }
         desktop.applyPermission(Self.permission("denied"))
+        gate.preview("default", volume: 1)
+        gate.preview("Glass", volume: 1)
         desktop.post(id: "cmux-notification-10", title: "Claude", body: "Finished", surface: nil, workspace: nil, defaultSound: true)
-        #expect(recorder.played.count == 1, "exactly one play: the app's, since macOS drops the banner and its sound")
-        #expect(recorder.played.first?.name == "default")
-        #expect(recorder.played.first?.banner == false)
+        #expect(loaded().isEmpty, "denied: no preview, no finish sound")
         desktop.applyPermission(Self.permission("authorized"))
+        gate.preview("default", volume: 1)
+        gate.preview("Glass", volume: 1)
+        #expect(loaded() == [NotificationSoundPlayer.alertSoundName(), "Glass"], "allowed: previews play, Default included")
         desktop.post(id: "cmux-notification-11", title: "Claude", body: "Finished", surface: nil, workspace: nil, defaultSound: true)
-        #expect(recorder.played.count == 1, "an allowed banner sounds itself; the app adds nothing")
+        #expect(loaded().count == 2, "an allowed banner plays its own sound; the app adds nothing")
     }
 
     @Test func aShowcaseNeverReadsThePermission() async throws {
-        let (desktop, _) = try notifier()
+        let desktop = DesktopNotifier()
         let center = FakeCenter("denied")
         desktop.permissionCenterOverride = center
-        _ = desktop.followPermission(sounds: NotificationSoundGate(player: Recorder()), volume: { 1 }, asks: false) { nil }
-        await desktop.refreshPermission(asking: false) // what an activation runs
+        _ = desktop.followPermission(sounds: NotificationSoundGate(player: Recorder()), asks: false) { nil }
+        await desktop.refreshPermission() // what an activation runs
+        await desktop.turnOn()
         #expect(await center.reads == 0, "the card never shows the host Mac's permission in a capture")
         #expect(desktop.authorization == "unknown" || desktop.authorization == "automation")
     }
 
-    @Test func anOlderReadFinishingLateNeverOverwritesANewerOne() throws {
-        let (desktop, _) = try notifier()
+    @Test func anOlderReadFinishingLateNeverOverwritesANewerOne() {
+        let desktop = DesktopNotifier()
         desktop.applyPermission(Self.permission("authorized"), read: 5)
         desktop.applyPermission(Self.permission("denied"), read: 3)
         #expect(desktop.authorization == "authorized")
@@ -101,94 +170,16 @@ import Testing
         #expect(desktop.authorization == "denied", "a fresh read (the Settings button's) is newest")
     }
 
-    @Test func allowingAgainThroughARefreshReArmsTheNotice() async throws {
-        let (desktop, defaults) = try notifier()
-        var told = 0
-        desktop.onDenied = { if desktop.deniedNotice.claim(for: desktop.authorization) { told += 1 } }
-        let denied = FakeCenter("denied")
-        desktop.permissionCenterOverride = denied
-        await desktop.refreshPermission(asking: false)
-        await desktop.refreshPermission(asking: false)
-        #expect(told == 1, "told once per denial")
-        desktop.permissionCenterOverride = FakeCenter("authorized")
-        await desktop.refreshPermission(asking: false)
-        #expect(defaults.object(forKey: NotificationDeniedNotice.shownKey) == nil, "allowed again: re-armed")
-        desktop.permissionCenterOverride = denied
-        await desktop.refreshPermission(asking: false)
-        #expect(told == 2, "denied again: told again")
-    }
-
-    @Test func onlyABannerMacOSShowsAndSoundsCarriesTheDefaultSound() {
-        #expect(NotificationPermissionState.bannersCarrySound(authorization: "authorized", sound: true))
-        #expect(NotificationPermissionState.bannersCarrySound(authorization: "unknown", sound: nil))
-        #expect(NotificationPermissionState.bannersCarrySound(authorization: "automation", sound: nil))
-        #expect(!NotificationPermissionState.bannersCarrySound(authorization: "authorized", sound: false))
-        for silent in ["denied", "not_determined", "provisional"] {
-            #expect(!NotificationPermissionState.bannersCarrySound(authorization: silent, sound: true), "\(silent)")
-        }
-    }
-
-    @Test func aDeniedRefreshUpdatesTheCardAndTellsThePerson() async throws {
-        let (desktop, _) = try notifier()
-        let center = FakeCenter("denied")
-        desktop.permissionCenterOverride = center
-        var denied = 0
-        desktop.onDenied = { denied += 1 }
-        await desktop.refreshPermission()
-        #expect(desktop.authorization == "denied")
-        #expect(desktop.permissionState.needsAttention)
-        #expect(desktop.permissionState.pageJSON == ["authorization": .string("denied"), "sound": .bool(true)])
-        #expect(denied == 1)
-        #expect(await center.requests == 0, "a denial is never asked again: only System Settings undoes it")
-    }
-
     /// The dev build of cmux#55647 stayed "Checking…" while macOS said denied: the launch read stalled.
     @Test func aStalledLaunchReadIsReadAgainUntilOneLands() async throws {
-        let (desktop, _) = try notifier()
+        let desktop = DesktopNotifier()
         let center = StallingCenter()
         desktop.permissionCenterOverride = center
         desktop.launchRereads = (count: 40, delay: .milliseconds(50))
-        _ = desktop.followPermission(sounds: NotificationSoundGate(player: Recorder()), volume: { 1 }, asks: true) { nil }
+        _ = desktop.followPermission(sounds: NotificationSoundGate(player: Recorder()), asks: true) { nil }
         let deadline = ContinuousClock.now + .seconds(20)
         while desktop.authorization != "denied", ContinuousClock.now < deadline { await Task.yield() }
         #expect(desktop.authorization == "denied", "a later read lands although the first never answers")
         #expect(await center.reads < 40, "reads stop once one lands")
-    }
-
-    @Test func notYetAskedIsAskedOnce() async throws {
-        let (desktop, _) = try notifier()
-        let center = FakeCenter("not_determined", answer: true)
-        desktop.permissionCenterOverride = center
-        await desktop.refreshPermission()
-        await desktop.refreshPermission()
-        #expect(await center.requests == 1)
-        #expect(desktop.authorization == "authorized")
-        #expect(desktop.permissionState.bannersCarrySound)
-    }
-
-    @Test func aDefaultSoundBannerPlaysInTheAppWhileDenied() throws {
-        let (desktop, _) = try notifier()
-        var played = 0
-        desktop.playsDefaultSound = { played += 1 }
-        desktop.permissionState.update(NotificationPermission(authorization: "denied", alert: false, alertStyle: "none", sound: true, badge: false, bundleID: nil))
-        desktop.post(id: "cmux-notification-1", title: "Claude", body: "Finished", surface: nil, workspace: nil, defaultSound: true)
-        #expect(played == 1, "the finish sound plays though macOS drops the banner")
-        desktop.post(id: "cmux-notification-2", title: "Claude", body: "Finished", surface: nil, workspace: nil, defaultSound: false)
-        #expect(played == 1, "a silent banner plays nothing")
-        desktop.permissionState.update(NotificationPermission(authorization: "authorized", alert: true, alertStyle: "banner", sound: true, badge: true, bundleID: nil))
-        desktop.post(id: "cmux-notification-3", title: "Claude", body: "Finished", surface: nil, workspace: nil, defaultSound: true)
-        #expect(played == 1, "an allowed banner plays its own sound")
-    }
-
-    @Test func theDeniedNoticeShowsOncePerDenial() throws {
-        let suite = "cmux-55600-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let notice = NotificationDeniedNotice(defaults: defaults)
-        #expect(!notice.claim(for: "not_determined"))
-        #expect(notice.claim(for: "denied"))
-        #expect(!notice.claim(for: "denied"), "told once")
-        #expect(!notice.claim(for: "authorized"))
-        #expect(notice.claim(for: "denied"), "allowed, then denied again: told again")
     }
 }

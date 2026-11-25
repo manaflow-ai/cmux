@@ -1,10 +1,9 @@
 package import CmuxNextSettings
-package import Foundation
+import Foundation
 import Observation
 
 /// What macOS last said about this app's notifications (cmux#55600), observed: Settings >
-/// Notifications draws its status row from it, and the notification sounds read whether a banner
-/// can carry the `"default"` sound.
+/// Notifications draws its status row from it, and the notification sounds play only while it allows them.
 ///
 /// `authorization` is `NotificationPermission.authorization` (not_determined, denied, authorized,
 /// provisional, unknown), or "automation" in a launch that never uses the system center.
@@ -20,15 +19,15 @@ package final class NotificationPermissionState {
         self.sound = sound
     }
 
-    /// Whether a banner posted now plays its own sound (`content.sound = .default`): macOS shows it
-    /// and its per-app sound switch is on. Denied, not yet asked and provisional (delivered quietly
-    /// to Notification Center) banners make no sound. Unknown (before the first read) and
-    /// automation (no banner at all, and no sound on a shared host) keep the banner's sound.
-    package var bannersCarrySound: Bool {
-        Self.bannersCarrySound(authorization: authorization, sound: sound)
+    /// Whether cmux plays notification sounds now (cmux#55600): only while macOS allows cmux notifications with
+    /// sound (System Settings > Notifications > Allow Notifications and Play sound). Denied, not yet asked and
+    /// provisional (delivered quietly) stay silent. Unknown (before the first read) and automation (no system
+    /// center) keep sounds on.
+    package var allowsSounds: Bool {
+        Self.allowsSounds(authorization: authorization, sound: sound)
     }
 
-    package nonisolated static func bannersCarrySound(authorization: String, sound: Bool?) -> Bool {
+    package nonisolated static func allowsSounds(authorization: String, sound: Bool?) -> Bool {
         guard !["denied", "not_determined", "provisional"].contains(authorization) else { return false }
         return sound != false
     }
@@ -47,31 +46,5 @@ package final class NotificationPermissionState {
     package func update(_ permission: NotificationPermission) {
         authorization = permission.authorization
         sound = permission.sound
-    }
-}
-
-/// The one-time in-app notice that macOS denies cmux notifications (cmux#55600): shown once per
-/// denial. Allowing notifications again re-arms it, so a later denial is told again.
-package nonisolated struct NotificationDeniedNotice {
-    package static let shownKey = "cmux.notifications.deniedNoticeShown"
-    private let defaults: UserDefaults
-
-    package init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-    }
-
-    /// Whether to show the notice for `authorization` now; records it as shown when true.
-    package func claim(for authorization: String) -> Bool {
-        switch authorization {
-        case "denied":
-            guard !defaults.bool(forKey: Self.shownKey) else { return false }
-            defaults.set(true, forKey: Self.shownKey)
-            return true
-        case "authorized", "provisional":
-            defaults.removeObject(forKey: Self.shownKey)
-            return false
-        default:
-            return false
-        }
     }
 }

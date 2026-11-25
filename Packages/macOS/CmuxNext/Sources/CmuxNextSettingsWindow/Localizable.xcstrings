@@ -178334,127 +178334,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Banners don’t show, and cmux plays notification sounds itself. Turn on Allow Notifications for cmux in System Settings › Notifications."
+            "value": "Banners and notification sounds are off. Turn on Allow Notifications for cmux in System Settings › Notifications."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا تظهر اللافتات، ويشغّل cmux أصوات الإشعارات بنفسه. فعّل «السماح بالإشعارات» لـ cmux في إعدادات النظام › الإشعارات."
+            "value": "اللافتات وأصوات الإشعارات متوقفة. فعّل «السماح بالإشعارات» لـ cmux في إعدادات النظام › الإشعارات."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Baneri se ne prikazuju, a cmux sam reproducira zvukove obavještenja. Uključite Dozvoli obavještenja za cmux u Postavke sistema › Obavještenja."
+            "value": "Baneri i zvukovi obavještenja su isključeni. Uključite Dozvoli obavještenja za cmux u Postavke sistema › Obavještenja."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bannere vises ikke, og cmux afspiller selv notifikationslyde. Slå Tillad notifikationer til for cmux i Systemindstillinger › Notifikationer."
+            "value": "Bannere og notifikationslyde er slået fra. Slå Tillad notifikationer til for cmux i Systemindstillinger › Notifikationer."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Banner werden nicht angezeigt, und cmux spielt Mitteilungstöne selbst ab. Aktiviere „Mitteilungen erlauben“ für cmux in Systemeinstellungen › Mitteilungen."
+            "value": "Banner und Mitteilungstöne sind aus. Aktiviere „Mitteilungen erlauben“ für cmux in Systemeinstellungen › Mitteilungen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los avisos no se muestran y cmux reproduce los sonidos de notificación por su cuenta. Activa «Permitir notificaciones» para cmux en Ajustes del Sistema › Notificaciones."
+            "value": "Los avisos y los sonidos de notificación están desactivados. Activa «Permitir notificaciones» para cmux en Ajustes del Sistema › Notificaciones."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les bannières ne s’affichent pas et cmux joue lui-même les sons de notification. Activez « Autoriser les notifications » pour cmux dans Réglages Système › Notifications."
+            "value": "Les bannières et les sons de notification sont désactivés. Activez « Autoriser les notifications » pour cmux dans Réglages Système › Notifications."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "I banner non vengono mostrati e cmux riproduce da sé i suoni delle notifiche. Attiva «Consenti notifiche» per cmux in Impostazioni di Sistema › Notifiche."
+            "value": "I banner e i suoni delle notifiche sono disattivati. Attiva «Consenti notifiche» per cmux in Impostazioni di Sistema › Notifiche."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "バナーは表示されず、通知サウンドは cmux が自分で再生します。システム設定 › 通知 で cmux の「通知を許可」をオンにしてください。"
+            "value": "バナーと通知サウンドはオフです。システム設定 › 通知 で cmux の「通知を許可」をオンにしてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ផ្ទាំងជូនដំណឹងមិនបង្ហាញទេ ហើយ cmux ចាក់សំឡេងជូនដំណឹងដោយខ្លួនឯង។ បើក «អនុញ្ញាតការជូនដំណឹង» សម្រាប់ cmux ក្នុងការកំណត់ប្រព័ន្ធ › ការជូនដំណឹង។"
+            "value": "ផ្ទាំងជូនដំណឹង និងសំឡេងជូនដំណឹងត្រូវបានបិទ។ បើក «អនុញ្ញាតការជូនដំណឹង» សម្រាប់ cmux ក្នុងការកំណត់ប្រព័ន្ធ › ការជូនដំណឹង។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "배너가 표시되지 않으며, cmux가 알림 사운드를 직접 재생합니다. 시스템 설정 › 알림에서 cmux의 ‘알림 허용’을 켜십시오."
+            "value": "배너와 알림 사운드가 꺼져 있습니다. 시스템 설정 › 알림에서 cmux의 ‘알림 허용’을 켜십시오."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bannere vises ikke, og cmux spiller varsellyder selv. Slå på Tillat varsler for cmux i Systeminnstillinger › Varsler."
+            "value": "Bannere og varsellyder er slått av. Slå på Tillat varsler for cmux i Systeminnstillinger › Varsler."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Banery się nie pojawiają, a cmux sam odtwarza dźwięki powiadomień. Włącz „Zezwalaj na powiadomienia” dla cmux w Ustawieniach systemowych › Powiadomienia."
+            "value": "Banery i dźwięki powiadomień są wyłączone. Włącz „Zezwalaj na powiadomienia” dla cmux w Ustawieniach systemowych › Powiadomienia."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Os banners não aparecem, e o cmux toca os sons de notificação por conta própria. Ative “Permitir Notificações” para o cmux em Ajustes do Sistema › Notificações."
+            "value": "Os banners e os sons de notificação estão desativados. Ative “Permitir Notificações” para o cmux em Ajustes do Sistema › Notificações."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Баннеры не показываются, и cmux сам воспроизводит звуки уведомлений. Включите «Разрешить уведомления» для cmux в Системных настройках › Уведомления."
+            "value": "Баннеры и звуки уведомлений выключены. Включите «Разрешить уведомления» для cmux в Системных настройках › Уведомления."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แบนเนอร์จะไม่แสดง และ cmux จะเล่นเสียงแจ้งเตือนเอง เปิด “อนุญาตการแจ้งเตือน” สำหรับ cmux ในการตั้งค่าระบบ › การแจ้งเตือน"
+            "value": "แบนเนอร์และเสียงการแจ้งเตือนปิดอยู่ เปิด “อนุญาตการแจ้งเตือน” สำหรับ cmux ในการตั้งค่าระบบ › การแจ้งเตือน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Afişler gösterilmiyor ve cmux bildirim seslerini kendisi çalıyor. Sistem Ayarları › Bildirimler’de cmux için Bildirimlere İzin Ver’i açın."
+            "value": "Afişler ve bildirim sesleri kapalı. Sistem Ayarları › Bildirimler’de cmux için Bildirimlere İzin Ver’i açın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Банери не показуються, і cmux сам відтворює звуки сповіщень. Увімкніть «Дозволити сповіщення» для cmux у Системних параметрах › Сповіщення."
+            "value": "Банери та звуки сповіщень вимкнено. Увімкніть «Дозволити сповіщення» для cmux у Системних параметрах › Сповіщення."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Biểu ngữ không hiển thị và cmux tự phát âm thanh thông báo. Bật Cho phép thông báo cho cmux trong Cài đặt hệ thống › Thông báo."
+            "value": "Biểu ngữ và âm thanh thông báo đang tắt. Bật Cho phép thông báo cho cmux trong Cài đặt hệ thống › Thông báo."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "横幅不会显示，cmux 会自行播放通知声音。请在“系统设置 › 通知”中为 cmux 打开“允许通知”。"
+            "value": "横幅和通知声音已关闭。请在“系统设置” › “通知”中为 cmux 打开“允许通知”。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "橫幅不會顯示，cmux 會自行播放通知聲音。請在「系統設定 › 通知」中為 cmux 開啟「允許通知」。"
+            "value": "橫幅和通知聲音已關閉。請在「系統設定」›「通知」中為 cmux 開啟「允許通知」。"
           }
         }
       }
@@ -178592,133 +178592,133 @@
       }
     },
     "settingsWindow.notificationPermission.notDeterminedHelp": {
-      "comment": "Settings › Notifications: help while macOS has not asked yet.",
+      "comment": "Settings › Notifications: help under the macOS Notifications row before macOS has asked.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS hasn’t asked yet whether cmux may show notifications."
+            "value": "Banners and notification sounds stay off until you allow them."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لم يسأل macOS بعد عمّا إذا كان يمكن لـ cmux عرض الإشعارات."
+            "value": "تبقى اللافتات وأصوات الإشعارات متوقفة حتى تسمح بها."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS još nije pitao smije li cmux prikazivati obavještenja."
+            "value": "Baneri i zvukovi obavještenja ostaju isključeni dok ih ne dozvolite."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS har endnu ikke spurgt, om cmux må vise notifikationer."
+            "value": "Bannere og notifikationslyde forbliver slået fra, indtil du tillader dem."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS hat noch nicht gefragt, ob cmux Mitteilungen anzeigen darf."
+            "value": "Banner und Mitteilungstöne bleiben aus, bis du sie erlaubst."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS aún no ha preguntado si cmux puede mostrar notificaciones."
+            "value": "Los avisos y los sonidos de notificación seguirán desactivados hasta que los permitas."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS n’a pas encore demandé si cmux peut afficher des notifications."
+            "value": "Les bannières et les sons de notification restent désactivés tant que vous ne les autorisez pas."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS non ha ancora chiesto se cmux può mostrare notifiche."
+            "value": "I banner e i suoni delle notifiche restano disattivati finché non li consenti."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux が通知を表示してよいか、macOS はまだ確認していません。"
+            "value": "許可するまで、バナーと通知サウンドはオフのままです。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS មិនទាន់បានសួរថាតើ cmux អាចបង្ហាញការជូនដំណឹងបានឬអត់ទេ។"
+            "value": "ផ្ទាំងជូនដំណឹង និងសំឡេងជូនដំណឹងនៅតែបិទ រហូតដល់អ្នកអនុញ្ញាត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS가 아직 cmux의 알림 표시 여부를 묻지 않았습니다."
+            "value": "허용할 때까지 배너와 알림 사운드는 꺼진 상태로 유지됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS har ikke spurt ennå om cmux kan vise varsler."
+            "value": "Bannere og varsellyder forblir av til du tillater dem."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS jeszcze nie zapytał, czy cmux może wyświetlać powiadomienia."
+            "value": "Banery i dźwięki powiadomień pozostają wyłączone, dopóki na nie nie zezwolisz."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O macOS ainda não perguntou se o cmux pode mostrar notificações."
+            "value": "Os banners e os sons de notificação ficam desativados até você permitir."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS ещё не спрашивал, может ли cmux показывать уведомления."
+            "value": "Баннеры и звуки уведомлений остаются выключенными, пока вы их не разрешите."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS ยังไม่ได้ถามว่า cmux แสดงการแจ้งเตือนได้หรือไม่"
+            "value": "แบนเนอร์และเสียงการแจ้งเตือนจะปิดอยู่จนกว่าคุณจะอนุญาต"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS, cmux’un bildirim gösterip gösteremeyeceğini henüz sormadı."
+            "value": "İzin verene kadar afişler ve bildirim sesleri kapalı kalır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS ще не запитував, чи може cmux показувати сповіщення."
+            "value": "Банери та звуки сповіщень залишаються вимкненими, доки ви їх не дозволите."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS chưa hỏi liệu cmux có được hiển thị thông báo hay không."
+            "value": "Biểu ngữ và âm thanh thông báo vẫn tắt cho đến khi bạn cho phép."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS 尚未询问是否允许 cmux 显示通知。"
+            "value": "在你允许之前，横幅和通知声音会保持关闭。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS 尚未詢問是否允許 cmux 顯示通知。"
+            "value": "在你允許之前，橫幅和通知聲音會保持關閉。"
           }
         }
       }
@@ -178856,265 +178856,265 @@
       }
     },
     "settingsWindow.notificationPermission.allowedHelp": {
-      "comment": "Settings › Notifications: help while allowed.",
+      "comment": "Settings › Notifications: help under the macOS Notifications row while allowed.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS shows cmux banners. Notification sounds play in cmux either way."
+            "value": "macOS shows cmux banners and plays notification sounds."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعرض macOS لافتات cmux. تُشغَّل أصوات الإشعارات في cmux في كل الأحوال."
+            "value": "يعرض macOS لافتات cmux ويشغّل أصوات الإشعارات."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS prikazuje cmux banere. Zvukovi obavještenja se u svakom slučaju reproduciraju u cmuxu."
+            "value": "macOS prikazuje cmux banere i reproducira zvukove obavještenja."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS viser bannere fra cmux. Notifikationslyde afspilles i cmux uanset hvad."
+            "value": "macOS viser bannere fra cmux og afspiller notifikationslyde."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS zeigt cmux-Banner an. Mitteilungstöne werden in jedem Fall in cmux abgespielt."
+            "value": "macOS zeigt Banner von cmux an und spielt Mitteilungstöne ab."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS muestra los avisos de cmux. Los sonidos de notificación suenan en cmux en cualquier caso."
+            "value": "macOS muestra los avisos de cmux y reproduce los sonidos de notificación."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS affiche les bannières de cmux. Les sons de notification sont joués dans cmux dans tous les cas."
+            "value": "macOS affiche les bannières de cmux et joue les sons de notification."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS mostra i banner di cmux. I suoni delle notifiche vengono riprodotti in cmux in ogni caso."
+            "value": "macOS mostra i banner di cmux e riproduce i suoni delle notifiche."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS は cmux のバナーを表示します。通知サウンドはどちらの場合も cmux で再生されます。"
+            "value": "macOS は cmux のバナーを表示し、通知サウンドを再生します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS បង្ហាញផ្ទាំងជូនដំណឹង cmux។ សំឡេងជូនដំណឹងចាក់ក្នុង cmux ទោះយ៉ាងណាក៏ដោយ។"
+            "value": "macOS បង្ហាញផ្ទាំងជូនដំណឹងរបស់ cmux និងចាក់សំឡេងជូនដំណឹង។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS가 cmux 배너를 표시합니다. 알림 사운드는 어느 경우든 cmux에서 재생됩니다."
+            "value": "macOS가 cmux 배너를 표시하고 알림 사운드를 재생합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS viser bannere fra cmux. Varsellyder spilles av i cmux uansett."
+            "value": "macOS viser bannere fra cmux og spiller av varsellyder."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS wyświetla banery cmux. Dźwięki powiadomień są odtwarzane w cmux w każdym przypadku."
+            "value": "macOS pokazuje banery cmux i odtwarza dźwięki powiadomień."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O macOS mostra os banners do cmux. Os sons de notificação tocam no cmux de qualquer forma."
+            "value": "O macOS mostra os banners do cmux e toca os sons de notificação."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS показывает баннеры cmux. Звуки уведомлений в любом случае воспроизводятся в cmux."
+            "value": "macOS показывает баннеры cmux и воспроизводит звуки уведомлений."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS แสดงแบนเนอร์ของ cmux เสียงแจ้งเตือนจะเล่นใน cmux ไม่ว่ากรณีใด"
+            "value": "macOS แสดงแบนเนอร์ของ cmux และเล่นเสียงการแจ้งเตือน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS, cmux afişlerini gösteriyor. Bildirim sesleri her durumda cmux’ta çalar."
+            "value": "macOS cmux afişlerini gösterir ve bildirim seslerini çalar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS показує банери cmux. Звуки сповіщень у будь-якому разі відтворюються в cmux."
+            "value": "macOS показує банери cmux і відтворює звуки сповіщень."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS hiển thị biểu ngữ của cmux. Âm thanh thông báo vẫn phát trong cmux trong mọi trường hợp."
+            "value": "macOS hiển thị biểu ngữ của cmux và phát âm thanh thông báo."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS 会显示 cmux 横幅。无论如何，通知声音都会在 cmux 中播放。"
+            "value": "macOS 会显示 cmux 的横幅并播放通知声音。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS 會顯示 cmux 橫幅。無論如何，通知聲音都會在 cmux 中播放。"
+            "value": "macOS 會顯示 cmux 的橫幅並播放通知聲音。"
           }
         }
       }
     },
     "settingsWindow.notificationPermission.soundOffHelp": {
-      "comment": "Settings › Notifications: help while allowed but macOS plays no sound for cmux banners.",
+      "comment": "Settings › Notifications: help while macOS allows cmux banners but their sound is off in System Settings.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS shows cmux banners without sound, so cmux plays notification sounds itself."
+            "value": "Banners show without sound, so notification sounds are off. Turn on Play sound for notifications for cmux in System Settings › Notifications."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعرض macOS لافتات cmux بلا صوت، لذا يشغّل cmux أصوات الإشعارات بنفسه."
+            "value": "تظهر اللافتات دون صوت، لذا أصوات الإشعارات متوقفة. فعّل «تشغيل صوت للإشعارات» لـ cmux في إعدادات النظام › الإشعارات."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS prikazuje cmux banere bez zvuka, pa cmux sam reproducira zvukove obavještenja."
+            "value": "Baneri se prikazuju bez zvuka, pa su zvukovi obavještenja isključeni. Uključite Reproduciraj zvuk za obavještenja za cmux u Postavke sistema › Obavještenja."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS viser bannere fra cmux uden lyd, så cmux afspiller selv notifikationslyde."
+            "value": "Bannere vises uden lyd, så notifikationslyde er slået fra. Slå Afspil lyd for notifikationer til for cmux i Systemindstillinger › Notifikationer."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS zeigt cmux-Banner ohne Ton an, daher spielt cmux Mitteilungstöne selbst ab."
+            "value": "Banner erscheinen ohne Ton, daher sind Mitteilungstöne aus. Aktiviere „Ton für Mitteilungen abspielen“ für cmux in Systemeinstellungen › Mitteilungen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS muestra los avisos de cmux sin sonido, así que cmux reproduce los sonidos de notificación por su cuenta."
+            "value": "Los avisos se muestran sin sonido, así que los sonidos de notificación están desactivados. Activa «Reproducir sonido para notificaciones» para cmux en Ajustes del Sistema › Notificaciones."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS affiche les bannières de cmux sans son : cmux joue donc lui-même les sons de notification."
+            "value": "Les bannières s’affichent sans son : les sons de notification sont donc désactivés. Activez « Émettre un son pour les notifications » pour cmux dans Réglages Système › Notifications."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS mostra i banner di cmux senza suono, quindi cmux riproduce da sé i suoni delle notifiche."
+            "value": "I banner vengono mostrati senza suono, quindi i suoni delle notifiche sono disattivati. Attiva «Riproduci suono per le notifiche» per cmux in Impostazioni di Sistema › Notifiche."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS は cmux のバナーをサウンドなしで表示するため、通知サウンドは cmux が自分で再生します。"
+            "value": "バナーはサウンドなしで表示されるため、通知サウンドはオフです。システム設定 › 通知 で cmux の「通知でサウンドを再生」をオンにしてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS បង្ហាញផ្ទាំងជូនដំណឹង cmux ដោយគ្មានសំឡេង ដូច្នេះ cmux ចាក់សំឡេងជូនដំណឹងដោយខ្លួនឯង។"
+            "value": "ផ្ទាំងជូនដំណឹងបង្ហាញដោយគ្មានសំឡេង ដូច្នេះសំឡេងជូនដំណឹងត្រូវបានបិទ។ បើក «ចាក់សំឡេងសម្រាប់ការជូនដំណឹង» សម្រាប់ cmux ក្នុងការកំណត់ប្រព័ន្ធ › ការជូនដំណឹង។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS가 cmux 배너를 소리 없이 표시하므로 cmux가 알림 사운드를 직접 재생합니다."
+            "value": "배너가 사운드 없이 표시되므로 알림 사운드가 꺼져 있습니다. 시스템 설정 › 알림에서 cmux의 ‘알림 사운드 재생’을 켜십시오."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS viser bannere fra cmux uten lyd, så cmux spiller varsellyder selv."
+            "value": "Bannere vises uten lyd, så varsellyder er slått av. Slå på Spill av lyd for varsler for cmux i Systeminnstillinger › Varsler."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS wyświetla banery cmux bez dźwięku, więc cmux sam odtwarza dźwięki powiadomień."
+            "value": "Banery pojawiają się bez dźwięku, więc dźwięki powiadomień są wyłączone. Włącz „Odtwarzaj dźwięk dla powiadomień” dla cmux w Ustawieniach systemowych › Powiadomienia."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O macOS mostra os banners do cmux sem som, então o cmux toca os sons de notificação por conta própria."
+            "value": "Os banners aparecem sem som, então os sons de notificação estão desativados. Ative “Reproduzir som para notificações” para o cmux em Ajustes do Sistema › Notificações."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS показывает баннеры cmux без звука, поэтому cmux сам воспроизводит звуки уведомлений."
+            "value": "Баннеры показываются без звука, поэтому звуки уведомлений выключены. Включите «Воспроизводить звук для уведомлений» для cmux в Системных настройках › Уведомления."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS แสดงแบนเนอร์ของ cmux โดยไม่มีเสียง cmux จึงเล่นเสียงแจ้งเตือนเอง"
+            "value": "แบนเนอร์แสดงโดยไม่มีเสียง เสียงการแจ้งเตือนจึงปิดอยู่ เปิด “เล่นเสียงสำหรับการแจ้งเตือน” สำหรับ cmux ในการตั้งค่าระบบ › การแจ้งเตือน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS, cmux afişlerini sessiz gösteriyor, bu yüzden cmux bildirim seslerini kendisi çalıyor."
+            "value": "Afişler sessiz gösteriliyor, bu yüzden bildirim sesleri kapalı. Sistem Ayarları › Bildirimler’de cmux için Bildirimlerde ses çal’ı açın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS показує банери cmux без звуку, тому cmux сам відтворює звуки сповіщень."
+            "value": "Банери показуються без звуку, тому звуки сповіщень вимкнено. Увімкніть «Відтворювати звук для сповіщень» для cmux у Системних параметрах › Сповіщення."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS hiển thị biểu ngữ của cmux mà không có âm thanh, vì vậy cmux tự phát âm thanh thông báo."
+            "value": "Biểu ngữ hiển thị không có âm thanh nên âm thanh thông báo đang tắt. Bật Phát âm thanh cho thông báo cho cmux trong Cài đặt hệ thống › Thông báo."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS 显示 cmux 横幅时不带声音，因此 cmux 会自行播放通知声音。"
+            "value": "横幅显示时没有声音，因此通知声音已关闭。请在“系统设置” › “通知”中为 cmux 打开“播放通知声音”。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS 顯示 cmux 橫幅時不帶聲音，因此 cmux 會自行播放通知聲音。"
+            "value": "橫幅顯示時沒有聲音，因此通知聲音已關閉。請在「系統設定」›「通知」中為 cmux 開啟「為通知播放聲音」。"
           }
         }
       }

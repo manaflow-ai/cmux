@@ -1,7 +1,8 @@
-// Settings > Notifications' first card (cmux#55600): whether macOS lets cmux show notifications. Denied,
-// it says banners are blocked (sounds still play in cmux) with Open System Settings; not yet asked, it
-// offers Allow Notifications (the macOS prompt). The host sends `notification_permission` from the
-// app's last read (launch, each activation, the person's answer), and nothing in a launch that never asks.
+// Settings > Notifications' first card (cmux#55600): whether macOS lets cmux show notifications. Until it does,
+// banners and notification sounds stay off. Not yet asked, Allow Notifications shows the macOS prompt (cmux never
+// asks on its own); denied, Open System Settings, the only place a denial is undone. The host sends
+// `notification_permission` from the app's last read (launch, each activation, the person's answer), and nothing
+// in a launch that never asks.
 import { Button } from "../../../ui/Button";
 import { useSettingsState, useStore } from "../context";
 import { t } from "../strings";

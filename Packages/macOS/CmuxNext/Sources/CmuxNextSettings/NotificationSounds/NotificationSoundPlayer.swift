@@ -7,10 +7,10 @@ public import Foundation
 /// `notifications.sounds.maxSeconds` stops at it (a ``DemandTimer`` per sound, so a replay
 /// pushes its own stop back and never cuts another sound short).
 ///
-/// Every sound plays through the app's own audio (cmux#55600), never through notification
-/// permission. `"default"` is the Mac's alert sound (Sound settings), played here unless a banner
-/// that macOS sounds carries it (``bannersCarrySound``); a denied, not yet allowed or sound-off
-/// banner carries nothing, so the app plays it.
+/// Notification sounds follow the person's notification permission (cmux#55600): nothing plays,
+/// previews included, until macOS allows cmux notifications with sound (``soundsAllowed``). Then
+/// `"default"` rides its banner, and plays here as the Mac's alert sound (Sound settings) when no
+/// banner carries it (a preview, a decision that posts none).
 @MainActor
 public final class NotificationSoundPlayer: NotificationSoundPlaying {
     /// Loads a sound by name, or from `file` when the library keeps it (``NotificationSoundLibrary/customFiles()``).
@@ -22,9 +22,9 @@ public final class NotificationSoundPlayer: NotificationSoundPlaying {
     private var maxSeconds: Double = 0
     private let clock: any Clock<Duration>
     private let load: Loader
-    /// Whether a banner shown now plays its own `"default"` sound (the app's notification permission);
+    /// Whether macOS allows cmux notifications with sound now (the app's notification permission);
     /// the app sets it, and it reads true until then.
-    public var bannersCarrySound: @MainActor () -> Bool = { true }
+    public var soundsAllowed: @MainActor () -> Bool = { true }
 
     /// - Parameters:
     ///   - clock: The stop deadlines' clock; tests pass their own.
@@ -36,7 +36,8 @@ public final class NotificationSoundPlayer: NotificationSoundPlaying {
 
     public func play(_ name: String, volume: Double, banner: Bool) {
         guard name != "none", !name.isEmpty else { return }
-        if name == "default", banner, bannersCarrySound() { return }
+        guard soundsAllowed() else { return }
+        if name == "default", banner { return } // the banner plays it
         var key = name
         if name == "default" { // Sound settings' alert sound; a choice that no longer loads falls back to Tink
             key = Self.alertSoundName()

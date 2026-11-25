@@ -52,7 +52,7 @@ struct NotificationSoundGateTests {
         var bannered = Self.decision(.finished, sound: "default")
         bannered.desktop = true
         gate.playWithoutBanner(bannered)
-        #expect(recorder.played.count == 1, "a posted banner's sound is the banner's (or DesktopNotifier's) to play")
+        #expect(recorder.played.count == 1, "a posted banner's sound is the banner's to play")
     }
 
     @Test func aHeldSoundSilencesItsBannerToo() {

@@ -24,7 +24,7 @@ import CmuxNextFocus
 final class NotificationCenterService {
     /// `notifications.*` from cmux.json (the mute action updates it at once).
     var preferences = NotificationPreferences() {
-        didSet { CmuxToastCenter.shared.styles.configure(preferences.toastStyle); soundGate.apply(preferences.sounds) }
+        didSet { CmuxToastCenter.shared.styles.configure(preferences.toastStyle); soundGate.apply(preferences.sounds); desktop.desktopModeChanged(from: oldValue.desktop, to: preferences.desktop) }
     }
     /// A dismissal belongs to one daemon session, never another machine with the same IDs.
     typealias HighlightKey = NotificationOwnerKey
@@ -181,8 +181,8 @@ final class NotificationCenterService {
             self.markRead(banner: id, surface: surface.map(SurfaceID.init(rawValue:)), in: store)
         }
         followApprovals(services)
-        // cmux#55600: sounds never wait on notification permission; a denial is told in the app (showcases never ask).
-        tasks.append(desktop.followPermission(sounds: soundGate, volume: { [weak self] in self?.preferences.sounds.volume ?? 1 }, asks: desktopPostingEnabled) { [weak services] in services?.windows.active?.window ?? NSApp?.mainWindow })
+        // cmux#55600: sounds play only while macOS allows cmux notifications; cmux asks only when the person turns them on.
+        tasks.append(desktop.followPermission(sounds: soundGate, asks: desktopPostingEnabled) { [weak services] in services?.windows.active?.window ?? NSApp?.mainWindow })
         let store = services.daemon.store
         lastSeen = store.notifications.map(\.notification.rawValue).max() ?? 0
         tasks.append(Task { [weak self] in
