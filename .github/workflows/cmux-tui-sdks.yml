@@ -172,6 +172,7 @@ on:
       - "skills/cmux-customization/templates/my-prs/cmux-app.json"
       - "skills/cmux-customization/templates/my-prs/main.js"
       - "skills/cmux-live/SKILL.md"
+      - "skills/cmux-ui-preview/SKILL.md"
       - "skills/cmux/SKILL.md"
       - "webviews/src/agent-session/acpmux/rows/parity/parity.changes.jsonl"
       - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-1.changes.jsonl"
@@ -190,6 +191,7 @@ on:
       # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
       - "docs/cmux-next/customize-recipes.md"
       - "examples/looks/**"
+      - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/mcp-servers.json"
       - "skills/cmux-customization/templates/clock-weather/cmux-app.json"
       - "skills/cmux-extension-author/recipes/**"
@@ -353,6 +355,7 @@ on:
       - "skills/cmux-customization/templates/my-prs/cmux-app.json"
       - "skills/cmux-customization/templates/my-prs/main.js"
       - "skills/cmux-live/SKILL.md"
+      - "skills/cmux-ui-preview/SKILL.md"
       - "skills/cmux/SKILL.md"
       - "webviews/src/agent-session/acpmux/rows/parity/parity.changes.jsonl"
       - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-1.changes.jsonl"
@@ -371,6 +374,7 @@ on:
       # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
       - "docs/cmux-next/customize-recipes.md"
       - "examples/looks/**"
+      - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/mcp-servers.json"
       - "skills/cmux-customization/templates/clock-weather/cmux-app.json"
       - "skills/cmux-extension-author/recipes/**"

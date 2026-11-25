@@ -773,7 +773,11 @@ impl Hub {
         );
         // Only while nothing of the chat still runs: an agent or host a failed stop left behind is
         // reached below, which ends or adopts it and holds it to the policy again (review F1).
-        if let Some(e) = session.policy_refusal.held(&refusal_key) {
+        // A harness that exited while it started, with the same error again, is not started
+        // again on every wake until its window passed (`launch_backoff.rs`).
+        let held = session.policy_refusal.held(&refusal_key);
+        let held = held.or_else(|| session.launch_backoff.held(std::time::Instant::now()));
+        if let Some(e) = held {
             let child = session.child.lock().await.clone();
             let alive = match child {
                 Some(child) => child.is_alive().await,
@@ -802,6 +806,12 @@ impl Hub {
             }
             Err(e) => {
                 self.wake_ended(session, wake, Some(&e));
+                if super::launch_backoff::is_launch_failure(&e)
+                    && let Some((fails, hold)) =
+                        session.launch_backoff.failed(&e, std::time::Instant::now())
+                {
+                    tracing::warn!(session = %session.id, fails, hold_secs = hold.as_secs(), "the same launch failure again: not started for {}s unless the person writes to it: {}", hold.as_secs(), e.message);
+                }
                 return Err(e);
             }
         };
@@ -834,6 +844,7 @@ impl Hub {
             return Err(e);
         }
         self.wake_ended(session, wake, None);
+        session.launch_backoff.clear();
         // The start is over: its harness runs at its CPU class from now on (`cpu_class.rs`).
         child.enter_run_class().await;
         // A Codex that went ahead at the head but started without the repository hook gets no
