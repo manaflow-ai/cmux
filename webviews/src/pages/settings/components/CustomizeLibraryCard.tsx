@@ -17,7 +17,7 @@ import { beatenByEntry, beatenLine, entryDetail, sourceLabel, step, type Beaten 
 import { Switch } from "../editors/ToggleEditor";
 import { Icon } from "../icons";
 import type { LibraryEntry, LibraryListing, LibraryRun } from "../ops";
-import { LIBRARY_KEY, libraryQuery, type LibraryRead } from "../sectionQueries";
+import { LIBRARY_KEY, libraryQuery, STANDUP_KEY, type LibraryRead } from "../sectionQueries";
 import { t } from "../strings";
 import { focusRoute } from "../../../ui/focusRoute";
 import { WithFacts } from "../../../agent-session/acpmux/chips/FactsHoverCard";
@@ -58,6 +58,8 @@ export function CustomizeLibraryCard({ reveal = false }: { reveal?: boolean }) {
         if (answer.library)
           queryClient.setQueryData<LibraryRead>(LIBRARY_KEY, { library: answer.library, refusal: null });
         setRefusal(answer.refusal);
+        // The Standup panel shares this library's words and must not retain the pre-change report.
+        void queryClient.invalidateQueries({ queryKey: STANDUP_KEY });
       })
       .finally(() => {
         setBusy(false);
