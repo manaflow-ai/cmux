@@ -17,7 +17,7 @@ import { sessionModelVerdict } from "./cloud-journey";
 import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS, LONG_JOURNEY_MS, autoMachineName } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
-import { idleHeldBy } from "./cloud-journey";
+import { idleHeldBy, idlePauseDeadlineMs, machineIdleSeconds } from "./cloud-journey";
 import { parseClaimedMarkers, parseWarmHomeAnswer } from "./cloud-journey";
 
 describe("cloud journey", () => {
@@ -62,6 +62,16 @@ describe("cloud journey", () => {
     await expect(sessionModelVerdict(fake(line("claude-haiku-5-5") + line("claude-sonnet-5-5")).exec, "s-m2", "claude-haiku-5-5")).rejects.toThrow("claude-sonnet-5-5");
     await expect(sessionModelVerdict(fake("").exec, "s-m2", "claude-haiku-5-5")).rejects.toThrow("names no model");
     await expect(sessionModelVerdict(fake("", '{"model":"claude-haiku-5-5"}').exec, "s-m2", "claude-haiku-5-5")).rejects.toThrow("no agentSessionId");
+  });
+
+  test("the default idle walk waits out the machine's own policy, not 900 s", async () => {
+    const api = (row: unknown) => ({ read: async () => row }) as unknown as Api;
+    expect(await machineIdleSeconds(api({ idle_policy: { idle_seconds: 1800 } }), "vm_x")).toBe(1800);
+    expect(await machineIdleSeconds(api({ idle_seconds: 120 }), "vm_x")).toBe(120);
+    expect(await machineIdleSeconds(api({}), "vm_x")).toBeNull();
+    expect(idlePauseDeadlineMs(1800, 600)).toBe(2_100_000);
+    expect(idlePauseDeadlineMs(120, 600)).toBe(900_000);
+    expect(idlePauseDeadlineMs(null, 600)).toBe(86_700_000);
   });
 
   test("preclaim table survives the enclosing journey step on success and failure", async () => {
@@ -685,6 +695,18 @@ describe("cloud journey: leaked machine sweep", () => {
     expect(m).toEqual({ id: "vm_x", name: `cloud journey auto ${old}`, status: "paused", created: new Date(now - 48 * 3600_000).toISOString() });
   });
 
+  test("takes the Auto mode journey's leftovers (auto journey aj-<tag>), by the same age and name rules", () => {
+    const now = Date.UTC(2026, 10, 25, 9, 0, 0);
+    const aj = (ms: number) => `aj-${ms.toString(36)}`;
+    const ids = staleJourneyMachines([
+      { id: "vm_aj_old", name: `auto journey ${aj(now - STALE_JOURNEY_MS - 60_000)}`, status: "running" },
+      { id: "vm_aj_young", name: `auto journey ${aj(now - STALE_JOURNEY_MS + 60_000)}`, status: "running" },
+      { id: "vm_aj_suffix", name: `auto journey ${aj(now - STALE_JOURNEY_MS - 60_000)} kept`, status: "paused" },
+      { id: "vm_aj_person", name: "my auto journey", status: "paused" },
+    ], now).map((m) => m.id);
+    expect(ids).toEqual(["vm_aj_old"]);
+  });
+
   test("reads every page of the machine list", async () => {
     const pages: Record<string, any> = {
       "": { machines: [{ id: "a" }], next_cursor: "c1" },
@@ -719,6 +741,16 @@ describe("cloud journey: leaked install sweep", () => {
       inst("i_future", `cloud journey ${tagAt(now + 3_600_000)}`),
       inst("i_nottime", "cloud journey jr-zz"),
     ], now)).toEqual(["i_old"]);
+  });
+
+  test("takes the Auto mode journey's live cli install (auto journey aj-<tag>) once it is older than any run", () => {
+    const aj = (ms: number) => `aj-${ms.toString(36)}`;
+    expect(staleJourneyInstalls([
+      inst("i_aj_old", `auto journey ${aj(now - LONG_JOURNEY_MS - 60_000)}`),
+      inst("i_aj_young", `auto journey ${aj(now - LONG_JOURNEY_MS + 60_000)}`),
+      inst("i_aj_revoked", `auto journey ${aj(now - LONG_JOURNEY_MS - 60_000)}`, { revoked_at: now - 1000 }),
+      inst("i_aj_jr", `auto journey ${old}`),
+    ], now)).toEqual(["i_aj_old"]);
   });
 
   test("a malformed list row is skipped, never thrown on", () => {
