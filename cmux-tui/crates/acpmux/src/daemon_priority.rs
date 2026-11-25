@@ -232,9 +232,9 @@ mod imp {
             .args(["--user", "set-property", "--runtime", super::UNIT])
             .arg(format!("CPUWeight={weight}"))
             .arg(format!("IOWeight={weight}"))
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .stdin(cmux_process::Stdio::null())
+            .stdout(cmux_process::Stdio::null())
+            .stderr(cmux_process::Stdio::null())
             .spawn()
         else {
             return false;
