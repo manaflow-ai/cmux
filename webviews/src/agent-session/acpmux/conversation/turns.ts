@@ -92,6 +92,7 @@ import { MEMORY_OFFER } from "./memoryInbox";
 import { PROMPT_COACH } from "./promptCoach";
 import { PRESET_APPROVAL } from "./presetApproval";
 import { githubConnectNeed } from "./githubConnect";
+import { planStepTitle } from "./planStepText";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -4046,7 +4047,7 @@ function activityLine(
         .find((item) => item.tool?.status === "pending" || item.tool?.status === "in_progress");
   const label = running?.tool
     ? runningLabel(running.tool, running.text)
-    : (plan.plan?.find((entry) => entry.status === "in_progress")?.content ?? "");
+    : planStepTitle(plan.plan?.find((entry) => entry.status === "in_progress")?.content ?? "");
   // A started command offers ⌃B here, as on the turn's other live lines (ActivityLine.tsx).
   const command =
     running?.tool?.kind === "execute" && !isDraftCall(running.tool) && running.tool.background === undefined;
