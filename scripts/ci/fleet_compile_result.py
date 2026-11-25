@@ -90,6 +90,7 @@ def read(sha, repo, pr="", wait=1500, no_record=600, results=RESULTS, fetch=fetc
     base = f"{results}/{sha}?{urllib.parse.urlencode(q)}"
     down_since = None
     seen_record = False
+    busy = False  # the last waiting read got 429: read once without a hold, which takes no waiter slot
     last = "no read"
     while True:
         left = deadline - now()
@@ -97,9 +98,17 @@ def read(sha, repo, pr="", wait=1500, no_record=600, results=RESULTS, fetch=fetc
             return "none", f"no verdict in {wait} s ({last})"
         # The results service sits behind a gateway that ends a request held about 100 s (HTTP 524),
         # so a 300 s hold read a healthy service as down and spent its two-minute grace on it.
-        hold = int(min(max(left - 30, 1), HOLD_MAX))
+        hold = 0 if busy else int(min(max(left - 30, 1), HOLD_MAX))
+        busy = False
         code, body = fetch(f"{base}&wait={hold}", hold + 15)
-        if code == 200:
+        if code == 429:
+            # Every long-poll slot is taken (the controller's compileCheckMaxWaiters). The service is up, so
+            # this is not "down": 2026-11-23 it was read as down, every job compiled the head again on the
+            # fleet and held its Mac runner 10-20 min for "still queued" (73 of 77 app-compile-fleet red).
+            down_since = None
+            busy = True
+            last = "every waiter slot taken (HTTP 429)"
+        elif code == 200:
             down_since = None
             seen_record = True
             word, last = judge(body, sha, repo, PHASES[phase])

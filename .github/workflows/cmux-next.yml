@@ -5594,8 +5594,8 @@ jobs:
             # Why: docs/ci/cmux-next-workflow-notes.md#note-457
             for probe in 1 2; do
               code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 10 --max-time 20 \
-                "$RESULTS/$REF?repo=${REPO/\//%2F}&wait=1" 2>/dev/null)" || true
-              [[ "${code:=000}" =~ ^(000|52[0-9]|530)$ ]] || { [[ "$code" =~ ^(200|404)$ ]] && ok_at=$SECONDS; break; }
+                "$RESULTS/$REF?repo=${REPO/\//%2F}&wait=0" 2>/dev/null)" || true
+              [[ "${code:=000}" =~ ^(000|52[0-9]|530)$ ]] || { [[ "$code" =~ ^(200|404|429)$ ]] && ok_at=$SECONDS; break; }
               (( probe == 2 )) && { state="results service down (HTTP $code)"; deadline=$SECONDS; } || sleep "${PROBE_GAP:-30}"
             done
             # Why: docs/ci/cmux-next-workflow-notes.md#note-82 (compile-status: the results service down)
@@ -5605,6 +5605,7 @@ jobs:
               left=$((end - SECONDS))
               (( left > 1 )) || break
               wait=$(( left > 60 ? left - 30 : left / 2 )); wait=$(( wait < 1800 ? wait : 1800 ))
+              [[ -z "${busy:-}" ]] || wait=0; busy=""
               code="$(timeout "$left" curl -sS -o "$reply" -w '%{http_code}' --connect-timeout 10 \
                 --max-time "$left" "$RESULTS/$REF?repo=${REPO/\//%2F}&wait=$wait")" || true
               case "${code:=000}" in
@@ -5615,6 +5616,7 @@ jobs:
                   echo "read $reads: $state"
                   case "$state" in pass|fail|unavailable|mismatch|unreadable|superseded) break ;; esac ;;
                 404) ok_at=$SECONDS last=""; echo "no fleet result for $REF yet" ;;
+                429) ok_at=$SECONDS last="" busy=1; echo "every results waiter slot taken; reading without a hold" ;;
                 *) last="HTTP $code" ;;
               esac
               gap=$(( end - SECONDS < ${READ_GAP:-30} ? end - SECONDS : ${READ_GAP:-30} ))
@@ -7477,8 +7479,8 @@ jobs:
               (.state == "queued" or .state == "running")' "$1" >/dev/null 2>&1
           }
           for probe in 1 2; do
-            code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 10 --max-time 20 "$url&wait=1" 2>/dev/null)" || true
-            [[ "${code:=000}" =~ ^(000|52[0-9]|530)$ ]] || { [[ "$code" =~ ^(200|404)$ ]] && ok_at=$SECONDS; break; }
+            code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 10 --max-time 20 "$url&wait=0" 2>/dev/null)" || true
+            [[ "${code:=000}" =~ ^(000|52[0-9]|530)$ ]] || { [[ "$code" =~ ^(200|404|429)$ ]] && ok_at=$SECONDS; break; }
             (( probe == 2 )) && down="HTTP $code" || sleep "${PROBE_GAP:-30}"
           done
           while [[ -z "$down" && -z "$controller" ]]; do
@@ -7488,6 +7490,7 @@ jobs:
             (( left > 1 )) || break
             wait=$(( left > 60 ? left - 30 : left / 2 )); wait=$(( wait < 1800 ? wait : 1800 ))
             [[ -z "$poster_unknown" ]] || wait=1
+            [[ -z "${busy:-}" ]] || wait=0; busy=""
             code="$(timeout "$left" curl -sS -o "$reply" -w '%{http_code}' --connect-timeout 10 \
               --max-time "$left" "$url&wait=$wait")" || true
             case "${code:=000}" in
@@ -7501,6 +7504,7 @@ jobs:
                 controller_posts "$reply" && { controller=1; break; }
                 poster_unknown="" ;;
               404) ok_at=$SECONDS last="" ;;  # no result yet
+              429) ok_at=$SECONDS last="" busy=1 ;;  # every waiter slot taken: the service is up; read without a hold
               *) last="HTTP $code"; echo "::warning title=Compile check::the results service answered HTTP $code for $SHA" ;;
             esac
             gap=$(( end - SECONDS < ${READ_GAP:-30} ? end - SECONDS : ${READ_GAP:-30} ))
