@@ -54,6 +54,14 @@ declare global {
   var __githubConnectWalk: Walk | undefined;
 }
 
+/// An agent's own ask (acpmux `settings_ask`): an org, or a repository, with its one line on why.
+const asked = (org = "manaflow-ai", why?: string): GitHubConnectNeed => ({
+  reason: "asked",
+  org,
+  ...(why && { why }),
+  callId: "call-ask",
+});
+
 let rows = 0;
 
 export default componentEntry<Props>({
@@ -140,6 +148,37 @@ export default componentEntry<Props>({
   },
   styles: () => Promise.all([import("../styles.css"), import("./conversation.css")]),
   variants: {
+    // Leo, 2026-11-25: "what about just a simple styled consistently popover for that specific
+    // setting? a la something similar to needs you or whatever". The agent's settings_ask card, one
+    // per arm of settings-ask-card (default: needs).
+    "asked-needs": {
+      note: "settings_ask, Needs you arm (default): Needs you header, one row, Connect GitHub at its end.",
+      props: { need: asked() },
+      experiments: { "settings-ask-card": "needs" },
+    },
+    "asked-card": {
+      note: "settings_ask, Glass card arm: the turn error card's surface, the button under the line.",
+      props: { need: asked() },
+      experiments: { "settings-ask-card": "card" },
+    },
+    "asked-rail": {
+      note: "settings_ask, Accent rail arm: no surface, a rail beside the line.",
+      props: { need: asked() },
+      experiments: { "settings-ask-card": "rail" },
+    },
+    "asked-why-dark": {
+      note: "settings_ask with the agent's own line, Needs you arm. Dark page.",
+      props: {
+        need: asked("manaflow-ai", "Pushing lane/x to manaflow-ai/cmux needs the cmux GitHub app on manaflow-ai."),
+        scheme: "dark",
+      },
+      experiments: { "settings-ask-card": "needs" },
+    },
+    "asked-waiting": {
+      note: "settings_ask after the tap: finish on GitHub; Continue by hand.",
+      props: { need: asked(), phase: { kind: "waiting", left: true } },
+      experiments: { "settings-ask-card": "needs" },
+    },
     "idle-dark": {
       note: "Idle: one line naming the repository, one filled Connect GitHub. Dark page.",
       props: { need: need("not-connected"), scheme: "dark" },
