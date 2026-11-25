@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 public import Foundation
 public import IrohLib
 
@@ -302,3 +303,4 @@ public struct IrxAdmission: Sendable {
         return admitted
     }
 }
+#endif
