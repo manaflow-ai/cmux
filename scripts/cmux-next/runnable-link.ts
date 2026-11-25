@@ -212,6 +212,21 @@ async function sweepSnapshots(api: any, tag: string, keepId: string | null, clea
   }
 }
 
+/** Who fills the team's snapshot slots (the provider limit refuses both the link and the plain snapshot, run
+ *  45705522020): counts by a name shape (digits and ids folded to #), so the leaking script can be named. */
+export function snapshotCensus(rows: any[], now: number): { total: number; live: number; oldest_h: number | null; by_shape: Record<string, number> } {
+  const live = rows.filter((r) => r?.status !== "deleted" && r?.status !== "deleting");
+  const by: Record<string, number> = {};
+  let oldest = Number.POSITIVE_INFINITY;
+  for (const r of live) {
+    const shape = String(r?.name ?? "(unnamed)").replace(/[0-9a-z]*[0-9][0-9a-z]*/gi, "#").slice(0, 40);
+    by[shape] = (by[shape] ?? 0) + 1;
+    oldest = Math.min(oldest, createdMs(r));
+  }
+  const top = Object.fromEntries(Object.entries(by).sort((a, b) => b[1] - a[1]).slice(0, 8));
+  return { total: rows.length, live: live.length, oldest_h: Number.isFinite(oldest) ? Math.round((now - oldest) / 360_000) / 10 : null, by_shape: top };
+}
+
 export function strays(rows: any[], tag: string, now: number, deleted: Set<string>): string[] {
   return rows
     .filter((r) => typeof r?.name === "string" && r.name.startsWith("runnable link rl-") && r.status !== "deleted" && r.status !== "deleting")
@@ -323,8 +338,10 @@ async function main(): Promise<number> {
       // The code tells a flag that is off (link.not_found before auth) from a refusal of this machine.
       meta.link_api = `HTTP ${minted.status} ${String(minted.body?.code ?? minted.body?.error ?? "").slice(0, 80)}`.trim();
       // Which quota: the details name the resource and its used/limit (machines vs snapshots).
-      const d = minted.body?.details;
+      const d = minted.body?.details ?? minted.body?.error?.details;
       if (d && typeof d === "object") meta.link_api_details = JSON.stringify({ resource: d.resource, used: d.used, limit: d.limit, busy: d.busy }).slice(0, 200);
+      const census = await api.read("cloud.snapshot.list", {}).catch(() => null);
+      if (census) meta.snapshot_census = snapshotCensus(Array.isArray(census) ? census : census?.snapshots ?? census?.items ?? [], Date.now());
       const snap = await api.op("cloud.snapshot.create", { machine: parent, name: `runnable link ${tag}` }, `${tag}-snap`);
       snapshot = String(snap?.snapshot?.id ?? snap?.snapshot ?? snap?.id);
     }
@@ -334,7 +351,7 @@ async function main(): Promise<number> {
       const rows: any[] = Array.isArray(list) ? list : list?.snapshots ?? list?.items ?? [];
       const row = rows.find((r) => r?.id === snapshot);
       if (!row || row?.status === "ready" || row?.state === "ready") break;
-      if (row?.status === "failed") throw new Error("snapshot failed");
+      if (row?.status === "failed") throw new Error(`snapshot failed: ${String(row?.error?.code ?? "")} ${String(row?.error?.message ?? "").slice(0, 120)}`.trim());
       if (Date.now() - m0 > 360_000) throw new Error("snapshot not ready in 6 minutes");
       await sleep(500);
     }
