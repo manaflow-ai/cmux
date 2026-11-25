@@ -87,7 +87,9 @@ BASE_BRANCH = "feat-cmux-next"
 SHA = re.compile(r"^[0-9a-f]{40}$")
 SESSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,200}$")
 BRANCH = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,250}$")
-UI_PREFIXES = ("webviews/", "cmux-tui/frontends/web/", "Packages/macOS/CmuxNext/")
+# The web gallery also reads design/ (icons) and first-party-apps/<app>/preview: both are web looks.
+WEB_PREFIXES = ("webviews/", "cmux-tui/frontends/web/", "design/", "first-party-apps/")
+UI_PREFIXES = (*WEB_PREFIXES, "Packages/macOS/CmuxNext/")
 SWIFT_ROOT = "Packages/macOS/CmuxNext/Sources/"
 SHELL_PACKAGE = "Prototypes/UiLayerHost"
 SHELL_PRODUCT = "cmux-ui-layer"
@@ -217,7 +219,7 @@ def plan(files: list[str]) -> dict:
     needs_build: list[str] = []
     nothing: list[str] = []
     for path in files:
-        if path.startswith(("webviews/", "cmux-tui/frontends/web/")):
+        if path.startswith(WEB_PREFIXES):
             web = True
         elif path.startswith(SHELL_PACKAGE + "/Sources/"):
             swift.extend(ALL_SWIFT_SCENES)
@@ -558,7 +560,7 @@ class Worker:
                     self.ensure_tree(self.web_tree, WEB_SPARSE, head)
                     if self.web_install():
                         self.stop_gallery()
-                    web_files = [f for f in req["ui_files"] if f.startswith(("webviews/", "cmux-tui/frontends/web/"))]
+                    web_files = [f for f in req["ui_files"] if f.startswith(WEB_PREFIXES)]
                     entries = self.web_scenes(web_files)
                 receipt["web_entries"] = entries
                 if entries:

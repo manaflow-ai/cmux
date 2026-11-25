@@ -48,6 +48,8 @@ class PlanTests(unittest.TestCase):
     def test_web_paths_are_a_web_look(self):
         self.assertTrue(w.plan(["webviews/src/App.tsx"])["web"])
         self.assertTrue(w.plan(["cmux-tui/frontends/web/src/x.ts"])["web"])
+        self.assertTrue(w.plan(["design/icons/neko-candidates/a.svg"])["web"])
+        self.assertTrue(w.plan(["first-party-apps/notes/preview/index.html"])["web"])
 
     def test_a_linked_module_with_no_scene_is_nothing(self):
         p = w.plan(["Packages/macOS/CmuxNext/Sources/CmuxNextSettings/S.swift"])
