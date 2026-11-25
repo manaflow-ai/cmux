@@ -297,12 +297,10 @@ PY
 select_packages() {
   PACKAGES=(
     CmuxAuthRuntime
-    CmuxChiefList
     CmuxIrohTransport
     CmuxIrxTransport
     CmuxUpdater
     CmuxPhonePush
-    CmuxConnectivityTelemetry
     CmuxDeviceHub
     CmuxEgress
     CmuxHomeRender
