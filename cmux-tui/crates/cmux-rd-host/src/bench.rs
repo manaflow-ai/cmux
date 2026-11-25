@@ -1604,30 +1604,9 @@ mod link_line_tests {
 }
 
 #[cfg(test)]
-mod mode_tests {
-    use super::*;
-
-    #[test]
-    fn bench_session_mode_defaults_to_control_and_accepts_only_wire_modes() {
-        let parse = |args: &[&str]| {
-            Opts::parse(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap()
-        };
-        assert_eq!(session_mode(&parse(&[])).unwrap(), "control");
-        for mode in ["view", "control"] {
-            assert_eq!(session_mode(&parse(&["--mode", mode])).unwrap(), mode);
-        }
-        assert!(session_mode(&parse(&["--mode", "viewer"])).is_err());
-    }
-}
+#[path = "bench_mode_tests.rs"]
+mod mode_tests;
 
 #[cfg(test)]
-mod h264_baseline_cap_tests {
-    /// The bench asks for Constrained Baseline exactly when it decodes with OpenH264.
-    #[test]
-    fn offers_the_cap_when_openh264_decodes() {
-        assert_eq!(super::bench_decodes_with_openh264(None), !cfg!(target_os = "macos"));
-        assert!(super::bench_decodes_with_openh264(Some("openh264")));
-        assert!(!super::bench_decodes_with_openh264(Some("videotoolbox")));
-        assert!(!super::bench_decodes_with_openh264(Some("vp9")));
-    }
-}
+#[path = "bench_h264_baseline_cap_tests.rs"]
+mod h264_baseline_cap_tests;
