@@ -80,6 +80,7 @@ final class PhoneProcess: PhoneRunningCommand, Sendable {
             if let outReader { self.finishOutput(outReader, stderr: false) }
             self.settle { $0.status = finished.terminationStatus }
         }
+        OpenDescriptors.noteBudgetSoon()  // every child launch: a leak shows in the log as it passes the bound
         try process.run()
         if let inPipe, let stdin {
             // The bytes (a pasteboard of any size) go on the feed's own queue, never this caller's
