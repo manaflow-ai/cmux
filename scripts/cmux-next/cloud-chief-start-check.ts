@@ -97,7 +97,7 @@ const rowText = (m: any): string =>
   (Array.isArray(m?.parts) ? m.parts : []).filter((p: any) => p?.type === "text").map((p: any) => String(p.text ?? "")).join("\n") || String(m?.text ?? "");
 
 /** The Chief's first message in its conversation not seen before (the snapshot's newest 50), or null by the deadline. */
-async function chiefReply(api: Api, conversation: string, chief: string, seen: Set<string>, expected: string, deadlineMs: number): Promise<{ text: string } | null> {
+export async function chiefReply(api: Pick<Api, "read">, conversation: string, chief: string, seen: Set<string>, expected: string, deadlineMs: number): Promise<{ text: string } | null> {
   const until = Date.now() + deadlineMs;
   for (;;) {
     const snap = await api.read("conversation.snapshot", { conversation, tail: 50 });
@@ -307,4 +307,4 @@ async function main(): Promise<number> {
   }
 }
 
-process.exit(await main());
+if (import.meta.main) process.exit(await main());
