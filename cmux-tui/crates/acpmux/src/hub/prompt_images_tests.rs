@@ -262,6 +262,29 @@ fn inline_parts_keep_the_placed_marker_only_when_sent() {
 }
 
 #[test]
+fn inline_parts_keep_a_video_links_picture_size() {
+    let blocks = vec![
+        json!({"type": "text", "text": "look"}),
+        json!({"type": "resource_link", "name": "rec.mov", "uri": "file:///tmp/rec.mov"}),
+    ];
+    let display = json!([{"kind": "file", "blockIndex": 1, "width": 1406, "height": 434}]);
+    let parts = inline_parts(&blocks, &[], Some(&display));
+    assert_eq!((parts[1]["width"].clone(), parts[1]["height"].clone()), (json!(1406), json!(434)));
+    // Both or neither, each a real side.
+    for invalid in [
+        json!({"width": 1406}),
+        json!({"width": 0, "height": 434}),
+        json!({"width": 1406, "height": 99_999}),
+        json!({"width": "1406", "height": 434}),
+    ] {
+        let mut part = json!({"kind": "file", "blockIndex": 1});
+        part.as_object_mut().unwrap().extend(invalid.as_object().unwrap().clone());
+        let parts = inline_parts(&blocks, &[], Some(&json!([part])));
+        assert!(parts[1].get("width").is_none() && parts[1].get("height").is_none());
+    }
+}
+
+#[test]
 fn inline_parts_validate_companion_relation() {
     let image = json!({"type": "image", "mimeType": "image/png", "data": "AQID"});
     let file = json!({"type": "resource_link", "name": "one.png", "uri": "file:///tmp/one.png"});

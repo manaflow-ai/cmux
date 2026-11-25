@@ -16,6 +16,8 @@ use std::path::PathBuf;
 const MAX_DISPLAY_NAME: usize = 256;
 const MAX_DISPLAY_MIME: usize = 128;
 const MAX_DISPLAY_RANGE: u64 = 4 * 1024 * 1024;
+/// The largest picture side a video's display part keeps (`width`, `height`): 16K and then some.
+const MAX_DISPLAY_SIDE: u64 = 32_768;
 const MAX_SOURCE_NAME: usize = 64;
 
 fn dir() -> PathBuf {
@@ -552,6 +554,21 @@ pub(crate) fn validated_display_parts(
                 out.insert(key.into(), Value::Number(value.into()));
             }
         }
+        // A video link's picture size, which the app reads before it sends: its sent tile takes
+        // its box from it on the first frame after a reload. Both or neither, each a real side.
+        let side = |key: &str| {
+            object
+                .get(key)
+                .and_then(Value::as_u64)
+                .filter(|value| (1..=MAX_DISPLAY_SIDE).contains(value))
+        };
+        if kind == "file"
+            && block_type == "resource_link"
+            && let (Some(width), Some(height)) = (side("width"), side("height"))
+        {
+            out.insert("width".into(), json!(width));
+            out.insert("height".into(), json!(height));
+        }
         // The app's composer put this attachment in the prompt's text: the web transcript draws
         // a prompt in its recorded order only when it was placed. Only `true` is kept; a prompt
         // without it (the old unplaced shape, or one from an older app) never gains it.
@@ -585,9 +602,19 @@ pub(crate) fn validated_display_parts(
 
 fn copy_display_fields(part: &mut Value, display: &Value) {
     let Some(object) = display.as_object() else { return };
-    for key in
-        ["name", "mimeType", "size", "pageCount", "start", "end", "companionOf", "placed", "source"]
-    {
+    for key in [
+        "name",
+        "mimeType",
+        "size",
+        "pageCount",
+        "start",
+        "end",
+        "companionOf",
+        "placed",
+        "source",
+        "width",
+        "height",
+    ] {
         if let Some(value) = object.get(key) {
             part[key] = value.clone();
         }
