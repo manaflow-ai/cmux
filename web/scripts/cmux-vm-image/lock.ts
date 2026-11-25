@@ -110,8 +110,24 @@ export type LockedProgram = Artifact & {
   readonly firstUse?: boolean;
   /** License and notice files (relative to the store entry) the install must find. */
   readonly notices?: readonly string[];
+  /**
+   * Helper executables (relative to the store entry) a command runs from beside itself; the install
+   * fails without each one. A program in REQUIRED_COMPANIONS must list them.
+   */
+  readonly companions?: readonly string[];
   /** The same release for the other architectures (the image itself is x86_64). */
   readonly otherArches?: Readonly<Partial<Record<OtherArch, ArchArtifact>>>;
+};
+
+/**
+ * Helpers a program's command spawns from its own folder, so the lock must carry them beside it. Codex runs
+ * every tool call through `codex-code-mode-host` next to its binary; the GitHub release tarball has only
+ * `codex`, so every Cloud Codex tool call failed with "failed to spawn code-mode host
+ * /opt/cmux/store/<sha>/codex-code-mode-host: No such file or directory" (2026-11-25). npm's
+ * `@openai/codex@<v>-linux-x64` package carries both.
+ */
+export const REQUIRED_COMPANIONS: Readonly<Partial<Record<ProgramName, readonly string[]>>> = {
+  codex: ["codex-code-mode-host"],
 };
 
 export const OTHER_ARCHES = ["aarch64"] as const;
@@ -278,6 +294,7 @@ function checkProgram(index: number, raw: unknown, seen: Set<string>, problems: 
   checkProgramRoles(where, raw.roles, problems);
   if (raw.firstUse !== undefined && typeof raw.firstUse !== "boolean") problems.push(`${where}.firstUse: must be a boolean`);
   checkNotices(where, raw.notices, problems);
+  checkCompanions(where, name, raw.bin, raw.companions, problems);
   checkOtherArches(where, raw.otherArches, problems);
   if (name === "chrome-for-testing" && typeof raw.version === "string") {
     const expected = chromeForTestingShape(raw.version).url;
@@ -303,6 +320,23 @@ function checkNotices(where: string, raw: unknown, problems: string[]): void {
     return;
   }
   for (const notice of raw) if (typeof notice !== "string" || !RELATIVE_PATH.test(notice)) problems.push(`${where}.notices: ${JSON.stringify(notice)} must be a relative path inside the store entry`);
+}
+
+function checkCompanions(where: string, name: string | null | undefined, bin: unknown, raw: unknown, problems: string[]): void {
+  if (raw !== undefined && (!Array.isArray(raw) || raw.length === 0 || raw.some((c) => typeof c !== "string" || !RELATIVE_PATH.test(c)))) {
+    problems.push(`${where}.companions: must be a non-empty array of relative paths inside the store entry`);
+    return;
+  }
+  const required = name ? REQUIRED_COMPANIONS[name as ProgramName] : undefined;
+  if (!required || !isRec(bin)) return;
+  const listed = (raw as string[] | undefined) ?? [];
+  for (const target of Object.values(bin)) {
+    if (typeof target !== "string") continue;
+    const dir = target.includes("/") ? target.slice(0, target.lastIndexOf("/") + 1) : "";
+    for (const helper of required) {
+      if (!listed.includes(`${dir}${helper}`)) problems.push(`${where}.companions: ${name} spawns ${helper} from beside ${target}; list ${dir}${helper} (an archive without it breaks every tool call)`);
+    }
+  }
 }
 
 function checkOtherArches(where: string, raw: unknown, problems: string[]): void {
@@ -594,7 +628,7 @@ export function readInputsLock(file = DEFAULT_LOCK_PATH): InputsLock {
 export const ROLES_MANIFEST_PATH = "/etc/cmux/roles.json";
 
 /** A first-use program as roles.json lists it: what the installer downloads, checks and unpacks into the store. */
-export type RoleProgram = Pick<LockedProgram, "name" | "version" | "url" | "sha256" | "size" | "format" | "bin" | "fileName" | "checksumsUrl" | "checksumsName" | "notices" | "otherArches"> & { readonly storeEntry: string };
+export type RoleProgram = Pick<LockedProgram, "name" | "version" | "url" | "sha256" | "size" | "format" | "bin" | "fileName" | "checksumsUrl" | "checksumsName" | "notices" | "companions" | "otherArches"> & { readonly storeEntry: string };
 
 export type RoleManifestEntry = {
   readonly default: "on" | "off";
@@ -639,6 +673,7 @@ export function rolesManifest(lock: InputsLock): RolesManifest {
         ...(p.fileName ? { fileName: p.fileName } : {}),
         ...(p.checksumsUrl ? { checksumsUrl: p.checksumsUrl, checksumsName: p.checksumsName } : {}),
         ...(p.notices ? { notices: p.notices } : {}),
+        ...(p.companions ? { companions: p.companions } : {}),
         ...(p.otherArches ? { otherArches: p.otherArches } : {}),
         storeEntry: storeEntry(p.sha256),
       }));
@@ -730,7 +765,7 @@ export function storeEntry(sha256: string): string {
 }
 
 /** What an install needs from a lock program or a roles.json first-use program. */
-export type InstallableProgram = Pick<LockedProgram, "name" | "version" | "url" | "sha256" | "size" | "format" | "bin" | "fileName" | "checksumsUrl" | "checksumsName" | "notices">;
+export type InstallableProgram = Pick<LockedProgram, "name" | "version" | "url" | "sha256" | "size" | "format" | "bin" | "fileName" | "checksumsUrl" | "checksumsName" | "notices" | "companions">;
 
 /**
  * Download, verify (sha256 and size) and unpack one program into its immutable store entry. The download resumes:
@@ -784,6 +819,7 @@ export function programInstallCommand(program: InstallableProgram): string {
     ...Object.values(program.bin).map((target) => `test -x ${stage}/${target}`),
     ...siblingPaths(program).map((sibling) => `test -x ${stage}/${sibling}`),
     ...(program.notices ?? []).map((notice) => `test -s ${stage}/${notice}`),
+    ...(program.companions ?? []).map((helper) => `test -x ${stage}/${helper}`),
     `chmod -R a-w ${stage}`,
     `rm -rf ${entry} && mv ${stage} ${entry}`,
     `rm -f ${dl} ${dl}.tgz ${dl}.sums`,
