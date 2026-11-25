@@ -1779,6 +1779,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
     }
 
+    /// The page's saved copy came after its first layout (``TerminalModel/takesLateSeed``): fed
+    /// now, so the surface shows it live (scrolls, takes keys) instead of a cover. The Mac's
+    /// replay, a full reset first, replaces it on attach.
+    func seedIfStillBlank() {
+        guard started, surface.surface != nil, model.takesLateSeed, let seed = model.takeSeed() else { return }
+        surface.feed(seed)
+    }
+
     #if DEBUG
     /// DEBUG (termqa round 8): what each Ghostty point tag reads for a few rows.
     var debugRowProbe: String {
