@@ -140,6 +140,7 @@ impl Hub {
 
     /// [`Self::history_delete_pass`] for chats unchanged for longer than `after`, with no
     /// export: how many it deleted.
+    #[cfg(test)]
     pub(super) async fn history_delete_pass_after(
         self: &Arc<Self>,
         after: std::time::Duration,
