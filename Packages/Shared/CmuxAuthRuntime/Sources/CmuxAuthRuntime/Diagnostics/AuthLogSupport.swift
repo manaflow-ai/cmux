@@ -16,6 +16,13 @@ final class OSAllocatedUnfairLock<State: Sendable>: Sendable {
     }
 }
 
+/// Foundation on Linux has no `String(localized:)`; the Linux shape shows the English default.
+extension String {
+    init(localized key: StaticString, defaultValue: String, bundle: Bundle) {
+        self = defaultValue
+    }
+}
+
 /// Minimal unified-log surface for Linux package tests, where Apple's OSLog
 /// module is unavailable. Messages are intentionally discarded.
 enum OSLogType {

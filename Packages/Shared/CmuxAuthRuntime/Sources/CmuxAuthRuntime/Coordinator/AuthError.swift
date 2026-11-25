@@ -40,50 +40,67 @@ public enum AuthError: Error, LocalizedError, Equatable, Sendable {
     public var errorDescription: String? {
         switch self {
         case .offline:
-            return authLocalized(
-                "auth.error.offline",
-                "No internet connection. Connect to Wi-Fi or cellular and try again."
+            return String(
+                localized: "auth.error.offline",
+                defaultValue: "No internet connection. Connect to Wi-Fi or cellular and try again.",
+                bundle: .main
             )
         case .networkError:
-            return authLocalized("auth.error.network_error", "Network error. Please check your connection.")
+            return String(
+                localized: "auth.error.network_error",
+                defaultValue: "Network error. Please check your connection.",
+                bundle: .main
+            )
         case .timedOut:
-            return authLocalized(
-                "auth.error.timed_out",
-                "Sign-in timed out. Check your connection and try again."
+            return String(
+                localized: "auth.error.timed_out",
+                defaultValue: "Sign-in timed out. Check your connection and try again.",
+                bundle: .main
             )
         case .serverError:
-            return authLocalized("auth.error.server_error", "Something went wrong. Please try again.")
+            return String(
+                localized: "auth.error.server_error",
+                defaultValue: "Something went wrong. Please try again.",
+                bundle: .main
+            )
         case .invalidCode:
-            return authLocalized("auth.error.invalid_code_short", "Invalid code. Please try again.")
+            return String(
+                localized: "auth.error.invalid_code_short",
+                defaultValue: "Invalid code. Please try again.",
+                bundle: .main
+            )
         case .invalidCallback:
-            return authLocalized(
-                "auth.error.invalid_callback",
-                "The sign-in callback was invalid. Try signing in again."
+            return String(
+                localized: "auth.error.invalid_callback",
+                defaultValue: "The sign-in callback was invalid. Try signing in again.",
+                bundle: .main
             )
         case .browserSignInFailed:
-            return authLocalized(
-                "auth.error.browser_sign_in_failed",
-                "Could not complete browser sign-in. Try again or open sign-in in your browser."
+            return String(
+                localized: "auth.error.browser_sign_in_failed",
+                defaultValue: "Could not complete browser sign-in. Try again or open sign-in in your browser.",
+                bundle: .main
             )
         case .unauthorized:
-            return authLocalized("auth.error.unauthorized", "Session expired. Please sign in again.")
+            return String(
+                localized: "auth.error.unauthorized",
+                defaultValue: "Session expired. Please sign in again.",
+                bundle: .main
+            )
         case .authFailure:
-            return authLocalized("auth.error.wrong_password", "Incorrect email or password.")
+            return String(
+                localized: "auth.error.wrong_password",
+                defaultValue: "Incorrect email or password.",
+                bundle: .main
+            )
         case .cancelled:
             return nil
         case .rateLimited:
-            return authLocalized(
-                "auth.error.rate_limited",
-                "Too many sign-in requests from this network. cmux retries automatically."
+            return String(
+                localized: "auth.error.rate_limited",
+                defaultValue: "Too many sign-in requests from this network. cmux retries automatically.",
+                bundle: .main
             )
         }
     }
-}
-
-private func authLocalized(_ key: String, _ fallback: String) -> String {
-#if canImport(Darwin)
-    String(localized: key, defaultValue: fallback, bundle: .main)
-#else
-    fallback
-#endif
 }
