@@ -48,7 +48,7 @@ export function hatFaces(
     ...items.map((item) => [item, false] as const),
     ...finished.map((item) => [item, true] as const),
   ]) {
-    if (item.kind === "command" || seen.has(item.id)) continue;
+    if (item.kind === "command" || item.kind === "turn" || seen.has(item.id)) continue;
     seen.add(item.id);
     if (item.kind === "agent") {
       const { agent } = item;
