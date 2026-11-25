@@ -2,7 +2,8 @@
   "title": "Palette lists Install App, Remove App and the Standup commands",
   "settings": {
     "labs": {
-      "previewFeatures": true
+      "previewFeatures": true,
+      "appStore": true
     }
   },
   "launch_args": [],

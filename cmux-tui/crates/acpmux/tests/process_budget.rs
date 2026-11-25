@@ -340,8 +340,15 @@ impl Drop for Daemon {
 fn start(scratch: &Path) -> Daemon {
     let home = scratch.join("acpmux");
     fs::create_dir_all(&home).unwrap();
+    // The stand-in says it takes HTTP MCP servers, as Codex (cmux-codex-acp) and Claude Code do,
+    // so each chat's acpmux servers must come at the daemon's gateway, never as stdio processes
+    // under its harness (asserted per chat below). A stand-in that took none hid five
+    // `acpmux *-mcp` processes per Codex chat (bench 2026-11-25).
     let config = json!({
-        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+        "harnesses": {"fake": {"argv": ["python3", FAKE], "env": {
+            "FAKE_MCP_HTTP": "1",
+            "FAKE_MCP_OUT": scratch.join("given-mcp"),
+        }}},
         "defaultHarness": "fake", "permissionPolicy": "approve-all"
     });
     fs::write(home.join("config.json"), config.to_string()).unwrap();
@@ -441,6 +448,24 @@ fn every_chat_runs_within_its_process_budget_and_leaves_none_behind() {
         );
         ids.push(id);
     }
+    // Every chat's servers as its `session/new` gave them: none of acpmux's own tool servers is
+    // a stdio launch the harness would run as a process of the chat's.
+    let given = scratch.join("given-mcp");
+    let (mut starts, mut http) = (0, 0);
+    for entry in fs::read_dir(&given).expect("no chat wrote the servers it was given").flatten() {
+        let servers: Value = serde_json::from_slice(&fs::read(entry.path()).unwrap()).unwrap();
+        starts += 1;
+        for server in servers.as_array().into_iter().flatten() {
+            http += usize::from(server["type"] == "http");
+            let word = server["args"].as_array().and_then(|a| a.last()).and_then(Value::as_str);
+            assert!(
+                !acpmux::tools_mcp::SERVERS.iter().any(|(_, w)| Some(*w) == word),
+                "a chat that takes HTTP servers was given acpmux's {server} as a process"
+            );
+        }
+    }
+    assert!(starts >= CHATS, "{starts} chats wrote their servers");
+    assert!(http > 0, "no chat was given a server at the daemon's gateway");
 
     for id in &ids {
         rpc.call("_acpmux/kill", json!({"sessionId": id}));
