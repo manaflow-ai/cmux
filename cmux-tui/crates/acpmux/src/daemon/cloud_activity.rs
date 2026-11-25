@@ -55,8 +55,11 @@
 //!   platform may pause the machine and wake it at the earliest `at` (RFD 0063 step 2). Today's
 //!   Cloud reads `parked` as awake, like any phase but `model-wait`;
 //!   else `pinned` while processes the agent left running (a
-//!   background shell or task) or a background subagent or sub-session work, or while it is at
-//!   work with no turn; else `person` while a permission or question waits; else `model-wait`.
+//!   background shell or task) or a background subagent or sub-session work; else `timer` while
+//!   no turn runs and a timer its agent set has not fired (`hub/agent_timer.rs`: a /loop's wakeup
+//!   or cron, with `wake_at`, its next due time in Unix ms, where known); else `pinned` while it
+//!   is at work with no turn; else `person` while a permission or question waits; else
+//!   `model-wait`.
 //! - `since`: when this daemon first saw it in that phase (Unix ms).
 //! - `processes`: how many processes it left running; `attached`: an attached client shows it.
 //! - `relayed`: whether every turn's model stream ends outside this machine. No relay exists
@@ -132,8 +135,12 @@ pub(super) struct Tracker {
     /// Each session's calls handed to the platform ([`Self::set_parked`]).
     parked: crate::parked_wait::ParkedMap,
     /// The phases the agent last got, by session: (phase, since).
-    sent_phases: Option<Vec<(String, &'static str, u64, Vec<crate::parked_wait::Wake>)>>,
+    sent_phases: Option<Vec<PhaseKey>>,
 }
+
+/// A session's phase as the agent got it: by session id, phase, since, a `parked` session's
+/// wakes and a `timer` phase's due time.
+type PhaseKey = (String, &'static str, u64, Vec<crate::parked_wait::Wake>, Option<u64>);
 
 /// What one session at work waits on (the module doc's `phases`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -144,6 +151,8 @@ pub(super) struct TurnPhase {
     pub attached: bool,
     /// A `parked` session's wakes, one per parked call.
     pub wake: Vec<crate::parked_wait::Wake>,
+    /// A `timer` phase's next due time (Unix ms), where known.
+    pub wake_at: Option<u64>,
 }
 
 impl Tracker {
@@ -274,7 +283,11 @@ impl Tracker {
                 "tool"
             } else if self.starting.contains_key(&s.id) {
                 "tool-starting"
-            } else if s.processes > 0 || s.below || !s.turn {
+            } else if s.processes > 0 || s.below {
+                "pinned"
+            } else if !s.turn && s.timer.is_some() {
+                "timer"
+            } else if !s.turn {
                 "pinned"
             } else if s.person {
                 "person"
@@ -282,16 +295,29 @@ impl Tracker {
                 "model-wait"
             };
             let since = before.get(&s.id).filter(|p| p.phase == phase).map_or(now_ms, |p| p.since);
-            let entry = TurnPhase { phase, since, processes: s.processes, attached: s.shown, wake };
+            let wake_at = s.timer.and_then(|t| t.wake_at).filter(|_| phase == "timer");
+            let entry = TurnPhase {
+                phase,
+                since,
+                processes: s.processes,
+                attached: s.shown,
+                wake,
+                wake_at,
+            };
             phases.insert(s.id.clone(), entry);
         }
         self.phases = Some(phases);
     }
 
-    /// The phases as the agent gets them: by session id, phase and since.
-    fn phase_key(&self) -> Option<Vec<(String, &'static str, u64, Vec<crate::parked_wait::Wake>)>> {
+    /// The phases as the agent gets them: by session id, phase, since and wake times.
+    fn phase_key(&self) -> Option<Vec<PhaseKey>> {
         let phases = self.phases.as_ref()?;
-        Some(phases.iter().map(|(id, p)| (id.clone(), p.phase, p.since, p.wake.clone())).collect())
+        Some(
+            phases
+                .iter()
+                .map(|(id, p)| (id.clone(), p.phase, p.since, p.wake.clone(), p.wake_at))
+                .collect(),
+        )
     }
 
     /// The line to send with `turns` sessions at work observed at `now_ms`, or None: on a
@@ -338,6 +364,9 @@ impl Tracker {
                     if !p.wake.is_empty() {
                         let wake: Vec<Value> = p.wake.iter().map(|w| w.to_json()).collect();
                         turn.set("wake", json!(wake));
+                    }
+                    if let Some(at) = p.wake_at {
+                        turn.set("wake_at", json!(at));
                     }
                     turn
                 })
@@ -413,6 +442,16 @@ async fn agent_socket_appears(path: &Path) {
     }
 }
 
+/// Auto mode's machine side (`auto_session/machine.rs`), once the agent's Auto mode socket is
+/// there (an agent older than Auto mode has none). It waits for the store to assign this
+/// machine a chat; until then it changes nothing.
+async fn auto_mode(hub: Arc<Hub>) {
+    use crate::auto_session::machine;
+    let cloud = machine::MachineCloud::here();
+    agent_socket_appears(cloud.socket()).await;
+    machine::serve(hub, Arc::new(cloud), machine::chats_root()).await
+}
+
 /// Follows this daemon's own sessions and reports how many are at work while the Cloud agent's
 /// socket is there.
 pub(super) async fn activity_loop(hub: Arc<Hub>) {
@@ -420,6 +459,10 @@ pub(super) async fn activity_loop(hub: Arc<Hub>) {
     // Off a Cloud machine nothing reads the report: no renew tick and no resume subscription (it
     // keeps the hub's resume tick running) until the agent's socket appears (cmux-ad m9).
     agent_socket_appears(&path).await;
+    // The agent is here. On a Cloud machine, Auto mode's side starts with it.
+    if crate::cloud_host::is_cloud_vm() {
+        hub.scope.spawn_until_cancelled("auto-mode-machine", auto_mode(hub.clone()));
+    }
     let mut events = hub.subscribe();
     let mut resumes = hub.subscribe_resumes();
     let mut person_prompts = hub.subscribe_person_prompts();
@@ -568,3 +611,21 @@ async fn send(path: &Path, line: &Value) -> bool {
 #[cfg(test)]
 #[path = "cloud_activity_tests.rs"]
 mod tests;
+
+/// The report a fresh daemon sends for `at_work` at `now_ms`, for scenarios outside this module
+/// (`hub/agent_timer_tests.rs`).
+#[cfg(test)]
+pub(crate) mod probe {
+    use super::*;
+
+    pub(crate) fn line(at_work: &[SessionAtWork], now_ms: u64) -> Value {
+        let mut tracker = Tracker::new("/probe.sock".into());
+        tracker.observe(at_work, now_ms);
+        tracker.line(at_work.len() as u64, true, now_ms).expect("a renewal always sends")
+    }
+
+    /// Whether the Cloud may pause the machine on `line` (no session at work).
+    pub(crate) fn pausable(line: &Value) -> bool {
+        flushes_before(line)
+    }
+}

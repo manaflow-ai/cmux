@@ -11,6 +11,14 @@ extension CmuxConfigSnapshot {
         }
         return switches
     }
+
+    /// The Forum's sidebar item, page and `forum.show` show: `experiments.forum` is on (off by default).
+    public var showsForum: Bool { root.value(at: Self.forumPath)?.boolValue ?? Self.forumDefault }
+
+    /// What a refused `forum.show` says while the experiment is off: the setting's title.
+    public static var forumHiddenReason: String {
+        SettingsSchema.descriptor(for: forumPath)?.title ?? forumPath.joined(separator: ".")
+    }
 }
 
 extension SettingsSchema {
