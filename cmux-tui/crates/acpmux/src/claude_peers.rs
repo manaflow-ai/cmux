@@ -39,12 +39,9 @@ use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-/// The settings key that turns the bridge on.
-pub const ENABLED_KEY: &str = "agents.desktopBridge.enabled";
-/// The settings key listing the entrypoints listed as chats (default: the Claude desktop app's).
-/// Codex threads are listed by originator from the same list: `codex_desktop` (`codex_desktop.rs`)
-/// lists the Codex desktop app's.
-pub const ENTRYPOINTS_KEY: &str = "agents.desktopBridge.entrypoints";
+pub use cmux_config::schema::{
+    DESKTOP_BRIDGE_ENABLED as ENABLED_KEY, DESKTOP_BRIDGE_ENTRYPOINTS as ENTRYPOINTS_KEY,
+};
 /// The entrypoint Claude Code records for a session the Claude desktop app runs.
 pub const DESKTOP_ENTRYPOINT: &str = "claude-desktop";
 
@@ -497,26 +494,37 @@ pub fn is_claude_code(_pid: u32) -> bool {
 
 /// Whether the process listening on `socket` is `pid`, run by this daemon's user (the kernel's
 /// peer credentials of a connection to it). A symlink is never followed.
-#[cfg(unix)]
 pub async fn inbox_is(socket: &Path, pid: u32) -> bool {
-    if !std::fs::symlink_metadata(socket).is_ok_and(|m| !m.file_type().is_symlink()) {
-        return false;
+    inbox_proof(socket, pid).await.unwrap_or(false)
+}
+
+/// A definite mismatch is `Ok(false)`. An I/O error leaves ownership unknown, so a
+/// renewal can try again once the inbox answers. Neither result proves ownership.
+#[cfg(unix)]
+pub(crate) async fn inbox_proof(socket: &Path, pid: u32) -> std::io::Result<bool> {
+    use std::os::unix::fs::FileTypeExt;
+    if !std::fs::symlink_metadata(socket)?.file_type().is_socket() {
+        return Ok(false);
     }
-    let Ok(Ok(stream)) =
-        tokio::time::timeout(IO_TIMEOUT, tokio::net::UnixStream::connect(socket)).await
-    else {
-        return false;
-    };
-    let Ok(cred) = stream.peer_cred() else { return false };
+    connected_inbox_is(pid, tokio::net::UnixStream::connect(socket)).await
+}
+
+#[cfg(unix)]
+async fn connected_inbox_is(
+    pid: u32,
+    connect: impl std::future::Future<Output = std::io::Result<tokio::net::UnixStream>>,
+) -> std::io::Result<bool> {
+    let stream = tokio::time::timeout(IO_TIMEOUT, connect).await??;
+    let cred = stream.peer_cred()?;
     // SAFETY: getuid has no preconditions.
     let own = unsafe { libc::getuid() };
-    cred.uid() == own && cred.pid().and_then(|p| u32::try_from(p).ok()) == Some(pid)
+    Ok(cred.uid() == own && cred.pid().and_then(|p| u32::try_from(p).ok()) == Some(pid))
 }
 
 /// No unix sockets here: no inbox is proven.
 #[cfg(not(unix))]
-pub async fn inbox_is(_socket: &Path, _pid: u32) -> bool {
-    false
+pub(crate) async fn inbox_proof(_socket: &Path, _pid: u32) -> std::io::Result<bool> {
+    Ok(false)
 }
 
 /// Removes the token kept for chat `chat_id`, when it has one.
@@ -550,6 +558,9 @@ pub async fn deliver(
     if let Some(relayed) = crate::claude_inbox_relay::deliver(peer.pid, socket, &frames).await {
         return relayed;
     }
+    // No relay: this delivery may be held. With agents.claudeCodeInboxRelay on, every Claude
+    // Code session started from now on runs one; off, the daemon logs how to add it.
+    crate::desktop_link::ensure_inbox_relay_once();
     write_frames(socket, &frames).await
 }
 

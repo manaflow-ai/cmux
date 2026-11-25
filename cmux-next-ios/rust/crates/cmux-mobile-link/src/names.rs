@@ -42,17 +42,37 @@ pub const APPEARANCE: &str = "appearance-v1";
 pub const PAIR_REQUESTS: &str = "pair-requests-v1";
 pub const PHONE_FRAMES: &str = "phone-frames-v1";
 pub const TAB_SNAPSHOTS: &str = "tab-snapshots-v1";
+pub const BUNDLE: &str = "bundle-v1";
 pub const ZSTD_STREAM: &str = "zstd-stream-v1";
 pub const BROWSER_STREAM: &str = "browser-stream-v1";
 pub const BROWSER_VIDEO_TRACK: &str = "browser-video-track-v1";
 pub const SURFACE_STREAM: &str = "surface-stream-v1";
 pub const CLOUD_DESKTOP: &str = "cloud-desktop-v1";
+pub const MAILBOX_SEND: &str = "mailbox-send-v1";
+pub const MAC_DISPLAY: &str = "mac-display-v1";
 
 pub const CLOUD_MOBILE_CHAT: &str = "cloud-mobile-chat-v1";
 pub const CONVERSATION_TABS: &str = "conversation-tabs-v1";
 pub const PAGE_TABS: &str = "page-tabs-v1";
 pub const AGENT_SESSION_TABS: &str = "agent-session-tabs-v1";
 pub const SEND_EXPECT_AGENT: &str = "send-expect-agent-v1";
+pub const AGENT_CLI_HYBRID: &str = "agent-cli-hybrid-v1";
+pub const AGENT_CLI_HYBRID_LEAN: &str = "agent-cli-hybrid-v2";
+pub const TERMINAL_SHELL_LINES: &str = "terminal-shell-lines-v1";
+pub const ATTACH_OUTPUT_COALESCE: &str = "attach-output-coalesce-v1";
+pub const TERMINAL_FULL_SCREEN_FRAMES: &str = "terminal-full-screen-frames-v1";
+
+/// What the phone's terminal session declares in `set-client-info` for the lean stream
+/// (Settings, Transport, Agent CLI Screen Changes): agent CLIs and shells as lean cell deltas,
+/// a full-screen program too (its modes as bytes), and coalesced PTY bytes for the rest.
+/// `CmuxMobileLive` `DaemonTerminalSession.capabilities` declares this list.
+pub const TERMINAL_LEAN_STREAM: &[&str] = &[
+    AGENT_CLI_HYBRID,
+    AGENT_CLI_HYBRID_LEAN,
+    TERMINAL_SHELL_LINES,
+    ATTACH_OUTPUT_COALESCE,
+    TERMINAL_FULL_SCREEN_FRAMES,
+];
 
 const fn host(name: &'static str, meaning: &'static str) -> Capability {
     Capability { name, side: Side::Host, meaning }
@@ -102,6 +122,14 @@ pub const ALL: &[Capability] = &[
         "(2026-11-22) The host serves `tabs`: every tab's title, favicon, thumbnail or terminal screen text, each picture sent once by hash and then only changes.",
     ),
     host(
+        MAILBOX_SEND,
+        "(2026-11-24) The Mac's mailbox takes `send` (a chat message) and `compose` (a queue action) items, held up to 24 hours and applied once, in each phone's order: a phone routes a send to the mailbox only to a Mac that listed it on its last link.",
+    ),
+    host(
+        BUNDLE,
+        "(2026-11-24) The host serves `bundle`: an attachment upload (`put`) or file open (`get`) as sealed content-defined chunks, so a file the far end already holds costs one round trip and its manifest.",
+    ),
+    host(
         ZSTD_STREAM,
         "(2026-11-24) An `acpmux` channel opened with `args.compressions` listing `zstd-stream-v1` carries every message through one zstd stream kept for the channel's life (`0x01` envelopes, PROTOCOL.md \"acpmux compression\").",
     ),
@@ -120,6 +148,10 @@ pub const ALL: &[Capability] = &[
     host(
         CLOUD_DESKTOP,
         "(2026-11-02) `surface` also streams an owned Cloud machine's desktop, view only, on the key `c~<machine_id>~<team_id>`.",
+    ),
+    host(
+        MAC_DISPLAY,
+        "(2026-11-23) `surface` also streams this Mac's own display as rd/1 on the link, view only, on the key `d~<display>` (CGDirectDisplayID, 0 the main display); served while Share This Mac is on.",
     ),
     daemon(
         CLOUD_MOBILE_CHAT,
@@ -140,6 +172,23 @@ pub const ALL: &[Capability] = &[
     daemon(
         SEND_EXPECT_AGENT,
         "In `identify`: a notification reply to an agent types text and Return only while that agent waits at its prompt (#24205).",
+    ),
+    daemon(
+        AGENT_CLI_HYBRID,
+        "Declared by the phone's terminal in `set-client-info` (the lean stream): an agent CLI's terminal as `agent-cli-frame` cell deltas.",
+    ),
+    daemon(AGENT_CLI_HYBRID_LEAN, "With `agent-cli-hybrid-v1`: the same deltas packed as `agent-cli-lean`."),
+    daemon(
+        TERMINAL_SHELL_LINES,
+        "With the hybrid pair: a plain shell's terminal as lean frames too, PTY bytes while it runs a full-screen program.",
+    ),
+    daemon(
+        ATTACH_OUTPUT_COALESCE,
+        "`output` at most once per display frame for a terminal that stays on PTY bytes (#43373).",
+    ),
+    daemon(
+        TERMINAL_FULL_SCREEN_FRAMES,
+        "With `terminal-shell-lines-v1`: a full-screen program as lean frames as well (its modes as bytes), one display frame apart, instead of its PTY repaints (#51565).",
     ),
 ];
 
@@ -191,6 +240,20 @@ mod tests {
             "{} capability table is stale: rerun `CMUX_UPDATE_LINK_NAMES=1 cargo test -p cmux-mobile-link names` and commit it",
             path.display()
         );
+    }
+
+    /// The lean stream declares full-screen frames with the shell lines it needs, and every
+    /// name it declares is in [`ALL`].
+    #[test]
+    fn the_lean_stream_declares_full_screen_frames_with_the_shell_lines() {
+        for name in TERMINAL_LEAN_STREAM {
+            assert!(ALL.iter().any(|capability| capability.name == *name), "{name} is not in ALL");
+        }
+        for name in
+            [AGENT_CLI_HYBRID, AGENT_CLI_HYBRID_LEAN, TERMINAL_SHELL_LINES, TERMINAL_FULL_SCREEN_FRAMES]
+        {
+            assert!(TERMINAL_LEAN_STREAM.contains(&name), "{name}");
+        }
     }
 
     #[test]

@@ -45,7 +45,7 @@ export const { signal, computed, effect, onCleanup, untrack } = g
 export const {
   VStack, HStack, ZStack, LazyVStack, Group, ForEach, Reorderable,
   Text, Icon, Image, Button, Menu, Spacer, Divider, Row, Badge, EmptyState, Panel,
-  Toggle, Slider, TextField, ProgressView, Circle, Capsule, Rectangle, RoundedRectangle, Line
+  Toggle, Slider, TextField, ProgressView, Circle, Capsule, Rectangle, RoundedRectangle, Line, Particles
 } = g
 
 /** Gradient fills for `.background(...)` and a shape's `.fill(...)`: 2 to 8 stops (tones or
@@ -60,6 +60,22 @@ export type View = CmuxView
 export type Signal<T> = CmuxSignal<T>
 export type Gradient = CmuxGradient
 export type Fill = CmuxFill
+
+/** Motion props (`.animation`, `.loop`, `.transition`, `Particles`, ...): declared in the scene, run by cmux's renderer at display rate. */
+export type Motion = CmuxMotion
+export type Loop = CmuxLoop
+export type LoopEffect = CmuxLoopEffect
+export type Transition = CmuxTransition
+export type TimedTransition = CmuxTimedTransition
+export type Offset = CmuxOffset
+export type Glow = CmuxGlow
+export type LinearGradient = CmuxLinearGradient
+export type Trim = CmuxTrim
+export type ParticlePreset = CmuxParticlePreset
+export type ParticlesProps = CmuxParticlesProps
+export type ParticleChoreography = CmuxParticleChoreography
+export type ChoreographyTrigger = CmuxChoreographyTrigger
+export type ChoreographyEase = CmuxChoreographyEase
 
 // ---------------------------------------------------------------------------------------------
 // Places. Export the result under the name the manifest gives the place's `export`.
@@ -78,8 +94,22 @@ export function section(render: (context: MountContext) => View): (context: Moun
   return render
 }
 
-/** A pane (`cmux.pane/1`): a tab kind the person opens from the palette or an op. Same scene DSL as a section. */
-export function pane(render: (context: MountContext) => View): (context: MountContext) => View {
+/**
+ * A pane's context (`cmux.pane/1`): `args` from `cmux.app.openPane(args)` (null when the person opened
+ * it), `close(result)` to answer that open, `onOpen(fn)` and `onClose(fn)`.
+ */
+export type PaneContext = CmuxPaneContext
+/** What `cmux.app.openPane` resolves with. */
+export type PaneResult<T = unknown> = CmuxPaneResult<T>
+
+/**
+ * A pane (`cmux.pane/1`): a tab kind the person opens from the palette or an op. Same scene DSL as a
+ * section. Another view of the extension opens it with arguments and waits for its result:
+ *
+ *     const { result, dismissed } = await cmux.app.openPane({ id: "issue-42" })
+ *     export const renderPane = pane((ctx) => Button("Pick", () => ctx.close({ picked: ctx.args?.id })))
+ */
+export function pane(render: (context: PaneContext) => View): (context: PaneContext) => View {
   return render
 }
 

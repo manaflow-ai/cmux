@@ -13,7 +13,7 @@ function header() {
        <span id="icon"><svg id="glyph"></svg></span>
        <div id="title"><span id="words">Edited MEMORY.md</span><span id="counts">+1 -0</span></div>
        <span id="chip" role="button" tabindex="0"><b id="chip-name">Grid fix</b></span>
-       <button id="view">View changes</button>
+       <button id="undo">Undo</button>
        <button id="chevron" aria-expanded="false"><svg id="chevron-glyph"></svg></button>
        <a id="link" href="#x">link</a>
        <span id="sender" data-own-click=""><span id="sender-name">Grid fix</span></span>
@@ -31,7 +31,7 @@ describe("togglesHeader", () => {
       expect(header().at(id)).toBe(true);
     });
   // The chevron toggles through its own click handler, so the header must not toggle it again.
-  for (const id of ["chip", "chip-name", "view", "chevron", "chevron-glyph", "link", "sender", "sender-name"])
+  for (const id of ["chip", "chip-name", "undo", "chevron", "chevron-glyph", "link", "sender", "sender-name"])
     test(`a click on #${id} is that control's own`, () => {
       expect(header().at(id)).toBe(false);
     });
