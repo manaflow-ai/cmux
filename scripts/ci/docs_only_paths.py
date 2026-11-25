@@ -201,7 +201,8 @@ CI_LABELS = LABEL_OPT_INS + (LAND_HANDOFF,)
 # The fallback's gate reads the land handoff too, on a pull request of more than PATHS_FILTER_LIMIT files only: a
 # ready head runs ci.yml's and cmux-next-guards.yml's heavy tiers only on `ready-to-land` (the land tier), and their
 # `paths:` may not see past the first 300 files, so without this call those tiers never ran before merge
-# (docs/ci/cmux-next-workflow-notes.md#note-561). A pull request of 300 files or fewer starts them on its own.
+# (docs/ci/cmux-next-workflow-notes/2026-11-25-land-tier.md). A pull request of 300 files or fewer starts them
+# on its own.
 FALLBACK_LABELS = CI_LABELS
 
 

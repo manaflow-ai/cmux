@@ -52,7 +52,7 @@ GUARDED: dict[str, tuple[str, ...]] = {
     "pr-router.yml": ("ready-to-land",),
     "backend-migrations.yml": ("backend:apply-migrations", "full-ci"),
     # The land tier (scripts/ci/head_tier.py): tooling-tests and the fast gates run on a cheap-tier head only once
-    # ready-to-land is added (docs/ci/cmux-next-workflow-notes.md#note-561).
+    # ready-to-land is added (docs/ci/cmux-next-workflow-notes/2026-11-25-land-tier.md).
     "cmux-next-guards.yml": ("ready-to-land",),
     "cmux-next-fast-gates.yml": ("ready-to-land",),
 }

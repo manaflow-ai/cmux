@@ -420,8 +420,8 @@ class Fallback(unittest.TestCase):
 
     def test_a_ci_label_on_a_docs_only_pull_request_calls_what_listens_for_it(self):
         listens = sorted(n for n, c in self.calls.items() if "labeled" in c["types"])
-        # guards listens for ready-to-land (the land tier, docs/ci/cmux-next-workflow-notes.md#note-561); on a
-        # full-ci call its label guard skips every job.
+        # guards listens for ready-to-land (the land tier, docs/ci/cmux-next-workflow-notes/2026-11-25-land-tier.md);
+        # on a full-ci call its label guard skips every job.
         self.assertEqual(listens, ["ci.yml", "cmux-next-guards.yml"])
         for label in docs.LABEL_OPT_INS:
             for base in BASES:
@@ -474,8 +474,8 @@ class Fallback(unittest.TestCase):
         self.assertIs(fallback["concurrency"]["cancel-in-progress"], True)
 
     def test_ready_to_land_on_a_large_pull_request_calls_the_land_tier(self):
-        # The land tier (docs/ci/cmux-next-workflow-notes.md#note-561): a ready head runs ci.yml's and guards' heavy
-        # tiers only on ready-to-land, and their filters may not see past the first 300 files.
+        # The land tier (docs/ci/cmux-next-workflow-notes/2026-11-25-land-tier.md): a ready head runs ci.yml's and
+        # guards' heavy tiers only on ready-to-land, and their filters may not see past the first 300 files.
         files = PROSE + [CODE]
         event = pull_request_event("labeled", label="ready-to-land", changed=len(files))
         self.assertTrue(gate_runs(event))
