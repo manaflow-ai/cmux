@@ -86,7 +86,9 @@ pub(crate) fn from_archive(opts: &Opts, store: Option<&dyn Store>) -> (i32, serd
     let why = match take(opts, store) {
         Ok(fetched @ Fetched::Checkout { .. }) => {
             let mut line = serde_json::to_value(&fetched).unwrap_or_default();
-            line["source"] = "archive".into();
+            if let Some(fields) = line.as_object_mut() {
+                fields.insert("source".into(), "archive".into());
+            }
             return (0, line);
         }
         Ok(Fetched::Unknown { why }) => why,
