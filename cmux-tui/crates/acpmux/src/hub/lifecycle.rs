@@ -377,6 +377,7 @@ impl Hub {
         // Every way out of here (an error, or this future dropped) before
         // `ensure_child` took the entry puts it back or ends it.
         let _claim = pooled.as_ref().map(|id| self.pool_claim_guard(id.clone()));
+        let warm = pooled.is_some();
         let id =
             fixed_id.unwrap_or_else(|| pooled.unwrap_or_else(|| uuid::Uuid::now_v7().to_string()));
         meta.id = id.clone();
@@ -528,6 +529,24 @@ impl Hub {
             creation_guard.disarm();
             return Ok(self.begin_watch(&session, &store_family, file.clone()));
         }
+        // A fresh Claude Code chat the person started spawns in its start mode (`--permission-mode`,
+        // `claude_spawn_start_mode`), so `start_mode_for` below finds it there and sends no
+        // `set_mode`, which Claude Code would answer only once booted. The chat's modes are the
+        // agent's own once it started (`cold_start`); a process that cannot take the mode (bypass
+        // not allowed) runs Claude Code's own, and the `set_mode` below moves it as before.
+        let spawn_start_mode = if !warm
+            && mode_eligible
+            && limits_from.is_none()
+            && profile.kind == crate::config::HarnessKind::ClaudeStdio
+        {
+            self.claude_spawn_start_mode(&session).await
+        } else {
+            None
+        };
+        if let Some(mode) = &spawn_start_mode {
+            session.meta.lock().unwrap_or_else(|e| e.into_inner()).modes =
+                Some(json!({ "currentModeId": mode }));
+        }
         let spawned =
             match self.spawn_profile(&session, &profile, launch_digest, &defaults.env).await {
                 Ok(spawn) => {
@@ -542,6 +561,14 @@ impl Hub {
             self.discard_failed_creation(&session, created_stops).await;
             creation_guard.disarm();
             return Err(e);
+        }
+        // A start mode the agent spawned in and runs is cmux's own, as `set_mode` records it
+        // (`trust_wait.rs` `full_access_by_cmux`).
+        if let Some(mode) = spawn_start_mode {
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            if crate::web_modes::mode_of(&m).as_deref() == Some(mode.as_str()) {
+                m.mode_set_by_cmux = Some(mode);
+            }
         }
         // An agent that started fresh instead of resuming fails creation.
         if let Some(a) = adopt.as_ref().filter(|_| fork_from.is_none()) {
@@ -746,7 +773,11 @@ impl Hub {
         );
         // Only while nothing of the chat still runs: an agent or host a failed stop left behind is
         // reached below, which ends or adopts it and holds it to the policy again (review F1).
-        if let Some(e) = session.policy_refusal.held(&refusal_key) {
+        // A harness that exited while it started, with the same error again, is not started
+        // again on every wake until its window passed (`launch_backoff.rs`).
+        let held = session.policy_refusal.held(&refusal_key);
+        let held = held.or_else(|| session.launch_backoff.held(std::time::Instant::now()));
+        if let Some(e) = held {
             let child = session.child.lock().await.clone();
             let alive = match child {
                 Some(child) => child.is_alive().await,
@@ -775,6 +806,12 @@ impl Hub {
             }
             Err(e) => {
                 self.wake_ended(session, wake, Some(&e));
+                if super::launch_backoff::is_launch_failure(&e)
+                    && let Some((fails, hold)) =
+                        session.launch_backoff.failed(&e, std::time::Instant::now())
+                {
+                    tracing::warn!(session = %session.id, fails, hold_secs = hold.as_secs(), "the same launch failure again: not started for {}s unless the person writes to it: {}", hold.as_secs(), e.message);
+                }
                 return Err(e);
             }
         };
@@ -807,6 +844,7 @@ impl Hub {
             return Err(e);
         }
         self.wake_ended(session, wake, None);
+        session.launch_backoff.clear();
         // The start is over: its harness runs at its CPU class from now on (`cpu_class.rs`).
         child.enter_run_class().await;
         // A Codex that went ahead at the head but started without the repository hook gets no

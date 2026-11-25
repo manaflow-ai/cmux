@@ -121,7 +121,7 @@ pub const ENV: &str = "CMUX_WG_ULTRA";
 /// rate and minimum RTT, so random loss does not shrink it. `cubic`: the
 /// loss-based controller cmux-wg used before. `none`: no congestion control,
 /// so each stream runs at what its window and the pacer allow (bounded by the
-/// 256 KiB window); for benches, as it is unfair to other traffic on a
+/// stream window); for benches, as it is unfair to other traffic on a
 /// congested link.
 pub const CC_ENV: &str = "CMUX_WG_ULTRA_CC";
 
@@ -139,7 +139,7 @@ pub(crate) static CUBIC_PINNED: std::sync::atomic::AtomicBool =
 
 /// The congestion control [`CC_ENV`] asks for; BBR when unset or unknown.
 pub(crate) fn congestion_from_env() -> smoltcp::socket::tcp::CongestionControl {
-    if CUBIC_PINNED.load(std::sync::atomic::Ordering::Relaxed) {
+    if CUBIC_PINNED.load(Ordering::Relaxed) {
         return smoltcp::socket::tcp::CongestionControl::Cubic;
     }
     congestion_from(std::env::var(CC_ENV).ok().as_deref())

@@ -645,40 +645,8 @@ jobs:
           # Private: no r2.dev, no custom domain (fleet-artifact-cdn.yml checks it). A dev image is never
           # published; readers get presigned GET URLs.
           R2_BUCKET: cmux-fleet-artifacts
-        run: |
-          set -euo pipefail
-          if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
-            echo "::warning title=qcow2 export::no R2 credentials in this run; nothing exported"; exit 0
-          fi
-          missing=""
-          for t in qemu-img mkfs.ext4 fakeroot zstd; do command -v "$t" >/dev/null || missing=1; done
-          if [ -n "$missing" ]; then sudo -n apt-get install -y -qq qemu-utils e2fsprogs fakeroot zstd >/dev/null; fi
-          prefix="cmux-vm-image/$TAG"
-          presign() { python3 ../scripts/ci/r2-presign.py --endpoint-url "$R2_ENDPOINT" --bucket "$R2_BUCKET" --key "$prefix/$1" --method "$2" --expires 7200; }
-          QCOW2_ROOTFS_PUT_URL="$(presign rootfs.tar.zst PUT)" \
-            bun ../images/cmux-vm/qcow2-export.ts --snapshot "$SNAPSHOT" --tag "$TAG" --out-dir "$OUT_DIR" | tee "$OUT_DIR/qcow2-export.out"
-          read -r _ tar_sha _ < <(grep '^ROOTFS_TAR ' "$OUT_DIR/qcow2-export.out" | tail -1)
-          work="$RUNNER_TEMP/qcow2-$TAG"
-          mkdir -p "$work"
-          curl -fsS --retry 5 --retry-all-errors -o "$work/rootfs.tar.zst" "$(presign rootfs.tar.zst GET)"
-          echo "$tar_sha  $work/rootfs.tar.zst" | sha256sum -c -
-          name="cmux-vm-$TAG.qcow2"
-          bash ../scripts/ci/vm-image-qcow2.sh --rootfs-tar "$work/rootfs.tar.zst" --out "$work/$name" | tee -a "$OUT_DIR/qcow2-export.out"
-          rm -f "$work/rootfs.tar.zst"
-          curl -fsS --retry 5 --retry-all-errors -T "$work/$name" "$(presign "$name" PUT)"
-          curl -fsS --retry 5 --retry-all-errors -T "$work/$name.sha256" "$(presign "$name.sha256" PUT)"
-          cp "$work/$name.sha256" "$OUT_DIR/"
-          read -r _ _ digest bytes < <(grep '^QCOW2 ' "$OUT_DIR/qcow2-export.out" | tail -1)
-          jq -n --arg tag "$TAG" --arg snapshot "$SNAPSHOT" --arg bucket "$R2_BUCKET" --arg key "$prefix/$name" \
-            --arg sha256 "$digest" --argjson bytes "$bytes" --arg rootfs "$prefix/rootfs.tar.zst" \
-            --arg rootfs_sha256 "$tar_sha" \
-            '{tag: $tag, snapshot_id: $snapshot, bucket: $bucket, qcow2: {key: $key, sha256_key: ($key + ".sha256"), sha256: $sha256, bytes: $bytes}, rootfs_tar: {key: $rootfs, sha256: $rootfs_sha256}}' \
-            > "$OUT_DIR/qcow2.json"
-          rm -rf "$work"
-          {
-            echo "### qcow2 image"
-            echo "- \`$R2_BUCKET/$prefix/$name\` (private; fetch with a presigned GET), $bytes bytes, sha256 \`$digest\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+        # scripts/ci/vm-image-qcow2-publish.sh: the same export the image roll runs for every rolled image.
+        run: bash ../scripts/ci/vm-image-qcow2-publish.sh
 
       # Deletes every id the ledger recorded and did not delete yet: the bake
       # snapshot, and any builder or clone a failed or cancelled step left.

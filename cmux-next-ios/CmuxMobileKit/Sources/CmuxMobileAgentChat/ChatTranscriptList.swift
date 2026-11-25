@@ -416,6 +416,14 @@ final class ChatTranscriptCollectionView: UICollectionView {
     override func layoutSubviews() {
         super.layoutSubviews()
         didLayout?()
+        // A composer can be ready while the transcript is still empty. Mark the
+        // first frame with an actual visible transcript cell instead.
+        if visibleCells.contains(where: { cell in
+            guard cell is ChatRowCell || cell is ChatNativeRowCell else { return false }
+            return !cell.isHidden && cell.bounds.width > 0 && cell.bounds.height > 0
+        }) {
+            LaunchMarks.shared.markNextFrame("chat_first_row_frame")
+        }
     }
 }
 
@@ -1505,6 +1513,8 @@ final class ChatRowLookup {
         cell.contentConfiguration = UIHostingConfiguration {
             ChatRowTop {
                 ChatRowView(row: row, context: context)
+                    // The layout-shift count: a drawn row must not move or resize (UIKit list: window space).
+                    .layoutShiftTracked("chat.\(id)", in: .window)
 
                     // VoiceOver hears which row holds Find in Chat's current match.
                     .accessibilityAddTraits(marked ? .isSelected : [])
@@ -1651,6 +1661,7 @@ extension ChatRow {
             case .math: return 60
             case .rule: return 9
             }
+        case .tool(let call) where call.hasImages: return 32 + 6 + CGFloat(min(call.images.count, ToolOutputImages.maxShown)) * (ToolOutputImages.maxHeight + 6)
         case .thought, .tool, .toolGroup, .working, .worked: return 32
         case .edit(_, let files): return files == nil ? 44 : 44 + 12 * 19 + 20
         case .plan(let entries): return 56 + CGFloat(entries.count) * 30
