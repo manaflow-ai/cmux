@@ -49,6 +49,7 @@ final class CloudMachineSession {
     private(set) var linkDropped = false
     /// The last connect failed for good, and why (``CloudLinkRefusal``): a start's or a move's wait ends on it.
     let linkRefusal = CloudLinkRefusal()
+    @ObservationIgnored let notUpRedial = CloudNotUpRedial() // a running machine refused as not up yet dials again by itself (cmux#57192)
     /// The list read an ended app link starts; its ``CloudLinkEndRead/confirming`` is
     /// ``CloudMachineStageInput/linkEndConfirming``, false once it answers or a connect starts.
     @ObservationIgnored let linkEndRead = CloudLinkEndRead()
@@ -148,6 +149,7 @@ final class CloudMachineSession {
         guard machine.status.isLive || origin == .user, !appConnecting, appTicket == nil || linkEnded != nil else { return }
         appConnecting = true
         connects += 1
+        notUpRedial.connecting(byPerson: origin == .user)
         // A resume that failed earlier says nothing about this connect.
         resumeFailure = nil
         linkRefusal.connecting()
@@ -254,9 +256,9 @@ final class CloudMachineSession {
         appTicket = ticket.id
         linkPhase = .up
         let localIdentity = localIdentity
-        daemon.start(remote: { [weak self] in
+        daemon.start(remote: { [weak self, notUpRedial] in
             do {
-                return try await appLink.endpoint(ticket)
+                return try await notUpRedial.answering { try await appLink.endpoint(ticket) }
             } catch {
                 // The link ended: a refused carrier dial, the serve child gone, or a superseded ticket.
                 let message = await self?.endAppLink(error, ticket: ticket.id) ?? String(describing: error)
@@ -320,6 +322,9 @@ final class CloudMachineSession {
         linkDropped = CloudLinkError.isDrop(error)
         linkRefusal.ended(error)
         linkPhase = .failed(message)
+        notUpRedial.ended(error, machine: machine, stillWanted: { [weak self, before = self.suspends] in
+            self.map { !$0.disconnected && $0.suspends == before && $0.machine.status == .running && $0.linkEnded != nil && !$0.appConnecting } ?? false
+        }) { [weak self] in self?.connect() }
         guard let refresher else { return }
         linkEndRead.ended(dropped: linkDropped, paused: machine.status == .paused, connects: connects,
                           connectsNow: { [weak self] in self?.connects }, read: refresher)
@@ -375,16 +380,8 @@ final class CloudMachineSession {
     /// Where the machine is on its way to a usable daemon.
     var stage: CloudMachineStage { stageInput.stage }
 
-    /// The machine's status as the person sees it: the API record, except
-    /// that a connected daemon is a running machine. A create response has
-    /// no status (decoded as provisioning) and the list is not polled, so the
-    /// record alone said "provisioning" after the terminal worked.
-    var effectiveStatus: CloudMachine.Status {
-        guard machine.shownStatus == .provisioning || machine.shownStatus == .unknown, case .connected = daemon.store.connectionState else {
-            return machine.shownStatus
-        }
-        return .running
-    }
+    /// The machine's status as the person sees it (``CloudMachine/effectiveStatus(daemon:)``).
+    var effectiveStatus: CloudMachine.Status { machine.effectiveStatus(daemon: daemon.store.connectionState) }
 
     /// Retry after a failure (the progress view's Retry or Resume, a user gesture): the record is read first (the idle
     /// auto-pause may have parked the machine behind it), then a paused machine resumes (``attach(origin:)``) or an ended
