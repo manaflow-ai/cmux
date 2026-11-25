@@ -535,13 +535,18 @@ impl GitSeedService {
 
     /// `git.seed.hold.end {ok}`: the barrier ready, or left failed; answers the job's status.
     fn hold_end(&self, params: &Value) -> Result<Value, SeedRefusal> {
-        let ok = serde_json::from_value::<hold::JobParams>(params.clone())
-            .ok()
+        let parsed = serde_json::from_value::<hold::JobParams>(params.clone()).ok();
+        let ok = parsed
+            .as_ref()
             .and_then(|params| params.ok)
             .ok_or_else(|| SeedRefusal::bad_request("hold.end needs ok: true or false"))?;
+        let partial = parsed.and_then(|params| params.partial);
+        if partial.as_deref().is_some_and(|reason| !hold::PARTIAL_REASONS.contains(&reason)) {
+            return Err(SeedRefusal::bad_request("hold.end's partial names no known reason"));
+        }
         let (job, owner) = self.running_hold(params)?;
         let (reply, ended) = mpsc::channel();
-        owner.send(hold::Op::End(ok, reply)).map_err(|_| hold_ended())?;
+        owner.send(hold::Op::End(ok, partial, reply)).map_err(|_| hold_ended())?;
         // A copy that could not finish is the job's own failed status, answered below.
         let _finished: Result<(), Failed> = ended.recv().map_err(|_| hold_ended())?;
         let job = self.jobs().by_id.get(&job).cloned().ok_or_else(hold_ended)?;
