@@ -16,7 +16,8 @@
 //!   cmux-bytes install-timer --folders-file FILE [--every 2h]
 //!       Copies this binary to ~/.local/bin/cmux-bytes and writes the systemd user units
 //!       cmux-bytes-climb.{service,timer}: two climb steps a run, at idle priority, publishing
-//!       ~/.cache/cmux-bytes/latest.json (NOW's bytes section) and the findings log beside it.
+//!       ~/.cache/cmux-bytes/latest.json (NOW's bytes section), prefetch.json (first-turn hit
+//!       rate, held never read) and the findings log beside it.
 //!
 //! `--folders-file FILE` gives the folders as `NAME=PATH` lines (`#` comments), like `--folder`.
 
@@ -649,7 +650,8 @@ fn install_timer(args: &[String]) -> Res<bool> {
         "# Written by `cmux-bytes install-timer` (manaflow-ai/cmux cmux-tui/crates/cmux-bytes).\n\
 [Unit]\nDescription=cmux-bytes hill-climb: two steps on the bytes-path corpus, published for NOW\n\n\
 [Service]\nType=oneshot\nNice=19\nIOSchedulingClass=idle\nTimeoutStartSec=100min\n\
-ExecStart={bin} climb --folders-file {folders} --steps 2 --runs 9 --cap-bytes 67108864 --state {cache}/state --log {cache}/findings.md --json {cache}/latest.json --table {cache}/table.md\n",
+ExecStart={bin} climb --folders-file {folders} --steps 2 --runs 9 --cap-bytes 67108864 --state {cache}/state --log {cache}/findings.md --json {cache}/latest.json --table {cache}/table.md\n\
+ExecStart={bin} prefetch --folders-file {folders} --runs 9 --cap-bytes 67108864 --json {cache}/prefetch.json\n",
         bin = bin.display(),
         folders = folders.display(),
         cache = cache.display(),
