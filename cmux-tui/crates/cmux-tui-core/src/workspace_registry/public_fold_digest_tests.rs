@@ -200,3 +200,31 @@ fn the_fold_keeps_no_copy_of_a_value() {
         );
     }
 }
+
+/// An exited terminal remains in the public journal, including when no tab places it.
+/// Its compact entry answers the same full and stable comparisons through park and relaunch.
+#[test]
+fn parked_terminals_keep_their_journal_comparisons_until_deleted() {
+    let mut fold = PublicTopologyFold::default();
+    let id = "term_00000000000000000000000000000001";
+    for lifecycle in ["running", "exited", "running", "exited"] {
+        let value = json!({"id": id, "lifecycle": lifecycle, "title": "shell", "tab_ids": []});
+        let upsert = json!({"resource":"terminal", "id":id, "kind":"upsert", "value":value});
+        assert!(!fold.states(&upsert));
+        fold.apply(&json!([upsert]));
+        fold.completed();
+        assert!(fold.holds_every_resource());
+        assert!(fold.states(&upsert));
+        let held = fold.held("terminal", id).unwrap();
+        assert!(held.is(&value));
+        assert!(held.is_stable(&stable("terminal", &value)));
+        assert!(fold.values.is_empty());
+        assert_eq!(fold.terminals.len(), 1);
+    }
+    let delete = json!({"resource":"terminal", "id":id, "kind":"delete"});
+    assert!(!fold.states(&delete));
+    fold.apply(&json!([delete]));
+    assert!(fold.held("terminal", id).is_none());
+    assert!(fold.terminals.is_empty());
+    assert!(!fold.states(&delete));
+}

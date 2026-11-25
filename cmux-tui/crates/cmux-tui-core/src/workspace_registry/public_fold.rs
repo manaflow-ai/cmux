@@ -35,6 +35,7 @@
 //! that: a complete fold can say that the journal does not state a
 //! resource, a partial one cannot.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
 use sha2::{Digest, Sha256};
@@ -65,11 +66,36 @@ pub(super) struct PublicTopologyFold {
     since: u64,
     /// What the fold keeps of each value it holds: digests, not the value ([`StatedDigests`]).
     values: HashMap<(String, String), StatedDigests>,
+    /// A parked terminal is still public. Keep the exact journal comparisons without a
+    /// general-resource entry, its two heap strings, or workspace and decoration fields.
+    /// Running terminals use the same representation so a park/relaunch does not move entries.
+    terminals: HashMap<u128, TerminalDigests>,
     /// Whether `values` holds every live topology resource (a full projection was folded since
     /// the fold started). Read through [`Self::holds_every_resource`] only.
     complete: bool,
     /// The public ids of the workspaces that the fold holds whole (see the module text).
     whole: HashSet<String>,
+}
+
+/// Canonical public terminal IDs have a "term_" prefix and 32 lowercase hex digits.
+/// Keep other IDs in the general map, including those in older or synthetic journal records.
+fn terminal_key(resource: &str, id: &str) -> Option<u128> {
+    if resource != "terminal" {
+        return None;
+    }
+    let digits = id.strip_prefix("term_")?;
+    if digits.len() != 32
+        || !digits.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return None;
+    }
+    u128::from_str_radix(digits, 16).ok()
+}
+
+#[derive(Debug)]
+struct TerminalDigests {
+    whole: ValueDigest,
+    stable: ValueDigest,
 }
 
 /// A 128-bit digest (the first half of a SHA-256) of one form of a value.
@@ -324,6 +350,19 @@ impl PublicTopologyFold {
         self.complete
     }
 
+    fn held(&self, resource: &str, id: &str) -> Option<Cow<'_, StatedDigests>> {
+        if let Some(key) = terminal_key(resource, id) {
+            let terminal = self.terminals.get(&key)?;
+            return Some(Cow::Owned(StatedDigests {
+                whole: terminal.whole,
+                stable: Some(terminal.stable),
+                undecorated: None,
+                workspace: None,
+            }));
+        }
+        self.values.get(&(resource.to_string(), id.to_string())).map(Cow::Borrowed)
+    }
+
     fn apply(&mut self, changes: &Value) {
         let Some(changes) = changes.as_array() else { return };
         for change in changes {
@@ -333,6 +372,22 @@ impl PublicTopologyFold {
                 continue;
             };
             if !TRACKED_RESOURCES.contains(&resource) {
+                continue;
+            }
+            if let Some(key) = terminal_key(resource, id) {
+                match kind {
+                    "upsert" => {
+                        let value = &change["value"];
+                        let whole = value_digest(value);
+                        let stable =
+                            digest_without(value, volatile_fields("terminal")).unwrap_or(whole);
+                        self.terminals.insert(key, TerminalDigests { whole, stable });
+                    }
+                    "delete" => {
+                        self.terminals.remove(&key);
+                    }
+                    _ => {}
+                }
                 continue;
             }
             let key = (resource.to_string(), id.to_string());
@@ -392,9 +447,8 @@ impl PublicTopologyFold {
             && match (change["resource"].as_str(), change["id"].as_str()) {
                 // Only a workspace's digests have the form without its key.
                 (Some(resource), Some(id)) => self
-                    .values
-                    .get(&(resource.to_string(), id.to_string()))
-                    .is_some_and(|held| workspace_value_stated(held, &change["value"])),
+                    .held(resource, id)
+                    .is_some_and(|held| workspace_value_stated(&held, &change["value"])),
                 _ => false,
             }
     }
@@ -629,9 +683,7 @@ impl WorkspaceRegistry {
     /// Whether the fold holds a value of this resource: the journal states one. No catch-up,
     /// as [`Self::workspace_is_whole`].
     pub(crate) fn fold_holds(&self, resource: &str, id: &str) -> bool {
-        self.public_fold
-            .as_ref()
-            .is_some_and(|fold| fold.values.contains_key(&(resource.to_string(), id.to_string())))
+        self.public_fold.as_ref().is_some_and(|fold| fold.held(resource, id).is_some())
     }
 
     /// The commit at `revision` stated `workspaces` again from the live tree: each live value
@@ -700,13 +752,13 @@ impl WorkspaceRegistry {
         &self,
         resource: &str,
         id: &str,
-    ) -> Option<Option<&StatedDigests>> {
+    ) -> Option<Option<Cow<'_, StatedDigests>>> {
         let fold = self.public_fold.as_ref()?;
         let head = current_resource_revision(&self.connection.get()).ok()?;
         if fold.revision != head {
             return None;
         }
-        match fold.values.get(&(resource.to_string(), id.to_string())) {
+        match fold.held(resource, id) {
             Some(held) => Some(Some(held)),
             None => fold.holds_every_resource().then_some(None),
         }
@@ -724,7 +776,7 @@ impl WorkspaceRegistry {
     ) -> Option<Option<Value>> {
         self.catch_up_public_fold();
         let fold = self.public_fold.as_ref()?;
-        let Some(held) = fold.values.get(&(resource.to_string(), id.to_string())) else {
+        let Some(held) = fold.held(resource, id) else {
             return Some(None);
         };
         let (mut revision, mut stated) = (fold.since.saturating_sub(1), None);
