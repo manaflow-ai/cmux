@@ -718,18 +718,23 @@ def page_view(pane, layers=None):
     return frames.get(pane)
 
 
-def misfit_count(layers):
-    """Pages whose drawing layer is off its view (debug.layers page_views geometry `fits` false), and how many read."""
+def misfit_count(layers, detail=None):
+    """Pages whose drawing layer is off its view (debug.layers page_views geometry `fits` false), and how many read; each
+    misfit's pane, visibility and layers go into `detail` when given."""
     bad = read = 0
     for v in layers.get("page_views") or []:
         if v.get("parked") or not v.get("geometry"):
             continue
         try:
-            fits = json.loads(v["geometry"]).get("fits")
+            geometry = json.loads(v["geometry"])
         except ValueError:
             continue
         read += 1
-        bad += fits is False
+        if geometry.get("fits") is False:
+            bad += 1
+            if detail is not None:
+                detail.append({"pane": v.get("pane"), "frame": v.get("frame_in_window"),
+                               "hidden": (geometry.get("tree") or {}).get("hidden"), "misfits": geometry.get("misfits")[:2]})
     return bad, read
 
 
@@ -1088,6 +1093,11 @@ def check_pane_zoom(tab, pane):
         row("INFO", "pane_zoom", {"note": "no in-tree page view"})
         return
     record("pane_zoom", 8)
+    # Whether the window can show a held snap at all: a zoom shows at the layout's next frame tick
+    # (ScreenContentView+SnapFrame), and an occluded window gets none.
+    wl = (rpc("debug.window_list") or {}).get("windows") or []
+    RAW["pane_zoom_window"] = [{k: w.get(k) for k in ("kind", "visible", "occluded", "frame")} for w in wl if w.get("kind") == "main"]
+    rpc("debug.frames", {"action": "start"})
     action("tab.focus", target=f"tab:{tab}")
     time.sleep(0.3)  # test harness: focus lands
     for direction in ("zoom", "unzoom"):
@@ -1109,6 +1119,8 @@ def check_pane_zoom(tab, pane):
             {"bug": 14, "before": before, "final": final, "shown_page_views": len(shown), "clean": clean,
              "viewport": viewport, "lag_ms": result["lag_ms"], "glitches": zoom_glitch(result["vp"]),
              "pass_if": "zoom: area >= 1.3x; unzoom: back within 1 pt; one page view, no panel/page window, page fits <= 100 ms"})
+    frames = rpc("debug.frames", {"action": "stop"})
+    row("INFO", "pane_zoom.window", {"window": RAW.get("pane_zoom_window"), "frames": frame_detail(frames)})
 
 
 def check_popup_float(tab, pane):
@@ -1245,8 +1257,10 @@ class MotionCapture:
         while self.running:
             t = time.time()
             layers = main_layers()
-            bad, read = misfit_count(layers)
-            self.samples.append({"t": t, "window": layers.get("frame"), "views": page_frames(layers), "misfits": bad, "read": read})
+            detail = []
+            bad, read = misfit_count(layers, detail)
+            self.samples.append({"t": t, "window": layers.get("frame"), "views": page_frames(layers), "misfits": bad, "read": read,
+                                 "detail": detail[:2]})
             time.sleep(0.008)  # test harness: about two layer reads a display frame
 
     def stop(self):
@@ -1257,8 +1271,9 @@ class MotionCapture:
     def misfits(self, t_start):
         """Layer samples after t_start: how many were read, how many had a page whose drawing layer was off its view."""
         after = [smp for smp in self.samples if smp["t"] >= t_start and smp.get("read")]
-        bad = [round((smp["t"] - t_start) * 1000) for smp in after if smp.get("misfits")]
-        return {"samples": len(after), "with_misfit": len(bad), "first_ms": bad[:6]}
+        bad = [smp for smp in after if smp.get("misfits")]
+        return {"samples": len(after), "with_misfit": len(bad), "first_ms": [round((smp["t"] - t_start) * 1000) for smp in bad[:6]],
+                "first": bad[0]["detail"] if bad else None, "last": bad[-1]["detail"] if bad else None}
 
     def around(self, frame, slack=0.03):
         return [s for s in self.samples if frame["t0"] - slack <= s["t"] <= frame["t1"] + slack and s["window"]]
