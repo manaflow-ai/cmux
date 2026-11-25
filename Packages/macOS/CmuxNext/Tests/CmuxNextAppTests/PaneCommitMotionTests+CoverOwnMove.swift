@@ -151,7 +151,9 @@ extension PaneCommitMotionTests {
     /// The row prints how far the pane was from its place in the frame before (the jump), and the most that a mask
     /// takes in one frame of another pane's place outside the pane that grows: the mask of such a pane keeps the
     /// hole's move of the unzoom, so its hole is larger than the pane that grows until that move's end (a known
-    /// limit). A layer's animations are read each at its own part of its act.
+    /// limit). The pane that grows, each other pane and each part of a mask are read each at its own animations' time,
+    /// with each animation's own spring and duration (`PaneCommitMotionTests+OwnTime`). Check 1 reads the place of
+    /// the pane that the unzoom closed at the part of each act's spring.
     @Test(arguments: movingSpeeds, othersOfSix)
     func aZoomOfAnotherPaneInAnUnzoomsMoveShowsNoOtherPaneInsideIt(_ speed: MotionSpeed, _ name: String) throws {
         let over = try Self.overPicture("unzoom", panes: 6, gap: "glass", speed: speed)
@@ -182,15 +184,16 @@ extension PaneCommitMotionTests {
                     ? Self.way(of: "unzoom", at: speed, tick: Self.framesBeforeTheKey + 1 + now)
                     : Self.way(of: "zoom", at: speed, tick: now)
             }
+            let since: (Int) -> Double = { act in Double(act == first ? Self.framesBeforeTheKey + 1 + now : now) * Self.dt }
             if let layer = next.layer {
-                let rect = Self.rect(of: layer, at: part)
+                let rect = Self.rectByOwnTime(of: layer, since: since)
                 var shows: [String] = []
                 for other in others where !other.isHidden {
                     if Self.area(other.frame.intersection(rect)) >= 1 { under += 1 }
-                    let within = Self.showing(other, on: screen, at: part).reduce(CGFloat(0)) { $0 + Self.area($1.intersection(rect)) }
-                    let seen = Self.kept(other, on: screen, over: [], at: part)
+                    let seen = Self.keptByOwnTime(other, on: screen, since: since)
+                    let within = seen.area(in: rect)
                     let room = Self.area(seen.shows) - Self.area(seen.shows.intersection(rect))
-                    let lost = room - (seen.area(in: seen.shows) - seen.area(in: rect))
+                    let lost = room - (seen.area(in: seen.shows) - within)
                     if other === mover {
                         if within >= 1 { inside.append("tick \(tick): \(Int(within)) pt2 inside \(next.pane) at \(rect)") }
                         if lost > 1 { taken.append("tick \(tick): \(Int(lost)) pt2 of the \(Int(room)) pt2 outside \(next.pane)") }
