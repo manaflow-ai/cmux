@@ -87,7 +87,7 @@ public final class NavigationPaletteProvider: PaletteProvider {
 
     @MainActor
     static func item(_ entry: PaletteNavigationEntry, recencyBoost: Int, source: (any PaletteNavigationSource)?) -> PaletteItem {
-        let open = PaletteCommand(id: "select", title: commandTitle(entry.kind), symbol: "return", effect: .perform { [weak source] in
+        let open = PaletteCommand(id: "select", title: commandTitle(entry.kind), symbol: "return", namesRow: true, effect: .perform { [weak source] in
             source?.open(entry)
         })
         let parents = [entry.workspaceTitle, entry.groupTitle].compactMap { $0?.isEmpty == false ? $0 : nil }
