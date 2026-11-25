@@ -26,12 +26,15 @@ pinned group is in the Pinned band, shows its pin, and its menu reads Unpin Grou
      members (the top of the unpinned members).
    - A workspace or group in the Pinned band: back where it was pinned from (into its group when it
      came from one, first there when it was first), after the
-     neighbor it sat after, while that neighbor still sits there. Otherwise the top of its machine
+     neighbor it sat after, while that neighbor still sits there and the destination still accepts
+     the item. The same placement rules validate moves and remembered destinations: a changed
+     machine, descendant cycle, or excessive group depth falls back to the top of its machine
      section (Chief's default, 2026-10-20: as Move to Top). The old rule was the end of the section.
 6. **Nested groups (a283, remote groups slice 1).** A top-level group pins and unpins with its whole
    tree. A nested group, or a workspace in one, pins to the Pinned band (with its subtree) and unpins
-   back into its own parent. A member of a pinned tree is not pinned itself: Unpin and Pin on it do
-   nothing. Pinned keeps closed workspaces and the groups that hold them. When Unpin moves
+   back into its own parent. A member of a pinned tree is not pinned itself: Unpin leaves it there,
+   while Pin moves it to the top level of the Pinned band and remembers its parent for Unpin.
+   Pinned keeps closed workspaces and the groups that hold them. When Unpin moves
    a tree back into its machine section, the daemon closes the workspaces that are not open, and the
    groups that this empties go, as when the last workspace closes there.
 7. **Pins survive restart.** Sidebar pins are rows of the daemon's sidebar document (`extra.pinned`,
