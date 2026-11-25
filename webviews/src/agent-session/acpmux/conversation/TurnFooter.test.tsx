@@ -72,7 +72,7 @@ test("the buttons lead the footer row, with no time or Worked for after them", (
 });
 
 test("a turn stopped within a second still says it stopped", () => {
-  expect(footerLabel(t, footer({ durationMs: 400, status: "cancelled" }))).toBe("You stopped after 0s");
+  expect(footerLabel(t, footer({ durationMs: 400, status: "cancelled" }))).toBe("You stopped after <1s");
 });
 
 test("a turn whose work folds under Worked for says nothing in its footer", () => {

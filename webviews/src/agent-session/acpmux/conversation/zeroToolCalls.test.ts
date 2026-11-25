@@ -178,7 +178,7 @@ test("an Agent call whose subagent never got a row keeps its fold and its row", 
   expect(view.filter((entry) => entry.kind === WORKED)).toHaveLength(1);
 });
 
-test("a lone subagent's turn with no recorded time says no count in its footer", () => {
+test("a lone subagent's turn with no recorded time keeps its fold, and its footer says no count", () => {
   const rows: AcpmuxRow[] = [
     row("prompt", 1, "user", { text: "Move the daemon wiring" }),
     row("act", 2, "activity", { items: [spawnCall("failed")] }),
@@ -186,7 +186,9 @@ test("a lone subagent's turn with no recorded time says no count in its footer",
     row("summary", 2, "turnSummary", { status: "completed", toolCount: 1 }),
   ];
   const view = turnView([...withSubagentLines(rows)], new Set(), { agentFamily: "claude" });
-  expect(view.filter((entry) => entry.kind === WORKED)).toEqual([]);
+  expect(view.filter((entry) => entry.kind === WORKED).map((entry) => workedLabel(t, entry))).toEqual([
+    "Worked for <1s",
+  ]);
   const footer = view.find((entry) => entry.kind === "turnSummary")!;
   expect(footerLabel(t, footer)).toBeUndefined();
 });
