@@ -943,6 +943,15 @@ jobs:
           use-cache: false
       - name: Restore the Zig global cache (feat-cmux-next pushes save it)
         uses: ./.github/actions/zig-global-cache
+      # Without it every run compiles cmux-tui cold: 39 min on run 45589784032 (job 139139653339), which left
+      # the journey 1 min under this job's 50 and cancelled it, so no promote reached production. Same cache
+      # as cloud-journey-prod.yml's identical build.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
+          workspaces: cmux-tui
+          # rust-cache deletes ~/.cargo/bin otherwise (tests/test_ci_rust_cache_keeps_runner_bin.py).
+          cache-bin: false
       - name: Build Linux cmux-tui for the headless journey
         id: build-cmux-tui
         working-directory: cmux-tui
