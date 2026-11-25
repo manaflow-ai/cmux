@@ -495,7 +495,7 @@
         },
         {
           "key": "sidebar.showLiveToggle",
-          "note": "On by default (Leo 2026-11-24: an icon \"somewhere omnipresent... say the bottom left of the sidebar area\"). Off hides the footer's Live button only; presence.live and the Live palette action stay.",
+          "note": "Off by default (Leo 2026-11-25 didn't want it on by default after #53574 shipped it on): out of the box the sidebar footer looks as it did before the Live button. On shows the footer's Live button after the profile avatar (Leo 2026-11-24: an icon \"somewhere omnipresent... say the bottom left of the sidebar area\"); presence.live and the Live palette action do not depend on it.",
           "title": {
             "key": "settings.sidebar.showLiveToggle",
             "text": "Show Live Button"
@@ -505,7 +505,7 @@
             "text": "A Live button after the profile button turns presence on or off. Off: use the palette."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "sidebar",
             "live",
