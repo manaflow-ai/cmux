@@ -316,6 +316,7 @@ test("with the list still out, a host that opens: the hold's reply gives the row
       eventStream: true,
       kinds: [...HOLD_KINDS],
       visible: expect.any(Boolean),
+      attending: expect.any(Boolean),
     });
     (globalThis as { cmuxChatRows?: { receive(event: unknown): void } }).cmuxChatRows!.receive({
       batch: 1,
