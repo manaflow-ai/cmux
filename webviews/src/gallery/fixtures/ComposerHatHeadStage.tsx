@@ -4,6 +4,7 @@
 // and the first finishing. The stage's buttons (outside the pane, for the play script and a person)
 // drive it, so the slide, the count's roll, the done mark and both chevron places can be watched.
 import { useState, type CSSProperties } from "react";
+import type { TrayHandleSide } from "../../agent-session/acpmux/chatDisplay";
 import { trayItems, finishedTrayItems } from "../../agent-session/acpmux/subagents/runningTray";
 import { SubagentTray } from "../../agent-session/acpmux/subagents/SubagentTray";
 import type { Subagent } from "../../agent-session/acpmux/subagents/subagentFold";
@@ -21,11 +22,17 @@ export type ComposerHatHeadState = "running" | "done" | "two" | "joined-command"
 export function ComposerHatHeadStage({
   start = "running",
   tuck = false,
+  side = "middle",
+  panel = false,
   stepLook = "exact",
 }: {
   start?: ComposerHatHeadState;
   /// The hat can tuck away: its tuck control shows at its top middle (hatTuck.experiment.ts).
   tuck?: boolean;
+  /// Where the tuck control stands on the hat's top edge (SubagentTray.tsx `tuckSide`).
+  side?: TrayHandleSide;
+  /// The header's panel button (the split icon) beside its chevron, as a chat with a Background tasks panel has.
+  panel?: boolean;
   /// How the lone subagent's step shows; "default" takes the experiment's arm (hatStep.experiment.ts).
   /// The exact step by default: most variants are about its hand-over.
   stepLook?: HatStepArm | "default";
@@ -109,6 +116,8 @@ export function ComposerHatHeadStage({
             shown={shown}
             stepLook={stepLook === "default" ? undefined : stepLook}
             onTuck={tuck ? () => undefined : undefined}
+            tuckSide={side}
+            onOpenPanel={panel ? () => undefined : undefined}
           />
           <div className="acpmux-composer">
             <div

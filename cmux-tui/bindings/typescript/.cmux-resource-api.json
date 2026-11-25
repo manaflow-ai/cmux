@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "a8942549a7267599945d20de21f33d1ffd0827908624d01e7b4a92ac9f95187f",
+  "catalog_sha256": "f372987f95bfc5fce9562b5e0c2d1b51068ba3cf597a1e8aa3e6dd3857614e94",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -202,6 +202,9 @@
     "cloud.machine.chief_start": {
       "class": "mutation"
     },
+    "cloud.machine.fork": {
+      "class": "mutation"
+    },
     "cloud.machine.io": {
       "class": "mutation"
     },
@@ -376,6 +379,9 @@
     "diff.comments.send": {
       "class": "mutation"
     },
+    "diff.comments.thread": {
+      "class": "mutation"
+    },
     "frontend_projection.get": {
       "class": "read"
     },
@@ -419,6 +425,15 @@
       "class": "read"
     },
     "git.push": {
+      "class": "mutation"
+    },
+    "git.review.comment": {
+      "class": "mutation"
+    },
+    "git.review.post": {
+      "class": "mutation"
+    },
+    "git.review.start": {
       "class": "mutation"
     },
     "git.status": {
@@ -778,6 +793,9 @@
     "settings.get": {
       "class": "read"
     },
+    "settings.history": {
+      "class": "read"
+    },
     "settings.list": {
       "class": "read"
     },
@@ -785,6 +803,12 @@
       "class": "mutation"
     },
     "settings.reset_all": {
+      "class": "mutation"
+    },
+    "settings.reset_group": {
+      "class": "mutation"
+    },
+    "settings.restore": {
       "class": "mutation"
     },
     "settings.schema": {
@@ -795,6 +819,9 @@
     },
     "settings.snapshot": {
       "class": "read"
+    },
+    "settings.undo": {
+      "class": "mutation"
     },
     "sidebar.adopt": {
       "class": "mutation"

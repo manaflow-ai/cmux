@@ -680,6 +680,44 @@ fn transfer_reply(method: &str, params: &Value) -> Option<Value> {
             json!({"sessionId": "acp_moved", "cwd": params["cwd"]})
         }
         "_acpmux/transfer_finish" => json!({"sessionId": "acp_moved", "cwd": params["cwd"]}),
+        // A begin that carries a token is answered as an acpmux that keeps one: the frozen
+        // move's own token, `tok_frozen`.
+        "_acpmux/transfer_begin"
+            if params["sessionId"] == json!(MOVING_CHAT) && params.get("beginToken").is_some() =>
+        {
+            json!({
+                FAKE_ERROR: "transfer.moving: this chat is already being moved",
+                FAKE_ERROR_DATA: {"transferId": "xfer_frozen", "beginToken": "tok_frozen"},
+            })
+        }
+        // Tail first (`agent_transfer/history_later.rs`).
+        "_acpmux/transfer_prepare" => json!({
+            "schema": "acpmux.transfer.prefix.v1", "prepareId": "pre_1", "afterSeq": 7,
+            "token": "tok", "sessionId": params["sessionId"], "historyLater": true,
+            "files": [{"path": "events/0.ndjson", "size": 3}],
+        }),
+        "_acpmux/transfer_stage" => {
+            json!({"receiveId": "stg_1", "stageId": "stg_1",
+                   "sessionId": params["manifest"]["sessionId"]})
+        }
+        "_acpmux/transfer_stage_finish" => json!({"afterSeq": 7, "records": 2}),
+        "_acpmux/transfer_history_have" => json!({"have": 0}),
+        "_acpmux/transfer_history_export" => json!({
+            "schema": "acpmux.transfer.prefix.v1", "prepareId": "pre_h", "throughSeq": 7,
+            "sessionId": params["sessionId"],
+            "files": [{"path": "events/history.cspb", "size": 3}],
+        }),
+        "_acpmux/transfer_history" => {
+            json!({"sessionId": params["sessionId"], "throughSeq": 7, "records": 5})
+        }
+        "_acpmux/transfer_begin" if params["prepareId"] == json!("pre_1") => json!({
+            "schema": "acpmux.transfer.v1", "transferId": "xfer_1",
+            "sessionId": params["sessionId"], "prefix": {"afterSeq": params["afterSeq"]},
+            "files": [{"path": "events/1.ndjson", "size": 3},
+                      {"path": "manifest.json", "size": BUNDLE_MANIFEST.len()},
+                      {"path": "session.json", "size": BUNDLE_SESSION.len()}],
+            "session": {"sessionId": params["sessionId"], "harness": "claude"},
+        }),
         "_acpmux/transfer_begin" if params["sessionId"] == json!(MOVING_CHAT) => json!({
             FAKE_ERROR: "transfer.moving: this chat is already being moved",
             FAKE_ERROR_DATA: {"transferId": "xfer_frozen"},
