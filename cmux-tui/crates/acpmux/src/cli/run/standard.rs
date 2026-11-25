@@ -39,6 +39,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::New(..)
             | Command::Send { .. }
             | Command::Inbox(..)
+            | Command::Listen { .. }
             | Command::Deliver { .. }
             | Command::Chats(..)
             | Command::Board
@@ -118,7 +119,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             };
             orchestrate::wait(
                 client,
-                orchestrate::WaitOpts { sessions, until, all, timeout, print, notify, matcher },
+                orchestrate::WaitOpts {
+                    sessions,
+                    until,
+                    all,
+                    timeout: Some(timeout),
+                    print,
+                    notify,
+                    matcher,
+                },
                 json_out,
             )
             .await
@@ -1185,28 +1194,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     println!("team inbox is empty");
                 } else {
                     for message in messages.into_iter().flatten() {
-                        let id = message.get("messageId").and_then(Value::as_str).unwrap_or("?");
-                        let from = message
-                            .pointer("/from/teamAddress")
-                            .and_then(Value::as_str)
-                            .or_else(|| message.pointer("/from/user").and_then(Value::as_str))
-                            .or_else(|| message.pointer("/from/name").and_then(Value::as_str))
-                            .unwrap_or("teammate");
-                        let to = message
-                            .pointer("/to/teamAddress")
-                            .and_then(Value::as_str)
-                            .unwrap_or("?");
-                        let state =
-                            message.get("state").and_then(Value::as_str).unwrap_or("queued");
-                        let subject = message
-                            .get("subject")
-                            .and_then(Value::as_str)
-                            .or_else(|| message.get("body").and_then(Value::as_str))
-                            .unwrap_or("");
-                        println!(
-                            "{id}\t{from}\t{to}\t{state}\t{}",
-                            subject.lines().next().unwrap_or("")
-                        );
+                        print_team_message(message);
                     }
                 }
                 if let Some(next) = value.get("next").and_then(Value::as_u64) {
@@ -1221,6 +1209,57 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 );
             } else {
                 println!("ok");
+            }
+            Ok(())
+        }
+        Command::Listen { command } => {
+            use crate::cli::command::ListenCmd;
+            let client = connect(true).await?;
+            let params = match &command {
+                ListenCmd::Open { address, ttl } => {
+                    json!({"op": "open", "to": address, "ttlSeconds": ttl})
+                }
+                ListenCmd::Ls => json!({"op": "ls"}),
+                ListenCmd::Close { id } => json!({"op": "close", "id": id}),
+                ListenCmd::Read { address, before } => {
+                    json!({"op": "read", "to": address, "before": before})
+                }
+            };
+            let value = client.request(method::MUX_TEAM_LISTEN, params).await?;
+            if json_out {
+                print_json(&value);
+                return Ok(());
+            }
+            match command {
+                ListenCmd::Open { .. } => print_listen(&value),
+                ListenCmd::Ls | ListenCmd::Close { .. } => {
+                    let all = ["listening", "listeners"]
+                        .into_iter()
+                        .filter_map(|key| value.get(key).and_then(Value::as_array))
+                        .flatten()
+                        .collect::<Vec<_>>();
+                    if all.is_empty() {
+                        println!("no open listens");
+                    }
+                    for listen in all {
+                        print_listen(listen);
+                    }
+                }
+                ListenCmd::Read { address, .. } => {
+                    let messages = value.get("messages").and_then(Value::as_array);
+                    if messages.is_none_or(Vec::is_empty) {
+                        println!("no messages for {address}");
+                    }
+                    for message in messages.into_iter().flatten() {
+                        print_team_message(message);
+                    }
+                    if let Some(next) = value.get("next").and_then(Value::as_u64) {
+                        println!(
+                            "More: {} listen read {address} --before {next}",
+                            crate::cli::entry::program()
+                        );
+                    }
+                }
             }
             Ok(())
         }
@@ -1866,6 +1905,35 @@ fn relay_fields(relay: crate::cli::command::SendRelay) -> Option<Value> {
         fields.set("fromHarness", json!(harness));
     }
     Some(fields)
+}
+
+/// One team message as `acpmux inbox` lists it: id, from, to, state and its first line.
+fn print_team_message(message: &Value) {
+    let id = message.get("messageId").and_then(Value::as_str).unwrap_or("?");
+    let from = message
+        .pointer("/from/teamAddress")
+        .and_then(Value::as_str)
+        .or_else(|| message.pointer("/from/user").and_then(Value::as_str))
+        .or_else(|| message.pointer("/from/name").and_then(Value::as_str))
+        .unwrap_or("teammate");
+    let to = message.pointer("/to/teamAddress").and_then(Value::as_str).unwrap_or("?");
+    let state = message.get("state").and_then(Value::as_str).unwrap_or("queued");
+    let subject = message
+        .get("subject")
+        .and_then(Value::as_str)
+        .or_else(|| message.get("body").and_then(Value::as_str))
+        .unwrap_or("");
+    println!("{id}\t{from}\t{to}\t{state}\t{}", subject.lines().next().unwrap_or(""));
+}
+
+/// One listen as `acpmux listen ls` lists it: id, address, listener and how long it stays open.
+fn print_listen(listen: &Value) {
+    let field = |key: &str| listen.get(key).and_then(Value::as_str).unwrap_or("?");
+    let expires = listen
+        .get("expiresAt")
+        .and_then(Value::as_u64)
+        .map_or_else(|| "?".to_owned(), |at| crate::cli::ls_table::ago(at, crate::store::now_ms()));
+    println!("{}\t{}\t{}\t{expires}", field("id"), field("teamAddress"), field("listener"));
 }
 
 #[cfg(test)]
