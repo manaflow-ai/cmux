@@ -1,6 +1,7 @@
 use crate::folds::Folds;
 use crate::log::{
-    Anchor, Edge, MAX_BLOB_READ, MAX_FRAME_BYTES, MAX_ROWS, RECORD_OVERHEAD, RawRange, Side,
+    Anchor, Edge, LiveFold, MAX_BLOB_READ, MAX_FRAME_BYTES, MAX_PAGE_BYTES, MAX_ROWS,
+    RECORD_OVERHEAD, RawRange, Side,
 };
 use crate::testkit::{folded_book, ids, open};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -45,6 +46,73 @@ fn backward_closed_fold_keeps_group_when_first_out_is_not_adjacent() {
     // Reading through the writer must not move its append cursor.
     folds.append(30, 40).unwrap();
     assert_eq!(folds.containing(35).unwrap().unwrap().group, 30);
+}
+
+/// A closed turn 1..=10 showing row 5, then an open turn whose group row 11 is not settled yet,
+/// its settled rows 12..=20 of which its fold shows 18 so far.
+fn book_with_an_open_turn(home: &std::path::Path) -> (crate::log::Log, Folds, LiveFold) {
+    let (mut log, _) = open(home);
+    log.append_settled(1, 1, RawRange::NONE, br#"{"body":{"out":[[5,5]]}}"#).unwrap();
+    for id in (2..=10).chain(12..=20) {
+        log.append_settled(id, 1, RawRange::NONE, b"{}").unwrap();
+    }
+    let mut folds = Folds::open(&home.join("folds.idx"), 0).unwrap();
+    folds.append(1, 10).unwrap();
+    (log, folds, LiveFold { group: 11, out: vec![(18, 18)] })
+}
+
+#[test]
+fn an_open_turns_settled_work_comes_folded_as_a_closed_turns_does() {
+    let home = tempfile::tempdir().unwrap();
+    let (mut log, folds, live) = book_with_an_open_turn(home.path());
+    // Without the open turn's fold every settled row of it is drawn, to be folded away later.
+    let window = log.read_window(Anchor::End, 400, MAX_FRAME_BYTES, Some(&folds), &[]).unwrap();
+    assert_eq!(ids(&window.rows), [1, 5, 12, 13, 14, 15, 16, 17, 18, 19, 20]);
+    let window = log
+        .read_window_live(Anchor::End, 400, MAX_FRAME_BYTES, Some(&folds), &[], Some(&live))
+        .unwrap();
+    assert_eq!(ids(&window.rows), [1, 5, 18]);
+    assert!(!window.has_before && !window.has_after);
+    // A hidden anchor lands on the turn as a closed fold's does.
+    let window = log
+        .read_window_live(
+            Anchor::Row { id: 14, side: Side::After },
+            1,
+            MAX_FRAME_BYTES,
+            Some(&folds),
+            &[],
+            Some(&live),
+        )
+        .unwrap();
+    assert_eq!(ids(&window.rows), [18]);
+    // Pages fold it too, and a page of the open turn itself shows all of it.
+    let page = log
+        .read_page_live(Edge::After(5), MAX_PAGE_BYTES, None, Some(&folds), &[], Some(&live))
+        .unwrap();
+    assert_eq!(ids(&page.rows), [18]);
+    let page = log
+        .read_page_live(Edge::After(11), MAX_PAGE_BYTES, Some(11), Some(&folds), &[], Some(&live))
+        .unwrap();
+    assert_eq!(ids(&page.rows), (12..=20).collect::<Vec<_>>());
+    assert!(!page.has_after);
+    // Without it, a page of the open turn is refused as before.
+    assert!(log.read_page(Edge::After(11), MAX_PAGE_BYTES, Some(11), Some(&folds), &[]).is_err());
+}
+
+#[test]
+fn a_person_who_opened_the_open_turn_sees_all_of_it() {
+    let home = tempfile::tempdir().unwrap();
+    let (mut log, folds, live) = book_with_an_open_turn(home.path());
+    let window = log
+        .read_window_live(Anchor::End, 400, MAX_FRAME_BYTES, Some(&folds), &[11], Some(&live))
+        .unwrap();
+    assert_eq!(ids(&window.rows), [1, 5, 12, 13, 14, 15, 16, 17, 18, 19, 20]);
+    // An open turn whose fold shows nothing yet draws none of its work.
+    let none = LiveFold { group: 11, out: Vec::new() };
+    let window = log
+        .read_window_live(Anchor::End, 400, MAX_FRAME_BYTES, Some(&folds), &[], Some(&none))
+        .unwrap();
+    assert_eq!(ids(&window.rows), [1, 5]);
 }
 
 #[test]

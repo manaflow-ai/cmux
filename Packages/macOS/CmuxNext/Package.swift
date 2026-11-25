@@ -464,6 +464,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextTabs",
                 "CmuxNextTaskManagerPage",
                 "CmuxNextTerminal",
+                "CmuxNextTerminalComments",
                 "CmuxNextTerminalFind",
                 "CmuxNextTerminalGeometry",
                 "CmuxNextUpdater",
@@ -1381,6 +1382,21 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextFiles",
+            ],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Comment… on a terminal selection (comment-threads-v1): the card over a terminal that shows
+        // its comment threads and the agent's replies, and the per-host thread models (CmuxNextDiff).
+        .target(
+            name: "CmuxNextTerminalComments",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
+                "CmuxNextDaemonService",
+                "CmuxNextDesign",
+                "CmuxNextDiff",
             ],
             resources: [
                 .process("Resources"),
@@ -2313,6 +2329,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemonService",
                 "CmuxNextPages",
                 "CmuxNextSettings",
+                "CmuxNextWakeups",
             ],
             resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
@@ -2357,6 +2374,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDesignTokens",
                 "CmuxNextIcons",
                 "CmuxNextTestSupport",
+                "CmuxNextWakeups",
                 "CmuxNextWakeupsTestSupport",
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
             ],
