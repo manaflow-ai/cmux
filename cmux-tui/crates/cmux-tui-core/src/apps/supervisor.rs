@@ -1124,6 +1124,9 @@ pub(super) fn entry(
         "bundle_dir": package.map(|p| p.dir.to_string_lossy().into_owned()),
         // Palette entries (`apps-run {app, op}` runs them).
         "commands": package.map(|p| p.palette_commands(key_overrides)).unwrap_or_default(),
+        // `contributes.keybindings` in keybindings.json form, for the
+        // client's app binding layer (an own op runs as `app.command.run`).
+        "keybindings": package.map(Package::keybindings).unwrap_or_default(),
         "manifest": package.map(|p| p.manifest.clone()).unwrap_or(Value::Null),
         // The web panes the client may host (`render: web`): each page's
         // file root inside `bundle_dir` and its entry file, as the manifest
