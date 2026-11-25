@@ -59,9 +59,16 @@ impl Http for Fake<'_> {
             ("POST", ["devices"]) => {
                 let body = body.unwrap();
                 let id = body["id"].as_str().unwrap().to_owned();
-                let active = s.devices.is_empty() && body.get("wrap").is_some();
+                let empty = !s.devices.iter().any(|d| d["state"] == "active") && s.items.is_empty();
+                let active = empty && body.get("wrap").is_some();
+                if active && body["wrap"]["epoch"].as_u64() != Some(s.epoch + 1) {
+                    return Ok((
+                        409,
+                        json!({"error": {"code": "vault.epoch.stale", "message": "the first device's wrap is for the next epoch"}}),
+                    ));
+                }
                 if active {
-                    s.epoch = 1;
+                    s.epoch += 1;
                     s.wraps.insert(id.clone(), body["wrap"].clone());
                 }
                 s.devices.push(json!({"id": id, "kind": body["kind"], "label": body["label"], "publicKey": body["publicKey"], "state": if active {"active"} else {"pending"}, "createdAt": 1}));
@@ -362,4 +369,33 @@ fn scopes_and_names() {
     assert!(!crypto::same_code("1234 5678", "1234 567"));
     let entry = &dotenv::parse("A=very-secret-value\n").entries[0];
     assert!(!format!("{entry:?}").contains("very-secret"));
+}
+
+#[test]
+fn a_vault_emptied_of_devices_takes_a_new_first_device_at_the_next_epoch() {
+    let server = RefCell::new(Server::default());
+    let http = Fake(&server);
+    let (a_store, c_store) = (Store::default(), Store::default());
+    let a = vault(&http, &a_store, "cli");
+    assert_eq!(a.enroll().unwrap().state, "active");
+    a.set("TOKEN_ONE", &Scope::All, "value-one-12345").unwrap();
+    assert_eq!(a.remove("TOKEN_ONE", None).unwrap(), 1);
+    let a_id = a.status().unwrap().device_id.unwrap();
+    // Every device removed through the routes (vault-e2e.ts's reset): the vault keeps epoch 1.
+    http.send(
+        "DELETE",
+        &format!("{}/devices/{a_id}?vault=personal", crate::client::BASE),
+        &[],
+        None,
+    )
+    .unwrap();
+    let c = vault(&http, &c_store, "cli");
+    let status = c.enroll().unwrap();
+    assert_eq!(status.state, "active");
+    assert_eq!(status.epoch, 2);
+    c.set("TOKEN_TWO", &Scope::All, "value-two-12345").unwrap();
+    let daemon = DeviceKey::generate().unwrap();
+    server.borrow_mut().machines.push((VM.to_owned(), daemon.public_bytes().to_vec()));
+    c.sync().unwrap();
+    assert_eq!(machine_open(&server, &daemon)["TOKEN_TWO"].as_str(), "value-two-12345");
 }
