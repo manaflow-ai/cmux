@@ -3201,7 +3201,11 @@ function liveTurn(
   foldsPrompt = false,
   workOpen = false,
 ): AcpmuxRow[] {
-  return withRetry(turn, shapeLiveTurn(user, turn, clockOffset, trayAgents, turnStartedAtMs, foldsPrompt, workOpen), clockOffset);
+  return withRetry(
+    turn,
+    shapeLiveTurn(user, turn, clockOffset, trayAgents, turnStartedAtMs, foldsPrompt, workOpen),
+    clockOffset,
+  );
 }
 
 /// The running turn's retries (the client's `TURN_RETRY` row, direct.ts) on its "Thinking" line:
