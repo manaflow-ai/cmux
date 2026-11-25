@@ -4,17 +4,15 @@
 //! the Mac with no record of a live ask, so a person's Allow once went out unsigned
 //! and the peer refused it ("That answer didn't go through", 2026-11-03). Each is
 //! held here and applied again once the peer lists that session; the rule it must
-//! pass is unchanged. Bounded: at most `MAX_HELD` notices per peer, each for `HOLD_FOR`.
+//! pass is unchanged. Bounded by time, not count: each notice is held for `HOLD_FOR`.
 
+use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use crate::peer::PeerNotice;
 
 /// How long a held ask waits for its session to be listed.
 const HOLD_FOR: Duration = Duration::from_secs(120);
-/// How many held asks the daemon keeps per peer; that peer's oldest go first, so one peer
-/// never pushes out another's.
-const MAX_HELD: usize = 64;
 
 struct Held {
     peer: String,
@@ -26,7 +24,8 @@ struct Held {
 
 #[derive(Default)]
 pub(crate) struct HeldAsks {
-    held: std::sync::Mutex<Vec<Held>>,
+    /// Oldest first: every change keeps the order, so the expired ones are a prefix.
+    held: std::sync::Mutex<VecDeque<Held>>,
 }
 
 impl HeldAsks {
@@ -34,13 +33,11 @@ impl HeldAsks {
     pub(crate) fn hold(&self, peer: &str, generation: u64, session: &str, notice: PeerNotice) {
         let mut held = self.held.lock().unwrap_or_else(|e| e.into_inner());
         let now = Instant::now();
-        held.retain(|h| now.duration_since(h.at) < HOLD_FOR);
-        if held.iter().filter(|h| h.peer == peer).count() >= MAX_HELD
-            && let Some(oldest) = held.iter().position(|h| h.peer == peer)
-        {
-            held.remove(oldest);
+        // Constant time per hold: only the expired front is touched.
+        while held.front().is_some_and(|h| now.duration_since(h.at) >= HOLD_FOR) {
+            held.pop_front();
         }
-        held.push(Held {
+        held.push_back(Held {
             peer: peer.to_owned(),
             generation,
             session: session.to_owned(),
@@ -75,16 +72,16 @@ impl HeldAsks {
         }
         let now = Instant::now();
         let mut out = Vec::new();
-        let mut keep = Vec::with_capacity(held.len());
+        let mut keep = VecDeque::with_capacity(held.len());
         for h in held.drain(..) {
             if h.peer != peer {
-                keep.push(h);
+                keep.push_back(h);
             } else if h.generation != generation || now.duration_since(h.at) >= HOLD_FOR {
                 // A replaced peer's, or one whose session never came: dropped.
             } else if listed(&h.session) {
                 out.push(h.notice);
             } else {
-                keep.push(h);
+                keep.push_back(h);
             }
         }
         *held = keep;
