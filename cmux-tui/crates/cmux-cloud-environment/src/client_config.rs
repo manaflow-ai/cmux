@@ -210,8 +210,14 @@ fn cached_or_fallback(
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             // Temporary compatibility only for known deployments. A custom
-            // local API must expose its actual configuration.
-            if matches!(Environment::parse(origin)?, Environment::LocalOrigin(_)) {
+            // local API must expose its actual configuration, and so must a tag
+            // stack: the development table would register the Mac with the shared
+            // mobile service and device hub while the tag's iPhone build, on the
+            // stack's, looks for it there (the launch then has no cloud, and says why).
+            if matches!(
+                Environment::parse(origin)?,
+                Environment::LocalOrigin(_) | Environment::Tailnet(_)
+            ) {
                 return Err(format!("client-config unavailable and no cache for {origin}"));
             }
             selection.config_source = ConfigSource::KnownOriginFallback;
@@ -739,7 +745,7 @@ mod tests {
     }
 
     #[test]
-    fn a_tailnet_launch_fetches_the_stacks_own_services_once_and_an_outage_falls_back_to_dev() {
+    fn a_tailnet_launch_fetches_the_stacks_own_services_once_and_an_outage_never_uses_dev() {
         let stack = "https://cmux-dev-backend-1.tail137216.ts.net:3850";
         let home = Home::new();
         let resolver = Resolver::new("com.cmuxterm.app.debug.cnx-tag", &home.0).unwrap();
@@ -759,10 +765,27 @@ mod tests {
         assert_eq!(launch.config_source, ConfigSource::Cache);
         assert_eq!(launch.mobile_origin, served.configuration.mobile_origin);
         assert_eq!(launch.device_hub_origin, served.configuration.device_hub_origin);
-        // A stack that never answered and left no cache: the development services, as before.
+        // A stack that never answered and left no cache fails closed: the development table would
+        // put the Mac on the shared mobile Worker, where the tag's iPhone never finds it.
         fs::remove_file(&path).unwrap();
-        let fallback = cached_or_fallback(selected, &path, stack).unwrap();
-        assert_eq!(fallback.platform_origin, crate::DEVELOPMENT_PLATFORM);
+        let error = cached_or_fallback(selected.clone(), &path, stack).unwrap_err();
+        assert!(error.contains("no cache"), "{error}");
+        // Its public origin too.
+        let public = "https://api.s7.wdev.cmux.dev";
+        let selected = resolver.resolve(Some(public)).unwrap();
+        let path = cache_path(&resolver, public).unwrap();
+        assert!(cached_or_fallback(selected, &path, public).is_err());
+    }
+
+    /// The egress gate (enforced for a DEV app's Rust children) passes a tag stack's tailnet origin:
+    /// refused, the launch's client-config fetch failed and the Mac app ran on the development table.
+    #[test]
+    fn the_egress_gate_passes_a_tailnet_stack() {
+        for origin in
+            ["https://cmux-dev-backend-1.tail137216.ts.net:4693", "https://api.s7.wdev.cmux.dev"]
+        {
+            assert_ne!(cmux_egress::verdict(origin), cmux_egress::Verdict::Unlisted, "{origin}");
+        }
     }
 
     #[tokio::test]
