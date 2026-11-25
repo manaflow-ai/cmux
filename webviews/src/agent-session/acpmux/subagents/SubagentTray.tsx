@@ -126,6 +126,7 @@ import { hatFacesLook } from "./hatFaces.experiment";
 import { HatFaces, hatFaces, type HatFace } from "./HatFaces";
 import { trayFoldHeadLook } from "./trayFoldHead.experiment";
 import { trayOpenLook } from "./trayOpen.experiment";
+import { earlierPlanHat } from "./earlierPlanHat.experiment";
 import { trayHeadKindsLook } from "./trayHeadKinds.experiment";
 import { trayHead, trayHeadParts, type TrayHeadPart, trayHeadGroups } from "./trayHeadKinds";
 import { HeadSummary } from "./HeadSummary";
@@ -328,6 +329,11 @@ export const SubagentTray = memo(function SubagentTray({
   const [column] = useState(() => experimentArm(trayColumnLook));
   const [stopLook] = useState(() => experimentArm(trayStopLook));
   const [opensArm] = useState(() => experimentArm(trayOpenLook));
+  // An earlier turn's plan is a collapsed chip, never opened by default (earlierPlanHat.experiment.ts;
+  // Leo, 2026-11-25: "do we want to render it like that tho in teh composer hat"): only the person's
+  // click on it while it shows opens it, whatever the chat's remembered fold says.
+  const [earlierArm] = useState(() => experimentArm(earlierPlanHat));
+  const [chipOpened, setChipOpened] = useState(false);
   const [headClock] = useState(() => experimentArm(trayHeadClockLook));
   const [kindsArm] = useState(() => experimentArm(trayHeadKindsLook));
   const [kindLine] = useState(() => experimentArm(trayKindLineLook));
@@ -402,7 +408,12 @@ export const SubagentTray = memo(function SubagentTray({
   const lone = !planned && items.length + finished.length === 1 ? (items[0] ?? finished[0]) : undefined;
   const headed = items.length + finished.length > 0 || planned;
   // A header that opens the panel never expands in place.
-  const open = !headed || (opened === true && opensPanel !== "header");
+  const earlierChip = planned && planEarlier && earlierArm !== "before" && items.length + finished.length === 0;
+  const open = !headed || (opened === true && opensPanel !== "header" && (!earlierChip || chipOpened));
+  // A chip that left and a later one that shows start folded again.
+  useEffect(() => {
+    if (!earlierChip) setChipOpened(false);
+  }, [earlierChip]);
   // The `hide` arm (hatOpen.experiment.ts): a headed hat hides from a button in its header, not the top edge.
   const hidesInHead = Boolean(onTuck) && headed && openLook === "hide";
   // The `eye`, `pill` and `bar` arms (hatHeader.experiment.ts): the hide control's own place in the top
@@ -688,7 +699,8 @@ export const SubagentTray = memo(function SubagentTray({
   // plan the head keeps the work's ring.
   const planOnly = Boolean(planText) && !workText;
   // While the turn runs, a plan-only header spins and counts the turn's time (cmux#51039).
-  const planMark = planOnly ? planHeadMark({ working, turnSince }) : undefined;
+  // An earlier turn's chip neither spins nor counts: no step of this turn's is at work in it.
+  const planMark = planOnly ? planHeadMark({ working: working && !earlierChip, turnSince }) : undefined;
   // A plan-only header has no items to time: it counts the turn while the turn runs (cmux#51039).
   const headSince = itemsSince ?? planMark?.since;
   const moreCount = items.length - shownNames.length;
@@ -727,6 +739,7 @@ export const SubagentTray = memo(function SubagentTray({
     }
     setTuckQuiet(true);
     setOpened(!open);
+    setChipOpened(!open);
     rememberTrayOpen(chat, !open);
   };
   // A click on a deck's mark (HatHeadDeck.tsx) opens its line as the line's own open does: a subagent's
@@ -853,6 +866,7 @@ export const SubagentTray = memo(function SubagentTray({
       data-opens={(headed && opensPanel) || undefined}
       data-tucks={onTuck ? tuckSide : undefined}
       data-open-look={openLook}
+      data-earlier-chip={earlierChip ? earlierArm : undefined}
       data-header-look={headerLook === "today" ? undefined : headerLook}
       data-hide-at={hideAt}
       data-sized={(resizes && hatHeight !== undefined) || undefined}
