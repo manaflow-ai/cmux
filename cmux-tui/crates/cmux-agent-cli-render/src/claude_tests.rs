@@ -93,7 +93,8 @@ fn the_placeholder_under_the_cursor_is_read_and_drawn() {
     let grid = render(&[], &c, 50, 12);
     assert!(
         (0..12).any(|y| grid.row_text(y) == "❯\u{a0}Resend your message to try again"),
-        "drawn on the phone"
+        "drawn on the phone: {:#?}",
+        (0..12).map(|y| grid.row_text(y)).collect::<Vec<_>>()
     );
 }
 
