@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers"
 import type { Env } from "./env.ts"
 import { FIRST_GRANT, MIB, RELAY_CLOSE } from "./relay-access.ts"
 import { checkFrame, RELAY_FRAME_MAX, withPeer } from "./relay-frame.ts"
+import { CACHE_PATH_PREFIX, cacheFetch, RelayCache } from "./relay-cache.ts"
 import { HoldQueue, parseHoldFrame } from "./relay-hold.ts"
 import { APP_PING, APP_PONG, userHubName, uuidToBytes } from "./team-hub.ts"
 
@@ -78,7 +79,9 @@ type Bucket = { t: number; at: number }
  * end to end between the phone and the Mac. Hibernating WebSockets, tagged by device id, so a quiet session (a
  * link that settled on a direct path) costs nothing; the application ping is answered without waking it. It keeps
  * no storage, except the relay-held send queue's sealed items when `LINK_RELAY_HOLD=on` (RFD 0142 R8,
- * `relay-hold.ts`): bounded, expiring in 10 minutes, and never readable here.
+ * `relay-hold.ts`): bounded, expiring in 10 minutes, and never readable here. A source device's cache room (named by
+ * `relayCacheRoomName`, never a session) keeps sealed snapshots and deltas when `LINK_RELAY_CACHE=on` (RFD 0142 R2
+ * and R9, `relay-cache.ts`): bounded, expiring, and never readable here either.
  *
  * Tail replay (RFD 0142 R3, make-before-break): it keeps the last [`RELAY_TAIL_MS`] of frames it relayed or held
  * toward each device, in memory and at most [`RELAY_TAIL_BYTES`] a session. A frame sent into a socket that is
@@ -112,10 +115,12 @@ export class LinkRelay extends DurableObject<Env> {
   private tail: TailFrame[] = []
   private tailBytes = 0
   private readonly holds: HoldQueue
+  private readonly cache: RelayCache
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
     this.holds = new HoldQueue(ctx.storage)
+    this.cache = new RelayCache(ctx.storage)
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(APP_PING, APP_PONG))
   }
 
@@ -129,6 +134,9 @@ export class LinkRelay extends DurableObject<Env> {
       this.prewarmedAt = Date.now()
       return new Response(null, { status: 204 })
     }
+    // The sealed snapshot cache and delta log (RFD 0142 R2, R9; relay-cache.ts): plain HTTP from the Worker, which
+    // checked the devices. Only a source's cache room (`relayCacheRoomName`) is ever sent these.
+    if (path.startsWith(CACHE_PATH_PREFIX)) return cacheFetch(this.cache, req, path)
     if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") return new Response("expected a WebSocket upgrade", { status: 426 })
     if (path === "/netcheck") return this.netcheck(req)
     const device = req.headers.get("x-cmux-relay-device") ?? ""
@@ -255,7 +263,14 @@ export class LinkRelay extends DurableObject<Env> {
   }
 
   override async alarm(): Promise<void> {
-    await this.holds.onAlarm(Date.now())
+    const now = Date.now()
+    await this.holds.onAlarm(now)
+    // A cache room's expiry shares the one alarm: re-arm for the earlier of the two.
+    const next = await this.cache.purge(now)
+    if (next !== undefined) {
+      const current = await this.ctx.storage.getAlarm()
+      if (current === null || current > next) await this.ctx.storage.setAlarm(next)
+    }
   }
 
   private holdOn(): boolean {

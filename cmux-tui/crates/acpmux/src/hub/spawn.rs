@@ -679,7 +679,7 @@ impl Hub {
                 );
             }
         }
-        // Gemini and Grok on a cmux Cloud machine: the team's gateway when the person has no
+        // Gemini, Grok and Antigravity on a cmux Cloud machine: the team's gateway when the person has no
         // sign-in of their own and the gateway serves the agent (provider_cloud_auth.rs,
         // hq#11225). A bound route, or a launcher that picks the provider itself, owns it instead.
         // The probe waits at most `PROBE_DEADLINE`; any failure keeps own.
@@ -730,6 +730,12 @@ impl Hub {
                 }
             }
         }
+        // Antigravity with no key in its launch: the person's own one from `~/.gemini/.env`, where
+        // the Cloud sign-in card saves it; `agy` reads only its environment (acp_key_auth.rs).
+        let family = crate::config::derive_family(&meta.harness, &p);
+        crate::acp_key_auth::fill_key_from_gemini_dotenv(&mut p.env, &family, |k| {
+            std::env::var(k).ok()
+        });
         p.env.remove(crate::agent::REMOTE_ENV_POLICY_KEY);
         if meta.remote_origin {
             // Validate every executable after expansion and launcher
