@@ -213,7 +213,7 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
         }
         // Settings > Home: whether attached photos and videos keep their location.
         transcript.keepLocation = { [weak services] in services?.settings?.snapshot.homeKeepLocation ?? false }
-        transcript.clipboardHistory = service.clipboardHistory  // the + menu's recent copies
+        transcript.clipboardHistory = service.clipboardHistory; transcript.installPlusMenuActions(services.registry)  // the + menu's recent copies and its rows' actions
 
         spellCheckingWatch = Task { [weak self, weak services] in
             for await enabled in ObservationStream({ services?.settings?.snapshot.agentPaneComposer.spellChecking ?? false }) {
@@ -600,7 +600,8 @@ extension HomeHostView {
 
     /// A Chief turn started or ended (`working`: a Chief that uses a computer answers): the live view over the chat follows it.
     private func followComputerPopup(working: Bool) {
-        guard window != nil else { return }
+        // A chat kept hidden for a quick switch back (TopHomePageView's recent chats) shows no popup.
+        guard window != nil, !isHiddenOrHasHiddenAncestor || !working else { return }
         (computerPopup ?? makeComputerPopup()).follow(working: working)
     }
 
