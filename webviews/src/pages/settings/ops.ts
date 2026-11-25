@@ -2604,6 +2604,8 @@ const unavailableCodes = new Set(["cmux.protocol.closed", "cmux.page.unavailable
 export const SETTINGS_SENTENCES = {
   "cmux.page.refused": OWNER_SENTENCE,
   "cmux.app.user_only": OWNER_SENTENCE,
+  // A pasted key the provider refused (acpmux `connections/key.check`): "Key rejected by OpenAI".
+  "cmux.models.key_rejected": OWNER_SENTENCE,
 } as const;
 
 /** The error a call rejected with, as a plain record (its `message` is for logs; the page shows

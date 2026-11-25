@@ -931,6 +931,8 @@ pub mod method {
     pub const MUX_CONNECTIONS_SPREAD_SET: &str = "_acpmux/connections/spread.set";
     pub const MUX_CONNECTIONS_REMOVE: &str = "_acpmux/connections/remove";
     pub const MUX_CONNECTIONS_KEY_ADD: &str = "_acpmux/connections/key.add";
+    /// Asks a provider whether a pasted API key (by its reference) is good, before `key.add`.
+    pub const MUX_CONNECTIONS_KEY_CHECK: &str = "_acpmux/connections/key.check";
     pub const MUX_CONNECTIONS_CHATGPT_BEGIN: &str = "_acpmux/connections/chatgpt.begin";
     pub const MUX_CONNECTIONS_CHATGPT_WAIT: &str = "_acpmux/connections/chatgpt.wait";
     pub const MUX_CONNECTIONS_CHATGPT_CANCEL: &str = "_acpmux/connections/chatgpt.cancel";

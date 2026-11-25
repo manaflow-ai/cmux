@@ -24,11 +24,13 @@ use std::time::Duration;
 
 use serde::Serialize;
 use serde_json::{Value, json};
+use zeroize::Zeroizing;
 
 use super::Origin;
 use super::accounts::{self, CLAUDE_LOGIN_ID};
 use crate::chatgpt;
 use crate::hub::Hub;
+use crate::key_check;
 use crate::routes::{self, Auth, Bindings, Route, RouteFile, RouteKind};
 use crate::rpc::{RpcError, method};
 
@@ -38,6 +40,7 @@ pub(super) const METHODS: &[&str] = &[
     method::MUX_CONNECTIONS_SPREAD_SET,
     method::MUX_CONNECTIONS_REMOVE,
     method::MUX_CONNECTIONS_KEY_ADD,
+    method::MUX_CONNECTIONS_KEY_CHECK,
     method::MUX_CONNECTIONS_CHATGPT_BEGIN,
     method::MUX_CONNECTIONS_CHATGPT_WAIT,
     method::MUX_CONNECTIONS_CHATGPT_CANCEL,
@@ -666,6 +669,26 @@ pub(super) async fn handle(
             .await??;
             announce_later(hub);
             Ok(state)
+        }
+        method::MUX_CONNECTIONS_KEY_CHECK => {
+            let provider = need("provider")?;
+            let secret = need("secret")?;
+            // The keychain may ask: off the runtime's threads. The key stays in this arm.
+            let key = Zeroizing::new(blocking(move || resolve("the key", &secret)).await??);
+            let verdict = key_check::check(&provider, &key, None, key_check::CHECK_TIMEOUT).await;
+            let (status, detail) = match &verdict {
+                key_check::Verdict::BadKey(code) => (Some(*code), None),
+                key_check::Verdict::Unreachable(why) => (None, Some(why.clone())),
+                _ => (None, None),
+            };
+            Ok(json!({
+                "provider": provider,
+                "result": verdict.as_str(),
+                "save": !verdict.rejects(),
+                "http_status": status,
+                "detail": detail,
+                "message": verdict.sentence(&provider),
+            }))
         }
         method::MUX_CONNECTIONS_REMOVE => {
             let id = need("id")?;
