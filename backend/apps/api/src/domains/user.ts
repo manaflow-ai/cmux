@@ -183,16 +183,20 @@ export const MAX_REVOKED_INSTALLS = 100
 
 /**
  * Drops the oldest revoked installs (by revoked_at, then id) past MAX_REVOKED_INSTALLS, each with its
- * grant. An install still named by a pending SSH revoke, a presence key or a push target stays. Every
- * lookup treats a missing install as unknown, so a dropped install's token stays refused.
- * withInstallAuthority drops its incarnation in the same commit.
+ * grant and its revoked presence key. An install still named by a pending SSH revoke, a live presence
+ * key or a push target stays. A revoked presence key used to hold its install too, and a revoked
+ * install's key is always revoked (revokePresenceKey), so every Mac install that registered one stayed
+ * for good: the production probe account reached 1,406 revoked installs and owner.state_full again on
+ * 2026-11-25. Every lookup treats a missing install or key as unknown, so a dropped install's token
+ * and key stay refused. withInstallAuthority drops its incarnation in the same commit.
  */
 export const pruneRevokedInstalls = (state: UserState, keep: number = MAX_REVOKED_INSTALLS): UserState => {
   const revoked = Object.values(state.installs).filter((i) => i.revoked_at !== null)
   if (revoked.length <= keep) return state
+  const keys = state.confirm?.presence_keys ?? {}
   const held = new Set([
     ...Object.keys(state.ssh_revoke_pending ?? {}),
-    ...Object.keys(state.confirm?.presence_keys ?? {}),
+    ...Object.entries(keys).filter(([, k]) => k.revoked_at === null).map(([install]) => install),
     ...Object.values(state.push_targets ?? {}).map((t) => t.install)
   ])
   const drop = revoked
@@ -202,11 +206,14 @@ export const pruneRevokedInstalls = (state: UserState, keep: number = MAX_REVOKE
   if (drop.length === 0) return state
   const installs = { ...state.installs }
   const grants = { ...state.grants }
+  const presence = { ...keys }
   for (const i of drop) {
     delete installs[i.id]
     if (grants[i.grant]?.grantee === i.id) delete grants[i.grant]
+    delete presence[i.id]
   }
-  return { ...state, installs, grants }
+  const confirm = state.confirm && Object.keys(presence).length !== Object.keys(keys).length ? { ...state.confirm, presence_keys: presence } : state.confirm
+  return { ...state, installs, grants, ...(confirm !== state.confirm ? { confirm } : {}) }
 }
 
 /**

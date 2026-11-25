@@ -69,12 +69,12 @@ describe("UserDO keeps a bounded number of revoked installs", () => {
     expect(installActive(r.state, installPrincipal(MAX_REVOKED_INSTALLS + 5))).toBe(true)
   })
 
-  it("keeps installs named by a pending SSH revoke, a presence key or a push target", () => {
+  it("keeps installs named by a pending SSH revoke, a live presence key or a push target", () => {
     const base = seed(MAX_REVOKED_INSTALLS + 10)
     const s = {
       ...base,
       ssh_revoke_pending: { [id("inst", 0)]: { user: USER, teams: [TEAM], at: 10_000 } },
-      confirm: { presence_keys: { [id("inst", 1)]: { platform: "ios", revoked_at: 10_001 } } },
+      confirm: { presence_keys: { [id("inst", 1)]: { platform: "ios", revoked_at: null } } },
       push_targets: { tok: { token: "tok", topic: "dev.cmux.ios", environment: "production", install: id("inst", 2), device_name: "", registered_at: 1 } }
     } as unknown as UserState
     const after = pruneRevokedInstalls(s)
@@ -84,6 +84,28 @@ describe("UserDO keeps a bounded number of revoked installs", () => {
     for (const k of [3, 12]) expect(after.installs[id("inst", k)], `inst ${k}`).toBeUndefined()
     expect(after.installs[id("inst", 13)]).toBeDefined()
     expect(revokedCount(after)).toBe(MAX_REVOKED_INSTALLS)
+  })
+
+  // Production 2026-11-25: the probe account's head held 1,406 revoked installs and refused every register
+  // (owner.state_full) again, because each Mac install's presence key, revoked with it, held it from the prune.
+  it("a revoked presence key holds nothing: a head full of revoked Mac installs with keys heals on register", () => {
+    const base = seed(3_000)
+    const presence_keys: Record<string, unknown> = {}
+    for (let k = 0; k < 3_000; k++) presence_keys[id("inst", k)] = { jwk: jwk(k), platform: "mac", registered_at: k, usable_from: k, revoked_at: 10_000 + k }
+    presence_keys[id("inst", 3_000)] = { jwk: jwk(3_000), platform: "mac", registered_at: 3_000, usable_from: 3_000, revoked_at: null }
+    const full = { ...base, confirm: { level: null, locks: {}, rev: 0, challenges: [], presence_keys, audit: [] } } as unknown as UserState
+    expect(utf8Length(JSON.stringify(full))).toBeGreaterThan(STATE_MAX_BYTES)
+    const r = register(full, 99_997)
+    expect(r.ok, JSON.stringify(r).slice(0, 300)).toBe(true)
+    if (!r.ok) return
+    expect(stateFull(JSON.stringify(r.state), "user:test", "install.register")).toBeUndefined()
+    expect(revokedCount(r.state)).toBe(MAX_REVOKED_INSTALLS)
+    // A dropped install's revoked key went with it; the kept ones and the live install's key stay.
+    const kept = r.state.confirm!.presence_keys
+    expect(kept[id("inst", 0)]).toBeUndefined()
+    expect(kept[id("inst", 2_999)]?.revoked_at).not.toBeNull()
+    expect(kept[id("inst", 3_000)]?.revoked_at).toBeNull()
+    expect(Object.keys(kept).length).toBe(MAX_REVOKED_INSTALLS + 1)
   })
 
   it("install.revoke prunes in the same commit; at or under the bound nothing changes", () => {
