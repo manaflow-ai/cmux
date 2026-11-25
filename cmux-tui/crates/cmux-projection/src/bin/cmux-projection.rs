@@ -325,7 +325,7 @@ mod cli {
                 url,
                 branch,
                 default: one("--default") == Some(branch),
-                max_age: std::time::Duration::from_secs(hours * 3600),
+                max_age: Duration::from_secs(hours * 3600),
                 max_increment: megabytes << 20,
                 now: SystemTime::now(),
                 work: &work,
