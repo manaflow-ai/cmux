@@ -18,6 +18,7 @@ const testEnv = env as unknown as Env & { STACK_TEST_PRIVATE_JWK: string }
 const self = (exports as unknown as { default: Fetcher }).default
 const ORIGIN = "https://api.test"
 const VM = "vm_abcdefghij0123456789"
+const TEAM = "team_0123456789abcdef0123"
 
 const cloudMutation = cloudOps.find((o) => o.owner === "cloud:CloudDO" && o.class === "mutation")!.name
 const cloudRead = cloudOps.find((o) => o.owner === "cloud:CloudDO" && o.class === "read")!.name
@@ -78,6 +79,11 @@ const requests: ReadonlyArray<readonly [string, () => Request]> = [
   ["cloud apps list", () => new Request(`${ORIGIN}/v1/cloud/apps`)],
   ["cloud app create", () => post("/v1/cloud/apps", '{"name":"demo","slug":"demo"}')],
   ["cloud app version promote", () => post("/v1/cloud/apps/demo/versions", '{"commit":"abc","command":"x","machine":"vm","port":1}', { "idempotency-key": "demo:abc:1" })],
+  // Keyless cloud credentials (https://github.com/manaflow-ai/cmux/issues/48427): a team's public issuer documents, a machine's token mint and the issuer URLs Settings reads.
+  ["oidc discovery", () => new Request(`${ORIGIN}/oidc/teams/${TEAM}/.well-known/openid-configuration`)],
+  ["oidc jwks", () => new Request(`${ORIGIN}/oidc/teams/${TEAM}/.well-known/jwks.json`)],
+  ["oidc token mint", () => post("/v1/cloud/oidc/token", '{"audience":"sts.amazonaws.com","ttl_seconds":900}')],
+  ["oidc info", () => new Request(`${ORIGIN}/v1/cloud/oidc/info`)],
   ["Native network target", () => new Request(`${ORIGIN}/v1/host/network/target`)],
   ["login copy switch", () => new Request(`${ORIGIN}/v1/cloud/harness-login-copy`)],
   // The platform's client config: the app's origins and the backend's capabilities (machine_create.bootstrap).
@@ -147,7 +153,11 @@ describe("cloud surface on", () => {
       ["CloudDO mutation on /v1/read", () => post("/v1/read", read(cloudMutation))],
       ["GET /v1/ops", () => new Request(`${ORIGIN}/v1/ops`)],
       ["health", () => new Request(`${ORIGIN}/v1/health`)],
-      ["cloud wire socket (the wire surface, not cloud)", () => new Request(`${ORIGIN}/v1/wire/cloud`)]
+      ["cloud wire socket (the wire surface, not cloud)", () => new Request(`${ORIGIN}/v1/wire/cloud`)],
+      // Only a well-formed team id and the two issuer documents, and only the token and info routes, go to the platform.
+      ["oidc bad team id", () => new Request(`${ORIGIN}/oidc/teams/team_x/.well-known/jwks.json`)],
+      ["oidc other document", () => new Request(`${ORIGIN}/oidc/teams/${TEAM}/.well-known/keys`)],
+      ["oidc other route", () => new Request(`${ORIGIN}/v1/cloud/oidc/keys`)]
     ] as const
     for (const [name, make] of local) {
       const platform = fakePlatform()
