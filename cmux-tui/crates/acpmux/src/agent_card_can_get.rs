@@ -55,6 +55,11 @@ pub const LADDER: &[Shape] = &[
     Shape { name: "2xl", vcpus: 32, memory_gib: 64, disk_gib: 128, plan: "max" },
 ];
 
+/// The top of the ladder (a const index: the compiler checks it).
+pub const LARGEST: Shape = LADDER[LADDER.len() - 1];
+/// The largest size below Max (`lg`); a test keeps it the last non-Max row.
+pub const LARGEST_BELOW_MAX: Shape = LADDER[2];
+
 /// `PAID_PLAN_LIMITS`: the most running machines a paid plan has at once.
 pub const MACHINES_AT_ONCE: u32 = 5;
 /// `PAID_PLAN_LIMITS` disk caps, GiB.
@@ -130,9 +135,8 @@ impl CanGet {
 
     pub fn with_forks(sub_session_forks: bool) -> Self {
         let sizes: Vec<Priced> = LADDER.iter().copied().map(priced).collect();
-        let largest = sizes.last().cloned().expect("the ladder has sizes");
-        let largest_below_max =
-            sizes.iter().rev().find(|s| s.shape.plan != "max").cloned().expect("a Pro size");
+        let largest = priced(LARGEST);
+        let largest_below_max = priced(LARGEST_BELOW_MAX);
         CanGet {
             fanout_vcpus: largest.shape.vcpus * MACHINES_AT_ONCE,
             sizes,

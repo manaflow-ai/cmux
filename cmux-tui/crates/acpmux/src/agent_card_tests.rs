@@ -233,6 +233,8 @@ fn capabilities_lists_every_size_with_its_price() {
     assert_eq!(md.usd_per_hour, 0.26);
     assert_eq!(more.largest.shape.name, "2xl");
     assert_eq!(more.largest_below_max.shape.name, "lg");
+    let below: Vec<_> = can_get::LADDER.iter().filter(|s| s.plan != "max").collect();
+    assert_eq!(below.last().copied(), Some(&can_get::LARGEST_BELOW_MAX));
     let table = more.table();
     assert!(
         table.contains("- 2xl: 32 vCPU, 64 GB RAM, 128 GB disk to start, max+, $2.12/h"),
