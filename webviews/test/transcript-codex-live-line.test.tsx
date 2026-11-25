@@ -114,7 +114,7 @@ test("the live line keeps the turn clock without token amounts, beside a call to
     drawn(
       <Thinking since={start} doing="cargo test" doingShell doingAt={start + 350_000} now={() => start + 354_000} />,
     ),
-  ).toBe("Running cargo test 5m 54s");
+  ).toBe("cargo test 5m 54s");
   expect(drawn(<Thinking since={start} doing="cargo test" doingShell done now={() => start + 360_000} />)).toBe(
     "Ran cargo test 6m",
   );
@@ -192,13 +192,13 @@ test("while text streams the line waits behind it, keyed by the text's version",
   expect(shaped.at(-1)).toMatchObject({ kind: THINKING, quietKey: "a:7" });
 });
 
-test("the live line draws Running or Ran with the turn's time, or Thinking alone; all shimmer", () => {
+test("the live line draws the command or Ran with the turn's time, or Thinking alone; all shimmer", () => {
   const start = 1_000_000;
   // The call started 5s after the prompt: the line still counts from the prompt, never from 0.
   const running = renderToStaticMarkup(
     <Thinking since={start} doing="bun test" doingShell doingAt={start + 5_000} now={() => start + 13_000} />,
   );
-  expect(words(running)).toBe("Running bun test 13s");
+  expect(words(running)).toBe("bun test 13s");
   expect(running).toContain("is-shimmer");
   const ran = renderToStaticMarkup(
     <Thinking since={start} doing="grep -n x" doingShell done now={() => start + 15_000} />,
