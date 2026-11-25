@@ -48,10 +48,32 @@ impl Local {
     }
 }
 
+/// `CMUX_SEED_MIRRORS` on this machine: a folder of warm mirrors laid out as `wt` keeps them
+/// (`OWNER/NAME.git`). A seed without its own `mirror` borrows the one for its repository there,
+/// when there is one. Unset (the default): only a `mirror` param borrows.
+pub const MIRRORS_ENV: &str = "CMUX_SEED_MIRRORS";
+
+fn configured_mirror(url: &str) -> Option<String> {
+    let root = std::env::var(MIRRORS_ENV).ok()?;
+    mirror_under(&root, url)
+}
+
+/// The mirror of `url` (`https://github.com/OWNER/NAME.git`, checked) under `root`, when it is
+/// a folder.
+pub(super) fn mirror_under(root: &str, url: &str) -> Option<String> {
+    if !root.starts_with('/') {
+        return None;
+    }
+    let repo = url.strip_prefix("https://github.com/")?.strip_suffix(".git")?;
+    let mirror = format!("{}/{repo}.git", root.trim_end_matches('/'));
+    Path::new(&mirror).is_dir().then_some(mirror)
+}
+
 impl Seed {
     /// Whether the folder is now a repository borrowing the mirror's objects at the base.
     pub(super) fn borrow_in(&mut self) -> bool {
-        let Some(mirror) = self.params.mirror.clone() else { return false };
+        let mirror = self.params.mirror.clone().or_else(|| configured_mirror(&self.params.url));
+        let Some(mirror) = mirror else { return false };
         if self.recheck().is_err()
             || std::fs::symlink_metadata(self.folder.join(".git")).is_ok()
             || check_folder(&self.git, &self.folder, &self.params.url).is_err()

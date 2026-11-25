@@ -175,3 +175,15 @@ fn mirror_and_promisors_are_refused_where_they_cannot_apply() {
         assert_eq!(refused(&params), "seed.bad_request", "{key} {value}");
     }
 }
+
+#[test]
+fn the_configured_mirror_folder_is_laid_out_as_wt_keeps_it() {
+    let world = World::new("borrow-root");
+    let root = world.home.join("mirrors");
+    std::fs::create_dir_all(root.join("o/n.git")).unwrap();
+    let root = root.to_str().unwrap();
+    let found = super::super::borrow::mirror_under(root, URL);
+    assert_eq!(found, Some(format!("{root}/o/n.git")));
+    assert_eq!(super::super::borrow::mirror_under(root, "https://github.com/o/m.git"), None);
+    assert_eq!(super::super::borrow::mirror_under("relative", URL), None);
+}
