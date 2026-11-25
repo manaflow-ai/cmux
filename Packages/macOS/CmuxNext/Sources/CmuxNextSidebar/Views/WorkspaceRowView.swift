@@ -335,6 +335,41 @@ final class WorkspaceRowView: SidebarRowView {
         var row: WorkspaceRowContent?
     }
 
+    /// A configure whose only change is the progress value (a working agent's tick, 4 a second per row): the fill
+    /// layer takes its new width, and nothing else is configured, laid out or redrawn. The full configure relaid
+    /// out the whole row and committed every layer on each tick (`sidebar.400.ticking.main_ms_per_s`: Core
+    /// Animation commit about 27% of the ticking main thread). A change of anything else, the bar appearing or
+    /// leaving, or an error or indeterminate state takes the full path.
+    private func updatesProgressOnly(to content: Content, ws: SidebarWorkspace, shown: WorkspaceRowContent) -> Bool {
+        guard let old = configuredContent as? Content, old != content,
+              let before = old.row?.progress, let after = shown.progress,
+              before.value != nil, after.value != nil, !before.isError, !after.isError,
+              !progressTrack.isHidden, progressTrack.bounds.width > 0,
+              Self.withoutProgress(old) == Self.withoutProgress(content) else { return false }
+        configuredContent = content
+        progress = after
+        spokenLabelInputs?.ws = ws
+        spokenLabelInputs?.shown = shown
+        let width = progressTrack.bounds.width * (after.value ?? 1)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true) // motion: allow a progress tick sets the fill's width, as the full layout did
+        progressFill.frame.size.width = width
+        CATransaction.commit()
+        progressOnlyUpdates &+= 1
+        return true
+    }
+
+    /// `content` with no progress value, so two configures that differ only in it compare equal.
+    private static func withoutProgress(_ content: Content) -> Content {
+        var content = content
+        content.ws.progress = content.ws.progress.map { SidebarProgress(value: nil, isError: $0.isError) }
+        content.row?.progress = content.row?.progress.map { SidebarProgress(value: nil, isError: $0.isError) }
+        return content
+    }
+
+    /// Ticks that took the progress-only path (``updatesProgressOnly(to:ws:shown:)``), for its tests.
+    private(set) var progressOnlyUpdates = 0
+
     func configure(_ ws: SidebarWorkspace, row: SidebarRow, badgeStyle: SidebarRowBadgeStyle? = nil) {
         lastConfiguration = (ws, row, badgeStyle)
         let tunables = observedTunables()
@@ -346,6 +381,7 @@ final class WorkspaceRowView: SidebarRowView {
             agentBadges: tunables.agentBadges,
             row: row.content
         )
+        if updatesProgressOnly(to: content, ws: ws, shown: row.content ?? WorkspaceRowContent()) { return }
         guard needsConfigure(content) else { return }
         // A placeholder with a title (a connecting SSH machine, cx-gaq9) draws its text, not the bar.
         isShowingPlaceholder = ws.rowState == .placeholder && ws.title.isEmpty
