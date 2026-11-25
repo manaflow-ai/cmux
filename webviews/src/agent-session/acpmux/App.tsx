@@ -1,4 +1,5 @@
 import { composerHealthHarness } from "./composerPickerEntries";
+import { cloudStartGoes } from "./cloudStartJustGo.experiment";
 import { useFold } from "./conversation/fold";
 import { setSessionRefResolver } from "./conversation/sessionRefs";
 import { readUnread, subscribeUnread } from "./conversation/unreadState";
@@ -588,6 +589,7 @@ import { ACCESS_ACTIONS, type AccessOffer } from "./accessOffer";
 import { type ChatAccounts, ChatAccountsContext, readChatAccounts } from "./chatAccounts";
 import { ForkPendingLine } from "./ForkPendingLine";
 import { HostError, HostLineSlot, HostRecoveringLine, HostUnavailableLine } from "./HostError";
+import { usePublishHostRecovery } from "./composerStatusStore";
 import { hostLineText } from "./hostLine";
 import { AcpmuxRestartGate, type HostRestoring, readHostRestoring, hostSelfRetrying } from "./hostRetry";
 import { pageShowsWhatItIs } from "./firstPaint";
@@ -4689,6 +4691,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// What was typed during a start that failed, now after its prompt in the composer: Retry and Run
   /// on This Mac send the prompt alone and leave this in the composer (`sendStartPrompt`).
   const cloudTypedDuringStart = useRef<CloudStartDraft | undefined>(undefined);
+  /// What Return sent during the start it keys ("just go", Leo 2026-11-25: "playable vs fully
+  /// installed/downloaded. do we want loading indicators? or just go"): the host joins it to the started
+  /// chat's first prompt (`chat.cloudStartQueue`); a start that fails puts it back in the composer
+  /// (useCloudSend). A ref, so two Returns before a render both keep their text.
+  const cloudStartQueued = useRef<{ key: string; texts: string[] } | undefined>(undefined);
+  const queueCloudStartSend = (text: string): boolean => {
+    const start = cloudStart;
+    if (!start || start.state !== "starting" || start.signingIn || !cloudStartGoes()) return false;
+    const before = cloudStartQueued.current?.key === start.key ? cloudStartQueued.current.texts : [];
+    const texts = [...before, text];
+    cloudStartQueued.current = { key: start.key, texts };
+    setCloudStart((current) => (current?.key === start.key ? { ...current, queued: texts } : current));
+    void callNative("chat.cloudStartQueue", { text: texts.join("\n\n") }).catch(() => undefined);
+    return true;
+  };
   /// Sends the failed start's prompt (Retry, Run on This Mac) as Return would. What was typed during
   /// the start stays in the composer after it and never goes with it, while the composer still holds
   /// that prompt and that text (`promptBeforeTyped`); once the person changed it, what shows goes.
@@ -4890,6 +4907,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     dropCloudPlanWait,
     cloudSignInSend,
     cloudTypedDuringStart,
+    cloudStartQueued,
     lastCloudAttempt,
     cloudStartHeld,
     newTabCloudSent,
@@ -4944,6 +4962,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cloudPageDraft.current = undefined;
     cloudStartHeld.current = undefined;
     cloudTypedDuringStart.current = undefined;
+    cloudStartQueued.current = undefined;
     newTabCloudSent.current = false;
     cloudDraftMachineID.current = undefined;
     cloudTypingPrewarm.reset();
@@ -10297,6 +10316,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     changesPillNode,
     openImage,
     cloudStarting,
+    onCloudStartQueue: queueCloudStartSend,
     composerDrawn,
     guestsHere,
     composerSnapshot,
@@ -10494,6 +10514,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         }
       />
     </Notice>
+  );
+  // The composer's status dot says the quiet recovery below instead, once mounted (composerStatusStore.ts).
+  usePublishHostRecovery(
+    restartingAcpmux ? undefined : { linkDown, restoring: hostRestoring, failureShown: hostErrorSaid },
   );
   // While the pane gets its chat back on its own, one quiet line says so: "Restoring sessions…"
   // while the host says acpmux restores, "Reconnecting…" while the link is down for real (`linkDown`).

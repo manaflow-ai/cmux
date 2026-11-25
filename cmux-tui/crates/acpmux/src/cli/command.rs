@@ -31,9 +31,14 @@ pub struct RebalanceArgs {
     /// The longest each move waits for a turn that started meanwhile to end, in seconds.
     #[arg(long, value_name = "SECS", default_value_t = 60)]
     pub timeout: u64,
-    /// Move a receipt's session back here (the id a pass printed, in rebalance.jsonl).
+    /// Move a receipt's session back where it came from (the id a pass printed, in
+    /// rebalance.jsonl).
     #[arg(long, value_name = "RECEIPT", conflicts_with_all = ["dry_run", "force", "max_moves"])]
     pub undo: Option<String>,
+    /// Run the pass for a peer host from this hub: its sessions read with `session info`, each
+    /// moved with `session move HOST/ID` (the registry switch is read for that host).
+    #[arg(long, value_name = "HOST", conflicts_with = "undo")]
+    pub machine: Option<String>,
 }
 
 /// `session move` (and its flat spelling `move-sessions`): which chats move, and where.
@@ -282,9 +287,10 @@ pub enum Command {
     Wait {
         /// Session names or ids. Every running session on every host when omitted.
         sessions: Vec<String>,
-        /// Give up after this many seconds.
-        #[arg(long)]
-        timeout: Option<u64>,
+        /// Give up after this many seconds (exit 3). Default an hour, as `pr-wait`'s: no wait an
+        /// agent arms sleeps forever, so a hung turn or a lost event wakes it to look again.
+        #[arg(long, default_value_t = crate::cli::orchestrate::WAIT_BOUND_S)]
+        timeout: u64,
         /// Wait for every named session, not just the first to resolve.
         #[arg(long)]
         all: bool,
@@ -378,6 +384,15 @@ pub enum Command {
     /// stdout (`placement/sub_fork_run.rs`; the parent's runner starts it over ssh).
     #[command(name = "sub-fork-job", hide = true)]
     SubForkJob,
+    /// Run a heavy build or test on a fork of this Cloud machine (RFD 0144 piece 3,
+    /// `placement/run_vm.rs`): its output streams here, its file changes come back. Runs here
+    /// when AutoCloud is off, this is no Cloud machine, or the command is not a heavy class.
+    #[command(name = "run-vm", hide = true)]
+    RunVm {
+        /// The shell command, after `--`.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
+        command: Vec<String>,
+    },
     /// Execute one authenticated Cloud trigger operation from a JSON stdin envelope.
     #[command(name = "trigger-chat", hide = true)]
     TriggerChat {
@@ -544,6 +559,12 @@ pub enum Command {
     /// Team-scoped durable messages. Needs a team hub (`meshRelay`); on there by default.
     #[command(aliases = aliases::INBOX)]
     Inbox(InboxArgs),
+    /// Listen on a teammate's agent address: read what it receives while its owner's grant
+    /// lets you. Needs a team hub (`meshRelay`).
+    Listen {
+        #[command(subcommand)]
+        command: ListenCmd,
+    },
     /// Append a report to a human basket without waking any agent session.
     /// The target must be `reports:<person>`; the sender is the attached local
     /// ACP session (or `--from` when the daemon can bind that session).
@@ -1049,6 +1070,14 @@ pub enum Command {
         session: String,
         #[arg(long = "answer", value_name = "QUESTION=CHOICE")]
         answer: Vec<String>,
+    },
+    #[command(hide = true)]
+    Place {
+        session: String,
+        #[arg(long)]
+        on: String,
+        #[arg(long)]
+        reason: Option<String>,
     },
     #[command(hide = true)]
     Export {
@@ -1616,6 +1645,20 @@ pub enum SessionCmd {
         #[arg(long = "answer", value_name = "QUESTION=CHOICE")]
         answer: Vec<String>,
     },
+    /// Move a chat between Local (this Mac), Cloud (stays in cmux Cloud) and AutoCloud (here
+    /// while the Mac is up, in the Cloud while it sleeps), through Auto mode's fenced handoff. The
+    /// person may make any move; a chat's own agent may move it off the Mac only while the
+    /// AutoCloud setting is on, and back to local never (the answer says needs_person and the
+    /// command). `cmux chat move SESSION --on PLACE` runs this.
+    Place {
+        session: String,
+        /// local, cloud or auto (autocloud).
+        #[arg(long)]
+        on: String,
+        /// Why, for the log.
+        #[arg(long)]
+        reason: Option<String>,
+    },
     /// Export a session bundle.
     Export {
         session: String,
@@ -1869,6 +1912,30 @@ pub enum InboxCmd {
     Read { id: String },
     /// Acknowledge one team message.
     Ack { id: String },
+}
+
+#[derive(Subcommand)]
+pub enum ListenCmd {
+    /// Open a listen on a teammate's agent address.
+    Open {
+        /// The address, @member/agent.
+        address: String,
+        /// How long it stays open, in seconds (60 to 604800; the hub's default without it).
+        #[arg(long, value_name = "SECONDS")]
+        ttl: Option<u64>,
+    },
+    /// List your listens and others' on your addresses.
+    Ls,
+    /// Close one of your listens by id.
+    Close { id: String },
+    /// Read the messages an address you listen on received.
+    Read {
+        /// The address, @member/agent.
+        address: String,
+        /// Continue from the previous JSON response's `next` cursor.
+        #[arg(long)]
+        before: Option<u64>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2148,6 +2215,7 @@ pub fn flatten(c: Command) -> Command {
             }
             SessionCmd::Deny { session } => Command::Deny { session },
             SessionCmd::Answer { session, answer } => Command::Answer { session, answer },
+            SessionCmd::Place { session, on, reason } => Command::Place { session, on, reason },
             SessionCmd::Export { session, dest } => Command::Export { session, dest },
             SessionCmd::Import { path, name } => Command::Import { path, name },
             SessionCmd::Transfer { session, to, cwd, name, interrupt, after_turn } => {
