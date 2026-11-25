@@ -1777,6 +1777,8 @@ impl Hub {
                 let fyi_only = new.iter().all(|i| ordinary_fyi(i) || folded(i));
                 // Read before a Stop's `due_now` below takes the inbox mutably.
                 let urgent = new.iter().any(|i| steers_at_once(&meta, i));
+                // The soonest deadline (module docs, "Deadlines"), read here for the same reason.
+                let due = earliest_due(&new);
                 let coalesced = new
                     .iter()
                     .filter(|i| !ordinary_fyi(i) && !folded(i))
@@ -1828,9 +1830,9 @@ impl Hub {
                                 let flush = if inbox.due_now || urgent {
                                     0
                                 } else if fyi_only {
-                                    oldest.saturating_add(FLUSH_MS).min(earliest_due(&new))
+                                    oldest.saturating_add(FLUSH_MS).min(due)
                                 } else {
-                                    coalesced.min(earliest_due(&new))
+                                    coalesced.min(due)
                                 };
                                 let at = retry.max(flush);
                                 if at > now { Next::WakeAt(at) } else { Next::Steer }
