@@ -515,7 +515,8 @@ pub(super) fn subscribed_event_name(event: &MuxEvent) -> Option<&str> {
         MuxEvent::AppsChanged(payload)
         | MuxEvent::TasksChanged(payload)
         | MuxEvent::ComputerUseActivity(payload)
-        | MuxEvent::ComputerUsePreview(payload) => {
+        | MuxEvent::ComputerUsePreview(payload)
+        | MuxEvent::SwapDone(payload) => {
             return payload.get("event").and_then(Value::as_str);
         }
         MuxEvent::ChatsChanged { .. } | MuxEvent::GitHubChanged { .. } | MuxEvent::Empty => {
