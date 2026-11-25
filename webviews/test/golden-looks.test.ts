@@ -5,15 +5,15 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
-  discoverLooks,
-  drawnSchemes,
   lookFromSetup,
   parseJsonc,
-  previewPath,
   readGoldenLooks,
   schemeFromThemeFile,
+  discoverLooks,
+  drawnSchemes,
+  previewPath,
 } from "../dev-server/goldenLooks";
-import { lookDisplay, lookTheme } from "../src/gallery/golden/look";
+import { lookDisplay, lookSettingsValues, lookTheme } from "../src/gallery/golden/look";
 
 test("theme files read with comments, a URL in a string and trailing commas", () => {
   expect(parseJsonc('// head\n{ "a": "https://x.test/y", /* b */ "c": [1, 2,], }')).toEqual({
@@ -85,6 +85,31 @@ test("a scheme's colors go over its terminal theme; an unknown theme name keeps 
     foreground: "#ffffff",
     accent: "#3366ff",
   });
+});
+
+test("Settings under a look lists its settings, composer look and the scheme's theme file keys", () => {
+  const claude = readGoldenLooks([]).looks.find((look) => look.id === "claude")!;
+  const light = lookSettingsValues(claude, "light");
+  expect(light).toMatchObject({
+    "agentPane.display.transcriptLook": "claude",
+    "sidebar.density": "compact",
+    "agentPane.composerLook": "claude",
+    "appearance.theme": "Claude Light",
+    "appearance.surfaces.sidebar.color": "#f0eee6",
+  });
+  expect(lookSettingsValues(claude, "dark")).toMatchObject({
+    "appearance.theme": "Claude Dark",
+    "appearance.accent": "theme",
+    "appearance.density": "comfortable",
+    "appearance.surfaces.sidebar.color": "#121211",
+  });
+  // The default look puts nothing in effect: Settings shows the app's defaults.
+  expect(
+    lookSettingsValues(
+      readGoldenLooks([]).looks.find((look) => look.id === "cmux")!,
+      "dark",
+    ),
+  ).toEqual({});
 });
 
 test("every look in a checkout is found: shipped theme files, examples/ setup folders and theme files", () => {

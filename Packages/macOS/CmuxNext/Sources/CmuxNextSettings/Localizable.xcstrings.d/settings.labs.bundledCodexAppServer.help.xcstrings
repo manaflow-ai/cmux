@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.labs.bundledCodexAppServer.help" : {
+      "comment" : "Settings row help for Use Bundled Codex App Server; cmux and Codex are product names",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تستخدم محادثات Codex الجديدة خادم التطبيق المضمَّن مع cmux عند اجتيازه التحقق، وإلا فتستخدم Codex المثبَّت لديك."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Novi Codex chatovi koriste server aplikacije ugrađen u cmux kada prođe provjeru, inače vaš instalirani Codex."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nye Codex-chats bruger den appserver, der følger med cmux, når den består kontrollen, ellers din installerede Codex."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Neue Codex-Chats verwenden den mit cmux gelieferten App-Server, wenn er die Prüfung besteht, sonst dein installiertes Codex."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Codex chats use the app server bundled with cmux when it checks out, else your installed Codex."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Los chats nuevos de Codex usan el servidor de app incluido con cmux si supera la comprobación; si no, tu Codex instalado."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les nouveaux chats Codex utilisent le serveur d’app fourni avec cmux s’il est vérifié, sinon votre Codex installé."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le nuove chat Codex usano il server app incluso in cmux se supera la verifica, altrimenti il Codex installato."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "新しい Codex チャットは、確認に通れば cmux に同梱のアプリサーバーを使い、通らなければインストール済みの Codex を使います。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការជជែក Codex ថ្មីប្រើម៉ាស៊ីនមេកម្មវិធីដែលភ្ជាប់មកជាមួយ cmux នៅពេលវាឆ្លងការពិនិត្យ បើមិនដូច្នោះទេ ប្រើ Codex ដែលអ្នកបានដំឡើង។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "새 Codex 채팅은 확인을 통과하면 cmux에 번들된 앱 서버를, 아니면 설치된 Codex를 사용합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nye Codex-chatter bruker appserveren som følger med cmux når den består kontrollen, ellers din installerte Codex."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nowe czaty Codex używają serwera aplikacji dołączonego do cmux, gdy przejdzie weryfikację, a w przeciwnym razie zainstalowanego Codex."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Novos chats do Codex usam o servidor de app incluído no cmux quando ele passa na verificação; caso contrário, o seu Codex instalado."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Новые чаты Codex используют сервер приложения, встроенный в cmux, если он проходит проверку, иначе установленный Codex."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แชท Codex ใหม่จะใช้เซิร์ฟเวอร์แอปที่มาพร้อม cmux เมื่อผ่านการตรวจสอบ ไม่เช่นนั้นจะใช้ Codex ที่คุณติดตั้งไว้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Yeni Codex sohbetleri, doğrulamayı geçerse cmux ile gelen uygulama sunucusunu, geçmezse yüklü Codex'inizi kullanır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Нові чати Codex використовують сервер застосунку, вбудований у cmux, якщо він проходить перевірку, інакше встановлений Codex."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Các cuộc trò chuyện Codex mới dùng máy chủ ứng dụng đi kèm cmux khi nó vượt qua kiểm tra, nếu không thì dùng Codex bạn đã cài."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "新的 Codex 聊天在校验通过时使用 cmux 内置的应用服务器，否则使用你已安装的 Codex。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "新的 Codex 聊天在驗證通過時使用 cmux 內建的 App 伺服器，否則使用你已安裝的 Codex。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
