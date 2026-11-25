@@ -88,9 +88,10 @@ class Classify(unittest.TestCase):
             # Hand-written files beside generated ones (not in the package's .cmux-sdk-manifest.json).
             "cmux-tui/bindings/java/src/com/cmux/raw/CmuxClient.java": "source",
             "cmux-tui/bindings/go/raw/client.go": "source",
-            # Every other generated family (scripts/cmux-next/generated_merge.py).
-            "webviews/src/agent-session/acpmux/protocol/generated/types.ts": "generated",
-            "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSection.generated.swift": "generated",
+            # Every other generated family (scripts/cmux-next/generated_merge.py). The web protocol
+            # types (#50853) and the settings Swift (#50929) are built, no longer committed.
+            "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Tree/ProtectedFolderEntry.generated.swift": "generated",
+            "webviews/src/agent-session/acpmux/protocol/generated/types.ts": "source",
             # Hand-written registries: cmux-insertions-v1, never kept.
             "cmux-tui/crates/cmux-agent-pane-policy/policy.json": "source",
             "cmux-tui/crates/acpmux/docs/acpmux-schema.json": "source",
@@ -285,6 +286,33 @@ class OpenPrsQuery(unittest.TestCase):
             pages[0]["repository"]["pullRequests"]["nodes"][1] = moved
             prs = nb.open_prs(gh)
         self.assertEqual([item.files for item in prs], [["a"], ["b"]])
+
+    def test_a_needed_count_reads_details_in_number_order_and_stops_when_full(self):
+        """3,808 open PRs (2026-11-25): reading every candidate's details ran into GitHub's
+        secondary rate limit. select takes the lowest numbers, so reading stops once
+        `need` are eligible; the rest are named next batch, unread."""
+        numbers = list(range(1, 2 * nb.DETAIL_PAGE + 4))
+        pages = [{"repository": {"pullRequests": {"nodes": [self.node(n) for n in reversed(numbers)],
+                                                   "pageInfo": {"hasNextPage": False, "endCursor": None}}}}]
+        details = {(f"PR_{n}", ""): ([".github/workflows/x.yml"] if n == 2 else ["a"], [], None) for n in numbers}
+        gh, seen = self.fake(pages, details)
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_AUTHORS": ""}):
+            prs = nb.open_prs(gh, need=nb.DETAIL_PAGE)
+            eligible, skipped = nb.select(prs, nb.now(), limit=nb.DETAIL_PAGE)
+        read = sorted(int(item[1][3:]) for item in seen if item[0] == "detail")
+        self.assertEqual(read, numbers[:2 * nb.DETAIL_PAGE])  # #2 is out, so a second page fills it
+        self.assertEqual([pr.number for pr in eligible], [n for n in numbers[:nb.DETAIL_PAGE + 1] if n != 2])
+        self.assertIn("not read", skipped[numbers[-1]])
+        self.assertIn("workflows", skipped[2])
+
+    def test_only_reads_details_for_the_named_prs(self):
+        pages = [{"repository": {"pullRequests": {"nodes": [self.node(1), self.node(2)],
+                                                   "pageInfo": {"hasNextPage": False, "endCursor": None}}}}]
+        gh, seen = self.fake(pages, {("PR_2", ""): (["b"], [], None)})
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_AUTHORS": ""}):
+            prs = nb.open_prs(gh, fresh=True, only={2})
+        self.assertEqual([item[1] for item in seen if item[0] == "detail"], ["PR_2"])
+        self.assertEqual([pr.files for pr in prs], [[], ["b"]])
 
     def test_landing_rechecks_without_the_cache(self):
         pages = [{"repository": {"pullRequests": {"nodes": [self.node(1)],
@@ -1825,7 +1853,8 @@ class WorkflowShape(unittest.TestCase):
 
     def test_debounce_runs_the_trusted_controller(self):
         checkout = self.jobs["debounce"]["steps"][0]
-        self.assertEqual(checkout["with"]["ref"], "feat-cmux-next")
+        # checkout names the branch in full, so it fetches one branch (#51926).
+        self.assertEqual(checkout["with"]["ref"], "refs/heads/feat-cmux-next")
         self.assertFalse(checkout["with"]["persist-credentials"])
         self.assertIn("head.repo.full_name == github.repository", self.jobs["debounce"]["if"])
 
