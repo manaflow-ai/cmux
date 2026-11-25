@@ -3,9 +3,10 @@
 // card at the pane's top right (summary/SummaryCard.tsx), which lists them with their live state from the same groups. In
 // the gallery's widths the pane has no room for the card's inline column (summary/cardState.ts,
 // #21564), so the card is the popover the header's Summary button opens, and a click outside it
-// closes it; a pane wide enough shows the column on its own, and it stays. A card row opens that subagent's own view (the child view): a "Subagent of" pill naming its
-// parent, then its rows. A pane the app opened on a subagent shows it with
-// the chat's own Composer relayed to the subagent (Composer.tsx `relay`): "Message <subagent>".
+// closes it; a pane wide enough shows the column on its own, and it stays. A card row opens that
+// subagent's own view (the child view): its rows from the top as a chat's, with no line naming its
+// parent (Leo, 2026-11-22), and a corner × to close it. A pane the app opened on a subagent shows it
+// with the chat's own Composer relayed to the subagent (Composer.tsx `relay`): "Message <subagent>".
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo, recentRun } from "../../../gallery/clock";
@@ -173,7 +174,7 @@ const cardRow = (ctx: PlayContext, name: string) =>
 const openChild = (name: string) => async (ctx: PlayContext) => {
   await openSummary(ctx);
   await ctx.click({ selector: `.acpmux-summary-agent[title="${name}"]` });
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-of"));
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-view-corner"));
 };
 
 export default agentPaneEntry({
@@ -213,42 +214,42 @@ export default agentPaneEntry({
       },
     },
     child: {
-      note: "A card row opened: the subagent's own view, under a Subagent of pill naming the chat.",
+      note: "A list line opened: the subagent's own view, its rows from the top as a chat's, a × in the top end corner.",
       height: 640,
       snapshot: NESTED_MIXED,
       play: openChild("Test coverage"),
     },
     "child-back": {
-      note: "The pill goes back to the parent: the chat's transcript.",
+      note: "The corner × goes back to the chat's transcript.",
       height: 680,
       snapshot: NESTED_MIXED,
       play: async (ctx) => {
         await openChild("Test coverage")(ctx);
-        await ctx.click({ selector: ".cv-subagent-of__pill" });
+        await ctx.click({ selector: ".cv-subagent-corner__close" });
         await ctx.waitFor(
-          () => !ctx.document.querySelector(".cv-subagent-of") && ctx.document.querySelector(".acpmux-thread"),
+          () => !ctx.document.querySelector(".acpmux-view-corner") && ctx.document.querySelector(".acpmux-thread"),
         );
       },
     },
     "child-close-hover": {
-      note: "The pill's × closes the subagent's view; hovered, its highlight covers the × alone, not the pill.",
+      note: "The corner × closes the subagent's view; hovered, its highlight covers the × alone, over no row's room.",
       height: 640,
       snapshot: NESTED_MIXED,
       play: async (ctx) => {
         await openChild("Test coverage")(ctx);
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-of__close"));
-        await ctx.hover({ selector: ".cv-subagent-of__close" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-corner__close"));
+        await ctx.hover({ selector: ".cv-subagent-corner__close" });
       },
     },
     "child-close": {
-      note: "The pill's × goes back to the chat's transcript.",
+      note: "The corner × goes back to the chat's transcript.",
       height: 680,
       snapshot: NESTED_MIXED,
       play: async (ctx) => {
         await openChild("Test coverage")(ctx);
         await ctx.click({ role: "button", name: "Close subagent" });
         await ctx.waitFor(
-          () => !ctx.document.querySelector(".cv-subagent-of") && ctx.document.querySelector(".acpmux-thread"),
+          () => !ctx.document.querySelector(".acpmux-view-corner") && ctx.document.querySelector(".acpmux-thread"),
         );
       },
     },
@@ -261,7 +262,7 @@ export default agentPaneEntry({
         (ctx.document.activeElement as HTMLElement | null)?.blur?.();
         await ctx.press("Escape");
         await ctx.waitFor(
-          () => !ctx.document.querySelector(".cv-subagent-of") && ctx.document.querySelector(".acpmux-thread"),
+          () => !ctx.document.querySelector(".acpmux-view-corner") && ctx.document.querySelector(".acpmux-thread"),
         );
       },
     },
@@ -274,9 +275,11 @@ export default agentPaneEntry({
         page.cmuxAcpmuxBridge?.revealTurn?.(`subagent:${COVERAGE}`);
         await ctx.waitFor(
           () =>
-            ctx.document.querySelector(".cv-subagent-of") &&
+            ctx.document.querySelector(".acpmux-view-corner") &&
             ctx.document.querySelector('.acpmux-composer[data-cmux-component="Composer"]'),
         );
+        if (ctx.document.querySelector(".cv-subagent-corner__close"))
+          throw new Error("a subagent's own pane drew the in-place ×; its tab closes it");
         if (ctx.document.querySelectorAll(".acpmux-composer").length !== 1)
           throw new Error("a subagent's own pane drew more than one composer");
         if (ctx.document.body.textContent?.includes("Read only"))
@@ -386,7 +389,8 @@ export default agentPaneEntry({
         await openSummary(ctx);
         await ctx.click({ selector: '.acpmux-summary-agent[title="Test coverage"]' });
         await ctx.waitFor(
-          () => ctx.document.querySelector(".cv-subagent-of") && cardRow(ctx, "Test coverage")?.ariaCurrent === "true",
+          () =>
+            ctx.document.querySelector(".acpmux-view-corner") && cardRow(ctx, "Test coverage")?.ariaCurrent === "true",
         );
       },
     },
