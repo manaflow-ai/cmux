@@ -1,5 +1,3 @@
-import CmuxNextDesign
-
 /// Keys a newer key replaced while the app still applies the old one when the new key is absent.
 /// Settings reads the old key's value for the new row (``SettingDescriptor/storedValue(in:)``), and
 /// every write or reset of the new row removes the old key, so it never applies again behind it.
@@ -19,18 +17,5 @@ nonisolated enum RenamedSettingKeys {
         // 2026-11-05): an old `"enabled": false` reads as mode "off" until the person picks a mode.
         if path == ComputerUseSettings.modePath { return ComputerUseSettings.enabledPath }
         return WorkspaceRowSetting.legacyPath(for: path)
-    }
-
-    /// The old key's value as the new row shows it: what the app applies from it.
-    static func legacyValue(for path: [String], in root: JSONValue) -> JSONValue? {
-        guard let legacy = legacyPath(for: path), let value = root.value(at: legacy) else { return nil }
-        if legacy == ComputerUseSettings.enabledPath { return ComputerUseSettings.legacyMode(value) }
-        // As the retired-keys table maps it; any other old value is the row's default. A plain
-        // rename (no `values`) reads the old value as is.
-        if let replaced = SettingsSchema.replacedKeys[path] { return replaced.values.map { $0[value] } ?? value }
-        guard legacy == BackdropArtSetting.configPath else { return value }
-        // As BackdropArtSetting parses it: a bundled work (a retired id names its stand-in), else
-        // nothing is painted, which the background row calls none.
-        return .string(value.stringValue.flatMap(BackdropArt.init(id:))?.rawValue ?? "none")
     }
 }

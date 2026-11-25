@@ -67,7 +67,7 @@ public nonisolated struct AgentPaneDisplaySetting: Sendable, Hashable {
             let root = Self.themedPaths.contains(descriptor.path) ? lookRoot ?? fileRoot : fileRoot
             // A value an earlier form of the row wrote reads as what it meant (the Chat Minimap toggle).
             // A renamed row's old key applies while the new one is absent (``RenamedSettingKeys``).
-            guard let stored = root.value(at: descriptor.path) ?? RenamedSettingKeys.legacyValue(for: descriptor.path, in: root),
+            guard let stored = descriptor.storedValue(in: root),
                   stored != .null,
                   let value = AgentPaneDisplaySettingsSchema.pageValue(descriptor.id, stored), descriptor.accepts(value)
             else { continue }
