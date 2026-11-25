@@ -47,4 +47,16 @@ describe("runnable link", () => {
     ];
     expect(strays(rows, "rl-x", now, new Set(["f"]))).toEqual(["a", "b"]);
   });
+
+  test("the sweep also takes snapshots: this run's by exact name, old ones by an ISO created_at", () => {
+    const now = Date.parse("2026-11-25T21:00:00Z");
+    const rows = [
+      { id: "s1", name: "runnable link rl-x", status: "ready", created_at: "2026-11-25T20:59:00Z" },
+      { id: "s2", name: "runnable link rl-old", status: "ready", created_at: "2026-11-25T17:00:00Z" },
+      { id: "s3", name: "runnable link rl-new", status: "ready", created_at: "2026-11-25T20:30:00Z" },
+      { id: "s4", name: "runnable link rl-nodate", status: "ready" },
+      { id: "s5", name: "someone's snapshot", status: "ready", created_at: "2020-01-01T00:00:00Z" },
+    ];
+    expect(strays(rows, "rl-x", now, new Set())).toEqual(["s1", "s2"]);
+  });
 });
