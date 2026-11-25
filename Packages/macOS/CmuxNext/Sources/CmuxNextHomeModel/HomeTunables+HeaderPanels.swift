@@ -4,8 +4,8 @@ extension HomeTunables {
     /// The Home transcript header's top-right Memory Inspector toggle (Leo 2026-10-20: "Use
     /// top-right toggle buttons (like Claude desktop) ... Nothing opens by default"; the right
     /// sidebar toggle went with the right sidebar, #41025). Off by default (Lawrence 2026-10-22:
-    /// "fix it so it's simple, like tf are these buttons for"): Memory opens from the pane's ⋮
-    /// (Chief Actions), the palette and Show Memory in the Chief settings. On shows the toggle
+    /// "fix it so it's simple, like tf are these buttons for"): Memory opens from the tab's
+    /// right-click (Chief Actions), the palette and Show Memory in the Chief settings. On shows the toggle
     /// again.
     public static let headerPanelToggles = Tunable<Bool>.toggle(
         "home.headerPanelToggles", section, "Home header panel toggles",

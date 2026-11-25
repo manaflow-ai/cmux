@@ -28,7 +28,7 @@ final class BrowserDownloadsPopup {
 
     private let popup = NativePopupHost(panel: NativePopupPanel(identifier: "cmux.browser.downloads"))
     private let model = BrowserDownloadsPopupModel()
-    private var content: FirstMouseHostingView<BrowserDownloadsPopupView>?
+    private var content: ThemedHostingView<BrowserDownloadsPopupView>?
     private weak var anchor: NSView?
     /// The toolbar the popup opened from, which draws its button pressed while it is open.
     private weak var buttons: BrowserToolbarButtonsView?
@@ -91,7 +91,7 @@ final class BrowserDownloadsPopup {
         model.list = list
         model.registry = registry
         if !popup.isShown { model.shows += 1 }
-        model.colors = anchor.performWithTheme { BrowserDownloadsPopupColors.resolve() }
+        model.colors = anchor.performWithTheme { PopupCardColors.resolve() }
         model.onShowFolder = { [weak self] in
             self?.close()
             showFolder()
@@ -121,8 +121,9 @@ final class BrowserDownloadsPopup {
         return true
     }
 
-    private func makeContent() -> FirstMouseHostingView<BrowserDownloadsPopupView> {
-        let content = FirstMouseHostingView(rootView: BrowserDownloadsPopupView(model: model))
+    private func makeContent() -> ThemedHostingView<BrowserDownloadsPopupView> {
+        // A click on a footer button acts on the first click, also while the popup opened without the keys.
+        let content = ThemedHostingView(rootView: BrowserDownloadsPopupView(model: model), actsOnFirstClick: true)
         let card = Glass.makeMenuPanel(content: content)
         popup.panel.adoptPopupStyle(card: card)
         self.content = content
@@ -176,7 +177,7 @@ final class BrowserDownloadsPopupModel {
     var list: BrowserDownloadList?
     /// Runs the rows of a download's menu (`BrowserDownloadsMenu`).
     @ObservationIgnored weak var registry: ActionRegistry?
-    var colors = BrowserDownloadsPopupColors()
+    var colors = PopupCardColors()
     /// The pointer went into the popup: it no longer closes by itself.
     var entered = false
     /// Bumped by every show: the rows are built again, so no row keeps the
@@ -202,25 +203,6 @@ final class BrowserDownloadsPopupModel {
         entered = true
         onEnter()
     }
-}
-
-/// The popup's colors from the toolbar's theme scope (as `BookmarkPageColors`), inks fit to its glass (`GlassMenuMaterial.ink`).
-struct BrowserDownloadsPopupColors: Equatable {
-    var primary = ThemeTokens.unresolved.textPrimary.swiftUIColor
-    var secondary = ThemeTokens.unresolved.textSecondary.swiftUIColor
-    var hover = ThemeTokens.unresolved.hoverFill.swiftUIColor
-    var separator = Color(nsColor: Borders.color(ThemeTokens.unresolved.separator.nsColor))
-    var danger = ThemeTokens.unresolved.danger.swiftUIColor
-
-    /// Call inside `performWithTheme`. theme-scoped
-    static func resolve() -> BrowserDownloadsPopupColors {
-        BrowserDownloadsPopupColors(primary: glass(\.textPrimary), secondary: glass(\.textSecondary),
-                                    hover: fixed(Palette.hoverFill), separator: fixed(Palette.separator),
-                                    danger: fixed(Palette.danger))
-    }
-
-    private static func fixed(_ color: NSColor) -> Color { Color(nsColor: color.usingColorSpace(.sRGB) ?? color) }
-    private static func glass(_ ink: KeyPath<ThemeTokens, ThemeRGB>) -> Color { GlassMenuMaterial.ink(ink).swiftUIColor }
 }
 
 struct BrowserDownloadsPopupView: View {
@@ -354,7 +336,7 @@ private struct BrowserDownloadPopupRow: View {
 private struct BrowserDownloadsFooterRow: View {
     let symbol: String
     let title: String
-    let colors: BrowserDownloadsPopupColors
+    let colors: PopupCardColors
     let action: () -> Void
     @State private var hovered = false
 
@@ -458,13 +440,4 @@ final class BrowserDownloadRowEventView: NSView, NSDraggingSource {
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
         context == .outsideApplication ? [.copy, .generic] : [.copy, .generic, .link]
     }
-}
-
-/// The popup's content: a click on a control (a footer button) acts on the
-/// first click, also while the popup opened without the keys.
-final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
-    // A main-actor generic class's isolated deinit crashes the Release compile (swift-frontend 6.3, macOS 14 target).
-    nonisolated deinit {}
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }

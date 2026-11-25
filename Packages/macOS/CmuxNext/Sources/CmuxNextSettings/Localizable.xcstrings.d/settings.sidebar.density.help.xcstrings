@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sidebar.density.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تعرض الصفوف الموسَّعة الحالة والعمر وطلب السحب والكمبيوتر تحت كل اسم."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prošireno prikazuje status, starost, pull request i računar ispod svakog naziva."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Udvidet viser status, alder, pull request og computer under hvert navn."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Erweitert zeigt Status, Alter, Pull Request und Computer unter jedem Namen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expanded shows status, age, pull request and computer under each name."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ampliada muestra el estado, la antigüedad, la pull request y el ordenador bajo cada nombre."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Étendue affiche sous chaque nom l’état, l’ancienneté, la pull request et l’ordinateur."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le righe estese mostrano stato, età, pull request e computer sotto ogni nome."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "拡張表示では、各名前の下にステータス、経過時間、プルリクエスト、コンピュータを表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពង្រីក បង្ហាញស្ថានភាព អាយុ pull request និងកុំព្យូទ័រនៅក្រោមឈ្មោះនីមួយៗ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "확장은 각 이름 아래에 상태, 경과 시간, 풀 리퀘스트, 컴퓨터를 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Utvidet viser status, alder, pull request og datamaskin under hvert navn."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rozszerzone pokazuje pod każdą nazwą stan, wiek, pull request i komputer."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Expandida mostra status, idade, pull request e computador abaixo de cada nome."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Развёрнутые строки показывают под каждым названием статус, давность, pull request и компьютер."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แบบขยายจะแสดงสถานะ อายุ พูลรีเควสต์ และคอมพิวเตอร์ใต้แต่ละชื่อ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Genişletilmiş, her adın altında durumu, süreyi, pull request'i ve bilgisayarı gösterir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Розгорнуті рядки показують під кожною назвою стан, давність, pull request і комп’ютер."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mở rộng hiển thị trạng thái, thời gian, pull request và máy tính dưới mỗi tên."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "“展开”会在每个名称下方显示状态、时间、拉取请求和电脑。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "展開會在每個名稱下方顯示狀態、時間、提取要求和電腦。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -29,6 +29,9 @@ export const fakeGitHub = () => {
     "https://api.github.com/user/installations": () => ok({ installations: [{ id: 99, account: { login: "acme", type: "Organization" }, permissions: { contents: "write", pull_requests: "write", issues: "write", workflows: "write", metadata: "read" } }] }),
     "https://api.github.com/app/installations/99/access_tokens": (_req, body) =>
       ok({ token: `ghs_secret_${++n}`, expires_at: new Date(Date.now() + 3600_000).toISOString(), permissions: { ...(JSON.parse(body || "{}") as { permissions?: object }).permissions, metadata: "read" } }, 201),
+    // The installation itself (GET /app/installations/99), after its access_tokens route so that one matches first: a
+    // status read verifies the installation still exists, and an unrouted 404 would read as a deleted installation.
+    "https://api.github.com/app/installations/99": () => ok({ id: 99, account: { login: "acme", type: "Organization" }, permissions: {} }),
     "https://api.github.com/installation/token": () => new Response(null, { status: 204 }),
     // The linking user (GET /user); last, so the /user/installations routes above match first.
     "https://api.github.com/user": () => ok({ id: LINKING_GITHUB_ID, login: "linker" })

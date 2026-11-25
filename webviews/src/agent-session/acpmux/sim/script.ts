@@ -7,7 +7,7 @@
 //
 // Leo, 2026-11-21: "we can do this without any real agent sessions, just simulated ones. ... we can
 // just have simulations of things that go monstrously long".
-import type { EventRecord } from "../direct";
+import type { EventRecord } from "../eventRecord";
 
 /** What the reader does between two records: the simulator's only steps that are not acpmux's. */
 export type ReaderAction = { scroll: "top" | "bottom" } | { scrollBy: number } | { open: string };
@@ -48,6 +48,19 @@ function chunked(value: string, chunks: number): string[] {
   return out;
 }
 
+/** Splits `value` at the given character offsets (a chunk boundary inside `**bold**`, a fence, a table). */
+function cutAt(value: string, offsets: readonly number[]): string[] {
+  const out: string[] = [];
+  let from = 0;
+  for (const offset of [...offsets].sort((a, b) => a - b)) {
+    if (offset <= from || offset >= value.length) continue;
+    out.push(value.slice(from, offset));
+    from = offset;
+  }
+  out.push(value.slice(from));
+  return out;
+}
+
 export type ToolOptions = {
   kind?: "execute" | "read" | "edit" | "search" | "fetch" | "think" | "other";
   /** ms the call runs before its result. */
@@ -59,6 +72,8 @@ export type ToolOptions = {
   /** Leave the call running: no result record (end it later with `toolEnd`). */
   open?: boolean;
   path?: string;
+  /** The call's input as the harness sends it (an MCP call's arguments, such as acpmux's `wrap_up`). */
+  rawInput?: Record<string, unknown>;
 };
 
 export type IncomingOptions = {
@@ -113,8 +128,10 @@ export class SimBuilder {
     return this.record("mux", "turn_started", { turnId: this.turnId, promptId: this.promptId }, 0, "turn_started");
   }
 
-  /** The person's prompt, and the turn it starts. */
-  prompt(value: string, after = 1_000): this {
+  /** The person's prompt, and the turn it starts. `wake`: the chat's agent host had hibernated, so it
+   * starts and resumes between the prompt and its turn (`host_started`, `resumed`, `status: ready`), as a
+   * real chat records it. */
+  prompt(value: string, after = 1_000, extra: Record<string, unknown> = {}, { wake = false } = {}): this {
     this.newTurn();
     this.record(
       "mux",
@@ -125,10 +142,17 @@ export class SimBuilder {
         turnId: this.turnId,
         client: "pane",
         _meta: { origin: { actor: "person" } },
+        ...extra,
       },
       after,
       `prompt: ${value.slice(0, 40)}`,
     );
+    if (wake) {
+      this.record("mux", "host_started", { hostBuild: "sim", hostPid: 1, incarnation: "sim" }, 120, "host_started");
+      this.record("mux", "resumed", { level: "exact", wake: true }, 380, "resumed");
+      this.record("mux", "status", { status: "ready" }, 0, "status ready");
+      return this.started(6);
+    }
     return this.started(300);
   }
 
@@ -156,6 +180,69 @@ export class SimBuilder {
       { text: value, promptId: this.promptId, turnId: this.turnId, client: "acpmux-cli#1", _meta: { provenance } },
       after,
       `incoming ${kind}: ${value.slice(0, 40)}`,
+    );
+    return this.started(300);
+  }
+
+  /** Another agent's message steered into the running turn (acpmux `steer`): no turn of its own. */
+  steerIncoming(value: string, options: IncomingOptions = {}, after = 600): this {
+    const fromName = options.fromName ?? "other-lane";
+    const provenance = {
+      kind: options.kind ?? "agent_message",
+      from: `sim-host/${fromName}`,
+      fromName,
+      fromSessionId: "sim-0000-0000-0000-0000000000aa",
+      to: this.sessionId,
+    };
+    this.incomingSteers += 1;
+    return this.record(
+      "mux",
+      "user_message",
+      {
+        text: value,
+        promptId: `steer-${this.turns}-${this.incomingSteers}`,
+        turnId: this.turnId,
+        steer: true,
+        client: "acpmux-cli#1",
+        _meta: { provenance },
+      },
+      after,
+      `steer ${provenance.kind}: ${value.slice(0, 40)}`,
+    );
+  }
+  private incomingSteers = 0;
+
+  /** A background task's end that acpmux sends the agent as a prompt (hub/bg_notify.rs: prompt id
+   *  `bg-done-<task>`, a notice naming the task), and the turn it starts. */
+  bgDone(task: string, description: string, { title, after = 1_000 }: { title?: string; after?: number } = {}): this {
+    this.newTurn();
+    this.promptId = `bg-done-${task}`;
+    const provenance = {
+      kind: "notice",
+      from: "acpmux",
+      fromName: "acpmux",
+      to: this.sessionId,
+      display: "line",
+      notice: {
+        sender: "acpmux",
+        severity: "info",
+        title: title ?? `Background task finished: ${description} (exit 0)`,
+      },
+      bgTaskId: task,
+      bgTaskDescription: description,
+    };
+    this.record(
+      "mux",
+      "user_message",
+      {
+        text: `Background task finished: ${description}`,
+        promptId: this.promptId,
+        turnId: this.turnId,
+        client: "acpmux",
+        _meta: { provenance },
+      },
+      after,
+      `bg done: ${description.slice(0, 40)}`,
     );
     return this.started(300);
   }
@@ -205,18 +292,179 @@ export class SimBuilder {
     return this;
   }
 
-  /** The reply's text, streamed in `chunks` deltas `chunkMs` apart. */
-  say(value: string, { chunks = 4, chunkMs = 80, after = 400 } = {}): this {
-    chunked(value, chunks).forEach((part, index) =>
-      this.record(
-        "in",
-        "agent_message_chunk",
-        update("agent_message_chunk", { content: text(part) }),
-        index === 0 ? after : chunkMs,
-        "assistant delta",
-      ),
-    );
+  /** The reply's text, streamed in `chunks` deltas `chunkMs` apart. `messageId` and `segment` stamp each
+   *  chunk as acpmux does (`update.messageId`, `_meta.acpmux.segment`); `pauseAt` waits `pauseMs` before
+   *  that chunk (a stall mid-reply); `split` cuts at exact offsets instead of word boundaries. */
+  say(
+    value: string,
+    {
+      chunks = 4,
+      chunkMs = 80,
+      after = 400,
+      messageId,
+      segment,
+      pauseAt,
+      pauseMs = 0,
+      split,
+    }: {
+      chunks?: number;
+      chunkMs?: number;
+      after?: number;
+      messageId?: string;
+      segment?: string;
+      pauseAt?: number;
+      pauseMs?: number;
+      split?: readonly number[];
+    } = {},
+  ): this {
+    const parts = split ? cutAt(value, split) : chunked(value, chunks);
+    parts.forEach((part, index) => {
+      const msg = update("agent_message_chunk", { content: text(part), ...(messageId ? { messageId } : {}) });
+      if (segment) (msg.params as Record<string, unknown>)._meta = { acpmux: { segment } };
+      const wait = index === 0 ? after : chunkMs + (index === pauseAt ? pauseMs : 0);
+      this.record("in", "agent_message_chunk", msg, wait, "assistant delta");
+    });
     return this;
+  }
+
+  /** A steer: the person's prompt sent into the running turn (no new turn); `read` lands it `readMs` later. */
+  steerPrompt(value: string, { after = 300, read = true, readMs = 1_500 } = {}): this {
+    this.steers += 1;
+    const promptId = `steer-${this.steers}`;
+    this.record(
+      "mux",
+      "user_message",
+      {
+        text: value,
+        promptId,
+        turnId: this.turnId,
+        client: "pane",
+        steer: true,
+        _meta: { origin: { actor: "person" } },
+      },
+      after,
+      `steer: ${value.slice(0, 40)}`,
+    );
+    if (read) this.record("mux", "steer_read", { promptId }, readMs, "steer_read");
+    return this;
+  }
+  private steers = 0;
+
+  /** A plan (todo list) update. */
+  planUpdate(entries: { content: string; status?: string }[], after = 300): this {
+    return this.record(
+      "in",
+      "plan",
+      update("plan", { entries: entries.map((entry) => ({ priority: "medium", status: "pending", ...entry })) }),
+      after,
+      "plan",
+    );
+  }
+
+  /** A permission card for a call, answered `answerMs` later (`answer: false` leaves it open). */
+  permissionCard(title: string, { after = 300, answerMs = 3_000, answer = true, optionId = "allow_once" } = {}): this {
+    this.asks += 1;
+    const permissionId = `perm-${this.asks}`;
+    const toolCallId = this.nextCallId();
+    this.record(
+      "mux",
+      "permission_request",
+      {
+        permissionId,
+        request: {
+          toolCall: { toolCallId, title, kind: "execute", rawInput: { command: title } },
+          options: [
+            { optionId: "allow_once", name: "Allow", kind: "allow_once" },
+            { optionId: "reject_once", name: "Reject", kind: "reject_once" },
+          ],
+        },
+      },
+      after,
+      "permission_request",
+    );
+    if (answer)
+      this.record(
+        "mux",
+        "permission_decision",
+        { permissionId, outcome: { outcome: "selected", optionId } },
+        answerMs,
+        "permission_decision",
+      );
+    return this;
+  }
+
+  /** An ask card (Claude Code's AskUserQuestion, a permission request), answered `answerMs` later. */
+  ask(question: string, options: string[], { after = 300, answerMs = 4_000 } = {}): this {
+    this.asks += 1;
+    const permissionId = `ask-${this.asks}`;
+    this.record(
+      "mux",
+      "permission_request",
+      {
+        permissionId,
+        request: {
+          toolCall: {
+            toolCallId: this.nextCallId(),
+            title: "AskUserQuestion",
+            kind: "other",
+            rawInput: { questions: [{ question, header: "Ask", options: options.map((label) => ({ label })) }] },
+            _meta: { claude: { tool: "AskUserQuestion" } },
+          },
+          options: [{ optionId: "allow_once", name: "Answer", kind: "allow_once" }],
+        },
+      },
+      after,
+      "ask card",
+    );
+    return this.record(
+      "mux",
+      "permission_decision",
+      {
+        permissionId,
+        outcome: { outcome: "selected", optionId: "allow_once" },
+        _meta: { answers: { [question]: options[0] } },
+      },
+      answerMs,
+      "ask answered",
+    );
+  }
+  private asks = 0;
+
+  /** acpmux replacing a message the harness retried (`message_superseded`): the old one's rows go. */
+  superseded(oldMessageId: string, newMessageId: string, after = 100): this {
+    return this.record(
+      "mux",
+      "message_superseded",
+      { oldMessageId, newMessageId, reason: "harness_retry", source: "codex" },
+      after,
+      "message_superseded",
+    );
+  }
+
+  /** A notice from the host (acpmux `host_notice`): a line in the transcript. */
+  hostNotice(value: string, after = 200): this {
+    return this.record("mux", "host_notice", { text: value }, after, "host_notice");
+  }
+
+  /** The model changed mid-chat (a config option update). */
+  modelSwitch(model: string, after = 200): this {
+    return this.record(
+      "in",
+      "config_option_update",
+      update("config_option_update", { configOptions: [{ id: "model", currentValue: model, type: "select" }] }),
+      after,
+      "model switch",
+    );
+  }
+
+  /** The turn's start record alone (`status running` + `turn_started`), for a late or repeated start. */
+  startRecord(after = 0): this {
+    return this.started(after);
+  }
+
+  /** The current turn's id and prompt id. */
+  current(): { turnId?: string; promptId?: string } {
+    return { turnId: this.turnId, promptId: this.promptId };
   }
 
   /** A tool call: its start, and (unless `open`) its result `ms` later. Returns the builder; the call's id is `call-N`. */
@@ -232,7 +480,11 @@ export class SimBuilder {
         title,
         kind,
         status: "in_progress",
-        ...(kind === "execute" ? { rawInput: { command: title, description: title } } : {}),
+        ...(options.rawInput
+          ? { rawInput: options.rawInput }
+          : kind === "execute"
+            ? { rawInput: { command: title, description: title } }
+            : {}),
         ...(options.path ? { locations: [{ path: options.path }] } : {}),
         ...(options.tool ? { _meta: { claude: { tool: options.tool } } } : {}),
       }),
@@ -295,15 +547,74 @@ export class SimBuilder {
     return this;
   }
 
-  /** A subagent call (Claude Code's Agent tool) that runs `ms` and reports. */
-  subagent(description: string, { ms = 4_000, report = "Done: nothing found." } = {}): this {
-    return this.tool(description, { kind: "think", tool: "Agent", ms, output: report });
+  /** The person's steer mid-turn (`steer: true` on the running turn), and acpmux saying the agent read it `readMs` later
+   *  (`false`: the agent has not read it yet). */
+  steer(
+    value: string,
+    {
+      readMs = 600,
+      after = 300,
+      extra = {},
+    }: { readMs?: number | false; after?: number; extra?: Record<string, unknown> } = {},
+  ): this {
+    const promptId = `steer-${this.seq + 1}`;
+    this.record(
+      "mux",
+      "user_message",
+      {
+        text: value,
+        promptId,
+        turnId: this.turnId,
+        steer: true,
+        client: "pane",
+        _meta: { origin: { actor: "person" } },
+        ...extra,
+      },
+      after,
+      `steer: ${value.slice(0, 40)}`,
+    );
+    if (readMs === false) return this;
+    return this.record("mux", "steer_read", { promptId, turnId: this.turnId }, readMs, "steer_read");
+  }
+
+  /** A subagent call (Claude Code's Agent tool) that runs `ms` and reports. `tracked`: acpmux also
+   * reports the subagent's start and end (subagents.rs), so the chat draws it as a subagent. */
+  subagent(description: string, { ms = 4_000, report = "Done: nothing found.", tracked = false } = {}): this {
+    if (!tracked) return this.tool(description, { kind: "think", tool: "Agent", ms, output: report });
+    this.tool(description, { kind: "think", tool: "Agent", open: true });
+    const id = `call-${this.calls}`;
+    const agent = `agent-${this.calls}`;
+    const change = (fields: Record<string, unknown>) => {
+      const msg = update(fields.state === "running" ? "subagent_spawned" : "subagent_state_update", {});
+      return { ...msg, params: { ...msg.params, _meta: { acpmux: { subagents: [{ id: agent, ...fields }] } } } };
+    };
+    const name = description.slice(0, 40);
+    this.record(
+      "in",
+      "subagent_spawned",
+      change({ parent: null, name, task: description, state: "running", startedAt: this.now }),
+      50,
+      "subagent spawned",
+    );
+    this.record(
+      "in",
+      "subagent_state_update",
+      change({ state: "completed", lastMessage: report, endedAt: this.now + ms }),
+      ms,
+      "subagent completed",
+    );
+    return this.toolEnd(id, { output: report, ms: 50 });
   }
 
   /** The agent compacting its context: started, then completed `ms` later. */
   compaction({ ms = 2_000, after = 300 } = {}): this {
     this.record("in", "compaction", update("compaction", { state: "started" }), after, "compaction started");
     return this.record("in", "compaction", update("compaction", { state: "completed" }), ms, "compaction completed");
+  }
+
+  /** A Stop hook sent the agent back (acpmux claude_stdio `stop_hook_feedback`), with the hook's reason. */
+  stopHook(reason: string, after = 300): this {
+    return this.record("in", "stop_hook_feedback", update("stop_hook_feedback", { text: reason }), after, "stop hook");
   }
 
   /** acpmux's turn end: `turn_end`, `turn_result`, and the session ready again. */
@@ -317,6 +628,65 @@ export class SimBuilder {
       "turn_result",
     );
     return this.record("mux", "status", { status: "ready" }, 10, "status ready");
+  }
+
+  /** acpmux asks the person to allow call `id`, and `ms` later records the answer (`allow`, or `null`: still waiting). */
+  permission(id: string, { ms = 4_000, allow = true as boolean | null, after = 100 } = {}): this {
+    const permissionId = `perm-${id}`;
+    const options = [
+      { optionId: "allow", name: "Allow", kind: "allow_once" },
+      { optionId: "reject", name: "Deny", kind: "reject_once" },
+    ];
+    this.record(
+      "mux",
+      "permission_request",
+      { permissionId, request: { sessionId: "agent-1", toolCall: { toolCallId: id, title: id }, options } },
+      after,
+      `permission asked: ${id}`,
+    );
+    if (allow === null) return this;
+    return this.record(
+      "mux",
+      "permission_decision",
+      { permissionId, outcome: { outcome: "selected", optionId: allow ? "allow" : "reject" } },
+      ms,
+      `permission ${allow ? "allowed" : "denied"}: ${id}`,
+    );
+  }
+
+  /** The person's Stop: acpmux's `stopping`, each running call of `calls` ends interrupted (as the harness
+   *  ends them), then the turn ends cancelled `ms` later. */
+  stop({ calls = [] as string[], ms = 600, after = 300 } = {}): this {
+    this.record("mux", "stopping", { turnId: this.turnId }, after, "stopping");
+    for (const id of calls)
+      this.toolEnd(id, { ms: 200, status: "failed", output: "[Request interrupted by user for tool use]" });
+    return this.turnEnd("cancelled", ms);
+  }
+
+  /** The turn fails: acpmux's `turn_error`, then a failed `turn_result` carrying the error. */
+  fail(error: string, after = 500): this {
+    this.record("mux", "turn_error", { turnId: this.turnId, error }, after, "turn_error");
+    this.record(
+      "mux",
+      "turn_result",
+      { status: "failed", turnId: this.turnId, promptId: this.promptId, error, errorText: error },
+      20,
+      "turn_result",
+    );
+    return this.record("mux", "status", { status: "ready" }, 10, "status ready");
+  }
+
+  /** The model cannot be reached: acpmux retries the turn's request, and `ms` later hears it again. */
+  retry({ ms = 8_000, attempts = 2, after = 400 } = {}): this {
+    for (let attempt = 1; attempt <= attempts; attempt += 1)
+      this.record(
+        "mux",
+        "turn_retrying",
+        { turnId: this.turnId, attempt, maxAttempts: 10, delayMs: ms / attempts, error: "overloaded" },
+        attempt === 1 ? after : ms / attempts,
+        `turn_retrying ${attempt}`,
+      );
+    return this.record("mux", "turn_heard", { turnId: this.turnId }, ms / attempts, "turn_heard");
   }
 
   /** The reader scrolls (`top`, `bottom`, or by px) or opens a fold (its row id, `worked-user-12`), `after` ms from now. */

@@ -136,8 +136,11 @@
         "Generate the third-party notices": {"pr": "cmux-next-guards.yml:rust-notices-tree:Generate the Rust notices from this tree (as the nightly does)"}},
       "check-nightly-webviews": {
         "Webview checks on the build commit": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publishes no red webview tree and no known-bad commit", "note": "the same fast_gate_webviews_checks.py pieces run on every feat-cmux-next pull request in ci-web.yml react-apps-check (1); this test pins that the nightly runs them on its build commit and that publication waits for them"},
-        "Report the lint-class webview checks": {"pr": "ci-guards.yml:workflow-guard-tests:Validate lint-class webview checks are fixed forward on the nightly"}
+        "Report the lint-class webview checks": {"pr": "ci-guards.yml:workflow-guard-tests:Validate lint-class webview checks are fixed forward on the nightly"},
+        "Hand a type error with no machine fix to fixit-handoff": {"nightly_only": "writes fixit-compile's no-fix record to this job's outputs for the fixit-handoff job (scripts/ci/oops/fixit_handoff.py signal; tests/test_ci_fixit_handoff.py)"}
       },
+      "early-nightly-webviews": {
+        "Webview checks on the tip commit": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publishes no red webview tree and no known-bad commit", "note": "the same fast_gate_webviews_checks.py pieces run on every feat-cmux-next pull request in ci-web.yml react-apps-check; this job runs them on the tip before the signer (#50866; tests/test_nightly_early_webviews.py)"}},
       "resolve-nightly-cmux-tui-client": {
         "Fix this run's build number": {"plumbing": true},
         "Install gh if this runner lacks it": {"plumbing": true},
@@ -190,7 +193,6 @@
         "Download prepared app (parallel)": {"plumbing": true, "note": "a ranged, digest-checked download (download-run-artifact.py, tests/test_download_run_artifact_modes.py); download-artifact stays the fallback"},
         "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
         "Claim the whole Mac for signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
-        "Yield the sign slot to a newer build": {"nightly_only": "reads the in-progress nightly-next push runs' sign jobs through the Actions API, only on attempt 1 of a nightly-next push; the decision and its wiring are checked by tests/test_nightly_sign_yield.py"},
         "Clear stale git locks (self-hosted reused workspace)": {"plumbing": true},
         "Install the current signing keychain controls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate unsigned nightly resume provenance and routing"},
         "Initialize cmux-next notices submodule": {"plumbing": true},
@@ -401,6 +403,8 @@
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Ask the push group for the newest head": {"nightly_only": "dispatches nightly.yml with nightly_next_loop_retry after a failed nightly-next run whose commit is still the head (tests/test_nightly_next_single_loop.py)"}},
       "nightly-next-one": {
+        "Fail when this build's publication was refused": {"nightly_only": "turns nightly-next-one red when the final gate or the R2 feed write refused a build it should publish (run 45607031207 showed green with nothing published)"},
+        "Hand a type error with no machine fix to fixit-handoff": {"nightly_only": "writes fixit-compile's no-fix record to this job's outputs for the fixit-handoff job (scripts/ci/oops/fixit_handoff.py signal; tests/test_ci_fixit_handoff.py)"},
         "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
         "Clear stale git locks (self-hosted reused workspace)": {"plumbing": true},
         "Checkout build ref (warm nightly-next builder)": {"plumbing": true},
@@ -588,6 +592,7 @@
         "Capture the states": {"nightly_only": "drives the built app on an owned Mac's logged-in console session; capture_states.py is tested on a fake app in tests/test_cmux_next_visual_gate.py"},
         "Read the text boxes": {"nightly_only": "runs macOS Vision OCR on the captured stills; the overlap check is tested on fixtures in tests/test_cmux_next_visual_gate.py"},
         "Run the visual gate": {"pr": "ci-guards.yml:workflow-guard-tests:Test the cmux NEXT nightly visual gate"},
+        "Diff the states against the previous nightly": {"nightly_only": "diffs this nightly's captured stills against the previous nightly's published ones (advisory, continue-on-error); scripts/ci/desktop_visual_diff.py is tested on fixtures in tests/test_desktop_visual_diff.py"},
         "Hold publication": {"plumbing": true},
         "Enforce the verdict": {"plumbing": true}},
       "visual-gate-nightly-verdict": {
@@ -595,6 +600,8 @@
         "Record failed advisory verdict": {"plumbing": true}},
       "report-visual-gate-nightly": {
         "Record the verdict in the visual gate issue": {"nightly_only": "writes the verdict comment to the nightly-next visual gate issue with the run's token"}},
+      "fixit-handoff": {
+        "Dispatch fixit-handoff on feat-cmux-next": {"nightly_only": "dispatches fixit-handoff.yml on feat-cmux-next with the run's token for a nightly webview type error with no machine fix (#49884; tests/test_ci_fixit_handoff.py)"}},
       "report-nightly-fix-forward": {
         "File the lint-class reds in the fix-forward issue": {"nightly_only": "opens, updates or closes the nightly fix-forward issue with the run's token; its logic is unit-tested in tests/test_nightly_lint_fix_forward.py"}}
     },
