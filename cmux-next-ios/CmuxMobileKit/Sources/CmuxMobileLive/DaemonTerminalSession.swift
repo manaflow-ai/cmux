@@ -938,7 +938,8 @@ public final class DaemonTerminalSession: TerminalSession {
     /// `terminal-find {surface, query, ...}` on the attach channel: one page of matches in the
     /// terminal's whole history. Nil when the daemon has no such command.
     public func findPage(_ request: TerminalFindRequest) async throws -> TerminalFindPage? {
-        guard !findUnsupported else { return nil }
+        // Settings → Terminal → Find in Whole History, off by default: off, the mirror searches itself.
+        guard !findUnsupported, CmuxMobilePreferences.terminalHistoryFind() else { return nil }
         guard attached, let client else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
         var params = request.fields
         params["surface"] = surface

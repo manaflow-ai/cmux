@@ -182,6 +182,9 @@ public final class SettingsStore {
     public var terminalZoomFullScreenApps: Bool {
         didSet { save(terminalZoomFullScreenApps, "terminalZoomFullScreenApps") }
     }
+    /// Settings → Terminal → Find in Whole History (off by default). Read by the terminal
+    /// (`CmuxMobilePreferences.terminalHistoryFind`) at each search.
+    public var terminalHistoryFind: Bool { didSet { save(terminalHistoryFind, "terminalHistoryFind") } }
     /// Read by the terminal (`CmuxMobilePreferences.predictiveEcho`) through the same key.
     public var predictiveEcho: Bool { didSet { save(predictiveEcho, "predictiveEcho") } }
     /// Settings → Terminal → Predictive Echo in Full-Screen Apps (off by default). Read by the
@@ -251,6 +254,7 @@ public final class SettingsStore {
         terminalChatToggle = defaults.object(forKey: "cmuxMobile.settings.terminalChatToggle") == nil
             ? false : defaults.bool(forKey: "cmuxMobile.settings.terminalChatToggle")
         terminalZoomFullScreenApps = bool("terminalZoomFullScreenApps", false)
+        terminalHistoryFind = bool("terminalHistoryFind", false)
         predictiveEcho = bool("predictiveEcho", true)
         predictiveEchoFullScreen = defaults.object(forKey: "cmuxMobile.settings.predictiveEchoFullScreen") == nil
             ? false : defaults.bool(forKey: "cmuxMobile.settings.predictiveEchoFullScreen")
