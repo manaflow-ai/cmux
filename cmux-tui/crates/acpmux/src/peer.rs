@@ -37,10 +37,13 @@ pub use dual::DualStats;
 mod dialer;
 #[path = "peer_features.rs"]
 mod features;
+pub use features::{PEER_FEATURES, PeerFeature, gating as features_gating};
 #[path = "peer_health.rs"]
 pub(crate) mod health;
 #[path = "peer_overlay.rs"]
 pub(crate) mod overlay;
+#[path = "peer_tailnet.rs"]
+mod tailnet_path;
 
 #[cfg(feature = "hub-carrier")]
 #[path = "peer_hub.rs"]
@@ -88,6 +91,8 @@ mod handshake_tests;
 #[cfg(test)]
 #[path = "peer_hub_behind_tests.rs"]
 mod hub_behind_tests;
+#[path = "peer_liveness.rs"]
+pub mod liveness;
 #[cfg(test)]
 #[path = "peer_liveness_tests.rs"]
 mod liveness_tests;
@@ -321,6 +326,8 @@ pub struct Peer {
     /// The peer's config names its own route (`wireguard` or `linkHost`): no overlay path is
     /// found or recalled for it (`peer_overlay.rs`).
     explicit_route: AtomicBool,
+    /// The opt-in tailnet path (`peer_tailnet.rs`).
+    tailnet: StdMutex<tailnet_path::State>,
     /// The cmux link's socket when known ahead of its registration (tests); else read per dial.
     link_socket: std::sync::OnceLock<std::path::PathBuf>,
     /// The peer's paths and which one carries the link (`peer_paths.rs`), made on first use.
@@ -459,6 +466,8 @@ pub struct Peer {
     session_resume_link: AtomicU64,
     /// The peer lists `session-messages-v1`: its prompt acceptances name the message they kept.
     session_messages: AtomicBool,
+    /// The peer serves agent byte channels (`server/channels.rs`, `agent-channels-v1`).
+    agent_channels: AtomicBool,
     /// The peer lists `personStop` (`server/requests/person_stop.rs`).
     pub(crate) person_stop: AtomicBool,
     /// The peer token was held back: the transport is plain `ws://` to a
@@ -809,6 +818,11 @@ fn too_large(e: &RpcError) -> bool {
 const SSH_CONNECT_SECS: u64 = 3;
 const SSH_CONNECT_SLOW_SECS: u64 = 20;
 
+/// ssh's own keepalive on the tunnel (`tunnel_argv`): a probe each interval, the tunnel ends after
+/// this many unanswered. A backstop under the link's 2 s ping (`peer::liveness`).
+const SSH_ALIVE_INTERVAL_SECS: u64 = 15;
+const SSH_ALIVE_COUNT_MAX: u64 = 3;
+
 /// An attempt still connecting this long after it began is begun again when a client asks for
 /// the peer (`Peer::connect_once`): one sent into a network that was down waits out TCP's
 /// retransmit backoff, while a new one connects at once.
@@ -965,18 +979,15 @@ fn check_ssh_part(part: &str, what: &'static str) -> Result<(), &'static str> {
 /// so the destination is never read as one.
 /// `connect_secs` is ssh's ConnectTimeout (`Peer::ssh_connect_secs`).
 pub fn tunnel_argv(destination: &str, port: u16, connect_secs: u64) -> Vec<String> {
-    let mut argv: Vec<String> = [
-        "-o",
-        "BatchMode=yes",
-        "-o",
-        "ServerAliveInterval=15",
-        "-o",
-        "ServerAliveCountMax=3",
-        "-o",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect();
+    let mut argv: Vec<String> = vec![
+        "-o".into(),
+        "BatchMode=yes".into(),
+        "-o".into(),
+        format!("ServerAliveInterval={SSH_ALIVE_INTERVAL_SECS}"),
+        "-o".into(),
+        format!("ServerAliveCountMax={SSH_ALIVE_COUNT_MAX}"),
+        "-o".into(),
+    ];
     argv.push(format!("ConnectTimeout={connect_secs}"));
     argv.push("-W".into());
     argv.push(format!("127.0.0.1:{port}"));

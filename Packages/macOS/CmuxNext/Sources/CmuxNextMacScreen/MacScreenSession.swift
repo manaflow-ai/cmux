@@ -1,3 +1,4 @@
+import CmuxEgress
 public import CmuxNextRemoteView
 public import CmuxScreenKit
 import CmuxNextCompat
@@ -377,8 +378,10 @@ public final class MacScreenSession {
         // `cursor`: the host leaves its cursor out of the pictures and the pane draws one cursor.
         // `video.scaled`: the pane draws a smaller picture into the stream's rect and its input
         // stays in stream pixels (`streamSize`), so the host may shrink it on a slow link.
+        // `clock` and `ledger`: every frame's stage times, on the host's clock.
         let hello = RemoteRdHello(user: "viewer", install: "mac-screen", maxDatagram: 1126, token: nil,
-                                  caps: [RemoteRdHello.cursorCap, RemoteRdHello.videoScaledCap])
+                                  caps: [RemoteRdHello.cursorCap, RemoteRdHello.videoScaledCap,
+                                         RemoteRdHello.clockCap, RemoteRdHello.ledgerCap])
         guard let transport = RemoteRdStreamTransport(carrier: carrier, hello: hello, startKey: UUID().uuidString,
                                                       control: true, clipboard: offersClipboard) else {
             fail(L.t("macScreen.rd.viewerStopped", "The screen viewer stopped."))
@@ -590,7 +593,7 @@ public final class MacScreenSession {
 /// The link bridge's Unix socket as the remote view transport's byte stream.
 nonisolated enum MacScreenUnixStream {
     static func open(path: String) async throws -> RemoteRdByteStream {
-        let connection = NWConnection(to: .unix(path: path), using: .tcp)
+        let connection = CmuxEgress.connection(to: .unix(path: path), using: .tcp, site: "CmuxNextMacScreen.MacScreenSession")
         // The stream's bytes: the next decoded frame waits for them.
         let queue = DispatchQueue(label: "com.cmuxterm.mac-screen.rd-socket", qos: .userInitiated)
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
