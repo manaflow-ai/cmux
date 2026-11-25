@@ -85,6 +85,7 @@ dependencies = [
  "cmux-tui-hooks",
  "cmux-tui-platform",
  "cmux-unix-socket",
+ "cmux-upstream-error",
  "cmux-usage-patterns",
  "cmux-usage-share",
  "cmux-vault-egress",
@@ -3497,6 +3498,10 @@ dependencies = [
  "libc",
  "tempfile",
 ]
+
+[[package]]
+name = "cmux-upstream-error"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-url-input"
