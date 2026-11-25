@@ -7,7 +7,7 @@ PLAN is the driver's `swiftc -c <every module file> FLAGS -###` output, which in
 and file list. This runs only the frontend jobs whose primary file is one of NAME (each of the module's other files
 read as a secondary, exactly as the full compile does) and writes DIR/NAME.o for each. The full compile ran every
 file's job and the driver around them, though only the patched files' objects are linked: 745 ms where the one job
-takes 84 (goal dev-loop-ceiling, swift_inject on cmux17, step 47d6fad6641ac4fe909234ea).
+takes 84 (goal dev-loop-ceiling, swift_inject on a fleet Mac, step 47d6fad6641ac4fe909234ea).
 
 Exit 0: every NAME.o written. Exit 3: the plan has no job for a NAME, or it cannot be read; inject.sh then runs the
 full compile. A job that fails exits with its code and prints its diagnostics."""
