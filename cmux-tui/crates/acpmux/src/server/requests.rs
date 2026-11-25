@@ -2219,6 +2219,9 @@ async fn dispatch_request_with_identity(
             }
             // Ordered by the chat's prompt admission from here (`hub/prompt_admission.rs`), bounded.
             let admission = crate::hub::prompt_admission::admit(&s).await;
+            // Every RPC-side preparation await shares the arrival deadline that admission gave
+            // this delivery. The hub has its own bounded admission after this setup completes.
+            let preparation_deadline = admission.answer_due();
             attach(hub, conn, &s.id);
             if person_asks(conn) {
                 super::lane_parent::person_wrote(hub, &s);
@@ -2247,7 +2250,7 @@ async fn dispatch_request_with_identity(
             let mut owned = crate::attach::OwnedUploads(if web {
                 Vec::new()
             } else {
-                crate::prompt_uploads::owned(&s.id, &blocks).await
+                prompt_preparation(preparation_deadline, crate::prompt_uploads::owned(&s.id, &blocks)).await?
             });
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
             // An `@computer-use` / `@browser-use` the person wrote gets acpmux's fixed note for the
@@ -2480,7 +2483,9 @@ async fn dispatch_request_with_identity(
             // the owner only: a person's prompt neither replaces nor is replaced.
             let supersede = crate::hub::supersede_key(&params)?.filter(|_| !person_message);
             let supersede_set = supersede.is_some();
-            let inbox_on = hub.config.read().await.agent_inbox();
+            let inbox_on = prompt_preparation(preparation_deadline, hub.config.read())
+                .await?
+                .agent_inbox();
             // Files uploaded first and named in the prompt get their bytes back here, before
             // anything reads them (`prompt_uploads.rs`). A prompt id the chat took already goes on
             // to `prompt_with`, which answers with its first run even once its uploads are gone
@@ -2498,7 +2503,13 @@ async fn dispatch_request_with_identity(
                         result => result.map(|()| blocks),
                     }
                 });
-                blocks = resolved.await.map_err(|e| RpcError::internal(e.to_string()))??;
+                blocks = match prompt_preparation(preparation_deadline, resolved).await {
+                    Ok(result) => result.map_err(|e| RpcError::internal(e.to_string()))??,
+                    Err(error) => {
+                        preserve_owned_uploads_for_retry(&mut owned);
+                        return Err(error);
+                    }
+                };
             }
             // Files sent with the message (`acpmux send --attach`), after every check that can
             // refuse it: saved in the session's uploads, and what the agent gets put in their
@@ -2510,8 +2521,13 @@ async fn dispatch_request_with_identity(
                 let received = tokio::task::spawn_blocking(move || {
                     crate::attach::receive(&id, web, &mut blocks).map(|saved| (blocks, saved))
                 });
-                (blocks, saved) =
-                    received.await.map_err(|e| RpcError::internal(e.to_string()))??;
+                (blocks, saved) = match prompt_preparation(preparation_deadline, received).await {
+                    Ok(result) => result.map_err(|e| RpcError::internal(e.to_string()))??,
+                    Err(error) => {
+                        preserve_owned_uploads_for_retry(&mut owned);
+                        return Err(error);
+                    }
+                };
             }
             // From here the prompt's own uploads go only if the session refuses it.
             let saved = crate::attach::Saved::with_owned(saved, &s.id, owned.take());
@@ -2645,7 +2661,17 @@ async fn dispatch_request_with_identity(
             let agent_message = opts.provenance.is_some()
                 && !crate::prompt_provenance::is_unverified(opts.provenance.as_ref())
                 && !person_message;
-            super::agent_messages::person_prompt(hub, conn, &s, agent_message).await;
+            if let Err(error) = prompt_preparation(
+                preparation_deadline,
+                super::agent_messages::person_prompt(hub, conn, &s, agent_message),
+            )
+            .await
+            {
+                // `saved` owns inline attachments and the prompt's upload references. Keep both
+                // for a retry instead of letting the RPC timeout erase files the caller sent.
+                std::mem::forget(saved);
+                return Err(error);
+            }
             // The person's own `acpmux send` names the machine it ran on (`cli/sender.rs`): the
             // recorded client says it (`acpmux-cli#…@big-red`), and the transcript shows "via CLI on
             // big-red" under their prompt. An agent's message names its sender instead.
@@ -4677,6 +4703,24 @@ mod shutdown_reason_tests {
     }
 }
 
+/// Bounds every await while an incoming prompt is prepared for the hub.
+///
+/// The admission's deadline starts when the delivery arrives, so a stalled RPC preparation
+/// returns the same retryable busy error the hub uses for an unanswered prompt.
+async fn prompt_preparation<T>(
+    expires: tokio::time::Instant,
+    preparation: impl std::future::Future<Output = T>,
+) -> Result<T, RpcError> {
+    tokio::time::timeout_at(expires, preparation)
+        .await
+        .map_err(|_| crate::hub::auto_resume::retry_turn::busy())
+}
+
+/// A timed-out preparation must leave prompt-owned uploads for the caller's retry.
+fn preserve_owned_uploads_for_retry(owned: &mut crate::attach::OwnedUploads) {
+    let _ = owned.take();
+}
+
 fn preparation_budget(deadline: Option<&Value>, now: u64) -> Result<std::time::Duration, RpcError> {
     let deadline = match deadline {
         None => now.saturating_add(120_000),
@@ -4713,6 +4757,33 @@ async fn bounded_preparation<T>(
         return Err(stopped());
     }
     result
+}
+
+#[cfg(test)]
+mod prompt_preparation_tests {
+    use super::{preserve_owned_uploads_for_retry, prompt_preparation};
+    use crate::attach::OwnedUploads;
+    use serde_json::Value;
+    use std::path::PathBuf;
+    use std::time::Duration;
+
+    #[tokio::test(start_paused = true)]
+    async fn preparation_deadline_returns_retryable_rpc_error() {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+        let result = prompt_preparation(deadline, std::future::pending::<()>()).await;
+        let error = result.unwrap_err();
+        assert_eq!(
+            error.data.as_ref().and_then(|data| data.get("reason")).and_then(Value::as_str),
+            Some("retry.busy")
+        );
+    }
+
+    #[test]
+    fn timed_out_preparation_releases_cleanup_guard_for_retry() {
+        let mut owned = OwnedUploads(vec![PathBuf::from("/tmp/prompt-upload")]);
+        preserve_owned_uploads_for_retry(&mut owned);
+        assert!(owned.0.is_empty());
+    }
 }
 
 #[cfg(test)]
