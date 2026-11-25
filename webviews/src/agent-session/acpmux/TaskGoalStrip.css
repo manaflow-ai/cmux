@@ -176,15 +176,19 @@
   width: var(--acpmux-goal-lead-box);
   height: var(--acpmux-goal-line);
 }
+/* The mark is the plan's mark size (the hat's --acpmux-tray-mark: the header glyph's ink, 12 px at
+   Default) at every density: a ring round a dot, the ring alone while paused (the person, 2026-11-24:
+   the card's and the plan's icons the same size on the + axis). */
 .acpmux-goal[data-look] .acpmux-goal-mark > span {
-  width: var(--ds-space-2);
-  height: var(--ds-space-2);
+  box-sizing: border-box;
+  width: calc(var(--acpmux-composer-glyph, 16px) * 12 / 16);
+  height: calc(var(--acpmux-composer-glyph, 16px) * 12 / 16);
   border-radius: 50%;
-  background: currentColor;
+  box-shadow: inset 0 0 0 1.5px currentColor;
+  background: radial-gradient(circle, currentColor 0 calc(var(--acpmux-composer-glyph, 16px) * 2.5 / 16), transparent calc(var(--acpmux-composer-glyph, 16px) * 2.5 / 16 + 0.5px));
 }
 .acpmux-goal[data-look][data-state="paused"] .acpmux-goal-mark > span {
   background: none;
-  box-shadow: inset 0 0 0 1.5px currentColor;
 }
 .acpmux-goal[data-look]:is([data-state="done"], [data-state="complete"]) .acpmux-goal-mark {
   color: var(--agent-success, var(--agent-accent));
