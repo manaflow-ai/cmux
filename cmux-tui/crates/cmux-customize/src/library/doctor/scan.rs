@@ -182,7 +182,7 @@ pub(super) fn unknown_keys(
         // A dotted key at the top (`"appearance.accent": ...`) is the same setting.
         let mut here: Vec<String> = path.clone();
         here.extend(key.split('.').map(str::to_owned));
-        if schema.row_at(&here).is_some() {
+        if schema.row_at(&here).is_some() || menus::SECTIONS.contains(&here.join(".").as_str()) {
             continue;
         }
         if let Some(why) = cmux_config::schema::retired_reason(&here) {

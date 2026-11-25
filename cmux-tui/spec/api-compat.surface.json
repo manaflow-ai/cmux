@@ -8898,6 +8898,10 @@
         "ty": "json",
         "required": true,
         "nullable": true
+      },
+      "/op_id": {
+        "ty": "string",
+        "nullable": true
       }
     },
     "request:conversation-link-resolve": {
@@ -9857,6 +9861,7 @@
         "nullable": true
       }
     },
+    "request:flush-launch-snapshot": {},
     "request:focus-direction": {
       "/dir": {
         "ty": "enum",
@@ -17560,6 +17565,12 @@
     "response:float-pane": {
       "/data": {
         "ty": "json",
+        "required": true
+      }
+    },
+    "response:flush-launch-snapshot": {
+      "/data/flushed": {
+        "ty": "boolean",
         "required": true
       }
     },

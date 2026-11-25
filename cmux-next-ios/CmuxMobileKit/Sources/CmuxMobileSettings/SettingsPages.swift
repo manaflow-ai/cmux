@@ -670,6 +670,14 @@ struct TransportPage: View {
                 Text("Sends every connection's keepalive at the same moments, every 10 seconds, so the radio wakes once for all of them instead of for each. Applies at the next connection.")
             }
             Section {
+                Toggle(isOn: $settings.lanDirect) {
+                    Text("Direct on Wi-Fi")
+                }
+                .accessibilityIdentifier("settings.transport.lanDirect")
+            } footer: {
+                Text("Talk to your Mac directly when you share a network. Off: always use the relay.")
+            }
+            Section {
                 Toggle(isOn: $settings.quietCloudConnect) {
                     Text("Quiet Cloud Connections")
                 }
