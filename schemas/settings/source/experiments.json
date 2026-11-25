@@ -304,6 +304,30 @@
             "loading",
             "chip"
           ]
+        },
+        {
+          "key": "experiments.cloudDiskBar",
+          "note": "Taste prototype (RFD 0068 disk bar): the Cloud page's machine card and detail draw the disk as a bar, used over allocated, split into system, project and caches from the guest's sample (webviews useExperimentSwitch(\"cloudDiskBar\"), pages/cloud/DiskHealth.tsx). Off by default; off keeps today's free and used line. `cmux cloud ls` prints the same numbers either way.",
+          "title": {
+            "key": "settings.experiments.cloudDiskBar",
+            "text": "Cloud Disk Bar"
+          },
+          "help": {
+            "key": "settings.experiments.cloudDiskBar.help",
+            "text": "Cloud machine cards show disk use as a bar split into system, project and caches."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "cloud",
+            "disk",
+            "storage",
+            "bar",
+            "caches"
+          ]
         }
       ]
     }

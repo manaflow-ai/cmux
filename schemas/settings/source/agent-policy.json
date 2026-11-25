@@ -531,7 +531,8 @@
         "experiments.agentBadgesBeam",
         "experiments.menuStyleV2",
         "experiments.menuRowStates",
-        "experiments.toastsV2"
+        "experiments.toastsV2",
+        "experiments.cloudDiskBar"
       ]
     },
     {
