@@ -1551,6 +1551,14 @@ export class SettingsStore {
     void this.request("cmux.settings.sound.play", { name });
   }
 
+  /** Custom Sound…: the host asks for an audio file, keeps a copy in cmux's sounds folder and sets
+   * it as `key`'s sound. */
+  async importSound(key: string): Promise<void> {
+    const reply = await this.request("cmux.settings.sound.import", { key });
+    if (!reply.ok) this.setError(key, rowError(reply.error));
+    else if (reply.value.name !== null) await this.refresh();
+  }
+
   /**
    * One write as a mutation: the scope shows the new value at once (optimistic), goes back to
    * the previous read when the owner refuses, and is read again once the write settles.

@@ -180,14 +180,14 @@ public final class SettingsCustomizeLibrary: PageProvider {
     }
 
     /// The CLI's environment: the app's own, naming the app's settings file only when it is not the
-    /// CLI's default (`~/.config/cmux/cmux-next.json`). An override also moves the CLI's library
+    /// CLI's default (`~/.config/cmux-next/cmux-next.json`). An override also moves the CLI's library
     /// state into the config folder (cmux-customize `Roots::from`), so naming the default file would
     /// hide every entry an ordinary `cmux customize` run kept.
     nonisolated static func environment(_ base: [String: String], settingsFile: URL?) -> [String: String] {
         var environment = base
         guard let file = settingsFile else { return environment }
         if let home = environment["HOME"], !home.isEmpty,
-           file.standardizedFileURL.path == URL(fileURLWithPath: home).appendingPathComponent(".config/cmux/cmux-next.json").standardizedFileURL.path {
+           file.standardizedFileURL.path == URL(fileURLWithPath: home).appendingPathComponent(".config/cmux-next/cmux-next.json").standardizedFileURL.path {
             return environment
         }
         environment["CMUX_NEXT_CONFIG_FILE"] = file.path

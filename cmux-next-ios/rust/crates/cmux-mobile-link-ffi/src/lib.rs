@@ -17,11 +17,14 @@ use tokio::runtime::Runtime;
 
 mod auto_chats;
 mod browser;
+mod catch_up;
 mod chat_prompt_outbox;
 mod classic_leftovers;
 mod composer_outbox;
 mod follow_camera;
+mod lan;
 mod last_place;
+mod link_progress;
 mod link_side;
 pub mod local_link;
 mod mac_screen;
@@ -41,6 +44,10 @@ pub use auto_chats::{
     AutoChat, AutoChatError, AutoChats, AutoHttp, AutoHttpError, AutoHttpReply, AutoHttpRequest,
 };
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
+pub use catch_up::{
+    CatchUpAnswer, CatchUpAsk, CatchUpChatAsk, CatchUpChatPage, CatchUpCut, CatchUpError, CatchUpTree,
+    PhoneCatchUp, catch_up_falls_back, catch_up_service,
+};
 pub use chat_prompt_outbox::{
     ChatAttachment, ChatCancelStep, ChatEditStep, ChatPromptDone, ChatPromptLook, ChatPromptOutbox,
     ChatPromptOutcome, ChatPromptRequest, ChatPromptTaken, ChatUploadState, ChatUploadedAttachment,
@@ -51,6 +58,7 @@ pub use composer_outbox::{
 };
 pub use follow_camera::{FollowCamera, FollowCameraMode, FollowRect};
 pub use last_place::{LastPlaceAnchor, LastPlaceRecord, LastPlaceScreen, LastPlaceStore};
+pub use link_progress::{HeldKeysExpiryReason, LinkProgressClock, held_keys_expiry};
 pub use link_side::{LinkOpenSide, link_open_side};
 pub use mac_screen::{MacScreenAnswer, MacScreenDisplay, MacScreenIceServer, MacScreenObserver, MacScreenRd};
 pub use read_store::{PhoneReadKey, PhoneReadStore, PhoneReadStoreError};
@@ -323,8 +331,9 @@ fn timing_marks(timeline: &Timeline) -> Vec<TimingMark> {
 pub struct LinkHandle {
     link: cmux_mobile_link::Link,
     /// The (shared, warm) signaling socket this link was dialed on; it
-    /// stays open for the next dial while the warm pool holds it.
-    /// `None` for a link resumed on a dormant tunnel (no signaling ran).
+    /// stays open for the next dial while the warm pool holds it. `None` for a
+    /// link resumed on a dormant tunnel (no signaling ran) or one that came up
+    /// directly on the LAN (`lan.rs`).
     _signaling: Option<Arc<WarmSocket>>,
     transport: Transport,
     path: tokio::sync::watch::Receiver<cmux_mobile_link::LinkPath>,
@@ -523,6 +532,13 @@ impl LinkHandle {
         let link = self.link.clone();
         let rtt = on_runtime(async move { link.ping().await }).await?;
         Ok(u32::try_from(rtt.as_millis()).unwrap_or(u32::MAX))
+    }
+
+    /// Wake the radio before a keystroke (the terminal's keyboard took focus
+    /// or a finger touched it): one datagram ping on a link quiet for a
+    /// second. Free when the link is busy, parked or closed. `true` when sent.
+    pub fn prewake(&self) -> bool {
+        self.link.prewake()
     }
 
     /// Whether the link is alive within `timeout_ms`: the round trip in
@@ -941,7 +957,11 @@ async fn connect_on(
     let timeline = Timeline::new();
     let transport = request.transport;
     emit(&observer, LinkEvent::Connecting { transport });
-    let result = dial(pool, &request, &timeline).await;
+    // The relay dial may itself come back without a socket (a dormant resume), so the race's
+    // "no socket" and the dial's fold into one.
+    let result = lan::race(&request.mac_device_id, &timeline, dial(pool, &request, &timeline))
+        .await
+        .map(|(connected, signaling)| (connected, signaling.flatten()));
     let (connected, signaling) = match result {
         Ok(ok) => ok,
         Err(error) => {
@@ -969,6 +989,7 @@ async fn finish_link(
         Some(socket) if connected.webrtc_media => Some(media_manager(pool, request, &connected, socket)),
         _ => None,
     };
+    lan::enroll_later(connected.link.clone(), request.mac_device_id.clone());
     let mut media_status = media.as_ref().map(cmux_mobile_link::hybrid::MediaManager::status);
     let link = connected.link.clone();
     let watcher = tokio::spawn(async move {
@@ -1038,6 +1059,7 @@ async fn finish_link(
         timeline.clone(),
         match &signaling {
             Some(socket) => current_signaling(pool, socket),
+            // A LAN direct link (lan.rs) has no socket of its own: the pool's, when one is open.
             None => pooled_signaling(pool, request),
         },
         connected.session_id.clone(),

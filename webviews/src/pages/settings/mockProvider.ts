@@ -301,6 +301,8 @@ export class MockSettingsProvider {
   domains: Domains | null;
   /** The theme file the mock picker returns for `cmux.settings.theme.import`; null: the person left it. */
   importable: GhosttyTheme | null = null;
+  /** The sound name the mock open panel imports for `cmux.settings.sound.import`; null: the person left it. */
+  importableSound: string | null = null;
   private readonly importTokens = new Map<string, GhosttyTheme>();
   private readonly chatFolders: ListRow["folders"];
   private actionRan: boolean;
@@ -369,6 +371,7 @@ export class MockSettingsProvider {
       "cmux.settings.preview": () => ({}),
       "cmux.settings.preview.end": () => ({}),
       "cmux.settings.sound.play": () => ({}),
+      "cmux.settings.sound.import": (params) => this.importSound(params.key as string),
       "cmux.settings.host.lists": async () => {
         if (this.holdHost) await this.holdHost;
         return this.host;
@@ -1088,6 +1091,7 @@ export class MockSettingsProvider {
       "cmux.settings.preview",
       "cmux.settings.preview.end",
       "cmux.settings.sound.play",
+      "cmux.settings.sound.import",
       "cmux.settings.host.lists",
       "cmux.settings.devices.remove",
       "cmux.settings.devices.full_access",
@@ -2749,6 +2753,16 @@ export class MockSettingsProvider {
     if (this.domains && rowsByKey.get(key)?.kind === "font_family" && typeof value === "string")
       this.domains = { ...this.domains, recent_fonts: recentAfterPick(this.domains.recent_fonts, value) };
     return this.commit([key], "user");
+  }
+
+  /** Custom Sound…: the host copies the picked file into its sounds folder, lists it, and sets `key`. */
+  private importSound(key: string): { name: string | null } {
+    const name = this.importableSound;
+    if (name === null) return { name: null };
+    if (this.domains && !this.domains.sounds.includes(name))
+      this.domains = { ...this.domains, sounds: [...this.domains.sounds, name].sort() };
+    this.set(key, name);
+    return { name };
   }
 
   private reset(key: string): MutationResult {
