@@ -1976,6 +1976,21 @@ export async function idleHeldBy(api: Api, machine: string, now = Date.now()): P
   return bits.join("; ");
 }
 
+/** The idle policy a machine's record carries, in seconds; null when it names none. */
+export async function machineIdleSeconds(api: Api, machine: string): Promise<number | null> {
+  const m = await api.read("cloud.machine.get", { machine });
+  const s = Number(m?.idle_seconds ?? m?.idle_policy?.idle_seconds);
+  return Number.isFinite(s) && s > 0 ? s : null;
+}
+
+/**
+ * How long the journey waits for an idle pause: the idle policy or the post-chat hold, whichever is longer, plus
+ * 300 s for the alarm's re-check. A policy the record does not name gets the 24 h backstop's worth (86400 s).
+ */
+export function idlePauseDeadlineMs(policyS: number | null, holdS: number): number {
+  return (Math.max(policyS ?? 86400, holdS) + 300) * 1000;
+}
+
 /** Test-side bounded wait on a machine field (the product never polls; this is the harness). */
 export async function waitMachine(api: Api, machine: string, want: (m: any) => boolean, budgetMs: number, goneOk = false): Promise<any> {
   const t0 = Date.now();
@@ -6208,7 +6223,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (!idleDefault) await api.op("cloud.machine.idle_policy.set", { machine: created.id, idle_seconds: idlePauseS }, `${tag}-idle`);
         // The deadline covers the post-chat hold (staging CLOUD_POST_CHAT_WARM_SECONDS=600 keeps a machine up after a
         // chat turn whatever its idle policy) plus the alarm's re-check, so a pause the platform owes is never missed.
-        const m = await waitMachine(api, created.id, (x) => x.status === "paused", (Math.max(idlePauseS, POST_CHAT_HOLD_S) + 300) * 1000).catch(async (error) => {
+        // --idle-pause default sets no policy, so the deadline reads the machine's own (staging's default is 1800 s):
+        // a wait sized from 0 s timed out at 900 s before the default could ever pause it (k8-defaultf, 2026-11-24).
+        const policyS = idleDefault ? await machineIdleSeconds(api, created.id) : idlePauseS;
+        const m = await waitMachine(api, created.id, (x) => x.status === "paused", idlePauseDeadlineMs(policyS, POST_CHAT_HOLD_S)).catch(async (error) => {
           // A pause that never came: name what held the machine (the idle clock's start, the report's open sessions and
           // workload), so the failure says why instead of only "still running" (two walks on 2026-11-24 could not tell).
           throw new Error(`${(error as Error).message}; ${await idleHeldBy(api, created.id)}`);
