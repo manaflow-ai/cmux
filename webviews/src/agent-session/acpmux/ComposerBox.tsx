@@ -105,6 +105,8 @@ export type ComposerBoxProps = {
   onFieldMenuOpen?(): void;
   /// Drawn with the prompt, inside its menu (the chat's shell field over the hidden prompt).
   fieldOverlay?: React.ReactNode;
+  /// The vim mode to show (`agentPane.composerVimKeys` on); unset, nothing is drawn.
+  vimMode?: "normal" | "insert";
   /// The box's first children: menus anchored to the field (the `/` and `@` lists, which draw out of
   /// the box's glass, backdropLayer.tsx) and hidden inputs.
   top?: React.ReactNode;
@@ -162,6 +164,7 @@ export function ComposerBox({
   fieldMenu,
   onFieldMenuOpen,
   fieldOverlay,
+  vimMode,
   top,
   onCardPress,
   leading,
@@ -491,6 +494,11 @@ export function ComposerBox({
               field's own caret as before. */}
           <Slot slot={composerCaretSlot} props={{ empty: !/\S/.test(field.value) }} />
         </ContextMenu>
+        {vimMode && (
+          <output className="acpmux-vim-mode" data-vim-mode={vimMode} aria-live="off">
+            {vimMode === "normal" ? "NORMAL" : "INSERT"}
+          </output>
+        )}
         {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
         <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
           {/* The box grid for +, the prompt, the mic and Send, with the model group in
