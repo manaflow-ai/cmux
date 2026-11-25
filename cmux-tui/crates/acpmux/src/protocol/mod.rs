@@ -20,6 +20,7 @@ pub mod permission;
 pub mod presence;
 pub mod process;
 pub mod session;
+pub mod sync;
 #[cfg(test)]
 mod tests;
 
@@ -235,6 +236,8 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<presence::TypingParams, events::Done>(method::MUX_TYPING),
         request::<here::HereBeatParams, here::HereBeatDone>(method::MUX_HERE_BEAT),
         request::<here::HereParams, here::HereResult>(method::MUX_HERE),
+        request::<sync::SyncPullParams, sync::SyncPullResult>(method::MUX_SYNC_PULL),
+        request::<sync::SyncPushParams, sync::SyncPushDone>(method::MUX_SYNC_PUSH),
         request::<events::MarkUnreadParams, events::Done>(method::MUX_MARK_UNREAD),
         request::<events::SessionRef, events::Done>(method::MUX_MARK_READ),
         request::<events::SeenParams, events::SeenDone>(method::MUX_SEEN),

@@ -134,7 +134,7 @@ pub(super) fn missing(
 /// 4, folders left out (a Cloud machine warms them in its own reserved folder).
 pub(super) fn shapes_to_send(list: &[Remembered], now_ms: u64) -> Vec<Value> {
     let mut list = recent(list, now_ms);
-    list.sort_by(|a, b| b.used_at_ms.cmp(&a.used_at_ms));
+    list.sort_by_key(|r| std::cmp::Reverse(r.used_at_ms));
     list.into_iter()
         .take(4)
         .map(|r| {
