@@ -348,11 +348,12 @@ mod probe {
     #[cfg(target_os = "macos")]
     fn mac_frame() -> FrameProbe {
         // A small, slow capture: the probe needs one picture, not a stream.
-        let capture = match crate::mac::capture::Capture::start("main", 10, Some(640)) {
-            Ok(c) => c,
-            Err(e) => return FrameProbe::Failed(e.to_string()),
-        };
-        if capture.wait_first_frame(FRAME_PROBE_TIMEOUT_NS).is_err() {
+        let mut capture =
+            match crate::mac::capture::Capture::start_for_session("main", 10, Some(640), false) {
+                Ok(c) => c,
+                Err(e) => return FrameProbe::Failed(e.to_string()),
+            };
+        if capture.ready(FRAME_PROBE_TIMEOUT_NS).is_err() {
             return FrameProbe::NoFrame;
         }
         match capture.frames().newest().and_then(|(frame, _)| frame.luma_grid(32, 18)) {

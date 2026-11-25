@@ -334,7 +334,6 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
                 default:
                     break
                 }
-                }
                 if case let .cursorShape(message) = control, let shape = message.cursorShape {
                     state.withLock { state in
                         if let cursor = state.cursorFeed.receive(shape: shape) { state.cursors?.yield(cursor) }
