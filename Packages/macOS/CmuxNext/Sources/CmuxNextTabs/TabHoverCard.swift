@@ -88,6 +88,7 @@ final class TabHoverCardController: HoverCardSource {
     private var opensFresh = true
     /// A picture fetched within this long of the card showing its tab is drawn at once, never faded
     /// in over the placeholder: a fade that starts a frame after the card reads as a flicker in a sweep.
+    // hover-timing: when a fetched picture fades in, not when the card shows (that is HoverIntentTiming's).
     static let instantPicture: Duration = .milliseconds(50)
     private var memoryPressure: (any DispatchSourceMemoryPressure)?
 

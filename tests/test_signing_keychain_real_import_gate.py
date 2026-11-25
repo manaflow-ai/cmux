@@ -72,7 +72,7 @@ class RealImportGateTests(unittest.TestCase):
     def test_real_import_waits_for_the_plan(self) -> None:
         job = workflow()["jobs"]["real-import"]
         self.assertEqual(job["needs"], "real-import-plan")
-        self.assertEqual(job["if"], "${{ needs.real-import-plan.outputs.run == 'true' }}")
+        self.assertTrue(job["if"].endswith("(needs.real-import-plan.outputs.run == 'true') }}") or job["if"] == "${{ needs.real-import-plan.outputs.run == 'true' }}", job["if"])
 
     def test_inputs_cover_what_the_test_runs(self) -> None:
         patterns = plan_patterns()

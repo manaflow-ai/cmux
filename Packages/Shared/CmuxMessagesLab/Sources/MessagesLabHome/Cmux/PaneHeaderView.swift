@@ -192,7 +192,7 @@ final class PaneHeaderView: NSView {
         pill.isHidden = bare || title.isEmpty
         avatar.isHidden = pill.isHidden
         pill.setAccessibilityLabel(String(format: NativeStrings.contactFormat, title))
-        pill.toolTip = pill.accessibilityLabel()
+        pill.setHomeToolTip(pill.accessibilityLabel())
         avatar.setAccessibilityLabel(title)
         needsLayout = true
     }

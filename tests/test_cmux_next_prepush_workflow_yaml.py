@@ -7,7 +7,7 @@ workflow, so every push made a 0-job failed run of it and no nightly built for 3
 
 Each test uses the fixture of tests/test_cmux_next_prepush_gate.py (the real hook installer and the
 real scripts/cmux-next checks in a throwaway repository, pushed through `git push` to a bare origin),
-so the installed trusted hook copy is what runs. Manual lane: no new CI tests (CLAUDE.md); CI's
+so the installed trusted hook copy is what runs. Manual lane (kept out of CI under the 2026-10-23 no-new-CI rule, since lifted); CI's
 "Lint every workflow" step (actionlint) is the pull request and push backstop.
 """
 # tests/git_fixture_env.py, loaded by path (`python3 -I` puts no script folder on sys.path): it drops inherited

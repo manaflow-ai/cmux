@@ -90,34 +90,34 @@ class Eyes:
         x, y = self.center(line, word)
         self.vnc.click(x, y)
         self.actions += 1
-        time.sleep(0.4)
+        self.vnc.settle()  # what the click did has drawn
         return line
 
     def click_at(self, x: int, y: int) -> None:
         self.vnc.click(x, y)
         self.actions += 1
-        time.sleep(0.4)
+        self.vnc.settle()  # what the click did has drawn
 
     def drag(self, x0: int, y0: int, x1: int, y1: int) -> None:
         # A drag source on macOS wants a press that lingers before the pointer moves.
         vnc = self.vnc
         vnc.move(x0, y0)
-        time.sleep(0.2)
+        time.sleep(0.2)  # sleep-ok: the pointer rests on the source before the press, part of the drag gesture
         vnc.button(1, True)
-        time.sleep(0.4)
+        time.sleep(0.4)  # sleep-ok: the press lingers before the pointer moves (macOS starts a drag only then)
         steps = 30
         for i in range(1, steps + 1):
             vnc.move(x0 + (x1 - x0) * i // steps, y0 + (y1 - y0) * i // steps)
             time.sleep(0.03)
-        time.sleep(0.4)
+        time.sleep(0.4)  # sleep-ok: the pointer rests over the target before the release, part of the drop gesture
         vnc.button(1, False)
         self.actions += 1
-        time.sleep(0.5)
+        vnc.settle()  # the drop has drawn
 
     def press(self, chord: str) -> None:
         self.vnc.chord(chord)
         self.actions += 1
-        time.sleep(0.3)
+        self.vnc.settle()  # what the keys did has drawn
 
     def type(self, text: str) -> None:
         """Type text; Shift is held for capitals and shifted symbols, as a keyboard needs."""
@@ -134,7 +134,7 @@ class Eyes:
                 vnc.key(shift, False)
             time.sleep(0.02)
         self.actions += 1
-        time.sleep(0.2)
+        self.vnc.settle()  # the typed text has drawn
 
     def close(self) -> None:
         self.index.close()

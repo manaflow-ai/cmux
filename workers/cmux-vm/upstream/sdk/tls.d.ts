@@ -351,6 +351,15 @@ export interface HttpRequestMatch {
         exact: string;
     };
 }
+/** Require login; ANY matching criterion grants access. Email criteria require verification. */
+export interface FreestyleAuthPolicy {
+    team?: boolean;
+    /** Any signed-in Freestyle user. Never anonymous access. */
+    public?: boolean;
+    emails?: string[];
+    /** Exact email domains; subdomains are not implicitly included. */
+    domains?: string[];
+}
 export interface TlsRuleData {
     id: string;
     /** The account that owns the rule. Taken from your credential, never a request body. */
@@ -367,6 +376,8 @@ export interface TlsRuleData {
     match?: HttpRequestMatch;
     /** Authorization Freestyle performs before forwarding this public HTTP ingress. */
     forwardAuth?: TlsForwardAuthReference;
+    /** Native login for exact-host HTTP public ingress. Do not also send forwardAuth. */
+    freestyleAuth?: FreestyleAuthPolicy;
     /** Whether any transform secret was redacted out of `transform`. */
     redacted?: boolean;
     /**
@@ -410,6 +421,8 @@ export interface CreateTlsRuleOptions {
     match?: HttpRequestMatch;
     /** Ask this reusable configuration before forwarding a public HTTP request to the VM. */
     forwardAuth?: TlsForwardAuthReference;
+    /** Native login for exact-host HTTP public ingress. Do not also send forwardAuth. */
+    freestyleAuth?: FreestyleAuthPolicy;
 }
 /**
  * A rule declared inside a create, where the resource being created has no id

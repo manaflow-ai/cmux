@@ -42,7 +42,7 @@ const SINKS: [kind: string, pattern: RegExp][] = [
 /// with edits above it, so entries are by file and the start of the matched text, not line number.
 const ALLOWED: Record<string, string> = {
   // Details-only.
-  "acpmux/App.tsx|errorMessage(error) || String(error)":
+  "acpmux/pane/paneSnapshot.ts|errorMessage(error) || String(error)":
     "setHostError: hostLine.ts hostLineText puts every text that is not the pane's own behind the line's Details",
   "acpmux/newtab/NewTabScreen.tsx|setStartError({ harness: args[0], error: startErrorMessage(error)":
     "StartFailure with a harness: startFailureView says a plain sentence and keeps the text behind ErrorDetails",

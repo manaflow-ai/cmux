@@ -76,7 +76,7 @@ struct TransientMaterialGalleryTests {
             alphas.append(try paintedMenuVeil(surface).alphaComponent)
         }
         #expect(alphas[0] < alphas[1] && alphas[1] < alphas[2])
-        let expected = Double(GlassMenuMaterial.veil)
+        let expected = Double(GlassMenuMaterial.veil(for: room.tokens))
         #expect(abs(Double(alphas[1]) - expected) < 0.02)
     }
 

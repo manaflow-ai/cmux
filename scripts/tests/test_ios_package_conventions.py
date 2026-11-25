@@ -254,5 +254,23 @@ extension Catalog {
         self.assertIn('public struct Policy {', result.fixed_source)
 
 
+    def test_files_from_leaves_a_changed_macos_package_file_to_its_own_checks(self):
+        result = self.lint('public struct Fine {\n    public let value = 1\n}\n', files_from=[
+            'Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DesignSettings.swift',
+        ], others={
+            'Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DesignSettings.swift':
+                'public final class DesignSettings {\n    public static let shared = DesignSettings()\n    public var size = 1\n}\n',
+        })
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn('DesignSettings.swift', result.stdout)
+
+    def test_files_from_still_judges_a_changed_ios_file(self):
+        result = self.lint('public final class Store {\n    public static let shared = Store()\n    public var size = 1\n}\n', files_from=[
+            'Packages/iOS/CmuxMobileFixture/Sources/Fixture/Fixture.swift',
+        ])
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn('Fixture.swift', result.stdout)
+
+
 if __name__ == '__main__':
     unittest.main()

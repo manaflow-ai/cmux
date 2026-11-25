@@ -3,7 +3,7 @@ import Foundation
 /// Strings of the widget areas and the Add Widget gallery (Resources/Localizable.xcstrings).
 nonisolated enum AppWidgetStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 
     /// The sidebar section that holds the person's widgets.

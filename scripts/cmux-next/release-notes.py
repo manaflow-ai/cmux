@@ -69,6 +69,7 @@ writes the same lines as plain text into the build's appcast <description>.
 """
 import argparse, base64, hashlib, json, os, re, subprocess, sys, tempfile, time
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 HIGHLIGHTS = "release-notes/next/highlights"
@@ -799,6 +800,7 @@ PR_MEDIA_SIGNATURES = (b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89
 PR_MEDIA_TIMEOUT = 10
 PR_MEDIA_BUDGET = 120
 PR_DESCRIPTION_BUDGET = 120
+PR_DESCRIPTION_READERS = 8
 
 
 def pr_media_picture(data):
@@ -1119,6 +1121,11 @@ def build(args):
         fixture_path = os.environ.get("CMUX_RELEASE_NOTES_PR_FIXTURE")
         fixture = json.loads(Path(fixture_path).read_text()) if fixture_path else None
         description_deadline = time.monotonic() + PR_DESCRIPTION_BUDGET
+        numbers = list(dict.fromkeys(int(m["pr"]) for m in (PR_SUFFIX.match(s) for s, _, _ in commits) if m))
+        # Read PR_DESCRIPTION_READERS bodies at a time: one after another, 107 of them took 48 s of the
+        # nightly's critical path (run 44893172356, 2026-11-21). The order of the notes is the commits'.
+        with ThreadPoolExecutor(max_workers=PR_DESCRIPTION_READERS) as pool:
+            bodies = dict(zip(numbers, pool.map(lambda n: pr_body(n, fixture, description_deadline), numbers)))
         for subject, _, _ in commits:
             match = PR_SUFFIX.match(subject)
             if not match:
@@ -1127,7 +1134,7 @@ def build(args):
             if number not in pr_descriptions:
                 fallback = summary_entry(match["title"])
                 fallback_title = fallback[1] if fallback else match["title"]
-                pr_descriptions[number] = pr_description(pr_body(number, fixture, description_deadline), fallback_title)
+                pr_descriptions[number] = pr_description(bodies.get(number, ""), fallback_title)
             descriptions[subject] = pr_descriptions[number]
     items = [change_item(subject, author, paths, pr_descriptions if args.pr_descriptions else None)
              for subject, author, paths in commits]

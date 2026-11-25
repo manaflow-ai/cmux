@@ -165,5 +165,6 @@ def read(request: Mapping[str, Any], token: str) -> dict[str, Any]:
     except MissingReceipt:
         # One delayed retry, not a GitHub polling loop. Only a validated terminal
         # controller receipt after this wait may authorize paid overflow.
+        # sleep-ok: one delayed retry by design (no GitHub polling loop); the publication window is the rule
         time.sleep(max(0, PUBLICATION_WAIT_SECONDS - (time.monotonic() - started)))
         return select(get(request, token), request)

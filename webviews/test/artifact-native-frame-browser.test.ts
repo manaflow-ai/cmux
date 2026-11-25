@@ -12,7 +12,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { chromium, webkit, type Browser } from "playwright";
 import { inertDocument, nativePassiveHtml } from "../src/agent-session/acpmux/conversation/previewDocument";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("artifact-native-frame-browser.test.ts", async () => {
   setDefaultTimeout(60_000);
@@ -35,10 +35,15 @@ await requireBrowserLane("artifact-native-frame-browser.test.ts", async () => {
     "cmux-page": host("CmuxNextPages/PageArtifactFrame.swift", /static let csp = "([^"]+)"/),
   };
   const FRAME = "https://artifact-frame.invalid/artifact";
+  // WebKit runs where it launches; where it cannot and the lane is not required, it skips (probeEngineOrSkip).
+  const engines = [
+    "chromium",
+    ...((await probeEngineOrSkip("artifact-native-frame-browser webkit", "webkit", webkit)) ? ["webkit"] : []),
+  ];
   const browsers = new Map<string, Browser>();
   beforeAll(async () => {
     browsers.set("chromium", await chromium.launch({ headless: true }));
-    browsers.set("webkit", await webkit.launch({ headless: true }));
+    if (engines.includes("webkit")) browsers.set("webkit", await webkit.launch({ headless: true }));
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();
@@ -87,7 +92,7 @@ await requireBrowserLane("artifact-native-frame-browser.test.ts", async () => {
     `<!doctype html><html onclick="${RAN}"><body onpageshow="${RAN}"><p>preview</p></body></html>`,
   ];
 
-  for (const engine of ["chromium", "webkit"])
+  for (const engine of engines)
     for (const name of Object.keys(hosts) as (keyof typeof hosts)[])
       test(`${engine}, ${name} host: a passive document's handlers never run, and the height still reports`, async () => {
         for (const code of DOCUMENTS) {

@@ -42,7 +42,7 @@ pub async fn run(options: Options) -> Result<()> {
     )
     .map_err(anyhow::Error::msg)?;
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let client = reqwest::Client::builder()
+    let client = crate::happy_dial::http_client()
         .connect_timeout(Duration::from_secs(15))
         .user_agent(concat!("acpmux-uniichat/", env!("CARGO_PKG_VERSION")))
         .build()?;
@@ -138,33 +138,27 @@ fn new_key() -> Result<String> {
     Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes))
 }
 
-/// Writes the token owner-only (its folder too), replacing an older one.
+/// Writes the token owner-only (its folder too), replacing an older one. Through `home_fs`, as
+/// every write a path from the home may reach (`home_writers_by_path_tests.rs`): outside the
+/// home it goes by path, as before.
 fn save_token(path: &Path, key: &str) -> Result<()> {
     let folder = path.parent().context("the token file has no folder")?;
+    crate::home_fs::create_dir_all(folder, 0o700)
+        .with_context(|| format!("create {}", folder.display()))?;
+    let mut file = crate::home_fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)
+        .with_context(|| format!("write {}", path.display()))?;
+    // An older token file keeps its mode through `open`: make it owner-only.
     #[cfg(unix)]
     {
-        use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
-        std::fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(folder)
-            .with_context(|| format!("create {}", folder.display()))?;
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(path)
-            .with_context(|| format!("write {}", path.display()))?;
-        // An older token file keeps its mode through `open`: make it owner-only.
+        use std::os::unix::fs::PermissionsExt;
         file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
-        file.write_all(key.as_bytes())?;
     }
-    #[cfg(not(unix))]
-    {
-        std::fs::create_dir_all(folder)?;
-        std::fs::write(path, key)?;
-    }
+    file.write_all(key.as_bytes())?;
     Ok(())
 }
 

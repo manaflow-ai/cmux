@@ -250,7 +250,7 @@ public struct AutomationsPageView: View {
                 if let reason = run.reason {
                     Text(strings.reason(reason)).font(palette.caption)
                         .foregroundStyle(run.result == .failed || run.result == .needsYou ? palette.danger : palette.secondary)
-                        .lineLimit(1).help(reason)
+                        .lineLimit(1)
                 }
                 Spacer(minLength: 4)
                 if let session = run.session, let openChat = actions.openChat {

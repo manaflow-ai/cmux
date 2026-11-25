@@ -152,7 +152,6 @@ ALLOWED = frozenset({
     "warm_distance.py:collect:run",
     "warm_distance.py:fetch_bases:run",
     "warm_distance.py:git:run",
-    "web_coalesce.py:branch_tip:run",
     "xcode_build_timeline.py:read_log:run",
     "xcode_pin_audit.py:version:run",
     "xcodebuild_noninteractive.py:app_host_pids:run",

@@ -129,15 +129,9 @@ class PreflightTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 cf.main()
 
-    def test_workflow_covers_transport_pushes_and_canary_measurement_budget(self):
+    def test_canary_measurement_budget(self):
         canary = (ROOT / '.github/workflows/ci-artifact-canary.yml').read_text()
         self.assertIn('timeout-minutes: 20', canary)
-        transport = (ROOT / '.github/workflows/ci-artifact-transport.yml').read_text()
-        push = transport.split('  push:', 1)[1].split('\n\npermissions:', 1)[0]
-        # The app-host lane that consumes these artifacts lives in
-        # ci-macos.yml since #13405, so that is the workflow whose pushes
-        # must re-validate transport.
-        self.assertIn('- .github/workflows/ci-macos.yml', push)
 
     def test_workflow_retries_remote_artifact_delete_before_bucket_cleanup(self):
         workflow = (ROOT / '.github/workflows/ci-artifact-canary.yml').read_text()

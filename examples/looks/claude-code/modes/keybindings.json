@@ -1,0 +1,4 @@
+[
+  {"key": "cmd+shift+m", "command": "agentPane.composer.switchMode", "when": "agentPaneFocused"},
+  {"key": "cmd+j p", "command": "agentPane.composer.togglePlan", "when": "agentPaneFocused"}
+]

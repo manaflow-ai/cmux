@@ -23,6 +23,8 @@
 /* The dots look does not turn: its three dots take turns lighting (Reduce Motion and the static look
    hold all three at one tone). */
 .cv-spinner--dots .cv-spinner__pip {
+  /* One round of the three dots, named like the house's other loop periods (--cmux-breath-period). */
+  --cv-spinner-pip-period: 1200ms;
   opacity: 0.55;
 }
 @media (prefers-reduced-motion: no-preference) {
@@ -32,7 +34,7 @@
     animation: none;
   }
   :root:not([data-status-indicators="static"]) .cv-spinner--dots .cv-spinner__pip {
-    animation: cv-spinner-pip 1200ms ease-in-out infinite;
+    animation: cv-spinner-pip var(--cv-spinner-pip-period) var(--cmux-breath-ease) infinite;
   }
 }
 @keyframes cv-spinner-pip {

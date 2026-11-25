@@ -49,7 +49,7 @@ test("a steady stream's end finishes at no more than twice its arrival rate, ins
   }
 });
 
-test("a big last burst before a tool call drains over the longest lag, not in one 180 ms sprint", () => {
+test("a big last burst before a tool call drains over the longest lag, not in one standard-step sprint", () => {
   // 320 chars/s, then 300 characters at once and the stream ends: the old 180 ms finish drew them at
   // about 1,700 chars/s, five times the rate the reader was following.
   const { fastest, took } = finish(16, 50, 3000, 300);

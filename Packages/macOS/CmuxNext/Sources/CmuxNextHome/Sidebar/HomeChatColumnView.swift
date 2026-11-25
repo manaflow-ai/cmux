@@ -1,25 +1,36 @@
 import AppKit
 import CmuxNextDesign
 
-/// The Home split's chat column: the page's chat (`content`, filling the column) with the chat's
-/// compose button over its top-left at every list width, as in Messages (hidden only while the
-/// New Message page is on screen). The button is the content's
-/// sibling, so a conversation or the New Message page the page adds to `content` never covers it.
+/// The Home split's chat column: the page's chat (`content`, filling the column) with the Chats
+/// button (shows or folds the conversation list) and the chat's compose button over its top-left
+/// at every list width, as in Messages (compose hides only while the New Message page is on
+/// screen). The buttons are the content's siblings, so a conversation or the New Message page the
+/// page adds to `content` never covers them.
 final class HomeChatColumnView: NSView, WindowControlsAvoiding {
     let content: NSView
     let compose: HomeChatComposeButton
-    /// The compose button's left inset and its centre's distance from the top: the list header's
-    /// row (`HomeSidebarHeaderLayout.band`), where the traffic lights sit.
-    static let composeInset: CGFloat = 12
+    let chats: HomeChatListButton
+    /// The Chats button's left inset from the column's edge: Messages' compose sits 8 pt right of
+    /// its list's edge (the user, 2026-11-23: "make spacing here aligned (imessage sidebar +
+    /// imessage compose button)").
+    static let composeInset: CGFloat = 8
+    /// The gap between Chats and compose, and between the traffic lights (with the titlebar
+    /// accessory after them) and Chats: macOS 26's gap between two separate glass toolbar items
+    /// (8 pt in both its regular and compact toolbars).
+    static let buttonGap: CGFloat = 8
+    /// The buttons' centre's distance from the top with no traffic lights (full screen): the
+    /// middle of the list header's row (`HomeSidebarHeaderLayout.band`).
     static let composeCenterY: CGFloat = HomeSidebarHeaderLayout.band / 2
 
-    init(content: NSView, compose: HomeChatComposeButton) {
+    init(content: NSView, compose: HomeChatComposeButton, chats: HomeChatListButton = HomeChatListButton()) {
         self.content = content
         self.compose = compose
+        self.chats = chats
         super.init(frame: content.frame)
         content.frame = bounds
         content.autoresizingMask = [.width, .height]
         addSubview(content)
+        addSubview(chats)
         compose.isHidden = true
         addSubview(compose)
     }
@@ -70,13 +81,26 @@ final class HomeChatColumnView: NSView, WindowControlsAvoiding {
 
     override func layout() {
         super.layout()
-        let side = HomeChatComposeButton.side
-        var frame = NSRect(x: Self.composeInset, y: bounds.height - Self.composeCenterY - side / 2, width: side, height: side)
         windowControls = currentWindowControls
-        if let line = windowControls.row { frame.origin.y = (line.midY - side / 2).rounded() }
-        if let lights = windowControls.over, lights.minX < frame.maxX + Metrics.space3 {
-            frame.origin.x = max(frame.minX, (lights.maxX + Metrics.space3).rounded(.up))
+        let frames = Self.buttonFrames(height: bounds.height, row: windowControls.row, over: windowControls.over,
+                                       scale: window?.backingScaleFactor ?? 2)
+        chats.frame = frames.chats
+        compose.frame = frames.compose
+    }
+
+    /// Chats and compose in a column `height` tall (unflipped): one size, ``buttonGap`` apart, centred
+    /// on the traffic lights' line (`row`) to the backing pixel, as Messages centres its compose on its
+    /// lights. Whole-point rounding put them half a point above the lights when the line fell on a half
+    /// point. Chats starts ``composeInset`` in, or ``buttonGap`` after the lights and the accessory when
+    /// they lie over the column (`over`). With no lights (full screen) they are centred in the header's band.
+    static func buttonFrames(height: CGFloat, row: CGRect?, over: CGRect?, scale: CGFloat) -> (chats: NSRect, compose: NSRect) {
+        let s = max(scale, 1)
+        let side = HomeChatComposeButton.side
+        let midY = row?.midY ?? height - composeCenterY
+        var frame = NSRect(x: composeInset, y: ((midY - side / 2) * s).rounded() / s, width: side, height: side)
+        if let lights = over, lights.minX < frame.maxX + buttonGap {
+            frame.origin.x = max(frame.minX, ((lights.maxX + buttonGap) * s).rounded(.up) / s)
         }
-        compose.frame = frame
+        return (frame, frame.offsetBy(dx: side + buttonGap, dy: 0))
     }
 }

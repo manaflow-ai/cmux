@@ -16,9 +16,7 @@ import UniformTypeIdentifiers
 
     init() {
         HomeMarkdownPolicy.install()
-        CustomRows.unregister(HomeTableRowProvider.kind)
-        CustomRows.unregister(HomePlanRowProvider.kind)
-        HomeTableRowProvider.install()
+        HomeTableRowProvider.reinstall()
     }
 
     /// A 2560 x 1600 "screenshot": a sidebar, a title bar and a window body, so the picture reads as one.

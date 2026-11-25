@@ -33,7 +33,7 @@ final class ScreenTrackpadOverlayUITests: XCTestCase {
         // The notch's touch target reaches 7 points above the drawer's top edge (a 44-point target over a 30-point strip).
         func drawerTop() -> CGFloat { handle.frame.minY + 7 }
         let window = app.windows.firstMatch.frame
-        settle(app, 1.5)
+        still(drawer)
         attach(app, "01-portrait-trackpad-up-by-default")
 
         // Up by default: the pad fills the lower part, the screen sits above it, the toolbar above that.
@@ -51,10 +51,8 @@ final class ScreenTrackpadOverlayUITests: XCTestCase {
         // A stroke on the pad moves the pointer and leaves the trackpad up.
         pad.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.6))
             .press(forDuration: 0.05, thenDragTo: pad.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.35)))
-        settle(app, 0.6)
         attach(app, "02-stroke-moved-the-pointer")
         pad.tap()
-        settle(app, 0.6)
         XCTAssertEqual(drawer.value as? String, "open", "the pad's stroke or tap moved the drawer")
 
         // Drag the notch down: tucked away to a strip, the screen takes the room.
@@ -63,7 +61,7 @@ final class ScreenTrackpadOverlayUITests: XCTestCase {
         XCTAssertTrue(pad.waitForNonExistence(timeout: 5), "trackpad surface still shown while tucked away")
         XCTAssertLessThan(window.maxY - drawerTop(), 140, "tucked away, the drawer is more than its notch strip (\(handle.frame))")
         XCTAssertTrue(handle.isHittable, "notch not reachable while tucked away")
-        settle(app, 1)
+        _ = until { screen.frame.height > upScreenHeight + 150 }
         XCTAssertGreaterThan(screen.frame.height, upScreenHeight + 150, "screen did not take the room")
         XCTAssertLessThanOrEqual(screen.frame.maxY, drawerTop() + 6, "the notch strip covers the screen")
         attach(app, "03-portrait-tucked-away")
@@ -72,7 +70,7 @@ final class ScreenTrackpadOverlayUITests: XCTestCase {
         dragUp(handle)
         XCTAssertTrue(wait(for: drawer, value: "open"), "notch drag up did not bring the trackpad back\n\(app.debugDescription)")
         XCTAssertTrue(pad.waitForExistence(timeout: 5), "trackpad surface after drag up")
-        settle(app, 1)
+        _ = until { abs(screen.frame.height - upScreenHeight) <= 2 }
         XCTAssertEqual(screen.frame.height, upScreenHeight, accuracy: 2, "screen height after bringing it back")
         attach(app, "04-portrait-brought-back")
 
@@ -88,15 +86,16 @@ final class ScreenTrackpadOverlayUITests: XCTestCase {
             // A fresh simulator's keyboard first shows its slide-to-type tip.
             let tip = app.buttons["Continue"].firstMatch
             if tip.waitForExistence(timeout: 2) { tip.tap() }
-            settle(app, 1)
+            func keyboardTop() -> CGFloat { min(app.keyboards.firstMatch.frame.minY, app.buttons["esc"].firstMatch.frame.minY) }
+            _ = until { screen.frame.maxY <= keyboardTop() + 2 && screen.frame.maxY > keyboardTop() - 20 }
             XCTAssertGreaterThan(screen.frame.height, 100, "keyboard squeezed the screen (\(screen.frame))")
             // The screen reaches down to the keyboard's key bar: no room is kept for the covered trackpad.
-            let keyboardTop = min(app.keyboards.firstMatch.frame.minY, app.buttons["esc"].firstMatch.frame.minY)
+            let keyboardTop = keyboardTop()
             XCTAssertLessThanOrEqual(screen.frame.maxY, keyboardTop + 2, "screen under the keyboard (\(screen.frame), keyboard top \(keyboardTop))")
             XCTAssertGreaterThan(screen.frame.maxY, keyboardTop - 20, "room kept above the keyboard (\(screen.frame), keyboard top \(keyboardTop))")
             attach(app, "05-portrait-keyboard-up")
             app.buttons["Keyboard"].firstMatch.tap()
-            settle(app, 1)
+            _ = until { pad.exists && pad.isHittable && screen.frame.maxY <= drawerTop() + 6 }
         }
         // Back above the trackpad. (A simulator reports its host's keyboard, so the screen takes the
         // focus and iOS shows its hardware-keyboard bar at the bottom: the trackpad rises above it.)
@@ -109,21 +108,20 @@ final class ScreenTrackpadOverlayUITests: XCTestCase {
         // tucked away at first (height is short), brought up and tucked away again.
         if UIDevice.current.userInterfaceIdiom == .phone {
             XCUIDevice.shared.orientation = .landscapeLeft
-            settle(app, 2.5)
-            XCTAssertEqual(drawer.value as? String, "closed", "landscape starts tucked away")
+            XCTAssertTrue(wait(for: drawer, value: "closed"), "landscape starts tucked away")
+            still(handle)
             attach(app, "06-landscape-tucked-away")
             dragUp(handle)
             XCTAssertTrue(wait(for: drawer, value: "open"), "notch drag up in landscape")
             XCTAssertTrue(pad.waitForExistence(timeout: 5), "trackpad in landscape")
-            settle(app, 1)
+            still(drawer)
             attach(app, "07-landscape-trackpad-up")
             handle.swipeDown()
             XCTAssertTrue(wait(for: drawer, value: "closed"), "notch drag down in landscape")
 
             // Back in portrait: the remembered portrait choice (up) again.
             XCUIDevice.shared.orientation = .portrait
-            settle(app, 2)
-            XCTAssertEqual(drawer.value as? String, "open", "portrait keeps its own choice")
+            XCTAssertTrue(wait(for: drawer, value: "open"), "portrait keeps its own choice")
             XCTAssertTrue(pad.waitForExistence(timeout: 5), "trackpad back in portrait")
         }
 
@@ -166,10 +164,12 @@ final class ScreenTrackpadOverlayUITests: XCTestCase {
         let pad = app.descendants(matching: .any)["screen.trackpad.pad"]
         XCTAssertTrue(pad.waitForExistence(timeout: 10), "trackpad\n\(app.debugDescription)")
         for step in 1...6 {
-            settle(app, 0.8)
+            // keep: the hint is an animation on the app's clock, hidden from accessibility; these are its frames.
+            pause(0.8)
             attach(app, "hint-\(step)")
         }
-        settle(app, 2)
+        // keep: the hint fades on its own clock, which nothing on screen marks.
+        pause(2)
         attach(app, "hint-done")
         XCTAssertTrue(pad.isHittable, "trackpad after the hint")
     }
@@ -180,10 +180,31 @@ final class ScreenTrackpadOverlayUITests: XCTestCase {
         return XCTWaiter().wait(for: [done], timeout: timeout) == .completed
     }
 
-    /// Lets the drawer's spring and the next frames finish before a screenshot (a bounded wait on the test clock).
+    /// Polls `ok` until it holds, bounded: for a frame that no element's existence marks.
     @MainActor
-    func settle(_ app: XCUIApplication, _ seconds: TimeInterval) {
-        _ = app.staticTexts["never-appears"].waitForExistence(timeout: seconds)
+    func until(_ timeout: TimeInterval = 3, _ ok: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if ok() { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return ok()
+    }
+
+    /// The element stopped moving (the drawer's spring is done): its frame held across a poll, bounded.
+    @MainActor
+    func still(_ element: XCUIElement, timeout: TimeInterval = 3) {
+        var last = element.frame
+        _ = until(timeout) {
+            let now = element.frame
+            defer { last = now }
+            return now == last && !now.isEmpty
+        }
+    }
+
+    /// A fixed wait on the test clock, only for a moment on the app's own clock (each call says why).
+    func pause(_ seconds: TimeInterval) {
+        _ = XCTWaiter.wait(for: [XCTestExpectation(description: "pause")], timeout: seconds)
     }
 
     @MainActor

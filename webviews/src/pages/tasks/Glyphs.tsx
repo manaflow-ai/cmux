@@ -144,6 +144,7 @@ export function AssigneeBadge({
   if (id) {
     const name = shortName(id);
     return (
+      // tooltip-allow: the badge shows the name's first letter only.
       <span className="tasks-assignee person" style={{ width: size, height: size, fontSize: size * 0.5 }} title={name}>
         {name.slice(0, 1).toUpperCase()}
       </span>

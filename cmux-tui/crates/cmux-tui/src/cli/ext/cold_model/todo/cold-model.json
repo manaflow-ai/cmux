@@ -1,0 +1,5 @@
+{
+  "model": "claude-haiku-5-5",
+  "task": "A to-do widget: how many tasks are left today (sample: 5 left of 8; one is overdue), and in the medium size the next three tasks, the overdue one marked.",
+  "page": "skills/cmux-customization/references/extension-design.md"
+}

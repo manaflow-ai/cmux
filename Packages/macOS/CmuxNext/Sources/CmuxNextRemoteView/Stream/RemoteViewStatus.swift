@@ -1,3 +1,4 @@
+public import CoreGraphics
 import Foundation
 
 /// The overlay path a session rides (plans/cmux-next/remote-desktop.md 6.6).
@@ -30,10 +31,16 @@ public nonisolated struct RemoteViewStatus: Sendable, Hashable {
     /// What the connect waits on, in the transport's words (a Cloud desktop dial's step and how long is
     /// left); nil when the transport gives none. Read by tools, never shown in the pane.
     public var connectingReason: String?
+    /// The stream's width and height in pixels from the host's welcome (a `cmux.rd/1` transport);
+    /// nil before the welcome and from transports that give none. Pointer input is in these
+    /// pixels; under `video.scaled` the decoded picture may be smaller.
+    public var streamWidth: Int?
+    public var streamHeight: Int?
 
     public init(
         path: RemotePath = .direct, rttMs: Int? = nil, lossPercent: Double = 0, state: RemoteSessionState,
-        upstream: RemoteUpstreamStatus = RemoteUpstreamStatus(), endReason: String? = nil, connectingReason: String? = nil
+        upstream: RemoteUpstreamStatus = RemoteUpstreamStatus(), endReason: String? = nil, connectingReason: String? = nil,
+        streamWidth: Int? = nil, streamHeight: Int? = nil
     ) {
         self.path = path
         self.rttMs = rttMs
@@ -42,5 +49,13 @@ public nonisolated struct RemoteViewStatus: Sendable, Hashable {
         self.upstream = upstream
         self.endReason = endReason
         self.connectingReason = connectingReason
+        self.streamWidth = streamWidth
+        self.streamHeight = streamHeight
+    }
+
+    /// The welcome's stream size, when the transport gave one.
+    public var streamSize: CGSize? {
+        guard let streamWidth, let streamHeight, streamWidth > 0, streamHeight > 0 else { return nil }
+        return CGSize(width: streamWidth, height: streamHeight)
     }
 }

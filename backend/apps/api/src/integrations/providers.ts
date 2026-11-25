@@ -10,6 +10,8 @@ import type { Env } from "../env.ts"
  */
 
 import { effectCall, failed, form, json, MAX_LINKED_REPOS, ProviderError, rateLimitMessage, rateLimitWait, type Credential, type Http, type ProviderImpl } from "./provider-core.ts"
+import { grantOf } from "./github-user-tokens.ts"
+import { verifyActionsOidc } from "./github-actions-connect.ts"
 
 import { gmail } from "./gmail.ts"
 import { googleCalendar } from "./google-calendar.ts"
@@ -167,6 +169,7 @@ export const github: ProviderImpl = {
   // App permissions are set on the App, not per request; the install page carries our state back.
   authorizeUrl: (env, state) => `https://github.com/apps/${env.GITHUB_APP_SLUG}/installations/new?state=${encodeURIComponent(state)}`,
   complete: async (env, http, p) => {
+    if (p.actions_oidc !== undefined) return completeFromActions(env, http, p)
     const installation = Number(p.installation_id)
     // An organization member's install is a request until an owner approves it: GitHub comes back with
     // `setup_action=request` and no installation yet. Nothing to link; say what happens next.
@@ -196,6 +199,10 @@ export const github: ProviderImpl = {
     const inst = list.find((i) => i.id === installation)
     if (!inst) throw new ProviderError("integration.state_invalid", "this GitHub user cannot access that installation")
     const login = inst.account?.login ?? ""
+    // The linking user's GitHub account (GET /user), read at most once per link.
+    let me: Promise<{ ok: boolean; body: Record<string, unknown> }> | undefined
+    const linkingUser = () =>
+      (me ??= http(new Request(`${GH_API}/user`, { headers: ghHeaders(userToken) })).then(async (r) => ({ ok: r.ok, body: await json(r) })))
 
     if (p.policy.requireOrgAdmin) {
       if (inst.account?.type === "Organization") {
@@ -204,8 +211,8 @@ export const github: ProviderImpl = {
         const mb = await json(m)
         if (!m.ok || mb.state !== "active" || mb.role !== "admin") throw new ProviderError("integration.state_invalid", `the team policy requires a ${login} organization admin to link GitHub`)
       } else {
-        const me = await json(await http(new Request(`${GH_API}/user`, { headers: ghHeaders(userToken) })))
-        if (String(me.login ?? "").toLowerCase() !== login.toLowerCase()) throw new ProviderError("integration.state_invalid", "the team policy requires the account owner to link GitHub")
+        const { body: user } = await linkingUser()
+        if (String(user.login ?? "").toLowerCase() !== login.toLowerCase()) throw new ProviderError("integration.state_invalid", "the team policy requires the account owner to link GitHub")
       }
     }
 
@@ -224,20 +231,29 @@ export const github: ProviderImpl = {
       }
       repos.sort()
     }
+    // Who linked, so a repository this same GitHub user later adds to the installation joins the recorded
+    // list (connection-do.ts githubInstallationEvent). Unreadable: the connection records no id and an
+    // added repository waits for a relink, as before.
+    let linkedBy: number | undefined
+    if (repos !== null) {
+      const user = await linkingUser().catch(() => undefined)
+      const id = user?.ok ? user.body.id : undefined
+      if (typeof id === "number" && Number.isSafeInteger(id) && id > 0) linkedBy = id
+    }
     return {
       account: { key: `github:installation:${installation}`, name: login || String(installation), ...(inst.account?.html_url ? { url: inst.account.html_url } : {}) },
       scopes_granted: githubScopesOf(inst.permissions ?? {}),
       credential: { kind: "github_installation", installation_id: installation },
-      resources: { repos }
+      resources: { repos, ...(linkedBy !== undefined ? { linked_by_github_id: linkedBy } : {}) },
+      // With expiring user tokens on, the exchange also gave a refresh token: effects this person starts
+      // then run as them (fix 7 of github-integration-audit.md), not as the App bot.
+      ...userGrant(t, linkedBy)
     }
   },
-  call: async (env, http, credential, op, params, beforeEffect) => {
+  call: async (env, http, credential, op, params, beforeEffect, asUser) => {
     if (credential.kind !== "github_installation") throw new ProviderError("provider.error", "wrong credential kind")
     if (op !== "github.issue.comment") throw new ProviderError("provider.error", `github cannot run ${op}`)
-    const token = await commentToken(env, http, credential.installation_id, String(params.repo))
-    // Token acquisition can yield while membership, sharing, scopes or repository policy changes.
-    await beforeEffect?.()
-    const res = await effectCall(
+    const post = (token: string) => effectCall(
       http,
       "github",
       new Request(`${GH_API}/repos/${String(params.repo).split("/").map(encodeURIComponent).join("/")}/issues/${params.issue}/comments`, {
@@ -246,6 +262,21 @@ export const github: ProviderImpl = {
         body: JSON.stringify({ body: params.body })
       })
     )
+    // As the person who asked, when they authorized cmux to act for them. GitHub refusing that token
+    // (401 revoked, 403 not allowed, 404 no access to the repository) wrote nothing: post as the App.
+    const userToken = await asUser?.token().catch(() => undefined)
+    if (userToken) {
+      await beforeEffect?.()
+      const res = await post(userToken)
+      if (res.ok) return commentReceipt(params, await json(res))
+      if (!USER_TOKEN_FALLBACK.has(res.status)) throw failed("github", res, "comment", true)
+      if (res.status === 401) asUser!.refused(userToken)
+      await res.body?.cancel()
+    }
+    const token = await commentToken(env, http, credential.installation_id, String(params.repo))
+    // Token acquisition can yield while membership, sharing, scopes or repository policy changes.
+    await beforeEffect?.()
+    const res = await post(token)
     if (!res.ok) {
       const error = failed("github", res, "comment", true)
       // Reconnect must not reuse a revoked token. A late 401 must not evict a newer token,
@@ -254,15 +285,51 @@ export const github: ProviderImpl = {
       if (error.code === "needs_reauth" && commentTokens.get(key)?.token === token) commentTokens.delete(key)
       throw error
     }
-    const b = await json(res)
-    const returnedUrl = typeof b.html_url === "string" ? b.html_url.toLowerCase() : ""
-    const issueUrl = `https://github.com/${params.repo}/issues/${params.issue}#issuecomment-${b.id}`.toLowerCase()
-    const pullUrl = `https://github.com/${params.repo}/pull/${params.issue}#issuecomment-${b.id}`.toLowerCase()
-    if (!Number.isSafeInteger(b.id) || Number(b.id) < 1 || !returnedUrl || returnedUrl !== issueUrl && returnedUrl !== pullUrl) {
-      throw new ProviderError("mutation.indeterminate", "github returned no valid comment receipt; check the provider")
-    }
-    return { value: { id: b.id, url: b.html_url } }
+    return commentReceipt(params, await json(res))
   }
+}
+
+/**
+ * A GitHub completion signed by an allowed GitHub Actions run instead of a person's OAuth code (staging and
+ * development only, github-actions-connect.ts). The App's own key reads the installation: it must be on the run's
+ * repository owner, and the connection covers that one repository. No person's token: effects post as the App.
+ */
+const completeFromActions: ProviderImpl["complete"] = async (env, http, p) => {
+  const run = await verifyActionsOidc(env, http, p.actions_oidc!)
+  const installation = Number(p.installation_id)
+  if (!Number.isSafeInteger(installation)) throw new ProviderError("integration.state_invalid", "the connection attempt names no GitHub installation")
+  // The installation scope would give every repository of the account: this completion grants only the run's own.
+  if (p.policy.githubScope !== "linking_user_repos" || p.policy.requireOrgAdmin) throw new ProviderError("integration.state_invalid", "the team policy needs a person to link GitHub")
+  const res = await http(new Request(`${GH_API}/app/installations/${installation}`, { headers: ghHeaders(await appJwt(env)) }))
+  if (!res.ok) throw failed("github", res, "installation check")
+  const inst = (await json(res)) as { id?: number; account?: { login?: string; html_url?: string }; permissions?: Record<string, string> }
+  const login = inst.account?.login ?? ""
+  if (inst.id !== installation || login.toLowerCase() !== run.owner.toLowerCase()) throw new ProviderError("integration.state_invalid", "the installation is not on the run's repository owner")
+  console.log(JSON.stringify({ msg: "github.connect.actions", installation, repository: run.repository, workflow: run.workflow, run: run.run }))
+  return {
+    account: { key: `github:installation:${installation}`, name: login, ...(inst.account?.html_url ? { url: inst.account.html_url } : {}) },
+    scopes_granted: githubScopesOf(inst.permissions ?? {}),
+    credential: { kind: "github_installation", installation_id: installation },
+    resources: { repos: [run.repository] }
+  }
+}
+
+/** Statuses a person's token gets with nothing written, after which the App posts instead. */
+const USER_TOKEN_FALLBACK = new Set([401, 403, 404])
+
+const userGrant = (t: Record<string, unknown>, githubId: number | undefined) => {
+  const grant = grantOf(t, Date.now())
+  return grant ? { user_grant: { ...grant, ...(githubId !== undefined ? { github_id: githubId } : {}) } } : {}
+}
+
+const commentReceipt = (params: Record<string, unknown>, b: Record<string, unknown>) => {
+  const returnedUrl = typeof b.html_url === "string" ? b.html_url.toLowerCase() : ""
+  const issueUrl = `https://github.com/${params.repo}/issues/${params.issue}#issuecomment-${b.id}`.toLowerCase()
+  const pullUrl = `https://github.com/${params.repo}/pull/${params.issue}#issuecomment-${b.id}`.toLowerCase()
+  if (!Number.isSafeInteger(b.id) || Number(b.id) < 1 || !returnedUrl || returnedUrl !== issueUrl && returnedUrl !== pullUrl) {
+    throw new ProviderError("mutation.indeterminate", "github returned no valid comment receipt; check the provider")
+  }
+  return { value: { id: b.id, url: b.html_url } }
 }
 
 // ---------------------------------------------------------------- Linear (OAuth, actor=app)

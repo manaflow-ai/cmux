@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Perf bisect with repeated runs and a noise threshold: perf-cron.py's commit_verdict, bisect_step, the culprit a
 narrowed range names, and perf_bisect.py's replay walker. Pure functions only (no network, no git, no bench).
-Run: python3 -I scripts/cmux-next/tests/test_perf_bisect.py (not a CI job, Lawrence 2026-10-23)."""
+Run: python3 -I scripts/cmux-next/tests/test_perf_bisect.py (not a CI job, Lawrence 2026-10-23, since
+lifted)."""
 import datetime, importlib.util, os, random, unittest
 from unittest import mock
 

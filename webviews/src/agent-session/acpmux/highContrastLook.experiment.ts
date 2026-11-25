@@ -2,7 +2,7 @@
 import { defineExperiment } from "../../experiments/experiment";
 
 export const highContrastLook = defineExperiment({
-  id: "agent-pane.high-contrast-look",
+  id: "high-contrast-look",
   title: "High contrast chat",
   description: "Try the accessible chat look without changing saved appearance or chat settings.",
   arms: {
