@@ -354,7 +354,8 @@ fn start_session(
         pause(RUNNING_POLL);
         row = api.get(&row.id)?;
     }
-    let name = format!("cloud-{}", &uuid::Uuid::new_v4().simple().to_string()[..12]);
+    let id: String = uuid::Uuid::new_v4().simple().to_string().chars().take(12).collect();
+    let name = format!("cloud-{id}");
     let program = format!(
         "{}{}",
         super::GUEST_PRELUDE,
@@ -558,7 +559,12 @@ impl Api for CmuxApi {
         let params = cmux_cloud_wire::CloudMachineDeleteParams { machine: id.to_owned() };
         match self.call::<cmux_cloud_wire::CloudMachineDeleteOp>(params, true) {
             Ok(_) => Ok(()),
-            Err(refused) if refused["code"] == "cloud.machine.not_found" => Ok(()),
+            Err(refused)
+                if refused.get("code").and_then(Value::as_str)
+                    == Some("cloud.machine.not_found") =>
+            {
+                Ok(())
+            }
             Err(refused) => Err(refused),
         }
     }
