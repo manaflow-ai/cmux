@@ -67,6 +67,7 @@ import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.exper
 import { codeRouterOffer } from "../agent-session/acpmux/conversation/codeRouterOffer.experiment";
 import { stoppedTurnLook } from "../agent-session/acpmux/conversation/stoppedTurn.experiment";
 import { chromiumGlassUnderlay } from "../ui/glass/chromiumUnderlay.experiment";
+import { glassEngine } from "../ui/glass/engine/glassEngine.experiment";
 import { hoverLook } from "../ui/hoverLook.experiment";
 import { questionPreviewLayout } from "../agent-session/acpmux/question/previewLayout.experiment";
 import { trayPanelLook, trayRowLook, trayStopLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
@@ -134,11 +135,13 @@ import { composerShellLook } from "../agent-session/acpmux/composer/shellLook.ex
 import { composerFooterControls } from "../agent-session/acpmux/composer/footerControls.experiment";
 import { composerEmptyHeight } from "../agent-session/acpmux/composer/emptyHeight.experiment";
 import { toastsV2 } from "../ui/toastsV2.experiment";
+import { diffViewedProgress } from "../diff-viewer/viewedProgress.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
   diffTreeDisclosure,
   treeNameFade,
+  diffViewedProgress,
   sessionReplay,
   steerQueueExperiment,
   statusIslandExperiment,
@@ -185,6 +188,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   timeHoverWording,
   timeHoverDate,
   chromiumGlassUnderlay,
+  glassEngine,
   hoverLook,
   questionPreviewLayout,
   toolErrorLook,
