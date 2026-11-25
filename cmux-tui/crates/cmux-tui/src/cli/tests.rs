@@ -60,6 +60,20 @@ fn agent_session_commands_share_engine_arguments_and_preserve_app_commands() {
     assert!(!agent_engine_requested(&strings(&["agent", "agent_abc", "focus"])));
 }
 
+#[test]
+fn top_level_engine_verbs_are_engine_commands_and_free_cmux_words() {
+    // `cmux send` / `cmux inbox` run the engine's own grammar (no second implementation), so
+    // each word must be an engine command, and never a cmux scope a person already uses.
+    for verb in TOP_LEVEL_ENGINE_VERBS {
+        assert!(acpmux::cli::entry::is_command(verb), "{verb} is not an engine command");
+        let mut args = strings(&["--json", verb, "list"]);
+        hoist_leading_json(&mut args);
+        assert_eq!(args, strings(&[verb, "--json", "list"]), "{verb}");
+        let plan = command::parse(&strings(&[verb]), Surface::Cmux);
+        assert!(plan.is_err(), "{verb} is also a cmux scope");
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn settings_separator_keeps_literal_confirm_with_daemon() {
@@ -284,6 +298,7 @@ mod remote_cli_docs {
             // `cmux agents` routes before the core parser; its own grammar decides.
             let parser = builtin_command(&parser_words)
                 || agent_engine_requested(&parser_words)
+                || TOP_LEVEL_ENGINE_VERBS.contains(&parser_words[0].as_str())
                 || (parser_words[0] == "agents" && agents::command(&parser_words[1..]).is_ok())
                 || (parser_words[0] != "cloud" && parse(&parser_words, Surface::Cmux).is_ok());
             if action.is_none() && !parser {
