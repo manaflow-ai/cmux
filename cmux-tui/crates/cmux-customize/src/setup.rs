@@ -254,7 +254,7 @@ pub(crate) fn read_parts(dir: &Path, findings: &mut Vec<Finding>) -> Result<Setu
         .into());
     }
     let mut manifest = manifest;
-    inline_files(&mut manifest.settings, dir)?;
+    inline_files(&mut manifest.settings, dir).map_err(|error| unreadable(refusal_text(error)))?;
     let mut files = manifest.files.clone();
     for (path, text) in repo_files(dir, findings) {
         if files.insert(path.clone(), text).is_some() {

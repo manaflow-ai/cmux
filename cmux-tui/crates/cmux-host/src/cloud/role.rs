@@ -817,7 +817,7 @@ impl Worker {
                     }
                     let now = self.now();
                     if let Some(live) = self.live.as_mut() {
-                        let reqs = live.session.resume(now);
+                        let reqs = live.session.resume(now, wall_ms());
                         self.drive(reqs);
                     }
                 }
@@ -1381,6 +1381,7 @@ impl Worker {
             "last_report": { "reason": req.reason, "ok": ok, "applied": applied, "at": wall_ms(), "status": status },
             "daemon": live.session.reporter.daemon().to_json(),
             "heartbeat_ms": live.session.reporter.heartbeat_ms(),
+            "wake": live.session.wake_latest(),
         });
         // Diagnostic only; a failed write is ignored.
         let _ = self.store.write(AGENT_STATE_FILE, &format!("{state}\n"), 0o644);

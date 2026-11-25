@@ -239,6 +239,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-cloud-disk"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-cloud-environment"
 version = "0.1.0"
 dependencies = [
@@ -253,6 +261,7 @@ dependencies = [
 name = "cmux-cloud-handlers"
 version = "0.1.0"
 dependencies = [
+ "cmux-cloud-disk",
  "cmux-cloud-start-core",
  "serde",
  "serde_json",
@@ -262,6 +271,7 @@ dependencies = [
 name = "cmux-cloud-machine"
 version = "0.1.0"
 dependencies = [
+ "cmux-cloud-disk",
  "cmux-lifeline",
  "serde",
  "serde_json",
@@ -520,10 +530,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-rd-engine"
+version = "0.1.0"
+dependencies = [
+ "cmux-rd-core",
+ "cmux-rd-proto",
+]
+
+[[package]]
 name = "cmux-rd-ffi"
 version = "0.1.0"
 dependencies = [
  "cmux-rd-core",
+ "cmux-rd-engine",
  "cmux-rd-proto",
  "cmux-remote-browser",
  "serde_json",

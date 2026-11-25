@@ -66,6 +66,15 @@
    "affects": [
     "Packages/Shared/**",
     "Packages/iOS/**",
+    "Packages/macOS/CmuxUpdater/**",
+    "Packages/macOS/CmuxPhonePush/**",
+    "Packages/macOS/CmuxNext/Package.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPanePlacement/**",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextChromiumRuntime/**",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHostPressure/**",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAgentPanePlacementTests/**",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextChromiumRuntimeTests/**",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextHostPressureTests/**",
     "vendor/stack-auth-swift-sdk-prerelease/**",
     "cmux-next-ios/CmuxMobileKit/**",
     "scripts/ci/swift-linux-packages.txt",
@@ -74,7 +83,7 @@
     "scripts/ci/swiftpm-binary-module-guard.sh",
     ".github/workflows/swift-linux-packages.yml"
    ],
-   "affects_why": "Every package it tests (scripts/ci/swift-linux-packages.txt and the matrix's shared, mobile-core and stack-auth groups) lives under Packages/Shared, Packages/iOS or vendor/stack-auth-swift-sdk-prerelease, and their local path dependencies stay inside Packages/Shared (none reaches Packages/macOS, 2026-11-21); package-test-lane.sh sources swift-test-debug-info.sh and swiftpm-binary-module-guard.sh. The ios-kit group tests cmux-next-ios/CmuxMobileKit (its only path dependency outside the kit is Packages/Shared/CMUXAuthCore). Last 300 merges: the old filter started it on 96, this on 9."
+   "affects_why": "Every package it tests (scripts/ci/swift-linux-packages.txt and the matrix's shared, mobile-core and stack-auth groups) lives under Packages/Shared, Packages/iOS or vendor/stack-auth-swift-sdk-prerelease, and their local path dependencies stay inside Packages/Shared (none reaches Packages/macOS, 2026-11-21), except CmuxNext's Linux shape: its three listed targets and their tests (2026-11-25); package-test-lane.sh sources swift-test-debug-info.sh and swiftpm-binary-module-guard.sh. The ios-kit group tests cmux-next-ios/CmuxMobileKit (its only path dependency outside the kit is Packages/Shared/CMUXAuthCore). Last 300 merges: the old filter started it on 96, this on 9."
   },
   "web-validation.yml": {
    "types": [
@@ -100,9 +109,10 @@
    "table_jobs": [
     "linux",
     "web-browser",
-    "mac"
+    "mac",
+    "ios"
    ],
-   "table_why": "The step table's jobs this workflow runs (ci/steps.toml, `ci/run`). It starts when the change routes a step of one of them: a step's `inputs` are the path filter of the workflow it replaced. Runs on a draft, as those workflows did. Each job runs only when the change routes a step of it (the router's `table` output, pr-pipeline.yml's job `if:`s); the `mac` job only on a full-tier head (pr_router.py FULL_TIER_JOBS: a draft runs no Mac)."
+   "table_why": "The step table's jobs this workflow runs (ci/steps.toml, `ci/run`). It starts when the change routes a step of one of them: a step's `inputs` are the path filter of the workflow it replaced. Runs on a draft, as those workflows did. Each job runs only when the change routes a step of it (the router's `table` output, pr-pipeline.yml's job `if:`s); the `mac` job only on a full-tier head (pr_router.py FULL_TIER_JOBS: a draft runs no Mac). The `ios` job runs on a draft too, as cmux-next-ios-kit.yml ran its kit tests on every pull request (Leo, 2026-11-22, quoted there: most code needs a proper pull request run within the hour)."
   },
   "screen-share-drop-gate.yml": {
    "types": [
