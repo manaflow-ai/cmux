@@ -1011,3 +1011,129 @@ fn launch_pending_home_stays_dropped_once_the_person_left() {
     });
     assert_eq!(call_json(c"window_launch_pending_home", &back), (OK, json!({"step": "stop"})));
 }
+
+/// A banner names where it came from and says the message as plain text (`banner::content`).
+#[test]
+fn notifications_banner_names_the_tab_and_cleans_the_body() {
+    let (code, body) = call_json(
+        c"window_notifications_banner",
+        &json!({"headline": "Fix login needs input", "body": "Run the **tests**?",
+                "workspace": "api", "tab": "Fix login", "host": "cmux-mini-3"}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(
+        body,
+        json!({"title": "api › Fix login · cmux-mini-3", "subtitle": "Needs input", "body": "Run the tests?"})
+    );
+    let (_, kept) = call_json(
+        c"window_notifications_banner",
+        &json!({"headline": "Approve?", "body": "**rm**", "plain": false}),
+    );
+    assert_eq!(kept, json!({"title": "Approve?", "subtitle": null, "body": "**rm**"}));
+    assert_eq!(
+        call_json(c"window_notifications_plain_text", &json!({"markdown": "## Done\n\n- *one*"})),
+        (OK, json!({"text": "Done\n• one"}))
+    );
+    assert_eq!(call(c"window_notifications_plain_text", b"{}").0, ERR_INVALID);
+}
+
+/// An OSC 7501 alert finds its record, the newest of the matches (`status_alerts::alert`).
+#[test]
+fn notifications_program_alert_finds_the_record() {
+    let records = json!([
+        {"state": "working", "title": "terraform apply", "updatedSeq": 9},
+        {"state": "blocked", "kind": "permission", "title": "terraform apply", "msg": "Apply 3 changes?", "updatedSeq": 4}
+    ]);
+    let (code, body) = call_json(
+        c"window_notifications_program_alert",
+        &json!({"title": "terraform apply needs approval", "body": "Apply 3 changes?", "level": "warning", "records": records}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(
+        body,
+        json!({"alert": {"index": 1, "reason": "permission", "indicator": "waiting", "kind": "permission"}})
+    );
+    assert_eq!(
+        call_json(
+            c"window_notifications_program_alert",
+            &json!({"title": "Build finished", "level": "info"})
+        ),
+        (OK, json!({"alert": null}))
+    );
+    assert_eq!(
+        call_json(
+            c"window_notifications_looks_like_alert",
+            &json!({"title": "cargo failed", "level": "error"})
+        ),
+        (OK, json!({"looksLikeAlert": true}))
+    );
+    let visible =
+        json!({"tabSelected": true, "paneOnScreen": true, "windowShown": true, "appActive": true});
+    assert_eq!(
+        call_json(
+            c"window_notifications_alert_notifies",
+            &json!({"reason": "done", "visibility": visible})
+        ),
+        (OK, json!({"notifies": false}))
+    );
+    assert_eq!(
+        call(c"window_notifications_looks_like_alert", br#"{"title":"x","level":"loud"}"#).0,
+        ERR_INVALID
+    );
+}
+
+/// A status run counts once, only when it was seen busy, and notifies past the minimum when hidden.
+#[test]
+fn notifications_status_runs_finish_once_and_notify_when_long() {
+    let busy = json!({"statuses": [{"workspace": "ws_1", "entries": [{"key": "run:42", "state": "busy", "text": "Tests"}]}]});
+    let (code, body) = call_json(c"window_notifications_status_runs", &busy);
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"finished": [], "running": [{"workspace": "ws_1", "key": "run:42"}]}));
+    let done = json!({"running": body["running"], "statuses": [{"workspace": "ws_1", "entries": [
+        {"key": "run:42", "state": "error", "text": "Tests", "targetTerminal": "term_7", "exitCode": 2, "durationMs": 15000}
+    ]}]});
+    assert_eq!(
+        call_json(c"window_notifications_status_runs", &done).1,
+        json!({"finished": [{"workspace": "ws_1", "key": "run:42", "label": "Tests", "terminal": "term_7",
+                             "succeeded": false, "exitCode": 2, "durationMs": 15000}], "running": []})
+    );
+    assert_eq!(
+        call_json(c"window_notifications_run_notifies", &json!({"durationMs": 15000})),
+        (OK, json!({"notifies": true}))
+    );
+    assert_eq!(
+        call_json(
+            c"window_notifications_run_notifies",
+            &json!({"durationMs": 9000, "behavior": {"runNotifyMinimumSeconds": 10, "runNotifyWhenVisible": false}})
+        ),
+        (OK, json!({"notifies": false}))
+    );
+}
+
+/// The panel's selection moves within the rows and survives a reload.
+#[test]
+fn notifications_panel_selection_moves_and_reconciles() {
+    assert_eq!(
+        call_json(
+            c"window_notifications_panel_move",
+            &json!({"selected": null, "offset": -1, "rows": ["a", "b"]})
+        ),
+        (OK, json!({"selected": "b"}))
+    );
+    assert_eq!(
+        call_json(
+            c"window_notifications_panel_move",
+            &json!({"selected": "a", "offset": 1, "rows": []})
+        ),
+        (OK, json!({"selected": null}))
+    );
+    assert_eq!(
+        call_json(
+            c"window_notifications_panel_reconcile",
+            &json!({"selected": "b", "old": ["a", "b", "c"], "new": ["a", "c"]})
+        ),
+        (OK, json!({"selected": "c"}))
+    );
+    // The ops misc answers still reach it.
+    assert_eq!(call_json(c"window_notifications_last_prompt", &json!({"prompts": []})).0, OK);
+}

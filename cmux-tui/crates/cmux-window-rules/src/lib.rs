@@ -36,8 +36,14 @@
 //!   a folder (the person's `editor.default`, else the first installed).
 //! - [`update_idle`]: whether Update When Idle installs a staged app update
 //!   now, or why it waits (input, a running turn, an unsent draft).
+//! - [`banner`]: what a system banner says (`workspace › tab`, the state
+//!   headline, the message as plain text).
+//! - [`status_alerts`]: which OSC 7501 record a terminal notification was
+//!   posted for, which `cmux status run`s finished and whether they notify.
+//! - [`notifications_panel`]: the notifications panel's keyboard selection.
 
 pub mod appearance;
+pub mod banner;
 pub mod browser;
 pub mod chat;
 pub mod close;
@@ -47,9 +53,11 @@ pub mod files;
 pub mod history;
 pub mod launch;
 pub mod notifications;
+pub mod notifications_panel;
 pub mod remote;
 pub mod restore;
 pub mod screen_share;
+pub mod status_alerts;
 pub mod tabs;
 pub mod targets;
 pub mod update_idle;
