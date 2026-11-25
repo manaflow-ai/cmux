@@ -688,10 +688,34 @@ impl Hub {
         let Some(unanswered) = unanswered else {
             return setup.await;
         };
-        admission.listen();
+        if matches!(unanswered, Unanswered::Defer(_) | Unanswered::Guarded(_)) {
+            admission.listen();
+        }
         tokio::select! {
             biased;
-            answer = &mut setup => return answer,
+            answer = &mut setup => {
+                if admission.defer_requested() {
+                    admission.release();
+                    return match unanswered {
+                        Unanswered::Defer(deferral) => {
+                            let stage = admission.stage_now();
+                            let outcome = self.queue_unanswered(session, deferral, stage, || {})?;
+                            let mut answer = outcome.subscribe();
+                            self.start_restored(session);
+                            let dropped = || RpcError::internal("the queued run of this prompt was dropped");
+                            let settled = answer.wait_for(Option::is_some).await.map_err(|_| dropped())?.clone();
+                            settled.unwrap_or_else(|| Err(dropped()))
+                        }
+                        Unanswered::Guarded(guard) => {
+                            guard()?;
+                            Err(super::auto_resume::retry_turn::busy())
+                        }
+                        Unanswered::Busy => Err(super::auto_resume::retry_turn::busy()),
+                        Unanswered::SteerUnavailable => Err(super::turn_cap::steer_unavailable(false)),
+                    };
+                }
+                return answer;
+            },
             () = tokio::time::sleep_until(admission.answer_due()) => {}
         }
         // Past a step it must finish, it finishes: its answer is on its way.
@@ -841,6 +865,52 @@ impl Hub {
                 }
             }
         };
+        // A prompt that cannot reach any agent (none running, and its folder or harness is gone)
+        // is refused before it is recorded (`cold_prompt_check`, after steer-only's refusal).
+        // Bounded: this holds the chat's prompt admission, and the agent lock is held through a
+        // whole agent start. One not free within the bound is held by a start or a turn using the
+        // agent: an agent is coming, so no cold check. Unbounded, every later prompt of the chat
+        // (an outbox delivery each 120 s) waited behind it.
+        admission.enter("agent");
+        // A stale host or a teardown may hold either child mutex. Do not let that await keep
+        // this prompt's admission lease while a caller waits for acceptance. Unknown is treated
+        // as live so the cold-chat refusal never drops a deliverable prompt.
+        let live = if admission.queue_owned() {
+            let child = session.child.lock().await.clone();
+            match child {
+                Some(child) => child.is_alive().await,
+                None => false,
+            }
+        } else {
+            match tokio::time::timeout(super::prompt_admission::ADMISSION_BOUND, async {
+                let child = session.child.lock().await.clone();
+                match child {
+                    Some(child) => child.is_alive().await,
+                    None => false,
+                }
+            })
+            .await
+            {
+                Ok(live) => live,
+                Err(_) => {
+                    tracing::warn!(session = %session.id, "prompt live check lapsed during admission");
+                    if admission.listened() {
+                        admission.request_defer();
+                        return Err(RpcError::deadline_exceeded(
+                            "prompt live check",
+                            super::prompt_admission::ADMISSION_BOUND,
+                        ));
+                    }
+                    true
+                }
+            }
+        };
+        let text = prompt_text(&blocks);
+        let running = session.turn();
+        // Another agent's message to a turn past its cap waits for the next turn (`turn_cap.rs`).
+        let capped = running.is_some()
+            && !opts.send_now
+            && self.turn_cap_holds(session, opts.provenance.as_ref(), opts.agent.as_deref(), fyi);
         // Another agent's message goes into the chat's inbox, never a turn or a steer of its own
         // (`inbox.rs`). Boxed, out of this future.
         let route = self.inbox_route(
@@ -860,7 +930,9 @@ impl Hub {
             super::inbox::Route::Plain => None,
             super::inbox::Route::Inbox(agent, class) => {
                 admission.enter("inbox");
-                // The inbox's acceptance callback commits this delivery after its journal write.
+                // `inbox_accept` calls `accept` before it waits for the inbox notice's answer.
+                // Keep this prompt unanswered until that callback so any pre-accept work still
+                // reaches the bounded queue fallback instead of being treated as committed.
                 return Box::pin(self.inbox_accept(
                     session,
                     &blocks,
@@ -897,22 +969,6 @@ impl Hub {
                 let _ = release.await;
             }
         }
-        // A prompt that cannot reach any agent (none running, and its folder or harness is gone)
-        // is refused before it is recorded (`cold_prompt_check`, after steer-only's refusal).
-        admission.enter("agent");
-        // Release the child mutex before probing the host. If either operation stalls,
-        // the enclosing admission deadline durably defers this delivery.
-        let child = session.child.lock().await.clone();
-        let live = match child {
-            Some(child) => child.is_alive().await,
-            None => false,
-        };
-        let text = prompt_text(&blocks);
-        let running = session.turn();
-        // Another agent's message to a turn past its cap waits for the next turn (`turn_cap.rs`).
-        let capped = running.is_some()
-            && !opts.send_now
-            && self.turn_cap_holds(session, opts.provenance.as_ref(), opts.agent.as_deref(), fyi);
         // An inbox notice steers in only while the turn is under its cap and no prompt waits
         // (`inbox.rs`), checked again here at dispatch.
         let notice_held = steer
