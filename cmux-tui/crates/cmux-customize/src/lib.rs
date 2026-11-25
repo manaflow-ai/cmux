@@ -24,6 +24,7 @@ mod diff;
 pub mod docs;
 mod engine;
 mod file_refs;
+pub mod kit;
 pub mod library;
 mod paths;
 pub mod profile;
