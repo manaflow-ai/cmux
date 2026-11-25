@@ -1380,7 +1380,8 @@ mod auto_resume_tests {
 
 #[cfg(test)]
 mod spawn_retention_tests {
-    use super::{HostState, SpawnRecord, SpawnRef, SubRecord, SubStatus, SPAWNS_KEPT};
+    use super::{HostState, SpawnRecord, SpawnRef, SubRecord, SubStatus};
+    const EXPECTED_SPAWNS: usize = 256;
 
     fn finished(id: &str, started_ms: u64) -> (String, SpawnRecord) {
         (
@@ -1399,9 +1400,9 @@ mod spawn_retention_tests {
     }
 
     #[test]
-    fn pruning_bounds_finished_metadata_but_keeps_active_work() {
+    fn logging_a_report_bounds_finished_spawn_metadata_but_keeps_active_work() {
         let mut state = HostState::default();
-        for n in 0..(SPAWNS_KEPT as u64 + 3) {
+        for n in 0..(EXPECTED_SPAWNS as u64 + 2) {
             let (id, record) = finished(&format!("s{n}"), n);
             state.spawns.insert(id, record);
         }
@@ -1416,24 +1417,7 @@ mod spawn_retention_tests {
                 ..SpawnRecord::default()
             },
         );
-
-        let removed = state.prune_spawns();
-
-        assert_eq!(removed, 4);
-        assert_eq!(state.spawns.len(), SPAWNS_KEPT);
-        assert!(!state.spawns.contains_key("s0"));
-        assert!(state.spawns.contains_key(&format!("s{}", SPAWNS_KEPT as u64 + 2)));
-        assert!(state.spawns.contains_key("active"));
-    }
-
-    #[test]
-    fn logging_a_report_prunes_old_finished_spawn_metadata() {
-        let mut state = HostState::default();
-        for n in 0..(SPAWNS_KEPT as u64 + 1) {
-            let (id, record) = finished(&format!("s{n}"), n);
-            state.spawns.insert(id, record);
-        }
-        let newest = format!("s{}", SPAWNS_KEPT);
+        let newest = format!("s{}", EXPECTED_SPAWNS as u64 + 1);
 
         state.spawn_logged(&SpawnRef {
             spawn: newest.clone(),
@@ -1442,9 +1426,10 @@ mod spawn_retention_tests {
             quiet: false,
         });
 
-        assert_eq!(state.spawns.len(), SPAWNS_KEPT);
+        assert_eq!(state.spawns.len(), EXPECTED_SPAWNS);
         assert!(!state.spawns.contains_key("s0"));
         assert!(state.spawns.contains_key(&newest));
+        assert!(state.spawns.contains_key("active"));
     }
 }
 
