@@ -270,7 +270,15 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   and it starts no turn. A subagent that runs again later (a `tell`, the user
   writing in its chat) reports again when it finishes.
 
-- Any number of subagents work at once by default; `OPTCHAT_MAX_LIVE_SUBAGENTS=N`
+- The machine limits local subagents at work (src/machine_limits.rs): at most
+  `max(2, min(2 x cores, RAM GiB / 2))` (24 on a 15-core, 48 GB Mac), and while
+  the machine is over budget (load1 >= 2 x cores, or memory pressure warn or
+  critical) no new one starts past those at work (at least 2). Over it a
+  subagent is queued with its place in line (`a5: queued, #2 in line`), never
+  refused, and starts when a slot frees or the machine has room (checked every
+  60 s). `OPTCHAT_MACHINE_HELPERS=N` sets the ceiling, `0` lifts the machine
+  limit; an explicit cap below wins over it.
+- Otherwise any number of subagents work at once; `OPTCHAT_MAX_LIVE_SUBAGENTS=N`
   caps it (one spawn takes at most 24 tasks; call spawn again for more). A spawn
   over the cap answers `a<N>: queued`, naming the cap's source (`control cap N`
   or the env) and that `control cap 0` removes it; a queued subagent starts, with the view
@@ -744,19 +752,21 @@ store's files or an export) into an empty memory.
 
 **Backup** (decision 2026-10-06). After the commit, the export's history is
 pushed to a private `manaflow-ai/chief-memory-<home id>` repository, which
-`gh repo create --private` makes on the first push; never forced, so a
-remote with other history fails the push and stays as it is. Before each
-push the lines added since the last pushed commit are scanned (gitleaks when
-it is on PATH, else built-in shapes: GitHub, Anthropic, OpenAI, AWS, Slack,
-Stripe, Google and npm tokens, private keys). A hit holds the backup:
+`gh repo create --private` makes on the first push. If another Chief moves the
+branch, the persister fetches it and merges append-only `main/` and `tree/`
+JSONL lines before retrying, so neither writer's memory is replaced. Before
+each push the lines added since the last pushed commit are scanned (gitleaks
+when it is on PATH, else built-in shapes: GitHub, Anthropic, OpenAI, AWS,
+Slack, Stripe, Google and npm tokens, private keys). A hit holds the backup:
 nothing is pushed, `optchat/backup.json` says `(backup held: possible secret
 in message N)`, a `backup_held` trace event is written, host.log says how to
 release it (the message id or summary name on a line of
-`optchat/backup-allow.txt`). A failed push is retried by the persister
-thread after 30 s, doubling to 30 min; a turn never waits on it. On by
-default when `gh auth status` succeeds, except for tagged dev homes
-(`.../tags/<tag>`), which would each make their own repository; set
-`OPTCHAT_BACKUP_REMOTE` or `settings.json` to choose.
+`optchat/backup-allow.txt`). A failed push is retried by the persister thread
+with bounded jittered backoff and becomes a visible `blocked` status after its
+retry window; a turn never waits on it. On by default when `gh auth status`
+succeeds, except for tagged dev homes (`.../tags/<tag>`), which would each
+make their own repository; set `OPTCHAT_BACKUP_REMOTE` or `settings.json` to
+choose.
 
 **Migration.** On the first start with an old home (day files in `chat/`,
 an empty database), the host copies them into

@@ -17,6 +17,7 @@ import {
   type ComposerAttachment,
 } from "../attachments";
 import { inlinePrompt, recordedPromptParts, stripFileDisplay } from "../inlinePrompt";
+import { knownImageSize } from "../conversation/imageEntries";
 import { shownPrompt } from "../pastedText";
 import { frameTextOf, imageNames } from "../composer/videoPrompt";
 import { incomingPrompt, type IncomingContext, type IncomingMessage } from "../conversation/incomingMessage";
@@ -183,20 +184,24 @@ export function recordImages(msg: any): QueuedPromptImage[] {
 /// The images of a prompt this pane sends, from the composer's attachments: its queue row shows
 /// them from the send on, before acpmux names them.
 export function attachedImages(attachments: readonly ComposerAttachment[]): QueuedPromptImage[] {
-  return attachments.flatMap((attachment) =>
-    attachment.kind === "image" && attachment.data
-      ? [
-          {
-            id: attachment.id,
-            mimeType: attachment.mimeType,
-            name: attachment.name,
-            src: `data:${attachment.mimeType};base64,${attachment.data}`,
-            local: true,
-            ...(attachment.source ? { source: attachment.source } : {}),
-          },
-        ]
-      : [],
-  );
+  return attachments.flatMap((attachment) => {
+    if (attachment.kind !== "image" || !attachment.data) return [];
+    const src = `data:${attachment.mimeType};base64,${attachment.data}`;
+    // Its size from its header, so the row is laid out at the thumbnail's shape from the send
+    // (inlinePrompt.ts does the same for a placed image).
+    const size = knownImageSize(src);
+    return [
+      {
+        id: attachment.id,
+        mimeType: attachment.mimeType,
+        name: attachment.name,
+        src,
+        ...(size ? { width: size.width, height: size.height } : {}),
+        local: true,
+        ...(attachment.source ? { source: attachment.source } : {}),
+      },
+    ];
+  });
 }
 
 /// `images` named by acpmux, each keeping the bytes the pane already had for it.
@@ -224,11 +229,14 @@ function withKnownBytes(images: QueuedPromptImage[], known: readonly QueuedPromp
 /// (sendWhenReady.ts): with no end, as long as its chat is shown and its client open. A machine
 /// that rebooted comes back in minutes, and the prompt goes then by itself, never "Not sent" and
 /// Retry (Leo, 2026-11-12: "try what? no, it should just automatically do stuff"). Tests shorten it.
+/// `resendShowMs`: how long a connection waits for a prompt the host's journal sends again on it
+/// to show, before its row says "Not sent" again (direct.ts `awaitHostResend`).
 export const deliveryTiming = {
   slowMs: 10_000,
   failMs: 60_000,
   localFailMs: 300_000,
   hostWaitMs: Number.POSITIVE_INFINITY,
+  resendShowMs: 10_000,
 };
 
 export const DELIVERY_RANK: Record<PromptDelivery["state"], number> = {
@@ -249,6 +257,12 @@ export function deliveryHop(code: string | undefined, taken: boolean): PromptDel
 
 const oneLine = (text: string) => text.split(/\s+/).filter(Boolean).join(" ");
 
+/// acpmux's queue (a session's `queue`, in order) over the one the pane has. acpmux lists each
+/// prompt's preview (its first 200 characters on one line), so a prompt the pane read whole from
+/// its `queued` record keeps its whole text, and one sent now stays next. A prompt's author is the
+/// one acpmux lists, else the one its newest `queued` or `queue_updated` record named (`authors`, by
+/// prompt id: null when that record named none), else the one the pane had: an attach's page can
+/// hold a teammate's edit without the `queued` record before it.
 /// A queue list's `subagentRetry` (acpmux `QueuedSubagentRetry`) as a row's resume.
 function listedRetry(raw: unknown): SubagentRetryNotice | undefined {
   if (!raw || typeof raw !== "object") return undefined;

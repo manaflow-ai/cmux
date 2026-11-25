@@ -780,6 +780,12 @@ impl Started {
         crate::claude_stdio::prompt_suggestions::set_managed(spec.prompt_suggestions_managed);
         let translator = spec.translator.as_ref().map(|t| {
             let tr = Translator::new(t.acp_session_id.clone(), &t.mode, &t.model, &t.effort);
+            tr.stop_condition.store(t.stop_condition, std::sync::atomic::Ordering::Relaxed);
+            if let Some((_, home)) =
+                spec.env.iter().find(|(key, _)| key == crate::bg_hook::HOME_ENV)
+            {
+                let _ = tr.plugin_hook_home.set(home.into());
+            }
             if t.fast
                 && let Ok(mut fast) = tr.fast.try_lock()
             {
@@ -1560,6 +1566,9 @@ impl State {
                 acked_h: self.acked_h,
                 max_out_id: self.max_out_id,
                 exited,
+                launch_credential: super::LaunchCredential(
+                    crate::agent_credentials::launched_with(&self.spec.env),
+                ),
             });
             self.controller = Some(Controller { id, tx, resumed: false });
             self.last_owner = Some(id);

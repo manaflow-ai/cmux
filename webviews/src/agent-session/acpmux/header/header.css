@@ -492,7 +492,8 @@
 .acpmux-glass-title-detail{color:var(--agent-muted);font-size:var(--text-caption);font-weight:normal;letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-live-tree-results{list-style:none;margin:0;padding:var(--ds-space-1) calc(var(--ds-space-1) + var(--grid-half-step));font-size:var(--text-detail)}
 .acpmux-live-tree-results li{display:flex;justify-content:space-between;gap:12px}
-/* The tab row's accessories (tabRow.ts TAB_ROW_ACCESSORY) hide whole when the row leaves them no room, so the tools stay where they are. */
+/* A row accessory (tabRow.ts TAB_ROW_ACCESSORY) with no room in the half of the row the tabs give up hides whole; the
+   tools stay where they are. */
 [data-tab-row-accessories="hidden"] [data-tab-row-accessory] {
   display: none;
 }

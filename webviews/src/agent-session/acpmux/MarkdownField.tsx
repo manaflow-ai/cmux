@@ -28,6 +28,7 @@ import {
 } from "./composer/inlineNode";
 import { inlineCaretPlugin } from "./composer/inlineCaret";
 import { followActionsWidth } from "./composerScrollLane";
+import { followTextCenter } from "./composerTextCenter";
 import { caretInView } from "./composer/caretInView";
 import { fieldGrowth } from "./composer/fieldGrowth";
 import { commandEdit, setSlashNames, slashTokensPlugin, slashTriggerAt } from "./composer/slashTokens";
@@ -37,7 +38,7 @@ import { deeplinkTitlesPlugin, type DeeplinkTitles } from "./composer/deeplinkTi
 import { mentionChipsPlugin } from "./composer/mentionChips";
 import { CMUX_LINK_ICONS, knownCmuxLink, subscribeCmuxLinks } from "./chips/cmuxLinkResolve";
 import { iconMaskUrl } from "./icons/iconMask";
-import { toolOfHref } from "./toolMentions";
+import { TOOL_MENTIONS, toolOfHref } from "./toolMentions";
 import { subscribeLanguage, translate } from "./i18n";
 import { subscribeIconFamily } from "./icons/iconPack";
 import { cmuxLinkLook } from "./chips/cmuxLinkLook.experiment";
@@ -74,6 +75,7 @@ import type { EditorView } from "@milkdown/kit/prose/view";
 import type { RemarkParser } from "@milkdown/kit/transformer";
 import { $prose, replaceAll } from "@milkdown/kit/utils";
 import { FADE_BAND_PX } from "./markdownFieldModel";
+import { draftFoot } from "./draftFoot.experiment";
 import { focusRoute } from "../../ui/focusRoute";
 
 /// How the draft names its known cmux links (composer/deeplinkTitles.ts), in the sent message's
@@ -104,6 +106,7 @@ function draftLinkTitles(): DeeplinkTitles {
     // The sent chip's kind icon (chips/CmuxLinkChip.tsx), in the looks that draw one.
     icon: (info) =>
       info.tool ? iconMaskUrl(info.tool) : look === "kind-title" ? undefined : iconMaskUrl(CMUX_LINK_ICONS[info.kind]),
+    image: (info) => (info.tool ? TOOL_MENTIONS.find((tool) => tool.icon === info.tool)?.image : undefined),
   };
 }
 
@@ -243,7 +246,13 @@ export type MarkdownFieldProps = {
   /// A copy or cut of the selection (Cmd-C, Cmd-X, the menu's): its runs of text and its placed
   /// attachments in order, its text as the field copies it, and whether it holds the whole draft.
   /// True when the surface wrote the pasteboard itself; the field then takes a cut's selection out.
-  onCopy?(copy: { parts: SelectionPart[]; text: string; whole: boolean }, cut: boolean): boolean;
+  /// `commitCut` deletes the captured selection after an asynchronous copy commits.
+  /// Returning `"pending"` leaves the draft untouched until that callback succeeds.
+  onCopy?(
+    copy: { parts: SelectionPart[]; text: string; whole: boolean },
+    cut: boolean,
+    commitCut: () => boolean,
+  ): boolean | "pending";
   /// Whether the selection holds the whole draft (Select All), as it changes: the surface marks what
   /// it shows besides the text (the strip's attachments) as selected too.
   onWholeSelection?(whole: boolean): void;
@@ -853,6 +862,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   },
   ref,
 ) {
+  // Read once per field: an arm changes with a reload (the gallery's arm, the debug key).
+  const [footArm] = React.useState(() => experimentArm(draftFoot));
   const pendingQuotes = useRef<string[]>([]);
   const editor = useRef<Editor | undefined>(undefined);
   const view = useRef<EditorView | undefined>(undefined);
@@ -1054,11 +1065,38 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       whole: wholeSelected(state),
     };
     if (!copy.parts.length && copy.text) copy.parts.push({ text: copy.text });
-    if (!surface(copy, cut)) return false;
+    let committed = false;
+    const originalDoc = state.doc;
+    const originalSelection = state.selection;
+    const originalOwner = owner.current;
+    const commitCut = () => {
+      if (committed) return false;
+      committed = true;
+      // Selection-only moves keep this immutable document. Any edit or chat switch preserves the
+      // newer draft instead of applying an old Cut to it after the clipboard finishes staging.
+      if (
+        !cut ||
+        view.current !== editorView ||
+        editorView.isDestroyed ||
+        owner.current !== originalOwner ||
+        editorView.state.doc !== originalDoc
+      )
+        return false;
+      editorView.dispatch(
+        editorView.state.tr
+          .setSelection(originalSelection)
+          .deleteSelection()
+          .scrollIntoView()
+          .setMeta("uiEvent", "cut"),
+      );
+      return true;
+    };
+    const result = surface(copy, cut, commitCut);
+    if (result === false) return false;
     event.preventDefault();
     // The text at once; the surface's own write (the host's, a moment later) replaces it whole.
     event.clipboardData?.setData("text/plain", copy.text);
-    if (cut) editorView.dispatch(editorView.state.tr.deleteSelection().scrollIntoView().setMeta("uiEvent", "cut"));
+    if (cut && result !== "pending") commitCut();
     return true;
   };
 
@@ -1714,6 +1752,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     () => (wrapper.current && typeof ResizeObserver === "function" ? followActionsWidth(wrapper.current) : undefined),
     [],
   );
+  // In the composer's box, its words' ink stands on the controls' centre line (composerTextCenter.ts).
+  useEffect(() => (wrapper.current ? followTextCenter(wrapper.current) : undefined), []);
   const handle = useRef<MarkdownFieldHandle>(undefined);
   useImperativeHandle(
     ref,
@@ -1954,6 +1994,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       // reserved and its thumb shown only while the draft scrolls or the pointer is near its lane; the
       // minimal scroller's inset track and no thumb while the field settles.
       {...{ [SHOWN_SCROLLER_ATTRIBUTE]: "", [MINIMAL_SCROLLER_ATTRIBUTE]: "" }}
+      // How a scrolled-up draft's foot fades (draftFoot.experiment.ts, markdownField.css).
+      data-draft-foot={footArm}
       style={{ "--acpmux-md-fade-band": `${FADE_BAND_PX}px` } as React.CSSProperties}
       ref={(element: MarkdownFieldElement | null) => {
         wrapper.current = element;
