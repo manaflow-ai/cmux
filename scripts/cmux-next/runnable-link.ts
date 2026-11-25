@@ -30,6 +30,7 @@ import {
   directExec,
   http,
   launchCredentialStartProgram,
+  listAllMachines,
   passwordSignIn,
   resolveBackend,
   scrub,
@@ -182,6 +183,19 @@ export async function withRoom<T>(fn: () => Promise<T>, budgetMs = Number(proces
       throw e;
     }
   }
+}
+
+/**
+ * Machines this script made that no one deletes otherwise: this run's (a create cut off at the client timeout can
+ * still make its machine, which the run never learns the id of: runs 45570177493, 45571955695 and 45573615938), and
+ * any earlier run's left over two hours or more. Every machine here is named "runnable link rl-<tag> ...".
+ */
+export function strays(rows: any[], tag: string, now: number, deleted: Set<string>): string[] {
+  return rows
+    .filter((r) => typeof r?.name === "string" && r.name.startsWith("runnable link rl-") && r.status !== "deleted" && r.status !== "deleting")
+    .filter((r) => r.name.startsWith(`runnable link ${tag} `) || (typeof r.created_at === "number" && now - r.created_at >= 2 * 3600_000))
+    .map((r) => String(r.id ?? r.machine_id ?? ""))
+    .filter((id) => id && !deleted.has(id));
 }
 
 async function waitUsable(exec: Exec, session: string | null, head: string, budgetMs: number): Promise<Record<string, string>> {
@@ -397,6 +411,14 @@ async function main(): Promise<number> {
   } finally {
     if (snapshot && !keep) await api.op("cloud.snapshot.delete", { snapshot }, `${tag}-snap-del`).then(() => cleanup.push("snapshot deleted"), () => cleanup.push(`snapshot NOT deleted (${snapshot})`));
     if (parent && !keep) await api.deleteMachine(parent, `${tag}-del-parent`).then(() => cleanup.push("parent deleted"), () => cleanup.push(`parent NOT deleted (${parent})`));
+    if (!keep) {
+      const done = new Set(parent ? [parent] : []);
+      const rows = await listAllMachines((q) => api.read("cloud.machine.list", q)).catch(() => null);
+      if (!rows) cleanup.push("stray sweep: list failed");
+      for (const id of rows ? strays(rows, tag, Date.now(), done) : []) {
+        await api.deleteMachine(id, `${tag}-del-stray-${id}`).then(() => cleanup.push(`stray ${id} deleted`), () => cleanup.push(`stray ${id} NOT deleted`));
+      }
+    }
   }
   const out = { ...verdict(opens, baseline, meta), negative, cleanup, kept: keep ? machines : [] };
   const text = scrub(JSON.stringify(out), [...secrets, canary]);

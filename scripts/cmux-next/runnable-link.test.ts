@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { canaryCountCommand, facts, projectSetupCommand, SCRUB_COMMAND, usable, usableCommand, verdict, withRoom, type OpenRow } from "./runnable-link.ts";
+import { canaryCountCommand, facts, projectSetupCommand, SCRUB_COMMAND, usable, usableCommand, verdict, withRoom, strays, type OpenRow } from "./runnable-link.ts";
 
 const row = (over: Partial<OpenRow>): OpenRow => ({ run: 1, via: "link", copy: "m", resolve_ms: 1, fork_call_ms: 1, running_ms: 1, first_exec_ms: 1, scrub_ms: 1, usable_ms: 1, click_to_usable_ms: 20_000, canary_before_scrub: 1, canary_after_scrub: 0, facts: null, error: null, ...over });
 
@@ -35,4 +35,16 @@ describe("runnable link", () => {
     await expect(withRoom(async () => { calls++; throw new Error("The operation timed out."); })).rejects.toThrow("timed out");
     expect(calls).toBe(3);
   }, 20_000);
+  test("the stray sweep takes this run's machines and old ones of this script, nothing else", () => {
+    const now = 10 * 3600_000;
+    const rows = [
+      { id: "a", name: "runnable link rl-x parent", status: "running", created_at: now - 60_000 },
+      { id: "b", name: "runnable link rl-y open 1", status: "running", created_at: now - 3 * 3600_000 },
+      { id: "c", name: "runnable link rl-y open 2", status: "running", created_at: now - 600_000 },
+      { id: "d", name: "cloud journey auto jr-1", status: "running", created_at: 0 },
+      { id: "e", name: "runnable link rl-x open 1", status: "deleted", created_at: now },
+      { id: "f", name: "runnable link rl-x open 2", status: "running", created_at: now },
+    ];
+    expect(strays(rows, "rl-x", now, new Set(["f"]))).toEqual(["a", "b"]);
+  });
 });
