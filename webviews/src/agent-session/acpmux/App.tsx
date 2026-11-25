@@ -535,6 +535,7 @@ import {
   useEnvironmentCardOn,
   useFeatureTipsOn,
   useHeaderBreadcrumb,
+  useSubagentOf,
   useTrayHandle,
   useTrayTucked,
   useUnreadBannerMode,
@@ -4816,15 +4817,24 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   /// The model picker's Connect row (claudeConnect.ts `setupConnect`) while this chat's Cloud start
   /// waits for a connection: shown only for the family the host's Set up Cloud need names, so a local
-  /// chat, or a Cloud one a connection serves, never shows it. Connect runs the card's first button.
+  /// chat, or a Cloud one a connection serves, never shows it. Connect opens the inline connect card and
+  /// runs the family's one click; its Cancel withdraws the wait.
   const setUpCloudNow = useRef(setUpCloud);
+  const cancelCloudSignInNow = useRef(cancelCloudSignIn);
   useEffect(() => {
     setUpCloudNow.current = setUpCloud;
+    cancelCloudSignInNow.current = cancelCloudSignIn;
   });
   const cloudSetupNeed = cloudStart?.state === "failed" ? cloudStart.cloudSetup : undefined;
   const cloudSetupWaiting = cloudStart?.signingIn === true;
   const modelConnect = useMemo(
-    () => setupConnect(cloudSetupNeed, cloudSetupWaiting, (action) => setUpCloudNow.current(action)),
+    () =>
+      setupConnect(
+        cloudSetupNeed,
+        cloudSetupWaiting,
+        (action) => setUpCloudNow.current(action),
+        () => cancelCloudSignInNow.current(),
+      ),
     [cloudSetupNeed, cloudSetupWaiting],
   );
   /// Set up Cloud's Not now: a wait still out is withdrawn (the start then ends here), else the card goes.
@@ -5262,9 +5272,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     : undefined;
   const shownSubagentTitle =
     ownSubagentPane && subagentView && shownAgent ? subagentTabTitle(shownAgent, t("tray.kind.subagent")) : undefined;
-  // A subagent's own pane heads with the subagent, not its chat's title (paneHeading).
+  // A subagent's own pane heads with the subagent, in the chat's one line (paneHeading), from the frame
+  // it is known to be a subagent's pane (`requestedSubagent`, at the handshake), so the header never
+  // changes height when the subagent's rows come in. With Subagent Of in Header on
+  // (agentPane.display.subagentOf, off by default) it also says whose it is, on that same line.
+  const subagentOfOn = useSubagentOf();
+  const ofName = shownAgent?.parent
+    ? (freshAgents.find((agent) => agent.id === shownAgent.parent)?.name ?? chatName)
+    : chatName;
   const heading = paneHeading(
-    ownSubagentPane && subagentView ? (shownSubagentTitle ?? t("tray.kind.subagent")) : undefined,
+    ownSubagentPane && (subagentView ?? requestedSubagent) !== undefined
+      ? {
+          title: shownSubagentTitle ?? t("tray.kind.subagent"),
+          of: subagentOfOn ? `${t("subagents.of")} ${ofName}` : undefined,
+        }
+      : undefined,
     { title: chatName },
   );
   const shownFacts = useMemo(
