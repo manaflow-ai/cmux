@@ -22,7 +22,7 @@ import {
 } from "../../src/agent-session/acpmux/conversation/turnEndFold";
 import { TURN_FOLD_GHOST } from "../../src/agent-session/acpmux/conversation/turnFold";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
-import { fuzzScenario, strayScenario } from "./fold-fuzz.scenario";
+import { fuzzScenario, strayScenario, leoFoldScenario } from "./fold-fuzz.scenario";
 import { defineTranscriptMotion, TRANSCRIPT_MOTION } from "../support/transcriptMotion";
 import { runSimulationAsync } from "../../src/agent-session/acpmux/sim/run";
 import { parseRecords } from "../../src/agent-session/acpmux/sim/sanitize";
@@ -62,7 +62,11 @@ const expanded = new Set<string>();
 const SIM_CLOCK_OFFSET = Date.now() - SIM_START;
 
 function Pane() {
-  const [state, setState] = useState<PaneState>({ rows: [], working: false, sends: 0 });
+  const [state, setState] = useState<PaneState>({
+    rows: [],
+    working: false,
+    sends: 0,
+  });
   useLayoutEffect(() => {
     show = setState;
   }, []);
@@ -73,7 +77,10 @@ function Pane() {
       // The control (`none`): the swap applies at once (fold.ts `jump`), so the matrix reads what the
       // turn's end does with no fold at all.
       {...(state.look === "none" && { "data-fold-look": "jump" })}
-      {...{ [TURN_END_RECAP_ATTR]: state.recap, [TURN_END_SUBAGENT_ATTR]: state.subagent }}
+      {...{
+        [TURN_END_RECAP_ATTR]: state.recap,
+        [TURN_END_SUBAGENT_ATTR]: state.subagent,
+      }}
     >
       {/* The look's name, for the matrix's side-by-side clips; outside the thread, so never sampled. */}
       <div
@@ -138,17 +145,27 @@ function bigClaudeTurn({ recap = false, subagent = false } = {}): SimScenario {
   b.tool("Read src/net/retry.ts", { kind: "read" });
   b.tool("Read test/retry.test.ts", { kind: "read" });
   b.tool("bun test test/retry.test.ts", { status: "failed", output: "1 fail" });
-  b.tool("bun test test/retry.test.ts -t jitter", { status: "failed", output: "1 fail" });
+  b.tool("bun test test/retry.test.ts -t jitter", {
+    status: "failed",
+    output: "1 fail",
+  });
   b.tool("rg -n attempts src/net", { kind: "search" });
   b.say("The jitter case fails: the loop makes one call too many. Checking the backoff next.");
   b.tool("Read src/net/backoff.ts", { kind: "read" });
-  if (subagent) b.subagent("Scan the last 50 CI logs for the flaky retry test", { ms: 1_500, tracked: true });
+  if (subagent)
+    b.subagent("Scan the last 50 CI logs for the flaky retry test", {
+      ms: 1_500,
+      tracked: true,
+    });
   b.tool("Edit src/net/retry.ts", { kind: "edit", path: "src/net/retry.ts" });
   b.tool("bun test test/retry.test.ts");
   b.tool("bun test test/net");
   b.tool("bunx tsc --noEmit -p .");
   b.say("The count is right now; adding a case for a zero cap.");
-  b.tool("Edit test/retry.test.ts", { kind: "edit", path: "test/retry.test.ts" });
+  b.tool("Edit test/retry.test.ts", {
+    kind: "edit",
+    path: "test/retry.test.ts",
+  });
   b.tool("bun test test/retry.test.ts -t cap");
   b.tool("bun test test/net");
   b.tool("git diff --stat");
@@ -225,7 +242,12 @@ function matrixTurn(cell: MatrixCell): SimScenario {
   }
   if (cell.viewport === "up") b.reader({ scrollBy: -400 });
   const answer = cell.answer === "recap" ? LONG_ANSWER : ANSWER;
-  if (cell.ending !== "tool") b.say(answer, { chunks: cell.answer === "recap" ? 12 : 4, chunkMs: 90, after: 400 });
+  if (cell.ending !== "tool")
+    b.say(answer, {
+      chunks: cell.answer === "recap" ? 12 : 4,
+      chunkMs: 90,
+      after: 400,
+    });
   if (cell.wrapUp)
     b.tool("mcp__acpmux__wrap_up", {
       kind: "other",
@@ -237,6 +259,13 @@ function matrixTurn(cell: MatrixCell): SimScenario {
 async function scenarioNamed(name: string): Promise<SimScenario> {
   if (name.startsWith("fuzz:")) return fuzzScenario(Number(name.slice(5))).scenario;
   if (name.startsWith("stray:")) return strayScenario(Number(name.slice(6))).scenario;
+  // `sim:NAME`: a chat-sim scenario by name (sim/scenarios.ts), such as `sim:notice-no-tool-turn`.
+  if (name.startsWith("sim:")) {
+    const { SCENARIOS } = await import("../../src/agent-session/acpmux/sim/scenarios");
+    const make = SCENARIOS[name.slice(4)];
+    if (!make) throw new Error(`no chat-sim scenario ${name.slice(4)}`);
+    return make();
+  }
   if (name.startsWith("matrix:")) return matrixTurn(JSON.parse(decodeURIComponent(name.slice(7))) as MatrixCell);
   // `url:PATH`: a recorded chat (ndjson) the dev server serves, such as one fetched outside the repo.
   if (name.startsWith("url:")) {
@@ -247,7 +276,10 @@ async function scenarioNamed(name: string): Promise<SimScenario> {
     const text = (await import("../fixtures/chat-sim/replay-lane-session.ndjson?raw")).default as string;
     return replayScenario("replay-lane-session", parseRecords(text));
   }
-  return bigClaudeTurn({ recap: name.includes("recap"), subagent: name.includes("subagent") });
+  return bigClaudeTurn({
+    recap: name.includes("recap"),
+    subagent: name.includes("subagent"),
+  });
 }
 
 /// A row's top, height and ink, and (when a clip hides part of it) the top and height of what it shows in the view.
@@ -344,7 +376,13 @@ async function wheelScroll(reader: { scroll: "top" | "bottom" } | { scrollBy: nu
   for (let frame = 1; frame <= WHEEL_FRAMES; frame += 1) {
     const goal = "scroll" in reader && reader.scroll === "bottom" ? scroller.scrollHeight : target;
     const step = (goal - scroller.scrollTop) / (WHEEL_FRAMES - frame + 1);
-    scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: step, bubbles: true, cancelable: true }));
+    scroller.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: step,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
     scroller.scrollTop += step;
     await new Promise((resolve) => requestAnimationFrame(resolve));
   }
@@ -370,12 +408,16 @@ async function run(
   // the steps' own clock (gaps capped at `FUZZ_GAP_CAP_MS`), so when each record lands is the seed's.
   // A stray seed (`stray:N`, fold-fuzz.ts `--sweep`) is the fuzz seed's chat with the reader's sweep after
   // it; its reader steps are a wheel's frames, as a person scrolls (`wheelScroll`).
-  const stray = name.startsWith("stray:");
+  // `leo:N` is Leo's pinned case (fold-fuzz.scenario.ts `leoFoldScenario`), swept as a stray seed is.
+  const leo = name.startsWith("leo:");
+  const stray = leo || name.startsWith("stray:");
   const fuzz = name.startsWith("fuzz:")
     ? fuzzScenario(Number(name.slice(5)))
-    : stray
-      ? strayScenario(Number(name.slice(6)))
-      : undefined;
+    : leo
+      ? leoFoldScenario(Number(name.slice(4)))
+      : stray
+        ? strayScenario(Number(name.slice(6)))
+        : undefined;
   const whole = fuzz?.scenario ?? (await scenarioNamed(name));
   const scenario = end === undefined ? whole : { ...whole, steps: whole.steps.slice(0, end + 1) };
   flushSync(() => show({ rows: [], working: false, sends: 0, look, ...options }));
@@ -409,7 +451,7 @@ async function run(
         requestAnimationFrame(tick);
       }
       flushSync(() => show({ rows, working: state.working, sends, look, ...options }));
-      if (sampling) window.__transcriptMotion!.rows?.(rows.map((row) => row.id));
+      if (sampling) window.__transcriptMotion!.rows?.(rows.map((row) => [row.id, JSON.stringify(row)] as const));
       // This harness draws no "Worked for" to open: a reader's `open` step scrolls nothing here.
       const reader = step.type === "reader" && !("open" in step.reader) ? step.reader : undefined;
       if (reader && stray) {

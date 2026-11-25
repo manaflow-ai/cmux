@@ -54,6 +54,8 @@ mod computer_use_worker;
 mod config;
 mod daemon_build;
 #[cfg(unix)]
+mod dev_reaper;
+#[cfg(unix)]
 mod files_lister;
 mod headless;
 mod heap_profile;
@@ -141,6 +143,8 @@ mod sidebar_projection;
 mod sidebar_status;
 #[cfg(unix)]
 mod staged_update;
+/// The interactive client's UI-loop hang watchdog (sample, report, cancel, restart).
+mod ui_watchdog;
 // The staged swap probes builds through cmux-remote, a unix-only dependency:
 // elsewhere nothing is ever staged and no notice waits.
 #[cfg(not(unix))]
@@ -1918,6 +1922,8 @@ pub fn main() -> std::process::ExitCode {
     cmux_tui_core::server::install_build_stamp(build_stamp());
     cmux_tui_core::release::install_distribution_version(version_report::DISTRIBUTION_STAMP);
     acpmux::hub::install_build(acpmux_build_id::build());
+    // acpmux is headless; its interactive commands open the terminal UI this binary links.
+    acpmux_tui::install();
     #[cfg(unix)]
     cmux_tui_core::git_seed::on_seeded(warm_seeded_deps);
     // The daemon's `device-setup` (the app's set-up buttons) runs `cmux device setup|start`'s code.
@@ -2053,6 +2059,16 @@ fn run_main() {
     // this process. It needs none of the mux's provider credentials or signal handlers.
     // `cmux share screens|start|stop|move …`: the screen shares, read and changed by this
     // machine's daemon device at the device hub (acpmux `share-host`), with no app needed.
+    // `cmux autocloud …`: cmux stripped to the essentials (RFD 0139), an agent chat on any
+    // machine in the terminal: sign in, readiness, the agent's stream, and a chat that survives
+    // a dropped link. Its links dial through this binary (`carrier dial`, `acp stdio`).
+    if raw_args.first().map(String::as_str) == Some("autocloud") {
+        discard_provider_secret_environment();
+        let args = std::iter::once(OsString::from("cmux autocloud"))
+            .chain(raw_args.iter().skip(1).map(OsString::from))
+            .collect();
+        client_log::exit(cmux_autocloud::run(args));
+    }
     #[cfg(unix)]
     if let Some(args) = cli::share_screen_args(&raw_args) {
         discard_provider_secret_environment();
@@ -2061,7 +2077,8 @@ fn run_main() {
     #[cfg(unix)]
     if let Some(head) = raw_args.first().map(String::as_str)
         && (matches!(head, "acp" | "harness" | "chats" | "board")
-            || cli::agent_engine_requested(&raw_args))
+            || cli::agent_engine_requested(&raw_args)
+            || cli::TOP_LEVEL_ENGINE_VERBS.contains(&head))
     {
         discard_provider_secret_environment();
         // From raw_args, not args_os: `cmux help chats` became `chats --help` there, and
@@ -2331,14 +2348,12 @@ fn relay_daemon_options(
     slots: Vec<String>,
     credentials: Vec<RelayCredentialArg>,
 ) -> anyhow::Result<Vec<remote_runtime::RelayDaemonOptions>> {
-    const MAX_DAEMON_RELAYS: usize = 4;
+    // Relay registrations are not capped by count: each is one tokio task holding one
+    // WebSocket to its relay, a constant cost.
     if endpoints.len() != slots.len() || endpoints.len() != credentials.len() {
         anyhow::bail!(
             "each relay registration needs one --relay, one --relay-slot, and one relay credential source"
         );
-    }
-    if endpoints.len() > MAX_DAEMON_RELAYS {
-        anyhow::bail!("a daemon supports at most {MAX_DAEMON_RELAYS} relay registrations");
     }
     endpoints
         .into_iter()

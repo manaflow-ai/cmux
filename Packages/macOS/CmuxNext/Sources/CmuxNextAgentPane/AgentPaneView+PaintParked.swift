@@ -27,6 +27,12 @@ extension AgentPaneView {
         parking.addSubview(self)
         parking.fit(to: size)
         isHidden = false
+        // Held drawing while it waits (cmux#55519): out of sight, a page reports hidden once its document drew one frame at
+        // this size, and a hidden Chromium page's timers and frames are throttled, so its chat painted only when the bound
+        // gave up and it showed (a Cloud start's whole 20 s `AgentPaneDrawFirst.bound`, dev build 2026-11-24).
+        let held = holdsPageAway
+        holdsPageAway = true
+        defer { holdsPageAway = held }
         PageWebView.syncChromiumVisibility(in: self)
         let model = model
         let watcher = Task { // on the main actor, as this view (no hop): it only reads `hasPainted`

@@ -28,6 +28,11 @@ public struct CLIRowToast: Sendable {
         self.failed = failed
     }
 
+    /// A toast for messages a caller words itself (``show(_:in:duration:)`` only).
+    public init(id: String, category: String) {
+        self.init(id: id, category: category, didNotFinish: { "" }, failed: { $0 })
+    }
+
     /// Runs `cmux <arguments>` and shows how it went; `done` nil shows the command's last line.
     public func run(_ cli: URL, _ arguments: [String], timeout: Duration, done: String?,
                     in window: NSWindow?) async -> Result<[String: ActionResultValue], ActionWorkFailure> {
