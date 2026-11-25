@@ -512,6 +512,9 @@ export type AcpmuxRow = {
   version: number;
   at: number;
   kind: string;
+  /// The row-store group whose children this activity row comes from. Closed groups are paged on
+  /// demand when their transcript disclosure opens.
+  foldId?: number;
   /// The acpmux event a turn summary came from, where a fork through that turn ends.
   seq?: number;
   /// The daemon's stable identity for a turn. Turn results can be replayed with a new seq, so
@@ -562,6 +565,11 @@ export type AcpmuxRow = {
   background?: AcpmuxBackgroundTurn;
   /// A row a background turn made: that turn's id, so its line can fold it (backgroundTurns.ts).
   inBackground?: string;
+  /// A row of the running turn that was already there when the chat was opened or reloaded (a v1
+  /// chat: direct.ts `noteReadWork`), with how many of its items were (an activity row's; 0 for any
+  /// other row). The running turn draws what of it its fold will hold folded from the first frame,
+  /// as the row store sends an open turn's settled work (turns.ts `withoutReadWork`).
+  readAtOpen?: number;
   /// An agent reply to the person's own prompt (conversation/turns.ts answeringPerson): its text
   /// draws even when it is only punctuation (visibleMessage.ts).
   answersPerson?: true;
