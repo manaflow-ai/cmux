@@ -59,6 +59,16 @@ impl Brain {
             .unwrap_or_default();
         let mut engine =
             crate::engine::resolve(&choice, &s.harness, s.model.as_deref(), s.effort.as_deref());
+        if let Some(gateway) = &self.gateway {
+            gateway.refresh();
+            if let crate::gateway::GatewayRoute::Harness(harness) = gateway.route()
+                && (s.families.is_empty() || s.families.contains_key(&harness))
+            {
+                engine.harness = harness;
+                engine.model = None;
+                engine.effort = None;
+            }
+        }
         let mut unknown = None;
         if !s.families.is_empty() && !s.families.contains_key(&engine.harness) {
             unknown = Some(std::mem::replace(&mut engine.harness, s.harness.clone()));
@@ -84,6 +94,14 @@ impl Brain {
             || self.daemon.is_none()
             || self.queue.iter().any(super::Queued::wakes)
         {
+            return;
+        }
+        if self.gateway.as_ref().is_some_and(|gateway| {
+            matches!(
+                gateway.route(),
+                crate::gateway::GatewayRoute::DirectAnthropic
+            )
+        }) {
             return;
         }
         let (mut engine, _, _) = self.next_engine();
