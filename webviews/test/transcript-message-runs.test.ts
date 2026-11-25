@@ -17,7 +17,8 @@ import { toolGroups } from "../src/agent-session/acpmux/conversation/toolGroups"
 // Claude's in-place runs (claudeTurnFold.experiment.ts arm "runs"): these tests cover that arm. The
 // default folds a Claude turn under "Worked for", as Codex does (turnFoldStyle.test.ts).
 beforeAll(() => {
-  globalThis.cmuxExperiments = { "claude-turn-fold": "runs" };
+  // `open`: these pin a running turn's runs in sight; the shipped `folded` hides them (#50987).
+  globalThis.cmuxExperiments = { "claude-turn-fold": "runs", "live-turn-work": "open" };
 });
 afterAll(() => {
   globalThis.cmuxExperiments = undefined;

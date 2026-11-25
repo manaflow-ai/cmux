@@ -1764,6 +1764,13 @@ pub struct Config {
     /// (`cmux_tui_service.rs`). Set with `acpmux config --set remote_daemon=127.0.0.1:PORT`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote_daemon: Option<String>,
+    /// `laneGhBroker`: the lane-gh broker's unix socket on this machine (its `socket`, e.g.
+    /// `~/.cache/lane-gh-broker/broker.sock`), which the person's other machines reach as a
+    /// carrier service, each its own `client-<machine>.sock` beside it (RFD 0127 cut 2,
+    /// `hub_carrier_broker.rs`). Unset (the default): no stream reaches it. Set with
+    /// `acpmux config --set lane_gh_broker=PATH`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lane_gh_broker: Option<String>,
     /// `directPort`: the TCP port of this machine's direct carrier path (Weft move 2,
     /// `hub_carrier_direct.rs`). Set, the carrier also listens on it and dials the person's other
     /// machines on it first when their name resolves to a private address (one GCP region's VPC),
