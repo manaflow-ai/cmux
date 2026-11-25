@@ -86,7 +86,7 @@ parser.add_argument("--presentation", choices=["presented", "inTree", "childWind
                          "childWindow). presented: cmux's page view hosts the page's headless window and forwards input")
 parser.add_argument("--idle", type=float, default=8.0)
 parser.add_argument("--checks", default="mode,census,focus,shortcuts,prompts,file_after_popup,pane_fit,divider_resize,"
-                    "window_resize,fullscreen,resize_hitch,chaos_resize,live_resize,divider_load,window_move,tab_spam,pane_zoom,popup_float,omnibar_narrow,key_route,element_fullscreen,"
+                    "window_resize,fullscreen,resize_hitch,chaos_resize,chaos_record,live_resize,divider_load,window_move,tab_spam,pane_zoom,popup_float,omnibar_narrow,key_route,element_fullscreen,"
                     "two_pages,reveal",
                     help="comma-separated; `regressions` names every row of in-tree-regressions.md (bugs 4, 9 to 15)")
 parser.add_argument("--reveal-hidden", dest="reveal_hidden", type=float, default=10.0,
@@ -105,7 +105,7 @@ opts.in_tree = "on" if MODE == "inTree" else "off"
 CHECKS = set(opts.checks.split(","))
 if "regressions" in CHECKS:  # in-tree-regressions.md: the live rows of the bugs found in real use
     CHECKS |= {"mode", "prompts", "file_after_popup", "reveal", "pane_fit", "divider_resize", "window_resize", "fullscreen",
-               "resize_hitch", "chaos_resize", "live_resize", "divider_load", "window_move", "tab_spam", "pane_zoom", "pane_zoom_all", "popup_float", "omnibar_narrow", "key_route", "element_fullscreen"}
+               "resize_hitch", "chaos_resize", "chaos_record", "live_resize", "divider_load", "window_move", "tab_spam", "pane_zoom", "pane_zoom_all", "popup_float", "omnibar_narrow", "key_route", "element_fullscreen"}
 with open(os.path.join(opts.app, "Contents/Info.plist"), "rb") as f:
     BINARY = os.path.join(opts.app, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
@@ -775,6 +775,21 @@ def page_view(pane, layers=None):
     return views[0].get("frame_in_window") if views else None
 
 
+def page_frame_any(pane, layers=None):
+    """The page of `pane` in window points from the bottom left, either mode: the in-tree page view, else (in-tree off)
+    the page's host view on screen (debug.layers browsers host_screen_rect) less the window's origin."""
+    layers = layers or main_layers()
+    frame = page_view(pane, layers)
+    if frame:
+        return frame
+    fx, fy = (layers.get("frame") or [0, 0])[:2]
+    for b in layers.get("browsers") or []:
+        if b.get("pane") == pane and b.get("host_screen_rect"):
+            sx, sy, w, h = b["host_screen_rect"]
+            return [sx - fx, sy - fy, w, h]
+    return None
+
+
 def content_height(layers=None):
     frame = (layers or main_layers()).get("frame") or [0, 0, 0, 0]
     return frame[3]  # full-size content view: the content is the whole window
@@ -1109,15 +1124,17 @@ def read_scan(path):
     return header, frames
 
 
-def pixel_record(name, seconds, filter_kind="display"):
+def pixel_record(name, seconds, filter_kind="display", frame=None):
     """Starts the app's recorder with one row through the middle of the page (device pixels from the window's top left).
-    Returns {path, scale, row, x_lo} or {"error"}."""
+    `frame`: the page's frame in window points from the bottom left (default: the first in-tree page view). Returns
+    {path, scale, row, x_lo} or {"error"}."""
     layers = main_layers()
     win = layers.get("frame") or [0, 0, 0, 0]
-    views = [v for v in layers.get("page_views") or [] if not v.get("parked")]
-    if not views:
-        return {"error": "no page view"}
-    frame = views[0].get("frame_in_window")
+    if frame is None:
+        views = [v for v in layers.get("page_views") or [] if not v.get("parked")]
+        if not views:
+            return {"error": "no page view"}
+        frame = views[0].get("frame_in_window")
     folder = os.path.join(opts.out, f"pixels-{name}")
     os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, f"{name}.mov")
@@ -1198,8 +1215,13 @@ def pixel_verdict(rec, spans, x_lo_pt, settle_after):
     gaps = [round((b - a) * 1000, 1) for a, b in zip(moving_times, moving_times[1:])]
     total = sum(classes.values())
     moving_s = sum(b - a for a, b in spans)
+    runs_sorted = sorted(wrong_runs)
+    gaps_sorted = sorted(gaps)
     return {"frames": total, "classes": classes, "wrong": total - classes.get("right", 0),
             "blank": classes.get("blank", 0), "longest_wrong_run": max(wrong_runs or [0]),
+            "wrong_runs": sorted(wrong_runs, reverse=True)[:20],
+            "wrong_run_p95": runs_sorted[min(len(runs_sorted) - 1, int((len(runs_sorted) - 1) * 0.95))] if runs_sorted else 0,
+            "gap_p95_ms": gaps_sorted[min(len(gaps_sorted) - 1, int((len(gaps_sorted) - 1) * 0.95))] if gaps_sorted else None,
             "moving_fps": round(len(moving_times) / moving_s, 1) if moving_s > 0 else None,
             "stalls_over_50ms": sum(1 for g in gaps if g > 50), "gap_p50_ms": sorted(gaps)[len(gaps) // 2] if gaps else None,
             "gap_max_ms": max(gaps) if gaps else None, "settle_ms_after_input": settle_ms,
@@ -1700,6 +1722,20 @@ def build_user_grid(page_tab):
 
 
 def check_chaos_resize(tab, pane):
+    chaos(tab, pane, record=False)
+
+
+def check_chaos_record(tab, pane):
+    """chaos_resize's held drags (the same seeded chaotic paths, each one continuous held drag through debug.mouse), each
+    recorded by the app's own recorder (debug.motion record_*: every composited frame, ScreenCaptureKit, the display's
+    windows, so in-tree OFF's page windows too), one row through the middle of the layout page classified per frame
+    (classify_row: right, gutter, clipped, blank). Per target: the runs of consecutive wrong frames (a page off its pane),
+    their max and p95, and the composited frame intervals while the hand moves. A row of its own, not chaos_resize's:
+    the recorder costs main-thread time, so the step times stay in chaos_resize's unrecorded drags."""
+    chaos(tab, pane, record=True)
+
+
+def chaos(tab, pane, record):
     """Person-like drags (pointer_paths.chaotic_path: varying speed, pauses, overshoots that come back, quick flicks,
     back-and-forth wiggles), three seeded drags each of the window's bottom-right corner, right edge, bottom edge and
     left edge, and the vertical divider nearest the window's middle. Window drags are one held drag through the app's
@@ -1724,9 +1760,15 @@ def check_chaos_resize(tab, pane):
         return
     targets = [("corner", (W - 2, H - 2), "xy", (240, 150)), ("right_edge", (W - 1, H / 2), "x", (240, 0)),
                ("bottom_edge", (W / 2, H - 1), "y", (0, 150)), ("left_edge", (1, H / 2), "x", (200, 0))]
-    divider = vertical_divider_near(W / 2, layers)  # window points from the top left, ON or OFF
+    page = page_frame_any(pane, layers) if record else None
+    if record and not page:
+        row("INFO", "chaos_record", {"note": "no page frame (debug.layers page_views or browsers)"})
+        return
+    # Recorded: the divider at the layout page's left edge, so every drag resizes the page the row classifies.
+    divider = vertical_divider_near(page[0] if record else W / 2, layers)  # window points from the top left, ON or OFF
     if divider:
         targets.append(("divider", divider, "x", (160, 0)))
+    check = "chaos_record" if record else "chaos_resize"
     window_id, scale = None, 2.0
     if CUA_DRIVER and pid:
         wins = [w for w in (cua("list_windows", {}).get("windows") or []) if w.get("pid") == pid and w.get("bounds")]
@@ -1770,13 +1812,26 @@ def check_chaos_resize(tab, pane):
         return {"route": "cua", "strokes": len(done), "refused": sum("Posted drag" not in d for d in done),
                 "first_reply": done[0] if done else None}
 
-    def measure(drive, path):
+    def measure(drive, path, label=None):
+        rec = None
+        if record:
+            frame_now = page_frame_any(pane) or page
+            rec = pixel_record(label or "chaos", path[-1][0] + 4, frame=frame_now)
         rpc("debug.layout_counters", {"reset": True})
         rpc("debug.frames", {"action": "start"})
         started = time.monotonic()
         how = drive(path)
-        drag_s = round(time.monotonic() - started, 2)
+        ended = time.monotonic()
+        drag_s = round(ended - started, 2)
         app_frames = rpc("debug.frames", {"action": "stop"})
+        if record:
+            if rec and not rec.get("error"):
+                pixel_stop(rec)
+                verdict = pixel_verdict(rec, [(started, ended)], max(0, rec["frame"][0] - 200), 0.7)
+                verdict.pop("timeline", None)
+                how = dict(how, pixels=verdict)
+            else:
+                how = dict(how, pixels={"error": (rec or {}).get("error")})
         counters = rpc("debug.layout_counters") or {}
         steps = counters.get("resize_steps") or {}
         return dict(how, drag_s=drag_s, points=len(path), app_frames=frame_detail(app_frames),
@@ -1792,7 +1847,7 @@ def check_chaos_resize(tab, pane):
 
     results = {}
     for name, start, axis, reach in targets:
-        drives = [("held", held)] + ([("cua", cua_strokes)] if name == "divider" and CUA_DRIVER and pid else [])
+        drives = [("held", held)] + ([("cua", cua_strokes)] if name == "divider" and CUA_DRIVER and pid and not record else [])
         for route, drive in drives:
             passes0 = passes_by_class()
             per = []
@@ -1800,7 +1855,7 @@ def check_chaos_resize(tab, pane):
                 rng = pointer_paths.seeded(zlib.crc32(f"{name}/{seed}".encode()))
                 path = pointer_paths.chaotic_path(start, rng, axis, reach, seconds=3.5)
                 frame0 = main_layers().get("frame")
-                per.append(dict(measure(drive, path), seed=seed, frame_before=frame0))
+                per.append(dict(measure(drive, path, f"chaos-{name}-{seed}"), seed=seed, frame_before=frame0))
                 if name != "divider" and main_layers().get("frame") != frame0:
                     rpc("debug.window_frame", {"frame": frame0})  # back to the start frame for the next drag
                 time.sleep(0.6)  # test harness: the window rests between drags
@@ -1841,19 +1896,36 @@ def check_chaos_resize(tab, pane):
                         totals[phase] = totals.get(phase, 0) + (v.get("total_ms") or 0)
                 summary["per_step_ms"] = {k: round(v / steps_all, 2) for k, v in sorted(totals.items(), key=lambda kv: -kv[1])}
             if not resized:
-                row(False, f"chaos_resize.{key}", dict(summary, note="the drag made no resize step: it did not reach "
-                                                       "the window's edge or the divider (not a result)"))
+                row(False, f"{check}.{key}", dict(summary, note="the drag made no resize step: it did not reach "
+                                                  "the window's edge or the divider (not a result)"))
+                continue
+            if record:
+                pix = [r.get("pixels") or {} for r in per]
+                runs = sorted(run for p in pix for run in p.get("wrong_runs") or [])
+                gaps95 = [p.get("gap_p95_ms") for p in pix]
+                detail = {"bug": 19, "in_tree": opts.in_tree, "panes": len(panes), "route": route,
+                          "gap_run_max": max(runs or [0]),
+                          "gap_run_p95": runs[min(len(runs) - 1, int((len(runs) - 1) * 0.95))] if runs else 0,
+                          "gap_runs": sorted(runs, reverse=True)[:20], "wrong_frames": [p.get("wrong") for p in pix],
+                          "frames": [p.get("frames") for p in pix], "classes": [p.get("classes") for p in pix],
+                          "moving_fps": [p.get("moving_fps") for p in pix], "interval_p95_ms": gaps95,
+                          "interval_max_ms": [p.get("gap_max_ms") for p in pix],
+                          "settle_ms": [p.get("settle_ms_after_input") for p in pix],
+                          "errors": [p.get("error") for p in pix if p.get("error")],
+                          "pass_if": "no run of wrong frames longer than 1 composited frame in each of 3 chaotic drags"}
+                RAW.setdefault("chaos_record", {})[key] = detail
+                row(not detail["errors"] and detail["gap_run_max"] <= 1, f"{check}.{key}", detail)
                 continue
             if route == "cua":
                 # Proof that real pid-posted pointer drags move the divider; each stroke is its own cua-driver call (about
                 # 2 s apart), so the frame numbers are mostly the idle gaps between strokes, not a judgement.
-                row("INFO", f"chaos_resize.{key}", dict(summary, note="frames include the gaps between strokes"))
+                row("INFO", f"{check}.{key}", dict(summary, note="frames include the gaps between strokes"))
                 continue
-            row(p95 <= 1.5 * refresh and worst <= 50, f"chaos_resize.{key}",
+            row(p95 <= 1.5 * refresh and worst <= 50, f"{check}.{key}",
                 dict(summary, pass_if="app frame p95 <= 1.5 refresh and max <= 50 ms in each of 3 chaotic drags"))
     # One more corner drag under `sample` (1 ms), after the measured ones so they carry no sampling cost: which functions
     # a step's time is in (chaos-corner.sample.txt), not judged.
-    if pid:
+    if pid and not record:
         path = os.path.join(opts.out, "chaos-corner.sample.txt")
         log = []
         try:
@@ -1880,7 +1952,7 @@ def check_chaos_resize(tab, pane):
             RAW["chaos_corner_sample"] = {"path": path, "log": log[-5:]}
         except (OSError, subprocess.TimeoutExpired) as error:
             RAW["chaos_corner_sample"] = {"error": repr(error)}
-    RAW["chaos_resize"] = results
+    RAW[check] = results
 
 
 def check_divider_load(tab, pane):
@@ -2370,7 +2442,7 @@ def check_element_fullscreen(tab, pane):
             time.sleep(1.0)  # test harness: the window settles
 
 
-REGRESSION_CHECKS = ("user_grid", "pane_fit", "divider_resize", "window_resize", "fullscreen", "resize_hitch", "chaos_resize", "live_resize", "divider_load", "window_move", "tab_spam", "pane_zoom", "pane_zoom_all",
+REGRESSION_CHECKS = ("user_grid", "pane_fit", "divider_resize", "window_resize", "fullscreen", "resize_hitch", "chaos_resize", "chaos_record", "live_resize", "divider_load", "window_move", "tab_spam", "pane_zoom", "pane_zoom_all",
                      "popup_float", "omnibar_narrow", "key_route", "element_fullscreen")
 
 
@@ -2618,7 +2690,7 @@ try:
                 pane = page_pane(page_tab) or pane  # the measured page keeps its pane
             for name, run in (("pane_fit", check_pane_fit), ("divider_resize", check_divider_resize),
                               ("window_resize", check_window_resize), ("fullscreen", check_fullscreen),
-                              ("resize_hitch", check_resize_hitch), ("chaos_resize", check_chaos_resize), ("live_resize", check_live_resize), ("divider_load", check_divider_load),
+                              ("resize_hitch", check_resize_hitch), ("chaos_resize", check_chaos_resize), ("chaos_record", check_chaos_record), ("live_resize", check_live_resize), ("divider_load", check_divider_load),
                               ("pane_zoom", check_pane_zoom), ("pane_zoom_all", check_pane_zoom_all), ("popup_float", check_popup_float),
                               ("omnibar_narrow", check_omnibar_narrow), ("window_move", check_window_move), ("tab_spam", check_tab_spam),
                               ("key_route", check_key_route), ("element_fullscreen", check_element_fullscreen)):
