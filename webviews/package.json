@@ -88,6 +88,7 @@
     "katex": "0.16.25",
     "marked": "17.0.5",
     "monaco-editor": "0.57.0",
+    "monaco-vim": "0.4.4",
     "prosemirror-commands": "^1.7.1",
     "prosemirror-model": "1.25.11",
     "prosemirror-state": "^1.4.4",
