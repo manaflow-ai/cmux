@@ -112,14 +112,7 @@ export function ComposerHatStage({
             style={{ "--cv-inset": "16px", ...(narrow ? { width: 300 } : {}) } as CSSProperties}
           >
             {isTucked && (
-              <TrayPullTab
-                chat="gallery-chat"
-                waiting={waiting}
-                running={running}
-                working={false}
-                side={side}
-                capped={capped}
-              />
+              <TrayPullTab chat="gallery-chat" waiting={waiting} running={running} side={side} capped={capped} />
             )}
             {before && <span hidden />}
             {/* The real card's classes, so its ring and lit top rim (composerStates.css) are the
