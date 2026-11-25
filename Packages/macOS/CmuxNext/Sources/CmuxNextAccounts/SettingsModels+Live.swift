@@ -152,15 +152,23 @@ extension SettingsModels {
             setClaudeToken(attempt: nil, phase: nil, error: Self.daemonRefusal(error) ?? "unreachable")
             throw error
         }
-        // Only Claude's own sign-in page: the daemon's answer never opens anything else.
+        // Only Claude's own sign-in page: the daemon's answer never opens anything else. No link at all
+        // (`url: null`) is a run that printed its token straight away (a claude.ai session it already
+        // had): nothing to open, the wait below sees it saved.
+        let link = reply["url"]?.stringValue
+        let url = link.flatMap(URL.init(string:))
         guard let attempt = reply["attempt"]?.stringValue, !attempt.isEmpty,
-              let url = reply["url"]?.stringValue.flatMap(URL.init(string:)), Self.isClaudeSignInPage(url) else {
+              link == nil || url.map(Self.isClaudeSignInPage) == true else {
             if let attempt = reply["attempt"]?.stringValue, !attempt.isEmpty { await endClaudeToken(attempt, environment) }
             setClaudeToken(attempt: nil, phase: nil, error: "claude_token.bad_reply")
             throw PageError(code: "cmux.models.claude_token_bad_reply", message: "acpmux did not start a Claude sign-in")
         }
-        setClaudeToken(attempt: attempt, phase: "signing_in", error: nil)
-        await openInAppSignIn(url)
+        if let url {
+            setClaudeToken(attempt: attempt, phase: "signing_in", error: nil)
+            await openInAppSignIn(url)
+        } else {
+            setClaudeToken(attempt: attempt, phase: "saving", error: nil)
+        }
         // task-owner: SettingsModels.claudeTokenTask: one attempt's wait loop; a new attempt or Cancel replaces it.
         replaceClaudeTokenTask(Task { [weak self] in await self?.awaitClaudeToken(attempt, environment) })
         return ["attempt": .string(attempt)]
@@ -212,7 +220,7 @@ extension SettingsModels {
             case "done":
                 setClaudeToken(attempt: attempt, phase: "saving", error: nil)
                 await refresh()
-                return finishClaudeToken(attempt, error: nil)
+                return finishClaudeToken(attempt, error: nil, saved: true)
             case "cancelled":
                 return finishClaudeToken(attempt, error: nil)
             default:
@@ -242,9 +250,9 @@ extension SettingsModels {
         _ = try? await daemon(environment, .claudeTokenCancel, ["attempt": attempt])
     }
 
-    private func finishClaudeToken(_ attempt: String, error: String?) {
+    private func finishClaudeToken(_ attempt: String, error: String?, saved: Bool = false) {
         guard claudeTokenAttempt == attempt else { return }
-        setClaudeToken(attempt: nil, phase: nil, error: error)
+        setClaudeToken(attempt: nil, phase: nil, error: error, saved: saved)
     }
 
     /// Add an API key: every whitespace character out first (`withoutWhitespace`: a key a page or terminal
