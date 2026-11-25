@@ -162,6 +162,13 @@ struct TabsScreen<Source: TabsDataSource>: View {
                        pinned: pinnedCount, columns: overviewColumns)
     }
 
+    /// The top bar's band: to the content inset with the bar expanded, to just under the
+    /// pill collapsed (the page's rows show from there, never under the glass).
+    private var topBandHeight: CGFloat {
+        if chrome.bar == .collapsed, !chrome.editing { return toolbarLayout.capsule.maxY + 4 }
+        return ToolbarLayout.barInset(metrics: theme.metrics, size: size, safeTop: safeTop, safeBottom: safeBottom)
+    }
+
     private var toolbarLayout: ToolbarLayout {
         ToolbarLayout.make(metrics: theme.metrics, size: size, safeTop: safeTop, safeBottom: safeBottom, keyboard: keyboard, bar: chrome.bar,
                            editing: chrome.editing, splitBack: activeTab?.navigation.canGoForward == true, labelWidth: 69,
@@ -324,6 +331,16 @@ struct TabsScreen<Source: TabsDataSource>: View {
                 .opacity(z.opacity)
                 .allowsHitTesting(z.interactive)
                 .accessibilityHidden(!z.accessible)
+            }
+
+            // A top bar is its own layer over the page: an opaque band from the screen's
+            // top to the bar's bottom edge (the pill's, collapsed), so scrolled rows never
+            // show between the status bar and the bar, nor under its glass (Leo,
+            // 2026-11-24: "fix the screens splitting between scrolling and whatnot").
+            if zoomState.phase != .overview, theme.metrics.barEdge == .top {
+                TopBarBand(height: topBandHeight,
+                           color: activeTab?.statusBarStyle == .lightContent ? Color.black : theme.colors.pageBackground)
+                    .opacity(1 - overviewShown)
             }
 
             // Out of the hierarchy on the settled grid (invisible there, and
@@ -1031,5 +1048,19 @@ struct BarCutout: View {
 private struct GridShape: Equatable {
     var width: CGFloat
     var columns: Int
+}
+/// The opaque band behind a top bar (``TabsView/topBandHeight``): never hit-tested,
+/// never read by accessibility; it rides the bar's own collapse and expand animation.
+private struct TopBarBand: View {
+    var height: CGFloat
+    var color: Color
+
+    var body: some View {
+        color
+            .frame(height: max(0, height))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
 }
 #endif
