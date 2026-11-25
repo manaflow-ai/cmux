@@ -79,7 +79,10 @@ await requireBrowserLane("cloud-start-handoff-browser.test.ts", async () => {
         range.setStart(text, text.textContent!.search(/\S/));
         range.setEnd(text, text.textContent!.search(/\S/) + 1);
         const box = bubble.getBoundingClientRect();
-        return { bubble: { right: box.right, top: box.top, left: box.left }, status: range.getBoundingClientRect().left };
+        return {
+          bubble: { right: box.right, top: box.top, left: box.left },
+          status: range.getBoundingClientRect().left,
+        };
       },
       { shown, width },
     ) as Promise<Boxes>;
