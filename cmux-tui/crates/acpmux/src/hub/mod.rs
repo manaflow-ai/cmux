@@ -26,6 +26,8 @@ mod auto_hold;
 pub(crate) use auto_hold::{AUTO_AWAY, AUTO_CLIENT};
 pub(crate) mod additional_dirs;
 pub(crate) mod admission;
+// The per-lane fan-out cap (`lane_fanout.rs`).
+pub(crate) mod lane_fanout;
 // A create with no room here starts on the peer placement picks.
 pub(crate) mod admission_redirect;
 // A create over the cap with nowhere to go asks the fleet for a machine.
@@ -113,6 +115,8 @@ mod forward_wait;
 #[cfg(test)]
 mod title_log_tests;
 pub use fork::Retarget;
+#[cfg(test)]
+mod admission_restore_tests;
 #[cfg(test)]
 mod forum_held_turn_tests;
 #[cfg(test)]
@@ -309,6 +313,7 @@ mod prompt_sender;
 pub(crate) mod cold_wake;
 mod protected_hold;
 // The account's rate limit holds every turn of a chat until its reset.
+pub(crate) mod prompt_admission;
 mod queue;
 mod queue_admission;
 mod queue_edit;
@@ -472,6 +477,8 @@ pub fn peer_snapshot_bound(n: usize) {
 mod moved_forward;
 mod moved_prompt_fence;
 pub use moved_forward::{MAX_MOVES_FOLLOWED, MOVED_HOPS_FIELD};
+mod held_lock;
+mod peer_table;
 mod peers;
 mod remote_rows;
 mod remote_table;
@@ -880,9 +887,10 @@ pub struct PromptOptions {
     /// it can only refuse a prompt, never admit one.
     #[doc(hidden)]
     pub race_guard: Option<Arc<dyn Fn() -> Result<(), RpcError> + Send + Sync>>,
-    /// Admission guard acquired by the RPC layer before it resolves prompt uploads.
+    /// The prompt's admission, taken by the RPC layer before it resolves prompt uploads
+    /// (`prompt_admission.rs`: bounded both ways).
     #[doc(hidden)]
-    pub prompt_admission: Option<tokio::sync::OwnedMutexGuard<()>>,
+    pub admission: Option<Arc<prompt_admission::Admission>>,
     /// Native-prepared Cloud turn capability; held in memory until claim/finish only.
     pub cloud_turn: Option<crate::cloud_rewind::CloudTurnEnvelope>,
     /// Client-chosen id (`_meta.acpmux.promptId`); generated when absent.
@@ -1152,7 +1160,8 @@ pub struct Hub {
     /// (`crate::supervise`).
     pub(crate) fatal: crate::supervise::Fatal,
     pub started_at: u64,
-    pub(super) peers: StdMutex<HashMap<String, Arc<crate::peer::Peer>>>,
+    /// The peer registry, published as a snapshot (`peer_table.rs`): a lookup takes no lock.
+    pub(super) peers: peer_table::PeerTable,
     /// The peers' rows, published as a snapshot (`remote_table.rs`): a reader loads it with no
     /// lock and never holds up a writer; writers (peer notices, purges) take turns.
     pub(super) remote_sessions: remote_table::RemoteTable,
@@ -1500,6 +1509,8 @@ pub struct Hub {
     pub catalog: Arc<crate::catalog::CatalogService>,
     /// Sign in with ChatGPT: its attempts and per-account refresh locks (`crate::chatgpt`).
     pub chatgpt: Arc<crate::chatgpt::Service>,
+    /// One-click Claude Code tokens (`claude setup-token` in the daemon's own pty).
+    pub claude_token: Arc<crate::claude_token::Service>,
     /// Agent CLI health (`harness_health`, `hub/health_view.rs`).
     pub health: Arc<crate::harness_health::HealthService>,
     /// The token the web listener checks now (`web_token.rs`).
@@ -1761,7 +1772,7 @@ impl Hub {
             restart_requested: std::sync::atomic::AtomicBool::new(false),
             fatal: crate::supervise::Fatal::default(),
             started_at: now_ms(),
-            peers: StdMutex::new(HashMap::new()),
+            peers: Default::default(),
             remote_sessions: Default::default(),
             mesh_book: Default::default(),
             hub_health: Default::default(),
@@ -1931,6 +1942,7 @@ impl Hub {
             git_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
             chatgpt: Arc::new(crate::chatgpt::Service::default()),
+            claude_token: Arc::new(crate::claude_token::Service::default()),
             health: Arc::new(crate::harness_health::HealthService::new()),
             web_token: WebToken::new(String::new()),
             person: Default::default(),
@@ -2000,6 +2012,10 @@ impl Hub {
             // runtime-backed hubs; tests that construct one outside Tokio retain a unique Arc so
             // they can configure fields before entering their runtime.
             let _ = hub.hub_ref.set(Arc::downgrade(&hub));
+            // Chats read at start get the synced winners kept for them (`synced.rs`).
+            if !loading {
+                hub.synced_after_start();
+            }
             // Chats made before it read their inboxes through it from now on (`Session::inbox`).
             for session in hub.sessions.lock().unwrap_or_else(|e| e.into_inner()).values() {
                 let _ = session.hub_ref.set(Arc::downgrade(&hub));
@@ -2565,6 +2581,9 @@ impl Hub {
             stderr_stream: StdMutex::new(session::SessionStderr::default()),
             prompts: StdMutex::new(std::collections::VecDeque::new()),
             kept_messages: StdMutex::new(std::collections::VecDeque::new()),
+            accepted_prompts: StdMutex::new(std::collections::VecDeque::new()),
+            pending_acceptances: StdMutex::new(std::collections::HashMap::new()),
+            accepted_seq: tokio::sync::watch::channel(0).0,
             append_errors: AtomicU64::new(0),
             last_progress: AtomicU64::new(0),
             heard: AtomicU64::new(0),
@@ -3432,6 +3451,12 @@ impl Hub {
         // Answered once the draft is saved: "the one durable shared draft". A kept change: saved
         // when written, synced with the next acked change or within a second (`meta_save.rs`).
         self.save_meta_kept(session)?;
+        // One edit of the person's synced draft (`hub/synced.rs`); the value already there (a
+        // remote winner applied through here) is none.
+        self.synced_record(
+            synced::draft_key(&session.id),
+            draft.clone().map_or(serde_json::Value::Null, serde_json::Value::String),
+        );
         Ok(draft)
     }
 
