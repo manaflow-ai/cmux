@@ -230,6 +230,17 @@ jobs:
     permissions:
       contents: read
 
+  # tooling-tests' full run: a pull request runs only the steps its changed files reach by name.
+  tooling-tests:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' tooling-tests ')
+    uses: ./.github/workflows/cmux-next-tooling-tests-batch.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+
   # A web type check red with no machine fix (fixit-compile, ci-web.yml's fixit_nofix) on a batch run of the base:
   # fixit-handoff.yml names the culprit and pushes its revert when clear, else opens the revert's own pull request,
   # without waiting for this run's bisect. A job of its own that only dispatches; the suites stay read-only.
@@ -280,7 +291,7 @@ jobs:
       contents: read
 
   judge:
-    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, fast-tier, gallery-health, cmux-tui-sdks, cmux-tui-spec]
+    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, fast-tier, tooling-tests, gallery-health, cmux-tui-sdks, cmux-tui-spec]
     # A probe's judge also runs when its plan job died (a lost runner: drill-8 probe run 44980687386): it then
     # sees no verdict and dispatches the same probe again, so the bisect goes on instead of stopping.
     if: ${{ !cancelled() && (needs.plan.result == 'success' || inputs.mode == 'probe') }}

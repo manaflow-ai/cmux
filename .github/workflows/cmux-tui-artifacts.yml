@@ -203,6 +203,9 @@ jobs:
   # sets the window (default 60: about 48 pushes fit the marker search's 40 commits
   # and the probe fallback's 50 only up to an hour; about 24 builds a day).
   coalesce:
+    # actions: read: base-coalesce lists this workflow's runs to re-run a window whose run failed.
+    permissions:
+      actions: read
     uses: ./.github/workflows/base-coalesce.yml
     with:
       key: cmux-tui-artifacts
@@ -212,6 +215,24 @@ jobs:
       # shared cmux-linux: on 2026-11-25 04:26Z this gate queued 44 min behind PR CI, the queued-run supersede then
       # cancelled the run, and that window published no tree, so the nightly-next tick refused every newer commit.
       runner: ${{ github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || '' }}
+
+  # A run that claimed its window (or re-runs a failed one) and failed marks it, so the window's next push builds again
+  # instead of the whole window building nothing (base-coalesce.yml's header; 2026-11-25: one failed 01:31Z build
+  # left no Linux acpmux tree for an hour). A whole cancelled run marks too (always()): the queued-run supersede
+  # cancels the window's claiming run (04:26Z run 45546778077, #55756), and an unmarked cancel held that window with
+  # no tree. A hand cancel costs at most one more build in its window.
+  coalesce-failed:
+    needs: [coalesce, tree-preflight, build-linux, build, build-windows, cmux-next-daemon-tests, publish-tree]
+    if: ${{ always() && needs.coalesce.outputs.claimed == 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
+    permissions:
+      actions: read
+    uses: ./.github/workflows/base-coalesce.yml
+    with:
+      key: cmux-tui-artifacts
+      mark_failed: true
+      runner: ${{ github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || '' }}
+      window: ${{ needs.coalesce.outputs.window }}
+      round: ${{ needs.coalesce.outputs.round }}
 
   # A superseded lane-branch push stops here, before it takes a preflight-sized runner.
   # On 2026-11-18 at 06:35Z 418 runs of this workflow sat queued, the oldest since
@@ -6113,7 +6134,7 @@ jobs:
   # 300 an hour, must not spend the 1,000-an-hour budget every workflow shares.
   drop-build-artifacts:
     name: drop this run's build artifacts
-    needs: [reject-untrusted-pin-ref, push-gate, coalesce, supersede-feat-runs, tree-preflight, tree-owner-wait, build-machine-channel-x86_64, build-machine-channel, build-linux, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, record-input-pass, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, point-windows-channel, mark-tree-commits, sweep-commit-manifests, sweep-pending-tree-notify, point-machine-channel-early, point-machine-channel-early-linux, point-machine-channel, point-mac-live-channel, request-image-roll, request-nightly-next, request-team-signed-tree, notify-unpublished-tree]
+    needs: [reject-untrusted-pin-ref, push-gate, coalesce, coalesce-failed, supersede-feat-runs, tree-preflight, tree-owner-wait, build-machine-channel-x86_64, build-machine-channel, build-linux, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, record-input-pass, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, point-windows-channel, mark-tree-commits, sweep-commit-manifests, sweep-pending-tree-notify, point-machine-channel-early, point-machine-channel-early-linux, point-machine-channel, point-mac-live-channel, request-image-roll, request-nightly-next, request-team-signed-tree, notify-unpublished-tree]
     # Not after notify-unpublished-tree ran: it must stay the run's last job so the
     # deferred run it re-runs finds this owner ended (cx-urd.26). Those runs keep
     # their artifacts to the 1-day retention.
