@@ -25,7 +25,7 @@ pub(crate) fn css_hex(text: &str) -> Option<(u8, u8, u8, f64)> {
     let mut value = u64::from_str_radix(digits, 16).ok()?;
     if digits.len() == 3 {
         let (r, g, b) = ((value >> 8) & 0xF, (value >> 4) & 0xF, value & 0xF);
-        value = (r * 17) << 16 | (g * 17) << 8 | b * 17;
+        value = ((r * 17) << 16) | ((g * 17) << 8) | (b * 17);
     }
     let mut alpha = 1.0;
     if digits.len() == 8 {
