@@ -6,6 +6,7 @@
 // keeps one copy for the page: read when the `/` menu opens (once per opening, never per key) and
 // after each save, so a prompt saved in another chat shows the next time the menu opens here.
 import { useSyncExternalStore } from "react";
+import { sameValue } from "./session-info/sameValue";
 import type { SlashCommand } from "./slashCommands";
 
 export type SavedPrompt = {
@@ -85,7 +86,11 @@ export function refreshSavedPrompts(): Promise<void> {
     (reply) => {
       if (via !== transport) return;
       if (at !== changes) return void (stale = true);
-      prompts = promptsFrom(reply);
+      // The same list read again (a reconnect reads it anew) keeps the one the page holds: a new array
+      // with the same prompts drew the composer again on each reattach.
+      const next = promptsFrom(reply);
+      if (sameValue(next, prompts)) return;
+      prompts = next;
       emit();
     },
     () => undefined,
