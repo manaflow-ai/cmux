@@ -303,6 +303,12 @@ def example_keys(items):
         value = property_list(e["default"])
         if value is not None:
             keys[e["name"]] = value
+    # ManagedPreferencesManifest.exampleKeys also sets the App Store toggle at its default.
+    app_store = next((e for e in items if e["name"] == "labs.appStore"), None)
+    if app_store is not None:
+        value = property_list(app_store["default"])
+        if value is not None:
+            keys[app_store["name"]] = value
     keys["DisabledFeatures"] = []
     return keys
 
