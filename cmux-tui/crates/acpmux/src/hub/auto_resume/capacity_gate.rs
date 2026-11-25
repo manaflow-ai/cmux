@@ -195,7 +195,7 @@ impl State {
 
 /// The hub's gates, one per harness family.
 #[derive(Default)]
-pub(in crate::hub) struct CapacityGate {
+pub(crate) struct CapacityGate {
     families: StdMutex<HashMap<String, State>>,
     changed: Notify,
     /// Any family in an outage: the hot path (every streamed update) reads only this.

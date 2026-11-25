@@ -134,7 +134,7 @@ mod capacity_failover;
 /// A host's background capacity waiters go back one probe at a time during an outage, then in
 /// a doubling stream once the model answers (`capacity_gate.rs`).
 mod capacity_gate;
-pub(in crate::hub) use capacity_gate::CapacityGate;
+pub(crate) use capacity_gate::CapacityGate;
 
 /// The loop as Settings > Agents > Retry After Errors sets it (`agents.autoRetry.*`).
 mod settings;
