@@ -17,6 +17,12 @@ export type JourneyFixture = {
   /** CLAUDE_CODE_OAUTH_TOKEN; without one the login step is skipped. */
   login?: string;
   /**
+   * The platform's machine record (GET /v1/machines/{id}?include=trace at client-config's platform_origin): `spare` a
+   * spare claim's trace, `absent` a record with none yet, `none` a client-config with no platform_origin, `off` (the
+   * default) a platform that answers the read 404, so a journey that does not test the trace skips it at once.
+   */
+  trace?: "spare" | "absent" | "none" | "off";
+  /**
    * The GitHub cells: what GET /v1/integrations/github/status and /repos answer, CMUX_JOURNEY_GITHUB_REPO, and whether
    * the guest takes cloud-github-e2e.sh (each run answers the `e2e:` lines given, exit 1 when one says FAIL).
    * `lookup` answers /repos?query= by its `cursor` ("" for the first), else `repos` filtered by the query;
@@ -66,7 +72,7 @@ export function runJourney(fixture: JourneyFixture): { steps: Step[]; probe: any
       args.push("--preclaim-login", cmux);
     }
     writeFileSync(script, `import { main } from ${JSON.stringify(join(import.meta.dir, "cloud-journey.ts"))};
-const fixture = ${JSON.stringify({ spare: "report", exec: "ok", ...fixture })};
+const fixture = ${JSON.stringify({ spare: "report", exec: "ok", trace: "off", ...fixture })};
 const MACHINE = ${JSON.stringify(FIXTURE_MACHINE)};
 const COLD = ${JSON.stringify(FIXTURE_COLD_MACHINE)};
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
@@ -115,7 +121,7 @@ globalThis.fetch = (async (input: string, init: RequestInit = {}) => {
   const body = init.body ? JSON.parse(String(init.body)) : {};
   const route = url.pathname;
   if (route === "/v1/health") return json({ commit: "fixture" });
-  if (route === "/v1/client-config") return json({ platform_origin: ${JSON.stringify(FIXTURE_PLATFORM)} });
+  if (route === "/v1/client-config") return fixture.trace === "none" ? json({ error: "not found" }, 404) : json({ platform_origin: ${JSON.stringify(FIXTURE_PLATFORM)} });
   if (route === "/api/v1/auth/password/sign-in") return json({ access_token: "fake-access", refresh_token: "fake-refresh" });
   if (route === "/v1/auth/challenge") return json({ nonce: "fake-nonce", message_prefix: "fixture:" });
   if (route === "/v1/auth/token") return json({ access_token: "fake-install-token" });
@@ -131,6 +137,15 @@ globalThis.fetch = (async (input: string, init: RequestInit = {}) => {
     return json({ ok: false, error: { code: "not_found" } }, 404);
   }
   if (route.endsWith("/carrier")) return json({ ok: true, value: { relay: "relay+do://relay.fixture.invalid", slot: "slot1", ticket: "ticket", expires_at: Math.floor(Date.now() / 1000) + 600, grant: "grant", daemon_key: Buffer.alloc(32, 7).toString("base64url") } });
+  if (url.origin === ${JSON.stringify(FIXTURE_PLATFORM)} && fixture.trace !== "off" && route === "/v1/machines/" + MACHINE && url.searchParams.get("include") === "trace") {
+    // The platform's machine routes take only a cmux access token with a team claim (cmux-platform machines/Auth.ts):
+    // the install token, never the Stack session (staging answered 401 to it, run 43829279269).
+    const auth = new Headers(init.headers).get("authorization");
+    if (auth !== "Bearer fake-install-token") return json({ _tag: "MachineUnauthorized", code: "machine.unauthorized", message: "a cmux access token with a team claim is required" }, 401);
+    log("platform trace read");
+    const createTrace = { attempt: 1, outcome: "spare_claim", steps: { capability: 1, budget: 3, plan_read: 12, entitlements: 14, rate_limit: 15, needs_rule: 16, scaler: 20, adopt: 40, spare_claim: 55 }, totalMs: 61 };
+    return json({ id: MACHINE, state: "running", ...(fixture.trace === "spare" ? { createTrace } : {}) });
+  }
   if (route === "/v1/handoffs") return json({ error: "not found" }, 404);
   if (route === "/v1/integrations/github/status") {
     log("github status " + url.search);
