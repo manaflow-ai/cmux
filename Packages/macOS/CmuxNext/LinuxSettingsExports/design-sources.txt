@@ -1,0 +1,6 @@
+# CmuxNextDesign's files the Linux settings exporter compiles (scripts/cmux-next/regenerate-settings-exports-linux.sh),
+# relative to Sources/CmuxNextDesign: the backdrop and wallpaper model the settings schema reads.
+BackdropArt.swift
+BackdropShader.swift
+BackdropUserImages.swift
+AppleWallpapers.swift
