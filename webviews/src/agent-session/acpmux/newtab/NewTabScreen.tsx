@@ -2770,6 +2770,10 @@ export function NewTabScreen(props: Props) {
         <div
           ref={setBox}
           className="ui-glass ui-glass-floats nt-composer-surface nt-box"
+          // One material with its pickers and suggestions (composerStates.css, ONE MATERIAL FAMILY): the
+          // App's popover glass under the page, as the folder picker's Popover. No cover: the box sits in
+          // the page's flow, so nothing scrolls under it for the page to blur in place.
+          data-host-glass="popover"
           data-focused={boxFocused ? "" : undefined}
           inert={props.cloudStarting === true}
         >

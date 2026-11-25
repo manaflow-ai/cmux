@@ -117,6 +117,7 @@ import {
   type ArchivedRun,
   type ArchivedState,
   type PreviousBuild,
+  type Standup,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -1141,6 +1142,13 @@ export class SettingsStore {
       ? null
       : (answer.message ?? (answer.code ? t("settingsPage.customizeLibrary.notChanged") : null));
     return { library: answer.library ?? null, refusal };
+  }
+
+  /** Settings > Customize's Standup: every library entry as one line (`cmux customize library
+   * standup`); null when the host cannot run it (an older build, no CLI). */
+  async customizeStandup(): Promise<Standup | null> {
+    const reply = await this.request("cmux.settings.customize.library", { verb: "standup" });
+    return reply.ok ? (reply.value?.standup ?? null) : null;
   }
 
   /** Settings > General > Customize cmux: the checklist and progress, with `has` the connections the
