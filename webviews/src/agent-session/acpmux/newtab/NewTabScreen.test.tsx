@@ -22,6 +22,7 @@ import { EMPTY_OMNIBAR } from "../omnibar";
 import { CloudTypingPrewarm, CLOUD_TYPING_PREWARM_REFRESH_MS, cloudTypingMachineID } from "../cloudTypingPrewarm";
 import type { CloudMachine } from "../cloudMachines";
 import { setNativeHost } from "../native";
+import { forgetAddedRepos, rememberAddedRepo } from "../addedRepos";
 import { resetToastAvoidanceReports } from "../toastAvoidance";
 import { settleReact } from "../../../../test/support/domTeardown";
 import { resetStashForTests, stashedNow, type StashTransport } from "../composer/draftStash";
@@ -37,6 +38,7 @@ const saved = new Map<string, unknown>();
 beforeEach(() => {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
     url: "http://localhost/",
+    pretendToBeVisual: true,
   });
   const requestAnimationFrame = (callback: FrameRequestCallback) =>
     setTimeout(() => callback(Date.now()), 0) as unknown as number;
@@ -531,9 +533,7 @@ test("cancelling a saved environment browse keeps the New Tab project", async ()
   expect(container.querySelector(".nt-location")?.textContent).toBe(before);
 });
 
-// Leo, 2026-10-31: "who the f*** put worktree on there". The bar above the composer holds
-// the folder and the machine only; New Worktree is an action in the folder menu.
-test("the location bar has no New Worktree control; the folder menu still offers it", async () => {
+test("New worktree is available inside the selected project's worktree list", async () => {
   await act(async () => {
     root!.render(
       <NewTabScreen
@@ -549,12 +549,17 @@ test("the location bar has no New Worktree control; the folder menu still offers
   const strip = container.querySelector(".acpmux-composer-context")!;
   expect(strip).toBeTruthy();
   const buttons = [...strip.querySelectorAll("button")].map((button) => button.textContent?.trim());
-  expect(buttons.some((text) => text?.includes("New Worktree"))).toBe(false);
+  expect(buttons.some((text) => text?.toLowerCase().includes("new worktree"))).toBe(false);
   const folder = strip.querySelector<HTMLButtonElement>('[aria-label="Folder"]');
   expect(folder?.textContent).toContain("cmux");
   await act(async () => folder!.click());
-  const options = [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((o) => o.textContent?.trim());
-  expect(options).toContain("New Worktree");
+  const options = () =>
+    [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((o) => o.textContent?.trim());
+  expect(options()).not.toContain("New worktree");
+  const expand = document.querySelector<HTMLElement>("[data-current] .acpmux-location-worktrees");
+  expect(expand).toBeTruthy();
+  await act(async () => expand!.click());
+  expect(options()).toContain("New worktree");
 });
 
 test("a fresh New Tab exposes the no-project path in its environment card", async () => {
@@ -938,8 +943,8 @@ test("a prompt that names a plugin lists only its Ask rows: no web search for it
   await typePrompt("open the settings app");
   expect(types()).toContain("search");
   await typePrompt("open the settings app with @computer-use ");
-  // No web search row is left: the chip's own agent is no row (Return asks it), so the list is empty.
-  expect(types()).toEqual([]);
+  // No web search row is left: only the chip's own agent's Ask row, which leads again since #53126.
+  expect(types()).toEqual(["ask"]);
 });
 
 // CMUX-682: the hold runs on the Return or the Ask row's own key press or click, before the page
@@ -1395,7 +1400,7 @@ for (const mode of ["cloud", "sandboxed"] as const)
     expect(promptValue()).toBe("/customize make the sidebar compact");
   });
 
-test("with Cloud picked and No folder, a send names no folder: not even the tab's inherited one", async () => {
+test("Cloud Empty project starts without a folder", async () => {
   const clouded: unknown[][] = [];
   await act(async () => {
     root!.render(
@@ -1417,14 +1422,18 @@ test("with Cloud picked and No folder, a send names no folder: not even the tab'
       />,
     );
   });
-  // No folder, from the card's chooser (the tab inherited /repo/A).
-  await act(async () => container.querySelector<HTMLButtonElement>(".nt-env .acpmux-project-button")!.click());
-  const noProject = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
-    row.textContent?.includes("No folder"),
+  expect(container.querySelector(".nt-env .acpmux-project-button")).toBeNull();
+  await act(async () => container.querySelector<HTMLButtonElement>('.nt-location [aria-label="Folder"]')!.click());
+  const add = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+    (row) => row.textContent?.trim() === translate("project.add"),
   );
-  expect(noProject).toBeTruthy();
-  await act(async () => noProject!.click());
-  expect(container.querySelector('.nt-env .nt-stage-row[aria-pressed="true"]')).toBeTruthy();
+  await act(async () => add!.click());
+  const empty = document.querySelector<HTMLElement>('.acpmux-add-project-palette [data-source="empty"]');
+  expect(empty).toBeDefined();
+  await act(async () => empty!.click());
+  const prompt = await promptField();
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(document.activeElement?.closest(".nt-field") === prompt).toBe(true);
   await typePrompt("fix the flaky test");
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
   // The App starts Cloud with nothing copied, preserving the base behavior.
@@ -1538,7 +1547,7 @@ test("a failed Cloud start leaves one retry send in the composer", async () => {
   expect(clouded[0]?.[1]).toBe("retry once");
 });
 
-test("picking Cloud drops a saved environment picked before: the send names the folder chip's folder, not the tab's inherited one", async () => {
+test("picking Cloud drops a local saved environment and starts without a local folder", async () => {
   const clouded: unknown[][] = [];
   // A worktree environment: one that is only a folder is the folder menu's, not a Machines… row.
   const repoB: SavedEnvironment = {
@@ -1594,10 +1603,10 @@ test("picking Cloud drops a saved environment picked before: the send names the 
   await typePrompt("fix the flaky test");
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
   expect(clouded.length).toBe(1);
-  expect((clouded[0] as unknown[])[2]).toBe("/repo/A");
+  expect((clouded[0] as unknown[])[2]).toBeUndefined();
 });
 
-test("with Cloud picked, a folder that is a saved folder-only environment is the folder Cloud sends", async () => {
+test("picking Cloud switches a Mac folder with a GitHub origin to its repository", async () => {
   const clouded: unknown[][] = [];
   const repoC: SavedEnvironment = { id: "c", name: "Repo C", kind: "local", folder: "/repo/C", updatedAt: 1 };
   function Page() {
@@ -1607,6 +1616,7 @@ test("with Cloud picked, a folder that is a saved folder-only environment is the
         snapshot={noChat()}
         cwd="/Users/me"
         startCwd="/repo/A"
+        projects={[{ cwd: "/repo/A", label: "A", repo: { root: "/repo/A", name: "A", github: "acme/api" } }]}
         onAsk={() => {}}
         onOpen={() => {}}
         onSearch={() => {}}
@@ -1639,15 +1649,11 @@ test("with Cloud picked, a folder that is a saved folder-only environment is the
   await act(async () => root!.render(<Page />));
   await settle();
   await choose('[data-mode="cloud"]');
-  // The saved environment is only a folder: the folder menu lists it, and Cloud sends it.
-  await act(async () => container.querySelector<HTMLButtonElement>(".nt-location .acpmux-location-button")!.click());
-  const row = document.querySelector<HTMLElement>('.acpmux-location-row[title="/repo/C"]')!;
-  await act(async () => (row.closest<HTMLElement>('[role="option"]') ?? row).click());
-  await settle();
+  expect(container.querySelector(".nt-location .acpmux-location-button")?.textContent).toContain("acme/api");
   await typePrompt("fix the flaky test");
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
   expect(clouded.length).toBe(1);
-  expect((clouded[0] as unknown[])[2]).toBe("/repo/C");
+  expect((clouded[0] as unknown[])[2]).toBe("github:acme/api");
 });
 
 test.each(
@@ -1873,6 +1879,14 @@ test("a page that goes with an unsent draft hands it over; an untouched page han
   expect(left).toEqual([[inlineToken(attachment.id), [expect.objectContaining({ path: "/tmp/notes.txt" })]]]);
 });
 
+async function clickProjectOption(label: string) {
+  const row = [
+    ...document.querySelectorAll<HTMLElement>('[role="option"], .acpmux-add-project-palette [data-source]'),
+  ].find((option) => option.querySelector(".acpmux-menu-label")?.textContent === label);
+  expect(row, `no ${label} row`).toBeTruthy();
+  await act(async () => row!.click());
+}
+
 test("keeps a changed machine choice while browse settles, then permits retry", async () => {
   const replies: { resolve(folder: string): void; reject(error: Error): void }[] = [];
   await act(async () => {
@@ -1899,7 +1913,8 @@ test("keeps a changed machine choice while browse settles, then permits retry", 
 
   const browse = async () => {
     await act(async () => container.querySelector<HTMLButtonElement>(".nt-location .acpmux-location-button")!.click());
-    await act(async () => document.querySelector<HTMLElement>("[data-choose]")!.click());
+    await clickProjectOption(translate("project.add"));
+    await clickProjectOption(translate("source.folders"));
   };
   const machine = async (kind: string) => {
     await openMachines(container.querySelector<HTMLButtonElement>('[data-kind="computer"] button')!);
@@ -1975,7 +1990,7 @@ test("a closed agent chat uses the semantic agent glyph and preserves its title"
   expect(container.querySelector(".nt-row-title")?.textContent).toBe("Pinned chat");
 });
 
-test("a project picked on the page is reported on its click (onProjectPicked), so Cloud can copy it", async () => {
+test("a recent project pick reports its folder", async () => {
   const picked: string[] = [];
   await act(async () => {
     root!.render(
@@ -1989,9 +2004,7 @@ test("a project picked on the page is reported on its click (onProjectPicked), s
     );
   });
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-location .acpmux-location-button")!.click());
-  const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
-    (row) => row.textContent?.includes("cmux") && !row.hasAttribute("data-choose"),
-  );
+  const option = document.querySelector<HTMLElement>('[role="option"]:has([title="/Users/you/src/cmux"])');
   expect(option).toBeTruthy();
   await act(async () => option!.click());
   expect(picked).toEqual(["/Users/you/src/cmux"]);
@@ -2159,7 +2172,7 @@ test("Open in New Profile from the address's rows makes a profile with the defau
   expect(made).toEqual([["https://example.com", undefined]]);
 });
 
-/// New Project (newProject.ts): the folder menu's New project row on a New Tab that can make one.
+/// Empty project opens the project-name field on a New Tab that can create a project.
 async function renderNewProject(onNewProject: (name: string) => Promise<string>, asks: unknown[][]): Promise<void> {
   await act(async () => {
     root!.render(
@@ -2183,11 +2196,8 @@ async function renderNewProject(onNewProject: (name: string) => Promise<string>,
   const folder = container.querySelector<HTMLButtonElement>('.nt-location [aria-label="Folder"]');
   expect(folder).toBeTruthy();
   await act(async () => folder!.click());
-  const row = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
-    (option) => option.textContent?.trim() === translate("project.new"),
-  );
-  expect(row, "no New project row").toBeTruthy();
-  await act(async () => row!.click());
+  await clickProjectOption(translate("project.add"));
+  await clickProjectOption(translate("source.empty"));
 }
 
 const projectNameField = () => container.querySelector<HTMLInputElement>(".nt-project-name__field");
@@ -2828,4 +2838,111 @@ test("Return waits for a screenshot still being read, then asks", async () => {
   expect(screenshot.reading()).toBe(false);
   expect(asks).toHaveLength(1);
   expect(String(asks[0]![1])).toStartWith("ls the notes folder");
+});
+
+test("a Cloud machine folder starts the chat on its existing peer", async () => {
+  const asks: unknown[][] = [];
+  const clouded: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={{
+          ...noChat(),
+          peers: ["builder"],
+          peerKinds: { builder: "cloud" },
+          peerConnected: { builder: true },
+          sessions: [
+            {
+              sessionId: "known",
+              harness: "claude",
+              peer: "builder",
+              host: "builder",
+              hostKind: "cloud",
+              cwd: "/home/cmux/work/api",
+            },
+          ],
+        }}
+        environments
+        runMode={{ mode: "cloud", onMode: () => {} }}
+        onCloud={(...args) => (clouded.push(args), false)}
+        onAsk={(...args) => asks.push(args)}
+      />,
+    );
+  });
+  const option = (title: string) =>
+    [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) => row.textContent?.includes(title));
+  await act(async () => container.querySelector<HTMLButtonElement>('.nt-location [aria-label="Folder"]')!.click());
+  await act(async () => option("/home/cmux/work/api")!.click());
+  await typePrompt("fix the flaky test");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(clouded).toEqual([]);
+  expect(asks).toHaveLength(1);
+  expect(asks[0]?.[2]).toBe("/home/cmux/work/api");
+  expect(asks[0]?.at(-1)).toMatchObject({ peer: "builder" });
+});
+
+// cmux#53226 (Austin): with This Mac picked, picking a GitHub repository in the folder menu cloned it at once.
+// The pick is the chip's choice only; Return checks it out here (cloned first when there is none), then asks there.
+test("with This Mac picked a GitHub repository's pick checks nothing out; Return checks it out, then asks there", async () => {
+  // acme/api was added as a project: the folder menu lists only repositories added so (cmux#53226).
+  forgetAddedRepos();
+  rememberAddedRepo({ fullName: "acme/api", private: false });
+  setNativeHost(async (method) => {
+    if (method === "github.status") return { state: "ready", repos_scope: "all" };
+    if (method === "github.repos.list")
+      return { repos: [{ full_name: "acme/api", private: false, default_branch: "main" }], truncated: false };
+    return undefined;
+  });
+  const asks: unknown[][] = [];
+  const worktrees: unknown[][] = [];
+  let land: (folder: string | undefined) => void = () => {};
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat([])}
+        cwd="/Users/you/src/cmux"
+        startCwd="/Users/you/src/cmux"
+        projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
+        environments
+        runMode={{ mode: "persistent", onMode: () => {} }}
+        onAsk={(...args) => asks.push(args)}
+        onNewWorktree={(cwd, github) => {
+          worktrees.push([cwd, github]);
+          return new Promise((resolve) => (land = resolve));
+        }}
+      />,
+    );
+  });
+  const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const folder = () => container.querySelector<HTMLButtonElement>('.acpmux-composer-context [aria-label="Folder"]')!;
+  await act(async () => folder().click());
+  await settle();
+  const repo = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) =>
+    option.textContent?.includes("acme/api"),
+  );
+  expect(repo, "no acme/api row").toBeTruthy();
+  await act(async () => repo!.click());
+  await settle();
+  // The pick names the repository on the chip and clones nothing.
+  expect(worktrees).toEqual([]);
+  expect(folder().textContent).toContain("acme/api");
+  await typePrompt("fix the login bug");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  await settle();
+  // Return checks it out here and holds the prompt until the checkout lands.
+  expect(worktrees).toEqual([["github:acme/api", { repo: "acme/api", candidates: [] }]]);
+  expect(asks).toEqual([]);
+  // A second Return while it clones starts no second checkout.
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  await settle();
+  expect(worktrees.length).toBe(1);
+  await act(async () => land("/Users/you/.cmux/worktrees/api/lane"));
+  await settle();
+  await settle();
+  expect(asks.length).toBe(1);
+  expect(asks[0]![1]).toBe("fix the login bug");
+  expect(asks[0]![2]).toBe("/Users/you/.cmux/worktrees/api/lane");
+  forgetAddedRepos();
 });

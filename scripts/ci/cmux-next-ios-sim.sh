@@ -37,10 +37,13 @@
 #               CMUX_TICK_HARNESS=1, the suite's opt-in (it allocates and
 #               runs for seconds, so the kit's full run skips it)
 #             ui=SUITE[,SUITE...]   also run those CmuxMobileAppUITests suites
-#               against a Debug app; with ui= and no only=, the kit run is skipped.
-#               A suite named *ColdUITests runs each of its test*Cold methods
+#               against the app in config= (below); with ui= and no only=, the kit run is skipped.
+#               A suite named *ColdUITests or *ColdLiveUITests runs each of its test*Cold methods
 #               on a freshly booted iPhone, CMUX_LAUNCH_COLD_RUNS (10) times
-#               (LaunchTTIColdUITests); LAUNCHTTI lines go to launch-tti.jsonl
+#               (LaunchTTIColdUITests); LAUNCHTTI lines go to launch-tti.jsonl.
+#               LaunchColdLiveUITests also accepts repeatable net=lte|lossy-3|off
+#               and runs against the paired live daemon (the duress link knob shapes
+#               replay delivery when duress= is enabled).
 #             duress=SPEC   run the UI suites under the offline duress simulator
 #               (cmux-next-ios/design/duress-sim.md): cmux-duress (cmux-tui Rust) expands a
 #               recorded Claude Code PTY stream and chat-sim's recorded chat into replay files
@@ -51,6 +54,13 @@
 #               same suites once per SPEC on one simulator after one build: the before
 #               and after of the same harness, each run's logs under ui-duress-SLUG*
 #               and its resolved knobs (duress.json) under duress/SLUG/.
+#             config=debug|demo   the configuration the UI tests' app is built in.
+#               Default: demo (optimized -O, with the DEBUG developer surface, mock
+#               sign-in and demo drivers) when every ui= suite is a LaunchTTI* suite,
+#               so launch timings are of an optimized app as every shipped build is;
+#               debug otherwise. A -Onone Debug app with its debug dylib launches
+#               far slower than anything a person installs, so its launch numbers
+#               measure the build, not the app.
 #             video   record the UI tests' iPhone screen (simctl recordVideo)
 #               to ui-video.mp4 in the artifact: before/after videos of a change;
 #               with ffmpeg on the host (Homebrew), also ui-video-small.mp4:
@@ -115,6 +125,16 @@
 #             base=SHA           the commit before the highlight (with before)
 #           The artifact whats-new-clips.zip holds only the clips folder; the
 #           media workflow's iphone-clips job fetches it.
+#   theme-relaunch [N]   (through the fleet controller: shots theme-relaunch=N, the same step)
+#           build, plus the cached Mac theme across relaunch (R&D card rc-3586df8c): mock data,
+#           setup marked complete, no Mac. One launch with no theme ever applied (the stock
+#           reference), one with `-cmux-mobile-mac-appearance mocha-wallpaper` (a dark Mac theme
+#           and a wallpaper, applied and kept as hostd's frame would be: the themed reference),
+#           then N (1-20, default 10) terminate-and-relaunch cycles with no fixture and no Mac,
+#           each a burst of screenshots from launch and a settled one, and the cache file's
+#           digest before each. ios_theme_relaunch_count.py counts the relaunches with a frame
+#           nearer the stock screen than the themed one; SUMMARY.md has "theme lost on K of N".
+#           The artifact keeps theme-relaunch/ (every frame, verdict.json).
 #   chief-live-perf / chief-live-perf-baseline
 #           Three Chief layout measurements on one simulator, reusing test
 #           DerivedData. Copy the identical head benchmark test to the baseline
@@ -291,12 +311,17 @@ if [[ "$mode" == shots && $# -eq 2 && "${2:-}" == handoff=* ]]; then
   set -- handoff "tag=${2#handoff=}"
   mode=handoff
 fi
+# theme-relaunch through the shots form too (shots theme-relaunch=N), until the controller lists it.
+if [[ "$mode" == shots && $# -eq 2 && "${2:-}" == theme-relaunch=* ]]; then
+  set -- theme-relaunch "${2#theme-relaunch=}"
+  mode=theme-relaunch
+fi
 # try through the shots form too (shots try=dev), until the controller lists try.
 if [[ "$mode" == shots && $# -eq 2 && "${2:-}" == try=dev ]]; then
   set -- try
   mode=try
 fi
-case "$mode" in build|release-build|test|bench|all|pair-e2e|screen-proof|shots|clips|chief-live-perf|chief-live-perf-baseline|listperf|energy|handoff|try) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e, screen-proof, shots, clips, chief-live-perf, chief-live-perf-baseline, listperf, energy, handoff or try, got '$mode'" >&2; exit 2 ;; esac
+case "$mode" in build|release-build|test|bench|all|pair-e2e|screen-proof|shots|clips|chief-live-perf|chief-live-perf-baseline|listperf|energy|handoff|try|theme-relaunch) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e, screen-proof, shots, clips, chief-live-perf, chief-live-perf-baseline, listperf, energy, handoff, try or theme-relaunch, got '$mode'" >&2; exit 2 ;; esac
 if [[ ( "$mode" == release-build || "$mode" == try ) && $# -ne 1 ]]; then
   echo "cmux-next-ios-sim.sh: $mode takes no further arguments" >&2; exit 2
 fi
@@ -315,15 +340,24 @@ appstore=0
 for scene in "${@:2}"; do
   if [[ "$mode" == shots && "$scene" == appstore=iphone-6.9 ]]; then appstore=1; else scenes+=("$scene"); fi
 done
+theme_relaunches=10
+if [[ "$mode" == theme-relaunch ]]; then
+  [[ $# -le 2 ]] || { echo "cmux-next-ios-sim.sh: theme-relaunch takes at most one argument, the relaunch count" >&2; exit 2; }
+  if [[ $# -eq 2 ]]; then theme_relaunches="$2"; fi
+  [[ "$theme_relaunches" =~ ^([1-9]|1[0-9]|20)$ ]] ||
+    { echo "cmux-next-ios-sim.sh: theme-relaunch wants a count of 1-20, got '$theme_relaunches'" >&2; exit 2; }
+fi
 # handoff's one argument: the task tag (already a slug: lowercase letters, digits, dashes).
 handoff_tag=""
 if [[ "$mode" == handoff ]]; then
   [[ $# -eq 2 && "${2:-}" == tag=* ]] || { echo "cmux-next-ios-sim.sh: handoff takes one argument, tag=TAG" >&2; exit 2; }
   handoff_tag="${2#tag=}"
-  [[ "$handoff_tag" =~ ^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$ && "$handoff_tag" != default ]] ||
-    { echo "cmux-next-ios-sim.sh: handoff tag= wants lowercase letters, digits and dashes (at most 64), got '$handoff_tag'" >&2; exit 2; }
-  # dev.cmux.mobile.dev is the cmux Dev app (try mode), which shows the person's real data.
-  [[ "$handoff_tag" != dev ]] || { echo "cmux-next-ios-sim.sh: tag dev is the cmux Dev app's (try mode); pick another tag" >&2; exit 2; }
+  # The one tag rule of every build entry point (reload.sh, review.sh): a canonical tag (its own slug, so
+  # no two spellings share the space dev:<tag>), and none of the reserved ones: default, dev (the cmux Dev
+  # app, try mode, which shows the person's real data), demo and prod (demo-build.sh's installs).
+  # shellcheck source=scripts/lib/mobile-attach.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/../lib/mobile-attach.sh"
+  cmux_attach_validate_dev_tag "$handoff_tag" || { echo "cmux-next-ios-sim.sh: handoff tag=$handoff_tag refused" >&2; exit 2; }
 fi
 if [[ "$mode" == shots && ${#scenes[@]} -eq 0 ]]; then
   echo "cmux-next-ios-sim.sh: shots needs one or more scenes after it, name=WORD,WORD,..." >&2; exit 2
@@ -336,7 +370,9 @@ ui_suites=()
 ui_cold=()
 ui_video=0
 ui_profile=0
+ui_config=""
 duress_specs=()
+net_profiles=()
 if [[ "$mode" == test && $# -gt 1 ]]; then
   for sel in "${@:2}"; do
     case "$sel" in
@@ -353,24 +389,45 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
         for item in "${items[@]}"; do
           [[ "$item" =~ ^[A-Za-z0-9_]+(/[A-Za-z0-9_]+)?$ ]] ||
             { echo "cmux-next-ios-sim.sh: ui= wants CmuxMobileAppUITests suite names, got '$item'" >&2; exit 2; }
-          # A suite named *ColdUITests runs each of its test*Cold methods on a freshly booted
-          # simulator, CMUX_LAUNCH_COLD_RUNS times (default 10): one cold launch per run.
-          if [[ "$item" == *ColdUITests ]]; then ui_cold+=("$item"); else ui_suites+=("-only-testing:CmuxMobileAppUITests/$item"); fi
+          # A suite named *ColdUITests or *ColdLiveUITests (SUITE or SUITE/test) runs each of its
+          # test*Cold methods on a freshly booted simulator, CMUX_LAUNCH_COLD_RUNS times (default 10):
+          # one cold launch per run.
+          if [[ "${item%%/*}" == *ColdUITests || "${item%%/*}" == *ColdLiveUITests ]]; then ui_cold+=("$item"); else ui_suites+=("-only-testing:CmuxMobileAppUITests/$item"); fi
         done ;;
       duress=?*)
         [[ "${sel#duress=}" =~ ^[a-z][a-z0-9_-]*(,[a-z_]+=[A-Za-z0-9._-]+)*$ ]] ||
           { echo "cmux-next-ios-sim.sh: duress= wants off or PRESET[,knob=value...], got '$sel'" >&2; exit 2; }
         duress_specs+=("${sel#duress=}") ;;
+      net=?*)
+        [[ "${sel#net=}" =~ ^(off|lte|lossy-3)$ ]] ||
+          { echo "cmux-next-ios-sim.sh: net= wants off, lte or lossy-3, got '$sel'" >&2; exit 2; }
+        net_profiles+=("${sel#net=}") ;;
+      config=debug) ui_config=Debug ;;
+      config=demo) ui_config=Demo ;;
       video) ui_video=1 ;;
       profile) ui_profile=1 ;;
-      *) echo "cmux-next-ios-sim.sh: test takes only=LIST, ui=LIST, duress=SPEC, video and profile, got '$sel'" >&2; exit 2 ;;
+      *) echo "cmux-next-ios-sim.sh: test takes only=LIST, ui=LIST, duress=SPEC, net=PROFILE, config=debug|demo, video and profile, got '$sel'" >&2; exit 2 ;;
     esac
   done
   if [[ $ui_profile -eq 1 && $((${#ui_suites[@]} + ${#ui_cold[@]})) -eq 0 ]]; then
     echo "cmux-next-ios-sim.sh: profile records the UI test run; give it ui=SUITE,..." >&2; exit 2
   fi
-  if [[ ${#duress_specs[@]} -gt 0 && ( ${#ui_suites[@]} -eq 0 || ${#ui_cold[@]} -gt 0 || $ui_profile -eq 1 || $ui_video -eq 1 ) ]]; then
-    echo "cmux-next-ios-sim.sh: duress= runs warm UI suites (ui=SUITE,...), without cold suites, profile or video" >&2; exit 2
+  if [[ -z "$ui_config" ]]; then
+    # Launch timing suites alone: an optimized (Demo) app, as every shipped build is (see config= above).
+    ui_config=Debug
+    if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
+      ui_config=Demo
+      # Guarded expansions: Bash 3.2 under set -u treats an empty array as unbound (only warm or only cold suites).
+      for item in ${ui_suites[@]+"${ui_suites[@]#-only-testing:CmuxMobileAppUITests/}"} ${ui_cold[@]+"${ui_cold[@]}"}; do
+        [[ "${item%%/*}" == LaunchTTI* ]] || { ui_config=Debug; break; }
+      done
+    fi
+  fi
+  if [[ ${#duress_specs[@]} -gt 0 && ( ${#ui_suites[@]} -eq 0 || $ui_profile -eq 1 || $ui_video -eq 1 ) && ${#ui_cold[@]} -eq 0 ]]; then
+    echo "cmux-next-ios-sim.sh: duress= runs UI suites, without profile or video" >&2; exit 2
+  fi
+  if [[ ${#net_profiles[@]} -gt 0 && ${#ui_cold[@]} -eq 0 ]]; then
+    echo "cmux-next-ios-sim.sh: net= is supported by a cold UI suite" >&2; exit 2
   fi
 fi
 run_kit=1
@@ -1321,15 +1378,19 @@ ui_profile_finish() {
   rm -rf "$profile_trace"
 }
 
-# Cold suites (ui=*ColdUITests): each test*Cold method of the suite, once per fresh boot of the
+# Cold suites (ui=*ColdUITests, ui=*ColdLiveUITests): each test*Cold method of the suite, once per fresh boot of the
 # UI tests' iPhone (shut down, booted, then the one test), CMUX_LAUNCH_COLD_RUNS times (default 10,
 # at most 30). The app's LAUNCHTTI lines from every run go to launch-tti.jsonl; each run's console
 # and per-test results to ui-cold/.
 ui_cold_tests() {
+  local matrix_slug="${1:-plain}"
   local runs="${CMUX_LAUNCH_COLD_RUNS:-10}" suite file test run status
+  if [[ -z "${CMUX_LAUNCH_COLD_RUNS:-}" && " ${ui_cold[*]} " == *" LaunchColdLiveUITests "* ]]; then runs=20; fi
   [[ "$runs" =~ ^[0-9]+$ ]] && (( runs >= 1 && runs <= 30 )) || runs=10
   ui_cold_runs=$runs
   mkdir -p "$out/ui-cold"
+  export CMUX_MOBILE_DURESS_PROFILE="${CMUX_MOBILE_DURESS_PROFILE:-off}"
+  export CMUX_MOBILE_NET_PROFILE="${CMUX_MOBILE_NET_PROFILE:-off}"
   for suite in "${ui_cold[@]}"; do
     file="$(grep -lw "class ${suite%%/*}" cmux-next-ios/UITests/*.swift | head -1)"
     local tests=()
@@ -1350,15 +1411,61 @@ ui_cold_tests() {
         fi
         local bundle="$work/ui-cold-${test}-${run}.xcresult"
         xcodebuild test-without-building "${ui_xcodebuild[@]}" -resultBundlePath "$bundle" \
-          "-only-testing:CmuxMobileAppUITests/${suite%%/*}/$test" >"$work/ui-cold-${test}-${run}.log" 2>&1
+          "-only-testing:CmuxMobileAppUITests/${suite%%/*}/$test" >"$work/ui-cold-${matrix_slug}-${test}-${run}.log" 2>&1
         status=$?
-        keep_test_logs "$work/ui-cold-${test}-${run}.log" "$bundle" "ui-cold/${test}-${run}"
+        keep_test_logs "$work/ui-cold-${matrix_slug}-${test}-${run}.log" "$bundle" "ui-cold/${matrix_slug}-${test}-${run}"
         (( status == 0 )) || { ui_status=$status; note "- cold $suite/$test run $run: exit $status"; }
         rm -rf "$bundle"
       done
     done
   done
   note "- cold UI suites ${ui_cold[*]}: $runs runs per test, one fresh boot each"
+}
+
+# ui_cold_matrix: cold live suites for every requested load x link profile. The
+# cmux-duress link knob is the existing seeded cmux-fault shaper used by the
+# duress replay generator. `idle,link=PROFILE` gives a shaped, otherwise idle,
+# run when the caller asks for net= with duress=off.
+ui_cold_matrix() {
+  local spec net effective slug dir t1
+  local specs=() nets=()
+  if [[ ${#duress_specs[@]} -gt 0 ]]; then specs=("${duress_specs[@]}"); else specs=(off); fi
+  if [[ ${#net_profiles[@]} -gt 0 ]]; then nets=("${net_profiles[@]}"); else nets=(off); fi
+  if [[ " ${specs[*]} " != " off " || " ${nets[*]} " != " off " ]]; then
+    t1=$SECONDS
+    if ! cargo build --release --quiet --manifest-path cmux-tui/Cargo.toml -p cmux-duress --no-default-features >"$work/duress-build.log" 2>&1; then
+      tail -40 "$work/duress-build.log"; cp "$work/duress-build.log" "$out/duress-build.log" 2>/dev/null || true
+      note "- duress: cmux-duress did not build (duress-build.log)"; ui_status=1; return
+    fi
+    note "- duress: cmux-duress built in $((SECONDS - t1)) s"
+  fi
+  for net in "${nets[@]}"; do
+    for spec in "${specs[@]}"; do
+      effective="$spec"
+      if [[ "$net" != off ]]; then
+        if [[ "$spec" == off ]]; then effective="idle,link=$net"
+        elif [[ "$spec" == *,link=* ]]; then effective="${spec%%,link=*},link=$net"
+        else effective="$spec,link=$net"
+        fi
+      fi
+      slug="${spec}+${net}"
+      slug="$(printf '%s' "$slug" | tr ',=' '__')"
+      export CMUX_MOBILE_DURESS_PROFILE="$spec" CMUX_MOBILE_NET_PROFILE="$net"
+      if [[ "$effective" == off ]]; then
+        xcrun simctl spawn "$ui_udid" defaults delete -g CmuxMobileDuress >/dev/null 2>&1 || true
+      else
+        dir="$work/duress/$slug"
+        mkdir -p "$dir"
+        if ! cmux-tui/target/release/cmux-duress gen --spec "$effective" --out "$dir" --repo "$root" >"$dir/gen.log" 2>&1; then
+          cat "$dir/gen.log"; note "- cold $spec/$net: cmux-duress gen failed"; ui_status=1; continue
+        fi
+        mkdir -p "$out/duress/$slug"; cp "$dir/duress.json" "$dir/gen.log" "$out/duress/$slug/" 2>/dev/null || true
+        xcrun simctl spawn "$ui_udid" defaults write -g CmuxMobileDuress "$dir"
+      fi
+      ui_cold_tests "$slug"
+    done
+  done
+  xcrun simctl spawn "$ui_udid" defaults delete -g CmuxMobileDuress >/dev/null 2>&1 || true
 }
 
 # ui_duress_runs: the warm UI suites once per duress= SPEC (cmux-next-ios/design/duress-sim.md), after
@@ -1422,7 +1529,7 @@ ui_duress_runs() {
 # --- UI tests (test ui=...) -------------------------------------------------
 if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
   t0=$SECONDS
-  # A Debug build of the app and its UI test bundle, on a new iPhone in the
+  # A build of the app and its UI test bundle in $ui_config (config= above), on a new iPhone in the
   # default device set (xcodebuild sees no other), deleted by its UDID after.
   # CMUX_MOBILE_APPLE_SIGN_IN=YES shows Sign in with Apple, as the App Store
   # configurations and ios-review-gate.yml do: Debug hides it, so
@@ -1435,9 +1542,14 @@ if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
     xcrun simctl bootstatus "$ui_udid" -b >/dev/null
   fi
   [[ $reduce_motion -eq 0 ]] || sim_boot_reduce_motion "$ui_udid" "UI test"
-  ui_xcodebuild=(-project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Debug
+  ui_xcodebuild=(-project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration "$ui_config"
     -destination "id=$ui_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$dd_root/dd-ui"
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= CMUX_MOBILE_APPLE_SIGN_IN=YES -quiet)
+  if [[ "$ui_config" == Demo ]]; then
+    # Demo builds the Swift packages as Release (no DEBUG): the app's DEBUG code would reference package
+    # symbols that are not built (LaunchMarksProbe). The same conditions as the Demo app build above.
+    ui_xcodebuild+=('SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG CMUX_MOBILE_DEMO')
+  fi
   ui_action=test
   ui_status=0
   if [[ $ui_profile -eq 0 && ${#ui_cold[@]} -gt 0 ]]; then
@@ -1495,7 +1607,7 @@ print(f"MOBILEBENCH video-start t={t0:.3f} source=launch")
   fi
   set +e
   ui_t0=$SECONDS
-  if [[ $ui_status -eq 0 && ${#duress_specs[@]} -gt 0 ]]; then
+  if [[ $ui_status -eq 0 && ${#duress_specs[@]} -gt 0 && ${#ui_cold[@]} -eq 0 ]]; then
     ui_duress_runs
   elif [[ $ui_status -eq 0 && ${#ui_suites[@]} -gt 0 ]]; then
     xcodebuild "$ui_action" "${ui_xcodebuild[@]}" -resultBundlePath "$work/ui.xcresult" \
@@ -1503,7 +1615,11 @@ print(f"MOBILEBENCH video-start t={t0:.3f} source=launch")
     ui_status=$?
   fi
   if [[ $ui_status -eq 0 && ${#ui_cold[@]} -gt 0 ]]; then
-    ui_cold_tests
+    if [[ ${#duress_specs[@]} -gt 0 || ${#net_profiles[@]} -gt 0 ]]; then
+      ui_cold_matrix
+    else
+      ui_cold_tests plain
+    fi
   fi
   ui_seconds=$((SECONDS - ui_t0))
   if [[ -n "$recorder" ]]; then
@@ -1562,6 +1678,38 @@ for (flow, phase), items in sorted(groups.items()):
             parts.append("%s %.0f [%.0f-%.0f]" % (key, values[len(values) // 2], values[0], values[-1]))
     print("  - %s %s (n=%d): %s" % (flow, phase, len(items), ", ".join(parts)))
 PY
+  fi
+  if compgen -G "$out/ui-cold/*-console.txt" >/dev/null; then
+    python3 - "$out/ui-cold" <<'PY' | while IFS= read -r line; do note "$line"; done
+import json, pathlib, re, statistics, sys
+rows = []
+for path in sorted(pathlib.Path(sys.argv[1]).glob("*-console.txt")):
+    for line in path.read_text(errors="replace").splitlines():
+        match = re.search(r"LAUNCHCOLDLIVE (\{.*\})", line)
+        if match:
+            try: rows.append(json.loads(match.group(1)))
+            except json.JSONDecodeError: pass
+groups = {}
+for row in rows:
+    groups.setdefault((row.get("net", "off"), row.get("load", "off"), row.get("flow", "?")), []).append(row)
+print("- Live cold launch marks (ms since process start, p50/p90, n):")
+print("  - Limits: the terminal flow is the mock session (no Mac, no network: its link time is not in these rows);"
+      " cold is a cold process and a freshly booted simulator, not a cold disk (the host's file cache stays warm).")
+for (net, load, flow), items in sorted(groups.items()):
+    parts = []
+    for key in ("first_frame", "chat_first_row_frame", "terminal_first_row_frame"):
+        values = sorted(float(item[key]) for item in items if isinstance(item.get(key), (int, float)))
+        if values:
+            p50 = values[len(values) // 2]
+            p90 = values[min(len(values) - 1, int(len(values) * .9))]
+            parts.append("%s %.0f/%.0f" % (key, p50, p90))
+    print("  - net=%s load=%s flow=%s n=%d: %s" % (net, load, flow, len(items), ", ".join(parts)))
+PY
+    if [[ " ${ui_cold[*]} " == *" LaunchColdLiveUITests "* ]] &&
+       ! grep -Rqs 'LAUNCHCOLDLIVE {' "$out/ui-cold"; then
+      note "- ERROR: LaunchColdLiveUITests produced no live samples; check paired workspace environment and daemon connection"
+      ui_status=1
+    fi
   fi
 fi
 
@@ -1726,6 +1874,66 @@ if [[ "$mode" == shots ]]; then
   done
   simctl ui "$udid" appearance dark >/dev/null 2>&1 || true
   note "- screens: $((SECONDS - t0)) s"
+fi
+
+# --- theme-relaunch: the cached Mac theme across relaunch --------------------
+if [[ "$mode" == theme-relaunch ]]; then
+  t0=$SECONDS
+  tr_dir="$out/theme-relaunch"
+  tr_small="$work/theme-relaunch-small"
+  mkdir -p "$tr_dir" "$tr_small"
+  simctl spawn "$udid" defaults write "$bundle_id" cmuxMobile.setupComplete -bool YES
+  tr_data="$(simctl get_app_container "$udid" "$bundle_id" data)"
+  tr_cache="$tr_data/Library/Application Support/cmux-mac-appearance"
+  tr_launch() { env SIMCTL_CHILD_CMUX_MOBILE_MOCK_AUTH=1 xcrun simctl --set "$sims" launch "$udid" "$bundle_id" "$@" >/dev/null; }
+  tr_shot() { simctl io "$udid" screenshot "$1" >/dev/null 2>&1 || true; }
+  tr_digest() { if [[ -f "$tr_cache/appearance.json" ]]; then shasum -a 256 "$tr_cache/appearance.json" | awk '{ print substr($1, 1, 16) }'; else echo none; fi; }
+  note ""
+  note "## Mac theme across relaunch (mock data, no Mac)"
+  note ""
+  rm -rf "$tr_cache"
+  # The stock reference: no theme was ever applied on this install.
+  tr_launch
+  sleep 6
+  tr_shot "$tr_dir/stock.png"
+  simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
+  # The themed reference: a dark Mac theme with a wallpaper, applied and kept (CmuxMobileMacTheme.apply).
+  tr_launch -cmux-mobile-mac-appearance mocha-wallpaper
+  for _ in $(seq 40); do
+    [[ -f "$tr_cache/appearance.json" ]] && ls "$tr_cache"/chat-wallpaper-*.img >/dev/null 2>&1 && break
+    sleep 0.5
+  done
+  sleep 4
+  tr_shot "$tr_dir/themed.png"
+  simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
+  note "- applied mocha-wallpaper; cache: appearance.json $(tr_digest), $(ls "$tr_cache" 2>/dev/null | tr '\n' ' ')"
+  launches=()
+  for i in $(seq -w 1 "$theme_relaunches"); do
+    d="$tr_dir/launch-$i"
+    mkdir -p "$d"
+    before="$(tr_digest)"
+    tr_launch
+    # The first frames: as fast as simctl takes them (about 0.2-0.4 s each), for about 4 s.
+    start=$SECONDS k=0
+    while (( SECONDS - start < 4 && k < 20 )); do
+      k=$((k + 1))
+      tr_shot "$d/f$(printf '%02d' "$k").png"
+    done
+    sleep 3
+    tr_shot "$d/settled.png"
+    simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
+    note "- launch $i: cache before $before, after $(tr_digest), $k early frames"
+    launches+=("$tr_small/launch-$i")
+  done
+  # Downscaled copies for the count (pure-Python decoding of full stills is slow).
+  for f in "$tr_dir"/*.png "$tr_dir"/launch-*/*.png; do
+    rel="${f#"$tr_dir"/}"
+    mkdir -p "$tr_small/$(dirname "$rel")"
+    sips -s format png --resampleHeightWidth 160 74 "$f" --out "$tr_small/$rel" >/dev/null 2>&1 || true
+  done
+  python3 -I scripts/ci/ios_theme_relaunch_count.py --stock "$tr_small/stock.png" --themed "$tr_small/themed.png" \
+    --out "$tr_dir/verdict.json" "${launches[@]}" | tee -a "$summary" || note "- theme-relaunch: the count failed"
+  note "- theme-relaunch: $((SECONDS - t0)) s"
 fi
 
 # --- What's New clip (clips) ----------------------------------------------

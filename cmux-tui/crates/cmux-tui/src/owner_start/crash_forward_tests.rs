@@ -99,14 +99,62 @@ const SEEDS: [[&str; 3]; 17] = [
 #[test]
 fn seeded_secrets_never_leave_in_a_panic_event() {
     let text = SEEDS.map(|[prefix, rest, _]| format!("{prefix}{rest}")).join(" | ");
-    for kind in ["panic", "memory"] {
-        let line = json!({"message": text, "location": text, "backtrace": text, "kind": kind});
+    for kind in ["panic", "memory", "client-hang"] {
+        let line = json!({
+            "message": text, "location": text, "backtrace": text, "kind": kind,
+            "waits": [text], "cancelled": [text],
+        });
         let event = event_for(&line.to_string(), Some("/home/other")).unwrap();
         let sent = String::from_utf8(envelope(&event)).unwrap();
         for [_, _, marker] in SEEDS {
             assert!(!sent.contains(marker), "{kind}: {marker} survived: {sent}");
         }
     }
+}
+
+/// The seeded secrets through the real send: the envelope the gated client puts
+/// on the wire to Sentry (body, headers and URL) carries none of them.
+#[cfg(unix)]
+#[test]
+fn seeded_secrets_never_reach_the_wire() {
+    cmux_egress::capture::install().unwrap();
+    let dir =
+        std::env::temp_dir().join(format!("cmux-cf-seeded-{}", uuid::Uuid::new_v4().simple()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let log = dir.join("owner-panics-seeded.jsonl");
+    let text = SEEDS.map(|[prefix, rest, _]| format!("{prefix}{rest}")).join(" | ");
+    let line =
+        |kind: &str| json!({"message": text, "location": text, "backtrace": text, "kind": kind});
+    std::fs::write(&log, format!("{}\n{}\n", line("panic"), line("memory"))).unwrap();
+    let dsn = Dsn::parse(DSN).unwrap();
+    assert_eq!(send_all(&log, &dsn, Some("/home/other")).unwrap(), 2);
+    let host = "o4507547940749312.ingest.us.sentry.io";
+    assert!(
+        cmux_egress::capture::requests_to(host).len() >= 2,
+        "the envelopes reached the capture server"
+    );
+    for [_, _, marker] in SEEDS {
+        let leaks = cmux_egress::capture::leaks(marker);
+        assert!(leaks.is_empty(), "{marker} left: {leaks:?}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_client_hang_line_is_a_warning_grouped_by_its_top_frame() {
+    let line = json!({
+        "kind": "client-hang", "at_ms": 1_000, "message": "cmux-tui UI loop stalled 2.4s in f",
+        "location": "cmux::app::f", "duration_ms": 2400, "backtrace": "#0 0x1 cmux::app::f",
+        "waits": ["daemon request tree (waited 2.4s of 5.0s)"], "cancelled": [], "version": "1.2.3",
+    });
+    let event = event_for(&line.to_string(), None).unwrap();
+    assert_eq!(event["level"], "warning");
+    assert_eq!(event["exception"]["values"][0]["type"], "ClientHang");
+    assert_eq!(event["fingerprint"], json!(["client-hang", "cmux::app::f"]));
+    assert_eq!(event["tags"]["crash_source"], "client_hang_log");
+    assert_eq!(event["extra"]["duration_ms"], 2400);
+    assert_eq!(event["extra"]["waits"][0], "daemon request tree (waited 2.4s of 5.0s)");
+    assert_eq!(event["release"], "cmux-tui@1.2.3");
 }
 
 #[test]

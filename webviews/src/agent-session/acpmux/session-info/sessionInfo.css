@@ -926,6 +926,20 @@ button.acpmux-session-info-port:hover,
 .acpmux-session-info-row .acpmux-diff-counts {
   opacity: 0.8;
 }
+/* Carried memory: a proposed file's diff, opened under its row (CarriedSection.tsx), on the label column. */
+.acpmux-carried-diff {
+  padding: 0 var(--grid-gap) 4px calc(var(--grid-gap) * 2 + var(--grid-icon-box));
+}
+.acpmux-carried-diff > pre {
+  margin: 0;
+  max-height: 160px;
+  overflow: auto;
+  color: var(--agent-muted);
+  font-family: var(--cv-mono);
+  font-size: var(--text-detail);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .acpmux-session-info-note {
   margin: 0;
   padding: 4px 8px 6px;
@@ -1401,6 +1415,16 @@ button.acpmux-session-info-port:focus-visible {
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-detail--letter-spacing);
+}
+/* Why a row does not open (TasksSection.tsx, a1e7752d4c3: the reason as text, not a tooltip) gives way
+   with the command, never squeezing it out: in a 320px panel a finished row's long time and the
+   reason left the command no width, so the row read "No terminal to open" with no command at all. */
+.acpmux-session-info-task__why {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .acpmux-session-info-task[data-state="failed"] .acpmux-session-info-task__state,
 .acpmux-session-info-task[data-state="lost"] .acpmux-session-info-task__state {

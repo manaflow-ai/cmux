@@ -28,6 +28,7 @@ import { JumpToLatest, JumpUp } from "./JumpButtons";
 import { type ScrollAnchor } from "./scrollAnchors";
 import { THREAD_TOP } from "./RowFrame";
 import { Spinner } from "../conversation/icons";
+import { OlderLoadingMark } from "./OlderLoadingMark";
 
 /// The box of the spinner over the loaded rows while older ones load (`.acpmux-older-loading`): it
 /// shows only where the room held for them has this much space above the first loaded row.
@@ -129,6 +130,7 @@ export type TranscriptShellDeps = {
   sinceRow: AcpmuxRow | undefined;
   clearTop: number;
   sinceIndex: number;
+  sinceHasNews: boolean;
   jumpUp: boolean;
   upShown: boolean;
   jumpBackHeld: boolean;
@@ -201,6 +203,7 @@ export function drawTranscriptShell({
   sinceRow,
   clearTop,
   sinceIndex,
+  sinceHasNews,
   jumpUp,
   upShown,
   jumpBackHeld,
@@ -271,6 +274,7 @@ export function drawTranscriptShell({
               // Its own MinimapSource takes these values each render; the rail draws only when what it
               // draws changes (ThreadMinimapRail).
               <ThreadMinimap
+                cutoverRow={sinceHasNews ? sinceIndex : undefined}
                 rows={rows}
                 layout={layout}
                 scrollTop={renderScroll.top - origin}
@@ -334,13 +338,10 @@ export function drawTranscriptShell({
                 {/* Older history still to load: a spinner just above the first loaded row, in the room held
                     for that history, so a reader who scrolls up to the loaded top sees the next page is coming. */}
                 {canLoadOlder && rows.length > 0 && (layout.origin ?? 0) >= OLDER_SPINNER_BOX && (
-                  <output
-                    className="acpmux-older-loading"
-                    aria-label={t("transcript.loadingOlder")}
+                  <OlderLoadingMark
+                    label={t("transcript.loadingOlder")}
                     style={{ top: lift + topInset + THREAD_TOP + (layout.origin ?? 0) - OLDER_SPINNER_BOX }}
-                  >
-                    <Spinner size={16} loading />
-                  </output>
+                  />
                 )}
                 {/* Under the rows, at the thread's place: one empty element per stand-in. */}
                 <div className="acpmux-stand-ins" aria-hidden style={{ top: lift + topInset }}>

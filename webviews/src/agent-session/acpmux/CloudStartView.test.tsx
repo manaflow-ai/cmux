@@ -176,12 +176,86 @@ test("a failure says the host's words with no spinner, and the New Tab page draw
   expect(html).not.toContain("fix the build");
 });
 
-test("a signed-out failure keeps the prompt card and offers inline sign-in", () => {
+test("a signed-out send is the first setup step, not a failure: the prompt, the steps, Sign in and ways on", () => {
   const variant = cloudStartGallery.variants["signed-out"]!;
-  const html = renderToStaticMarkup(<CloudStartView {...variant.props} />);
+  const html = renderToStaticMarkup(
+    <CloudStartView {...variant.props} onRunHere={() => undefined} onDismiss={() => undefined} />,
+  );
   expect(html).toContain(variant.props.start.task);
-  expect(html).toContain('class="acpmux-cloud-start__sign-in"');
-  expect(html).toContain("Sign in to use Cloud.");
+  expect(html).toContain('data-setup-step="account"');
+  expect(html).toContain("acpmux-cloud-start__sign-in");
+  expect(html).toContain("Sign in to run this chat on a Cloud machine.");
+  expect(html).toContain("Your message sends by itself when you&#x27;re done.");
+  // Step 1 of 3 is current, the plan and the model are named after it.
+  expect(html).toContain('aria-label="Step 1 of 3"');
+  expect(html).toMatch(/data-step="current" data-step-id="account"/);
+  expect(html).toMatch(/data-step="next" data-step-id="plan"/);
+  expect(html).toMatch(/data-step="next" data-step-id="model"/);
+  // A way on besides Sign in, and no failed startup checklist or alert.
+  expect(html).toContain('data-action="run-here"');
+  expect(html).toContain('data-action="dismiss"');
+  expect(html).not.toContain('role="alert"');
+  expect(html).not.toContain("acpmux-cloud-start__checklist");
+});
+
+test("signed-out setup never falls back to the failed checklist or host CLI hint without a sign-in handler", () => {
+  const html = renderToStaticMarkup(
+    <CloudStartView
+      start={{
+        key: "signed-out",
+        task: "Keep this prompt until sign-in finishes",
+        state: "failed",
+        code: "not_signed_in",
+        message: "Sign in to use Cloud machines: run Sign In from the command palette, or `cmux cloud sign-in`.",
+      }}
+      showSteps
+    />,
+  );
+  expect(html).toContain("Keep this prompt until sign-in finishes");
+  expect(html).toContain('data-state="setup"');
+  expect(html).toContain('data-action="sign-in"');
+  expect(html).not.toContain('data-state="failed"');
+  expect(html).not.toContain('role="alert"');
+  expect(html).not.toContain("acpmux-cloud-start__checklist");
+  expect(html).not.toContain("cmux cloud sign-in");
+  expect(html).not.toContain("command palette");
+});
+
+test("each first-send gate draws the setup strip at its own step, earlier steps checked", () => {
+  const task = "Run the sidebar tests and fix what fails.";
+  const base = { key: "k", task, state: "failed" as const };
+  const plan = renderToStaticMarkup(
+    <CloudStartView start={{ ...base, code: "cloud_plan_required", refusedHere: true }} onRunHere={() => undefined} />,
+  );
+  expect(plan).toContain('data-setup-step="plan"');
+  expect(plan).toMatch(/data-step="done" data-step-id="account"/);
+  expect(plan).toMatch(/data-step="current" data-step-id="plan"/);
+  expect(plan).toContain("Cloud needs a plan");
+  expect(plan).not.toContain('role="alert"');
+  const model = renderToStaticMarkup(
+    <CloudStartView
+      start={{ ...base, code: "cloud_setup_required", cloudSetup: { family: "claude" } }}
+      onSetUp={() => undefined}
+    />,
+  );
+  expect(model).toMatch(/data-step="done" data-step-id="plan"/);
+  expect(model).toMatch(/data-step="current" data-step-id="model"/);
+  expect(model).toContain('aria-label="Step 3 of 3"');
+  // A plan refusal in a team is not a first-run step: its own notice, no strip.
+  const team = renderToStaticMarkup(
+    <CloudStartView
+      start={{
+        ...base,
+        code: "cloud_plan_required",
+        planTeam: { team: "Acme", switchTo: { id: "team_1", name: "Personal" } },
+      }}
+    />,
+  );
+  expect(team).not.toContain("acpmux-cloud-steps");
+  // A start on its way draws no strip.
+  expect(renderToStaticMarkup(<CloudStartView start={{ key: "k", task, state: "starting" }} />)).not.toContain(
+    "acpmux-cloud-steps",
+  );
 });
 
 test("a start waiting on its browser sign-in says so, not starting or Thinking", () => {
@@ -194,6 +268,14 @@ test("a start waiting on its browser sign-in says so, not starting or Thinking",
     expect(html).not.toContain("cv-thinking");
     expect(html).not.toContain("Preparing machine");
   }
+  // While the browser is out the composer's prompt is held for the sign-in, so the waiting card offers no Run on
+  // This Mac (it would switch to This Mac and send an empty composer) and no Not now; only the failed card does.
+  const waiting = renderToStaticMarkup(
+    <CloudStartView {...variant.props} onRunHere={() => undefined} onDismiss={() => undefined} />,
+  );
+  expect(waiting).toContain('data-setup-step="account"');
+  expect(waiting).not.toContain('data-action="run-here"');
+  expect(waiting).not.toContain('data-action="dismiss"');
   // Once signed in, the start reads as any start again.
   const { signingIn: _signingIn, ...started } = variant.props.start;
   const html = renderToStaticMarkup(<CloudStartView start={started} />);
@@ -588,6 +670,7 @@ test("a start connecting GitHub would fix offers Connect GitHub beside Retry, an
     },
     () => () => undefined,
     () => false,
+    () => () => undefined,
   );
   expect(
     renderToStaticMarkup(

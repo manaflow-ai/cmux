@@ -142,6 +142,21 @@ impl OutputCoalescer {
     }
 }
 
+/// Pushes `frame` onto `out`, appending an `output`'s bytes to an `output` already at its end
+/// (up to `OUTPUT_COALESCE_MAX_BYTES`). The plain byte attach calls it for the reads that queued
+/// while its writer was busy, once the writer is free: no timer, and a read that finds the
+/// writer free goes out alone, as before. Same bytes, same order, fewer events.
+pub(super) fn push_merged(frame: AttachFrame, out: &mut Vec<AttachFrame>) {
+    if let AttachFrame::Output(bytes) = &frame
+        && let Some(AttachFrame::Output(last)) = out.last_mut()
+        && last.len() + bytes.len() <= OUTPUT_COALESCE_MAX_BYTES
+    {
+        last.extend_from_slice(bytes);
+        return;
+    }
+    out.push(frame);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -233,6 +248,21 @@ mod tests {
         coalescer.push(AttachFrame::Output(b"6789".to_vec()), start, &mut out);
         assert_eq!(bytes(&out), vec![b"123456789".to_vec()]);
         assert_eq!(coalescer.due(), None);
+    }
+
+    #[test]
+    fn reads_queued_behind_the_writer_go_out_as_one_event_in_order() {
+        let mut out = Vec::new();
+        push_merged(AttachFrame::Output(b"a".to_vec()), &mut out);
+        push_merged(AttachFrame::Output(b"b".to_vec()), &mut out);
+        let colors =
+            AttachFrame::ColorsChanged(std::sync::Arc::new(crate::TerminalColors::default()));
+        push_merged(colors, &mut out);
+        push_merged(AttachFrame::Output(b"c".to_vec()), &mut out);
+        assert_eq!(bytes(&out), [b"ab".to_vec(), b"<other>".to_vec(), b"c".to_vec()]);
+        let mut out = vec![AttachFrame::Output(vec![0; OUTPUT_COALESCE_MAX_BYTES])];
+        push_merged(AttachFrame::Output(b"d".to_vec()), &mut out);
+        assert_eq!(out.len(), 2, "the cap starts a new event");
     }
 
     #[test]

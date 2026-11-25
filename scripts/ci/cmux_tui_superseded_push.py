@@ -18,7 +18,7 @@ Superseded means, for a push event only:
   - a lane branch (any ref but main, feat-cmux-next, next-batch/* and
     cmux-tui-pin-*) whose head is no longer SHA;
   - a cmux-tui-pin-* ref at GitHub's merge commit for a pull request
-    ("Merge <head> into <base>", made by cmux-next-pr-merge-tree.yml) whose
+    ("Merge <head> into <base>", made by the retired PR merge-tree publisher) whose
     pull request is open with a different head now, and no pull request has
     that head any more;
   - such a pin whose pull request merged into feat-cmux-next at that head, and
@@ -195,10 +195,15 @@ def unreviewed_verdict(ref: str, sha: str) -> tuple[bool, str] | None:
     """Superseded when no open pull request of this repository has SHA at its head; None asks lane_verdict."""
     if asks_for_daemon_tests(sha):
         return None
-    has_pull = has_pull_request_head(sha)
+    # Build on request (ci-min-per-pr-30): an open pull request's head used to be enough. It was 343 runs and
+    # 29.8k runner-min a day (11-22 21Z..11-23 21Z, 25.8 per merged PR), three ~28-min target builds per head,
+    # for trees only the hot verify rust look reads. That look now dispatches the build itself, so a head
+    # no dispatch asked for is not built. CMUX_TUI_BRANCH_ON_REQUEST=0 keeps the old open-PR-head rule.
+    on_request = os.environ.get("CMUX_TUI_BRANCH_ON_REQUEST", "1") != "0"
+    has_pull = None if on_request else has_pull_request_head(sha)
     if has_pull:
         return None
-    if has_pull is None:
+    if has_pull is None and not on_request:
         status, data = api(f"commits/{sha}/pulls?per_page=100")
         if status != 200 or not isinstance(data, list):
             raise ApiError(f"GET commits/{sha}/pulls: HTTP {status}")
@@ -214,6 +219,12 @@ def unreviewed_verdict(ref: str, sha: str) -> tuple[bool, str] | None:
     if data.get("total_count") or data.get("workflow_runs"):
         return None
     branch = ref.removeprefix("refs/heads/")
+    if on_request:
+        return True, (f"{sha[:12]} ({branch}) is built on request only: nobody asked for its tree. "
+                      "A pull request's same-tree checks use its merge tree or the base tree, and a hot verify "
+                      "rust look dispatches this workflow on the branch itself. To publish this tree anyway, add "
+                      "the trailer Cmux-Daemon-Tests: run, dispatch cmux-tui-artifacts.yml on the branch, "
+                      "or dispatch cmux-next.yml before pushing")
     return True, (f"no open pull request has {sha[:12]} ({branch}) at its head and no cmux-next dispatch "
                   "asked for it; a pull request's same-tree checks use its merge tree or the base tree. "
                   "To publish this tree anyway, add the trailer Cmux-Daemon-Tests: run, dispatch "
