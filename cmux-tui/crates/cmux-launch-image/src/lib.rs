@@ -5,7 +5,8 @@
 //!
 //! The macOS app captures a window and encodes it as PNG; everything else is
 //! here: where a window's image lives, its atomic publish, the caps, pruning,
-//! and when a capture is due ([`schedule`]).
+//! when a capture is due ([`schedule`]), and whether a page's cached image may fill its region of
+//! a capture ([`region`]).
 //!
 //! # Files
 //!
@@ -47,6 +48,7 @@
 
 pub mod ffi;
 mod png;
+pub mod region;
 pub mod schedule;
 
 use std::fs::{self, File, OpenOptions};
@@ -234,6 +236,18 @@ impl Store {
         png: &[u8],
         now_nanos: u64,
     ) -> Result<Image, PublishError> {
+        self.publish_with(window_id, png, now_nanos, |_| {})
+    }
+
+    /// [`Self::publish_at`] that calls `before_return` with the published path after the caps ran,
+    /// just before it returns and unlocks (tests).
+    fn publish_with(
+        &self,
+        window_id: &str,
+        png: &[u8],
+        now_nanos: u64,
+        before_return: impl FnOnce(&Path),
+    ) -> Result<Image, PublishError> {
         if window_id.is_empty() {
             return Err(PublishError::EmptyWindowId);
         }
@@ -298,6 +312,7 @@ impl Store {
         let _ = File::open(&self.dir).and_then(|dir| dir.sync_all());
         let name = format!("{key}.{generation}.{EXTENSION}");
         self.enforce_caps(&key, &name);
+        before_return(&path);
         Ok(Image { path, generation, pixel_width, pixel_height, bytes })
     }
 
@@ -513,5 +528,44 @@ mod tests {
             assert!(key.starts_with("w-") && key.len() == 18, "{id:?} -> {key}");
         }
         assert_ne!(window_key("a.b"), window_key("a.c"));
+    }
+
+    /// Review follow-up on #44472 (F1): a publish's caps must not run in another publish's gap
+    /// between its link and its return, or that publish returns a path already deleted. Two more
+    /// publishes of the window start while the first sits just before its return; the first's path
+    /// must still be there.
+    #[test]
+    fn a_concurrent_publish_never_prunes_a_path_before_it_is_returned() {
+        let dir = std::env::temp_dir()
+            .join(format!("cmux-launch-image-unit-{}-race-return", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let store = Store::new(&dir, Caps { keep_per_window: 2, ..Caps::default() });
+        let png = |width: u32| {
+            let mut bytes = vec![0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n'];
+            bytes.extend_from_slice(&13_u32.to_be_bytes());
+            bytes.extend_from_slice(b"IHDR");
+            bytes.extend_from_slice(&width.to_be_bytes());
+            bytes.extend_from_slice(&1_u32.to_be_bytes());
+            bytes.resize(40, 7);
+            bytes
+        };
+        let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+        std::thread::scope(|scope| {
+            let first = store.publish_with("win", &png(1), 5, |path| {
+                for w in [2_u32, 3] {
+                    let (store, done_tx, png) = (&store, done_tx.clone(), png(w));
+                    scope.spawn(move || {
+                        store.publish_at("win", &png, 5).unwrap();
+                        let _ = done_tx.send(());
+                    });
+                }
+                for _ in 0..2 {
+                    let _ = done_rx.recv_timeout(Duration::from_millis(500));
+                }
+                assert!(path.exists(), "{} was pruned before its publish returned", path.display());
+            });
+            assert!(first.unwrap().path.starts_with(&dir));
+        });
+        let _ = fs::remove_dir_all(&dir);
     }
 }
