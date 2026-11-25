@@ -41,6 +41,7 @@ on:
       - "Packages/Shared/CmuxChiefVoiceCore/**"
       - "Packages/Shared/CmuxConnectivityTelemetry/**"
       - "Packages/Shared/CmuxDeviceHub/**"
+      - "Packages/Shared/CmuxEgress/**"
       - "Packages/Shared/CmuxGhosttyKit/**"
       - "Packages/Shared/CmuxHomeCore/**"
       - "Packages/Shared/CmuxScreenKit/**"
@@ -79,6 +80,7 @@ on:
       - "Packages/Shared/CmuxChiefVoiceCore/**"
       - "Packages/Shared/CmuxConnectivityTelemetry/**"
       - "Packages/Shared/CmuxDeviceHub/**"
+      - "Packages/Shared/CmuxEgress/**"
       - "Packages/Shared/CmuxGhosttyKit/**"
       - "Packages/Shared/CmuxHomeCore/**"
       - "Packages/Shared/CmuxScreenKit/**"
@@ -680,7 +682,7 @@ jobs:
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-next-ios/rust
-          key: ios-review-gate
+          key: ios-review-gate-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-next-ios/rust/Cargo.lock', '.cargo/config.toml') }}
       - name: Build CmuxMobileLinkFFI.xcframework
         if: env.UDID != '' && (steps.ffi.outputs.cache-hit != 'true' || steps.ffi-place.outcome != 'success')
         env:
@@ -767,6 +769,16 @@ jobs:
           xcrun xcresulttool get test-results tests --path "$RESULTS/$family.xcresult" > "$RESULTS/$family.json" || true
           mkdir -p "$RESULTS/screens/$family"
           xcrun xcresulttool export attachments --path "$RESULTS/$family.xcresult" --output-path "$RESULTS/screens/$family" >/dev/null 2>&1 || true
+          # The iPad's stills at half size (1032x1376 on a 13-inch): full size they were 411 MB,
+          # which the report's Linux runner could not download in its 6 min (3 of 4 pull request
+          # runs on 2026-11-23) nor fetch as the baseline within the screen diff's 180 s. Only the
+          # screen diff reads them, comparing like with like; same input, same resample.
+          if [ "$family" = ipad ]; then
+            find "$RESULTS/screens/$family" -name '*.png' -type f -print0 | while IFS= read -r -d '' png; do
+              long="$(sips -g pixelWidth -g pixelHeight "$png" 2>/dev/null | awk '/pixel/ { if ($2 > m) m = $2 } END { print int(m / 2) }')"
+              if [ "${long:-0}" -gt 0 ]; then sips --resampleHeightWidthMax "$long" "$png" >/dev/null 2>&1 || true; fi
+            done
+          fi
           # The report job decides; this step only records.
           exit 0
       - name: Upload results

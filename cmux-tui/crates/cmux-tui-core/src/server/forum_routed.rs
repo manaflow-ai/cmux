@@ -204,6 +204,7 @@ impl Mux {
 
     /// Installs the forum owner (a test's fake transport) before the first op; false when one is
     /// already set up.
+    #[cfg(test)]
     pub(crate) fn install_forum_owner(&self, owner: ForumOwner) -> bool {
         self.cloud_services().forum.set(owner).is_ok()
     }

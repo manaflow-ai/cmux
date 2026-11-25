@@ -142,6 +142,9 @@ export const MINIMAL_MODE_KEY = "sidebar.minimal";
 /// Settings > Agent Chat > VS Code Minimap (chatMinimap/ChatMinimap.tsx), off by default. Not part of
 /// ChatDisplay: turning it on or off must not measure the transcript's rows again.
 export const CHAT_MINIMAP_KEY = "agentPane.display.vscodeMinimap";
+/// Settings > Agent Chat > Status Pills in All Chats (newtab/AllChatsList.tsx ChatStatusPill), off by
+/// default: a taste prototype (Taste Board #19). Not part of ChatDisplay: no transcript row is measured again.
+export const CHAT_LIST_STATUS_PILLS_KEY = "agentPane.display.chatListStatusPills";
 /// Settings > Agent Chat > Header Path, off by default (taste prototype, Taste Board #20): the header's
 /// title drawn as one monospace slash path, `repo / branch / title` (header/ThreadTitle.tsx). Off, the
 /// header shows the plain title as before. Not part of ChatDisplay: switching it measures no row again.
@@ -551,6 +554,7 @@ const quoteFamily = (name: string) => (/[,\s]/.test(name) && !name.includes(",")
 let current = DEFAULT_CHAT_DISPLAY;
 let raw: Values = {};
 let minimapOn = false;
+let statusPillsOn = false;
 let headerBreadcrumbOn = false;
 let pinnedPlanOn = false;
 let trayTuckedOn = false;
@@ -628,6 +632,7 @@ export function setChatDisplay(value: unknown): void {
   const nextHighContrastArm = experimentArm(highContrastLook);
   const next = resolveChatDisplay(highContrastLookValues(readingValues, nextHighContrastArm));
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
+  const statusPills = raw[CHAT_LIST_STATUS_PILLS_KEY] === true;
   const headerBreadcrumb = raw[HEADER_BREADCRUMB_KEY] === true;
   const pinnedPlan = raw[PINNED_PLAN_KEY] === true;
   const trayTucked = raw[TRAY_TUCKED_KEY] === true;
@@ -682,6 +687,7 @@ export function setChatDisplay(value: unknown): void {
     sameLook &&
     !facesChanged &&
     minimap === minimapOn &&
+    statusPills === statusPillsOn &&
     headerBreadcrumb === headerBreadcrumbOn &&
     pinnedPlan === pinnedPlanOn &&
     trayTucked === trayTuckedOn &&
@@ -706,6 +712,7 @@ export function setChatDisplay(value: unknown): void {
   environmentCardOn = environmentCard;
   changesPillOn = changesPill;
   minimapOn = minimap;
+  statusPillsOn = statusPills;
   headerBreadcrumbOn = headerBreadcrumb;
   pinnedPlanOn = pinnedPlan;
   trayTuckedOn = trayTucked;
@@ -894,6 +901,10 @@ const trayHandleSnapshot = () => trayHandle;
 /// Where the hat's tuck chevron and pull tab sit along the composer's top edge (TRAY_HANDLE_KEY).
 export const useTrayHandle = (): TrayHandleSide =>
   useSyncExternalStore(subscribe, trayHandleSnapshot, trayHandleSnapshot);
+const statusPillsSnapshot = () => statusPillsOn;
+/// Whether All Chats draws a status pill on its live chats (CHAT_LIST_STATUS_PILLS_KEY).
+export const useChatListStatusPills = (): boolean =>
+  useSyncExternalStore(subscribe, statusPillsSnapshot, statusPillsSnapshot);
 const railShowSnapshot = () => railShow;
 const railControlSnapshot = () => railControlOn;
 /// What the prompt rail shows (RAIL_SHOW_KEY), separate from the measured look: a change remeasures no row.
