@@ -51,7 +51,8 @@ import { turnCopyText } from "./turnCopy";
 import { workedLine } from "./workedLine.experiment";
 import { workedCountParts, workedOutcome, workedOutcomeParts, workedSentence, type WorkedPart } from "./workedOutcome";
 import { TimedLabel } from "./TurnTokens";
-import { AlertCircle, ChevronRight, Retry, Close } from "./icons";
+import { AlertCircle, Retry, Close } from "./icons";
+import { DisclosureChevron } from "./DisclosureChevron";
 import {
   ForkButton,
   MessageCopy,
@@ -215,7 +216,7 @@ export function WorkedFor({
       <span className="cv-worked__label">
         <WorkedLabel row={row} />
       </span>
-      <ChevronRight size={14} className={`cv-worked__chevron cv-rotor${expanded ? " is-open" : ""}`} />
+      <DisclosureChevron open={expanded} look="worked" />
     </button>
   );
 }
