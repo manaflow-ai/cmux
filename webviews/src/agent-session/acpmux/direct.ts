@@ -2622,8 +2622,6 @@ export class AcpmuxDirectClient {
         this.daemonProbeRefused = false;
         this.resetRequestCheck();
         this.wire.lifecycle("open");
-        // The action trace's spans and its status question go on this socket (actionTrace.ts).
-        actionTrace.connect((method, params) => this.request(method, params));
         resolve(socket);
       };
       socket.onerror = () => {
@@ -2683,6 +2681,11 @@ export class AcpmuxDirectClient {
         initializeParams(),
         AcpmuxDirectClient.DAEMON_PROBE_AFTER_MS,
       );
+      // The action trace's spans and its status question go on this socket (actionTrace.ts), after
+      // its initialize: a request before it is the connection's first frame, which the app's
+      // transport carries its token in, so the handshake never answered and the pane sat on
+      // "connecting" until the socket timed out.
+      actionTrace.connect((method, params) => this.request(method, params));
       this.canFork = servesOperation(initialized, FORK_OP);
       const features = initialized?._meta?.acpmux?.features;
       this.features = new Set(
