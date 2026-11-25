@@ -687,7 +687,10 @@ final class ConversationMediaDelegate: NSObject, UIImagePickerControllerDelegate
     /// A picked file: a photo becomes a photo attachment (as from Photos);
     /// anything else (or an image UIKit cannot decode) is sent as a file.
     static func composerAttachment(for url: URL, traits: UITraitCollection) async -> ComposerAttachment? {
-        guard let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
+        // Mapped, and read off the main thread: a 100 MB video is not copied into memory (its
+        // pages load as the upload reads them) and picking it never freezes the composer.
+        let read = Task.detached(priority: .userInitiated) { try? Data(contentsOf: url, options: .alwaysMapped) }
+        guard let data = await read.value, !data.isEmpty else { return nil }
         let file = ConversationPendingFile(data: data, name: url.lastPathComponent)
         if file.info.isImage, let image = UIImage(data: data) {
             return ComposerAttachment(image: image, data: data, mimeType: file.info.mimeType)
