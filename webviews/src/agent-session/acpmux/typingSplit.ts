@@ -281,7 +281,7 @@ export function instrumentView(view: EditorView) {
   anyView.updatePluginViews = function (this: unknown, ...args: unknown[]) {
     const names = [...(anyView.directPlugins ?? []), ...view.state.plugins]
       .filter((plugin) => plugin.spec.view)
-      .map((plugin) => plugin.key);
+      .map((plugin) => `${plugin.key}~${String(plugin.spec.view).replace(/\s+/g, " ").slice(0, 70)}`);
     anyView.pluginViews.forEach((pluginView, index) => {
       if (!pluginView.update || wrapped.has(pluginView)) return;
       wrapped.add(pluginView);
