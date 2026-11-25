@@ -11,5 +11,6 @@ description = "Measures NAT traversal between two real hosts: reflexive addresse
 workspace = true
 
 [dependencies]
+cmux-process.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }

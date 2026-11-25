@@ -17,10 +17,10 @@
 //! `cmux-nat-probe stun` prints only the NAT report (reflexive addresses, whether the mapping
 //! varies by destination, IPv6).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{BufRead, Write};
-use std::net::{IpAddr, SocketAddr, ToSocketAddrs, UdpSocket};
-use std::sync::mpsc;
+use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs, UdpSocket};
+use std::sync::{Mutex, MutexGuard, mpsc};
 use std::time::{Duration, Instant};
 
 use cmux_nat_probe::{Kind, Packet, quantile, stun_mapped, stun_request, usable_candidate};
@@ -66,12 +66,19 @@ fn run(args: &[String]) -> Result<(), (u8, String)> {
                     println!("RESULT {}", json!({"error": why}));
                     (1, why)
                 };
-                let stream = std::net::TcpStream::connect(&rv).map_err(fail)?;
+                let stream = TcpStream::connect(&rv).map_err(fail)?;
                 let _ = stream.set_nodelay(true);
                 let mut w = stream.try_clone().map_err(fail)?;
-                let _ = writeln!(w, "HELLO {token:x} {}", if role_a { "a" } else { "b" });
+                let label: String = flag("--label")
+                    .unwrap_or_default()
+                    .chars()
+                    .map(|c| if c.is_whitespace() { '_' } else { c })
+                    .collect();
+                let _ = writeln!(w, "HELLO {token:x} {} {label}", if role_a { "a" } else { "b" });
                 set_out(Box::new(Tee(w)));
-                pair(role_a, token, duration, pings, Box::new(std::io::BufReader::new(stream)));
+                let closer = stream.try_clone().map_err(fail)?;
+                let input = Box::new(std::io::BufReader::new(stream));
+                pair(role_a, token, duration, pings, input, Some(closer));
             } else {
                 pair(
                     role_a,
@@ -79,6 +86,7 @@ fn run(args: &[String]) -> Result<(), (u8, String)> {
                     duration,
                     pings,
                     Box::new(std::io::BufReader::new(std::io::stdin())),
+                    None,
                 );
             }
         }
@@ -86,6 +94,7 @@ fn run(args: &[String]) -> Result<(), (u8, String)> {
             rendezvous(
                 &flag("--listen").unwrap_or_else(|| "0.0.0.0:47391".into()),
                 args.iter().any(|a| a == "--answer"),
+                flag("--ledger"),
             )
             .map_err(|why| (1, why))?;
         }
@@ -93,7 +102,7 @@ fn run(args: &[String]) -> Result<(), (u8, String)> {
             return Err((
                 2,
                 "usage: cmux-nat-probe stun | pair --role a|b --token HEX [--duration-ms N] \
-                 [--pings N] [--rendezvous HOST:PORT] | rendezvous [--listen ADDR] [--answer]"
+                 [--pings N] [--rendezvous HOST:PORT] [--label L] | rendezvous [--listen ADDR] [--answer] [--ledger FILE]"
                     .into(),
             ));
         }
@@ -246,21 +255,40 @@ fn fam(addr: &SocketAddr) -> &'static str {
     if addr.is_ipv4() { "v4" } else { "v6" }
 }
 
-fn pair(role_a: bool, token: u64, duration: Duration, pings: u32, input: Box<dyn BufRead + Send>) {
+/// One side's run. The signalling reader lives in a thread scope: it ends at the input's `DONE`
+/// or end, or when `closer` (the rendezvous stream) is shut down after the result is sent.
+fn pair(
+    role_a: bool,
+    token: u64,
+    duration: Duration,
+    pings: u32,
+    input: Box<dyn BufRead + Send>,
+    closer: Option<TcpStream>,
+) {
+    let (tx, rx) = mpsc::channel::<String>();
+    std::thread::scope(|s| {
+        s.spawn(move || {
+            for line in input.lines().map_while(Result::ok) {
+                let done = line == "DONE";
+                if tx.send(line).is_err() || done {
+                    break;
+                }
+            }
+        });
+        measure(role_a, token, duration, pings, &rx);
+        if let Some(stream) = &closer {
+            let _ = stream.shutdown(std::net::Shutdown::Both);
+        }
+    });
+}
+
+fn measure(role_a: bool, token: u64, duration: Duration, pings: u32, rx: &mpsc::Receiver<String>) {
     let start = Instant::now();
     let ms = |at: Instant| at.duration_since(start).as_secs_f64() * 1000.0;
     let mut sides = Sides::bind();
     let me = sides.gather();
     emit("CANDS", &me);
 
-    let (tx, rx) = mpsc::channel::<String>();
-    std::thread::spawn(move || {
-        for line in input.lines().map_while(Result::ok) {
-            if tx.send(line).is_err() {
-                break;
-            }
-        }
-    });
     let peer = loop {
         match rx.recv_timeout(Duration::from_secs(30)) {
             Ok(line) => {
@@ -461,15 +489,14 @@ fn pair(role_a: bool, token: u64, duration: Duration, pings: u32, input: Box<dyn
     );
 }
 
-static OUT: std::sync::OnceLock<std::sync::Mutex<Box<dyn Write + Send>>> =
-    std::sync::OnceLock::new();
+static OUT: std::sync::OnceLock<Mutex<Box<dyn Write + Send>>> = std::sync::OnceLock::new();
 
 fn set_out(w: Box<dyn Write + Send>) {
-    let _ = OUT.set(std::sync::Mutex::new(w));
+    let _ = OUT.set(Mutex::new(w));
 }
 
 /// Writes each line to the rendezvous and to stdout, so the runner's log has the result too.
-struct Tee(std::net::TcpStream);
+struct Tee(TcpStream);
 
 impl Write for Tee {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
@@ -502,100 +529,167 @@ fn emit(tag: &str, v: &Value) {
 /// With `answer`, a side a whose token nobody waits on gets this host's own side b: the
 /// rendezvous starts `cmux-nat-probe pair --role b` for that token, so any remote host can
 /// measure its path to this one whenever its job runs, with no side b started by hand.
-fn rendezvous(listen: &str, answer: bool) -> Result<(), String> {
-    use std::collections::HashMap;
-    use std::net::TcpStream;
-    use std::sync::{Arc, Mutex};
+///
+/// With `ledger`, every RESULT is also appended to that file as one JSON line (`at` unix
+/// seconds, `token`, the sender's `from` address and `label`, the peer's `peer_label`, and
+/// the `result`): the NAT ledger's rows, which NOW's census reads.
+fn rendezvous(listen: &str, answer: bool, ledger: Option<String>) -> Result<(), String> {
     let listener = std::net::TcpListener::bind(listen)
         .map_err(|err| format!("rendezvous: bind {listen}: {err}"))?;
     eprintln!("rendezvous: listening on {listen}");
-    let waiting: Arc<Mutex<HashMap<String, TcpStream>>> = Arc::default();
-    let listen = listen.to_string();
-    for conn in listener.incoming().map_while(Result::ok) {
-        let waiting = Arc::clone(&waiting);
-        let listen = listen.clone();
-        std::thread::spawn(move || {
-            let _ = conn.set_nodelay(true);
-            let peer_addr = conn.peer_addr().map(|a| a.to_string()).unwrap_or_default();
-            let Ok(read_half) = conn.try_clone() else { return };
-            let mut reader = std::io::BufReader::new(read_half);
-            let mut hello = String::new();
-            if reader.read_line(&mut hello).is_err() {
-                return;
-            }
-            let mut parts = hello.split_whitespace();
-            let (Some("HELLO"), Some(token)) = (parts.next(), parts.next()) else { return };
-            let token = token.to_string();
-            let role_a = parts.next() == Some("a");
-            let other = {
-                let mut w = waiting.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                match w.remove(&token) {
-                    Some(other) => other,
-                    None => {
-                        w.insert(token.clone(), conn);
-                        if answer && role_a {
-                            answer_side_b(&listen, &token);
-                        }
-                        // The second side's thread relays for both.
-                        return;
-                    }
-                }
-            };
-            let other_addr = other.peer_addr().map(|a| a.to_string()).unwrap_or_default();
-            let relay = |from: TcpStream, mut to: TcpStream, from_addr: String, token: String| {
-                std::thread::spawn(move || {
-                    for line in std::io::BufReader::new(from).lines().map_while(Result::ok) {
-                        if line.starts_with("RESULT ") {
-                            println!("{token} {from_addr} {line}");
-                        }
-                        if writeln!(to, "{line}").is_err() {
-                            break;
-                        }
-                    }
-                    let _ = to.shutdown(std::net::Shutdown::Write);
-                })
-            };
-            let (Ok(other_read), Ok(conn_write)) = (other.try_clone(), conn.try_clone()) else {
-                return;
-            };
-            let a = relay(other_read, conn_write, other_addr, token.clone());
-            // This side's reader already consumed its HELLO line; relay the rest from it.
-            let mut to = other;
-            let me = std::thread::spawn({
-                let token = token.clone();
-                move || {
-                    for line in reader.lines().map_while(Result::ok) {
-                        if line.starts_with("RESULT ") {
-                            println!("{token} {peer_addr} {line}");
-                        }
-                        if writeln!(to, "{line}").is_err() {
-                            break;
-                        }
-                    }
-                    let _ = to.shutdown(std::net::Shutdown::Write);
-                }
-            });
-            let _ = a.join();
-            let _ = me.join();
-        });
-    }
+    let ledger = match ledger {
+        Some(path) => Some(Mutex::new(
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .map_err(|err| format!("rendezvous: ledger {path}: {err}"))?,
+        )),
+        None => None,
+    };
+    let shared = Shared {
+        listen: listen.to_string(),
+        answer,
+        waiting: Mutex::default(),
+        labels: Mutex::default(),
+        ledger,
+    };
+    // Every connection, relay and answered side b is a thread of this scope, joined by it.
+    std::thread::scope(|s| {
+        for conn in listener.incoming().map_while(Result::ok) {
+            let shared = &shared;
+            s.spawn(move || serve(s, conn, shared));
+        }
+    });
     Ok(())
 }
 
+/// The rendezvous's state, shared by its connections.
+struct Shared {
+    listen: String,
+    answer: bool,
+    /// The first side of each token, waiting for its peer.
+    waiting: Mutex<HashMap<String, TcpStream>>,
+    labels: Mutex<HashMap<String, String>>,
+    ledger: Option<Mutex<std::fs::File>>,
+}
+
+fn locked<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// One connection: reads its HELLO, then records a note, waits for its peer, or pairs with the
+/// peer that waits and relays both directions until either side ends.
+fn serve<'scope>(
+    s: &'scope std::thread::Scope<'scope, '_>,
+    conn: TcpStream,
+    shared: &'scope Shared,
+) {
+    let _ = conn.set_nodelay(true);
+    let peer_addr = conn.peer_addr().map(|a| a.to_string()).unwrap_or_default();
+    let Ok(read_half) = conn.try_clone() else { return };
+    let mut reader = std::io::BufReader::new(read_half);
+    let mut hello = String::new();
+    if reader.read_line(&mut hello).is_err() {
+        return;
+    }
+    let mut parts = hello.split_whitespace();
+    let (Some("HELLO"), Some(token)) = (parts.next(), parts.next()) else { return };
+    let token = token.to_string();
+    let role = parts.next();
+    let label = parts.next().unwrap_or("").to_string();
+    if role == Some("n") {
+        // A note (a Tailscale comparison row): recorded as sent, no pairing.
+        let seen = Seen { token, from: peer_addr, label, peer_label: String::new() };
+        relay(&mut reader, None, &seen, shared.ledger.as_ref());
+        return;
+    }
+    let Some(other) = locked(&shared.waiting).remove(&token) else {
+        locked(&shared.labels).insert(token.clone(), label);
+        locked(&shared.waiting).insert(token.clone(), conn);
+        if shared.answer && role == Some("a") {
+            answer_side_b(s, &shared.listen, &token);
+        }
+        // The second side's connection relays for both.
+        return;
+    };
+    let other_addr = other.peer_addr().map(|a| a.to_string()).unwrap_or_default();
+    let (Ok(other_read), Ok(conn_write)) = (other.try_clone(), conn.try_clone()) else {
+        return;
+    };
+    let other_label = locked(&shared.labels).remove(&token).unwrap_or_default();
+    let back = Seen {
+        token: token.clone(),
+        from: other_addr,
+        label: other_label.clone(),
+        peer_label: label.clone(),
+    };
+    s.spawn(move || {
+        let mut from = std::io::BufReader::new(other_read);
+        relay(&mut from, Some(conn_write), &back, shared.ledger.as_ref());
+    });
+    // This side's reader already consumed its HELLO line; relay the rest from it.
+    let forth = Seen { token, from: peer_addr, label, peer_label: other_label };
+    relay(&mut reader, Some(other), &forth, shared.ledger.as_ref());
+}
+
 /// Starts this host's side b for `token` against the rendezvous at `listen` (0.0.0.0 dials
-/// loopback). Its RESULT reaches the runner through the rendezvous like any side's.
-fn answer_side_b(listen: &str, token: &str) {
+/// loopback), and waits for it in the rendezvous's scope. Its RESULT reaches the runner through
+/// the rendezvous like any side's.
+fn answer_side_b<'scope>(s: &'scope std::thread::Scope<'scope, '_>, listen: &str, token: &str) {
     let dial = listen.replace("0.0.0.0", "127.0.0.1");
     let spawned = std::env::current_exe().and_then(|exe| {
-        std::process::Command::new(exe)
+        cmux_process::Command::new(exe)
             .args(["pair", "--role", "b", "--token", token, "--rendezvous", &dial])
-            .stdout(std::process::Stdio::null())
+            .stdout(cmux_process::Stdio::null())
             .spawn()
     });
     match spawned {
         Ok(mut child) => {
-            std::thread::spawn(move || child.wait());
+            s.spawn(move || {
+                let _ = child.wait();
+            });
         }
         Err(err) => eprintln!("rendezvous: answer {token}: {err}"),
+    }
+}
+
+/// Who sent the lines one relay carries.
+struct Seen {
+    token: String,
+    from: String,
+    label: String,
+    peer_label: String,
+}
+
+/// Relays lines from one side to the other until either ends; prints each RESULT tagged with
+/// the token and the sender's address, and appends it to the ledger when there is one.
+fn relay(
+    from: &mut dyn BufRead,
+    mut to: Option<TcpStream>,
+    seen: &Seen,
+    ledger: Option<&Mutex<std::fs::File>>,
+) {
+    for line in from.lines().map_while(Result::ok) {
+        if let Some(rest) = line.strip_prefix("RESULT ") {
+            println!("{} {} {line}", seen.token, seen.from);
+            if let Some(file) = ledger {
+                let at = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs());
+                let result = serde_json::from_str::<Value>(rest).unwrap_or(Value::Null);
+                let row = json!({"at": at, "token": seen.token, "from": seen.from,
+                    "label": seen.label, "peer_label": seen.peer_label, "result": result});
+                let _ = writeln!(locked(file), "{row}");
+            }
+        }
+        if let Some(to) = to.as_mut()
+            && writeln!(to, "{line}").is_err()
+        {
+            break;
+        }
+    }
+    if let Some(to) = to {
+        let _ = to.shutdown(std::net::Shutdown::Write);
     }
 }
