@@ -11,21 +11,16 @@ use unicode_segmentation::UnicodeSegmentation;
 pub const ROOT: &str = "root";
 
 /// Where the prefix, the keyword and the scope row enter a scope.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "scopes", rename_all = "camelCase")]
 pub enum Parents {
     /// Only from the root (the full palette).
+    #[default]
     Root,
     /// From any scope.
     Anywhere,
     /// From these scopes.
     Only(BTreeSet<String>),
-}
-
-impl Default for Parents {
-    fn default() -> Self {
-        Parents::Root
-    }
 }
 
 impl Parents {
@@ -282,7 +277,7 @@ pub fn split_first_grapheme(text: &str) -> Option<(&str, &str)> {
 /// assignment replaces the scope's default (a null one removes it), and any other scope that had
 /// an assigned character loses it, so the user's choice wins. An invalid character is ignored.
 pub fn apply_assigned_prefixes(
-    assigned: &std::collections::HashMap<String, Option<String>>,
+    assigned: &HashMap<String, Option<String>>,
     scopes: Vec<Descriptor>,
 ) -> Vec<Descriptor> {
     if assigned.is_empty() {

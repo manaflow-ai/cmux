@@ -565,10 +565,10 @@ fn check_invariants(reducer: &Reducer, state: &State, effects: &[Effect], contex
                 assert!(
                     reducer.graph.can_enter(&level.scope, &state.levels[index - 1].scope),
                     "{context}"
-                )
+                );
             }
             Entry::Row(_) | Entry::Drill(_) => {
-                assert!(reducer.graph.contains(&level.scope), "{context}")
+                assert!(reducer.graph.contains(&level.scope), "{context}");
             }
             _ => {}
         }
