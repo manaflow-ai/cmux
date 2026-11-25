@@ -200,6 +200,28 @@ class LandTierTests(unittest.TestCase):
         self.assertEqual(head_tier.tier("pull_request", land_event(labels=("ready-to-land",)), facts=facts,
                                         now=10 * 86400, land_switch="1")[0], "full")
 
+    def test_a_landing_pr_runs_its_agents_base_merges_on_the_cheap_tier(self) -> None:
+        # goal ci-min-per-pr-14: 285 open PRs with ready-to-land ran the full tier on every agent base merge (113k min).
+        rtl = ("ready-to-land",)
+        sync = {"base_merge_only": True, "own_last": 9 * 86400, "by_github": False}
+        self.assertEqual(head_tier.tier("pull_request", land_event(labels=rtl), facts=sync, now=10 * 86400,
+                                        land_switch="1")[0], "cheap")
+        green = {**sync, "previous_green": True}
+        self.assertEqual(head_tier.tier("pull_request", land_event(labels=rtl), facts=green, now=10 * 86400,
+                                        land_switch="1")[0], "none")
+        # GitHub's update-branch, an own commit, the label's own event and full-ci keep the full tier.
+        for facts in ({**sync, "by_github": True}, {"base_merge_only": False, "own_last": None, "by_github": False}):
+            self.assertEqual(head_tier.tier("pull_request", land_event(labels=rtl), facts=facts, now=10 * 86400,
+                                            land_switch="1")[0], "full")
+        self.assertEqual(head_tier.tier("pull_request", land_event(labels=rtl, action="labeled",
+                                                                   added="ready-to-land"),
+                                        facts=green, now=10 * 86400, land_switch="1")[0], "full")
+        self.assertEqual(head_tier.tier("pull_request", land_event(labels=rtl + ("full-ci",)), facts=green,
+                                        now=10 * 86400, land_switch="1")[0], "full")
+        # With the land rule off nothing holds a landing PR (no cmux/land-tier status to wake the land).
+        self.assertEqual(head_tier.tier("pull_request", land_event(labels=rtl), facts=sync, now=10 * 86400,
+                                        land_switch="0")[0], "full")
+
 
 DAY = 24 * 3600
 
@@ -357,9 +379,11 @@ class GreenBaseMergeTests(BranchRepo):
         recent = self.now - 2 * DAY - 60
         tier = self.tier
         facts = self.facts(True)
-        for label in ("full-ci", "ready-to-land"):
-            self.assertEqual(tier("pull_request", self.event(self.head, labels=(label,)), facts=facts,
-                                  now=recent)[0], "full", label)
+        self.assertEqual(tier("pull_request", self.event(self.head, labels=("full-ci",)), facts=facts,
+                              now=recent)[0], "full")
+        # ready-to-land no longer stops it (the landing base merge rule): the land re-adds the label for the full tier.
+        self.assertEqual(tier("pull_request", self.event(self.head, labels=("ready-to-land",)), facts=facts,
+                              now=recent)[0], "none")
         self.assertEqual(tier("pull_request", self.event(self.head), facts=facts, now=recent, green_switch="0")[0],
                          "cheap")
         # Where the green-head rule does not apply, the sync rule's cheap tier (or, with it off, the full tier) stays.

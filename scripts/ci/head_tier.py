@@ -50,6 +50,14 @@ comes from the Actions runs API (`actions: read`, $GH_TOKEN): the newest run of 
 have ended success, skipped or neutral; any other conclusion, a run still going, none at all or an unread answer keeps the
 head's usual tier. A head that merges something else, carries its own commit, or targets another base is unchanged.
 
+Landing base merge rule (goal ci-min-per-pr-14): the two base merge rules above (green-head, sync) hold on a pull
+request that already carries `ready-to-land` too. Over 11-24T10Z..11-25T10Z, 285 open PRs into feat-cmux-next that
+carried the label burned about 113k runner-minutes (merged ones with it another 65k): agents merge the base into a
+queued PR every hour or two, and every such head ran the whole full tier only because the label was on. Such a head
+posts `cmux/land-tier` pending like any cheap head; the land (land-judge's land_tier rule) adds the label again when a
+run after the label left the head on the cheap tier, and that `labeled` event runs the full tier on the exact head it
+merges. GitHub's update-branch (by_github) keeps the full tier as before, and so does a head with a commit of its own.
+
 Switches: the repository variable CI_LAND_TIER=0 turns the land rule off (every ready head is full again); the
 repository variable CI_DRAFT_CHEAP_TIER=0 (passed in as $CI_DRAFT_CHEAP_TIER) gives every draft head
 the full tier again; CI_IDLE_BASE_MERGE_SKIP=0 turns the idle rule off; CI_SYNC_MERGE_CHEAP=0 turns the sync rule
@@ -154,13 +162,14 @@ def runs_at(repo: str, sha: str, token: str) -> list | None:
 
 def green_rule_applies(event: dict, green_switch: str = "1", land_switch: str = "0") -> bool:
     """Whether the green-head base merge rule can apply to EVENT (before reading any fact): a synchronize into
-    feat-cmux-next (land_rule_applies) with both switches on and neither full-tier label."""
+    feat-cmux-next (land_rule_applies) with both switches on and no `full-ci` (`ready-to-land` does not stop it: the
+    landing base merge rule)."""
     pr = event.get("pull_request") or {}
     labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
     base = str((pr.get("base") or {}).get("ref") or "")
     return ((green_switch or "1").strip() != "0" and (land_switch or "0").strip() not in ("0", "")
             and event.get("action") == "synchronize" and land_rule_applies(event)
-            and not labels & {FULL_CI, LAND_LABEL})
+            and FULL_CI not in labels)
 
 
 def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = None, now: float | None = None,
@@ -180,12 +189,12 @@ def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = N
             facts, time.time() if now is None else now):
         return "none", (f"this head only merges the base into a pull request with no commit of its own for "
                         f"{IDLE_HOURS} h: nothing runs until a new commit, the land's merge run, or full-ci")
-    if (not landing and facts and facts.get("base_merge_only") and facts.get("previous_green") is True
+    if (facts and facts.get("base_merge_only") and facts.get("previous_green") is True
             and green_rule_applies(event, green_switch, land_switch)):
         return "none", (f"this head only merges the base onto {str(facts.get('previous') or '')[:10]}, whose every "
                         f"run passed: nothing runs until a new commit, {LAND_LABEL} (the land), or {FULL_CI}; "
                         f"{LAND_STATUS} stays pending")
-    if (sync_switch or "1").strip() != "0" and not landing and event.get("action") == "synchronize"\
+    if (sync_switch or "1").strip() != "0" and (not landing or land_on) and event.get("action") == "synchronize"\
             and sync_merge(facts):
         return "cheap", ("this head only merges the base into the pull request, with a merge commit that was made "
                          "by git, not GitHub: the cheap tier runs, and the branch's next commit of its own, "
