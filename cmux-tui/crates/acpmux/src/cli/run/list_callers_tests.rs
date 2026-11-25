@@ -168,6 +168,8 @@ async fn every_form_on(daemon: Daemon, peer_closed: bool) {
         vec!["-w"],
         vec!["--live"],
         vec!["--leads"],
+        vec!["--archived"],
+        vec!["--json", "--archived"],
         vec!["--pending"],
         vec!["--status", "idle"],
         vec!["--status", "running"],
@@ -244,6 +246,35 @@ async fn every_form_on(daemon: Daemon, peer_closed: bool) {
     assert!(more["nextCursor"].is_string(), "{more}");
 }
 
+/// `ls --archived` lists only the archived chats, here and on the v2 list alike, newest archive
+/// first, with `archivedAt` (null for an older client's `1`) and `archivedBy`.
+#[tokio::test]
+async fn ls_archived_lists_only_the_archived_chats() {
+    let daemon = serve(Serves::List, |hub| {
+        let rows = fixture(hub);
+        let tags = json!({"archived": "1700000000000", "archivedBy": "auto"});
+        hub.insert_test_session(meta("c-settled", "settled", "closed", 1_600_000_000_000, tags));
+        rows + 1
+    })
+    .await;
+    let now = 1_700_000_000_000 + 2 * 3_600_000;
+    for v2 in [false, true] {
+        let rows: Value =
+            serde_json::from_str(&ls(&daemon, &["--json", "--archived"], v2, now).await).unwrap();
+        let rows = rows["sessions"].as_array().unwrap();
+        let names: Vec<&str> = rows.iter().map(|r| r["name"].as_str().unwrap()).collect();
+        assert_eq!(names, ["settled", "archived-parent"], "v2: {v2}");
+        assert_eq!(rows[0]["archivedAt"], 1_700_000_000_000_u64);
+        assert_eq!(rows[0]["archivedBy"], "auto");
+        assert_eq!(rows[1]["archivedAt"], Value::Null);
+        assert_eq!(rows[1]["archivedBy"], "person");
+        let text = ls(&daemon, &["--archived"], v2, now).await;
+        assert!(text.starts_with("NAME"), "{text}");
+        assert!(text.contains("settled") && text.contains("2h ago"), "{text}");
+        assert!(!text.contains("closed-parent"), "{text}");
+    }
+}
+
 /// A walk of the whole view reads v1, whole, while another machine lists a closed row, and when
 /// the status does not say; a live form walks v2 all the same (decision 213).
 #[tokio::test]
@@ -282,6 +313,7 @@ async fn each_caller_runs_its_v1_path_on_a_daemon_without_the_list() {
                     harness: "claude".into(),
                     state: "idle".into(),
                     last_seen_at: crate::store::now_ms(),
+                    ..Default::default()
                 };
                 hub.set_mesh_book(hosts, vec![row]);
             }
@@ -397,6 +429,95 @@ async fn a_limit_then_its_cursor_read_every_row_once() {
         cursor = page["nextCursor"].as_str().map(str::to_owned);
     }
     assert_eq!(read, ids(&whole));
+}
+
+/// A send relay whose listing sleeps 30 s gives this daemon's rows anyway, at once: exit 0,
+/// under 2 s, one stderr line naming what is not listed, `remote.state` "missing". With a kept
+/// listing, its rows are merged and marked stale (Leo, 2026-11-22: "we need it to be able to run
+/// blazingly fast under duress"; `ls` exited 1 after 15 s while `lane-gh sessions` stalled).
+#[tokio::test]
+async fn a_stalled_relay_never_holds_or_fails_the_local_listing() {
+    use crate::cli::ls_far::{self, FAR_BUDGET};
+    let daemon = serve(Serves::List, fixture).await;
+    let now = crate::store::now_ms();
+    let plain: Value = serde_json::from_str(&ls(&daemon, &["--json"], false, now).await).unwrap();
+    let local = plain["sessions"].as_array().unwrap().len();
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path().join(ls_far::CACHE_FILE);
+    let stalled = || ls_far::tests::stalled_relay();
+    let far = |relay| {
+        ls_far::start_with(Some(relay), cache.clone(), Some(daemon.client.clone()), FAR_BUDGET)
+    };
+
+    let started = Instant::now();
+    let (out, line) = super::ls::scoped_output_with_far(
+        ls_args(&[]),
+        true,
+        &daemon.client,
+        Via::V1,
+        now,
+        far(stalled()),
+    )
+    .await
+    .expect("the local listing never fails for a far read");
+    let took = started.elapsed();
+    assert!(took < std::time::Duration::from_secs(2), "ls took {took:?} with a stalled relay");
+    let v: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["sessions"].as_array().unwrap().len(), local, "every local row is listed");
+    assert_eq!(v["remote"]["state"], "missing");
+    let line = line.unwrap();
+    assert!(
+        line.starts_with(
+            "acpmux: other machines' sessions through sh: not read within 1.5s; not listed\n"
+        ),
+        "{line}"
+    );
+
+    // A kept listing is merged, its rows with their asOfMs (not `stale`: no down peer's), and said on
+    // stderr with its age.
+    let row = json!({"peer": "relayed-vm", "sessionId": "r-1", "name": "relayed-vm/worker", "status": "idle", "updatedAt": now - 1});
+    ls_far::write_cache(&cache, "sh", &[row], now - 120_000);
+    // With a kept listing the relay is not waited on at all.
+    let started = Instant::now();
+    let (out, line) = super::ls::scoped_output_with_far(
+        ls_args(&[]),
+        true,
+        &daemon.client,
+        Via::V1,
+        now,
+        far(stalled()),
+    )
+    .await
+    .unwrap();
+    let v: Value = serde_json::from_str(&out).unwrap();
+    let rows = v["sessions"].as_array().unwrap();
+    assert_eq!(rows.len(), local + 1);
+    let cached = rows.iter().find(|r| r["sessionId"] == "r-1").unwrap();
+    assert!(cached.get("stale").is_none(), "{cached}");
+    assert_eq!(cached["asOfMs"], now - 120_000);
+    assert_eq!(v["remote"]["state"], "stale");
+    assert_eq!(v["remote"]["asOfMs"], now - 120_000);
+    let took = started.elapsed();
+    assert!(
+        took < std::time::Duration::from_millis(500),
+        "a kept listing waited on the relay: {took:?}"
+    );
+    assert!(line.unwrap().contains("from the last listing, refreshing; listed as of 2m ago"));
+
+    // The text view prints the local rows too, under the same budget.
+    let started = Instant::now();
+    let (text, _) = super::ls::scoped_output_with_far(
+        ls_args(&["--all"]),
+        false,
+        &daemon.client,
+        Via::V1,
+        now,
+        far(stalled()),
+    )
+    .await
+    .unwrap();
+    assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    assert!(text.contains("chat-0"), "{text}");
 }
 
 /// A counting proxy for `daemon`'s socket: what the daemon sends to every client through it.

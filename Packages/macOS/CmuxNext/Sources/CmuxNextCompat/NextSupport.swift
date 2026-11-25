@@ -58,9 +58,49 @@ public struct NextSupport: Sendable {
         return parts.joined(separator: "/")
     }
 
-    /// The user's `~/Library/Application Support`.
+    /// The user's `~/Library/Application Support`; `<state root>/Library/Application Support` under a
+    /// state root (``stateRootKey``).
     public static func applicationSupportDirectory() -> URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        if let root = currentStateRoot { return root.appendingPathComponent("Library/Application Support", isDirectory: true) }
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
     }
+
+    /// The user's `~/Library/Caches`, beside ``applicationSupportDirectory()``: `<state root>/Library/Caches` under a
+    /// state root (``stateRootKey``).
+    public static func cachesDirectory() -> URL {
+        applicationSupportDirectory().deletingLastPathComponent().appendingPathComponent("Caches", isDirectory: true)
+    }
+
+    // MARK: - State root
+
+    /// The launch variable naming a state root, an absolute folder that stands for the home of everything a
+    /// launch keeps: its Application Support and Caches are the root's `Library/Application Support` and
+    /// `Library/Caches`, and every sign-in it keeps in the Keychain carries ``runSegment(stateRoot:)``, so a
+    /// fresh folder is a fresh person. Rust's `cmux_cloud_environment::STATE_ROOT_ENV` reads the same
+    /// variable for the CLI and the daemon. Unset, blank or relative: no state root, nothing changes.
+    public static let stateRootKey = "CMUX_NEXT_STATE_ROOT"
+
+    /// The state root `environment` names: an absolute path, trailing slashes dropped; nil for an unset,
+    /// blank or relative value (Rust's `cmux_cloud_environment::state_root`).
+    public static func stateRoot(environment: [String: String]) -> URL? {
+        guard let value = environment[stateRootKey]?.trimmingCharacters(in: .whitespacesAndNewlines), value.hasPrefix("/") else {
+            return nil
+        }
+        var path = Substring(value)
+        while path.count > 1, path.hasSuffix("/") { path = path.dropLast() }
+        return URL(fileURLWithPath: String(path), isDirectory: true)
+    }
+
+    /// This process's state root, read once at first use.
+    public static let currentStateRoot: URL? = stateRoot(environment: ProcessInfo.processInfo.environment)
+
+    /// `run-` and the FNV-1a 64 hash of the root's path as 16 hex digits: the suffix of every Keychain service and
+    /// sign-in namespace a launch on `stateRoot` keeps (Rust's `cmux_cloud_environment::run_segment` makes the same).
+    public static func runSegment(stateRoot: URL) -> String {
+        "run-\(computerUseScope(stateRoot.path))"
+    }
+
+    /// This process's ``runSegment(stateRoot:)``; nil without a state root.
+    public static let currentRunSegment: String? = currentStateRoot.map { runSegment(stateRoot: $0) }
 }

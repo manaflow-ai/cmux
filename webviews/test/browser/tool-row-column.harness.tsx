@@ -67,7 +67,7 @@ const loneFailed = call({
   output: "Exit code 1\njson.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)",
 });
 
-const THOUGHT = "The fixture helper retries every failure the same way, so check how it decides to retry.";
+const THOUGHT = "The fixture helper retries every failure the same way.\nSo check how it decides to retry.";
 const doneThought: AcpmuxActivity = { kind: "thought", text: THOUGHT, startedAt: 1000, endedAt: 13_400 };
 const liveThought: AcpmuxActivity = { kind: "thought", text: THOUGHT };
 

@@ -18,6 +18,7 @@ import { pullLabel, type WhoElseCall, type WhoElseSession } from "./whoElseCalls
 import "./WhoElseCard.css";
 import { topicOnly, whatText } from "./whoElseCardModel";
 import { signed } from "../../../ui/Typography";
+import { intl } from "../../../ui/intl";
 
 /// Rows shown before "N more" opens the rest.
 const ROWS_SHOWN = 5;
@@ -82,7 +83,7 @@ export function WhoElseCard({ item, call }: { item: AcpmuxActivity; call: WhoEls
       {answer && answer.unreached.length > 0 && (
         <div className="cv-who-else__note">
           {t("whoElse.unreached", {
-            hosts: new Intl.ListFormat(language, { type: "conjunction" }).format(answer.unreached),
+            hosts: intl.ListFormat(language, { type: "conjunction" }).format(answer.unreached),
           })}
         </div>
       )}

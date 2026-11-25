@@ -1869,6 +1869,59 @@ export const stripeWebhookEvents = pgTable(
   ],
 );
 
+/**
+ * The cmux Cloud $1 pass (services/billing/cloudIntro.ts): one row per pass
+ * checkout an account started. `open` until Stripe verifies the payment, then
+ * `granted` (the pass runs from `started_at` to `ends_at`) or `refused` (the
+ * payment was refunded; `refusal` says why). Every started row counts as a
+ * card attempt; granted rows count toward the caps and are unique per account
+ * and per card fingerprint.
+ */
+export const cloudIntroPasses = pgTable(
+  "cloud_intro_passes",
+  {
+    checkoutSessionId: text("checkout_session_id").primaryKey(),
+    stackUserId: text("stack_user_id").notNull(),
+    /** The teams the account belonged to at checkout; a team gets one pass across its members. */
+    stackTeamIds: text("stack_team_ids").array().notNull().default(sql`'{}'::text[]`),
+    status: text("status").$type<"open" | "granted" | "refused">().notNull().default("open"),
+    refusal: text("refusal"),
+    paymentIntentId: text("payment_intent_id"),
+    stripeCustomerId: text("stripe_customer_id"),
+    cardFingerprint: text("card_fingerprint"),
+    cardFunding: text("card_funding"),
+    /** The buyer chose "continue on Plus after 30 days"; only then is the card saved. */
+    renewOnPlus: boolean("renew_on_plus").notNull().default(false),
+    /** The card saved for off-session use, when `renew_on_plus`. */
+    paymentMethodId: text("payment_method_id"),
+    refundId: text("refund_id"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    endsAt: timestamp("ends_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("cloud_intro_passes_stack_user_idx").on(table.stackUserId),
+    index("cloud_intro_passes_stack_team_ids_idx").using("gin", table.stackTeamIds),
+    index("cloud_intro_passes_granted_started_idx")
+      .on(table.startedAt)
+      .where(sql`${table.status} = 'granted'`),
+    uniqueIndex("cloud_intro_passes_payment_intent_unique")
+      .on(table.paymentIntentId)
+      .where(sql`${table.paymentIntentId} is not null`),
+    uniqueIndex("cloud_intro_passes_granted_user_unique")
+      .on(table.stackUserId)
+      .where(sql`${table.status} = 'granted'`),
+    uniqueIndex("cloud_intro_passes_granted_card_unique")
+      .on(table.cardFingerprint)
+      .where(sql`${table.status} = 'granted'`),
+    check(
+      "cloud_intro_passes_status_check",
+      sql`${table.status} in ('open', 'granted', 'refused')`,
+    ),
+  ],
+);
+
 export const proWelcomeFulfillments = pgTable(
   "pro_welcome_fulfillments",
   {

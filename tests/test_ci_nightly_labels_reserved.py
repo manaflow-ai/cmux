@@ -454,18 +454,14 @@ def test_the_rule_covers_the_workflows_it_should() -> None:
     assert not any(names_reserved(str(value)) for value in LIVE_VARS.values())
 
 
-def test_reusable_build_package_stays_off_the_labels_under_a_pr_caller() -> None:
-    # The reusable build names cmux-gcp-nightly-x64 for cmux-tui-artifacts.yml's dispatch and nightly-next runs.
-    # Called from a PR workflow it must not.
-    assert names_reserved((WORKFLOWS / "cmux-tui-build-package.yml").read_text(encoding="utf-8"))
+def test_reusable_build_package_stays_off_the_nightly_labels() -> None:
     for caller in STAND_IN_CALLERS:
         for context in contexts(caller, set(PR_EVENTS)):
             assert not leaks_in("cmux-tui-build-package.yml", context, {}), (caller, context["github.ref"])
-    # The same expression does pick the label for its real, push-only caller: the evaluator is not blind to it.
     context = next(contexts("cmux-tui-artifacts.yml", {"pull_request"}))
     context.update({"github.event_name": "workflow_dispatch", "github.ref": "refs/heads/nightly-next",
                     "github.workflow_ref": f"{UPSTREAM}/cmux/.github/workflows/cmux-tui-artifacts.yml@refs/heads/nightly-next"})
-    assert leaks_in("cmux-tui-build-package.yml", context, {}), "the dispatch route no longer reads as the nightly label"
+    assert not leaks_in("cmux-tui-build-package.yml", context, {})
 
 
 def test_cmux_next_jit_arm_is_push_only() -> None:
@@ -490,7 +486,7 @@ def test_the_guard_catches_a_leak() -> None:
         "jobs": {"build": {"runs-on": leak, "steps": [{"run": "true"}]},
                  "list": {"runs-on": ["self-hosted", "cmux-gcp-nightly-jit-x64"], "steps": [{"run": "true"}]},
                  "call": {"uses": "./.github/workflows/cmux-tui-build-package.yml",
-                          "with": {"linux_runner": "cmux-gcp-nightly-x64"}}},
+                          "with": {"windows_runner": "cmux-gcp-nightly-x64"}}},
     })
     name = "__synthetic_leak__.yml"
     original = _document
@@ -503,8 +499,8 @@ def test_the_guard_catches_a_leak() -> None:
         findings += _leaks_with(fake, name, context)
     assert any("jobs.build.runs-on -> cmux-gcp-nightly-x64" in f for f in findings), findings[:5]
     assert any("jobs.list.runs-on -> cmux-gcp-nightly-jit-x64" in f for f in findings), findings[:5]
-    assert any("jobs.call.with.linux_runner -> cmux-gcp-nightly-x64" in f for f in findings), findings[:5]
-    # The input reaches the reusable build's runs-on (`inputs.linux_runner != '' && ... && inputs.linux_runner`).
+    assert any("jobs.call.with.windows_runner -> cmux-gcp-nightly-x64" in f for f in findings), findings[:5]
+    # The input reaches the reusable workflow's Windows jobs.
     assert any("cmux-tui-build-package.yml <- " + name in f for f in findings), findings[:5]
     # A needs output whose producer prints the label is caught although the runner reads as ''.
     producer = workflow_jobs.document(yaml.safe_dump({

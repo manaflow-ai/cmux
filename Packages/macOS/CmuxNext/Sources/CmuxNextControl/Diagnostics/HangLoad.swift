@@ -54,8 +54,8 @@ extension HangLoad {
     ///
     /// The last line only when a checked blocking call was open (``BlockingOpenCall``).
     ///
-    /// Busy is CPU for at least half of the hang, the line the debug hang assertion draws too
-    /// (``MainThreadWatchdog/hangFailsAssertion(elapsedNanos:mainThreadCPUNanos:assertNanos:)``).
+    /// Busy is CPU for at least half of the hang, the line the debug busy-hang fault draws too
+    /// (``MainThreadWatchdog/hangIsBusy(elapsedNanos:mainThreadCPUNanos:assertNanos:)``).
     func lines(duration: Duration) -> [String] {
         var cpuLine = "main thread cpu: unknown"
         if let mainThreadCPU, duration > .zero {

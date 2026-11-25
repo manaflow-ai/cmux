@@ -72,6 +72,37 @@ const baseState: PermissionClientState = {
   busy: false,
 };
 
+// A subagent's shell ask as acpmux sends it: the command carries acpmux's caller line, and the item
+// carries the call's description (`summary`) and the command without that line (`command`).
+const subagentBare = "cmux agent last desktop-helper --json";
+const subagentState = (summary?: string): PermissionClientState => ({
+  ...baseState,
+  groups: [
+    {
+      ...pendingGroup,
+      items: [
+        {
+          permissionId: "permission-gallery-subagent",
+          state: "pending",
+          ...(summary ? { summary } : {}),
+          command: subagentBare,
+          request: {
+            toolCall: {
+              title: subagentBare,
+              kind: "execute",
+              rawInput: {
+                command: `export ACPMUX_CALLER_SUBAGENT=general-purpose:a1b2c3\n${subagentBare}`,
+                ...(summary ? { description: summary } : {}),
+                cwd: "/Users/you/src/cmux",
+              },
+            },
+          },
+        },
+      ],
+    },
+  ],
+});
+
 const resolvedState: PermissionClientState = {
   ...baseState,
   groups: [
@@ -296,6 +327,19 @@ export default componentEntry<Props>({
         ...callbacks,
       },
       play: expandDetails,
+    },
+    "subagent-described": {
+      note: "Leo 2026-11-23: a subagent's ask says what the call does, in plain text, not acpmux's caller line in code.",
+      props: { state: subagentState("Read the newest desktop-helper message"), ...callbacks },
+    },
+    "subagent-described-expanded": {
+      note: "Opened: the command as the agent wrote it, without the export line acpmux put before it.",
+      props: { state: subagentState("Read the newest desktop-helper message"), ...callbacks },
+      play: expandDetails,
+    },
+    "subagent-undescribed": {
+      note: "A subagent's ask with no description: the verb and the command, without acpmux's caller line.",
+      props: { state: subagentState(), ...callbacks },
     },
     "allow-once": {
       note: "Allow records the selected decision while the host owns the eventual state update.",

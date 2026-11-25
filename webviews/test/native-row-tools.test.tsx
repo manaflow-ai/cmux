@@ -761,7 +761,7 @@ test("every native id dispatches the shared handler; invalid, disabled and menu 
   expect(calls.at(-1)).toBe("inspector");
 });
 
-test("conditional quick actions and Browser's preview delegation keep the web behavior", () => {
+test("conditional quick actions keep the web behavior, and Browser never opens the chat's page (issue 49623)", () => {
   const calls: string[] = [];
   const input = quickInput(calls);
   expect(headerQuickTools({ ...input, tabTools: false })).toEqual([]);
@@ -780,9 +780,10 @@ test("conditional quick actions and Browser's preview delegation keep the web be
     actions: [{ id: "browser", mode: "toggle" }],
     lit: [HEADER_ACTIONS.preview],
   });
-  expect(nativeRowToolBindings(browser)[0]!.tool.toggled).toBe(true);
+  // An open preview does not light the globe, and the globe opens a blank browser, not the page.
+  expect(nativeRowToolBindings(browser)[0]!.tool.toggled).toBe(false);
   dispatchNativeRowTool({ id: "browser" }, nativeRowToolBindings(browser));
-  expect(calls).toEqual(["preview:toggle:http://localhost:5173/"]);
+  expect(calls).toEqual(["browser:toggle"]);
 });
 
 test("native row menus normalize labels and share one aggregate budget", () => {

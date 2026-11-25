@@ -2,20 +2,20 @@ import AppKit
 public import CmuxNextDesign
 
 /// How the screen-share viewer pane is drawn (Debug Settings `macScreen.viewerLook`, Leo 2026-11-21: "our screen shared
-/// screen looks like ass"). `current` is today's pane; `a`, `b` and `c` are slots for competing redesigns, each in its own
-/// file (`MacScreenViewerLook+A.swift` and so on) that only fills in its ``MacScreenViewerStyle``. They draw as `current`
-/// until a look sets its fields.
+/// screen looks like ass"). `a` is the default; `current` is the pane before the redesign; `b` and `c` are the competing
+/// redesigns, each in its own file (`MacScreenViewerLook+A.swift` and so on) that only fills in its ``MacScreenViewerStyle``.
 public nonisolated enum MacScreenViewerLook: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    /// The pane as shipped: a top toolbar bar, a black backdrop, a square picture, a popup card.
+    /// The pane before the redesign: a top toolbar bar, a black backdrop, a square picture, a popup card.
     case current
+    /// The default: quiet glass, picture first (``MacScreenViewerStyle/lookA``).
     case a
     case b
     case c
 
     public var tunableTitle: String {
         switch self {
-        case .current: "Current (default): top toolbar, black backdrop"
-        case .a: "Look A"
+        case .current: "Current: top toolbar, black backdrop"
+        case .a: "Look A (default): quiet glass, picture first"
         case .b: "Look B"
         case .c: "Look C: floating pill, full-pane states"
         }

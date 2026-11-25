@@ -13,6 +13,7 @@ import datetime as dt
 import gzip
 import importlib.util
 import json
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -174,6 +175,17 @@ class EvaluateTests(unittest.TestCase):
         self.assertEqual(len(api.paths), 3, api.paths)
         self.assertFalse(any("/runs/500/" in p or "/runs/3/" in p or "/runs/4/" in p for p in api.paths), api.paths)
 
+    def test_a_census_as_old_as_the_run_reads_it_still_picks(self):
+        """vars are read when the run starts and the pick runs after resolve (~13 min); runs 44990363506,
+        44992267457 and 44993740115 (2026-11-22) read censuses 30, 36 and 23 min old, fell back every time and
+        queued in one group: the second Mac never built. Busy comes from the live jobs listing, not the census."""
+        building = {1: [one("in_progress", "cmux15-glaeda")]}
+        for minutes in (23, 36, 45):
+            with self.subTest(minutes=minutes):
+                environment = env() | {"CI_RUNNER_STATE": census(fleet(), NOW - dt.timedelta(minutes=minutes))}
+                host, pin, why = pick_mod.evaluate(environment, Api([loop_run(1)], building), now=NOW)
+                self.assertEqual(host, "ultra1", why)
+
     def test_any_failure_is_cmux15_and_the_label_alone(self):
         def boom(path):
             raise OSError("HTTP 403: API rate limit exceeded")
@@ -189,6 +201,24 @@ class EvaluateTests(unittest.TestCase):
             with self.subTest(name):
                 host, pin, why = pick_mod.evaluate(environment, api, now=NOW)
                 self.assertEqual((host, pin), ("cmux15", LABEL_ONLY), why)
+
+    def test_the_spare_token_reads_first_and_a_403_moves_to_github_token(self):
+        import io
+        import urllib.error
+        from unittest import mock
+        seen = []
+
+        def fake(request, timeout, follow_redirects=False, raise_errors=False):
+            token = request.headers["Authorization"].split()[-1]
+            seen.append(token)
+            if token == "spare":
+                raise urllib.error.HTTPError(request.full_url, 403, "Forbidden", {}, io.BytesIO(b""))
+            return 200, json.dumps({"workflow_runs": []}).encode(), {}
+        with mock.patch.object(pick_mod.deadline_http, "request", side_effect=fake):
+            host, pin, why = pick_mod.evaluate(env(SPARE_READ_TOKEN="spare", GITHUB_TOKEN="gh"), now=NOW)
+        self.assertEqual(seen, ["spare", "gh"])
+        self.assertEqual(host, "cmux15")
+        self.assertNotIn("pick failed", why)
 
     def test_main_writes_host_and_pin(self):
         import os
@@ -221,7 +251,9 @@ class WorkflowTests(unittest.TestCase):
     def test_the_pick_reads_no_secret_and_runs_before_the_build(self):
         import yaml
         text = yaml.safe_dump(self.pick)
-        self.assertNotIn("secrets.", text)
+        # One secret: the glaeda-route App key for a read-only (contents, actions) token, as decide mints on the same
+        # runner, so the pick has its own API budget (run 45575194160's pick 403d on github.token's).
+        self.assertEqual(set(re.findall(r"secrets\.\w+", text)), {"secrets.GLAEDA_ROUTE_APP_KEY"})
         self.assertNotIn("environment", self.pick)
         self.assertEqual(self.pick.get("permissions"), {"actions": "read", "contents": "read"})
         self.assertIn("pick-nightly-next-signer", self.one["needs"])

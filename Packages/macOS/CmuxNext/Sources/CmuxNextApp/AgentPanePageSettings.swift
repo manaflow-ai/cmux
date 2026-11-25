@@ -86,9 +86,11 @@ final class AgentPanePageSettings {
     private func followDisplay(_ settings: SettingsController, push: @escaping () -> Void) {
         // task-owner: lives as long as the tabs; event-driven (Observation)
         displayObservation = Task { [weak self] in
-            for await (root, managed) in ObservationStream({ settings.chatDisplayInputs }) {
+            for await (inputs, lookRoot) in ObservationStream({ (settings.chatDisplayInputs, settings.applied.root) }) {
                 guard let fontFaces = self?.fontFaces else { return }
-                let value = await AgentPaneDisplaySetting.read(fileRoot: root, managedHarnessPlacement: managed, fontFaces: fontFaces)
+                let value = await AgentPaneDisplaySetting.read(fileRoot: inputs.root, lookRoot: lookRoot,
+                                                               managedHarnessPlacement: inputs.managedHarnessPlacement,
+                                                               fontFaces: fontFaces)
                 guard let self, value != display else { continue }
                 display = value
                 push()

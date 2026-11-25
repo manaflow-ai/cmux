@@ -27,6 +27,8 @@
 # this commit unless nightly-next already moved (nightly-steps/slot-left-retry.sh). That retry waits for the promotion
 # in resolve (this script without IN_SLOT, off the signing Mac) and leaves to it, or builds this commit after
 # YIELD_MINUTES. The loop's last retry (LOOP_RETRY 2) has no retry after it, so at the slot it asks the tick and builds.
+# It builds too when no commit after its own has a published tree (newer_marked, below): the tick promotes only those
+# (or the tip, tree-pending), so leaving would only bring this commit back two retries later.
 # Every gh call here is bounded (timeout.sh) and never waits through a rate limit (GH_BUDGET_WAIT_MAX_SECONDS=0): a
 # refused or slow read is unknown, which keeps the slot and builds, as before.
 # Env: TIP_SHA, REPOSITORY, GH_TOKEN; LOOP_RETRY (nightly_next_loop_retry); SUPERSEDE_SKIP (vars.NIGHTLY_NEXT_SUPERSEDE_SKIP,
@@ -87,15 +89,55 @@ if [[ -z "$stale" || ! "$tip" =~ ^[0-9a-f]{40}$ || "$tip" == "$TIP_SHA" ]]; then
   echo "superseded=false" >> "$GITHUB_OUTPUT"
   exit 0
 fi
+# Whether a commit after TIP_SHA, up to $tip, has a published tree (tree-commit-marker.sh: a public read, no API
+# budget). Main's tick promotes only such commits (or the tip, tree-pending), so with none of them a run that leaves
+# the slot comes back to build its own commit: run 44935705074 of c3ddff (2026-11-21) left at 18:40 with nothing
+# marked, its two retries yielded 6 min each (one failed on another Mac) and built c3ddff at 19:03, 24 min after the
+# slot was free. Prints "marked <sha>" for the first marked one, "none" when every read came back not marked;
+# anything else (a compare or marker read failure, more than NEWER_CHECK_MAX commits, the NEWER_CHECK_SECONDS bound)
+# prints nothing, and the run leaves as before.
+newer_marked() {
+  local marker="$here/../../cmux-next/tree-commit-marker.sh" shas sha rc deadline left
+  [[ -f "$marker" ]] || return 0
+  shas="$(gh_bounded api "repos/$REPOSITORY/compare/$TIP_SHA...$tip" \
+    --jq 'select(.status == "ahead" and .ahead_by == (.commits | length)) | .commits[].sha' 2>/dev/null)" || return 0
+  [[ -n "$shas" ]] || return 0
+  (( $(wc -l <<<"$shas") <= ${NEWER_CHECK_MAX:-60} )) || return 0
+  deadline=$(( $(date -u +%s) + ${NEWER_CHECK_SECONDS:-90} ))
+  # Newest first: the tick promotes the newest buildable commit, and markers are written for a window from the tip.
+  while IFS= read -r sha; do
+    # Each read gets only the time left, so the reads together stay inside NEWER_CHECK_SECONDS.
+    left=$(( deadline - $(date -u +%s) ))
+    (( left > 0 )) || return 0
+    (( left <= ${GH_CALL_SECONDS:-30} )) || left=${GH_CALL_SECONDS:-30}
+    [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || return 0
+    rc=0; bash "$here/../timeout.sh" "$left" bash "$marker" check "$sha" >/dev/null 2>&1 || rc=$?
+    case "$rc" in
+      0) echo "marked $sha"; return 0 ;;
+      1) ;;
+      *) return 0 ;;
+    esac
+  done < <(awk '{ l[NR] = $0 } END { for (i = NR; i > 0; i--) print l[i] }' <<<"$shas")
+  # A last read that ended past the bound is not a clean answer: leave as before.
+  (( $(date -u +%s) <= deadline )) || return 0
+  echo none
+}
 if [[ -n "${IN_SLOT:-}" ]]; then
   # Already promoted: the newer push's run builds it.
   current="$(poll_head)"
   moved "$current" && leave "$current"
+  newer="$(newer_marked)"
+  [[ -z "$newer" ]] || echo "newer buildable commits: $newer"
   # Main's tick, now: it counts this run as building nothing (LEAVE_ONE_STEP) and promotes the newest buildable commit.
   if gh_bounded workflow run nightly-next-tick.yml --repo "$REPOSITORY" --ref main; then
     echo "asked main's nightly-next tick to promote the newest buildable commit"
   else
     echo "::warning::could not ask main's nightly-next tick; wake-nightly-next-tick asks again when this job ends"
+  fi
+  if [[ "$newer" == none ]]; then
+    echo "$stale, and feat-cmux-next is at $tip, but no commit after $TIP_SHA has a published tree: the tick has nothing newer to promote, so building $TIP_SHA now"
+    echo "superseded=false" >> "$GITHUB_OUTPUT"
+    exit 0
   fi
   tries=0
   if [[ "${LOOP_RETRY:-}" =~ ^[0-9]+$ ]]; then tries="$LOOP_RETRY"; fi

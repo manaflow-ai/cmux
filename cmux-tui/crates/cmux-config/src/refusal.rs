@@ -81,8 +81,17 @@ impl fmt::Display for Refusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Refusal::Managed { key, source } => f.write_str(&source.reason(key)),
-            Refusal::InvalidValue { key, value, .. } => {
-                write!(f, "{key} does not accept {}", compact(value))
+            // A document is too long to quote: the refusal says where it goes wrong instead.
+            Refusal::InvalidValue {
+                key, accepted: Accepted::Document { schema, reason }, ..
+            } => write!(f, "{key} is not a {schema} document: {reason}"),
+            Refusal::InvalidValue { key, value, accepted, .. } => {
+                write!(f, "{key} does not accept {}", compact(value))?;
+                // A nested value says where it went wrong (`...lines[3]: tooManyLines`).
+                match accepted.first_problem() {
+                    Some(problem) => write!(f, " ({problem})"),
+                    None => Ok(()),
+                }
             }
             Refusal::Removed { key, reason } => write!(f, "{key} was removed: {reason}"),
             Refusal::InvalidParams { message } => f.write_str(message),

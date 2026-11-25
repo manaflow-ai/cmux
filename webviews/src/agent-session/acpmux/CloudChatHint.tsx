@@ -2,6 +2,7 @@ import { useState } from "react";
 import { motionMode } from "../../ui/motion/motionMode";
 import { EnvironmentIcon } from "./EnvironmentPicker";
 import { useT } from "./i18n";
+import "./conversation/cardFit.css";
 import "./cloudChatHint.css";
 
 /// How the hint draws (CloudChatHint.gallery.tsx compares them): `line`, one quiet row over the
@@ -42,36 +43,47 @@ export function CloudChatHint({
       }}
     >
       <div className="acpmux-cloud-hint-clip">
-        <aside className="acpmux-cloud-hint" data-look={look} aria-label={t("cloudHint.label")}>
-          <span className="acpmux-cloud-hint-icon" aria-hidden="true">
-            <EnvironmentIcon kind="cloud" />
-          </span>
-          {look === "chip" ? null : (
-            <span className="acpmux-cloud-hint-text">
-              {look === "card" && <strong className="acpmux-cloud-hint-title">{t("cloudHint.title")}</strong>}
-              <span className="acpmux-cloud-hint-body">{t("cloudHint.body")}</span>
+        {/* Its own width decides the layout (cardFit.css): a narrow pane puts Use Cloud and the X under
+            the sentence. The chip sizes to its content, which inline-size containment would collapse,
+            so it is no fit card. */}
+        <aside
+          className={look === "chip" ? "acpmux-cloud-hint" : "acpmux-cloud-hint cv-fit"}
+          data-look={look}
+          aria-label={t("cloudHint.label")}
+        >
+          <div className="acpmux-cloud-hint-row cv-fit-row">
+            <span className="acpmux-cloud-hint-icon" aria-hidden="true">
+              <EnvironmentIcon kind="cloud" />
             </span>
-          )}
-          <button
-            type="button"
-            className="acpmux-cloud-hint-use"
-            data-testid="cloud-hint-use"
-            onClick={() => leave(onUse)}
-          >
-            {t(look === "chip" ? "cloudHint.try" : "cloudHint.use")}
-          </button>
-          <button
-            type="button"
-            className="acpmux-cloud-hint-close"
-            data-testid="cloud-hint-close"
-            aria-label={t("cloudHint.close")}
-            data-tooltip={t("cloudHint.close")}
-            onClick={() => leave(onClose)}
-          >
-            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
-              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-          </button>
+            {look === "chip" ? null : (
+              <span className="acpmux-cloud-hint-text cv-fit-text">
+                {look === "card" && <strong className="acpmux-cloud-hint-title">{t("cloudHint.title")}</strong>}
+                <span className="acpmux-cloud-hint-body">{t("cloudHint.body")}</span>
+              </span>
+            )}
+            <span className="acpmux-cloud-hint-actions cv-fit-actions">
+              <button
+                type="button"
+                className="acpmux-cloud-hint-use"
+                data-testid="cloud-hint-use"
+                onClick={() => leave(onUse)}
+              >
+                {t(look === "chip" ? "cloudHint.try" : "cloudHint.use")}
+              </button>
+              <button
+                type="button"
+                className="acpmux-cloud-hint-close"
+                data-testid="cloud-hint-close"
+                aria-label={t("cloudHint.close")}
+                data-tooltip={t("cloudHint.close")}
+                onClick={() => leave(onClose)}
+              >
+                <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                  <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+              </button>
+            </span>
+          </div>
         </aside>
       </div>
     </div>

@@ -12,7 +12,7 @@
 //!   `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO` (OpenSSL, rustls native roots, Python,
 //!   curl, git, Go on Linux) to the system bundle plus the CA. Only agent
 //!   processes get these; the CA is never added to the OS store, and its key
-//!   is only in this daemon's memory.
+//!   is kept only in `vault-egress/ca-key.pem` (0600, in the 0700 folder).
 //! - A launch whose environment already names an `HTTPS_PROXY` keeps it:
 //!   its placeholders are then never filled (fail closed), logged once as
 //!   `vault.egress_proxy_conflict`.
@@ -24,6 +24,32 @@
 //! - The proxy starts on the first spawn that needs it and runs for the
 //!   daemon's life. Each request reads the entries again (at most 2 s old),
 //!   so a revoke, a removed grant or a narrowed host list holds within that.
+//! - Its port outlives the daemon: the port it took is kept in
+//!   `vault-egress/port` and the next daemon binds the same one, a new one
+//!   only when that is taken ([`bind_stable`]). Agent hosts outlive a daemon
+//!   restart (an update every 15 min, a crash), and every agent they run was
+//!   given `HTTPS_PROXY` at its spawn: with a new port each restart, each of
+//!   them reached a closed port (`ECONNREFUSED`) until restarted by hand
+//!   (2026-11-21: 20 chats on one machine `harness_unavailable`). With the
+//!   port kept, the tools such an agent runs (git, curl, gh, Python), which
+//!   read the trust files anew, keep working. Only the daemon writes the port
+//!   down: another acpmux process with a proxy of its own never moves it.
+//! - The CA outlives the daemon too ([`kept_or_new_authority`]): its key is
+//!   kept in `vault-egress/ca-key.pem` beside its certificate (`ca.pem`), and
+//!   the next daemon serves the same CA; a new one only when they are missing,
+//!   not a pair, or within 45 days of the end (`CA_RENEW_BEFORE`). A Node
+//!   agent reads `NODE_EXTRA_CA_CERTS` once at its start: with a new CA each
+//!   start, every Claude an earlier daemon started failed TLS to its model
+//!   endpoint (`UNABLE_TO_VERIFY_LEAF_SIGNATURE`, 2026-11-22, two Freestyle
+//!   lanes after an hourly restart). The key file is readable by this uid
+//!   only; it signs only for this machine's agents and holds no vault value.
+//!   The trust files never extend a file of ours a launch inherited
+//!   ([`write_trust`]), so they hold the CA once however often it restarts.
+//! - Every spawn also gets [`EPOCH_VAR`], naming the CA it trusts (from the
+//!   certificate, so the same across daemons that serve it); an agent whose
+//!   env names our proxy and another CA is restarted between turns, on
+//!   adoption (`hub/stale_host_respawn.rs`) and before an automatic retry
+//!   (`hub/auto_resume.rs`), never in a turn ([`stale_proxy_env`]).
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -37,6 +63,8 @@ use super::Given;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Running {
     pub port: u16,
+    /// The proxy's CA ([`ca_epoch`]): what [`EPOCH_VAR`] carries.
+    pub epoch: String,
     /// The CA, plus whatever `NODE_EXTRA_CA_CERTS` named before.
     pub node_ca: PathBuf,
     /// The system bundle (or the inherited `SSL_CERT_FILE`) plus the CA;
@@ -71,13 +99,62 @@ const SYSTEM_BUNDLES: &[&str] = &[
     "/etc/ssl/cert.pem",
 ];
 
+/// Names the CA a spawn was told to trust ([`Running::epoch`]).
+pub(crate) const EPOCH_VAR: &str = "CMUX_VAULT_EGRESS_EPOCH";
+/// The file, in `vault-egress/`, that keeps the proxy's port for the next daemon.
+const PORT_FILE: &str = "port";
+/// The files, in `vault-egress/`, that keep the CA for the next daemon: its
+/// key (0600, never given to agents) and its certificate.
+const CA_KEY_FILE: &str = "ca-key.pem";
+const CA_CERT_FILE: &str = "ca.pem";
+
 /// The proxy's part of the agent pool's key: a spawn made before the proxy
-/// started (or on another port) is not reused.
+/// started (or on another port, or with another CA) is not reused.
 pub(crate) fn stamp() -> String {
     match &*SLOT.lock().unwrap_or_else(|e| e.into_inner()) {
-        Slot::Up(running) => running.port.to_string(),
+        Slot::Up(running) => format!("{}:{}", running.port, running.epoch),
         _ => "off".to_owned(),
     }
+}
+
+/// The running proxy's start, if it runs in this daemon.
+fn live_epoch() -> Option<String> {
+    match &*SLOT.lock().unwrap_or_else(|e| e.into_inner()) {
+        Slot::Up(running) => Some(running.epoch.clone()),
+        _ => None,
+    }
+}
+
+/// Whether an agent started with `env` was sent through this daemon's proxy
+/// (its `NODE_EXTRA_CA_CERTS` is `node_ca`, ours) trusting a CA other than
+/// `live`'s (None: the proxy has not started in this daemon). Such an agent
+/// reaches a proxy whose CA it does not trust: it needs a restart. One an
+/// earlier daemon started with the same kept CA is not stale. An agent with
+/// no proxy, or another one, is never stale; one from
+/// a build before [`EPOCH_VAR`] (ours, no epoch) always is.
+pub(crate) fn stale_proxy_env(
+    env: &[(String, String)],
+    node_ca: &Path,
+    live: Option<&str>,
+) -> bool {
+    let get = |name: &str| env.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str());
+    let ours = get("NODE_EXTRA_CA_CERTS").is_some_and(|p| Path::new(p) == node_ca)
+        && get("HTTPS_PROXY").is_some_and(|u| u.starts_with("http://127.0.0.1:"));
+    ours && get(EPOCH_VAR) != live
+}
+
+/// [`stale_proxy_env`] for the running process `pid`, judged against this
+/// daemon's proxy; false when its env cannot be read (unknown is not stale).
+#[cfg(unix)]
+pub(crate) fn stale_proxy_pid(pid: u32) -> bool {
+    let Some(env) = crate::agent_host::tree::environ(pid) else { return false };
+    let node_ca = crate::config::home().join("vault-egress").join("node-extra-ca.pem");
+    stale_proxy_env(&env, &node_ca, live_epoch().as_deref())
+}
+
+#[cfg(not(unix))]
+pub(crate) fn stale_proxy_pid(_pid: u32) -> bool {
+    false
 }
 
 /// What a spawn's env gets from `entries` (see the module docs).
@@ -140,6 +217,7 @@ fn proxy_env(
     let url = format!("http://127.0.0.1:{}", running.port);
     out.push(("HTTPS_PROXY".to_owned(), url.clone()));
     out.push(("https_proxy".to_owned(), url));
+    out.push((EPOCH_VAR.to_owned(), running.epoch.clone()));
     let no_proxy = no_proxy(inherited("NO_PROXY").or_else(|| inherited("no_proxy")));
     out.push(("NO_PROXY".to_owned(), no_proxy.clone()));
     out.push(("no_proxy".to_owned(), no_proxy));
@@ -211,15 +289,19 @@ fn ensure() -> Option<Running> {
 
 fn start(home: &Path) -> Result<Running, &'static str> {
     let runtime = tokio::runtime::Handle::try_current().map_err(|_| "vault.egress_no_runtime")?;
-    let authority = Arc::new(Authority::generate().map_err(|_| "vault.egress_ca")?);
+    let dir = home.join("vault-egress");
+    private_folder(&dir).map_err(|_| "vault.egress_trust_files")?;
+    let authority = Arc::new(kept_or_new_authority(&dir)?);
     let upstream_tls =
         cmux_vault_egress::upstream_tls_from_os().map_err(|_| "vault.egress_no_roots")?;
-    let (node_ca, bundle) = write_trust(&home.join("vault-egress"), authority.pem(), &inherited)
-        .map_err(|_| "vault.egress_trust_files")?;
-    let listener =
-        std::net::TcpListener::bind(("127.0.0.1", 0)).map_err(|_| "vault.egress_bind")?;
+    let (node_ca, bundle) =
+        write_trust(&dir, authority.pem(), &inherited).map_err(|_| "vault.egress_trust_files")?;
+    let argv: Vec<String> = std::env::args().collect();
+    let daemon = crate::cli::is_daemon_run(&argv);
+    let listener = bind_stable(&dir, daemon).map_err(|_| "vault.egress_bind")?;
     listener.set_nonblocking(true).map_err(|_| "vault.egress_bind")?;
     let port = listener.local_addr().map_err(|_| "vault.egress_bind")?.port();
+    let epoch = ca_epoch(authority.pem());
     let config = Arc::new(Config {
         policy: Arc::new(policy_now),
         authority,
@@ -235,22 +317,102 @@ fn start(home: &Path) -> Result<Running, &'static str> {
             tracing::error!(code = "vault.egress_stopped", kind = ?e.kind(), "vault egress proxy stopped");
         }
     });
-    Ok(Running { port, node_ca, bundle })
+    Ok(Running { port, epoch, node_ca, bundle })
 }
 
-/// Write the trust files agents get, in `dir` (0700; the files hold
-/// certificates only, never a key).
-fn write_trust(
-    dir: &Path,
-    ca_pem: &str,
-    inherited: &dyn Fn(&str) -> Option<String>,
-) -> std::io::Result<(PathBuf, Option<PathBuf>)> {
+/// A loopback listener on the port the last proxy had (`dir/port`), so the
+/// agents an earlier daemon started still reach it; on a new port, written
+/// down, when there is none yet or another process holds it. Only the daemon
+/// (`keep`) writes the port down: another acpmux process that starts a proxy
+/// of its own finds the daemon's port held and takes a new one, and writing
+/// that down sent the next daemon to it, away from every agent on the old
+/// port (a Freestyle lane, 2026-11-22 17:03Z: the file named 45835, which
+/// nothing served until the 17:09Z restart moved the daemon there).
+fn bind_stable(dir: &Path, keep: bool) -> std::io::Result<std::net::TcpListener> {
+    let file = dir.join(PORT_FILE);
+    let kept = std::fs::read_to_string(&file).ok().and_then(|t| t.trim().parse::<u16>().ok());
+    if let Some(port) = kept.filter(|p| *p != 0)
+        && let Ok(listener) = std::net::TcpListener::bind(("127.0.0.1", port))
+    {
+        return Ok(listener);
+    }
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0))?;
+    let port = listener.local_addr()?.port();
+    if !keep {
+        return Ok(listener);
+    }
+    if kept.is_some() {
+        tracing::warn!(
+            code = "vault.egress_port_moved",
+            from = ?kept,
+            port,
+            "the vault egress proxy's port was taken: agents started before now restart between turns"
+        );
+    }
+    // Not keeping it costs only the next restart's port, never this start.
+    if let Err(e) = replace(&file, &format!("{port}\n")) {
+        tracing::warn!(code = "vault.egress_port_not_kept", kind = ?e.kind(), "vault egress port not kept");
+    }
+    Ok(listener)
+}
+
+/// A name for the CA `ca_pem`: the same in every daemon that serves it.
+fn ca_epoch(ca_pem: &str) -> String {
+    use sha2::Digest as _;
+    let digest = sha2::Sha256::digest(ca_pem.trim().as_bytes());
+    digest[..16].iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// `dir`, made and owner-only (0700).
+fn private_folder(dir: &Path) -> std::io::Result<()> {
     crate::home_fs::create_dirs(dir)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
         crate::home_fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
     }
+    Ok(())
+}
+
+/// The CA an earlier daemon kept in `dir` ([`CA_KEY_FILE`], [`CA_CERT_FILE`]),
+/// when it is still a valid pair; otherwise a new one, kept there for the
+/// next daemon. Not keeping it costs only the next restart's CA, never this
+/// start. Logs a code, never key material.
+fn kept_or_new_authority(dir: &Path) -> Result<Authority, &'static str> {
+    let key = std::fs::read_to_string(dir.join(CA_KEY_FILE)).ok().map(zeroize::Zeroizing::new);
+    let cert = std::fs::read_to_string(dir.join(CA_CERT_FILE)).ok();
+    let why = match (key, cert) {
+        (Some(key), Some(cert)) => match Authority::from_kept(&key, &cert) {
+            Ok(authority) => return Ok(authority),
+            Err(why) => Some(why.code()),
+        },
+        _ => None,
+    };
+    let authority = Authority::generate().map_err(|_| "vault.egress_ca")?;
+    if let Some(code) = why {
+        tracing::warn!(
+            code,
+            "vault egress CA not reused: a new one; agents started before now restart between turns"
+        );
+    }
+    // The key first: a crash between the two leaves a pair that does not
+    // match, and the next daemon makes a new CA.
+    let kept = crate::home_fs::write(dir.join(CA_KEY_FILE), authority.key_pem().as_bytes())
+        .and_then(|()| crate::home_fs::write(dir.join(CA_CERT_FILE), authority.pem()));
+    if let Err(e) = kept {
+        tracing::warn!(code = "vault.egress_ca_not_kept", kind = ?e.kind(), "vault egress CA not kept");
+    }
+    Ok(authority)
+}
+
+/// Write the trust files agents get, in `dir` (0700, made by
+/// [`private_folder`]; the files hold certificates only, never a key).
+fn write_trust(
+    dir: &Path,
+    ca_pem: &str,
+    inherited: &dyn Fn(&str) -> Option<String>,
+) -> std::io::Result<(PathBuf, Option<PathBuf>)> {
+    private_folder(dir)?;
     let read = |path: &str| std::fs::read_to_string(path).ok().filter(|t| t.contains("-----BEGIN"));
     let joined = |base: Option<String>| {
         let mut text = base.unwrap_or_default();
@@ -260,11 +422,17 @@ fn write_trust(
         text.push_str(ca_pem);
         text
     };
-    crate::home_fs::write(dir.join("ca.pem"), ca_pem)?;
+    // A file of ours is never a base: a process an agent of ours started inherits
+    // `NODE_EXTRA_CA_CERTS` and `SSL_CERT_FILE` naming them, and extending them
+    // added our CA once more each start (a Freestyle lane, 2026-11-22: three CAs in
+    // node-extra-ca.pem).
+    let foreign = |p: &String| !is_ours(dir, Path::new(p));
+    crate::home_fs::write(dir.join(CA_CERT_FILE), ca_pem)?;
     let node_ca = dir.join("node-extra-ca.pem");
-    let node_base = inherited("NODE_EXTRA_CA_CERTS").and_then(|p| read(&p));
+    let node_base = inherited("NODE_EXTRA_CA_CERTS").filter(foreign).and_then(|p| read(&p));
     replace(&node_ca, &joined(node_base))?;
     let base = inherited("SSL_CERT_FILE")
+        .filter(foreign)
         .and_then(|p| read(&p))
         .or_else(|| SYSTEM_BUNDLES.iter().find_map(|p| read(p)));
     let bundle = match base {
@@ -276,6 +444,14 @@ fn write_trust(
         None => None,
     };
     Ok((node_ca, bundle))
+}
+
+/// Whether `path` is a file in `dir`, the trust files' folder (whichever way
+/// either is spelled: a symlinked home, a relative path).
+fn is_ours(dir: &Path, path: &Path) -> bool {
+    let real = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let parent = path.parent().map(real);
+    parent.is_some_and(|p| p == real(dir)) || path.starts_with(dir)
 }
 
 /// Write by rename, so a running agent never reads half a bundle.
@@ -337,6 +513,7 @@ mod tests {
     fn running() -> Running {
         Running {
             port: 41234,
+            epoch: "e1".to_owned(),
             node_ca: PathBuf::from("/h/vault-egress/node-extra-ca.pem"),
             bundle: Some(PathBuf::from("/h/vault-egress/ca-bundle.pem")),
         }
@@ -363,7 +540,162 @@ mod tests {
         assert_eq!(get(&env, "NO_PROXY"), Some("localhost,127.0.0.1,::1,.cmux.internal"));
         assert_eq!(get(&env, "NODE_EXTRA_CA_CERTS"), Some("/h/vault-egress/node-extra-ca.pem"));
         assert_eq!(get(&env, "SSL_CERT_FILE"), Some("/h/vault-egress/ca-bundle.pem"));
+        assert_eq!(get(&env, EPOCH_VAR), Some("e1"));
         assert!(!env.iter().any(|(_, v)| v.contains("ghp_secret_value")));
+    }
+
+    #[test]
+    fn the_port_outlives_the_daemon_and_moves_only_when_taken() {
+        // The port is an ephemeral one, so between the drop and the rebind a parallel test's
+        // `bind(0)` can be handed it (base, 2026-11-22: 42109 for 33863). Then the move is right;
+        // the test tries again on a new port, and fails only when the port was free to take.
+        let mut tries = 0;
+        // `_second` (not `_`) keeps the restarted listener, so the port stays taken for `third`.
+        let (dir, port, _second) = loop {
+            tries += 1;
+            let dir = tempfile::tempdir().unwrap();
+            let first = bind_stable(dir.path(), true).unwrap();
+            let port = first.local_addr().unwrap().port();
+            let kept = std::fs::read_to_string(dir.path().join(PORT_FILE)).unwrap();
+            assert_eq!(kept.trim(), port.to_string());
+            // The daemon restarts: its listener is gone, the next one takes the same port.
+            drop(first);
+            let second = bind_stable(dir.path(), true).unwrap();
+            if second.local_addr().unwrap().port() == port {
+                break (dir, port, second);
+            }
+            assert!(
+                std::net::TcpListener::bind(("127.0.0.1", port)).is_err(),
+                "port {port} was free, yet the restart moved to {:?}",
+                second.local_addr()
+            );
+            assert!(tries < 5, "another process took the freed port {tries} times in a row");
+        };
+        // Another process holds it: a new port, written down for the next start.
+        let third = bind_stable(dir.path(), true).unwrap();
+        let moved = third.local_addr().unwrap().port();
+        assert_ne!(moved, port);
+        let kept = std::fs::read_to_string(dir.path().join(PORT_FILE)).unwrap();
+        assert_eq!(kept.trim(), moved.to_string());
+    }
+
+    #[test]
+    fn the_ca_outlives_the_daemon() {
+        let dir = tempfile::tempdir().unwrap();
+        private_folder(dir.path()).unwrap();
+        let first = kept_or_new_authority(dir.path()).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let mode =
+                std::fs::metadata(dir.path().join(CA_KEY_FILE)).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        // The daemon restarts: the next one serves the same CA, under the same epoch.
+        let second = kept_or_new_authority(dir.path()).unwrap();
+        assert_eq!(second.pem(), first.pem());
+        assert_eq!(ca_epoch(second.pem()), ca_epoch(first.pem()));
+        // An agent the first daemon started is not stale under the second.
+        let node_ca = dir.path().join("node-extra-ca.pem");
+        let env: Vec<(String, String)> = vec![
+            ("HTTPS_PROXY".to_owned(), "http://127.0.0.1:4000".to_owned()),
+            ("NODE_EXTRA_CA_CERTS".to_owned(), node_ca.display().to_string()),
+            (EPOCH_VAR.to_owned(), ca_epoch(first.pem())),
+        ];
+        assert!(!stale_proxy_env(&env, &node_ca, Some(&ca_epoch(second.pem()))));
+        // A key that is not the certificate's: a new CA, kept, and a new epoch.
+        std::fs::write(dir.path().join(CA_KEY_FILE), "nope").unwrap();
+        let third = kept_or_new_authority(dir.path()).unwrap();
+        assert_ne!(third.pem(), first.pem());
+        assert!(stale_proxy_env(&env, &node_ca, Some(&ca_epoch(third.pem()))));
+        let fourth = kept_or_new_authority(dir.path()).unwrap();
+        assert_eq!(fourth.pem(), third.pem());
+    }
+
+    #[test]
+    fn a_kept_port_file_that_is_not_a_port_is_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(PORT_FILE), "nope").unwrap();
+        let listener = bind_stable(dir.path(), true).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let kept = std::fs::read_to_string(dir.path().join(PORT_FILE)).unwrap();
+        assert_eq!(kept.trim(), port.to_string());
+    }
+
+    #[test]
+    fn only_an_agent_on_another_start_of_our_proxy_is_stale() {
+        let ca = Path::new("/h/vault-egress/node-extra-ca.pem");
+        let env = |pairs: &[(&str, &str)]| -> Vec<(String, String)> {
+            pairs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect()
+        };
+        let ours = |epoch: Option<&str>| {
+            let mut e = env(&[
+                ("HTTPS_PROXY", "http://127.0.0.1:43007"),
+                ("NODE_EXTRA_CA_CERTS", "/h/vault-egress/node-extra-ca.pem"),
+            ]);
+            if let Some(epoch) = epoch {
+                e.push((EPOCH_VAR.to_owned(), epoch.to_owned()));
+            }
+            e
+        };
+        // This start's agent.
+        assert!(!stale_proxy_env(&ours(Some("e2")), ca, Some("e2")));
+        // The incident: an agent the previous daemon started, its proxy gone.
+        assert!(stale_proxy_env(&ours(Some("e1")), ca, Some("e2")));
+        assert!(stale_proxy_env(&ours(Some("e1")), ca, None));
+        // An older build's agent named no start: it is ours, so it is stale.
+        assert!(stale_proxy_env(&ours(None), ca, Some("e2")));
+        // No proxy, or a proxy of the person's own: never ours to restart.
+        assert!(!stale_proxy_env(&env(&[("PATH", "/bin")]), ca, Some("e2")));
+        let corp = env(&[
+            ("HTTPS_PROXY", "http://corp:3128"),
+            ("NODE_EXTRA_CA_CERTS", "/h/vault-egress/node-extra-ca.pem"),
+        ]);
+        assert!(!stale_proxy_env(&corp, ca, None));
+        let other_ca = env(&[
+            ("HTTPS_PROXY", "http://127.0.0.1:43007"),
+            ("NODE_EXTRA_CA_CERTS", "/etc/corp.pem"),
+        ]);
+        assert!(!stale_proxy_env(&other_ca, ca, None));
+    }
+
+    /// The judgment reads a live process's environment: an agent process started on a gone
+    /// proxy start is stale, one started without our proxy is not.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn a_running_agent_is_judged_by_the_env_it_was_started_with() {
+        let node_ca = crate::config::home().join("vault-egress").join("node-extra-ca.pem");
+        let spawn = |proxied: bool| {
+            let mut cmd = std::process::Command::new("sleep");
+            cmd.arg("30");
+            if proxied {
+                cmd.env("HTTPS_PROXY", "http://127.0.0.1:43007")
+                    .env("NODE_EXTRA_CA_CERTS", &node_ca)
+                    .env(EPOCH_VAR, "an-earlier-daemons-start");
+            } else {
+                cmd.env_remove("HTTPS_PROXY").env_remove("NODE_EXTRA_CA_CERTS");
+            }
+            cmd.spawn().unwrap()
+        };
+        let (mut stale, mut fresh) = (spawn(true), spawn(false));
+        let judged = (stale_proxy_pid(stale.id()), stale_proxy_pid(fresh.id()));
+        for child in [&mut stale, &mut fresh] {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        assert_eq!(judged, (true, false));
+    }
+
+    #[test]
+    fn a_spawn_carries_the_start_its_stamp_names() {
+        let env = child_env_with(
+            vec![given("T", "s", Some(&["x.example.com"]))],
+            Some(&running()),
+            &|_| None,
+        );
+        let node_ca = running().node_ca;
+        assert!(!stale_proxy_env(&env, &node_ca, Some("e1")));
+        assert!(stale_proxy_env(&env, &node_ca, Some("e9")));
     }
 
     #[test]
@@ -435,5 +767,60 @@ mod tests {
             bundle_text.starts_with("-----BEGIN CERTIFICATE-----\nBASE")
                 && bundle_text.ends_with(ca)
         );
+    }
+
+    #[test]
+    fn only_the_daemon_writes_the_port_down() {
+        let dir = tempfile::tempdir().unwrap();
+        let daemon = bind_stable(dir.path(), true).unwrap();
+        let port = daemon.local_addr().unwrap().port();
+        // Another acpmux process starts a proxy while the daemon holds the port.
+        let other = bind_stable(dir.path(), false).unwrap();
+        assert_ne!(other.local_addr().unwrap().port(), port);
+        let kept = std::fs::read_to_string(dir.path().join(PORT_FILE)).unwrap();
+        assert_eq!(kept.trim(), port.to_string());
+    }
+
+    #[test]
+    fn the_trust_files_do_not_grow_when_the_launch_names_ours() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("egress");
+        let ca = "-----BEGIN CERTIFICATE-----\nOURS\n-----END CERTIFICATE-----\n";
+        let (node_ca, bundle) = write_trust(&out, ca, &|_| None).unwrap();
+        // A process an agent of ours started inherits our files, and starts the proxy again.
+        let (n, b) =
+            (node_ca.display().to_string(), bundle.as_ref().map(|b| b.display().to_string()));
+        let inherited = move |name: &str| match name {
+            "NODE_EXTRA_CA_CERTS" => Some(n.clone()),
+            "SSL_CERT_FILE" => b.clone(),
+            _ => None,
+        };
+        let first_bundle = bundle.as_ref().map(|b| std::fs::read_to_string(b).unwrap());
+        for _ in 0..3 {
+            write_trust(&out, ca, &inherited).unwrap();
+        }
+        assert_eq!(std::fs::read_to_string(&node_ca).unwrap(), ca);
+        assert_eq!(bundle.as_ref().map(|b| std::fs::read_to_string(b).unwrap()), first_bundle);
+        if let Some(text) = first_bundle {
+            assert_eq!(text.matches("OURS").count(), 1);
+        }
+    }
+
+    #[test]
+    fn an_expired_or_corrupt_kept_ca_is_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        private_folder(dir.path()).unwrap();
+        let first = kept_or_new_authority(dir.path()).unwrap();
+        // A certificate that is not one: a new CA, kept for the next daemon.
+        std::fs::write(dir.path().join(CA_CERT_FILE), "-----BEGIN CERTIFICATE-----\nnope").unwrap();
+        let second = kept_or_new_authority(dir.path()).unwrap();
+        assert_ne!(second.pem(), first.pem());
+        assert_eq!(kept_or_new_authority(dir.path()).unwrap().pem(), second.pem());
+        // A CA within 45 days of its end is replaced too.
+        let old = Authority::generate_for(30).unwrap();
+        std::fs::write(dir.path().join(CA_KEY_FILE), old.key_pem().as_bytes()).unwrap();
+        std::fs::write(dir.path().join(CA_CERT_FILE), old.pem()).unwrap();
+        let third = kept_or_new_authority(dir.path()).unwrap();
+        assert_ne!(third.pem(), old.pem());
     }
 }

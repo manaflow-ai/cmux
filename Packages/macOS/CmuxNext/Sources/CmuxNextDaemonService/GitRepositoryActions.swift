@@ -175,6 +175,6 @@ nonisolated enum GitRepositoryStrings {
     }
 
     static func text(_ key: StaticString, _ english: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: english, table: "GitActions", bundle: .module)
+        String(localized: key, defaultValue: english, table: "GitActions", bundle: .localizedModule)
     }
 }

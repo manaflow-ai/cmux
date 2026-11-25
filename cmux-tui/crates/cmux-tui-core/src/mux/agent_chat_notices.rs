@@ -41,6 +41,8 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+use super::agent_failure_code::{FailureCode, FailureFolds, Fold, failure_code};
+use super::agent_notification_delivery::{AgentEvent, Delivery};
 use super::{Mux, NotificationLevel, NotificationSource};
 use crate::resource::ContentPublicId;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
@@ -227,6 +229,7 @@ fn cache_ttl_scheduler(mux: &Weak<Mux>, receiver: mpsc::Receiver<CacheTtlCommand
                 let Some(live) = mux.upgrade() else { return };
                 for entry in queue.take_due(Instant::now()) {
                     let notice = Notice {
+                        event: None,
                         key: format!("cache-ttl-{}-{}", entry.spec.id, entry.target.idle_since),
                         title: format!("{} cache ready", entry.target.name),
                         subtitle: Some(format!(
@@ -239,6 +242,7 @@ fn cache_ttl_scheduler(mux: &Weak<Mux>, receiver: mpsc::Receiver<CacheTtlCommand
                         ),
                         level: NotificationLevel::Info,
                         restated: false,
+                        failure: None,
                     };
                     live.post_agent_chat_notice(&entry.target.session, &notice);
                 }
@@ -324,6 +328,10 @@ impl Mux {
     }
 
     fn post_agent_chat_notice(&self, session: &str, notice: &Notice) {
+        let delivery = self.agent_notification_delivery(notice.event);
+        if delivery == Delivery::Off {
+            return;
+        }
         // One wait, one notice: a daemon restart mid-wait sees the wait again
         // under a newer sequence, and the tab still holds the first notice.
         // The question it asks tells it from a new wait.
@@ -350,10 +358,15 @@ impl Mux {
         }) {
             return;
         }
+        // Chats that fail the same way within a minute are one notice.
+        let folded =
+            fold_failure(&mut self.agent_chat_notices.lock().failures, notice, Instant::now());
+        let Some(notice) = &folded else { return };
         // Hashed: an adopted session's id is the agent's own, of any length.
         let digest = Sha256::digest(format!("{session}\n{}\n{content}", notice.key));
         let key = format!("acpmux-{digest:x}");
-        let posted = self.create_durable_notification(
+        // Badge: the unread record and its ring, with no desktop banner.
+        let posted = self.create_durable_notification_with(
             &Actor::Daemon,
             &key,
             notice.title.clone(),
@@ -362,6 +375,7 @@ impl Mux {
             notice.level,
             Some(*surface),
             NotificationSource::Agent,
+            delivery == Delivery::Banner,
         );
         if posted.is_err() {
             self.report_internal_diagnostic("agent chat notification not posted");
@@ -438,6 +452,8 @@ pub(super) struct NoticesWakes {
     hint: Option<mpsc::Sender<()>>,
     connection: Option<UnixStream>,
     timers: Option<mpsc::Sender<CacheTtlCommand>>,
+    /// The failed turns of the last minute, by class (`agent_failure_code.rs`).
+    failures: FailureFolds,
     stopped: bool,
 }
 
@@ -1195,6 +1211,7 @@ struct Chat {
     name: String,
     kind: String,
     indicator: String,
+    waiting_on: Option<AgentEvent>,
     idle_since: Option<u64>,
     unread: bool,
     /// Muted from its tab's menu ([`MUTE_TAG`]).
@@ -1218,6 +1235,7 @@ struct Chat {
 }
 
 struct Notice {
+    event: Option<AgentEvent>,
     /// Unique per chat; the notification's idempotency key.
     key: String,
     title: String,
@@ -1226,6 +1244,8 @@ struct Notice {
     level: NotificationLevel,
     /// Seen first since a daemon start: it may restate one posted before.
     restated: bool,
+    /// The class of a failed turn, which folds it with the same class of other chats.
+    failure: Option<FailureCode>,
 }
 
 impl Chat {
@@ -1236,8 +1256,13 @@ impl Chat {
         }
         let session = summary["sessionId"].as_str()?.to_owned();
         let text = |key: &str| summary[key].as_str().filter(|text| !text.trim().is_empty());
-        let name =
-            text("title").or_else(|| text("name")).or_else(|| text("harness")).unwrap_or("Agent");
+        // The name it was given (`displayName`, its handle: "Mango") heads its notices, before
+        // the task title, so the person reads who it is (Leo, 2026-11-22: "I DONT SEE MANGO").
+        let name = text("displayName")
+            .or_else(|| text("title"))
+            .or_else(|| text("name"))
+            .or_else(|| text("harness"))
+            .unwrap_or("Agent");
         let name = short(name, MAX_NAME_CHARS);
         let kind =
             text("family").or_else(|| text("harness")).unwrap_or("agent").to_ascii_lowercase();
@@ -1259,6 +1284,11 @@ impl Chat {
             session,
             name,
             kind,
+            waiting_on: match text("waitingOn") {
+                Some("question") => Some(AgentEvent::Question),
+                Some("permission") => Some(AgentEvent::PermissionRequest),
+                _ => None,
+            },
             indicator: summary["indicator"].as_str().unwrap_or_default().to_owned(),
             idle_since,
             unread: summary["unread"].as_bool() == Some(true),
@@ -1298,12 +1328,27 @@ impl Chat {
             return None;
         }
         Some(Notice {
+            // The summary can describe another pending question. Classify this
+            // specific request using acpmux's normalized question shape.
+            event: Some(
+                if ask
+                    .pointer("/request/toolCall/_meta/acpmux/question/items")
+                    .is_some_and(Value::is_array)
+                    || ask.pointer("/request/toolCall/_meta/claude/tool").and_then(Value::as_str)
+                        == Some("AskUserQuestion")
+                {
+                    AgentEvent::Question
+                } else {
+                    AgentEvent::PermissionRequest
+                },
+            ),
             key: format!("input-{}", ask["seq"].as_u64().unwrap_or(self.last_seq)),
             title: format!("{} needs input", self.name),
             subtitle: None,
             body: short(&self.last_message, MAX_BODY_CHARS),
             level: NotificationLevel::Warning,
             restated: false,
+            failure: None,
         })
     }
 
@@ -1336,30 +1381,36 @@ impl Chat {
             self.notified_turn = Some(turn.clone());
             match status.as_str() {
                 "completed" => notices.push(Notice {
+                    event: Some(AgentEvent::TaskComplete),
                     key: format!("done-{turn}"),
                     title: format!("{name} finished"),
                     subtitle: None,
                     body: short(&self.last_message, MAX_BODY_CHARS),
                     level: NotificationLevel::Info,
                     restated: false,
+                    failure: None,
                 }),
-                "failed" => notices.push(Notice {
-                    key: format!("failed-{turn}"),
-                    title: format!("{name} failed"),
-                    subtitle: None,
-                    body: short(
-                        self.last_error.as_ref().unwrap_or(&self.last_message),
-                        MAX_BODY_CHARS,
-                    ),
-                    level: NotificationLevel::Error,
-                    restated: false,
-                }),
+                "failed" => {
+                    let text = self.last_error.as_ref().unwrap_or(&self.last_message);
+                    let code = failure_code(text);
+                    notices.push(Notice {
+                        event: None,
+                        key: format!("failed-{turn}"),
+                        title: format!("{name} {}", code.headline()),
+                        subtitle: (code != FailureCode::Other).then(|| code.code().to_owned()),
+                        body: short(text, MAX_BODY_CHARS),
+                        level: NotificationLevel::Error,
+                        restated: false,
+                        failure: Some(code),
+                    });
+                }
                 _ => {}
             }
         }
         let was = before.map_or("", |chat| chat.indicator.as_str());
         if self.indicator == "input" && was != "input" {
             notices.push(Notice {
+                event: self.waiting_on,
                 // The record it waits on: the same key while it still waits.
                 key: format!("input-{}", self.last_seq),
                 title: format!("{name} needs input"),
@@ -1367,19 +1418,49 @@ impl Chat {
                 body: short(&self.last_message, MAX_BODY_CHARS),
                 level: NotificationLevel::Warning,
                 restated: before.is_none(),
+                failure: None,
             });
         }
         if self.indicator == "lost" && was != "lost" {
             notices.push(Notice {
+                event: None,
                 key: format!("lost-{}", self.last_seq),
                 title: format!("{name} stopped responding"),
                 subtitle: None,
                 body: short(&self.last_message, MAX_BODY_CHARS),
                 level: NotificationLevel::Error,
                 restated: false,
+                failure: None,
             });
         }
         notices
+    }
+}
+
+/// The notice a failed turn posts given the failures before it: its own, the group's
+/// ("2 chats hit a rate limit"), or none when the group's is up already.
+fn fold_failure(folds: &mut FailureFolds, notice: &Notice, now: Instant) -> Option<Notice> {
+    let own = || Notice {
+        event: notice.event,
+        key: notice.key.clone(),
+        title: notice.title.clone(),
+        subtitle: notice.subtitle.clone(),
+        body: notice.body.clone(),
+        level: notice.level,
+        restated: notice.restated,
+        failure: notice.failure,
+    };
+    let Some(code) = notice.failure else { return Some(own()) };
+    match folds.admit(code, now) {
+        Fold::Own => Some(own()),
+        Fold::Silent => None,
+        Fold::Group { window, count } => Some(Notice {
+            key: format!("failed-group-{}-{window}", code.code()),
+            title: format!("{count} chats {}", code.plural_headline()),
+            restated: false,
+            failure: None,
+            ..own()
+        }),
     }
 }
 

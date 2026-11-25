@@ -204,22 +204,22 @@ public struct AgentChatsPalettePage {
 
 /// Text of the chats page. Keys live in Resources/Localizable.xcstrings.
 struct AgentChatsPaletteStrings {
-    static var title: String { String(localized: "handlers.agentChats.title", defaultValue: "Agent Chats", bundle: .module) }
-    static var placeholder: String { String(localized: "handlers.agentChats.placeholder", defaultValue: "Search chats", bundle: .module) }
-    static var open: String { String(localized: "handlers.agentChats.open", defaultValue: "Open Chat", bundle: .module) }
-    static var untitled: String { String(localized: "handlers.agentChats.untitled", defaultValue: "New chat", bundle: .module) }
+    static var title: String { String(localized: "handlers.agentChats.title", defaultValue: "Agent Chats", bundle: .localizedModule) }
+    static var placeholder: String { String(localized: "handlers.agentChats.placeholder", defaultValue: "Search chats", bundle: .localizedModule) }
+    static var open: String { String(localized: "handlers.agentChats.open", defaultValue: "Open Chat", bundle: .localizedModule) }
+    static var untitled: String { String(localized: "handlers.agentChats.untitled", defaultValue: "New chat", bundle: .localizedModule) }
     /// The bundle of this module's catalog, so a test can read one language's table (`fr.lproj`).
-    static var bundle: Bundle { .module }
+    static var bundle: Bundle { .localizedModule }
 
     /// The row under the empty query's page when `more` chats are not shown. `bundle` and `locale`
     /// default to this module's catalog in the user's language; a test passes one language's table.
-    static func moreChats(_ more: Int, bundle: Bundle = .module, locale: Locale = .current) -> String {
+    static func moreChats(_ more: Int, bundle: Bundle = .localizedModule, locale: Locale = .current) -> String {
         String(localized: "handlers.agentChats.moreChats", defaultValue: "\(more) more chats. Type to search.",
                bundle: bundle, locale: locale)
     }
 
     /// Search's row for the `hidden` matching chats it does not show (it opens the chats page with the query).
-    static func moreInSearch(_ hidden: Int, bundle: Bundle = .module, locale: Locale = .current) -> String {
+    static func moreInSearch(_ hidden: Int, bundle: Bundle = .localizedModule, locale: Locale = .current) -> String {
         String(format: String(localized: "handlers.agentChats.moreInSearch", defaultValue: "More matching chats: %lld",
                               bundle: bundle, locale: locale), locale: locale, Int64(hidden))
     }
@@ -227,6 +227,6 @@ struct AgentChatsPaletteStrings {
     /// The row under a page that shows only the best `shown` of `total` matching chats.
     static func moreMatch(shown: Int, total: Int) -> String {
         String(format: String(localized: "handlers.agentChats.moreMatch", defaultValue: "The best %1$lld of %2$lld matching chats. Type more to narrow.",
-                              bundle: .module), Int64(shown), Int64(total))
+                              bundle: .localizedModule), Int64(shown), Int64(total))
     }
 }

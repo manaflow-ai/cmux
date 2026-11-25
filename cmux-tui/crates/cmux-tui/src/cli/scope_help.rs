@@ -201,6 +201,30 @@ USAGE
   cmux space close <name> [--json]
 ";
 
+pub(super) const PROJECT_HELP: &str = "\
+USAGE
+  cmux project actions [PATH] [TARGET] [--no-global] [--json]
+
+  The actions of the project a folder is in: <project>/.cmux/actions.json
+  ({\"actions\": {NAME: ACTION}}, the shape of the global actions in
+  cmux-next.json), then the global actions it does not replace by name.
+  The project is the nearest folder up with .cmux/actions.json, up to the
+  repository root, never the home folder. Listing never runs anything; the
+  app runs an action in the project root when you pick it.
+
+TARGET
+  PATH or --path <path>  A file or folder in the project
+  --workspace <selector> The working directory of the workspace's current terminal
+  --screen <selector>    ... of the screen's current terminal
+  --pane <selector>      ... of the pane's current terminal
+  --tab <selector>       ... of the tab's terminal
+  --terminal <selector>  ... of the terminal
+  Without one, the current directory.
+
+OPTIONS
+  --no-global            Only the project's own actions
+";
+
 pub(super) const GIT_HELP: &str = "\
 USAGE
   cmux git status [TARGET]
@@ -230,6 +254,10 @@ USAGE
   cmux git worktree apply [TARGET]
   cmux git worktree remove [TARGET] [--discard]
   cmux git worktree setup [TARGET] [--since <offset>]
+  cmux git review start [TARGET] <pull-request-url>
+  cmux git review comment [TARGET] --file <path> --line <n> [--start-line <n>]
+    [--side new|old] --message <text>
+  cmux git worktree setup run [TARGET] [--approve <fingerprint>]
   cmux git comments list [--root <path>]
   cmux git comments save [--root <path>] --comment <json-object>
   cmux git comments delete [--root <path>] <comment-id>... [--versions-json <json-object>]
@@ -323,7 +351,25 @@ The main checkout is never removed. Before it goes, the project's teardown runs.
 
 worktree setup shows the project's worktree recipe (.worktreeinclude,
 .cmux/worktree.toml and the saved one) and, in a worktree worktree create made,
-its setup: state, port and output (from byte --since).
+its setup: state, port and output (from byte --since). A setup or teardown
+command from the repository's own files waits (awaiting_approval) until you
+approve the recipe you read: worktree setup run --approve with its
+recipe.approval.fingerprint. worktree setup run also runs a failed, timed-out
+or interrupted setup again; it never starts one while one runs.
+
+review start checks a GitHub pull request out into a worktree of its own
+(review-<number>, as worktree create makes one) at its head, with gh pr view and
+git fetch from the remote of TARGET's repository that is the pull request's.
+Its base is the merge-base with the pull request's base branch, so the diff
+viewer's branch scope shows the pull request's change. It prints the folder and
+the diff command. Run it again on the same head to get the same worktree back.
+
+review comment, run in such a worktree, leaves one draft review comment on the
+named lines, which the diff viewer shows at once: on the pull request's version
+(--side new, the default) or the base's (--side old, for a removed line). Only
+lines the pull request's diff shows take a draft; the refusal lists the ones that
+do. The person edits or drops the drafts in the diff viewer and posts them to
+GitHub as one review from there; nothing here posts.
 
 comments are the diff page's review comments, kept by the session host for a
 worktree root (--root, the current directory by default; give the worktree's

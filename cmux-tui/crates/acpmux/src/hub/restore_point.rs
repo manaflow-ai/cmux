@@ -38,6 +38,10 @@ pub(crate) struct RestorePoint {
     /// The last transfer record through `seq` that decides authority, as `(seq, blocked)`.
     pub(crate) transfer_authority: Option<(u64, bool)>,
     pub(crate) queue: super::queue::QueueCarry,
+    /// The prompts a `prompt_stop_requested` through `seq` names (`auto_resume.rs`
+    /// `seed_prompt_stops`); none in a point saved before it was carried.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) prompt_stops: Option<Vec<String>>,
 }
 
 impl Hub {
@@ -59,7 +63,7 @@ impl Hub {
     /// The record at `seq`, read from the end of the records before `seq + 1`: a page of the log,
     /// never the segment that holds it (`Store::scan_back`). `events` from `seq - 1` parsed that
     /// whole segment, as much as a fold of the log the point is there to skip.
-    fn record_at(&self, session: &Session, seq: u64) -> Option<EventRecord> {
+    pub(super) fn record_at(&self, session: &Session, seq: u64) -> Option<EventRecord> {
         let mut found = None;
         self.store
             .scan_back(&session.id, seq - 1, seq + 1, &|_, _| false, &mut |rec| {

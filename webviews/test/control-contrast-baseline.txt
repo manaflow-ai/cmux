@@ -30,7 +30,6 @@ button.acpmux-chief-dock-tool icon 1.05
 button.acpmux-cloud-ask__button text 4.37
 button.acpmux-cu-preview__open icon 1.94
 button.acpmux-diff-back text 1.85
-button.acpmux-edited-summary text 2.31
 button.acpmux-env-button.acpmux-env-submit text 1.99
 button.acpmux-finish-stage__replay text 3.63
 button.acpmux-folder-choice-button text 4.10
@@ -192,8 +191,6 @@ button.mt-name-pill icon 2.17
 button.mt-plus icon 2.66
 button.nt-all-row text 3.22
 button.nt-stage-row text 3.60
-button.nt-starter icon 1.85
-button.nt-starter text 1.85
 button.nt-widget-gallery-done.ui-btn text 3.63
 button.plain-english-row icon 1.21
 button.popover-gallery-outside text 3.63

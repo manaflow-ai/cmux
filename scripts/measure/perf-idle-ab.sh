@@ -42,7 +42,7 @@
 #                       (scripts/cmux-next/chief-start-probe.py): at rest, whether the Chief's brain host runs and
 #                       which Home view asked for it; then Home's first open and the first Chief reply after it.
 #                       Prints IDLE-AB home <arm> <round> ... and IDLE-AB home median <metric> base ... head ...
-# The harness (bench_memory.py, thread_wakes.py, tag_teardown.py, the test agent) is this script's checkout's,
+# The harness (bench_memory.py and its macos_libs.py, thread_wakes.py, tag_teardown.py, the test agent) is this script's checkout's,
 # copied before the arms are checked out, so a base that predates it runs the same harness.
 # Each arm is built in this checkout (its warm DerivedData, so the second arm builds incrementally), the
 # checkout is put back at this script's commit at the end, and the tagged apps, their daemons and every
@@ -124,7 +124,8 @@ disk() { echo "IDLE-AB disk $1 $(df -h "$here" | tail -n 1)"; }
 disk start
 out="$here/.build/perf-idle-ab"
 rm -rf "$out" && mkdir -p "$out/runs" "$out/harness"
-for f in scripts/cmux-next/bench_memory.py scripts/cmux-next/thread_wakes.py scripts/cmux-next/diff_tab_cells.py \
+for f in scripts/cmux-next/bench_memory.py scripts/cmux-next/macos_libs.py scripts/cmux-next/thread_wakes.py \
+         scripts/cmux-next/diff_tab_cells.py \
          scripts/cmux-next/tag_teardown.py scripts/cmux-next/chief-start-probe.py \
          cmux-tui/crates/acpmux/tests/fake_agent.py; do
   cp "$f" "$out/harness/" || { echo "perf-idle-ab: no $f in this checkout" >&2; exit 3; }
@@ -193,6 +194,16 @@ build_arm() {  # build_arm ARM SHA: checks the commit out here and builds its ta
   if ! ./scripts/cmux-next/pin-cmux-tui.sh probe 2>/dev/null | grep -q ': ready ('; then
     echo "IDLE-AB $arm: cmux-tui tree not published, building the client set on this host"
     export CMUX_TUI_CLIENT_TARGET_DIR="${CI_SHARED_CACHE_DIR:-/Users/Shared/cmux-build-fleet/cache}/perf-idle-ab/cmux-tui-target"
+    # Bounded: each commit's build adds to the target and nothing evicts it (no disk owner counts it). On
+    # 2026-11-21 it held 11 GB of cmux20-bench, which sat under the 44 GiB a measurement needs to start, so the
+    # perf cron ran no Mac part there (cmuxterm-hq#16657). Past the cap the next build starts cold; the step
+    # is exclusive, so no other build is using the folder.
+    local cap_kib=$(( ${CMUX_IDLE_AB_TARGET_CAP_GIB:-6} * 1024 * 1024 )) used_kib
+    used_kib="$(du -sk "$CMUX_TUI_CLIENT_TARGET_DIR" 2>/dev/null | cut -f1)"
+    if [ "${used_kib:-0}" -gt "$cap_kib" ]; then
+      echo "IDLE-AB $arm: cmux-tui target is $(( used_kib / 1024 / 1024 )) GiB, over its ${CMUX_IDLE_AB_TARGET_CAP_GIB:-6} GiB cap: removing it"
+      rm -rf "$CMUX_TUI_CLIENT_TARGET_DIR"
+    fi
     mkdir -p "$CMUX_TUI_CLIENT_TARGET_DIR" cmux-tui/target
     client_local="$(CI=1 ./scripts/cmux-next/build-cmux-tui-client.sh --print-path 2> >(tee "$out/cmux-tui-$arm.log" >&2))" || return 3
   fi

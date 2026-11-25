@@ -11,15 +11,13 @@ gap frame when backdrop runs at least --min-px device pixels past the right bar 
 Each movie frame shows until the next one, so a gap frame counts the display refreshes it showed (its time to the next
 frame, at --hz).
 
-Needs ffmpeg on PATH (the frames are decoded to raw RGB; no image library). Usage:
-  film-page-gap.py [--hz 120] [--min-px 6] [--json OUT] FILM.mov [...]
+Needs ffmpeg on PATH (the frames are decoded to raw RGB) and numpy. Usage:
+  film-page-gap.py [--hz 120] [--min-px 6] [--json OUT] [--max-gap-refreshes N] FILM.mov [...]
 Prints one line per film: gap refreshes, gap movie frames, the first and last gap time after the film's first change.
 """
 import argparse, json, os, subprocess, sys
 
-MAGENTA = lambda r, g, b: r > 190 and g < 90 and b > 190
-BACKDROP = lambda r, g, b: abs(r - 0x0b) <= 16 and abs(g - 0x5d) <= 18 and abs(b - 0x3b) <= 16
-
+import numpy  # the frames as arrays: a pure-Python pass over every pixel of every frame takes minutes a film
 
 def size_of(movie):
     out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
@@ -45,38 +43,28 @@ def frames(movie, scale):
 def gap_px(w, h, buf, scale):
     """Device pixels of backdrop past the page's right or bottom bar (the larger, median along the bar); None without
     a bar in the frame."""
-    px = lambda x, y: buf[(y * w + x) * 3:(y * w + x) * 3 + 3]
-    right_bar, bottom_bar = {}, {}
-    for y in range(h):
-        row = None
-        for x in range(w - 1, -1, -1):
-            r, g, b = px(x, y)
-            if MAGENTA(r, g, b):
-                row = x
-                break
-        if row is not None:
-            right_bar[y] = row
-    if not right_bar:
+    img = numpy.frombuffer(buf, dtype=numpy.uint8).reshape(h, w, 3).astype(numpy.int16)
+    r, g, b = img[..., 0], img[..., 1], img[..., 2]
+    magenta = (r > 190) & (g < 90) & (b > 190)
+    backdrop = (abs(r - 0x0b) <= 16) & (abs(g - 0x5d) <= 18) & (abs(b - 0x3b) <= 16)
+    rows = numpy.flatnonzero(magenta.any(axis=1))
+    if rows.size == 0:
         return None
-    bottom = max(right_bar)
-    for x in range(w):
-        for y in range(h - 1, -1, -1):
-            r, g, b = px(x, y)
-            if MAGENTA(r, g, b):
-                bottom_bar[x] = y
-                break
-    right_edge = max(right_bar.values())
+    # The rightmost magenta pixel of each row, and the lowest of each column: the page's right and bottom bars.
+    right_of = w - 1 - numpy.argmax(magenta[:, ::-1], axis=1)
+    cols = numpy.flatnonzero(magenta.any(axis=0))
+    bottom_of = h - 1 - numpy.argmax(magenta[::-1, :], axis=0)
+    right_edge = int(numpy.median(right_of[rows]))
+    bottom = int(numpy.median(bottom_of[cols]))
 
-    def run(x, y, dx, dy):
-        n = 0
-        x, y = x + dx, y + dy
-        while 0 <= x < w and 0 <= y < h and BACKDROP(*px(x, y)):
-            n += 1
-            x, y = x + dx, y + dy
-        return n
-    # Along the right bar: the rows where the bar is at the page's right edge (not a bar of a smaller old frame).
-    rights = sorted(run(x, y, 1, 0) for y, x in right_bar.items() if abs(x - right_edge) <= 1 and y < bottom - 2)
-    bottoms = sorted(run(x, y, 0, 1) for x, y in bottom_bar.items() if abs(y - bottom) <= 1 and x < right_edge - 2)
+    def run(line):
+        """Leading backdrop pixels of `line`."""
+        if line.size == 0 or not line[0]:
+            return 0
+        stop = numpy.argmin(line)
+        return int(line.size if line[stop] else stop)
+    rights = sorted(run(backdrop[y, right_of[y] + 1:]) for y in rows if abs(right_of[y] - right_edge) <= 1 and y < bottom - 2)
+    bottoms = sorted(run(backdrop[bottom_of[x] + 1:, x]) for x in cols if abs(bottom_of[x] - bottom) <= 1 and x < right_edge - 2)
     med = lambda v: v[len(v) // 2] if v else 0
     return max(med(rights), med(bottoms)) * scale
 
@@ -114,6 +102,7 @@ def main():
     parser.add_argument("--min-px", type=int, default=6)
     parser.add_argument("--scale", type=int, default=2, help="decode at 1/scale of the movie's size")
     parser.add_argument("--json")
+    parser.add_argument("--max-gap-refreshes", type=int, help="exit 1 when any film has more gap refreshes than this")
     parser.add_argument("films", nargs="+")
     opts = parser.parse_args()
     results = [judge(movie, opts.hz, opts.min_px, opts.scale) for movie in opts.films]
@@ -121,6 +110,11 @@ def main():
         print(json.dumps(result), flush=True)
     if opts.json:
         json.dump(results, open(opts.json, "w"), indent=1)
+    if opts.max_gap_refreshes is not None:
+        over = [r["film"] for r in results if r["gap_refreshes"] > opts.max_gap_refreshes]
+        print(f"RESULT {'FAIL' if over else 'PASS'}: {len(over)} of {len(results)} films over {opts.max_gap_refreshes} gap refreshes"
+              + (f" ({', '.join(over)})" if over else ""), flush=True)
+        return 1 if over else 0
 
 
 if __name__ == "__main__":

@@ -15,13 +15,14 @@ func plainPreview(_ markdown: String) -> String {
 }
 
 extension MessagePreview.Words {
-    /// The preview words in the app's language.
-    static var chief: MessagePreview.Words {
+    /// The preview words in the app's language, looked up once: every Home row asks for them, and the
+    /// app's language only changes with a relaunch.
+    static let chief: MessagePreview.Words = {
         MessagePreview.Words(
             table: { String(format: String(localized: "mobile.chief.preview.table", defaultValue: "Table: %@", bundle: .module), $0) },
             untitledTable: String(localized: "mobile.chief.preview.tableUntitled", defaultValue: "Table", bundle: .module),
             image: String(localized: "mobile.chief.preview.image", defaultValue: "Image", bundle: .module),
             images: { String(format: String(localized: "mobile.chief.preview.images", defaultValue: "%lld images", bundle: .module), $0) }
         )
-    }
+    }()
 }

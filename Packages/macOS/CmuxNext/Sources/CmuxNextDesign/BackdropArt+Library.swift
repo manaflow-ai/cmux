@@ -11,11 +11,11 @@ public nonisolated enum BackdropArtCollection: String, CaseIterable, Equatable, 
 
     public var title: String {
         switch self {
-        case .darkArt: String(localized: "backdrop.collection.darkArt", defaultValue: "Dark Art", bundle: .module)
-        case .museumIcons: String(localized: "backdrop.collection.museumIcons", defaultValue: "Museum Icons", bundle: .module)
-        case .calm: String(localized: "backdrop.collection.calm", defaultValue: "Calm", bundle: .module)
-        case .dore: String(localized: "backdrop.collection.dore", defaultValue: "Doré", bundle: .module)
-        case .eastAsian: String(localized: "backdrop.collection.eastAsian", defaultValue: "East Asian Painting", bundle: .module)
+        case .darkArt: String(localized: "backdrop.collection.darkArt", defaultValue: "Dark Art", bundle: .localizedModule)
+        case .museumIcons: String(localized: "backdrop.collection.museumIcons", defaultValue: "Museum Icons", bundle: .localizedModule)
+        case .calm: String(localized: "backdrop.collection.calm", defaultValue: "Calm", bundle: .localizedModule)
+        case .dore: String(localized: "backdrop.collection.dore", defaultValue: "Doré", bundle: .localizedModule)
+        case .eastAsian: String(localized: "backdrop.collection.eastAsian", defaultValue: "East Asian Painting", bundle: .localizedModule)
         }
     }
 }
@@ -72,7 +72,7 @@ public nonisolated extension BackdropArt {
 
     /// The picker label: "Title — Artist".
     var label: String {
-        String(localized: "backdrop.label", defaultValue: "%1$@ — %2$@", bundle: .module)
+        String(localized: "backdrop.label", defaultValue: "%1$@ — %2$@", bundle: .localizedModule)
             .replacingOccurrences(of: "%1$@", with: title)
             .replacingOccurrences(of: "%2$@", with: artist)
     }
@@ -80,7 +80,7 @@ public nonisolated extension BackdropArt {
     /// The credit shown below the thumbnail: title, artist, date, museum and license.
     var attribution: String {
         [title, artist, entry.year, entry.museum,
-         String(localized: "backdrop.publicDomain", defaultValue: "Public domain", bundle: .module)]
+         String(localized: "backdrop.publicDomain", defaultValue: "Public domain", bundle: .localizedModule)]
             .joined(separator: " · ")
     }
 

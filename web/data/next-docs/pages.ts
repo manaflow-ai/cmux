@@ -7,6 +7,8 @@ export type DocBlock =
   | { h2: string }
   | { p: string }
   | { ul: string[] }
+  /** Numbered steps, done in order. */
+  | { ol: string[] }
   | { code: string; lang?: string }
   | { note: string }
   /** Places in the repository, each linked to its source; a test checks each path exists and is that kind. */
@@ -61,7 +63,61 @@ export const nextDocPages: NextDocPage[] = [
       ] },
       { h2: "Next" },
     ],
-    links: ["home-and-chief", "workspaces", "command-palette", "cli"],
+    links: ["start", "home-and-chief", "workspaces", "command-palette", "cli"],
+  },
+  {
+    slug: "start",
+    navKey: "nextStart",
+    title: "Start here",
+    description: "From nothing to a working agent on cmux Cloud, five ways: in the app, from the CLI, by pointing an agent at one URL, through Chief, and from your phone.",
+    body: [
+      { p: "This page takes you from nothing to an agent that works for you on a cmux Cloud machine. Pick the way in that fits you. Each one ends at the same place: a chat that replies, on a machine that keeps going after you close the lid." },
+      { note: "cmux-next is in preview. The app needs a Mac today. A Cloud machine costs money while it runs and stops costing when you pause or delete it; Plans and credits says how billing works." },
+      { h2: "Point an agent at this page" },
+      { p: "The shortest way in. Paste this one line into Claude Code, Codex or any coding agent on your Mac, opened on the folder you want to work on. The link is this page as plain Markdown, in the cmux repository, so any agent can read it without signing in. The agent reads it and does the rest. It stops only for what you must do yourself: the browser sign-ins and the card that allows a paid machine." },
+      { code: "Set me up with cmux Cloud: https://raw.githubusercontent.com/manaflow-ai/cmux/feat-cmux-next/docs/cmux-next/start.md (follow its \"If you are an agent\" steps on this Mac, and tell me only what I must do myself)", lang: "text" },
+      { h2: "If you are an agent" },
+      { p: "A person asked you to set up cmux and cmux Cloud for them. Do these steps in order, on their Mac, in the folder they started you in." },
+      { ol: [
+        "Install. If ~/Applications/cmux NEXT DEV.app is missing, run `curl -fsSL -o /tmp/update-dev-daily.sh https://raw.githubusercontent.com/manaflow-ai/cmux/feat-cmux-next/scripts/cmux-next/update-dev-daily.sh` and then `bash /tmp/update-dev-daily.sh`. Run `open \"$HOME/Applications/cmux NEXT DEV.app\"`. Run every cmux command below with the CLI inside that app, \"$HOME/Applications/cmux NEXT DEV.app/Contents/Resources/bin/cmux\", not another cmux on PATH. Repeat `cmux whoami` every few seconds, for up to a minute, until it answers: then the app is up.",
+        "Set up this Mac. Run `cmux setup local` and `cmux setup harness`. Each prints what it found. If one names a sign-in only the person can do, tell them which and go on.",
+        "Sign in. If `cmux whoami` shows no account, run `cmux login` and tell the person to finish it in the browser. Repeat `cmux whoami` every 10 seconds, for up to 5 minutes, until it names their account.",
+        "Start an agent on a Cloud machine. Tell the person first that a Cloud machine costs money while it runs. Then run `cmux chat --on vm --harness claude --prompt 'Say hello in one sentence.' --wait --json` in the folder they started you in. It prepares a machine, waits for the first reply and prints it with the chat's session_id.",
+        "If the start is refused, it names what is missing: a Cloud plan, a model connection or GitHub. Tell the person the one card or Settings page it names, wait for them to say it is done, and run the same command again. `cmux cloud diagnostics` says what is wrong when the refusal does not.",
+        "Show it works. Give the person the reply text and the session_id, and tell them how many seconds each step took. More work goes to the same chat with `cmux chat send SESSION_ID '...' --wait`.",
+        "Say how to stop paying. `cmux cloud list-machines` lists their machines; `cmux vm pause NAME` pauses one and `cmux vm rm NAME --yes` deletes it.",
+      ] },
+      { p: "Rules for the agent: never type a password or a payment detail; never buy a plan or click a card that costs money for the person; if a step fails, show its error and the command to retry, and do not guess. `cmux setup list` names every other setup task, each with its own prompt." },
+      { h2: "In the app" },
+      { ol: [
+        "Install cmux NEXT and open it (Getting started has the two builds).",
+        "Sign in to cmux in Settings > Accounts. The sign-in finishes in your browser.",
+        "Choose File > New Cloud Chat, or run New Cloud Chat from the command palette (Cmd+Shift+P).",
+        "Type what you want done and press Return. cmux prepares a machine, shows its progress in the chat, and the agent replies there.",
+      ] },
+      { p: "If cmux needs something first (a Cloud plan, a model connection, GitHub), the chat shows a card that names the one thing to do. Do it and the same chat goes on." },
+      { h2: "From the CLI" },
+      { p: "In any terminal inside cmux (install cmux NEXT first: Getting started has the two builds). The first command finishes in your browser; run the second until it prints your account. The third starts a chat on a Cloud machine, waits for its first reply and prints it with the chat's session_id." },
+      { code: "cmux login\ncmux whoami\ncmux chat --on vm --harness claude --prompt 'Say hello in one sentence.' --wait --json", lang: "bash" },
+      { p: "If the start is refused, it names the one thing that is missing: a Cloud plan, a model connection or GitHub. Do that one thing and run the same command again. When the refusal does not say what is wrong, this does:" },
+      { code: "cmux cloud diagnostics", lang: "bash" },
+      { p: "Send it more work, list your machines, and stop one:" },
+      { code: "cmux chat send SESSION_ID 'Now run the tests.' --wait\ncmux cloud list-machines\ncmux vm pause NAME", lang: "bash" },
+      { h2: "Through Chief" },
+      { p: "Open Home and paste this to Chief, with HARNESS changed to claude or codex. Chief runs each step, shows you the reply, and asks before anything that costs money." },
+      { code: "Start me a chat on cmux Cloud and show me it works: run `cmux whoami`; if I am signed out, run `cmux login` and wait while I finish it in the browser. Then run `cmux chat --on vm --harness HARNESS --prompt 'Say hello in one sentence.' --wait --json` (HARNESS is claude or codex) and show me its reply, then `cmux chat send SESSION_ID 'Say it once more, shorter.' --wait` with the answer's session_id. If a start is refused for a model connection, run `cmux cloud connections`: when none of them serves Cloud, open `cmux://settings/cloud/claude` (Settings > Cloud; `/cloud/chatgpt` or `/cloud/api-key` for those), or connect from here with `cmux cloud connect claude` (I open its link and paste the code back) or `cmux cloud connect chatgpt` (I open its link in a browser on this Mac); not `cmux accounts`, which is CodeRouter. Then start again. If it is refused for a Cloud plan or GitHub, tell me the one card or Settings page that fixes it and run it again once I have. Tell me how long each step took, and that `cmux vm pause NAME` or `cmux vm rm NAME --yes` stops the machine.", lang: "text" },
+      { h2: "From your phone" },
+      { p: "Open the chats on your Mac from an iPhone, Cloud chats included, and keep them going: read the history, send a message, stop a turn. The phone reaches them through your Mac, so the Mac stays on and signed in. The iPhone app is in beta. Paste this into Chief or any agent chat in cmux on your Mac." },
+      { code: "Set up the cmux iPhone app with this Mac and get me to a working agent on it: run `cmux settings get mobile.allowIPhoneConnections` and `cmux cloud open-mobile-pairing` (it opens Settings > Accounts > iPhone). iPhone connections are on by default; if they are off, tell me to turn them on there (only I can). Then tell me to install cmux on my iPhone and sign in there with the same cmux account: this Mac shows up on the phone by itself, and I allow the phone on this Mac when it asks. When I say the phone is paired, run `cmux chat --on vm --harness claude --prompt 'Say hello in one sentence.' --wait --json`, show me its reply, and tell me to open that chat on the phone and send it one message. Then read the chat and show me the agent's answer to what I sent.", lang: "text" },
+      { p: "The phone is working when the message you sent from it gets an answer in that chat." },
+      { h2: "Keep going" },
+      { ul: [
+        "Move a chat you already have to Cloud with cmux cloud move, and bring it back with cmux cloud bring-back.",
+        "Run cmux setup list for every setup task: trust a folder, add another machine, connect GitHub, turn on Computer Use.",
+        "Stuck? Run cmux cloud diagnostics and read what it names.",
+      ] },
+    ],
+    links: ["getting-started", "cloud", "home-and-chief", "plans"],
   },
   {
     slug: "updates",
@@ -401,7 +457,7 @@ export const nextDocPages: NextDocPage[] = [
       ] },
       { h2: "Manage it" },
       { code: "cmux server status\ncmux server logs --follow\ncmux server down\ncmux server up\ncmux server uninstall\ncmux server uninstall ssh://alice@build.example.com", lang: "bash" },
-      { p: "logs shows the service's log (the last 100 lines; --lines N for more, --follow to keep reading). down stops the service and keeps it stopped across reboots; up starts it again. uninstall removes the service and keeps cmux and your settings, and says how to remove the rest: the cmux binary, and lingering, which stays on. Every command takes --json." },
+      { p: "logs shows the service's log (the last 100 lines; --lines N or -n N for more, --follow or -f to keep reading). down stops the service and keeps it stopped across reboots; up starts it again. uninstall removes the service and keeps cmux and your settings, and says how to remove the rest: the cmux binary, and lingering, which stays on. cmux daemon stop --if-idle stops the running server only when nothing uses it (no terminal is starting, being reattached or running, and no other client is connected); otherwise it keeps running, says what uses it and exits 1. Every command takes --json." },
       { p: "cmux server install prints each file it writes and each command it runs. It does not touch a cmux-server.service or com.cmux.server plist that cmux did not write, or that was changed after cmux wrote it, or that systemd loads from another place (a package, /etc, a transient unit): install stops with an error and uninstall leaves it as it is. When it cannot ask systemd where the unit comes from, it changes nothing. On macOS the service log folder and file are readable only by you. It also stops when ~/.local/bin or the service folder can be written by other accounts." },
       { h2: "Options" },
       { ul: [
@@ -481,11 +537,11 @@ export const nextDocPages: NextDocPage[] = [
     body: [
       { p: "cmux mcp serve gives an MCP client the same control of cmux that the CLI has. It talks JSON-RPC on stdin and stdout; nothing listens on the network." },
       { h2: "Turn it on" },
-      { p: "Agents you start in cmux get it once you turn on cmux Tools for Agents in cmux in Settings > Agents: Claude Code and Codex in cmux's terminals and its agent chats. cmux gives it to them when it starts them and never changes their own settings. Or run:" },
+      { p: "Agents you start in cmux get it by default: Claude Code and Codex in cmux's terminals and its agent chats. cmux gives it to them when it starts them and never changes their own settings. To turn it off, set cmux Tools for Agents in cmux to Off in Settings > Agents. To turn it back on, choose On there, or run:" },
       { code: "cmux settings set agents.cmuxMcp on --confirm\ncmux setup mcp", lang: "bash" },
       { p: "A chat cmux starts on another machine (a linked Mac, a Cloud VM, a headless cmux) follows the answer of the Mac that started it. That machine's own setting applies only to chats started there. A chat started from your phone or the web gets none of cmux's tools, and a cmux server in that agent's own settings answers as if the setting were off." },
       { p: "When cmux cannot be sure which cmux server a Codex launch will load, it gives that launch none and leaves Codex's settings as they are, so Codex starts as it would outside cmux, without cmux's tools. That happens when your own cmux entry is an HTTP server, when a project folder's Codex settings define cmux and Codex has not trusted that folder yet (you may trust it at Codex's prompt), when you resume or fork a session, and when you start Codex with --trust, --worktree, --ignore-user-config or --remote." },
-      { p: "This setting is your consent for the agents cmux starts, not a security boundary: a program that runs as you can still run the cmux CLI itself." },
+      { p: "This setting chooses what the agents cmux starts get. It is not a security boundary: a program that runs as you can still run the cmux CLI itself." },
       { h2: "Outside cmux (manual)" },
       { p: "To use it in an agent you start somewhere else, add it to that agent's own settings yourself. cmux never does this for you; cmux setup mcp prints these lines with the path of your cmux." },
       { code: "claude mcp add --scope user cmux -- cmux mcp serve\ncodex mcp add cmux -- cmux mcp serve", lang: "bash" },
@@ -514,6 +570,48 @@ export const nextDocPages: NextDocPage[] = [
       { code: "{\n  \"history\": { \"commandRetentionDays\": 30 }\n}", lang: "json" },
       { p: "This page is generated from the settings schema, so it matches the app." },
     ],
+  },
+  {
+    slug: "network-requirements",
+    navKey: "nextNetwork",
+    title: "Network requirements for the iPhone app",
+    description: "The hosts, ports and protocols the cmux iPhone app and your Mac need to connect, in the order they try them, for IT admins.",
+    body: [
+      { p: "The cmux iPhone app connects to your Mac directly when it can, and through a relay when it cannot. It tries the ways below in order and uses the first that works. Every way carries the same end-to-end encrypted tunnel (WireGuard) between the phone and the Mac: no relay can read it. Both the phone's network and the Mac's network need at least one of them." },
+      { h2: "Always needed" },
+      { p: "Sign-in, the list of your Macs, and the setup of each connection use HTTPS on port 443. The app and the Mac need these hosts:" },
+      { ul: [
+        "mobile-api.cmux.dev, TCP 443: the cmux service (HTTPS, and a WebSocket for connection setup).",
+        "api.stack-auth.com, TCP 443: sign-in.",
+        "cmux.com, TCP 443: the sign-in page.",
+      ] },
+      { note: "If these are blocked, the app cannot sign in or find your Mac, and nothing below helps." },
+      { h2: "1. Direct" },
+      { p: "Fastest. The phone and the Mac send UDP to each other, on any port, after learning their public addresses from a STUN server:" },
+      { ul: [
+        "stun.cloudflare.com, UDP 3478: STUN.",
+        "UDP between the phone and the Mac, any port (on the same network, or through NAT).",
+      ] },
+      { h2: "2. Relay over TURN" },
+      { p: "When direct UDP fails, traffic goes through Cloudflare's TURN service. The app tries UDP first, then TLS:" },
+      { ul: [
+        "turn.cloudflare.com, UDP 3478 (and 53): TURN over UDP.",
+        "turn.cloudflare.com, TCP 443 (and 5349): TURN over TLS.",
+      ] },
+      { h2: "3. Relay through cmux (HTTPS)" },
+      { p: "When neither UDP nor the TURN host gets through, for example on a network that allows only approved hosts, the phone and the Mac carry the tunnel in a WebSocket to the cmux service. It is a normal HTTPS request on port 443 to the same host as sign-in:" },
+      { ul: [
+        "mobile-api.cmux.dev, TCP 443: wss://mobile-api.cmux.dev/v1/relay/... (HTTP/1.1 with Upgrade: websocket).",
+      ] },
+      { p: "A proxy or firewall must allow WebSocket upgrades to that host and keep the connection open. This way is slower than the others, so the app moves off it about a minute after a direct or TURN path works again." },
+      { h2: "TLS inspection" },
+      { p: "The app checks the certificates of cmux's hosts and of the TURN host against the public certificate authorities. A proxy that decrypts HTTPS and re-signs it with its own certificate makes those checks fail. Exempt mobile-api.cmux.dev, api.stack-auth.com, cmux.com and turn.cloudflare.com from TLS inspection." },
+      { h2: "When nothing works" },
+      { p: "If every way is blocked, the app says which part of the network is in the way and what to try: another network (a hotspot, or Wi-Fi outside the office), or the hosts and ports above for your IT team. It keeps retrying on its own. On the Mac, the same hosts and ports apply." },
+      { h2: "Summary for a firewall rule" },
+      { code: "Required:   TCP 443  mobile-api.cmux.dev, api.stack-auth.com, cmux.com\nRecommended: UDP 3478 stun.cloudflare.com\n            UDP 3478, TCP 443  turn.cloudflare.com\n            UDP, any port, between the phone and the Mac", lang: "text" },
+    ],
+    links: ["remote", "settings"],
   },
   {
     slug: "architecture",

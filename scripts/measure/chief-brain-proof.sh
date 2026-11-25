@@ -7,6 +7,8 @@
 #     --arg=brain=hermes|openclaw|default --arg=claude_url=http://HOST:PORT \
 #     [--arg=brain_url=http://HOST:PORT] [--arg=model=M] [--arg=claude=X.Y.Z] \
 #     [--arg=responsive=trivial,lookup] [--arg=runs=5] --timeout 7200
+# A failed check keeps the brain homes' logs in artifacts/brain-logs.tgz (submit with
+# --artifact artifacts/brain-logs.tgz; get them with `cmux-ci artifact --failed JOB OUT`).
 # runs=N (1-10): N proofs in a row, each on a new scratch Chief home; prints one BRAIN-PASSRATE
 # line per check (passes/N) and exits 1 when any check failed in any run.
 # responsive=CLASSES: after the proof, one round of measure/responsive.py (the
@@ -152,7 +154,7 @@ status=0
 for n in $(seq 1 "$runs"); do
   rs=0
   python3 Native/OptChat/optchat-chief/measure/chief_driver.py --scenario brain \
-    --out "$work/run-$n" --bins "$work/bin" --turn-timeout 900 \
+    --out "$work/run-$n" --bins "$work/bin" --turn-timeout 900 --keep-brain-logs "$PWD/artifacts/brain-logs/run-$n" \
     --engine-harness "$engine_harness" --engine-model "$model" --brain-base-url "$brain_url" ${fallback_flag[@]+"${fallback_flag[@]}"} \
     --env "ANTHROPIC_BASE_URL=$claude_url" --env "ANTHROPIC_API_KEY=sk-ant-placeholder-the-router-signs" \
     --env "CLAUDE_CONFIG_DIR=$work/home/.claude" --env "DISABLE_AUTOUPDATER=1" > "$work/driver-$n.log" 2>&1 &
@@ -174,6 +176,12 @@ for n in $(seq 1 "$runs"); do
     status=1
   fi
 done
+# A step's artifact is one regular file (a folder is not uploaded): the kept brain logs go into
+# artifacts/brain-logs.tgz. `cmux-ci artifact --failed JOB OUT` downloads it for a failed step.
+# The file exists on a pass too (an empty folder then): a declared --artifact that is missing
+# fails the step (cmux-ci step c20dd02bb8d8, 40 of 40 checks passed).
+mkdir -p artifacts/brain-logs
+tar -czf artifacts/brain-logs.tgz -C artifacts brain-logs && echo "BRAIN logs: artifacts/brain-logs.tgz"
 # Pass rate per check over the runs (a check missing from a run's log counts as a failure).
 cat "$work"/driver-*.log | python3 -I -c '
 import re, sys

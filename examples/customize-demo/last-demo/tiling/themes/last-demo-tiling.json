@@ -41,5 +41,11 @@
   "appearance.statusIndicator.style": "arc",
   "appearance.statusIndicator.color": "#5ce1e6",
 
-  "appearance.density": "compact"
+  "appearance.density": "compact",
+
+  // Shape, not only color (Leo: "customizing the tabs/sidebars a lot deeper"): tiles: square tabs and rows, no gap between tabs, a 240 pt sidebar of tight rows.
+  "density": { "basedOn": "compact", "tokens": {"tabCornerRadius": 0, "tabCloseCornerRadius": 0, "verticalTabCornerRadius": 0, "sidebarCornerRadius": 0, "itemCornerRadius": 2, "tabGap": 0, "sidebarRowGap": 0, "sidebarWidth": 240 } },
+  "window.titlebarButtons": "always",
+  "tabs.plusButton": "always",
+  "agentPane.display.sessionInfo.placement": "overlay"
 }

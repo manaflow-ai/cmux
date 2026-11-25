@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { componentEntry } from "../../../gallery/format";
 import { LOGIN_SCREENSHOT_PNG } from "../../../gallery/fixtures/toolImages";
-import { mergeToolItem } from "../direct";
+import { mergeToolItem } from "../toolActivity";
 import { ImageViewerContext } from "./imageViewerContext";
 import type { ToolRow as ToolRowComponent } from "./ToolRow";
 
