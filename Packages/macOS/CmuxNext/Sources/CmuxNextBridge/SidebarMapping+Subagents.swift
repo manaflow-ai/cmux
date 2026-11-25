@@ -3,7 +3,7 @@ import CmuxNextSidebar
 import Foundation
 
 extension SidebarMapping {
-    /// The subagents of every agent chat in the workspace, as acpmux lists them (`recentSubagents`, `subagentsSeen`,
+    /// The subagents of the agent chats in `tabs` (a row passes only its own chat), as acpmux lists them (`recentSubagents`, `subagentsSeen`,
     /// `subagentsRunning`), each with the chat tab a press opens it beside. Nil when no chat has any.
     static func subagents(_ tabs: [TabModel], turns: AgentTurnStateStore = .shared) -> SidebarSubagents? {
         var items: [SidebarSubagent] = []
