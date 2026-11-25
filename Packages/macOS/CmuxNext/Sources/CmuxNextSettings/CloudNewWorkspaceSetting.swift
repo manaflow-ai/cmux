@@ -23,6 +23,13 @@ public nonisolated struct CloudNewWorkspaceSetting: Sendable {
         root.value(at: Self.turnCheckpointsPath)?.boolValue ?? Self.turnCheckpointsDefault
     }
 
+    /// Whether a running Cloud chat takes Mac folders live (`cloud.addFolderLive`): Sources' Add
+    /// Folder and an agent's access-request cards in every Cloud chat. A missing or non-boolean
+    /// value is on (Leo, 2026-11-25: "it doesnt work if it's not \"on by default\"").
+    public func addFolderLive(in root: JSONValue) -> Bool {
+        root.value(at: Self.addFolderLivePath)?.boolValue ?? Self.addFolderLiveDefault
+    }
+
     /// What a new Cloud workspace starts with; a missing or unknown value inherits.
     public func folder(in root: JSONValue) -> CloudWorkspaceFolder {
         root.value(at: Self.folderPath)?.stringValue.flatMap(CloudWorkspaceFolder.init(rawValue:)) ?? Self.folderDefault
