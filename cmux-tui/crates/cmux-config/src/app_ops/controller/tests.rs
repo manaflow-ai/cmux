@@ -506,3 +506,67 @@ fn see_through_asks_follow_opacity_and_material() {
     assert_eq!(ask_see(json!(["appearance", "backgroundBlur"]), json!(3)), json!(false));
     assert_eq!(ask_see(json!(["appearance", "accent"]), json!(0.1)), json!(false));
 }
+
+// MARK: Batch replace
+
+fn replace_many(request: Value) -> Value {
+    ask("controller.replace_many", request)["root"].clone()
+}
+
+/// Each entry in order, as the same `controller.replace` calls one by one
+/// would leave the document (a preview's value, then its linked keys).
+#[test]
+fn replace_many_is_each_replace_in_order() {
+    let root = json!({ "appearance": { "accent": "blue", "opacity": 1 }, "terminal": 3 });
+    let entries = json!([
+        { "path": ["appearance", "opacity"], "value": 0.8 },
+        { "path": ["appearance", "material"], "value": "ghostty" },
+        { "path": ["appearance", "accent"] },
+        { "path": ["terminal", "font", "size"], "value": 13 },
+        { "path": ["appearance", "material"], "value": "glass" },
+    ]);
+    let mut one_by_one = root.clone();
+    for entry in entries.as_array().unwrap() {
+        let mut request = entry.clone();
+        request["root"] = one_by_one;
+        one_by_one = ask("controller.replace", request)["root"].clone();
+    }
+    let batch = replace_many(json!({ "root": root, "entries": entries }));
+    assert_eq!(batch, one_by_one);
+    assert_eq!(
+        batch,
+        json!({
+            "appearance": { "opacity": 0.8, "material": "glass" },
+            "terminal": { "font": { "size": 13 } },
+        })
+    );
+    assert_eq!(replace_many(json!({ "root": root, "entries": [] })), root);
+}
+
+/// Swift `ThemeFileOverlay.applied(to:managed:)`: a key a managed layer
+/// sets, one inside it and one holding it keep the document's value.
+#[test]
+fn replace_many_skips_what_a_managed_layer_holds() {
+    let root = json!({ "appearance": { "accent": "blue" } });
+    let entries = json!([
+        { "path": ["appearance", "accent"], "value": "red" },
+        { "path": ["appearance", "density", "rows"], "value": 2 },
+        { "path": ["terminal"], "value": { "font": "Menlo" } },
+        { "path": ["appearance", "theme"], "value": "Dracula" },
+        { "path": ["appearanceX"], "value": true },
+    ]);
+    let managed = json!(["appearance.accent", "appearance.density", "terminal.font"]);
+    assert_eq!(
+        replace_many(json!({ "root": root, "entries": entries, "managed": managed })),
+        json!({ "appearance": { "accent": "blue", "theme": "Dracula" }, "appearanceX": true })
+    );
+}
+
+#[test]
+fn replace_many_refuses_an_entry_without_a_path() {
+    assert!(
+        call("controller.replace_many", &json!({ "root": {}, "entries": [{ "value": 1 }] }))
+            .is_err()
+    );
+    assert!(call("controller.replace_many", &json!({ "root": {} })).is_err());
+}
