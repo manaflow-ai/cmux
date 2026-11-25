@@ -190,6 +190,7 @@ on:
       # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
       - "docs/cmux-next/customize-recipes.md"
       - "examples/looks/**"
+      - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/mcp-servers.json"
       - "skills/cmux-customization/templates/clock-weather/cmux-app.json"
       - "skills/cmux-extension-author/recipes/**"
@@ -371,6 +372,7 @@ on:
       # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
       - "docs/cmux-next/customize-recipes.md"
       - "examples/looks/**"
+      - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/mcp-servers.json"
       - "skills/cmux-customization/templates/clock-weather/cmux-app.json"
       - "skills/cmux-extension-author/recipes/**"
