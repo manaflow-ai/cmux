@@ -348,6 +348,7 @@ key = "cmux.cloud.retention.dismissed"
 
 [[storage_key]]
 key = "cmux.cloudEnvironment.recent"
+retired = "the Cloud Environment chip and its per-folder recent list were removed (behind the off-by-default CLOUD_ENVIRONMENTS_ENABLED flag); a Cloud chat runs on Auto, and the account still lists every environment"
 
 [[storage_key]]
 key = "cmux.cloudStart.keys"
