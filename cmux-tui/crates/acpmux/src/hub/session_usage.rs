@@ -12,13 +12,14 @@
 //! an open question.
 //!
 //! Cost: one sample at most every [`MIN_INTERVAL`], cached; a caller off the async runtime
-//! (`spawn_blocking`). A sample reads only the trees' processes (Linux `/proc/PID/task/*/children`,
-//! macOS `proc_listchildpids`), at most [`TREE_MAX`] per root, never a scan of the machine (a
-//! kernel without `/proc/.../children` takes one `/proc` scan instead).
+//! (`spawn_blocking`). A sample reads only the trees' processes, through the same reviewed own-tree
+//! reader a start's harness check uses (`cpu_class::own_tree`: Linux `/proc/PID/task/*/children`,
+//! macOS `proc_listchildpids`, at most 256 and 64 per root), never a scan of the machine; a kernel
+//! without `/proc/.../children` counts each root alone (its reaped children still count).
 
 use cmux_host_budget::SessionLoad;
 use serde::Serialize;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -26,15 +27,11 @@ use std::time::{Duration, Instant};
 pub(crate) const MIN_INTERVAL: Duration = Duration::from_secs(3);
 /// The `cpu_cores` average's time constant ([`SessionLoad`]: "EWMA over 5 minutes").
 pub(crate) const EWMA_TAU: Duration = Duration::from_secs(300);
-/// The most processes read under one root: a harness, its MCP servers, hooks and a build's
-/// workers are a few dozen; the bound keeps a fork bomb from costing the daemon more.
-pub(crate) const TREE_MAX: usize = 512;
 
 /// One process as a sample reads it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Proc {
     pub pid: u32,
-    pub ppid: u32,
     /// CPU time it used plus what its reaped children used, in nanoseconds.
     pub cpu_ns: u64,
     pub rss_bytes: u64,
@@ -68,48 +65,6 @@ pub(crate) struct AgentsUsage {
     pub age_ms: u64,
 }
 
-/// The processes under `roots`, the roots first, breadth first, each pid once (a pid reached
-/// from two roots belongs to the first), at most `max` in all. `children` lists a pid's children.
-pub(crate) fn walk(
-    roots: &[u32],
-    max: usize,
-    mut children: impl FnMut(u32) -> Vec<u32>,
-) -> Vec<u32> {
-    let mut seen = BTreeSet::new();
-    let mut all = Vec::new();
-    for &root in roots {
-        if root > 0 && all.len() < max && seen.insert(root) {
-            all.push(root);
-        }
-    }
-    let mut next = 0;
-    while let Some(parent) = all.get(next).copied() {
-        if all.len() >= max {
-            break;
-        }
-        for kid in children(parent) {
-            if all.len() == max {
-                break;
-            }
-            if kid > 0 && seen.insert(kid) {
-                all.push(kid);
-            }
-        }
-        next = next.saturating_add(1);
-    }
-    all
-}
-
-/// The children of each pid in `procs` (a `/proc` scan's table), for [`walk`].
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-pub(crate) fn children_of(procs: &[Proc]) -> HashMap<u32, Vec<u32>> {
-    let mut map: HashMap<u32, Vec<u32>> = HashMap::new();
-    for p in procs {
-        map.entry(p.ppid).or_default().push(p.pid);
-    }
-    map
-}
-
 /// A tree's CPU (nanoseconds, with reaped children) and resident bytes.
 pub(crate) fn fold(procs: &[Proc]) -> (u64, u64) {
     procs.iter().fold((0u64, 0u64), |(cpu, rss), p| {
@@ -139,22 +94,19 @@ pub(crate) fn ewma(prev: Option<f64>, reading: f64, dt: Duration, tau: Duration)
     prev + alpha * (reading - prev)
 }
 
-/// A Linux `/proc/PID/stat` line as a [`Proc`]: `tick_ns` nanoseconds per clock tick, `page`
-/// bytes per page. The command may hold spaces and parentheses, so fields count after its last
-/// `)`: ppid is field 4, utime 14, stime 15, cutime 16, cstime 17, rss (pages) 24.
+/// A Linux `/proc/PID/stat` record's fields after the command name (field 3 first) as a
+/// [`Proc`]: `tick_ns` nanoseconds per clock tick, `page` bytes per page. utime is field 14,
+/// stime 15, cutime 16, cstime 17, rss (pages) 24; state (field 3) must be there.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-pub(crate) fn parse_stat(pid: u32, text: &str, tick_ns: u64, page: u64) -> Option<Proc> {
-    let (_, rest) = text.rsplit_once(')')?;
-    let f: Vec<&str> = rest.split_whitespace().collect();
+pub(crate) fn parse_stat(pid: u32, f: &[impl AsRef<str>], tick_ns: u64, page: u64) -> Option<Proc> {
+    f.first()?;
     // A field that is missing or negative (rss of a kernel thread) reads 0.
-    let num = |i: usize| f.get(i).and_then(|v| v.parse::<u64>().ok());
-    let ppid = u32::try_from(num(1)?).ok()?;
+    let num = |i: usize| f.get(i).and_then(|v| v.as_ref().parse::<u64>().ok());
     let ticks =
         [11, 12, 13, 14].iter().fold(0u64, |sum, &i| sum.saturating_add(num(i).unwrap_or(0)));
     let rss_pages = num(21).unwrap_or(0);
     Some(Proc {
         pid,
-        ppid,
         cpu_ns: ticks.saturating_mul(tick_ns),
         rss_bytes: rss_pages.saturating_mul(page),
     })
@@ -254,15 +206,11 @@ fn advance(
 
 #[cfg(target_os = "linux")]
 mod imp {
-    use super::{Proc, TREE_MAX, children_of, parse_stat, walk};
-    use std::collections::HashMap;
+    use super::{Proc, parse_stat};
 
     pub(super) struct Reader {
         tick_ns: u64,
         page: u64,
-        /// The `/proc` scan's children map, made once per sample on a kernel without
-        /// `/proc/PID/task/TID/children`.
-        scanned: Option<HashMap<u32, Vec<u32>>>,
     }
 
     impl Reader {
@@ -272,65 +220,23 @@ mod imp {
                 unsafe { (libc::sysconf(libc::_SC_CLK_TCK), libc::sysconf(libc::_SC_PAGESIZE)) };
             let hz = u64::try_from(hz).ok().filter(|h| *h > 0).unwrap_or(100);
             let page = u64::try_from(page).ok().filter(|p| *p > 0).unwrap_or(4096);
-            let has_children = std::path::Path::new("/proc/self/task")
-                .read_dir()
-                .ok()
-                .and_then(|mut d| d.next())
-                .and_then(|e| e.ok())
-                .is_some_and(|e| e.path().join("children").exists());
-            let mut reader = Self {
-                tick_ns: 1_000_000_000u64.checked_div(hz).unwrap_or(10_000_000),
-                page,
-                scanned: None,
-            };
-            if !has_children {
-                reader.scanned = Some(children_of(&reader.scan()));
-            }
-            reader
+            Self { tick_ns: 1_000_000_000u64.checked_div(hz).unwrap_or(10_000_000), page }
         }
 
         fn read(&self, pid: u32) -> Option<Proc> {
-            let text = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-            parse_stat(pid, &text, self.tick_ns, self.page)
-        }
-
-        fn scan(&self) -> Vec<Proc> {
-            let Ok(dir) = std::fs::read_dir("/proc") else { return Vec::new() };
-            dir.flatten()
-                .filter_map(|e| e.file_name().to_str()?.parse::<u32>().ok())
-                .filter_map(|pid| self.read(pid))
-                .collect()
-        }
-
-        /// Every thread's children: a process may start one from any thread.
-        fn children(&self, pid: u32) -> Vec<u32> {
-            if let Some(map) = &self.scanned {
-                return map.get(&pid).cloned().unwrap_or_default();
-            }
-            let Ok(tasks) = std::fs::read_dir(format!("/proc/{pid}/task")) else {
-                return Vec::new();
-            };
-            let mut kids = Vec::new();
-            for task in tasks.flatten() {
-                if let Ok(text) = std::fs::read_to_string(task.path().join("children")) {
-                    kids.extend(text.split_whitespace().filter_map(|k| k.parse::<u32>().ok()));
-                }
-            }
-            kids
+            let fields = crate::cpu_class::stat_fields(pid)?;
+            parse_stat(pid, &fields, self.tick_ns, self.page)
         }
 
         pub(super) fn tree(&self, root: u32) -> Vec<Proc> {
-            walk(&[root], TREE_MAX, |pid| self.children(pid))
-                .into_iter()
-                .filter_map(|pid| self.read(pid))
-                .collect()
+            crate::cpu_class::own_tree(root).into_iter().filter_map(|pid| self.read(pid)).collect()
         }
     }
 }
 
 #[cfg(target_os = "macos")]
 mod imp {
-    use super::{Proc, TREE_MAX, walk};
+    use super::Proc;
 
     pub(super) struct Reader {
         numer: u128,
@@ -357,16 +263,6 @@ mod imp {
             ns.and_then(|ns| u64::try_from(ns).ok()).unwrap_or(u64::MAX)
         }
 
-        fn children(pid: u32) -> Vec<u32> {
-            let Ok(id) = libc::c_int::try_from(pid) else { return Vec::new() };
-            let mut kids: Vec<libc::c_int> = vec![0; TREE_MAX];
-            let bytes = libc::c_int::try_from(std::mem::size_of_val(kids.as_slice())).unwrap_or(0);
-            // SAFETY: the buffer holds `bytes` bytes of pids, which the kernel fills.
-            let n = unsafe { libc::proc_listchildpids(id, kids.as_mut_ptr().cast(), bytes) };
-            let n = usize::try_from(n).unwrap_or(0).min(TREE_MAX);
-            kids.iter().take(n).filter_map(|k| u32::try_from(*k).ok()).collect()
-        }
-
         fn read(&self, pid: u32) -> Option<Proc> {
             let id = libc::c_int::try_from(pid).ok().filter(|p| *p > 0)?;
             let mut info = std::mem::MaybeUninit::<libc::rusage_info_v2>::zeroed();
@@ -384,14 +280,11 @@ mod imp {
                 .saturating_add(info.ri_system_time)
                 .saturating_add(info.ri_child_user_time)
                 .saturating_add(info.ri_child_system_time);
-            Some(Proc { pid, ppid: 0, cpu_ns: self.ns(abs), rss_bytes: info.ri_resident_size })
+            Some(Proc { pid, cpu_ns: self.ns(abs), rss_bytes: info.ri_resident_size })
         }
 
         pub(super) fn tree(&self, root: u32) -> Vec<Proc> {
-            walk(&[root], TREE_MAX, Self::children)
-                .into_iter()
-                .filter_map(|pid| self.read(pid))
-                .collect()
+            crate::cpu_class::own_tree(root).into_iter().filter_map(|pid| self.read(pid)).collect()
         }
     }
 }

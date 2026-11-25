@@ -1,38 +1,19 @@
-//! The pure parts of `session_usage.rs`: the tree walk and fold, the CPU delta, the average, the
+//! The pure parts of `session_usage.rs`: the fold, the CPU delta, the average, the
 //! `/proc/PID/stat` parser and the per-sample accounting.
 
 use super::*;
 
-fn p(pid: u32, ppid: u32, cpu_ns: u64, rss_bytes: u64) -> Proc {
-    Proc { pid, ppid, cpu_ns, rss_bytes }
-}
-
-#[test]
-fn walk_takes_descendants_once_within_the_bound() {
-    // 1 -> 2 -> 4, 1 -> 3; 5 is someone else's; 3 also lists 2 (a reused pid must not loop).
-    let table = vec![p(2, 1, 0, 0), p(3, 1, 0, 0), p(4, 2, 0, 0), p(5, 9, 0, 0), p(2, 3, 0, 0)];
-    let map = children_of(&table);
-    let kids = |pid: u32| map.get(&pid).cloned().unwrap_or_default();
-    let cases: &[(&[u32], usize, &[u32])] = &[
-        (&[1], 64, &[1, 2, 3, 4]),
-        (&[1], 2, &[1, 2]),
-        (&[4], 64, &[4]),
-        (&[1, 2], 64, &[1, 2, 3, 4]),
-        (&[0], 64, &[]),
-        (&[9], 64, &[9, 5]),
-    ];
-    for (roots, max, want) in cases {
-        assert_eq!(walk(roots, *max, kids), want.to_vec(), "roots {roots:?} max {max}");
-    }
+fn p(pid: u32, cpu_ns: u64, rss_bytes: u64) -> Proc {
+    Proc { pid, cpu_ns, rss_bytes }
 }
 
 #[test]
 fn fold_sums_cpu_and_memory() {
     let cases: &[(&[Proc], (u64, u64))] = &[
         (&[], (0, 0)),
-        (&[p(1, 0, 5, 10)], (5, 10)),
-        (&[p(1, 0, 5, 10), p(2, 1, 7, 20)], (12, 30)),
-        (&[p(1, 0, u64::MAX, 1), p(2, 1, 1, 1)], (u64::MAX, 2)),
+        (&[p(1, 5, 10)], (5, 10)),
+        (&[p(1, 5, 10), p(2, 7, 20)], (12, 30)),
+        (&[p(1, u64::MAX, 1), p(2, 1, 1)], (u64::MAX, 2)),
     ];
     for (procs, want) in cases {
         assert_eq!(fold(procs), *want);
@@ -66,16 +47,20 @@ fn ewma_moves_by_the_elapsed_share_of_tau() {
 }
 
 #[test]
-fn parse_stat_reads_ppid_cpu_with_reaped_children_and_rss() {
+fn parse_stat_reads_cpu_with_reaped_children_and_rss() {
     // Fields after the name: state ppid pgrp session tty tpgid flags minflt cminflt majflt
     // cmajflt utime stime cutime cstime priority nice threads itreal starttime vsize rss
-    let line = "42 (node (hook) x) S 7 42 42 0 -1 0 0 0 0 0 10 5 3 2 20 0 4 0 100 1000 250 rest";
-    let got = parse_stat(42, line, 10_000_000, 4096).unwrap();
-    assert_eq!(got, p(42, 7, 20 * 10_000_000, 250 * 4096));
-    assert_eq!(parse_stat(1, "garbage", 1, 1), None);
-    assert_eq!(parse_stat(1, "1 (x) S", 1, 1), None);
-    // A short line (a zombie's) still gives its parent, with what it has.
-    assert_eq!(parse_stat(3, "3 (z) Z 1", 1, 1), Some(p(3, 1, 0, 0)));
+    let fields = |line: &str| line.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
+    let got = parse_stat(
+        42,
+        &fields("S 7 42 42 0 -1 0 0 0 0 0 10 5 3 2 20 0 4 0 100 1000 250 rest"),
+        10_000_000,
+        4096,
+    );
+    assert_eq!(got, Some(p(42, 20 * 10_000_000, 250 * 4096)));
+    assert_eq!(parse_stat(1, &fields(""), 1, 1), None);
+    // A short record (a zombie's) reads what it has.
+    assert_eq!(parse_stat(3, &fields("Z 1"), 1, 1), Some(p(3, 0, 0)));
 }
 
 fn roots(id: &str, pids: &[u32]) -> Roots {
