@@ -10,6 +10,7 @@
 //! a name this registry lacks (`protocol/tests.rs`).
 
 pub mod auth;
+pub mod composer_status;
 pub mod events;
 pub mod here;
 pub mod inventory;
@@ -385,6 +386,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TEAM_INBOX, Request),
         untyped(method::MUX_TEAM_READ, Request),
         untyped(method::MUX_TEAM_ACK, Request),
+        untyped(method::MUX_TEAM_LISTEN, Request),
         untyped(method::MUX_HISTORY, Request),
         untyped(method::MUX_SESSION_SEARCH, Request),
         untyped(method::MUX_COMPLETE, Request),
@@ -610,6 +612,9 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/peer_snapshots_clear", Request),
         untyped("_acpmux/journal_restore", Request),
         untyped("_acpmux/attachments_held", Request),
+        untyped(crate::perf_trace::METHOD_SPANS, Request),
+        untyped(crate::perf_trace::METHOD_STATUS, Request),
+        untyped(crate::agent_credentials::UPDATE_METHOD, Request),
         untyped(method::MUX_PAIR_TICKET_NEW, Request),
         untyped(method::MUX_PAIR_LIST, Request),
         untyped(method::MUX_PAIR_REVOKE, Request),

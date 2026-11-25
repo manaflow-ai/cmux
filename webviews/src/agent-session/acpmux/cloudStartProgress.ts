@@ -318,11 +318,29 @@ export function cloudStartPushed(
   push: unknown,
   now: number = Date.now(),
 ): CloudStartProgress | undefined {
-  const next = pushedFields(current, push);
-  if (!current || !next || next === current) return next;
+  const pushed = pushedFields(current, push);
+  if (!current || !pushed || pushed === current) return pushed;
+  const next = stepTimes(current, pushed, now);
   // Only a push that moved the start counts as word from the host (watchCloudStartStall).
   const moved = current.advancedAt === undefined || cloudStartMark(next) !== cloudStartMark(current);
   return { ...next, advancedAt: moved ? now : current.advancedAt };
+}
+
+/// The client-side times of `next`'s steps, from when this page saw each begin, where the host sent none:
+/// the machine from its `machine` step, its end (and so the copy's start) at the next step, the agent's
+/// start at `opening`. The host's own times win. A running copy's later lines keep its start time, so its
+/// step line's clock never resets to zero mid-copy (Austin, 2026-11-24: "show the seconds").
+function stepTimes(current: CloudStartProgress, next: CloudStartProgress, now: number): CloudStartProgress {
+  const stamped = { ...next };
+  if (next.step !== current.step) {
+    if (next.step === "machine") stamped.machineStartedAt ??= now;
+    if (next.step === "folder" || next.step === "opening") stamped.machineFinishedAt ??= now;
+    if (next.step === "opening") stamped.harnessStartedAt ??= now;
+  }
+  const kept = current.clone?.startedAt;
+  if (stamped.clone && stamped.clone.startedAt === undefined && kept !== undefined)
+    stamped.clone = { ...stamped.clone, startedAt: kept };
+  return stamped;
 }
 
 /// What of a start shows that it moves: its step, each step's state and phase, and the clone's counts.

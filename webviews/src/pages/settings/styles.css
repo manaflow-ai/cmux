@@ -3950,7 +3950,6 @@ button.menu-disclosure {
   inset: 0;
   margin: 0;
   opacity: 0;
-  cursor: pointer;
 }
 
 .customize-progress__check input:disabled {
