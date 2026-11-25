@@ -534,7 +534,8 @@
       "keys": [
         "labs.previewFeatures",
         "labs.appStore",
-        "labs.commentThreads"
+        "labs.commentThreads",
+        "labs.previousBuild"
       ]
     },
     {
@@ -571,7 +572,8 @@
         "experiments.terminalHistory",
         "experiments.quietConnect",
         "experiments.threadMinimapRestReveal",
-        "experiments.forum"
+        "experiments.forum",
+        "experiments.browserProfileCard"
       ]
     },
     {
