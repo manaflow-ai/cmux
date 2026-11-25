@@ -159,8 +159,12 @@ fn the_report_json_names_causes_in_snake_case_and_carries_no_content() {
     let report = report([("s".to_owned(), false, requests.as_slice())], 0, 60 * MIN);
     let json = serde_json::to_value(&report).unwrap();
     assert_eq!(json["insight"], "cache_waste");
-    assert_eq!(json["causes"][0]["cause"], "lost_under_ttl");
-    assert!(json["causes"][0]["fix"].as_str().is_some_and(|fix| !fix.is_empty()));
+    // Equal tokens: the cause order breaks the tie, the floor's session start first.
+    assert_eq!(json["causes"][0]["cause"], "session_start");
+    assert_eq!(json["causes"][1]["cause"], "lost_under_ttl");
+    assert_eq!(json["causes"][1]["avoidable"], true);
+    assert!(json["causes"][1]["fix"].as_str().is_some_and(|fix| !fix.is_empty()));
+    assert!(!json.to_string().contains("secret"));
     assert!(json.get("avoidableShare").is_some());
     let text = render(&report);
     assert!(text.contains("lost_under_ttl"), "{text}");
