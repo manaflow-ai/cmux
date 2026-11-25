@@ -24,6 +24,8 @@ cleanup() {
   rm -rf "$scratch"
 }
 trap cleanup EXIT
+# origin's URL when there is one, else the repository's own (as tui-idle-ram.sh): a fleet runner's checkout can have no origin.
+fetch_url="${HOOK_DEADLINE_FETCH_URL:-$(git -C "$root" remote get-url origin 2>/dev/null || echo https://github.com/manaflow-ai/cmux.git)}"
 depth=()
 [[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
 # A bare runner: the pinned Rust and Zig (ghostty-vt-sys builds ghostty-next), as tui-idle-ram.sh.
@@ -39,7 +41,7 @@ fi
 helpers=()
 for sha in ${shas[@]+"${shas[@]}"}; do
   git -C "$root" cat-file -e "$sha^{commit}" 2>/dev/null \
-    || git -C "$root" fetch -q --no-tags --no-recurse-submodules ${depth[@]+"${depth[@]}"} origin "$sha"
+    || git -C "$root" fetch -q --no-tags --no-recurse-submodules ${depth[@]+"${depth[@]}"} "$fetch_url" "$sha"
   full="$(git -C "$root" rev-parse "$sha^{commit}")" || exit 1
   if [[ -d "$tree" ]]; then
     git -C "$tree" checkout -q --detach "$full" || exit 1
