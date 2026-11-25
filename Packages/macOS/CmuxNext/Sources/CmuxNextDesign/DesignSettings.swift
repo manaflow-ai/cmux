@@ -386,6 +386,10 @@ public final class DesignSettings {
     public var titleAreaTone: TitleAreaTone = .oneColor {
         didSet { if titleAreaTone != oldValue { ThemeScope.app.store.repaintAll() } }
     }
+    /// `appearance.menu.*` and `appearance.popover.*` (``MenuLook``): the menu and popover look a theme file
+    /// sets; ``MenuLook/standard`` (every key unset) is today's. The App's menus read it at each open, and
+    /// pages get it through ``WebTheme`` (``WebTheme/pushInputs`` carries it, so a save repaints every page).
+    public var menuLook = MenuLook.standard
     /// `appearance.cornerFlush`: how the selected tab meets the content card (``CornerFlush``); nil while the key is
     /// unset, so the default (`flush`, no goo) draws only over the stock chrome (``CornerFlush/current``). A Debug
     /// Settings pick of `chrome.cornerFlush` still overrides it. A change repaints, as the tone does.
