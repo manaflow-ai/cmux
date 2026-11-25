@@ -48,6 +48,7 @@ struct CloudChatsScreen: View {
                 }
                 if loading {
                     CmuxSpinner(label: Text("Loading Cloud chats…"))
+                        .placeholderBound("cloud.chats.loading", .milliseconds(2000))
                 } else if needsMac {
                     CloudChatsConnectMac { openDevices() }
                 } else if let error {
@@ -167,6 +168,7 @@ struct CloudChatsConnecting: View {
     var body: some View {
         VStack(spacing: 6) {
             CmuxSpinner(label: Text("Connecting to \(machine) through \(mac)…"))
+                .placeholderBound("cloud.chat.connecting", .milliseconds(0))
             // The text is "Up to 40 s" for the first 5 s: no redraw until it counts.
             TimelineView(ElapsedTextSchedule(since: since, quietSeconds: 5)) { context in
                 let elapsed = Int(context.date.timeIntervalSince(since))
@@ -197,6 +199,14 @@ struct CloudChatsConnectFailed: View {
         } actions: { RetryButton { retry() } }
         .accessibilityIdentifier("cloudChats.connectFailed")
     }
+}
+
+/// What the Cloud chat list's read depends on.
+private struct ListRead: Equatable {
+    let ready: Bool
+    let revision: Int
+    let shown: Int
+    let retry: Int
 }
 
 /// New Chat on a Cloud machine is tappable while its relay connects: a tap before the hub is
@@ -261,6 +271,12 @@ private struct CloudMachineChatsScreen: View {
     @State private var startQueue = CloudChatStartQueue()
     /// How many of the machine's chats the list draws, newest first (Show Older Chats adds a page).
     @State private var shown = CloudChatList.pageSize
+    /// The chats acpmux listed for `shown`, in its order (the Mac's lists read the same one).
+    @State private var listed = CloudChatList.Listed()
+    /// The last list read failed: the list says so and offers Retry (pull to refresh reads it too).
+    @State private var listError: String?
+    /// Retry and pull to refresh read the list again.
+    @State private var listRetry = 0
 
     var body: some View {
         Group {
@@ -272,9 +288,14 @@ private struct CloudMachineChatsScreen: View {
                     ContentUnavailableView("Chat unavailable", systemImage: "bubble.left",
                                            description: Text("This chat is no longer listed on this Cloud machine."))
                 } else {
-                    let listed = CloudChatList.newest(relay.hub.sessions.values, shown: shown)
                     List {
-                        ForEach(listed.rows, id: \.id) { chat in
+                        if let listError {
+                            Section {
+                                Text(listError).foregroundStyle(.secondary)
+                                Button("Retry") { listRetry += 1 }
+                            }
+                        }
+                        ForEach(listed.sessions(in: relay.hub), id: \.id) { chat in
                             Button { selectedSession = chat.id } label: {
                                 VStack(alignment: .leading) {
                                     Text(chat.displayName)
@@ -291,8 +312,9 @@ private struct CloudMachineChatsScreen: View {
                             }
                         }
                     }
+                    .refreshable { await readList(relay.hub, settle: false) }
                     .overlay {
-                        if relay.hub.sessions.isEmpty {
+                        if relay.hub.sessions.isEmpty, listError == nil {
                             ContentUnavailableView("No chats", systemImage: "bubble.left",
                                                    description: Text("Tap New Chat to start one on this Cloud machine."))
                         }
@@ -345,6 +367,13 @@ private struct CloudMachineChatsScreen: View {
                 self.error = "Couldn't connect. Try again."
             }
         }
+        // acpmux orders and picks the page; a change of the hub's list reads it again (the last
+        // page stays drawn meanwhile, and after a failed read, which the list shows with Retry).
+        .task(id: ListRead(ready: relay?.hub.isReady == true, revision: relay?.hub.listRevision ?? 0,
+                           shown: shown, retry: listRetry)) {
+            guard let hub = relay?.hub, hub.isReady else { return }
+            await readList(hub, settle: !listed.ids.isEmpty)
+        }
         .overlay { if starting || startQueue.queued { CmuxSpinner(label: Text("Starting chat…")) } }
         // A New Chat tap made while the relay connected starts once it is ready.
         .onChange(of: [relay?.hub.isReady == true, failure != nil || relay?.isRetired == true]) { _, link in
@@ -363,6 +392,22 @@ private struct CloudMachineChatsScreen: View {
                   relay?.hub.sessions[preferredSession] != nil else { return }
             openedPreferred = true
             selectedSession = preferredSession
+        }
+    }
+
+    /// Reads the first `shown` chats; `settle` waits out a burst of list changes first. A failed
+    /// read keeps the last page and says it failed; the next read that succeeds clears it.
+    private func readList(_ hub: AcpmuxHub, settle: Bool) async {
+        if settle { try? await Task.sleep(for: .milliseconds(250)) }
+        guard !Task.isCancelled else { return }
+        do {
+            let page = try await CloudChatList.newest(hub, shown: shown)
+            guard !Task.isCancelled else { return }
+            listed = page
+            listError = nil
+        } catch {
+            guard !Task.isCancelled else { return }
+            listError = "Couldn't load chats. Try again."
         }
     }
 

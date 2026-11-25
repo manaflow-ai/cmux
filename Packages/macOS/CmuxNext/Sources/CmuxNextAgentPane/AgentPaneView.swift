@@ -125,6 +125,8 @@ public final class AgentPaneView: NSView {
     private var uiScaleObservation: Task<Void, Never>?
     /// Hands the old host's document `app.language` on every change (``observeLanguage()``).
     var languageObservation: Task<Void, Never>?
+    /// Tells the page each time this app's acpmux answers a lookup (``observeAcpmuxAnswers()``).
+    var acpmuxAnswerObservation: Task<Void, Never>?
     /// The indicator while Computer use can act as me is on; it has no pill until the grant is on (``showActAsMe(_:)``).
     let actAsMePill = AgentPaneActAsMePill()
     public var zoom: Double = 1 {
@@ -143,6 +145,7 @@ public final class AgentPaneView: NSView {
         state["calls"] = transportPacer?.calls ?? -1
         state["usesPageHost"] = pageEvents != nil
         if let pageEvents { state["provider"] = pageEvents.debugState }
+        state["blank_recovery"] = documentCover.report // ``AgentPaneDocumentCover``'s detector
         return state
     }
     struct QuestionKeyBinding: Equatable {
@@ -179,6 +182,8 @@ public final class AgentPaneView: NSView {
     public internal(set) var lastContextMenu: (point: NSPoint, uptime: TimeInterval)?
     /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
     public let loadingView = AgentPaneLoadingView()
+    /// The page's last frame over each later document until it paints (`AgentPaneView+DocumentCover`).
+    public let documentCover = AgentPaneDocumentCover()
     /// The chat's own ground under its page, from the turn the pane is made (``AgentPaneGround``).
     let ground = AgentPaneGround()
     /// The page lies outside the window until it draws the chat a tab adopted it for
@@ -370,6 +375,7 @@ public final class AgentPaneView: NSView {
         }
         model.onFramePacing = { [weak self] _ in self?.framePacingSettings() ?? [:] }
         model.onTabKeyChange = { [weak self] in self?.announceTab() }
+        model.onPaintReport = { [weak self] in self?.documentCoverPaintReported() }
         model.onRenderRate = { [weak self] full in
             guard let self, self.renderRate == .adaptive else { return }
             self.rendersAtFullRate = full
@@ -407,6 +413,7 @@ public final class AgentPaneView: NSView {
         observeUIScale()
         observeIconFamily()
         observeLanguage()
+        observeAcpmuxAnswers()
         sessionStatusObservation = AgentPaneSessionStatus.follow(self)
         model.onCloudTeamChange = { [weak self] in self?.evaluateScript(AgentPaneCloudMachines.teamChangeScript) }
         installSessionInfo()
@@ -484,6 +491,7 @@ public final class AgentPaneView: NSView {
         MainActor.assumeIsolated {
             uiScaleObservation?.cancel()
             languageObservation?.cancel()
+            acpmuxAnswerObservation?.cancel()
             gitHubChangeObservation?.cancel()
             actAsMePill.stop()
             sessionStatusObservation?.cancel()
@@ -511,6 +519,7 @@ public final class AgentPaneView: NSView {
         placeChromiumMove(at: frame)
         ground.place(in: frame, of: self)
         if loadingView.superview === self { loadingView.frame = topBar.contentFrame(in: bounds) }
+        layOutDocumentCover(frame)
         layoutSessionInfo()
         layoutHostGlass()
         // A pane resized or moved under shown toasts: they stay clear of its composer.
@@ -572,6 +581,7 @@ public final class AgentPaneView: NSView {
 
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
+        model.pageClosed = true // it leaves the live pages (``AgentPageLiveness``)
         // A closed page must not notify the pane that used to host it after it leaves.
         onNativeToolOwnerChange = nil
         // A closed chat leaves its crash group: a sibling's Reload must not reload it.
@@ -586,6 +596,8 @@ public final class AgentPaneView: NSView {
         iconFamilyObservation = nil
         languageObservation?.cancel()
         languageObservation = nil
+        acpmuxAnswerObservation?.cancel()
+        acpmuxAnswerObservation = nil
         sessionStatusObservation?.cancel()
         model.sessionInfo.hostObservation?.cancel()
         model.sessionInfo.hostObservation = nil

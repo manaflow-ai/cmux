@@ -16,7 +16,11 @@
 //          have), a stand-in site page (DOM, a timer, an animation, a few MB of heap), hidden the same way.
 // At each rung, over WINDOW ms while the focused chat streams nothing and (when the pane has it,
 // cmuxAcpmuxDebug.sessionChurn) the list churns at RATE changes per second:
-//   cpu_ms_per_s     every renderer's CPU (utime + stime from /proc), ms per second of wall time
+//   cpu_ms_per_s     every renderer's CPU (utime + stime from /proc), ms per second of wall time, the least of the
+//                    window's thirds (other load on a shared runner only adds CPU)
+//   cpu_window_ms_per_s  the same over the whole window: a GC burst in one third shows here, where the least hides it
+//                    (chats x100 read 1337 ms/s over the window, ThreadPoolForeg 1137, while the least read flat)
+//   heap_mb          the renderers' JS heap after a full collection (the chats share one isolate), MB
 //   script_ms_per_s  the awake pages' main-thread script time (CDP Performance.getMetrics ScriptDuration), ms per s
 //   pss_mb           every renderer's proportional set size (/proc/PID/smaps_rollup), MB
 //   frame_p95_ms     the focused chat's frame intervals (rAF), p95
@@ -96,7 +100,7 @@ const JSON_OUT = flag("--json");
 const HOGS = flag("--hogs");
 const DIR = flag("--dir") ?? path.resolve(import.meta.dir, "..");
 const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
-const VERSION = 3;
+const VERSION = 4;
 if (RUNGS.length !== 3 || RUNGS.some((n) => !Number.isInteger(n) || n < 1) || RUNGS[0] === RUNGS[1]) {
   console.error("usage: --rungs LOW,MID,TOP (three distinct counts, e.g. 1,10,100)");
   process.exit(2);
@@ -291,6 +295,8 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
   const settled = await settle(rootPid, focused);
   if (!settled) console.log(`SIM-LADDER   not settled in ${SETTLE_MS} ms`);
   const pids = renderers(rootPid);
+  // No renderer found is a broken walk (a Chrome not ours, a /proc we cannot read), never a free rung.
+  if (pids.length < 1) throw new Error("sim-ladder: the renderer walk found no renderer under this process");
   const awake = items.filter((item) => item.awake);
   const script = async () => {
     const all = await Promise.all(
@@ -342,6 +348,8 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
     return w.__slFrames as number[];
   })) as number[];
   const secs = (performance.now() - t0) / 1000;
+  const windowMsPerS = (((mark - ticks0) / ticksPerSecond) * 1000) / ((markAt - t0) / 1000);
+  console.log(`SIM-LADDER   cpu thirds ms/s ${thirds.map(Math.round).join(", ")} | window ${Math.round(windowMsPerS)}`);
   const threads = [...threadTicks(pids)]
     .map(([name, t]) => [name, Math.round((((t - (threads0.get(name) ?? 0)) / ticksPerSecond) * 1000) / secs)] as const)
     .filter(([, ms]) => ms > 0)
@@ -367,8 +375,24 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
         ]),
       ),
   );
+  // The heap after the collection, one reading per renderer (its isolate), summed.
+  const heaps = await Promise.all(
+    items
+      .filter((item, index) => index === 0 || item.page.url() !== items[0]!.page.url())
+      .map((item) =>
+        Promise.race([
+          item.cdp
+            .send("Performance.getMetrics")
+            .then((m) => m.metrics.find((x) => x.name === "JSHeapUsedSize")?.value ?? 0)
+            .catch(() => 0),
+          new Promise<number>((resolve) => setTimeout(() => resolve(0), 3000)),
+        ]),
+      ),
+  );
   return {
     cpu_ms_per_s: Math.round(Math.min(...thirds)),
+    cpu_window_ms_per_s: Math.round(windowMsPerS),
+    heap_mb: Math.round(heaps.reduce((sum, bytes) => sum + bytes, 0) / 1048576),
     script_ms_per_s: Math.round(((script1 - script0) * 1000) / secs),
     pss_mb: Math.round(pids.reduce((sum, pid) => sum + pssMB(pid), 0)),
     frame_p95_ms: Math.round(p95(frames) * 10) / 10,

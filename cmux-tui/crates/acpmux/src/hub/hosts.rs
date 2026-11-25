@@ -755,7 +755,7 @@ impl Hub {
             record,
             resume_after,
             Vec::new(),
-            session.inbound_tx.clone(),
+            session.inbound_tx().clone(),
             tap,
         )
         .await?;
@@ -787,7 +787,11 @@ impl Hub {
         // back from the agent's own env, so its next start runs on it again (`agent_credentials.rs`).
         // Not from an agent that already exited: its host was reaped, so its pid may now be
         // another agent's (another session's credential on this one).
-        if adopted.exited.is_none() {
+        // The host's own word comes first: it launched the agent, so it says the credential even
+        // when the agent's env no longer shows it (cmux#52399).
+        if !self.hold_launch_credential(session, &adopted.launch_credential.0)
+            && adopted.exited.is_none()
+        {
             self.recover_credential(session, adopted.harness_pid);
         }
         let proven = self.adopt_caller_token(&session.id, caller_token, &incarnation);
@@ -1723,7 +1727,7 @@ impl Hub {
             record.clone(),
             0,
             Vec::new(),
-            session.inbound_tx.clone(),
+            session.inbound_tx().clone(),
             tap,
         )
         .await;
