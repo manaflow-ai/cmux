@@ -84,10 +84,10 @@ impl Hub {
             if stop.is_cancelled() {
                 return;
             }
-            let mut slot = session.inbound_rx.lock().await;
+            let mut slot = session.inbound_rx().lock().await;
             if session.status() == SessionStatus::Closed
                 && rx.is_empty()
-                && !producers_live(&session.inbound_tx)
+                && !producers_live(session.inbound_tx())
             {
                 *slot = Some(rx);
                 return;
@@ -97,7 +97,7 @@ impl Hub {
 
     /// Start the chat's inbound loop when no loop holds its receiver.
     pub(super) async fn spawn_inbound_loop(self: &Arc<Self>, session: &Arc<Session>) {
-        if let Some(rx) = session.inbound_rx.lock().await.take() {
+        if let Some(rx) = session.inbound_rx().lock().await.take() {
             let (hub, s) = (self.clone(), session.clone());
             self.scope.spawn_named("inbound-loop", async move { hub.inbound_loop(s, rx).await });
         }
@@ -110,7 +110,7 @@ impl Hub {
         stop: &tokio_util::sync::CancellationToken,
         closed: &mut tokio::sync::watch::Receiver<bool>,
     ) {
-        while let Some(item) = next_inbound(rx, stop, closed, &session.inbound_tx).await {
+        while let Some(item) = next_inbound(rx, stop, closed, session.inbound_tx()).await {
             // An agent's stream allocates without any request: its pages go back once it stops.
             cmux_tui_platform::malloc_quiet_trim::note_activity();
             match item {
@@ -189,6 +189,7 @@ impl Hub {
                             .contains(&agent);
                         self.arm_auto_background(&session, params.as_ref(), replayed);
                         self.on_update_cache(&session, params.as_ref(), replayed);
+                        self.surgery_on_update(&session, params.as_ref(), replayed);
                         self.notice_overlaps(&session);
                     } else if m == method::CANCEL_REQUEST
                         && let Some(id) = params.as_ref().and_then(|p| p.get("requestId"))
@@ -444,6 +445,12 @@ impl Hub {
         }
         let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
         self.note_activity(session, update);
+        // Work the model streams live says the pool answers again (`capacity_gate.rs`). Not a
+        // message chunk: a harness words its 529 as one ("API Error: 529 ..."); a turn of
+        // text alone tells the gate when it ends well (`turns.rs`).
+        if !replayed && matches!(kind, "agent_thought_chunk" | "tool_call" | "plan") {
+            self.capacity_gate_answered(session);
+        }
         // A mode or option change goes through the one setter below.
         let mut mode_write = None;
         let mut reported_tools = None;
@@ -563,6 +570,10 @@ impl Hub {
                 if let Some(goal) = update.pointer("/_meta/goal") {
                     m.goal = crate::goal::GoalState::from_value(goal, m.family.as_deref());
                     goal_write = true;
+                    // The agent's own word on its loops (`agent_timer.rs`); a replay is history.
+                    if !replayed {
+                        super::agent_timer::note_agent_goal(session, goal);
+                    }
                 }
                 // A harness title made from the first input stops before a client context
                 // (prompt_context.rs), so a Cmd-I chat titles from the person's words.
@@ -1343,7 +1354,12 @@ impl Hub {
                     agent_host_incarnation: agent_host_incarnation.map(str::to_owned),
                 },
             );
-            self.append(session,"mux","permission_request",json!({"permissionId":permission_id,"decisionNonce":decision_nonce,"personInstance":self.person.instance(),"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id,"agentRequestId":agent_request_id,"remoteFloor":floored}));
+            let mut asked = json!({"permissionId":permission_id,"decisionNonce":decision_nonce,"personInstance":self.person.instance(),"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id,"agentRequestId":agent_request_id,"remoteFloor":floored});
+            // A risky step on a Cloud machine offers "Fork first" (`fork_risky.rs`).
+            if let Some(offer) = crate::fork_risky::offer_here(&request, &permission_id) {
+                asked.set("forkOffer", offer);
+            }
+            self.append(session, "mux", "permission_request", asked);
             self.background_attention(session);
             self.set_waiting(session, super::WaitReason::of_request(&request));
             (rx, prev, grouping, permission_id)
@@ -2258,5 +2274,39 @@ async fn next_inbound(
             }
             () = recheck => {}
         }
+    }
+}
+
+impl Hub {
+    /// "Fork first" on a risky step's prompt (`fork_risky.rs`): the copy the app made of this
+    /// machine under the prompt's offer (`carried`, `{machine, fork, forkMs}`) is checked against
+    /// the offer and logged as `fork_checkpoint`, before the answer lets the step run. The prompt
+    /// must still wait, still carry an offer, and be answered with an allow.
+    pub(crate) fn fork_checkpoint(
+        &self,
+        session: &Session,
+        permission_id: &str,
+        option: Option<&str>,
+        carried: &Value,
+    ) -> Result<Value, RpcError> {
+        let request = {
+            let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+            state.pending.get(permission_id).map(|p| p.request.clone())
+        }
+        .ok_or_else(|| RpcError::invalid_params("that request no longer waits"))?;
+        let options = request["options"].as_array().map_or(&[][..], Vec::as_slice);
+        if !option.and_then(|o| option_kind(options, o)).is_some_and(|k| k.starts_with("allow")) {
+            return Err(RpcError::invalid_params("forkCheckpoint goes with an allow"));
+        }
+        let offer = crate::fork_risky::offer_here(&request, permission_id).ok_or_else(|| {
+            RpcError::invalid_params(
+                "no fork offer for this request (cloud.autoCloud off, not a Cloud machine, or not a risky step)",
+            )
+        })?;
+        let record = crate::fork_risky::checkpoint(&offer, permission_id, carried)
+            .map_err(RpcError::invalid_params)?;
+        tracing::info!(session = %session.id, fork = %record["fork"], ms = %record["forkMs"], "forked before a risky step");
+        self.append(session, "mux", "fork_checkpoint", record.clone());
+        Ok(record)
     }
 }

@@ -28,6 +28,10 @@ public struct ConnectionBannerState: Sendable, Hashable {
         chipKind.map { ConnectionChip.Content($0, sentence: sentence) }
     }
 
+    /// Whether the state is drawn (and announced) at all: a link still trying is not
+    /// (``ConnectionChip/Kind/paints``); a banner with a sentence to read always is.
+    public var paints: Bool { chip?.paints ?? true }
+
     /// What VoiceOver reads for the chip: the words plus the Mac, when the state names one.
     var sentence: String {
         guard let macName, !macName.isEmpty else { return chipKind == .cantReach ? String(localized: "Can't reach your Mac") : text }
@@ -127,7 +131,7 @@ public struct ConnectionBanner: View {
         .fixedSize()
         .padding(.horizontal, 14)
         .frame(minHeight: 36)
-        .glassEffect(.regular, in: .rect(cornerRadius: 18, style: .continuous))
+        .cmuxMobileFloatingGlass(in: .rect(cornerRadius: 18, style: .continuous))
     }
 
     private var wrapped: some View {
@@ -156,7 +160,7 @@ public struct ConnectionBanner: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .frame(minHeight: 36)
-        .glassEffect(.regular, in: .rect(cornerRadius: theme.metrics.cardRadius, style: .continuous))
+        .cmuxMobileFloatingGlass(in: .rect(cornerRadius: theme.metrics.cardRadius, style: .continuous))
     }
 
     @ViewBuilder private var leading: some View {
