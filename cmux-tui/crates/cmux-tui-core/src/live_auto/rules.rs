@@ -349,7 +349,9 @@ impl Rules {
                 reasons.insert("new entry point");
             } else if self.type_decl.is_match(body) {
                 reasons.insert("type or conformance");
-            } else if (self.static_let.is_match(body) && indent <= 4) || (self.file_let.is_match(body) && indent == 0) {
+            } else if (self.static_let.is_match(body) && indent <= 4)
+                || (self.file_let.is_match(body) && indent == 0)
+            {
                 // A constant of no instance: the patch carries it (live_apply.py's STATIC_LET).
                 continue;
             } else if self.stored.is_match(body) && indent <= 4 && !body.ends_with('{') {
