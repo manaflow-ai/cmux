@@ -52,7 +52,7 @@ impl App {
     /// options, the question).
     fn pending_question(&self) -> Option<(String, Vec<(String, String, String)>, Value)> {
         let id = self.selected_id()?;
-        match self.transcripts.get(&id)?.pending_permission()? {
+        match crate::live_permission(self.transcripts.get(&id)?)? {
             Item::Permission { id, options, question: Some(question), .. } => {
                 Some((id.clone(), options.clone(), question.clone()))
             }
