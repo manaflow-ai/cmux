@@ -34,6 +34,7 @@ mod adopted_fences;
 mod adoption;
 pub(crate) mod agent_hold;
 mod agent_pairs;
+pub(crate) mod agent_timer;
 pub(crate) mod agent_vm;
 mod away_recap;
 mod memory_inbox;
@@ -324,7 +325,9 @@ pub(crate) mod require_asking;
 mod resolve;
 mod route_switch;
 mod stale_host_respawn;
-pub use pool::{PrewarmRequest, PrewarmShape, RssProbe, tree_rss_bytes};
+pub use pool::{
+    PrewarmRequest, PrewarmShape, RssProbe, parse_home_shapes, person_spare_shapes, tree_rss_bytes,
+};
 pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
 pub(crate) use turn_errors::is_limit_error;
@@ -2475,6 +2478,7 @@ impl Hub {
             input_since: AtomicU64::new(0),
             wait_reason: StdMutex::new(None),
             work_below_since: StdMutex::new(0),
+            loop_timers: StdMutex::new(None),
             asks_below: StdMutex::new((0, 0)),
             held_messages: StdMutex::new(std::collections::VecDeque::new()),
             unread_after_work: AtomicBool::new(false),

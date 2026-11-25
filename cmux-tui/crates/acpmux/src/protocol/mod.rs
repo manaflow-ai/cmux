@@ -655,6 +655,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_CONTROL, Notification),
         untyped(method::MUX_HARNESS_INVENTORY, Notification),
         untyped(method::MUX_START_MODE_CHANGED, Notification),
+        untyped(method::MUX_FILL, Notification),
         untyped(method::MUX_PROMPT_ACCEPTED, Notification),
         untyped(method::MUX_CANCEL_REFUSED, Notification),
         untyped(method::MUX_UNSENT, Notification),
