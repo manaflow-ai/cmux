@@ -190,6 +190,16 @@ extension CloudFrontedChats {
         return true
     }
 
+    /// Where chat tab `chat`'s header Files opens: this Mac's tree for a chat here; for a Cloud or SSH chat, its
+    /// machine's tree, read through that machine's daemon (never this Mac's folder), beside the Mac tab that shows the
+    /// chat in place when one does. Nil when the chat names no machine this Mac reaches.
+    static func filesPlace(_ chat: AgentTabKey, services: AppServices) -> (link: AgentPaneGitLink, machine: DaemonService?, beside: String)? {
+        guard let link = services.agentTabs.gitLinkScoped?(chat) else { return nil }
+        if link === services.agentGit.local { return (link, nil, chat.key) }
+        guard let (tab, _) = services.locateTab(chat.key, onMachine: chat.machine), let daemon = try? services.machines.agentDaemon(forTab: tab) else { return nil }
+        return (link, daemon, services.agentTabs.frontedChats.mac(showing: chat)?.key ?? chat.key)
+    }
+
     /// The machine's desktop in a browser tab beside Mac tab `mac`, where the header's Browser opens on a chat of this
     /// Mac (``RightColumnPlacement``). A person clicked it, so it connects without asking, as Open Desktop's tab does:
     /// the approval goes on the exact tab this open made, once listed. False when the Mac tab is in no window.

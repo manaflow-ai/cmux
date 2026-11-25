@@ -1,6 +1,7 @@
 // The chat header's Files button (cx-p4rt): off by default until the tree is styled, so the right-click
 // menu lists it unchecked; checking it puts Files after Changes, a click runs the tree with its mode, and
-// it lights while the App reports the tree open. A chat whose folder is not on this Mac has no Files.
+// it lights while the App reports the tree open. A chat with no folder has no Files; a Cloud chat's opens its
+// machine's tree (cmux#55413).
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -83,8 +84,17 @@ test("Files is off until added from the right-click menu, then runs and lights l
   act(() => applyHostEvent({ kind: "headerState", value: { lit: [HEADER_ACTIONS.files] } }));
   expect(files()?.getAttribute("aria-pressed")).toBe("true");
 
-  // A remote chat's folder is not on this Mac: no Files button, even when added.
+  // A chat with no folder: no Files button, even when added.
   render(false);
   expect(files()).toBeNull();
   act(() => configureQuickActions({}));
+});
+
+test("Files opens the chat's folder on any machine, a Cloud chat's included (cmux#55413)", async () => {
+  const { filesFolder } = await import("../src/agent-session/acpmux/header/chatHeaderToolsModel");
+  expect(filesFolder("/home/cmux/chats/r1")).toBe("/home/cmux/chats/r1");
+  expect(filesFolder("/Users/me/app")).toBe("/Users/me/app");
+  expect(filesFolder(undefined)).toBeUndefined();
+  expect(filesFolder("")).toBeUndefined();
+  expect(filesFolder("relative/dir")).toBeUndefined();
 });
