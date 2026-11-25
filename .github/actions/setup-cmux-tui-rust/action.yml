@@ -10,6 +10,16 @@ inputs:
 runs:
   using: composite
   steps:
+    # A Freestyle runner reads static.rust-lang.org and sh.rustup.rs at about 0.3-1 MB/s: this step took 522 s
+    # (p50) and 1,357 s (p90) over 24 h on 2026-11-23. The pinned toolchain and rustup come from the CI cache
+    # bucket instead (scripts/ci/toolchain-r2.sh); the install below then finds it installed. A miss, or any
+    # other runner, installs from upstream exactly as before.
+    - name: Restore the pinned Rust toolchain from the CI cache bucket
+      shell: bash
+      continue-on-error: true
+      run: |
+        script="$GITHUB_ACTION_PATH/../../../scripts/ci/toolchain-r2.sh"
+        [[ ! -f "$script" ]] || bash "$script" restore rust "$GITHUB_ACTION_PATH/../../../cmux-tui/rust-toolchain.toml" || true
     # Hosted images ship rustup; a self-hosted image may not,
     # or may keep it in ~/.cargo/bin off the runner's PATH. Provision the same
     # way scripts/install-rust-ci.sh does, leaving the toolchain to the pinned
