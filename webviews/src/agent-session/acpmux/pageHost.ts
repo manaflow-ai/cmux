@@ -49,10 +49,13 @@ export type HostEvent = { kind: string; value?: unknown };
 /// in a shared pane document each view subscribes with its `view` filter and these land in that
 /// view's store (paneViewStore.ts), so two chats never draw each other's header, row or cards. Every
 /// other kind is the app's (theme, settings, catalogs) and applies to the whole document. Not yet
-/// per view, so still the document's: transport, uploads, Session Info and the Cloud preview ports.
+/// per view, so still the document's: Session Info. Transport and uploads need none: their events
+/// name a connection or an upload, each one chat's.
 /// The chat's bridge commands go to its view's bridge (viewBridges.ts).
 export const VIEW_EVENT_KINDS: ReadonlySet<string> = new Set([
   "command",
+  "cloudPreviewPort",
+  "cloudPreviewPortsKnown",
   "stopTurn",
   "sideQuestion",
   "revealTurn",
@@ -208,7 +211,7 @@ export function applyHostEvent(event: HostEvent, view: string | null = null): vo
     case "models.catalog":
       return receiveModelCatalog(event.value);
     case "cloudPreviewPort":
-      return void addCloudPreviewPort(event.value);
+      return void addCloudPreviewPort(event.value, view);
     case "cloudPreviewPortsKnown": {
       const value = event.value;
       const ports =
@@ -217,7 +220,7 @@ export function applyHostEvent(event: HostEvent, view: string | null = null): vo
           : Array.isArray(value)
             ? value
             : [];
-      return seedCloudPreviewPorts(ports);
+      return seedCloudPreviewPorts(ports, view);
     }
   }
 }
