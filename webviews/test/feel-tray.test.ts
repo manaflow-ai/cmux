@@ -1,4 +1,4 @@
-// Feel check: the composer hat's plan tray, dragged by its top rim (trayResize.ts, SubagentTray.tsx).
+// Feel check: the composer hat, dragged by its top rim (trayResize.ts, SubagentTray.tsx).
 // Leo, 2026-11-22: "the dragging isn't properly relative accurate to the cursor, and it's just jumpy
 // all over the place and doesn't have satisfying snap alongs ... errant clicks could make it jump",
 // and "these should be doable via automation. the "feel" and "vibes" thing. you can simulate cursors
@@ -13,7 +13,7 @@
 // - a shaky hand at the fold point folds or opens it once, not back and forth;
 // - a click or a 3 px wobble on the rim, or a click just above it, moves and changes nothing;
 // - a double-click moves the hat once, one way.
-// The report and a recording per scenario go to $CMUX_FEEL_OUT/plan-tray (test/feel/report.ts).
+// The report and a recording per scenario go to $CMUX_FEEL_OUT/hat-tray (test/feel/report.ts).
 import { describe, setDefaultTimeout, test } from "bun:test";
 import type { Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
@@ -23,10 +23,10 @@ import { chromiumLaunches, expectPass, feelStage } from "./feel/stage";
 import type { ProbeSpec } from "./feel/trace";
 import { continuity, flips, follow, still } from "./feel/verdicts";
 
-await requireBrowserLane("feel-plan-tray.test.ts", async () => {
+await requireBrowserLane("feel-tray.test.ts", async () => {
   setDefaultTimeout(120_000);
   if (!(await chromiumLaunches())) {
-    describe.skip("feel: plan tray", () => test("chromium", () => {}));
+    describe.skip("feel: hat tray", () => test("chromium", () => {}));
     return;
   }
   const TRAY = ".acpmux-running-tray";
@@ -37,19 +37,18 @@ await requireBrowserLane("feel-plan-tray.test.ts", async () => {
       tray: TRAY,
       rim: RIM,
       list: LIST,
-      plan: ".acpmux-running-tray__plan",
       head: ".acpmux-running-tray__head",
       composer: ".acpmux-composer",
     },
     states: { open: { selector: TRAY, attr: "data-open" } },
   };
 
-  // Green since the plan-display-proper fix (#50154): the rim lands on a whole line, a shaky hand folds
+  // Green since the hat-display-proper fix (#50154): the rim lands on a whole line, a shaky hand folds
   // it once, and a click on the rim changes nothing.
   const { scenario, testFor } = feelStage({
-    entry: "agent-pane.feel-plan-tray",
+    entry: "agent-pane.feel-tray",
     variant: "fifty",
-    component: "plan-tray",
+    component: "hat-tray",
     viewport: { width: 480, height: 720 },
     prepare: async (page) => {
       await page.evaluate(() => localStorage.removeItem("cmux.agentPane.hatListHeight"));
@@ -73,7 +72,7 @@ await requireBrowserLane("feel-plan-tray.test.ts", async () => {
     }, LIST);
 
   /** How close the rim must come to a line's edge to settle on it mid-drag (trayResize.ts
-   *  `HAT_DETENT` on the plan-display-proper fix). Leo asked for "satisfying snap alongs", so a rim
+   *  `HAT_DETENT` on the hat-display-proper fix). Leo asked for "satisfying snap alongs", so a rim
    *  resting on a line within this counts as on the hand; one that follows 1:1 passes too. */
   const SNAP_ALONG = 5;
 
@@ -123,7 +122,7 @@ await requireBrowserLane("feel-plan-tray.test.ts", async () => {
       },
     );
 
-  describe("feel: plan tray rim drag", () => {
+  describe("feel: hat tray rim drag", () => {
     dragScenario("slow", -60);
     dragScenario("fast", -60);
     dragScenario("jitter", -60);

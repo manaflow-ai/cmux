@@ -35,19 +35,6 @@ test("an update ends the turn only when it takes the line away", () => {
   );
 });
 
-test("switching the running status line does not end its turn", () => {
-  const running = [
-    row("u", "user"),
-    { ...row("worked-u", "worked"), turnPhase: "running" as const },
-    row(LIVE_THINKING, "thinking"),
-  ];
-  const status = [row("u", "user"), row("activityLine-u", "activityLine")];
-  expect(hasLiveLine(status)).toBe(true);
-  expect(endsTurn(running, status)).toBe(false);
-  expect(endsTurn(status, running)).toBe(false);
-  expect(endsTurn(status, [row("u", "user"), row("worked-u", "worked"), row("answer")])).toBe(true);
-});
-
 test("a user line another agent or the inbox drew is not the turn's prompt", () => {
   // An incoming message's line (model.ts `isLineRow`) after the prompt regroups under a new id as the
   // turn ends: the prompt above it stays, so the turn ended.

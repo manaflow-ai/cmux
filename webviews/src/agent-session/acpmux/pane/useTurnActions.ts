@@ -100,7 +100,6 @@ export interface TurnRowsShownDeps {
   > & {
     summary?: Pick<Summary, "family">;
   };
-  sessionStatus: boolean;
   messageBreaks: readonly number[];
   supersededReplyIds: Set<string> | undefined;
   foldsSeen: RefObject<{ session?: string; folds?: Folds }>;
@@ -185,7 +184,6 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
     heldWorked,
     heldWorkedClosing,
     snapshot,
-    sessionStatus,
     messageBreaks,
     supersededReplyIds,
     foldsSeen,
@@ -232,7 +230,6 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
           working: snapshot.isWorking && snapshot.canLoadNewer !== true,
           clockOffset: snapshot.clockOffsetMs,
           turnStartedAtMs: snapshot.turnStartedAtMs,
-          sessionStatus,
           // A finished turn folds as its harness family's app does: Codex under one Worked for, Claude per run.
           agentFamily: snapshot.summary?.family,
           // Other sessions' messages among them, two or more in a run, draw as one card.

@@ -1,5 +1,5 @@
 // l10n-allow-file: gallery fixtures for the live line's tool calls, not shipped UI.
-// The Working line and the activity line under a todo list change their words as Claude desktop's
+// The Working line changes its words as Claude desktop's
 // do (Leo, 2026-11-05: "this is quite good too how it animates the changing text!!! we need to have
 // that!!! for changing tool calls at the bottom"): the old call rises out, the new one rises in, and
 // the clock slides to its end while it ticks (ui/motion/useTextSwap.ts). The Codex-style live line
@@ -9,7 +9,6 @@ import { useLayoutEffect, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxRow } from "../model";
-import { ActivityLine } from "./ActivityLine";
 import { WorkingFor } from "./WorkingFor";
 
 const CALLS = [
@@ -52,17 +51,6 @@ function Fixture({ variant }: { variant: Variant }) {
           } as AcpmuxRow
         }
       />
-      <ActivityLine
-        row={
-          {
-            id: "activity",
-            kind: "activityLine",
-            version: step + 1,
-            at: since,
-            text: call,
-          } as AcpmuxRow
-        }
-      />
     </div>
   );
 }
@@ -84,17 +72,13 @@ const settled = (ctx: PlayContext) => ctx.waitFor(() => swapAnimations(ctx.docum
 
 export default componentEntry<{ variant: Variant }>({
   id: "agent-pane.live-line-text-swap",
-  title: "Working and activity lines: the call's words change in place",
+  title: "Working line: the call's words change in place",
   area: "Agent pane",
   pane: true,
   height: 140,
   widths: { narrow: 360, normal: 560 },
   styles: () => Promise.all([import("../styles.css"), import("./conversation.css")]),
-  covers: [
-    "agent-session/acpmux/conversation/WorkingFor.tsx#WorkingFor",
-    "agent-session/acpmux/conversation/ActivityLine.tsx#ActivityLine",
-    "ui/motion/useTextSwap.ts#useTextSwap",
-  ],
+  covers: ["agent-session/acpmux/conversation/WorkingFor.tsx#WorkingFor", "ui/motion/useTextSwap.ts#useTextSwap"],
   variants: {
     "at-rest": {
       props: { variant: "at-rest" },

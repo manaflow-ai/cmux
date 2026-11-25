@@ -186,7 +186,7 @@ export type SimResult = {
   traces: StepTrace[];
 };
 
-const LIVE_KINDS = new Set(["typing", "working", "thinking", "activityLine"]);
+const LIVE_KINDS = new Set(["typing", "working", "thinking"]);
 const isLive = (row: AcpmuxRow) => row.below === true || row.kind === "typing" || row.id.endsWith("-live");
 const foldOf = (row: AcpmuxRow): string => {
   if (row.foldOpen !== undefined) return row.foldOpen ? "open" : "closed";

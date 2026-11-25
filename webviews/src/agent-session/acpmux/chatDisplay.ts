@@ -149,11 +149,6 @@ export const CHAT_LIST_STATUS_PILLS_KEY = "agentPane.display.chatListStatusPills
 /// title drawn as one monospace slash path, `repo / branch / title` (header/ThreadTitle.tsx). Off, the
 /// header shows the plain title as before. Not part of ChatDisplay: switching it measures no row again.
 export const HEADER_BREADCRUMB_KEY = "agentPane.display.headerBreadcrumb";
-/// Settings > Agent Chat > Pin Task List in Chat, off by default: the running turn's todo list pinned
-/// under its latest message (conversation/turns.ts). Off, the composer's hat shows it
-/// (subagents/SubagentTray.tsx `plan`; Leo, 2026-11-03: "we said earlier the composer hat is kinda ok?").
-/// Not part of ChatDisplay: switching it measures no transcript row again.
-export const PINNED_PLAN_KEY = "agentPane.display.pinnedPlan";
 /// Settings > Agent Chat > Tuck Away Running Tray, off by default: the hat over the composer
 /// (subagents/SubagentTray.tsx) tucks away to a chevron at the top middle of the composer, shown on
 /// hover, which brings it back (subagents/TrayPullTab.tsx; Leo, 2026-11-04: "what if you wanted to
@@ -556,7 +551,6 @@ let raw: Values = {};
 let minimapOn = false;
 let statusPillsOn = false;
 let headerBreadcrumbOn = false;
-let pinnedPlanOn = false;
 let trayTuckedOn = false;
 let sendPopOn = false;
 let trayHandle: TrayHandleSide = "middle";
@@ -634,7 +628,6 @@ export function setChatDisplay(value: unknown): void {
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
   const statusPills = raw[CHAT_LIST_STATUS_PILLS_KEY] === true;
   const headerBreadcrumb = raw[HEADER_BREADCRUMB_KEY] === true;
-  const pinnedPlan = raw[PINNED_PLAN_KEY] === true;
   const trayTucked = raw[TRAY_TUCKED_KEY] === true;
   // The pop's gate: written only when the setting changes, so a page that set its own
   // `data-send-pop` (the gallery's variants, the benches' arms) keeps it.
@@ -689,7 +682,6 @@ export function setChatDisplay(value: unknown): void {
     minimap === minimapOn &&
     statusPills === statusPillsOn &&
     headerBreadcrumb === headerBreadcrumbOn &&
-    pinnedPlan === pinnedPlanOn &&
     trayTucked === trayTuckedOn &&
     handle === trayHandle &&
     show === railShow &&
@@ -714,7 +706,6 @@ export function setChatDisplay(value: unknown): void {
   minimapOn = minimap;
   statusPillsOn = statusPills;
   headerBreadcrumbOn = headerBreadcrumb;
-  pinnedPlanOn = pinnedPlan;
   trayTuckedOn = trayTucked;
   trayHandle = handle;
   railShow = show;
@@ -875,9 +866,6 @@ const changesPillSnapshot = () => changesPillOn;
 /// Whether the chat draws its changes pill over the composer (CHANGES_PILL_KEY).
 export const useChangesPillOn = (): boolean =>
   useSyncExternalStore(subscribe, changesPillSnapshot, changesPillSnapshot);
-const pinnedPlanSnapshot = () => pinnedPlanOn;
-/// Whether the running turn's todo list is pinned in the transcript (PINNED_PLAN_KEY) instead of the hat.
-export const useChatPinnedPlan = (): boolean => useSyncExternalStore(subscribe, pinnedPlanSnapshot, pinnedPlanSnapshot);
 const trayTuckedSnapshot = () => trayTuckedOn;
 /// Whether a sent prompt pops in, read when a row enters (VirtualTranscript.tsx): the root's gate,
 /// which SEND_POP_KEY sets and a bench's arm may set by hand, as the CSS rule reads it.
