@@ -55,10 +55,17 @@ extension SidebarViewComponents {
         return content
     }
 
-    /// Space-switcher slots in sidebar coordinates, in the space selection order.
-    public var shortcutHintSpaceFrames: [CGRect] {
+    /// The drawn space-switcher slots in sidebar coordinates, each with the Select Space digit that reaches it: 1…8
+    /// are the first eight spaces and 9 the last (`targets::ordinal`, as Select Tab), so a ninth space that is not the
+    /// last gets none. A dot the strip does not draw (scrolled under the "+", past the bar's edge or into its leading
+    /// inset) gets no hint (#32981).
+    public var shortcutHintSpaceFrames: [(digit: Int, rect: CGRect)] {
         // No hints over a strip faded out (`sidebar.spacesVisibility` hover).
         guard !isHiddenOrHasHiddenAncestor, !profileBar.isHidden, profileBar.alphaValue > 0.5, bounds.width > 1 else { return [] }
-        return profileBar.slotRects().prefix(model.profiles.count).map { profileBar.convert($0, to: self) }
+        let rects = profileBar.slotRects(), last = model.profiles.count - 1
+        return profileBar.drawnDotIndices(in: rects).compactMap { index in
+            guard index < 8 || index == last else { return nil }
+            return (index == last && index >= 8 ? 9 : index + 1, profileBar.convert(rects[index], to: self))
+        }
     }
 }

@@ -117,6 +117,32 @@ export type HostListRow = {
    * running or the machine is not reachable now; the switch is disabled.
    */
   vm_host?: { on: boolean; busy: boolean; error: string | null };
+  /**
+   * A Remote machine's AutoCloud enrollment (`_acpmux/autocloud_enroll` there), as the machine's own acpmux
+   * reports it (`_acpmux/peers` health `autoCloud`). Read-only: only the owner's own client enrolls it.
+   * Absent until the machine answered, and on a machine too old to say.
+   */
+  autocloud?: MachineAutoCloud;
+};
+
+/** A machine's AutoCloud enrollment as the host sends it (acpmux `autoCloud`, v1). */
+export type MachineAutoCloud = {
+  /** Enrolled there. */
+  on: boolean;
+  /** The machine's AutoCloud report could not be read. */
+  error: string | null;
+  /** Taking AutoCloud work now: enrolled, owner idle, within its hours. */
+  accepting?: boolean;
+  /** The owner is idle on it now (host-presence). */
+  owner_idle?: boolean;
+  /** Who may use it: team ids (empty: the owner's own work only), harnesses (empty: any), local hours. */
+  policy?: {
+    teams: string[];
+    agents: string[];
+    hours: { from: number; to: number } | null;
+  };
+  /** What it can run: `macos`, `xcode`, `ios-simulator`, `gpu-metal`, `linux`, `gpu-nvidia`, an arch. */
+  caps?: string[];
 };
 
 /** One browser profile row. */
@@ -212,7 +238,8 @@ export type DevicesJoinState = {
   known: boolean;
   /** The label of the action that turns every switch off while the record is unknown; null while it is known. */
   revoke_all: string | null;
-  switches: Array<{ surface: JoinConsentSurface; title: string; help: string; on: boolean }>;
+  /** Each switch; `keywords` are what Settings search also finds it by (the page's language and English). */
+  switches: Array<{ surface: JoinConsentSurface; title: string; help: string; keywords?: string[]; on: boolean }>;
 };
 
 /** The lists the host shows beside the schema rows; `rooms` is null when spaces are unsupported. */
@@ -395,6 +422,24 @@ export type AppUpdateState = {
   actions: { id: AppUpdateAction; title: string; prominent: boolean }[];
   /** Read-only lines under the status: Last Updated and Next Check, label and value the host's. */
   schedule?: { id: string; label: string; value: string }[];
+};
+
+/**
+ * Updates > App Update's Go Back to Previous Build (`cmux.settings.app_update.previous`, read when
+ * the card shows): the newest build this Mac kept, named by number, day and commit, and why the one
+ * rollback path refuses it (null: it would run). Every text is the host's; null when nothing is kept.
+ */
+export type PreviousBuild = {
+  build: string;
+  version: string;
+  date: string | null;
+  commit: string | null;
+  commit_url: string | null;
+  title: string;
+  action: string;
+  detail: string;
+  build_label: string;
+  refusal: string | null;
 };
 
 /** A button of the App Update card (Swift `SettingsUpdateAction`). */
@@ -1122,7 +1167,46 @@ export type LibraryEntry = {
   added_ms: number | null;
   /** Keys and files a higher entry that is on sets too, so this one's value is not in use. */
   overridden: string[];
+  /** The unmerged pull request a `pr-N` entry is (`cmux customize use pr:N`; cmux-customize
+   * `library/code.rs` `CodeLayer`). Absent on every other entry. */
+  code?: LibraryCode;
 };
+
+/** A pull request's code as a library entry: its web part is served on this app while it is on and
+ * the highest such entry; what it cannot carry needs a build. */
+export type LibraryCode = {
+  /** `owner/name`. */
+  repo: string;
+  pr: number;
+  title: string;
+  /** The PR head the layer was built from. */
+  head: string;
+  /** The commit CI merged the head onto. */
+  base: string;
+  /** The published web bundle key; absent when the PR changes no web bundle (nothing applies to a
+   * running app, so the CLI refuses to turn it on). */
+  web?: string;
+  abi?: number;
+  /** What the layer cannot carry, one line each: "needs a build: ...". */
+  needs_build?: string[];
+  /** The last refresh's word on it: `in your build`, `no longer applies: ...`, `newer head ...`. */
+  note?: string;
+};
+
+/** One entry at standup (`cmux customize library standup`): what it is, on or off, the last word
+ * on it and its link, all worded by the CLI. */
+export type StandupLine = {
+  name: string;
+  /** `pr`, `branch`, `sha`, `dir`, `fork`, `setup` or `recipe`. */
+  kind: string;
+  on: boolean;
+  title: string;
+  status: string;
+  link?: string;
+};
+
+/** The standup report: code first, then repos, then recipes; `text` is the Markdown to copy. */
+export type Standup = { lines: StandupLine[]; on: number; text: string };
 
 /** Two or more entries that are on set the same key or file; the highest one's value is in use. */
 export type LibraryConflict = { kind: string; key: string; winner: string; losers: string[] };
@@ -1135,6 +1219,7 @@ export type LibraryListing = { entries: LibraryEntry[]; conflicts: LibraryConfli
  * `doctor-open`, which the host runs itself: it reveals or opens the finding's `path`. */
 export type LibraryRun =
   | { verb: "list" }
+  | { verb: "standup" }
   | { verb: "on" | "off" | "remove"; name: string }
   | { verb: "order"; name: string; position: string }
   | DoctorRun;
@@ -1147,9 +1232,8 @@ export type DoctorRun =
   | { verb: "doctor-recover" };
 
 /** A fix the CLI runs (`open` has no CLI verb: the host opens the path). `restore` puts back the
- * last version of a broken file that loaded, the broken text moved aside first; `follow-default` drops
- * the person's value of a setting so it follows the default (a copy of the settings file is kept). */
-export type DoctorFixKind = "off" | "remove" | "restore" | "follow-default";
+ * last version of a broken file that loaded, the broken text moved aside first. */
+export type DoctorFixKind = "off" | "remove" | "restore";
 
 /** The report's way back (`cmux customize doctor recover`): the layers it turns off, whether it
  * turns the web-dev overlay off, the generation it puts back; `said` is the plan in one sentence. */
@@ -1181,8 +1265,7 @@ export type DoctorFindingKind =
   | "unknown-key"
   | "wrong-folder"
   | "old-build"
-  | "override"
-  | "not-default";
+  | "override";
 
 /** One fix of a finding; the first is the main one, and every `remove` has `confirm: true`. */
 export type DoctorFix = { kind: "open" | DoctorFixKind | (string & {}); label: string; confirm: boolean };
@@ -1221,6 +1304,8 @@ export type DoctorFixed = { id: string; kind: DoctorFixKind; kept: string | null
  * error envelope (`code`, `message`). */
 export type LibraryAnswer = {
   library?: LibraryListing;
+  /** `standup`: every entry as one line (`cmux customize library standup`). */
+  standup?: Standup;
   doctor?: DoctorReport;
   fixed?: DoctorFixed;
   recovered?: DoctorRecovered;
@@ -1909,6 +1994,11 @@ export type ConnectionEntry = {
   ownerLabel: string | null;
   toolCount: number | null;
   toolsLabel: string | null;
+  /** The provider only signs in back to this Mac (Vercel): the CLI listens on 127.0.0.1 for the
+   * return while Connect waits (cmux-tui cli/mcp_loopback.rs). */
+  loopback: boolean;
+  /** Slack or Google before its client is registered: listed only with labs.connectionsUpcoming on. */
+  upcoming: boolean;
 };
 
 /** `cmux mcp-servers catalog --json`, or the CLI's refusal. `available: false` is a deployment
@@ -2324,6 +2414,10 @@ export type SettingsOps = {
   "cmux.settings.mobile.answer_pair": [{ id: string; allow: boolean }, Record<string, never>];
   /** Native: Updates > App Update's buttons (Restart to Update only on the person's own click); the host lists follow. */
   "cmux.settings.app_update.run": [{ action: AppUpdateAction }, Record<string, never>];
+  /** Native: Updates > App Update's Go Back to Previous Build row, read on demand (null: nothing kept). */
+  "cmux.settings.app_update.previous": [Record<string, never>, PreviousBuild | null];
+  /** Native: that row's Go Back: restarts once into the kept build through the one rollback path (the person's gesture only). */
+  "cmux.settings.app_update.rollback": [{ build: string }, Record<string, never>];
   /** Native: Updates > Web UI's Check Now (updates.web.check); the host lists follow the check. */
   "cmux.settings.web_updates.check": [Record<string, never>, Record<string, never>];
   /** Native: Updates > Web UI's Roll Back (updates.web.rollback), from the next safe point. */
@@ -2533,6 +2627,9 @@ export type SettingsOps = {
   "cmux.settings.preview.end": [{ key: string }, unknown];
   /** Native: play a notification sound. */
   "cmux.settings.sound.play": [{ name: string }, unknown];
+  /** Custom Sound…: the host's open panel; the picked file is copied into cmux's sounds folder and
+   * set as `key`. `name` is null when the person left the panel. */
+  "cmux.settings.sound.import": [{ key: string }, { name: string | null }];
   /** Native: a catalog action, run with origin user (react-pages.md 1.3). */
   "cmux.app.action.run": [{ action: string; args?: Record<string, unknown>; target?: string }, unknown];
   /** Native: write text to the pasteboard (react-pages.md 1.3). */
@@ -2601,6 +2698,8 @@ const unavailableCodes = new Set(["cmux.protocol.closed", "cmux.page.unavailable
 export const SETTINGS_SENTENCES = {
   "cmux.page.refused": OWNER_SENTENCE,
   "cmux.app.user_only": OWNER_SENTENCE,
+  // A pasted key the provider refused (acpmux `connections/key.check`): "Key rejected by OpenAI".
+  "cmux.models.key_rejected": OWNER_SENTENCE,
 } as const;
 
 /** The error a call rejected with, as a plain record (its `message` is for logs; the page shows

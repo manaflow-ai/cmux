@@ -250,3 +250,26 @@ async fn a_chats_stats_go_stale_by_its_turn_and_its_transcript() {
     hub.refresh_usage_stats_of(&session);
     assert!(!fresh() && kept(), "its turn ended: stale, still served");
 }
+
+/// A chat on a Claude Code wrapper profile (`family = "claude-sr2"`) is read as Claude Code,
+/// from Claude Code's own transcript; Chief's is not.
+#[tokio::test]
+async fn a_claude_sr2_chat_is_read_as_claude_code() {
+    let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+    let now = crate::store::now_ms();
+    for meta in [
+        meta("sr2", "claude-sr2", Some("s1"), "idle", now - 1_000),
+        meta("sr2-pipe", "claude-sr2-pipe", Some("s2"), "closed", now - 2_000),
+        meta("chief", "chief", Some("s3"), "idle", now - 3_000),
+    ] {
+        hub.store.save(&meta).unwrap();
+        hub.insert_test_session(meta);
+    }
+    let read = hub.usage_sources(&hub.sessions(), now).await;
+    assert_eq!(ids(&read), ["sr2", "sr2-pipe"]);
+    assert!(read.iter().all(|(_, s)| s.family == "claude"), "read from Claude Code's transcript");
+    assert_eq!(transcript_family("claude"), Some("claude"));
+    assert_eq!(transcript_family("codex"), Some("codex"));
+    assert_eq!(transcript_family("claudette"), None);
+    assert_eq!(transcript_family("gemini"), None);
+}

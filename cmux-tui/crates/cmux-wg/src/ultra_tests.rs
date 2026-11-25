@@ -699,6 +699,49 @@ fn a_liveness_datagram_goes_alone_and_unrepaired() {
     assert!(parity >= 1, "the data datagram keeps its repair");
 }
 
+/// An idle keepalive (an empty data message) leaves as one datagram in every
+/// mode and with Auto's floor: no copies, no parity. The session's first one
+/// (counter 0, which confirms a handshake) keeps its repair, and so does
+/// data around a keepalive.
+#[test]
+fn an_idle_keepalive_goes_alone_and_unrepaired() {
+    let index = [4, 4, 4, 4];
+    let keepalive = |counter| data(index, counter, WG_KEEPALIVE_LEN - WG_DATA_HEADER, 0);
+    for mode in [
+        UltraMode::SETTING,
+        UltraMode::fec(8, 2).unwrap(),
+        UltraMode::Duplicate { copies: 3 },
+        UltraMode::Off,
+    ] {
+        for metered in [false, true] {
+            let script = Script { inbox: VecDeque::new(), sent: Arc::default() };
+            let wire = Arc::clone(&script.sent);
+            let mut ultra = UltraUnderlay::new(Box::new(script), mode, Arc::default());
+            ultra.set_floor(true);
+            ultra.set_metered(metered);
+            for counter in 1..4 {
+                ultra.send(&keepalive(counter));
+                ultra.flush();
+            }
+            assert_eq!(wire.lock().unwrap().len(), 3, "{mode:?} metered={metered}");
+            let stats = ultra.counters.snapshot();
+            assert_eq!(stats.parity_sent + stats.copies_sent, 0, "{mode:?}");
+        }
+    }
+    let script = Script { inbox: VecDeque::new(), sent: Arc::default() };
+    let wire = Arc::clone(&script.sent);
+    let mut ultra = UltraUnderlay::new(Box::new(script), UltraMode::SETTING, Arc::default());
+    ultra.send(&keepalive(0));
+    ultra.flush();
+    assert!(wire.lock().unwrap().len() > 1, "the handshake's confirming keepalive is repaired");
+    wire.lock().unwrap().clear();
+    ultra.send(&data(index, 1, 40, 0));
+    ultra.send(&keepalive(2));
+    ultra.flush();
+    let parity = wire.lock().unwrap().iter().filter(|d| d[0] == TAG).count();
+    assert!(parity >= 1, "the data datagram keeps its repair");
+}
+
 /// What `n` datagrams of `class` leave as under `mode`, with the loss window
 /// at `lost` of `total`: (datagrams on the wire, parity or copies sent).
 fn class_cost(mode: UltraMode, class: Priority, lost: u64, total: u64) -> (usize, usize) {

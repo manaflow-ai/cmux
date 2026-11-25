@@ -32,7 +32,7 @@
    "cmux-tui-core": 24
   },
   "unwrap": {
-   "acpmux": 115,
+   "acpmux": 114,
    "acpmux-tui": 5,
    "chatmux-relay": 7,
    "cmux-remote": 4,
@@ -99,7 +99,7 @@
  "waived": {
   "rust": {
    "exit": {
-    "acpmux": 8,
+    "acpmux": 9,
     "cmux-browser-host": 4,
     "cmux-rd-host": 1,
     "cmux-tui": 1,
@@ -145,6 +145,7 @@
    },
    "unchecked": {
     "CmuxAppAttest": 1,
+    "CmuxEgress": 1,
     "CmuxHomeCore": 2,
     "CmuxNextAgentActivity": 1,
     "CmuxNextAgentList": 2,
@@ -158,6 +159,7 @@
     "CmuxNextFiles": 2,
     "CmuxNextFilesUI": 1,
     "CmuxNextHome": 1,
+    "CmuxNextHostPressure": 1,
     "CmuxNextPages": 1,
     "CmuxNextPalette": 4,
     "CmuxNextPhone": 1,
