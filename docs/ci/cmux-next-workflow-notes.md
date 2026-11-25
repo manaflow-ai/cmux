@@ -1,4 +1,4 @@
-# cmux-next.yml: the longer notes
+# cmux-next.yml: the longer notes (frozen: a new note is its own file in [`docs/ci/cmux-next-workflow-notes/`](cmux-next-workflow-notes/README.md))
 
 GitHub refuses a workflow file over 500 KB (512,000 bytes) before any job starts, so every pull request
 and push loses the whole workflow (2026-11-10: #40348 took the file to 512,883 bytes). The longest

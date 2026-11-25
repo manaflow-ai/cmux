@@ -479,7 +479,7 @@ const STOPPED: [&str; 6] = ["idle-stopped", "stopped", "paused", "retired", "res
 /// moment says nothing about whether the VM stays up, and a start forwarded to it was refused
 /// with only an ssh hint. Deleting the status line, as the registry asks once it is started for
 /// good, lets it take work again.
-fn stopped(machine: &Value) -> Option<String> {
+pub(crate) fn stopped(machine: &Value) -> Option<String> {
     let status = machine.get("status")?.as_str()?.trim().to_ascii_lowercase();
     let word = STOPPED.iter().find(|w| status.starts_with(**w))?;
     Some(format!("{word} (its fleet-registry.json status)"))
