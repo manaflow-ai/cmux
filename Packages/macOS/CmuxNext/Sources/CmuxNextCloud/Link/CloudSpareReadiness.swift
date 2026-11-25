@@ -104,6 +104,8 @@ public final class CloudSpareReadiness {
     }
 
     private let dependencies: Dependencies
+    /// The account's one spare-warm gate: a Cmd-Tab burst spawns one CLI process (hq#8747).
+    public let warmGate = CloudSpareWarmGate()
     private var keyed: [String: Keyed] = [:]
     private var routes: [String: Routed] = [:]
     /// When a route read ahead of `machine` last gave no report: not read again for ``keyRetry``.
