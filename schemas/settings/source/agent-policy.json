@@ -523,6 +523,7 @@
       "keys": [
         "experiments.glassToolbarGroups",
         "experiments.composerButtonsVisible",
+        "experiments.startedTaskTitleChip",
         "experiments.composerV2",
         "experiments.hoverLook",
         "experiments.seeThroughDock",
