@@ -12,7 +12,7 @@
 // (`redraw`), and once that commits the entries made before it go (`settle`).
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import type { AcpmuxActivity, AcpmuxRow, AcpmuxSnapshot } from "./model";
-import { isThought, isQuietThought } from "./conversation/thoughts";
+import { isThought } from "./conversation/thoughts";
 import { oneRowChangeFrom } from "./rowChanges";
 import { rowsWithLiveOutput, sameButRows } from "./liveToolOutput";
 import { rowsWithStreamingRow } from "./streamingRow";
@@ -128,7 +128,10 @@ export function thoughtOnly(
   const after = items[last]!;
   if (!isThought(before) || !isThought(after) || before.tool || after.tool) return undefined;
   if (!sameExcept(before, after, ITEM_KEYS) || !after.text.startsWith(before.text)) return undefined;
-  if (isQuietThought(before) || drawnThought(now.id) !== before) return undefined;
+  // A short thought is quiet once it is finished, but the live transcript deliberately keeps
+  // the current thought visible while it streams. `drewThoughts` proves that this row is the one
+  // currently drawing it, so its chunks can stay on the row without redrawing the pane.
+  if (drawnThought(now.id) !== before) return undefined;
   return { id: now.id, before, after };
 }
 
