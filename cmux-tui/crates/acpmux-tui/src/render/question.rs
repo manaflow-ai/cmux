@@ -39,11 +39,12 @@ pub(super) fn wrap_text(text: &str, width: usize) -> Vec<String> {
     }
     if lines.len() > MAX_TEXT_LINES {
         lines.truncate(MAX_TEXT_LINES);
-        let last = lines.last_mut().expect("kept lines");
-        while last.width() + 1 > width {
-            last.pop();
+        if let Some(last) = lines.last_mut() {
+            while last.width() + 1 > width {
+                last.pop();
+            }
+            last.push('…');
         }
-        last.push('…');
     }
     lines
 }
