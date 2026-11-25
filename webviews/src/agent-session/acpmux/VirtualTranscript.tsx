@@ -1050,6 +1050,13 @@ function TranscriptView({
     });
     scrollLeadTimer.current.push(SCROLL_LEAD_IDLE_MS);
   };
+  /// State a commit at any offset would settle (an older-history hold, a flow, a fold): no scroll frame
+  /// skips its render while it lasts.
+  const scrollSkipHeld = () =>
+    olderScrollTarget.current !== undefined ||
+    liveResize.current.flow !== undefined ||
+    renderedFlowing.current ||
+    turnFold.current !== undefined;
   /// The scroll offset now (scrollRef) draws what the last commit drew: the same mounted rows, view,
   /// Jump to latest and soft edges. A scroll frame then has nothing for React to do; the browser's
   /// own scroll moved the rows. Any state a commit at that offset would also settle (a layout the
@@ -1057,13 +1064,7 @@ function TranscriptView({
   const scrollUnchanged = (followNow: boolean) => {
     const drawn = scrollDrawn.current;
     if (!drawn || drawn.layout !== previousLayout.current || drawn.following !== followNow) return false;
-    if (
-      olderScrollTarget.current !== undefined ||
-      liveResize.current.flow !== undefined ||
-      renderedFlowing.current ||
-      turnFold.current
-    )
-      return false;
+    if (scrollSkipHeld()) return false;
     const { top, delta } = scrollRef.current;
     if (drawn.at(top, delta, followNow, drawn.shown, drawn.warmAt) !== drawn.key) return false;
     // A commit's effect keeps the reader's idle stretch (jumpUp.ts `keepSoon`); a skipped one keeps it here.
@@ -7352,8 +7353,9 @@ function TranscriptView({
   useLayoutEffect(() => {
     scrollDrawn.current = drawnScroll;
     // A render that began before the reader's last scroll event commits that render's offset: the
-    // live one is checked again on the next frame, as its own event would have been.
-    if (drawnScroll && Math.abs(scrollRef.current.top - unplacedScroll.top) > 0.5)
+    // live one is checked again on the next frame, as its own event would have been. While no frame
+    // can skip (`scrollSkipHeld`), every scroll frame already rendered, so nothing is owed.
+    if (drawnScroll && !scrollSkipHeld() && Math.abs(scrollRef.current.top - unplacedScroll.top) > 0.5)
       scrollPacer.current?.enqueue({ top: scrollRef.current.top, atLatest: followingRef.current });
   });
   // What a press reads (`pressUp`), as of the last commit.
