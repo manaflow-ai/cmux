@@ -398,6 +398,9 @@ public struct LinkEndpoint: Sendable, Hashable {
     /// Debug "simulate a network that blocks UDP": WireGuard rides TURN over
     /// TLS (path `turnTLS`). WebRTC ignores it.
     public var blockUDP: Bool
+    /// Debug "Relay via cmux (HTTPS) only": WireGuard rides cmux's WebSocket
+    /// relay alone (path `httpsRelay`). WebRTC ignores it.
+    public var forceRelay: Bool = false
     /// Debug "simulate a network whose only way out is its proxy": WireGuard
     /// rides TURN over TLS through the system's proxy, or fails saying there
     /// is none. WebRTC ignores it.
@@ -405,9 +408,6 @@ public struct LinkEndpoint: Sendable, Hashable {
     /// Debug "simulate a firewall that drops WireGuard": WireGuard falls
     /// through to TURN over TLS (path `turnTLS`). WebRTC ignores it.
     public var dropWireGuard: Bool
-    /// Debug "Relay via cmux (HTTPS) only": WireGuard rides cmux's WebSocket
-    /// relay alone (path `httpsRelay`). WebRTC ignores it.
-    public var forceRelay: Bool = false
     /// Debug baseline: do not offer the media lane, so browser video rides
     /// its reliable channel even over WebRTC (verify/browser-video-track.md).
     public var browserVideoOnChannel: Bool

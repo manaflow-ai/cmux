@@ -64,7 +64,9 @@ mod paths;
 pub use multipath::{InterfaceKind, NetInterface, set_cellular_assist, set_interfaces};
 pub use paths::{app_backgrounded, set_app_backgrounded};
 use roam::apply_multipath_to_live_sessions;
-pub use roam::{network_changed, portmap_use, rehome, resume_session, roam_timeline, route_destinations};
+pub use roam::{
+    network_changed, portmap_use, rehome, relay_hold_port, resume_session, roam_timeline, route_destinations,
+};
 #[doc(hidden)]
 pub use roam::{
     relay_held, roam_session, session_endpoints, simulate_blackout, simulate_network_loss,
@@ -382,7 +384,7 @@ impl EarlyTurn {
 
     /// The allocation, once done. Dropped while it waits, `self` still
     /// aborts it.
-    async fn allocated(&mut self) -> Allocated {
+    async fn carrier(&mut self) -> Allocated {
         let turn = match self.task.as_mut() {
             Some(task) => task.await.unwrap_or_default(),
             None => Allocated::default(),
@@ -505,7 +507,7 @@ fn diagnose_gather(options: &DialOptions, udp_blocked: bool, turn: Option<&TurnC
         diagnosis.turn("off", None);
     } else if super::turn::turn_servers(&options.ice_servers) == (None, None) {
         diagnosis.turn("none_offered", None);
-    } else if wanted_turn && turn.is_none() {
+    } else if wanted_turn && turn.is_none() && !diagnosis.turn_refused() {
         diagnosis.turn("no_allocation", turn_host(options));
     }
 }
@@ -2195,6 +2197,7 @@ impl HybridUnderlay {
                     {
                         continue;
                     }
+                    // A firewall that drops WireGuard (debug): the datagram never arrived.
                     if self.options.drop_wireguard_udp && super::dpi::carries_wireguard(&buffer[..len]) {
                         super::dpi::count_drop();
                         continue;
@@ -2733,7 +2736,7 @@ pub(super) fn dial_wireguard<'a>(
         let (gathered, allocated) = match early {
             Some(mut early) => {
                 let stun_side = early.stun.take();
-                tokio::join!(gather_endpoints(&socket, options, stun_side), early.allocated())
+                tokio::join!(gather_endpoints(&socket, options, stun_side), early.carrier())
             }
             None => {
                 let (stun_side, turn_side) = stun_turn_link();
@@ -2743,11 +2746,20 @@ pub(super) fn dial_wireguard<'a>(
                 )
             }
         };
-        // No STUN server even resolved (a network whose DNS names only what
-        // its proxy may reach) is no UDP path either.
+        // A proxy refused TURN over TLS (sign-in the link cannot do, a policy).
+        // With no UDP that works either (UDP off, STUN silent, or no STUN server
+        // even resolved: a network whose DNS names only what its proxy may
+        // reach) and no relay to try next, say the proxy's reason now instead
+        // of a timeout. With a relay, it is the next way out (#53163), and the
+        // diagnosis keeps the proxy's reason.
         let unresolved = gathered.stun.is_empty() && !stun_servers(&options.ice_servers).is_empty();
         let udp_useless = no_plain_udp(options) || gathered.udp_looks_blocked() || unresolved;
-        if let Some(error) = refused_by_proxy(udp_useless, &allocated) {
+        if let Some(refusal) = allocated.refusal.as_ref().filter(|_| allocated.carrier.is_none()) {
+            options.diagnosis.turn_refused_by_proxy(&refusal.to_string(), turn_host(options));
+        }
+        if options.relay.is_none()
+            && let Some(error) = refused_by_proxy(udp_useless, &allocated)
+        {
             return Err(error);
         }
         let turn = allocated.carrier;

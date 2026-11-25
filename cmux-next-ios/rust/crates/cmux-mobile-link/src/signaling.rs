@@ -487,20 +487,39 @@ async fn open_socket(
     request: tokio_tungstenite::tungstenite::handshake::client::Request,
     egress: crate::egress::Egress,
 ) -> Result<Socket, SignalingError> {
-    use crate::egress::WebSocketError;
-    let host = request.uri().host().unwrap_or_default().to_owned();
-    match crate::egress::connect_websocket(request, &egress).await {
-        Ok((socket, via)) => {
-            let path = crate::egress::PathKind::of(&via, &host);
-            if path != crate::egress::PathKind::Direct {
-                tracing::info!(path = path.as_str(), host, "signaling through the proxy");
-            }
-            Ok(socket)
+    let uri = request.uri().clone();
+    let secure = uri.scheme_str() == Some("wss");
+    let host = uri.host().ok_or_else(|| SignalingError::BadUrl(uri.to_string()))?;
+    let host = host.trim_start_matches('[').trim_end_matches(']').to_owned();
+    let port = uri.port_u16().unwrap_or(if secure { 443 } else { 80 });
+    // Direct: the base's raced, remembered dial (`signal_dial`, IPv6 and IPv4
+    // racing). Through a proxy: `CONNECT` or SOCKS5 to the proxy.
+    let direct = |_: &str, _: u16| {
+        let request = &request;
+        async move {
+            crate::signal_dial::connect_tcp(request)
+                .await
+                .map_err(|error| crate::egress::EgressError::Io(error.to_string()))
         }
-        Err(WebSocketError::BadUrl(url)) => Err(SignalingError::BadUrl(url)),
-        Err(WebSocketError::Upgrade(error)) => Err(connect_error(error)),
-        Err(error) => Err(SignalingError::Connect(error.to_string())),
+    };
+    let (tcp, via) = crate::egress::connect_tcp_with(&host, port, secure, &egress, direct)
+        .await
+        .map_err(|error| SignalingError::Connect(error.to_string()))?;
+    if let crate::egress::Via::Proxy(hop) = &via {
+        tracing::info!(%hop, host, "signaling through the proxy");
     }
+    let connector = if secure {
+        let config = crate::egress::tls::client_config(&egress.trust).map_err(SignalingError::Connect)?;
+        tokio_tungstenite::Connector::Rustls(config)
+    } else {
+        tokio_tungstenite::Connector::Plain
+    };
+    let (socket, _) = tokio_tungstenite::client_async_tls_with_config(request, tcp, None, Some(connector))
+        .await
+        .map_err(connect_error)?;
+    // After the handshake: the verifier has marked a TLS-inspected host by now.
+    crate::egress::note(crate::egress::PathKind::of(&via, &host));
+    Ok(socket)
 }
 
 impl SignalingClient {
@@ -537,19 +556,22 @@ impl SignalingClient {
         build_space: Option<&crate::build_space::BuildSpace>,
         egress: &crate::egress::Egress,
     ) -> Result<Self, SignalingError> {
+        crate::install_crypto_provider();
         let url = signal_url(base_url, team_id, device_id)?;
-        Self::open(url, token, device_id, build_space, egress.clone()).await
+        Self::open(url, token, device_id, build_space, egress).await
     }
 
-    /// Open the socket at `url` (a [`signal_url`], maybe with more query).
+    /// Open the socket at `url` (a [`signal_url`], maybe with more query),
+    /// leaving this device as `egress` says.
     async fn open(
         url: String,
         token: &str,
         device_id: &str,
         build_space: Option<&crate::build_space::BuildSpace>,
-        egress: crate::egress::Egress,
+        egress: &crate::egress::Egress,
     ) -> Result<Self, SignalingError> {
         crate::install_crypto_provider();
+        let egress = egress.clone();
         let mut request = url.into_client_request().map_err(|e| SignalingError::BadUrl(e.to_string()))?;
         request.headers_mut().insert(
             "authorization",
@@ -706,10 +728,9 @@ impl SignalingClient {
             crate::local::HUB_VERSION_PARAM,
             crate::local::HUB_VERSION
         );
-        // The hub is a Mac on this network: no proxy reaches it.
-        let direct =
-            crate::egress::Egress { proxy: crate::egress::ProxyConfig::Direct, ..Default::default() };
-        let client = Self::open(url, token, device_id, None, direct).await?;
+        // A hub on this network: never through a proxy (its address is local).
+        let local = crate::egress::Egress { proxy: crate::egress::ProxyConfig::Direct, ..Default::default() };
+        let client = Self::open(url, token, device_id, None, &local).await?;
         client.shared.local.store(true, std::sync::atomic::Ordering::Relaxed);
         Ok(client)
     }
