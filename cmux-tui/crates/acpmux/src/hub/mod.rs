@@ -21,6 +21,9 @@ mod usage_share;
 // A foreground shell still running after five minutes goes to the background (Claude Code).
 mod auto_background;
 pub use auto_background::AUTO_BACKGROUND_ENV;
+// What Auto mode asks of a chat (`auto_session/`): its work, its record, its freeze.
+mod auto_hold;
+pub(crate) use auto_hold::{AUTO_AWAY, AUTO_CLIENT};
 pub(crate) mod additional_dirs;
 pub(crate) mod admission;
 // A create with no room here starts on the peer placement picks.
@@ -151,9 +154,12 @@ mod fork_at;
 pub(crate) mod fork_before;
 pub(crate) mod fork_cancel;
 mod fork_replay;
+mod fork_request;
+mod fork_start;
 pub mod fork_subagent;
 mod fork_transcript_auth;
 pub mod forum;
+pub mod forum_hosted;
 pub(crate) mod full_access_bound;
 pub(crate) mod full_access_children;
 mod handoff;
@@ -253,6 +259,7 @@ mod earned_access;
 #[cfg_attr(not(test), allow(dead_code))]
 mod earned_events;
 mod hybrid_hold;
+mod launch_backoff;
 pub mod ledger;
 mod list_order;
 mod model_alias;
@@ -524,6 +531,7 @@ pub(crate) mod stop_if_idle;
 mod stop_settles_tests;
 mod transcript;
 mod transfer;
+mod transfer_agent_files;
 mod transfer_authority;
 mod transfer_guard;
 mod transfer_hub_precopy;
@@ -720,8 +728,9 @@ pub struct HubEvent {
 }
 
 /// A [`HubEvent`]'s cells its receivers share: its row without its tools, with them, and with
-/// them but no time breakdown (a client that draws none, `omitTimeBreakdown`), and the clock of
-/// its fan-out to the connections (`gauges::FanoutClock`).
+/// them but no time breakdown (a client that draws none: its `initialize`'s `omitTimeBreakdown`,
+/// or an attach's, `SubOpts::omit_time_breakdown`), and the clock of its fan-out to the
+/// connections (`gauges::FanoutClock`).
 #[derive(Debug, Default)]
 pub struct EventRow {
     pub cells: [SharedRow; 3],
@@ -1042,6 +1051,8 @@ pub struct Hub {
     pub(super) mailbox: Mailbox,
     /// The forum log (`forum.rs`, `hub/forum.rs`).
     pub(super) forum: std::sync::OnceLock<crate::forum::Forum>,
+    /// The team's hosted forum, set up from the env on first use (`hub/forum_hosted.rs`).
+    pub(super) forum_hosted: std::sync::OnceLock<forum_hosted::Slot>,
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
     /// The chats that left memory, each a compact row (`evict.rs`).
     pub(crate) evicted: evict::Tier,
@@ -1184,6 +1195,11 @@ pub struct Hub {
     pub(crate) channels: crate::server::channels::Channels,
     /// The cmux sign-in the app lends for App tokens (`github_app_token.rs`).
     pub(crate) github_app: Arc<crate::github_app_token::AppLease>,
+    /// Auto mode's holder loop, once this daemon started one (`auto_session::spawn_holder`):
+    /// what the Auto methods and a prompt to a chat another holder runs reach it through.
+    pub(crate) auto_holder: std::sync::OnceLock<crate::auto_session::HolderHandle>,
+    /// Whose turn it is to run git in an Auto chat's folder (`auto_session/turns.rs`).
+    pub(crate) auto_turns: crate::auto_session::turns::Turns,
     /// Each peer session's events as this daemon saw them, kept on disk
     /// (`peer_snapshot.rs`): a paused or offline peer's chat paints from it.
     pub(super) peer_snapshots: peer_snapshot::PeerSnapshots,
@@ -1556,6 +1572,9 @@ pub struct Hub {
     /// default daemon never starts or links a node without an explicit request.
     #[cfg(all(unix, feature = "tailnet"))]
     pub(crate) tailnet_controller: std::sync::OnceLock<Arc<crate::tailnet::embedded::Controller>>,
+    /// Where each workspace runs now, for the stable tailnet node's front
+    /// (`tailnet/stable_front.rs`), set by `_acpmux/tailnet/placement`.
+    pub(crate) tailnet_placements: Arc<cmux_tailnet_front::PlacementTable>,
     /// Brief identities shared by dispatch, report and MCP clients.
     pub(crate) briefs: dispatch::Briefs,
     /// Every Claude workflow of this daemon's chats (`workflow_index.rs`).
@@ -1681,6 +1700,7 @@ impl Hub {
             store: Box::new(crate::store::ForkView::new(store)),
             mailbox,
             forum: std::sync::OnceLock::new(),
+            forum_hosted: std::sync::OnceLock::new(),
             sessions: StdMutex::new(HashMap::new()),
             evicted: Default::default(),
             spoken_handle_renames: StdMutex::new(()),
@@ -1747,6 +1767,8 @@ impl Hub {
             github_owners: Default::default(),
             channels: Default::default(),
             github_app: Default::default(),
+            auto_holder: std::sync::OnceLock::new(),
+            auto_turns: Default::default(),
             peer_snapshots,
             peer_notices,
             peer_wake,
@@ -1929,6 +1951,7 @@ impl Hub {
             pairing: Default::default(),
             #[cfg(all(unix, feature = "tailnet"))]
             tailnet_controller: std::sync::OnceLock::new(),
+            tailnet_placements: Default::default(),
             briefs,
         });
         if let Ok(c) = hub.config.try_read() {
@@ -2204,6 +2227,7 @@ impl Hub {
         if let Some(link) = meta.subsession.as_ref() {
             self.subsessions.note_status(&link.started_by, &meta.id, meta.status);
         }
+        let cut_off = fork_start::close_cut_off(&mut meta);
         let session = self.make_session(meta);
         if let Some(meta) = saved_meta {
             session.meta_writer.note_saved(&meta);
@@ -2215,6 +2239,10 @@ impl Hub {
         session.log_loaded.store(false, Ordering::SeqCst);
         sessions.insert(session.id.clone(), session.clone());
         drop(sessions);
+        // Closed for good: the next start finds it closed and says nothing again.
+        if cut_off {
+            self.save_meta(&session);
+        }
         self.update_live_session_index(&session);
         Some(session)
     }
@@ -2345,10 +2373,21 @@ impl Hub {
         let backgrounds_work = crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
         // A chat that moved away stays frozen after a restart: every prompt, queue, draft and
         // policy change refuses it as while it moved (`queue::moving_error`).
-        let moving = meta.moved_to.as_ref().map(|_| transfer_out::MOVED_AWAY.to_owned());
+        let moving =
+            meta.moved_to.as_ref().map(|_| transfer_out::MOVED_AWAY.to_owned()).or_else(|| {
+                // A saved Auto chat is frozen from the moment it exists: the store, not this copy,
+                // says whether it is this machine's, and the holder loop frees it when it is
+                // (`auto_session/runtime/run.rs` `resume`). Until then nothing runs it.
+                meta.auto_session
+                    .as_ref()
+                    .filter(|record| record.auto)
+                    .map(|_| AUTO_AWAY.to_owned())
+            });
         // Every start of a session whose creator asked waits on its harness (`SessionMeta::wait_start`).
         let wait_start = meta.wait_start;
         let parent_print = views::parent_print_of(&meta);
+        // A fork whose agent had not started before a restart starts as the first daemon's would.
+        let (fork_from, rehydrate, rehydrate_note) = fork_start::restored(&meta);
         let session = Arc::new(Session {
             id: meta.id.clone(),
             seq: AtomicU64::new(meta.last_seq),
@@ -2429,10 +2468,10 @@ impl Hub {
             unread_after_work: AtomicBool::new(false),
             asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
             asks_landed: Notify::new(),
-            rehydrate: AtomicBool::new(false),
+            rehydrate: AtomicBool::new(rehydrate),
             resume_cut_ask: AtomicBool::new(false),
             resumed_cut: AtomicBool::new(false),
-            rehydrate_note: StdMutex::new(None),
+            rehydrate_note: StdMutex::new(rehydrate_note),
             forum_retell: AtomicBool::new(false),
             forum_retold: std::sync::Mutex::default(),
             forum_telling: std::sync::Mutex::default(),
@@ -2454,7 +2493,7 @@ impl Hub {
             wait_start: AtomicBool::new(wait_start),
             steer_now: Default::default(),
             steer_end: tokio::sync::watch::channel(None).0,
-            fork_from: StdMutex::new(None),
+            fork_from: StdMutex::new(fork_from),
             applied: Default::default(),
             purged: Arc::new(AtomicBool::new(false)),
             replaced: AtomicBool::new(false),
@@ -2522,6 +2561,7 @@ impl Hub {
             hibernated_at: AtomicU64::new(hibernated_at),
             wake_cause: StdMutex::new(None),
             policy_refusal: Default::default(),
+            launch_backoff: Default::default(),
             agent_requests: std::sync::atomic::AtomicUsize::new(0),
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),

@@ -525,10 +525,28 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/forum/post",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/forum/reply",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/forum/rules",
       "params": {
         "$ref": "#/types/ForumRulesParams"
       },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/forum/search",
+      "params": true,
       "result": true
     },
     {
@@ -1030,6 +1048,30 @@
     {
       "kind": "request",
       "name": "_acpmux/cold_archive",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/auto_session/set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/auto_session/leftover",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/auto_session/wake",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/auto_session/transcript",
       "params": true,
       "result": true
     },
@@ -2923,6 +2965,11 @@
       "params": true
     },
     {
+      "kind": "notification",
+      "name": "_acpmux/admission_waiting",
+      "params": true
+    },
+    {
       "kind": "client_local",
       "name": "_acpmux/disconnected",
       "params": true
@@ -2985,6 +3032,7 @@
         "approverDecisions": true,
         "argv": true,
         "author": true,
+        "autoPlace": true,
         "beforePromptId": true,
         "callerKind": true,
         "callerProtocol": true,
@@ -3390,6 +3438,13 @@
           "minimum": 0,
           "type": [
             "integer",
+            "null"
+          ]
+        },
+        "quietHidden": {
+          "description": "True: the client draws nothing of the chat while it is hidden (`visible: false`), so the\nagent's `session/update` stream is left out until `_acpmux/view` shows it, which then sends\none `_acpmux/lagged` naming the chat (`server/view.rs`); default false.",
+          "type": [
+            "boolean",
             "null"
           ]
         },
@@ -3875,6 +3930,36 @@
         "acknowledged"
       ],
       "type": "string"
+    },
+    "DialFail": {
+      "description": "Why a peer's route last went down (`downReason`): what the failed dial or the dropped path\nran into, typed from the error that raised it (an `io::ErrorKind`, an HTTP status, ssh's\nfailure class), never guessed from its text. When every path of a cold connect failed with\ndifferent kinds, the one a person can act on first is kept ([`DialFail::rank`]). Null\nbefore any route went down, or when no failure so far had a type.",
+      "oneOf": [
+        {
+          "const": "timeout",
+          "description": "The dial or its upgrade ran past its deadline.",
+          "type": "string"
+        },
+        {
+          "const": "refused",
+          "description": "The machine answered and refused the connection (nothing listens there).",
+          "type": "string"
+        },
+        {
+          "const": "auth",
+          "description": "The peer refused this daemon's token or this computer's ssh login.",
+          "type": "string"
+        },
+        {
+          "const": "pathChanged",
+          "description": "The path carrying the link died while another answered: the link moved there.",
+          "type": "string"
+        },
+        {
+          "const": "unreachable",
+          "description": "No route to the machine: the network or host is unreachable, or its name did not\nresolve.",
+          "type": "string"
+        }
+      ]
     },
     "Done": {
       "description": "An acknowledgement with nothing in it.",
@@ -5400,7 +5485,7 @@
       "type": "object"
     },
     "PeerStateChanged": {
-      "description": "`_acpmux/peer_state_changed`, to every watching connection (`_acpmux/watch`) when a peer's\nlink changes (`link`, `carrier`, `cause`, `reason` or `nextRetryAt`), never twice for the same one: a\npeer that is added sends its first state, and one that is removed a last `offline` with\n`error: \"removed\"`. Listed as the `peerStateEvents` feature.",
+      "description": "`_acpmux/peer_state_changed`, to every watching connection (`_acpmux/watch`) when a peer's\nlink changes (`link`, `carrier`, `cause`, `reason`, `downReason` or `nextRetryAt`), never twice for the same one: a\npeer that is added sends its first state, and one that is removed a last `offline` with\n`error: \"removed\"`. Listed as the `peerStateEvents` feature.",
       "properties": {
         "action": {
           "anyOf": [
@@ -5441,6 +5526,18 @@
             }
           ],
           "description": "Why the link is down; null while it is up or on its way the first time."
+        },
+        "downReason": {
+          "anyOf": [
+            {
+              "$ref": "#/types/DialFail"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Why the route last went down (a failed dial, or a path that died while another\nanswered); null before any did, or when no failure so far had a type. Kept while the\nlink is up again, so a surface can say why it moved."
         },
         "error": {
           "description": "Why the link is down, when it is.",
@@ -5503,6 +5600,7 @@
         "at",
         "carrier",
         "cause",
+        "downReason",
         "error",
         "lastSeen",
         "link",

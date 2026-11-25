@@ -201,6 +201,9 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TAILNET_LOGOUT, Request),
         untyped(method::MUX_TAILNET_START, Request),
         untyped(method::MUX_TAILNET_STATE, Request),
+        // Its params and answer are cmux_tailnet_front's versioned PlacementMessage and
+        // PlacementReply (their own lockstep tests).
+        untyped(method::MUX_TAILNET_PLACEMENT, Request),
         // Sessions.
         keyed::<params::StatusParams>(method::MUX_STATUS, Request),
         // The live perf commentator (perf_watch.rs).
@@ -256,7 +259,10 @@ pub fn registry() -> Vec<MethodDecl> {
         // Forum announcements (`server/forum.rs`).
         untyped(method::MUX_FORUM_ACK, Request),
         untyped(method::MUX_FORUM_ANNOUNCE, Request),
+        untyped(method::MUX_FORUM_POST, Request),
+        untyped(method::MUX_FORUM_REPLY, Request),
         keyed::<params::ForumRulesParams>(method::MUX_FORUM_RULES, Request),
+        untyped(method::MUX_FORUM_SEARCH, Request),
         keyed::<params::SetToolsParams>(method::MUX_SET_TOOLS, Request),
         untyped(method::MUX_SET_DIRECTORIES, Request),
         untyped(method::MUX_PROJECT_NEW, Request),
@@ -333,6 +339,10 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_WORKTREE_RESTORE, Request),
         untyped(method::MUX_RETENTION, Request),
         untyped(method::MUX_COLD_ARCHIVE, Request),
+        untyped(method::MUX_AUTO_SESSION_SET, Request),
+        untyped(method::MUX_AUTO_SESSION_LEFTOVER, Request),
+        untyped(method::MUX_AUTO_SESSION_WAKE, Request),
+        untyped(method::MUX_AUTO_SESSION_TRANSCRIPT, Request),
         untyped(method::MUX_PROCESS_UPDATE, Notification),
         keyed::<params::KillParams>(method::MUX_KILL, Request),
         untyped(method::MUX_PAUSE, Request),
@@ -644,6 +654,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_UNSENT, Notification),
         untyped("_acpmux/lagged", Notification),
         untyped(method::MUX_MACHINE_JOIN_PROGRESS, Notification),
+        untyped(method::MUX_ADMISSION_WAITING, Notification),
         untyped(method::MUX_DISCONNECTED, ClientLocal),
     ]
 }
