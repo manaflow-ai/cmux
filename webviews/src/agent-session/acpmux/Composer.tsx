@@ -1649,11 +1649,14 @@ function ComposerFrame({
   // drew the composer again only to run this (Leo, 2026-11-22: "idk if the waiting for agent service
   // bullshit has anything to do with it").
   useEffect(() => {
-    let generation = 0;
+    // A counter object, not a captured `let`: the React Compiler cannot lower `++` on a variable a
+    // closure captures, and skipped the whole component.
+    const generation = { n: 0 };
     const read = () => {
-      const request = ++generation;
+      generation.n += 1;
+      const request = generation.n;
       void readDurableDraftState(sessionId).then((state) => {
-        if (request !== generation) return;
+        if (request !== generation.n) return;
         // Settled once acpmux answered, or the page asked it and it could not say (an acpmux without
         // drafts, a dropped read): not while no client can ask yet.
         if (sessionId && (state || readsDurableDrafts())) onDraftSettled?.(sessionId);
@@ -1676,7 +1679,7 @@ function ComposerFrame({
     read();
     const off = onDraftActionsChanged(read);
     return () => {
-      generation++;
+      generation.n += 1;
       off();
     };
   }, [sessionId, onDraftSettled]);
