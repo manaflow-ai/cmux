@@ -45,7 +45,7 @@ nonisolated enum AcpmuxPaneMethods {
         // the child chat, which the click's scope credit brings in (``sourceScoped``). Only `sessionId` and `subagentId` (``knownParams``): never `_meta`,
         // which carries acpmux's control and trust-gate marks.
         "_acpmux/retry",
-        "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond", "_acpmux/perf",
+        "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond", "_acpmux/perf", "_acpmux/host_overload",
         // The model picker's catalog (direct.ts modelCatalog, App.tsx `models.catalog`): acpmux's
         // public model list, and its Refresh, which fetches the same feeds acpmux reads on its own.
         // Neither grants anything. Left off this list, every pane's picker was refused at each open.
@@ -57,6 +57,8 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/watch_take_over", "_acpmux/project_new", // New project: AgentPaneProjectNewRelayTests.
         // Read-only, and its reply is filtered to ``replyShapes`` (ad349).
         "_acpmux/status", "_acpmux/peers", "_acpmux/move_targets", "_acpmux/draft_get",
+        // Which page requests the daemon still runs, in page ids (AcpmuxRequestIds.requestStateMethod).
+        "_acpmux/request_state",
         // Session-scoped draft writes are kept separate from the filtered replies above.
         "_acpmux/draft_set",
         // Auto's Where (direct.ts placeChat, autoWhereModel.ts): a read-only decision. acpmux reads this

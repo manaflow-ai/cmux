@@ -33,7 +33,7 @@ use crate::pacing::{DropCounters, Pacer, Priority};
 use crate::probing;
 use crate::stream::WgStream;
 use crate::tcp_stack::{Accepted, TcpStack};
-use crate::timers::TimerSchedule;
+use crate::timers::{QuietKeepalive, TimerSchedule};
 use crate::ultra::{UltraCounters, UltraMode, UltraStats, UltraUnderlay};
 use crate::ultra_auto::{self, AutoUltra, UltraChoice};
 use crate::ultra_hello::{self, Negotiation};
@@ -394,6 +394,8 @@ struct Driver {
     commands: mpsc::Receiver<Command>,
     wake: Arc<Notify>,
     schedule: TimerSchedule,
+    /// The persistent keepalive, sent only after a quiet interval.
+    quiet_keepalive: Option<QuietKeepalive>,
     /// Overlay addresses for path probes, and when the underlay next wants
     /// a probe sent or judged.
     probe_route: Option<(IpAddr, IpAddr)>,
@@ -420,8 +422,27 @@ struct Driver {
     wakeups: Arc<AtomicU64>,
     /// A rebind while held owes the peer its reassertion at the release.
     reassert_at_release: bool,
+    /// When this side last sent a handshake initiation of its own (see
+    /// [`INITIATION_PENDING`]).
+    initiated_at: Option<Instant>,
     scratch: Vec<u8>,
 }
+
+/// After this side sent a handshake initiation, a segment queued with no
+/// session does not start another one for this long: boringtun's own
+/// REKEY_TIMEOUT, after which its timer resends. Both sides of a fresh
+/// tunnel initiate at once; each answers the other's initiation, which
+/// clears boringtun's "in progress" mark, and a fresh initiation sent then
+/// replaces the one whose response is already on its way, so that response
+/// is refused. With round trips in flight, and each initiation arriving
+/// once per candidate address the dialer sprays, the two sides did this to
+/// each other until boringtun's rate limit answered with cookies, and the
+/// tunnel came up only at the 5 s retry (lte, 70 ms: 5.6-8.8 s to the first
+/// handshake, every dial). The answer to the first initiation completes it.
+/// Only that case changes: a lost initiation with no crossing one leaves
+/// boringtun's handshake in progress, which already refuses a second
+/// initiation until the retry (`tests/crossed_initiation.rs`).
+const INITIATION_PENDING: Duration = Duration::from_secs(5);
 
 /// A peer silent this long and then heard again counts as a path change for
 /// the tunnel's TCP: a blackout on the same route backs smoltcp's RTO off
@@ -430,13 +451,21 @@ struct Driver {
 const RESUME_GAP: Duration = Duration::from_secs(2);
 
 /// Authenticated data from the peer: the watchdog's answer, and the end of a
-/// silence long enough to call the route back. Fields, not `&mut Driver`: the
-/// packet still borrows the scratch buffer.
-fn note_inbound(watchdog: &mut Watchdog, last_inbound: &mut Option<Instant>, resumed: &mut bool) {
+/// silence long enough to call the route back. That end also drops the
+/// pacer's RTT samples in flight, before this packet's ACK reaches the pacer
+/// ([`Pacer::forget_samples`]). Fields, not `&mut Driver`: the packet still
+/// borrows the scratch buffer.
+fn note_inbound(
+    watchdog: &mut Watchdog,
+    pacer: &mut Pacer,
+    last_inbound: &mut Option<Instant>,
+    resumed: &mut bool,
+) {
     watchdog.on_inbound_data();
     let now = Instant::now();
     if last_inbound.is_some_and(|last| now.saturating_duration_since(last) >= RESUME_GAP) {
         *resumed = true;
+        pacer.forget_samples();
     }
     *last_inbound = Some(now);
 }
@@ -467,12 +496,19 @@ impl Driver {
             private,
             public,
             config.preshared_key.as_deref().copied(),
-            config.persistent_keepalive,
+            // The driver sends the persistent keepalive itself, only after
+            // an interval in which nothing else left (`QuietKeepalive`):
+            // boringtun's fires every interval even on a busy tunnel.
+            None,
             0,
             None,
         );
 
         let keepalive = config.persistent_keepalive.is_some_and(|seconds| seconds > 0);
+        let quiet_keepalive =
+            config.persistent_keepalive.filter(|seconds| *seconds > 0).map(|seconds| {
+                QuietKeepalive::new(Duration::from_secs(seconds.into()), Instant::now())
+            });
         let schedule = TimerSchedule::new(Instant::now(), keepalive);
         let probe_route = probing::probe_route(&config);
         let mut stack = TcpStack::new(&config.addresses, config.mtu, Arc::clone(&wake), false)?;
@@ -488,6 +524,7 @@ impl Driver {
             commands,
             wake,
             schedule,
+            quiet_keepalive,
             probe_route,
             probe_deadline: None,
             pacer: Pacer::default(),
@@ -502,6 +539,7 @@ impl Driver {
             resumed: false,
             wakeups: Arc::new(AtomicU64::new(0)),
             reassert_at_release: false,
+            initiated_at: None,
             scratch: vec![0u8; BUFFER_BYTES + 32],
         })
     }
@@ -579,6 +617,8 @@ impl Driver {
                 }
                 Event::DatagramError(error) => {
                     if is_transient(&error) {
+                        // What the timers sent this pass leaves now.
+                        self.underlay.flush();
                         continue;
                     }
                     self.shutdown();
@@ -611,20 +651,48 @@ impl Driver {
             DatagramClass::WireGuardInitiation | DatagramClass::WireGuardResponse
         );
         let mut replay = Vec::new();
+        // Measurement only (`testing::set_receive_tap`): off, one atomic load.
+        let local = crate::testing::tapping()
+            .then(|| self.config.addresses.first().map(|address| address.address))
+            .flatten();
+        let wire_bytes = datagram.len();
+        let tap = |received: crate::testing::Received<'_>| {
+            crate::testing::tap_received(local, received, wire_bytes)
+        };
         loop {
             match self.tunn.decapsulate(source, input, &mut self.scratch) {
                 TunnResult::Done => {
+                    if input.len() == datagram.len() {
+                        tap(match classify(input) {
+                            DatagramClass::WireGuardData => crate::testing::Received::Keepalive,
+                            DatagramClass::WireGuardCookieReply => crate::testing::Received::Cookie,
+                            _ => crate::testing::Received::Handshake,
+                        });
+                    }
                     // A data message that decrypts to nothing is a keepalive:
                     // authenticated, so it moves the peer like any packet.
                     // (Done for other messages, a cookie reply, proves less.)
                     if !input.is_empty() && classify(input) == DatagramClass::WireGuardData {
                         self.underlay.authenticated(origin);
-                        note_inbound(&mut self.watchdog, &mut self.last_inbound, &mut self.resumed);
+                        note_inbound(
+                            &mut self.watchdog,
+                            &mut self.pacer,
+                            &mut self.last_inbound,
+                            &mut self.resumed,
+                        );
                     }
                     break;
                 }
-                TunnResult::Err(_) => break,
+                TunnResult::Err(_) => {
+                    if input.len() == datagram.len() {
+                        tap(crate::testing::Received::Refused);
+                    }
+                    break;
+                }
                 TunnResult::WriteToNetwork(packet) => {
+                    if input.len() == datagram.len() {
+                        tap(crate::testing::Received::Handshake);
+                    }
                     // Authenticated traffic from a new address moves the peer
                     // (WireGuard roaming); this is also how the answering side
                     // learns its peer in the first place. A cookie reply (the
@@ -672,7 +740,22 @@ impl Driver {
                         self.underlay.set_metered(self.negotiation.metered());
                     }
                     self.underlay.authenticated(origin);
-                    note_inbound(&mut self.watchdog, &mut self.last_inbound, &mut self.resumed);
+                    note_inbound(
+                        &mut self.watchdog,
+                        &mut self.pacer,
+                        &mut self.last_inbound,
+                        &mut self.resumed,
+                    );
+                    if local.is_some() {
+                        tap(match (&hello, &off_path, probing::decode(packet).is_some()) {
+                            (Some(_), _, _) => {
+                                crate::testing::Received::TunnelControl("ultra-hello")
+                            }
+                            (_, Some(_), _) => crate::testing::Received::TunnelControl("off-path"),
+                            (_, _, true) => crate::testing::Received::TunnelControl("path-probe"),
+                            _ => crate::testing::Received::Packet(packet),
+                        });
+                    }
                     if hello.is_some() || off_path.is_some() {
                         // Taken above; neither is activity.
                     } else if let Some(probe) = probing::decode(packet).filter(|_| allowed) {
@@ -723,8 +806,15 @@ impl Driver {
         // Starting again after replying to a crossed initiation would make
         // boringtun discard the state for our own outstanding initiation.
         self.wait_for_handshake_until = self.wait_for_handshake_until.filter(|&end| now < end);
+        // Nor does a side start again within INITIATION_PENDING of its own
+        // last initiation: duplicated copies of a crossed initiation would
+        // otherwise restart both ends until REKEY_TIMEOUT.
         let no_session = self.tunn.time_since_last_handshake().is_none();
-        if no_session && self.pacer.has_queued() && self.wait_for_handshake_until.is_none() {
+        if no_session
+            && self.pacer.has_queued()
+            && self.wait_for_handshake_until.is_none()
+            && self.initiated_at.is_none_or(|at| now.duration_since(at) >= INITIATION_PENDING)
+        {
             self.initiate_handshake();
         }
         if no_session {
@@ -837,6 +927,8 @@ impl Driver {
                 let moved_peer = matches!(rebind, Rebind::PeerMoved);
                 match rebind {
                     Rebind::Underlay(underlay) => {
+                        // What this pass staged leaves on the old one.
+                        self.underlay.flush();
                         self.underlay.replace(underlay);
                         let max = usize::from(self.config.mtu)
                             .saturating_sub(datagram_ops::DATAGRAM_OVERHEAD);
@@ -844,6 +936,7 @@ impl Driver {
                     }
                     Rebind::Socket(socket) => {
                         let peer = self.underlay.peer_hint();
+                        self.underlay.flush();
                         self.underlay.replace(Box::new(SocketPath::new(socket, peer)));
                     }
                     Rebind::Keep | Rebind::PeerMoved => {}

@@ -69,7 +69,8 @@ def route(name: str, context: dict) -> object:
 
 class SigningOnCmux15Test(unittest.TestCase):
     def test_a_nightly_next_push_takes_the_pick_then_the_signer(self) -> None:
-        self.assertEqual(len(JOBS), 7)
+        # Eight since #49284 added sign-live-code-variant.
+        self.assertEqual(len(JOBS), 8)
         rng = random.Random(15)
         for name in JOBS:
             source = manaflow_route(name)

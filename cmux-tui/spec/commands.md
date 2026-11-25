@@ -1600,6 +1600,28 @@ workspaces it may see, and once a workspace of the daemon was incognito, its
 `tree_revision` is a digest of the rows it is answered, so a change to an
 incognito workspace never moves it.
 
+With `workspace-list-delta-v1`, a client that holds a tree sends `since:
+{epoch, seq}`, the cursor of the last reply it applied (`{epoch: "", seq: 0}`
+when it holds none). The daemon keeps a digest of each workspace entry of the
+last tree it read for `since`, and a bounded ring (256 ids) of the ids whose
+entry changed or went away, keyed by a `seq` that moves once per read that
+found a change. When the cursor's `epoch` is this daemon run's and its `seq` is
+one the ring still covers, the result is `{delta: true, epoch, seq, changed,
+removed, workspaces: [], registry_id, generation, workspace_revision,
+pane_revision, terminal_revision}`: `changed` holds every workspace entry
+(keyed by its `id`) that changed past the cursor, exactly as the whole tree
+renders it, `removed` the ids no longer in the tree, `order` every id in the
+tree's order when the order changed, and `groups` the whole groups list when
+it changed; the client replaces or adds each changed entry by `id`, drops the
+removed ones, and keeps the new `epoch` and `seq`. Anything the tree shows
+(a title, an unread marker, a branch) moves exactly the entry that shows it,
+since the digests are of the rendered entries. Otherwise (another daemon run,
+a cursor older than the ring, or one never given out) the result is the whole
+tree with `epoch` and `seq` added. `since` takes precedence over `known`,
+`limit` and `after`. A remote device that must not see some workspaces gets
+its whole pruned tree with no `epoch` or `seq`. A request without `since` (or
+with `since: null`) gets the result above, byte for byte.
+
 Params:
 
 | Name | Type | Required | Notes |
@@ -1607,6 +1629,7 @@ Params:
 | `known` | object | no | `list-workspaces-known-v1`: the identity and revisions of the tree the client holds |
 | `limit` | integer | no | `list-workspaces-limit-v1`: the number of workspaces to return, first in sidebar order |
 | `after` | integer | no | `list-workspaces-page-v1`: with `limit`, the position in sidebar order the page starts at (a page's `next`) |
+| `since` | object | no | `workspace-list-delta-v1`: `{epoch, seq}` of the last reply applied; only the changed entries keyed by id |
 
 Result:
 
@@ -1807,6 +1830,14 @@ too), the request fails with `agent not waiting: ...` and writes nothing. `submi
 a Return that fails after the text was written says `submit failed after the text was written`. The phone's Feed reply uses
 both, with `expect_foreground` and `paste:true`, so a reply typed where the screen is not in view
 never answers an approval or question, a running turn or a new agent session.
+
+With `send-typed-submit-v1`, a `submit` after typed text (`paste:false`, a non-empty `text` or `bytes`)
+writes Return 250 ms after the text, still in the same request; after a paste the PTY writer's paste
+pacing holds Return until the program read it, and a bare `submit` writes Return at once. The gap is
+past an agent TUI's paste-burst window (Codex joins unbracketed characters arriving within about
+120 ms into one paste, and took a Return right behind typed text for a newline). The phone sends a
+one-line draft for a full-screen program this way, as one keyed request, instead of the text and a
+separate Return. A server without the capability writes Return right after the text.
 
 With `send-key-v1`, `key` names this input (the phone uses a UUID per batch). The daemon remembers
 the keys it applied, daemon-wide, for 10 minutes (at most the last 1024); a `send` with a key it
@@ -5258,6 +5289,29 @@ Example:
 ```json
 {"id":20,"cmd":"rename-workspace","workspace":4,"name":"prod"}
 {"id":20,"ok":true,"data":{"workspace":4,"key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","workspace_revision":2}}
+```
+
+### release-workspace-names
+
+| Field | Value |
+| --- | --- |
+| name | `release-workspace-names` |
+| status | implemented |
+| since | protocol 12 |
+
+Hands every user-owned workspace name back to the automatic namer: each name keeps its text, becomes automatic and advances its name revision. A name already automatic is skipped, so a second call releases nothing. A row renamed between the read and its release stays pinned.
+
+Params: none.
+
+Result: `object{released:uint64,still_pinned:uint64}`.
+
+This control-only command has no public CLI mapping.
+
+Example:
+
+```json
+{"id":22,"cmd":"release-workspace-names"}
+{"id":22,"ok":true,"data":{"released":3,"still_pinned":0}}
 ```
 
 ### rename-provider-managed-workspace
@@ -9572,7 +9626,7 @@ Protocol v7 adds `mode`. `mode:"bytes"`, including the default when the field is
 
 Servers advertising the `attach-initial-size` capability accept paired `cols` and `rows`. The pair records the attaching client's initial viewer-size claim before initial state is generated. Supplying only one dimension is an error. Clients must not send either field to a server that omits the capability, including an older protocol-v7 server.
 
-Servers advertising `terminal-resume-v1` keep a bounded (4 MiB) per-terminal output ring keyed by a monotonic byte offset, plus an opaque `generation` string that changes whenever the stream is not a pure byte continuation (terminal recreated, resize, color change). A client that sets `terminal-resume-v1` in `set-client-info`, or sends `resume_offset`, receives `offset` (the stream position after the frame) and `generation` on `vt-state`, `output`, `resized`, and `colors-changed` frames. To resume after a drop the client re-attaches with `resume_offset` and `resume_generation` (both or neither; otherwise an error). If the generation matches and the range is still held, the response carries `resume:"exact"` and `through`, no `vt-state` is sent and no reset is needed: the first event is an `output` frame with `resume:"exact"` holding exactly the bytes after `resume_offset` (possibly empty). Otherwise the reply is the normal attach (`vt-state` with full replay) plus `resume:"gap"`, and the client replaces its mirror as today. Servers without the capability ignore nothing: clients must not send the fields to them.
+Servers advertising `terminal-resume-v1` keep a bounded (4 MiB) per-terminal output ring keyed by a monotonic byte offset, plus an opaque `generation` string that changes whenever the stream is not a pure byte continuation (terminal recreated, resize, color change). A client that sets `terminal-resume-v1` in `set-client-info`, or sends `resume_offset`, receives `offset` (the stream position after the frame) and `generation` on `vt-state`, `output`, `resized`, and `colors-changed` frames. To resume after a drop the client re-attaches with `resume_offset` and `resume_generation` (both or neither; otherwise an error). If the generation matches and the range is still held, the response carries `resume:"exact"` and `through`, no `vt-state` is sent and no reset is needed: the first event is an `output` frame with `resume:"exact"` holding exactly the bytes after `resume_offset` (possibly empty). Otherwise the reply is the normal attach (`vt-state` with full replay) plus `resume:"gap"`, and the client replaces its mirror as today. Servers without the capability ignore nothing: clients must not send the fields to them. Servers advertising `terminal-resume-bounded-v1` also take `resume_max_bytes` with `resume_offset`: when more bytes than that are missing the reply is the `"gap"` attach (one screen replay) instead of an `"exact"` one, so a client back from a long time away is not sent megabytes of output it will never show. A client sets it to the size of its last replay, so it always gets the cheaper of the two.
 
 Servers advertising `attach-identity-v1` accept paired `expected_generation`
 and `expected_terminal_id`. Both must match before any stream or lease is
@@ -9796,6 +9850,7 @@ Params:
 | `rows` | `uint16` | default null | `attach-initial-size` capability; paired with `cols`, clamped to at least 1 |
 | `resume_offset` | `uint64` | default null | `terminal-resume-v1`; paired with `resume_generation`; PTY bytes mode only |
 | `resume_generation` | `string` | default null | `terminal-resume-v1`; the `generation` the client last saw on an output frame |
+| `resume_max_bytes` | `uint64` | default null | `terminal-resume-bounded-v1`; with `resume_offset`: an exact resume only when at most this many bytes are missing, else the replay with `resume:"gap"` |
 | `snapshot_local_history` | `bool` | default false | `terminal-snapshot-local-history-v1`; only with `snapshot` |
 | `snapshot_images` | `bool` | default false | Ignored: the former `terminal-snapshot-images-v1`; GHOSTSNP carries the images |
 | `replay_history_rows` | `uint32` | default null (whole history) | `attach-replay-history-rows-v1`; bytes mode without `snapshot` |
