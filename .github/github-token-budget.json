@@ -271,6 +271,7 @@
     "required-checks-drift.yml: Reconcile the required status checks on main": "baseline 2026-11-04",
     "resume-nightly-notarization.yml: Download exact recovery artifact": "baseline 2026-11-04",
     "resume-nightly-notarization.yml: Verify trusted source workflow run": "baseline 2026-11-04",
+    "risk-tier.yml: Carry the head's verdict over a label the grade never reads": "one check-runs read, only for a label the grade never reads (cmux-bot's area:, harness:, model:, kind:); it saves the full grade (about six calls) when the head already passed (tests/test_ci_risk_tier_label_noise.py)",
     "risk-tier.yml: Grade the pull request": "polls (tests/test_ci_no_github_token_polling.py): retry only: a loop over the two sign-off labels; gh_run retries a failed gh call at most 3 times, 2 and 4 s apart",
     "risk-tier.yml: Set the risk label": "baseline 2026-11-04",
     "seed-derived-data.yml: Adopt the newest seed": "baseline 2026-11-04",

@@ -39,7 +39,8 @@ class TakebackOnly(unittest.TestCase):
                               env=env, capture_output=True, text=True, timeout=60)
 
     def test_the_step_runs_only_on_a_held_verdict(self) -> None:
-        self.assertEqual(hold_step()["if"], "steps.grade.outputs.ready != 'true'")
+        # A carried verdict (a label the grade never reads, tests/test_ci_risk_tier_label_noise.py) holds nothing.
+        self.assertEqual(hold_step()["if"], "steps.carry.outputs.carried != 'true' && steps.grade.outputs.ready != 'true'")
 
     def test_an_unowned_takeback_is_red_in_any_tier_and_names_the_line_to_paste(self) -> None:
         for tier in ("low", "normal", "high"):
