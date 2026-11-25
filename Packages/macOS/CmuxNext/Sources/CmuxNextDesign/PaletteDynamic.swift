@@ -21,6 +21,7 @@ enum PaletteDynamic {
     static let textSecondary = token(\.textSecondary)
     static let textTertiary = token(\.textTertiary)
     static let hoverFill = token(\.hoverFill)
+    static let groupFill = token(\.groupFill)
     static let selectionFill = token(\.selectionFill)
     static let secondarySelectionFill = token(\.secondarySelectionFill)
     static let pressedFill = token(\.pressedFill)
