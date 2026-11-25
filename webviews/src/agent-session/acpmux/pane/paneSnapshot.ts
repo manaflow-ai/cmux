@@ -1768,8 +1768,12 @@ export function paneSnapshotEffect({
           }
           return client.editQueued(String(promptId), change);
         },
-        "chat.secret": ({ secretId, value }) =>
-          client.secret(String(secretId), typeof value === "string" ? value : undefined),
+        "chat.secret": ({ secretId, value, keepAs }) =>
+          client.secret(
+            String(secretId),
+            typeof value === "string" ? value : undefined,
+            typeof keepAs === "string" ? keepAs : undefined,
+          ),
         "chat.permission": ({ permissionId, optionId, answers, annotations, sessionId, forkFirst }) =>
           client.permission(
             String(permissionId),

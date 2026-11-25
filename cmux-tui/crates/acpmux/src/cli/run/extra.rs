@@ -729,6 +729,19 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::Rebalance(crate::cli::command::RebalanceArgs {
+            dry_run,
+            force,
+            max_moves,
+            timeout,
+            undo,
+        }) => {
+            super::rebalance::run(
+                super::rebalance::Args { dry_run, force, max_moves, timeout, undo },
+                json_out,
+            )
+            .await
+        }
         Command::MoveSessions(crate::cli::command::MoveSessionsArgs {
             sessions,
             host,
@@ -745,6 +758,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             abort,
             take_back,
             from_snapshot,
+            as_harness,
         }) => {
             if abort {
                 return super::session_move::end_stale(
@@ -770,6 +784,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 from,
                 slow_ok,
                 from_snapshot,
+                as_harness,
             };
             super::session_move::run(args, json_out).await
         }

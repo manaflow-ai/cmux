@@ -285,6 +285,7 @@ pub(crate) mod questions;
 mod quiet_dirs;
 pub mod race_records;
 pub mod range_fetch;
+pub(crate) mod rebalance;
 pub mod recovery;
 pub mod registry;
 pub(crate) mod remote_chain_profile;
@@ -379,6 +380,7 @@ pub mod suggestion_gate;
 pub(crate) mod supervise;
 pub mod surge_triage;
 pub mod tailnet;
+pub mod tailnet_carrier;
 pub mod task_list;
 #[cfg(unix)]
 #[path = "daemon/term_sender.rs"]
