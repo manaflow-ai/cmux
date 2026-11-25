@@ -22,6 +22,7 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_ATTACH,
     method::MUX_ATTACHMENT,
     method::MUX_AUTO_SESSION_LEFTOVER,
+    method::MUX_AUTO_SESSION_MOVE,
     method::MUX_AUTO_SESSION_SET,
     method::MUX_AUTO_SESSION_TRANSCRIPT,
     method::MUX_AUTO_SESSION_WAKE,

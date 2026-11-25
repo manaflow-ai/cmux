@@ -291,6 +291,7 @@ impl Hub {
             },
             &cwd,
             &std::env::temp_dir(),
+            dirs::home_dir().as_deref(),
         )?;
         let mut meta = draft_meta(Draft {
             id: String::new(),
