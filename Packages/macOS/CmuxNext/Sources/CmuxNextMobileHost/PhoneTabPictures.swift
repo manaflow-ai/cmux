@@ -82,7 +82,7 @@ public final class PhoneTabPictures {
     }
 
     private var wantedFollow: Task<Void, Never>?
-    /// The held tabs whose picture went (or was asked for) since a phone came to want them; emptied when none does.
+    /// The held tabs whose picture went (or is being asked for) since a phone came to want them; emptied when none does.
     private var offeredHeld: Set<String> = []
 
     /// The held tabs changed in a way no observation sees (the app's last pictures on disk were read): each new one's
@@ -101,7 +101,13 @@ public final class PhoneTabPictures {
                 guard let self else { return }
                 guard let keys else { self.offeredHeld = []; continue }
                 for key in keys where self.offeredHeld.insert(key).inserted {
-                    if let image = await self.held?.picture(key) { self.offerThumbnail(image, tab: key) }
+                    if let image = await self.held?.picture(key) {
+                        self.offerThumbnail(image, tab: key)
+                    } else {
+                        // No picture yet (the disk read failed or the page has none): asked again at the next
+                        // change of the held tabs, so the card does not stay empty until the phone pairs again.
+                        self.offeredHeld.remove(key)
+                    }
                 }
             }
         }
