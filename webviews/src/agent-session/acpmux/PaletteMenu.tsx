@@ -4,8 +4,10 @@ import { focusWithRing } from "../../ui/focusWithRing";
 import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
 import { useEscapingPopup } from "../../ui/popupHost";
 import { usePopupHost } from "../../ui/UiProvider";
+import { usePopupSettle } from "../../ui/popupSettle";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { isMousePress } from "../../ui/pressRelease";
+import { useListKeys } from "../../ui/useListKeys";
 import { registerPicker } from "./pickerOpeners";
 
 import { useT } from "./i18n";
@@ -13,11 +15,12 @@ import { scrollActiveMenuRow } from "./scrollActiveMenuRow";
 import { useScrollEdges } from "./summary/scrollEdges";
 import { Keycap } from "./Keycap";
 import {
-  type PaletteReturnLook,
   type PaletteSection,
-  descriptionRestatesName,
   filterPaletteSections,
+  type PaletteReturnLook,
+  descriptionRestatesName,
 } from "./paletteMenuModel";
+import { focusRoute } from "../../ui/focusRoute";
 type Props = {
   label: string;
   className?: string;
@@ -66,13 +69,14 @@ export function PaletteMenu({
   const edges = useScrollEdges();
   const host = usePopupHost();
   const [shown, setShown] = useState<HTMLDivElement | null>(null);
-  const attach = useCallback(
+  const attachNode = useCallback(
     (node: HTMLDivElement | null) => {
       menu.current = node;
       if (host) setShown(node);
     },
     [host],
   );
+  const attach = usePopupSettle<HTMLDivElement>(attachNode);
   const menuStyle = useUiAnchor(trigger, menu, open, { side: "above", align });
   useEscapingPopup(host, shown, () => trigger.current, {
     side: "top",
@@ -149,10 +153,38 @@ export function PaletteMenu({
       );
     }
   };
+  // `app.keyStyle`: in the list Vim's j/k, gg/G and l (pick), / (the search field); in the field
+  // Vim's Esc (Emacs' Ctrl-G) gives the keyboard to the list, whose Esc closes as before; Emacs'
+  // Ctrl-N/P move in both and Ctrl-A/E go to the ends in the list.
+  const listKeys = useListKeys({
+    onCommand: (command, event) => {
+      const inField = event.target === search.current;
+      if (command === "list.next" || command === "list.previous") {
+        const step = command === "list.next" ? 1 : -1;
+        if (rows.length) setActive((current) => (current + step + rows.length) % rows.length);
+        return;
+      }
+      if (command === "list.leave") {
+        const list = menu.current?.ownerDocument.getElementById(menuId);
+        if (!inField || !list) return false;
+        focusRoute(list, "person", "key style list key", { preventScroll: true });
+        return;
+      }
+      if (inField) return false;
+      if (command === "list.first" || command === "list.last") {
+        if (rows.length) setActive(command === "list.first" ? 0 : rows.length - 1);
+      } else if (command === "list.open") void pick(selected);
+      else if (command === "list.search")
+        focusRoute(search.current, "person", "key style list key", { preventScroll: true });
+      else return false;
+    },
+  });
   const keyDown = (event: React.KeyboardEvent) => {
     // IME commit keys (including WebKit's keyCode 229 after compositionend) belong to the
     // editor. Never dispatch or close the palette for them; the following plain Enter may pick.
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+    listKeys(event);
+    if (event.defaultPrevented) return;
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();

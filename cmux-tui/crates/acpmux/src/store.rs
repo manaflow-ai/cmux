@@ -285,6 +285,15 @@ pub struct AwayRecap {
     pub dismissed: bool,
 }
 
+/// A chat's model switch for a sustained overload (`SessionMeta::capacity_fallback`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CapacityFallback {
+    /// The chat's own model, as it named it.
+    pub from: String,
+    /// The smaller model it runs meanwhile.
+    pub to: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMeta {
@@ -339,6 +348,11 @@ pub struct SessionMeta {
     /// effort wins after that.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort_request: Option<String>,
+    /// The chat runs a smaller model because its own stayed overloaded
+    /// (`hub/auto_resume/capacity_failover.rs`): `from` comes back once a turn on `to` ends well.
+    /// Saved with the meta, so a daemon restart still puts it back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capacity_fallback: Option<CapacityFallback>,
     pub cwd: PathBuf,
     /// Folders the chat sees beside `cwd` (ACP `session/new` `additionalDirectories`, its
     /// Sources): every start of its harness gets them (`hub/additional_dirs.rs`). Absolute,
@@ -797,6 +811,10 @@ pub struct SessionMeta {
     /// chat list shows of it without opening the archive. Cleared when the log comes back.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cold: Option<ColdPreview>,
+    /// The chat's Auto mode (`auto_session/record.rs`): whether it is on, whether this machine
+    /// held the chat last, and changes kept aside. Never copied to a fork.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_session: Option<crate::auto_session::record::AutoRecord>,
     /// The subagent of chat `parent_id` this fork holds the conversation of, not the chat's own
     /// (`hub/fork_subagent.rs`). The info view's `forkOf`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
