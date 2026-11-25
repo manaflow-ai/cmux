@@ -252,13 +252,6 @@ pub struct DialOptions {
     /// silent (`cmux_wg::WgNet::set_air_floor`), [`PHONE_AIR_FLOOR`] by
     /// default; `None` leaves only the persistent keepalive.
     pub air_floor: Option<Duration>,
-    /// WireGuard: when a route change resends the recent datagrams on the
-    /// new route (or through the relays), also tell the tunnel's TCP the
-    /// path changed (`cmux_wg::Underlay::take_path_change`), so it resends
-    /// its unacknowledged tail at once with its retransmit timer reset
-    /// instead of waiting out a timer the outage backed off. Off by
-    /// default; `CMUX_LINK_PATH_RESEND=on` turns it on too.
-    pub path_resend: bool,
     /// Bound on the whole dial or answer.
     pub timeout: Duration,
     /// Dial side, WebRTC: how long an offer waits for the Mac's answer. An
@@ -343,7 +336,6 @@ impl Default for DialOptions {
             aligned_keepalives: false,
             idle_air_gap: Some(IDLE_AIR_GAP),
             air_floor: Some(PHONE_AIR_FLOOR),
-            path_resend: false,
             timeout: Duration::from_secs(25),
             answer_timeout: Duration::from_secs(8),
             timeline: crate::Timeline::new(),
@@ -448,6 +440,9 @@ pub struct Overlay {
     pub peer_ip: std::net::IpAddr,
 }
 
+/// Runs once the link exists (see [`Dialed::on_link`]).
+pub type OnLink = Box<dyn FnOnce(&Link) + Send>;
+
 /// A dialed or answered transport.
 pub struct Dialed {
     pub stream: Box<dyn LinkStream>,
@@ -470,7 +465,7 @@ pub struct Dialed {
     pub liveness: Option<crate::link::LivenessDatagrams>,
     /// Runs once the link exists (a WireGuard tunnel's lease learns how its
     /// link closes, [`wireguard::dormant`]).
-    pub on_link: Option<Box<dyn FnOnce(&Link) + Send>>,
+    pub on_link: Option<OnLink>,
     /// Both sides listed [`crate::RELIABLE_LANE`].
     pub reliable: bool,
     /// The tunnel's static keys (WireGuard); `None` on WebRTC.
@@ -1117,7 +1112,7 @@ mod tests {
                 channel.send(Bytes::from(vec![round; 1000])).await.unwrap();
                 match tokio::time::timeout(std::time::Duration::from_secs(5), channel.recv()).await {
                     Ok(Some(ChannelEvent::Data(bytes))) => {
-                        assert_eq!(&bytes[..], &[round; 1000][..], "{label}")
+                        assert_eq!(&bytes[..], &[round; 1000][..], "{label}");
                     }
                     other => panic!("{label}: unexpected {other:?}"),
                 }
