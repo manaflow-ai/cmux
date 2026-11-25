@@ -49,7 +49,7 @@ public nonisolated struct AgentPageOps {
             "externalAccess.openSettings",
             "voice.toggle", "voice.cancel", "voice.skip", "voice.restart",
             "dictation.toggle", "dictation.handoff", "dictation.sources", "dictation.start", "dictation.stop", "dictation.cancel", "dictation.openSettings", "dictation.audio", "dictation.recording.upload", "dictation.recording.cancel",
-            "transport.open", "transport.send", "transport.close", "transport.gesture", "transport.gesture.release",
+            "transport.open", "transport.send", "transport.close", "transport.ack", "transport.gesture", "transport.gesture.release",
             "chat.missing", "uiPointer.report", "designSelection.released", "acpmux.restart", "sandbox.run", "sandbox.state", "cloud.signIn", "cloud.signInCancel", "cloud.setUp", "cloud.startChat", "cloud.repickChat", "cloud.answerStart", "cloud.handoffTurn",
             // The pricing card's Subscribe (cloud.plan.subscribe {plan}: pro or max), which opens that plan's checkout.
             "cloud.plan.subscribe",

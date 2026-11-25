@@ -444,6 +444,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case transportSend(connection: Int, frames: [String])
     /// `transport.close` with `{connection}`.
     case transportClose(connection: Int)
+    /// `transport.ack` with `{connection, seq, inputPending}`: the page applied push `seq`
+    /// (``AgentPaneTransport/acked(connection:seq:inputPending:)``); the host sends the next one.
+    case transportAck(connection: Int, seq: Int, inputPending: Bool)
     /// `transport.gesture {intent}`: reserve the user's current gesture for one pick sent later (a
     /// pick held behind a harness switch); answers `{ticket}`. Nil intent: the params break the
     /// contract (``AgentPaneGestureIntent``); then `method` is the intent's, if any, and `refusal`
@@ -519,7 +522,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// A transport request: frequent and carrying chat content, so never logged with its values.
     public var isTransport: Bool {
         switch self {
-        case .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease: true
+        case .transportOpen, .transportSend, .transportClose, .transportAck, .transportGesture, .transportGestureRelease: true
         default: false
         }
     }
