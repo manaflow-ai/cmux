@@ -13,7 +13,8 @@
 //! accounts, then keys, then the rest. `spread` (default on) lets the gateway move a thread to
 //! the next connection that serves its model when one is out.
 //!
-//! Who may call: the list, also the local app; every change and every ChatGPT call, only the
+//! Who may call: the list, also the local app; every change, every ChatGPT call and every
+//! one-click Claude token call (`claude_token.*`, `crate::claude_token`), only the
 //! unix socket (the app's host calls them from a person's action; the gateway asks for tokens).
 //! Never Web or a peer. No secret is resolved here and no token is logged.
 
@@ -47,6 +48,10 @@ pub(super) const METHODS: &[&str] = &[
     method::MUX_CONNECTIONS_CHATGPT_TOKEN,
     method::MUX_CONNECTIONS_CHATGPT_IMPORT,
     method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD,
+    method::MUX_CONNECTIONS_CLAUDE_TOKEN_BEGIN,
+    method::MUX_CONNECTIONS_CLAUDE_TOKEN_WAIT,
+    method::MUX_CONNECTIONS_CLAUDE_TOKEN_CODE,
+    method::MUX_CONNECTIONS_CLAUDE_TOKEN_CANCEL,
     method::MUX_CONNECTIONS_CREDENTIAL,
 ];
 
@@ -550,12 +555,50 @@ fn resolve(id: &str, reference: &str) -> Result<String, RpcError> {
 }
 
 fn failure(f: chatgpt::Failure) -> RpcError {
+    failure_in("chatgpt", f)
+}
+
+/// A `claude_token` failure: reason `claude_token.CODE`.
+fn token_failure(f: chatgpt::Failure) -> RpcError {
+    failure_in("claude_token", f)
+}
+
+fn failure_in(scope: &str, f: chatgpt::Failure) -> RpcError {
     let error = if f.code == "not_found" || f.code == "unknown_attempt" {
         RpcError::not_found(f.message)
     } else {
         RpcError::new(-32000, f.message)
     };
-    error.with_data(json!({"reason": format!("chatgpt.{}", f.code), "code": f.code}))
+    error.with_data(json!({"reason": format!("{scope}.{}", f.code), "code": f.code}))
+}
+
+/// `claude_token.wait`'s answer for `status`: the connection once done (as listed), the code once
+/// failed. Never the token: the attempt holds only the connection's id.
+fn token_wait_reply(dir: Option<&Path>, home: &Path, status: &chatgpt::Status) -> Value {
+    let connection = match status {
+        chatgpt::Status::Done(id) => {
+            list(dir, home, &routes::bindings(home)).into_iter().find(|c| &c.id == id)
+        }
+        _ => None,
+    };
+    let error = match status {
+        chatgpt::Status::Failed(code) => Some(code.clone()),
+        _ => None,
+    };
+    json!({"status": status.as_str(), "connection": connection, "error": error})
+}
+
+/// What `claude_token.begin` adds the stored token as: a `claude-token` connection with
+/// `reference` (`keychain:cmux-model-key/claude-token-…`) and `label`; its id.
+fn add_token_reference(
+    dir: Option<&Path>,
+    home: &Path,
+    reference: &str,
+    label: Option<&str>,
+) -> Result<String, chatgpt::Failure> {
+    add_claude_token(dir, home, reference, label)
+        .map(|(id, _)| id)
+        .map_err(|e| chatgpt::Failure::new("add", e.message))
 }
 
 async fn blocking<T: Send + 'static>(
@@ -784,6 +827,42 @@ pub(super) async fn handle(
             .await??;
             announce_later(hub);
             Ok(state)
+        }
+        method::MUX_CONNECTIONS_CLAUDE_TOKEN_BEGIN => {
+            let label = text("label").map(str::to_owned);
+            let announcer = hub.clone();
+            let begun = hub
+                .claude_token
+                .begin(
+                    move |reference| {
+                        add_token_reference(dir.as_deref(), &home, reference, label.as_deref())
+                    },
+                    move |status| {
+                        if matches!(status, chatgpt::Status::Done(_)) {
+                            announce_later(&announcer);
+                        }
+                    },
+                )
+                .await
+                .map_err(token_failure)?;
+            Ok(json!({"attempt": begun.attempt, "url": begun.url}))
+        }
+        method::MUX_CONNECTIONS_CLAUDE_TOKEN_WAIT => {
+            let attempt = need("attempt")?;
+            let status =
+                hub.claude_token.wait(&attempt, WAIT_LIMIT).await.map_err(token_failure)?;
+            blocking(move || token_wait_reply(dir.as_deref(), &home, &status)).await
+        }
+        method::MUX_CONNECTIONS_CLAUDE_TOKEN_CODE => {
+            let attempt = need("attempt")?;
+            let code = params.get("code").and_then(Value::as_str).unwrap_or_default();
+            hub.claude_token.code(&attempt, code).await.map_err(token_failure)?;
+            Ok(json!({"attempt": attempt, "status": "pending"}))
+        }
+        method::MUX_CONNECTIONS_CLAUDE_TOKEN_CANCEL => {
+            let attempt = need("attempt")?;
+            let status = hub.claude_token.cancel(&attempt).await.map_err(token_failure)?;
+            Ok(json!({"attempt": attempt, "status": status.as_str()}))
         }
         method::MUX_CONNECTIONS_CREDENTIAL => {
             let id = need("id")?;

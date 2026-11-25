@@ -403,3 +403,63 @@ fn an_imported_codex_login_lists_as_a_cloud_serving_chatgpt_plan() {
     assert_eq!(again, "chatgpt");
     assert_eq!(chatgpt::store::read(&d.home, "chatgpt").unwrap().unwrap().refresh_token, "rt-2");
 }
+
+/// One-click Claude token end to end at the service: the fake `claude setup-token` prints a
+/// link and a token; the connection holds the stored item's reference, and neither `begin`'s
+/// nor `wait`'s answer nor the route file carries the token.
+#[tokio::test(flavor = "multi_thread")]
+async fn claude_token_begin_and_wait_add_a_connection_by_reference_only() {
+    use crate::claude_token::{self, store};
+    const TOKEN: &str = "sk-ant-oat01-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-AbCdEfGhIjKlMnOp";
+    let d = dirs();
+    let fake = d._root.path().join("claude");
+    std::fs::write(
+        &fake,
+        format!(
+            "#!/bin/sh\nprintf 'https://claude.ai/oauth/authorize?abc\\n'\nsleep 0.2\nprintf '{TOKEN}\\n'\nsleep 30\n"
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&fake, std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
+    let secrets = d._root.path().join("secrets");
+    std::fs::create_dir_all(&secrets).unwrap();
+    let svc = Arc::new(claude_token::Service::new(
+        Arc::new(store::Files(secrets.clone())),
+        Some(fake),
+        Duration::from_secs(10),
+    ));
+    let (routes_dir, home) = (d.routes.clone(), d.home.clone());
+    let begun = svc
+        .begin(
+            move |reference| {
+                add_token_reference(Some(&routes_dir), &home, reference, Some("Work Claude"))
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+    assert_eq!(begun.url.as_deref(), Some("https://claude.ai/oauth/authorize?abc"));
+    let status = svc.wait(&begun.attempt, Duration::from_secs(10)).await.unwrap();
+    assert_eq!(status, chatgpt::Status::Done("claude-token".into()));
+    let reply = token_wait_reply(Some(&d.routes), &d.home, &status);
+    assert_eq!(reply["status"], "done");
+    assert_eq!(reply["connection"]["kind"], "claude-token");
+    assert_eq!(reply["connection"]["label"], "Work Claude");
+    let route = routes::find(Some(&d.routes), "claude-token").unwrap();
+    let secret = route.file.secret.unwrap();
+    assert!(secret.starts_with(&format!("file:{}", secrets.display())), "{secret}");
+    assert_eq!(routes::resolve_reference(&secret).unwrap(), TOKEN);
+    let route_text = std::fs::read_to_string(
+        std::fs::read_dir(&d.routes)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .find(|p| p.to_string_lossy().contains("claude-token"))
+            .unwrap(),
+    )
+    .unwrap_or_default();
+    for text in [reply.to_string(), format!("{begun:?}"), route_text] {
+        assert!(!text.contains(TOKEN), "{text}");
+    }
+    let failed = token_wait_reply(None, &d.home, &chatgpt::Status::Failed("no_url".into()));
+    assert_eq!(failed, json!({"status": "failed", "connection": null, "error": "no_url"}));
+}
