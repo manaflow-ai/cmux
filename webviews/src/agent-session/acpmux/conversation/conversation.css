@@ -6603,6 +6603,54 @@ a.cv-sha:focus-visible {
 .cv-turn-error--card .cv-turn-error__cause {
   gap: var(--grid-gap);
 }
+/* A turn acpmux holds for capacity (CapacityWaitCard.tsx, RFD model-overload-smoothing §3.8): one calm
+   state where the failed card would be, in the prose's muted ink, never the failure red. */
+.cv-capacity-wait {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+}
+.cv-capacity-wait__line {
+  display: flex;
+  align-items: center;
+  gap: var(--grid-gap);
+}
+.cv-capacity-wait__icon {
+  flex: none;
+  color: var(--agent-muted);
+}
+.cv-capacity-wait__more,
+.cv-capacity-wait__track {
+  padding-inline-start: calc(14px + var(--grid-gap));
+}
+.cv-capacity-wait__more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+.cv-capacity-wait--card {
+  gap: var(--transient-surface-gap);
+}
+.cv-capacity-wait--card .cv-capacity-wait__more {
+  padding-inline-start: calc(16px + var(--grid-gap));
+}
+.cv-capacity-wait__track {
+  display: block;
+}
+.cv-capacity-wait__bar {
+  display: block;
+  block-size: 2px;
+  max-inline-size: 240px;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  overflow: hidden;
+}
+.cv-capacity-wait__fill {
+  display: block;
+  block-size: 100%;
+  background: color-mix(in srgb, currentColor 45%, transparent);
+  transition: inline-size var(--cmux-motion-micro) linear;
+}
 /* The Connect GitHub card (GitHubConnectCard.tsx) is a next step, not a failure: GitHub's mark in
    the prose's ink, never the failure red. */
 .cv-github-connect .cv-turn-error__icon {
@@ -7496,7 +7544,15 @@ a.cv-sha:focus-visible {
   box-shadow: inset 0 -1px 0 var(--agent-border);
 }
 .acpmux-render-card-head .acpmux-review-changes {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
   height: 24px;
+}
+/* The head wraps by cardFit.css: its actions go under the title in a narrow card. Its end padding
+   (the icon button's overhang) belongs to the actions' line, so it stays. */
+.acpmux-render-card-head.cv-fit-row {
+  column-gap: var(--ds-space-2);
 }
 .acpmux-render-card-title {
   flex: 1;
@@ -7865,22 +7921,19 @@ a.cv-sha:focus-visible {
 }
 .acpmux-scroll[data-fade-top],
 .acpmux-scroll[data-fade-bottom],
-.acpmux-scroll[data-docked],
-.acpmux-scroll[data-pinned-top] {
+.acpmux-scroll[data-docked] {
   --acpmux-view-foot: calc(100% - var(--acpmux-dock-space, 0px));
-  /* --acpmux-view-top: a pinned line over the top (a subagent's "Subagent of" pill, App.tsx
-     VirtualTranscript): rows are out of sight under it, and the soft edge starts below it. */
   --acpmux-view-mask: linear-gradient(
     to bottom,
-    transparent var(--acpmux-view-top, 0px),
-    rgb(0 0 0 / 0.043) calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.125),
-    rgb(0 0 0 / 0.156) calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.25),
-    rgb(0 0 0 / 0.316) calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.375),
-    rgb(0 0 0 / 0.5) calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.5),
-    rgb(0 0 0 / 0.684) calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.625),
-    rgb(0 0 0 / 0.844) calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.75),
-    rgb(0 0 0 / 0.957) calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.875),
-    #000 calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 1),
+    transparent 0px,
+    rgb(0 0 0 / 0.043) calc(var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.125),
+    rgb(0 0 0 / 0.156) calc(var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.25),
+    rgb(0 0 0 / 0.316) calc(var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.375),
+    rgb(0 0 0 / 0.5) calc(var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.5),
+    rgb(0 0 0 / 0.684) calc(var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.625),
+    rgb(0 0 0 / 0.844) calc(var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.75),
+    rgb(0 0 0 / 0.957) calc(var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.875),
+    #000 calc(var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach)),
     #000 calc(var(--acpmux-view-foot) - var(--acpmux-fade-bottom, 0px) * var(--acpmux-fade-bottom-reach)),
     transparent var(--acpmux-view-foot) var(--acpmux-dock-holes,)
   );
@@ -8075,12 +8128,14 @@ a.cv-sha:focus-visible {
 }
 /* The step at work draws the shared Spinner inside the mark (PlanList.tsx), so the mark has no ring of
    its own while the turn runs. */
-.cv-plan:not([data-ended], [data-earlier]) .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
+.cv-plan:not([data-ended], [data-earlier], [data-still]) .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
   border-width: 0;
 }
-/* Left in progress when its turn ended: a plain ring, not a spinner frozen mid-turn. */
+/* Left in progress when its turn ended, or kept between turns (the hat's `still` list): a plain
+   ring, not a spinner frozen mid-turn, and never a blank mark (cmux#51039). */
 .cv-plan[data-ended] .cv-plan__item[data-status="in_progress"] .cv-plan__mark,
-.cv-plan[data-earlier] .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
+.cv-plan[data-earlier] .cv-plan__item[data-status="in_progress"] .cv-plan__mark,
+.cv-plan[data-still] .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
   border-color: var(--cv-text-muted);
 }
 
@@ -8564,7 +8619,22 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 /* What an X acpmux refused adds after it (PendingSteer.tsx): quiet text, spaced from the X and Copy
    as a glyph sits in its slot. */
 .cv-user__kept {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   padding-inline: var(--cv-action-inset);
+}
+/* The row hangs from the bubble's right edge, so a narrow pane would run its note and Send now past
+   the column's left edge (Leo, 2026-11-22: "overlapping text via the buttosn when the pane is
+   small"). It is held to its row's width, and the note gives way first, cut with an ellipsis, so it
+   never runs under Send now or off the pane. Not a cardFit card: the row is right-anchored and
+   shrink-to-fit, which inline-size containment would collapse. */
+.cv-user__pending {
+  min-width: 0;
+  max-width: 100%;
+}
+.cv-user__pending > .cv-message-footer-row {
+  min-width: 0;
 }
 /* Reply on another agent's message (IncomingMessageCard.tsx): the editor under the opened
    message and its Details, and a quiet line once sent or when it was not. */
