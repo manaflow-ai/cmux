@@ -31,7 +31,8 @@
 //! secrets and nested repositories never come back: the export leaves them
 //! out of its WORK.
 //!
-//! On any conflict nothing here changes ([`SeedPulled::Conflict`]). Otherwise files move into place
+//! On any conflict nothing here changes ([`SeedPulled::Conflict`]) but `refs/cmux/carry/<branch>/*`,
+//! which keep the machine's commits and uncommitted work as a second branch to merge. Otherwise files move into place
 //! through [`super::place::Transaction`], then the branch moves by
 //! compare-and-swap and the index follows; any failure puts back what
 //! changed. The answer's `base` (the machine's HEAD, INDEX and WORK) is the
@@ -55,6 +56,9 @@ use super::local::{GitDirs, permissions_of};
 use super::place::{self, Dir, Entry, Expected, Transaction};
 use super::remote::Remote;
 use super::{names, pull};
+
+/// Where a conflicting pull keeps the machine's work ([`Quarantine::keep`]).
+pub(crate) const CARRY_REFS: &str = "refs/cmux/carry";
 
 /// How long the export may run.
 const EXPORT_DEADLINE: Duration = Duration::from_secs(30 * 60);
@@ -330,6 +334,15 @@ pub(crate) fn seed_pull(
     if !conflicts.is_empty() {
         conflicts.sort();
         conflicts.dedup();
+        // Nothing here moves, but the machine's work is not left behind: its commits and its
+        // uncommitted files stay as refs of their own, a second branch to merge (RFD 0155 goal 5).
+        match q.keep(&folder, &exported) {
+            Ok(at) => reasons.push(format!(
+                "the machine's work is kept at {at}/head (its commits) and {at}/work (with its \
+                 uncommitted files); merge or check it out with git"
+            )),
+            Err(error) => reasons.push(format!("the machine's work was not kept here: {error:#}")),
+        }
         return Ok(SeedPulled::Conflict(conflicts, reasons));
     }
 
@@ -701,6 +714,27 @@ impl Quarantine<'_> {
             changed.insert(path, (entry(old_mode, old_id), entry(new_mode, new_id)));
         }
         Ok(changed)
+    }
+
+    /// A pull that conflicts keeps the machine's HEAD, INDEX and WORK here as
+    /// `refs/cmux/carry/<branch>/{head,index,work}` (`detached` for a detached HEAD), the newest
+    /// export replacing the last. Only those refs change: never a branch, the index or a file.
+    fn keep(&self, folder: &Path, exported: &Exported) -> anyhow::Result<String> {
+        let branch = exported
+            .head_ref
+            .as_deref()
+            .and_then(|name| name.strip_prefix("refs/heads/"))
+            .unwrap_or("detached");
+        let at = format!("{CARRY_REFS}/{branch}");
+        checked(local(folder).args(["check-ref-format", &format!("{at}/head")]))
+            .with_context(|| format!("{at} is not a ref name"))?;
+        self.fetch_into(folder, exported)?;
+        let named =
+            [("head", &exported.head), ("index", &exported.index), ("work", &exported.work)];
+        for (name, sha) in named {
+            checked(local(folder).args(["update-ref", &format!("{at}/{name}"), sha]))?;
+        }
+        Ok(at)
     }
 
     /// Fetches the machine's HEAD, INDEX and WORK commits into the working

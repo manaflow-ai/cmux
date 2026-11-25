@@ -378,6 +378,15 @@ fn a_pull_keeps_both_sides_and_refuses_what_changed_on_both() {
     assert_eq!(conflicted(&refused), vec!["notes"], "{refused}");
     assert_eq!(everything(&repo), before, "a conflict changed something here");
     assert!(world.leftover_bundles().is_empty());
+    // The machine's side is not lost: its work is kept as refs of its own (RFD 0155 goal 5).
+    let branch = git(&repo, &["symbolic-ref", "--short", "HEAD"]).trim().to_owned();
+    let kept = format!("refs/cmux/carry/{branch}/work");
+    assert!(
+        refused["error"].as_str().unwrap().contains(&format!("refs/cmux/carry/{branch}")),
+        "{refused}"
+    );
+    assert_eq!(git(&repo, &["show", &format!("{kept}:notes")]), "notes\nfrom the vm\n");
+    assert_eq!(git(&repo, &["show", &format!("{kept}:other")]), "would come back\n");
 
     // A file git was told to assume unchanged, edited here: the snapshot
     // reads it as the seed's, but the bytes on disk are not; a conflict,
@@ -428,6 +437,12 @@ fn a_pull_keeps_both_sides_and_refuses_what_changed_on_both() {
     assert!(conflicted(&refused).contains(&".git/HEAD"), "{refused}");
     assert!(refused["error"].as_str().unwrap().contains("rewrote"), "{refused}");
     assert_eq!(everything(&repo), before, "a conflict changed something here");
+    // The branch moved on both sides stays two: the machine's rewritten commit is kept beside it.
+    let head =
+        git(&repo, &["rev-parse", &format!("refs/cmux/carry/{branch}/head")]).trim().to_owned();
+    assert_eq!(head, git(&vm, &["rev-parse", "HEAD"]).trim());
+    assert_ne!(head, git(&repo, &["rev-parse", "HEAD"]).trim());
+    assert_eq!(git(&repo, &["log", "-1", "--format=%s", &head]), "rewritten on the vm\n");
 }
 
 #[test]
