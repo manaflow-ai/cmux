@@ -6,7 +6,10 @@ scripts/ci/classic_nightly_build_runner.py, and the runs-on in nightly.yml that 
 
 from __future__ import annotations
 
+import base64
 import datetime as dt
+import gzip
+import json
 import os
 import re
 import sys
@@ -45,34 +48,33 @@ class Clock:
 
 class TrustedRoute(unittest.TestCase):
     def route(self, reads, enabled=True, attempt="1", pool=POOL, name=RUNNER):
-        clock = Clock()
-        reads = iter(reads)
-        return picker.trusted_route(pool, name, lambda: next(reads), enabled, attempt,
-                                    sleep=clock.sleep, clock=clock), clock.at
+        reads = list(reads)
+        calls = []
+
+        def read():
+            calls.append(1)
+            return reads[len(calls) - 1]
+        return picker.trusted_route(pool, name, read, enabled, attempt), len(calls)
 
     def test_an_idle_pinned_runner_keeps_the_build(self) -> None:
-        (trusted, _), waited = self.route([[runner(POOL, RUNNER)]])
+        (trusted, _), reads = self.route([[runner(POOL, RUNNER)]])
         self.assertTrue(trusted)
-        self.assertEqual(waited, 0)
+        self.assertEqual(reads, 1)
 
-    def test_a_busy_runner_is_waited_on_then_left(self) -> None:
-        busy = [runner(POOL, RUNNER, busy=True)]
-        (trusted, why), waited = self.route([busy] * 100)
-        self.assertFalse(trusted)
-        self.assertIn("stayed busy", why)
-        self.assertLessEqual(waited, picker.WAIT_SECONDS)
-
-    def test_a_runner_that_frees_up_inside_the_wait_keeps_the_build(self) -> None:
+    def test_a_busy_runner_goes_to_the_cloud_on_one_read(self) -> None:
+        # 2026-11-25: the old 30 s x 5 min look-again loop was the 4.6 min "Pick the trusted mini" step.
         busy, idle = [runner(POOL, RUNNER, busy=True)], [runner(POOL, RUNNER)]
-        (trusted, _), waited = self.route([busy, busy, idle])
-        self.assertTrue(trusted)
-        self.assertEqual(waited, 2 * picker.LOOK_SECONDS)
+        (trusted, why), reads = self.route([busy, idle])
+        self.assertFalse(trusted)
+        self.assertIn("busy", why)
+        self.assertEqual(reads, 1)
+        self.assertFalse(hasattr(picker, "WAIT_SECONDS"))
 
     def test_an_offline_runner_goes_to_the_cloud_at_once(self) -> None:
-        (trusted, why), waited = self.route([[runner(POOL, RUNNER, status="offline")]])
+        (trusted, why), reads = self.route([[runner(POOL, RUNNER, status="offline")]])
         self.assertFalse(trusted)
         self.assertIn("offline", why)
-        self.assertEqual(waited, 0)
+        self.assertEqual(reads, 1)
 
     def test_only_a_runner_with_both_labels_counts(self) -> None:
         # An idle runner in the trusted pool that is not the pinned one, or the pinned name alone.
@@ -85,6 +87,34 @@ class TrustedRoute(unittest.TestCase):
         (trusted, why), _ = self.route([None])
         self.assertTrue(trusted)
         self.assertIn("could not be read", why)
+
+    def test_an_unreadable_list_with_builds_already_on_the_mini_takes_the_cloud(self) -> None:
+        # 2026-11-25: every pick kept the pin while the list was unread; nine builds queued behind one mini.
+        trusted, why = picker.trusted_route(POOL, RUNNER, lambda: None, True, "1", backlog=lambda: 3)
+        self.assertFalse(trusted)
+        self.assertIn("3 nightly build(s)", why)
+
+    def test_an_unreadable_list_with_an_empty_or_unread_backlog_keeps_the_pin(self) -> None:
+        for count in (0, None):
+            with self.subTest(count=count):
+                trusted, _ = picker.trusted_route(POOL, RUNNER, lambda: None, True, "1", backlog=lambda: count)
+                self.assertTrue(trusted)
+
+    def test_the_backlog_counts_other_runs_jobs_on_the_pinned_label_only(self) -> None:
+        pages = {
+            f"/actions/workflows/{picker.NIGHTLY_WORKFLOW}/runs?status=in_progress&per_page={picker.BACKLOG_RUNS}":
+                {"workflow_runs": [{"id": 1}, {"id": 2}, {"id": 9}]},
+            f"/actions/workflows/{picker.NIGHTLY_WORKFLOW}/runs?status=queued&per_page={picker.BACKLOG_RUNS}":
+                {"workflow_runs": [{"id": 3}, {"id": 1}]},
+            "/actions/runs/1/jobs?filter=latest&per_page=100": {"jobs": [
+                {"status": "queued", "labels": [POOL, RUNNER]},
+                {"status": "completed", "labels": [POOL, RUNNER]},
+                {"status": "queued", "labels": ["blacksmith-6vcpu-macos-26"]}]},
+            "/actions/runs/2/jobs?filter=latest&per_page=100": {"jobs": [{"status": "in_progress", "labels": [POOL, RUNNER]}]},
+            "/actions/runs/3/jobs?filter=latest&per_page=100": {"jobs": [{"status": "queued", "labels": [POOL, RUNNER]}]},
+            "/actions/runs/9/jobs?filter=latest&per_page=100": {"jobs": [{"status": "queued", "labels": [POOL, RUNNER]}]},
+        }
+        self.assertEqual(picker.pinned_backlog(pages.__getitem__, RUNNER, "9"), 3)
 
     def test_off_later_attempts_and_bad_variables_never_ask_for_the_mini(self) -> None:
         idle = [[runner(POOL, RUNNER)]]
@@ -149,8 +179,7 @@ class FirstAndAlternate(unittest.TestCase):
                 output = Path(directory) / "out"
                 picker.main({"GITHUB_OUTPUT": str(output), "GITHUB_RUN_ATTEMPT": str(attempt), "FIRST": "6vcpu",
                              "SNAPSHOT_TOKEN": "t", "GITHUB_REPOSITORY": "o/r"},
-                            read_snapshot=lambda token, repo: snapshot(**stalled), now=NOW,
-                            sleep=lambda seconds: None, clock=Clock())
+                            read_snapshot=lambda token, repo: snapshot(**stalled), now=NOW)
                 return dict(line.split("=", 1) for line in output.read_text().split())
 
         # Attempt 1 picks 6 vCPU; it stalls; re-run failed jobs (attempt 2) keeps the outputs.
@@ -185,7 +214,7 @@ class DeadLabel(unittest.TestCase):
             output = Path(directory) / "out"
             picker.main({"GITHUB_OUTPUT": str(output), "GITHUB_RUN_ATTEMPT": str(attempt), "FIRST": first,
                          "SNAPSHOT_TOKEN": "t", "GITHUB_REPOSITORY": "o/r", **env},
-                        read_snapshot=lambda token, repo: snap, now=NOW, sleep=lambda seconds: None, clock=Clock())
+                        read_snapshot=lambda token, repo: snap, now=NOW)
             return dict(line.split("=", 1) for line in output.read_text().split())
 
     def test_the_dev_daily_rerun_never_takes_the_dead_label(self) -> None:
@@ -333,6 +362,8 @@ class EveryLabelDead(unittest.TestCase):
                 self.assertTrue(steps)
                 for env in steps:
                     self.assertIn("RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}", env)
+                    if "TRUSTED_RUNNER:" in env and name == "nightly.yml":
+                        self.assertIn("RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}", env)
 
 
 class Main(unittest.TestCase):
@@ -344,7 +375,7 @@ class Main(unittest.TestCase):
                    "TRUSTED_RUNNER": RUNNER, "ENABLED": "1", "GITHUB_RUN_ATTEMPT": "1",
                    "GITHUB_OUTPUT": str(out), **env}
             picker.main(env, read_runners=lambda token, repo: runners, read_snapshot=lambda token, repo: snap,
-                        now=NOW, sleep=clock.sleep, clock=clock)
+                        now=NOW)
             return dict(line.split("=", 1) for line in out.read_text().split())
 
     def test_outputs(self) -> None:
@@ -366,6 +397,80 @@ class Main(unittest.TestCase):
             self.assertIn(f"cloud={picker.LARGE}", out.read_text())
 
 
+def census(rows=(), groups=None, *, at=NOW, schema="runner-state/v1", complete=True) -> str:
+    state = {"schema": schema, "generated_at": at.isoformat(), "complete": complete,
+             "repository_runners": rows if isinstance(rows, int) else list(rows), "runner_groups": groups or {}}
+    return base64.b64encode(gzip.compress(json.dumps(state).encode())).decode()
+
+
+class Census(unittest.TestCase):
+    """A refused runner list is judged from vars.CI_RUNNER_STATE, so a pinned pair nobody carries goes to the cloud."""
+
+    def refused(self, state, argv=()):
+        def boom(token, repo):
+            raise RuntimeError("HTTP Error 403: Forbidden")
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory) / "out"
+            clock = Clock()
+            picker.main({"GITHUB_REPOSITORY": "o/r", "ROUTE_TOKEN": "t", "TRUSTED_POOL": POOL, "TRUSTED_RUNNER": RUNNER,
+                         "ENABLED": "1", "GITHUB_RUN_ATTEMPT": "1", "GITHUB_OUTPUT": str(out),
+                         **({"RUNNER_STATE": state} if state is not None else {})},
+                        argv=argv, read_runners=boom, read_snapshot=lambda token, repo: None,
+                        now=NOW)
+            return dict(line.split("=", 1) for line in out.read_text().split())["trusted"], clock.at
+
+    def test_decodes_repository_and_group_rows_with_either_label_shape(self) -> None:
+        rows = picker.census_runners(census([{"status": "online", "busy": False, "labels": [POOL, RUNNER]}],
+                                            {"7": [runner(POOL, "glaeda-runner-other")]}), NOW)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(picker.runner_state(POOL, RUNNER, rows), "idle")
+
+    def test_a_stale_future_incomplete_foreign_or_broken_census_stays_unread(self) -> None:
+        cases = {"stale": census(at=NOW - dt.timedelta(minutes=31)),
+                 "future": census(at=NOW + dt.timedelta(minutes=1)),
+                 "incomplete": census(complete=False), "schema": census(schema="runner-state/v0"),
+                 "not base64": "%%%", "not gzip": base64.b64encode(b"{}").decode(), "empty": "",
+                 "oversize": "A" * (picker.CENSUS_MAX_ENCODED + 1)}
+        for name, raw in cases.items():
+            with self.subTest(name):
+                self.assertIsNone(picker.census_runners(raw, NOW))
+        self.assertIsNone(picker.census_runners(None, NOW))
+
+    def test_a_census_of_the_wrong_shape_never_fails_the_job(self) -> None:
+        for name, raw in {"int rows": census(5), "int group": census(groups={"7": 5})}.items():
+            with self.subTest(name):
+                self.assertIsNone(picker.census_runners(raw, NOW))
+        rows = picker.census_runners(census([{"status": "online", "labels": 5}, runner(POOL, RUNNER)]), NOW)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(self.refused(census([{"status": "online", "labels": 5}]))[0], "false")
+
+    def test_a_refused_list_with_no_carrier_in_the_census_takes_the_cloud_at_once(self) -> None:
+        nobody = census([runner(POOL, "glaeda-runner-cmux7s"), runner(POOL, RUNNER, status="offline")])
+        self.assertEqual(self.refused(nobody), ("false", 0))
+        self.assertEqual(self.refused(nobody, argv=["prepare"]), ("false", 0))
+
+    def test_a_refused_list_with_an_idle_carrier_in_the_census_keeps_the_mini(self) -> None:
+        self.assertEqual(self.refused(census([runner(POOL, RUNNER)])), ("true", 0))
+
+    def test_a_refused_list_without_a_census_keeps_the_pinned_pair(self) -> None:
+        self.assertEqual(self.refused(None)[0], "true")
+        self.assertEqual(self.refused(census(at=NOW - dt.timedelta(hours=2)))[0], "true")
+
+    def test_a_refused_list_with_a_backlog_on_the_mini_takes_the_cloud(self) -> None:
+        def boom(token, repo):
+            raise RuntimeError("HTTP Error 403: Forbidden")
+        for count, want in ((2, "false"), (0, "true")):
+            with self.subTest(count=count), tempfile.TemporaryDirectory() as directory:
+                out = Path(directory) / "out"
+                picker.main({"GITHUB_REPOSITORY": "o/r", "ROUTE_TOKEN": "t", "SNAPSHOT_TOKEN": "s",
+                             "TRUSTED_POOL": POOL, "TRUSTED_RUNNER": RUNNER, "ENABLED": "1",
+                             "GITHUB_RUN_ATTEMPT": "1", "GITHUB_RUN_ID": "7", "GITHUB_OUTPUT": str(out)},
+                            read_runners=boom, read_snapshot=lambda token, repo: None,
+                            read_backlog=lambda token, repo, name, run: count if (name, run) == (RUNNER, "7") else -1,
+                            now=NOW)
+                self.assertIn(f"trusted={want}", out.read_text())
+
+
 class Prepare(unittest.TestCase):
     """`prepare`: prepare-nightly-variant takes the pinned mini only while it is idle now."""
 
@@ -377,7 +482,7 @@ class Prepare(unittest.TestCase):
             picker.main({"GITHUB_REPOSITORY": "o/r", "ROUTE_TOKEN": "t", "TRUSTED_POOL": POOL, "TRUSTED_RUNNER": RUNNER,
                          "ENABLED": "1", "GITHUB_RUN_ATTEMPT": "1", "GITHUB_OUTPUT": str(out), **env},
                         argv=["prepare"], read_runners=read, read_snapshot=lambda token, repo: None,
-                        now=NOW, sleep=clock.sleep, clock=clock)
+                        now=NOW)
             return out.read_text(), clock.at
 
     def test_an_idle_mini_takes_the_prepare_legs(self) -> None:
@@ -397,11 +502,8 @@ class Prepare(unittest.TestCase):
 
 
 class WallClock(unittest.TestCase):
-    def test_the_wait_is_counted_once_without_an_injected_now(self) -> None:
-        # Busy for the whole wait; a snapshot made at the start shows 12 vCPU moving (oldest 4 min).
-        # Read after the 5-min wait its oldest job has waited 9 min, under the 10-min stall rule; counting
-        # the wait twice (14 min) would wrongly call it stalled. The wall clock moves with the fake clock.
-        clock = Clock()
+    def test_a_busy_mini_reads_the_snapshot_at_the_pick_with_no_wait(self) -> None:
+        # Busy: Blacksmith at once, judged against the wall clock of the one read (12 vCPU moving, oldest 4 min).
         start = NOW
         snap = {"generated_at": start.isoformat(), "pools": {picker.LARGE: {"queued": 1, "oldest_queued_minutes": 4}}}
         with tempfile.TemporaryDirectory() as directory:
@@ -409,8 +511,7 @@ class WallClock(unittest.TestCase):
             picker.main({"GITHUB_REPOSITORY": "o/r", "ROUTE_TOKEN": "t", "SNAPSHOT_TOKEN": "s", "TRUSTED_POOL": POOL,
                          "TRUSTED_RUNNER": RUNNER, "ENABLED": "1", "GITHUB_OUTPUT": str(out)},
                         read_runners=lambda token, repo: [runner(POOL, RUNNER, busy=True)],
-                        read_snapshot=lambda token, repo: snap, sleep=clock.sleep, clock=clock,
-                        wall=lambda: start + dt.timedelta(seconds=clock()))
+                        read_snapshot=lambda token, repo: snap, wall=lambda: start)
             self.assertIn(f"cloud={picker.LARGE}", out.read_text())
             self.assertIn("trusted=false", out.read_text())
 
