@@ -6,8 +6,9 @@ import Testing
 /// `initialize` and not to the relay's params rule; the relay refused every initialize as
 /// `transport.intent_invalid` (`unknown _meta.acpmux key`), and no GUI chat connected in Leo's
 /// NIGHTLY for about 7 h (737+ refusals, 2026-11-21). A newer page's capability opt-in now goes
-/// without that key, so the daemon answers with its default behaviour; everything else the
-/// params rule refuses on the handshake, and every key on every other method, stays refused.
+/// without that key, so the daemon answers with its default behaviour. Since cmux#49717 the strip
+/// (P0) drops an unknown key on every method, top-level, `_meta` or `_meta.acpmux`; a mode field,
+/// a credential and a forged shape still refuse.
 @Suite
 struct AcpmuxPaneInitializeFailSafeTests {
     private static let hostToken = String(repeating: "a", count: 64)
@@ -78,23 +79,33 @@ struct AcpmuxPaneInitializeFailSafeTests {
         }
     }
 
-    @Test func anInitializesUnknownTopLevelParamOrMetaSiblingIsStillRefused() throws {
+    @Test func anInitializesUnknownTopLevelParamOrMetaSiblingGoesWithoutIt() throws {
         var params = try AcpmuxPaneInitializeParamsContractTests.contract()
         params["futureParam"] = true
-        #expect(Self.refusal(try Self.text("initialize", params)) == #"unknown param "futureParam""#)
-        let sibling = try Self.initialize(["acpmux": ["peerRowBatches": true], "other": true])
-        #expect(Self.refusal(sibling) == #"unknown _meta key "other""#)
+        let top = try #require(try Self.forwarded(try Self.text("initialize", params)))
+        #expect((top["params"] as? [String: Any])?["futureParam"] == nil)
+        let sibling = try #require(try Self.forwarded(try Self.initialize(["acpmux": ["peerRowBatches": true], "other": true])))
+        let meta = try #require((sibling["params"] as? [String: Any])?["_meta"] as? [String: Any])
+        #expect(meta["other"] == nil)
+        #expect(Self.acpmux(sibling)?["peerRowBatches"] as? Bool == true)
         let notObject = try Self.initialize(["acpmux": "peerRowBatches"])
         #expect(Self.refusal(notObject) == "_meta.acpmux is not an object")
     }
 
-    @Test func unknownKeysOnOtherMethodsAreStillRefused() throws {
+    @Test func unknownKeysOnOtherMethodsGoWithoutThem() throws {
         let start: [String: Any] = ["cwd": "/tmp", "mcpServers": [Any](), "_meta": ["acpmux": ["harness": "claude", "someFutureFlag": true]]]
-        #expect(Self.refusal(try Self.text("session/new", start), first: false) == #"unknown _meta.acpmux key "someFutureFlag""#)
+        let started = try #require(try Self.forwarded(try Self.text("session/new", start), first: false))
+        #expect(Self.acpmux(started)?["someFutureFlag"] == nil)
+        #expect(Self.acpmux(started)?["harness"] as? String == "claude")
         let prompt: [String: Any] = ["sessionId": "s", "prompt": [Any](), "_meta": ["acpmux": ["promptId": "p", "someFutureFlag": true]]]
-        #expect(Self.refusal(try Self.text("session/prompt", prompt), first: false) == #"unknown _meta.acpmux key "someFutureFlag""#)
+        let prompted = try #require(try Self.forwarded(try Self.text("session/prompt", prompt), first: false))
+        #expect(Self.acpmux(prompted)?["someFutureFlag"] == nil)
+        #expect(Self.acpmux(prompted)?["promptId"] as? String == "p")
         let attach: [String: Any] = ["sessionId": "s", "someFutureFlag": true]
-        #expect(Self.refusal(try Self.text("_acpmux/attach", attach), first: false) == #"unknown param "someFutureFlag""#)
+        let attached = try #require(try Self.forwarded(try Self.text("_acpmux/attach", attach), first: false))
+        #expect((attached["params"] as? [String: Any])?["someFutureFlag"] == nil)
+        let mode: [String: Any] = ["cwd": "/tmp", "mcpServers": [Any](), "_meta": ["acpmux": ["harness": "claude", "permissionMode": "bypassPermissions"]]]
+        #expect(Self.refusal(try Self.text("session/new", mode), first: false) == #"mode field "permissionMode" in _meta.acpmux"#)
     }
 
     @Test func theInitializeThePageSendsGoesUnchangedButForTheToken() throws {
