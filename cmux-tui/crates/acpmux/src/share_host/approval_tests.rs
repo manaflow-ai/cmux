@@ -230,3 +230,153 @@ fn audit_lines_are_appended_with_a_time() {
     assert_eq!(lines[1]["event"], "remote_host.share_refused");
     assert!(lines[0]["ts"].as_str().is_some_and(|ts| ts.ends_with('Z')));
 }
+
+/// A control approval as the phone signs it: the same fields under the control version.
+fn control(nonce: &str) -> ShareApproval {
+    ShareApproval { v: crate::share_approval::CONTROL_VERSION.into(), ..unsigned(nonce) }
+}
+
+/// [`receive_control`], with the accounts it granted and its audit line collected.
+fn run_control(
+    hub: &FakeHub,
+    push: &Value,
+    seen: &mut HashSet<String>,
+) -> (Result<(), Refused>, Vec<String>, Value) {
+    let line = RefCell::new(Value::Null);
+    let granted = RefCell::new(Vec::new());
+    let result = receive_control(
+        hub,
+        push,
+        NOW,
+        seen,
+        true,
+        |entry| *line.borrow_mut() = entry.clone(),
+        |account| {
+            granted.borrow_mut().push(account.to_owned());
+            Ok(())
+        },
+    );
+    (result, granted.into_inner(), line.into_inner())
+}
+
+fn carried_control(approval: &ShareApproval, from: &str) -> Value {
+    json!({"type": CONTROL_PUSH, "from": from, "approval": approval})
+}
+
+#[test]
+fn the_owners_own_device_grants_control_with_nobody_at_the_mac() {
+    let phone = DeviceKey::new();
+    let hub = FakeHub::with_phone(&phone);
+    let approval = phone.sign(control("c1"));
+    let mut seen = HashSet::new();
+    let (result, granted, entry) = run_control(&hub, &carried_control(&approval, PHONE), &mut seen);
+    assert_eq!(result, Ok(()));
+    assert_eq!(granted, [ACCOUNT], "granted for the account the approval was admitted for");
+    assert_eq!(entry["event"], "remote_host.control_granted");
+    assert_eq!(entry["confirmed_on"], PHONE);
+    assert_eq!(hub.shared.get(), 0, "a control grant shares no screen");
+    let (again, granted, entry) = run_control(&hub, &carried_control(&approval, PHONE), &mut seen);
+    assert_eq!(again.unwrap_err().code, "share.replayed");
+    assert!(granted.is_empty());
+    assert_eq!(entry["event"], "remote_host.control_refused");
+}
+
+/// One tap is one grant: a share tap never grants control, a control tap never shares, and
+/// nothing an agent can send (unsigned, another key, a token that is no device, a sender the
+/// hub did not see as the signer) grants control.
+#[test]
+fn only_a_control_tap_from_the_owners_device_grants_control() {
+    let phone = DeviceKey::new();
+    let agent = DeviceKey::new();
+    let hub = FakeHub::with_phone(&phone);
+    let fleet = ShareApproval { asker: "fleet-token".into(), ..control("c4") };
+    let cases = [
+        ("a share tap", carried_control(&phone.sign(unsigned("c0")), PHONE), "share.bad_version"),
+        ("unsigned", carried_control(&control("c1"), PHONE), "share.bad_signature"),
+        ("another key", carried_control(&agent.sign(control("c2")), PHONE), "share.bad_signature"),
+        (
+            "re-labelled after signing",
+            carried_control(
+                &ShareApproval {
+                    v: crate::share_approval::CONTROL_VERSION.into(),
+                    ..phone.sign(unsigned("c3"))
+                },
+                PHONE,
+            ),
+            "share.bad_signature",
+        ),
+        (
+            "not an account device",
+            carried_control(&agent.sign(fleet), "fleet-token"),
+            "share.unknown_device",
+        ),
+        (
+            "sent by another device",
+            carried_control(&phone.sign(control("c5")), MAC),
+            "share.not_carried_by_asker",
+        ),
+    ];
+    for (what, push, code) in cases {
+        let (result, granted, entry) = run_control(&hub, &push, &mut HashSet::new());
+        assert_eq!(result.unwrap_err().code, code, "{what}");
+        assert!(granted.is_empty(), "{what}: nothing granted");
+        assert_eq!(entry["code"], code, "{what}: audited");
+    }
+    // The other way round: a control tap sent as a share approval shares nothing.
+    let (result, _) = run(&hub, &carried(&phone.sign(control("c6")), PHONE), &mut HashSet::new());
+    assert_eq!(result.unwrap_err().code, "share.bad_version");
+    assert_eq!(hub.shared.get(), 0);
+}
+
+#[test]
+fn an_admitted_control_tap_the_mac_cannot_record_is_refused_and_audited() {
+    let phone = DeviceKey::new();
+    let hub = FakeHub::with_phone(&phone);
+    let line = RefCell::new(Value::Null);
+    let result = receive_control(
+        &hub,
+        &carried_control(&phone.sign(control("c1")), PHONE),
+        NOW,
+        &mut HashSet::new(),
+        true,
+        |entry| *line.borrow_mut() = entry.clone(),
+        |_| Err("this Mac is joined as another account than the one that allowed it".into()),
+    );
+    assert_eq!(result.unwrap_err().code, "control.not_granted");
+    assert_eq!(line.into_inner()["event"], "remote_host.control_refused");
+}
+
+/// The switch is the person's and starts off: off, the owner's own signed tap grants nothing
+/// and the refusal names the setting; only `true` in their settings turns it on.
+#[test]
+fn control_from_a_device_is_off_until_the_person_turns_it_on() {
+    let phone = DeviceKey::new();
+    let hub = FakeHub::with_phone(&phone);
+    let line = RefCell::new(Value::Null);
+    let granted = Cell::new(0);
+    let result = receive_control(
+        &hub,
+        &carried_control(&phone.sign(control("c1")), PHONE),
+        NOW,
+        &mut HashSet::new(),
+        false,
+        |entry| *line.borrow_mut() = entry.clone(),
+        |_| {
+            granted.set(granted.get() + 1);
+            Ok(())
+        },
+    );
+    let refused = result.unwrap_err();
+    assert_eq!(refused.code, "control.off");
+    assert!(refused.message.contains(CONTROL_SETTING), "{}", refused.message);
+    assert_eq!(granted.get(), 0, "nothing granted while off");
+    let entry = line.into_inner();
+    assert_eq!(entry["event"], "remote_host.control_refused");
+    assert_eq!(entry["code"], "control.off");
+
+    assert!(!control_allowed_by(None));
+    assert!(!control_allowed_by(Some(&json!({}))));
+    assert!(!control_allowed_by(Some(&json!({"devices": {"allowControlFromMyDevices": false}}))));
+    assert!(!control_allowed_by(Some(&json!({"devices": {"allowControlFromMyDevices": "true"}}))));
+    assert!(control_allowed_by(Some(&json!({"devices": {"allowControlFromMyDevices": true}}))));
+}
