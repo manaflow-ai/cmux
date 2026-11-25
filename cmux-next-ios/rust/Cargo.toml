@@ -29,6 +29,8 @@ cmux-mobile-core = { path = "../../cmux-tui/crates/cmux-mobile-core" }
 cmux-braid-path = { path = "../../cmux-tui/crates/cmux-braid-path" }
 cmux-build-space = { path = "../../cmux-tui/crates/cmux-build-space" }
 cmux-output-paint = { path = "../../cmux-tui/crates/cmux-output-paint" }
+# The per-stream seq/ack/replay core of the reliable link (pure; no runtime).
+cmux-remote-protocol = { path = "../../cmux-tui/crates/cmux-remote-protocol" }
 cmux-wg = { path = "../../cmux-tui/crates/cmux-wg" }
 cmux-fault = { path = "../../cmux-tui/crates/cmux-fault" }
 # Deadlines counted from the last progress, not the start (cmux-mobile-host: cloud prompts, mailbox round trips).

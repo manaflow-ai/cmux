@@ -29,9 +29,10 @@ extension UpdaterService {
         // Before the settings apply (`apply(_:)`): Update When Idle installs nothing without its gate (UpdateIdleGate).
         let idle = UpdateIdleGate(activity: activity, daemon: services.machines.local) { [weak services] in services?.agentTabs.unsentDrafts.count }
         useIdleGate(idle.answer, nextCheck: idle.nextCheck)
-        // A relaunch's windows stay pictured on screen until the new process drew them; a failed install brings them back (`UpdateWindowHandoff`).
-        let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved, stateDirectory: services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
-        willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)); services?.windows.recordSaver.layoutCache.flushNow(); handoff.relaunchDecided() } // layout first (LayoutCacheWriter)
+        // Restart to Update is a plain quit and relaunch, no afterimage (Leo, 2026-11-24: "not the wannabe smooth transition thing"):
+        // the windows leave as the quit starts, the relaunched app restores them the normal way; a failed install brings them back (`UpdateWindowHandoff`).
+        let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved)
+        willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)); services?.windows.recordSaver.layoutCache.flushNow() } // layout first (LayoutCacheWriter)
         handoff.savesBeforeLeaving = { [weak services] in if let services { services.launchImages.pictures?.stop(); await AgentQuitFiles.saveImages(services.agentTabs) { AgentQuitFiles.isIncognito($0, in: services) }; await services.cache.savePageFramesForQuit() } }; handoff.cameBack = { [weak services] in services?.launchImages.pictures?.resume() }; handoff.attach(to: self) // pictures saved on screen: an ordered-out window shows no chat (blank agent panes, Leo 2026-11-24)
         isSheetPresented = { sheet.isPresented }
         sheet.onDismiss = { [weak self] in self?.updateSheetClosed() }

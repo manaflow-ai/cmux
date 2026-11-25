@@ -2413,6 +2413,10 @@ mark {
 
 .menus-detail-header {
   display: flex;
+  /* The title and four buttons are wider than the detail column beside the menu list: the buttons
+     wrap under the title instead of running past the column (Reset to Default was cut at the
+     window's edge). */
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--ds-space-2);
 }

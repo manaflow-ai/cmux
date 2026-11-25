@@ -30,9 +30,6 @@ jobs:
   # plus the gap to the next push plus the run, and base-red-watch bisects it over the covered range. A dispatch runs
   # at once (the coalesce job is skipped on it). vars.NEXT_WEB_LINT_COALESCE = '0' runs every push again.
   coalesce:
-    # actions: read: base-coalesce lists this workflow's runs to re-run a window whose run failed.
-    permissions:
-      actions: read
     uses: ./.github/workflows/base-coalesce.yml
     with:
       key: cmux-next-web-lint
@@ -64,6 +61,11 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -85,6 +87,11 @@ jobs:
           key: bun-web-lint-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock', 'web/bun.lock', 'cmux-tui/frontends/web/bun.lock') }}
 
       # `vp check` runs on Node and needs ^22.18 or ^24.11; bun still installs.
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:

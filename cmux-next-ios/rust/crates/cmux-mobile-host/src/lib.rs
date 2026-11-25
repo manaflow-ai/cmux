@@ -25,6 +25,7 @@ pub mod config;
 pub mod control;
 pub mod dial_mailbox;
 pub mod host;
+pub mod lan;
 pub mod link_deflate;
 pub mod link_socket;
 pub mod local_link;
@@ -60,6 +61,8 @@ pub mod size_release;
 pub mod surface;
 pub mod tab_snapshots;
 pub mod traffic;
+pub mod viewport_link;
+pub mod viewport_sync;
 
 mod side_completion;
 mod workspace_cache;

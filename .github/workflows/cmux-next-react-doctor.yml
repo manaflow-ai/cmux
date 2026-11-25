@@ -86,9 +86,6 @@ jobs:
   # bisects it over the covered range. Pull requests and dispatches are unchanged (the coalesce job is skipped on
   # them). vars.NEXT_REACT_DOCTOR_COALESCE = '0' scans every push again.
   coalesce:
-    # actions: read: base-coalesce lists this workflow's runs to re-run a window whose run failed.
-    permissions:
-      actions: read
     uses: ./.github/workflows/base-coalesce.yml
     with:
       key: cmux-next-react-doctor
@@ -188,12 +185,24 @@ jobs:
         continue-on-error: true
         run: python3 scripts/ci/receipt_signed.py lookup react-doctor --output "$GITHUB_OUTPUT"
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: steps.base.outputs.projects != '' && steps.signed.outputs.hit != 'true'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         if: steps.base.outputs.projects != '' && steps.signed.outputs.hit != 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        if: steps.base.outputs.projects != '' && steps.signed.outputs.hit != 'true'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
 
       - name: Setup Node
         if: steps.base.outputs.projects != '' && steps.signed.outputs.hit != 'true'

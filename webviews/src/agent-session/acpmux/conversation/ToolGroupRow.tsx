@@ -372,6 +372,8 @@ export function ToolGroupRow({
   findTitle,
   inherits,
   closedBy,
+  foldId,
+  onLoadFold,
   thoughtId = (n) => `${disclosureKey}:thought:${n}`,
 }: {
   kind: ToolGroupKind;
@@ -382,6 +384,8 @@ export function ToolGroupRow({
   inherits?: readonly string[];
   /// The key of the run line this group's line takes the place of: closed by the reader, it closes this.
   closedBy?: readonly string[];
+  foldId?: number;
+  onLoadFold?: (fold: number) => Promise<void>;
   /** Original single-call title, revealed when Find matches a path the summary shortens. */
   findTitle?: string;
   /// The id of the group's n-th thought (TurnRows.tsx `thoughtIds`): the same one the thought had
@@ -443,7 +447,10 @@ export function ToolGroupRow({
         onClick={(event) => {
           // The click itself, so a drag across the line opens nothing (useAnchoredCollapse `deliberateClick`).
           const opening = !open;
-          if (fold.toggle(event) && opening) setByClick(true);
+          if (fold.toggle(event) && opening) {
+            setByClick(true);
+            if (foldId !== undefined) void onLoadFold?.(foldId);
+          }
         }}
       >
         <span className="cv-tool__icon">{groupIcon(kind)}</span>
