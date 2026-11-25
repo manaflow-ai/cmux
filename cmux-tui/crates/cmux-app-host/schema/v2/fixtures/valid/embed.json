@@ -1,0 +1,29 @@
+{
+  "manifestVersion": 2,
+  "id": "example/figma",
+  "name": "Figma",
+  "version": "1.0.0",
+  "description": "Figma in a pane, signed in with a profile of its own.",
+  "repository": "https://github.com/example/figma",
+  "icon": "icon.png",
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "presentation": {
+    "tab": true
+  },
+  "implements": {
+    "cmux.pane/1": {
+      "title": "Figma",
+      "symbol": "paintbrush",
+      "embed": {
+        "url": "https://www.figma.com/files/recents-and-sharing",
+        "origins": [
+          "https://figma.com",
+          "https://*.figma.com",
+          "https://accounts.google.com"
+        ]
+      }
+    }
+  }
+}

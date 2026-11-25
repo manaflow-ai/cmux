@@ -29,6 +29,7 @@ pub mod capabilities;
 mod catalog;
 mod cli;
 mod deploy;
+mod embed_pane;
 pub mod hidden;
 mod interfaces;
 mod issue;
@@ -50,6 +51,7 @@ pub use cli::{
     CLI_RESERVED, Conflict, ConflictKind, MCP_TOOL_NAME_MAX, conflicts, first_party_cli_names,
     first_party_cli_owner, is_mcp_tool, is_reserved_cli_name, mcp_tool_name,
 };
+pub use embed_pane::{EMBED_INTERFACE, EmbedPage, embed_allows, embed_pages, embed_profile_id};
 pub use interfaces::{KNOWN_HOST_CAPABILITIES, KNOWN_INTERFACES, interface_files};
 pub use issue::{Issue, Severity};
 pub use menus::MENU_TARGETS;

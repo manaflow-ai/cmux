@@ -47,6 +47,8 @@ public nonisolated struct AppManifest: Sendable, Hashable, Identifiable {
     /// The app's web pages (`render: web`: any interface implemented by a page under
     /// `runtime.web.root`, such as codemirror's `cmux.editor/1`), in interface order.
     public var webPages: [AppImplementation] { implementations.filter(\.isWebPage) }
+    /// `cmux.pane/1` is an embedded external web app (`embed`), hosted with the app's own profile.
+    public var embedPane: Bool { raw["implements"]?["cmux.pane/1"]?["embed"] != nil }
     /// Whether the app's page is a remote pane: `cmux.pane/1` with `remote: instance`, the app's
     /// deployed instance (docs/app-store-platonic-ideal.md 7).
     public var remotePane: Bool { raw["implements"]?["cmux.pane/1"]?["remote"]?.stringValue == "instance" }

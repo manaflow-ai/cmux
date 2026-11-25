@@ -808,7 +808,7 @@
     "implementation": {
       "type": "object",
       "additionalProperties": false,
-      "description": "One interface implementation: exactly one of export (scene, QuickJS), remote (the deployed instance, docs/app-store-platonic-ideal.md 7), web (a page under runtime.web.root), native (a view built into cmux, first-party only) or server (the app's top-level server block implements the interface's methods over the provider channel).",
+      "description": "One interface implementation: exactly one of export (scene, QuickJS), remote (the deployed instance, docs/app-store-platonic-ideal.md 7), web (a page under runtime.web.root), native (a view built into cmux, first-party only), embed (an external web app in the browser engine with the app's own profile, cmux.pane/1 only) or server (the app's top-level server block implements the interface's methods over the provider channel).",
       "properties": {
         "export": {
           "$ref": "#/$defs/exportName"
@@ -854,6 +854,9 @@
         "remote": {
           "const": "instance",
           "description": "A remote pane (remote.web): the app's deployed instance (top-level deploy), opened by its URL. Needs deploy."
+        },
+        "embed": {
+          "$ref": "#/$defs/embed"
         }
       },
       "oneOf": [
@@ -880,6 +883,11 @@
         {
           "required": [
             "remote"
+          ]
+        },
+        {
+          "required": [
+            "embed"
           ]
         }
       ]
@@ -1497,6 +1505,31 @@
           "maxLength": 256,
           "pattern": "^/[A-Za-z0-9._/-]{0,255}$",
           "description": "A persistent path inside the container."
+        }
+      }
+    },
+    "embed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "url"
+      ],
+      "description": "An embedded external web app (a web pane in embed mode, extensions DESIGN section 5): url opens in the browser engine with a profile of this app only (cookies and sign-in never mix with the person's browser profile), and the pane navigates only to url's origin and the declared origins. The install confirmation lists them.",
+      "properties": {
+        "url": {
+          "type": "string",
+          "pattern": "^https://[^/\\s]+(/\\S*)?$",
+          "maxLength": 2048
+        },
+        "origins": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^https://(\\*\\.)?[a-z0-9.-]{1,253}$"
+          },
+          "description": "Origins the pane may navigate to besides the url's own (sign-in pages, a CDN). https://*.example.com matches every subdomain of example.com."
         }
       }
     }

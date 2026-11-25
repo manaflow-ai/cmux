@@ -307,3 +307,31 @@ fn a_page_call_queued_at_the_provider_is_cancelled_when_access_is_taken_back() {
         assert_eq!(late.unwrap_err().code, "apps.provider.unknown", "{how}");
     }
 }
+
+/// An embed pane (`cmux.pane/1` `embed`): the list names its url, where it
+/// may navigate and its app's own browser profile; a web pane names none.
+#[test]
+fn the_list_names_the_embed_pane_and_its_profile() {
+    let f = fixture();
+    let dir = f.state.join("apps/local/figma");
+    std::fs::create_dir_all(&dir).unwrap();
+    let manifest = json!({
+        "manifestVersion": 2, "id": "local/figma", "name": "Figma", "version": "1.0.0", "description": "d",
+        "engines": { "cmux": "^2.0" }, "presentation": { "tab": true },
+        "implements": { "cmux.pane/1": { "symbol": "paintbrush", "embed": {
+            "url": "https://www.figma.com/files", "origins": ["https://*.figma.com"] } } }
+    });
+    std::fs::write(dir.join("cmux-app.json"), manifest.to_string()).unwrap();
+    write_web_app(&f.state);
+    f.supervisor.reload_local_apps(&Default::default());
+    let list = f.supervisor.list();
+    assert_eq!(
+        app_entry(&list, "local/figma")["embed_pages"],
+        json!([{
+            "interface": "cmux.pane/1", "url": "https://www.figma.com/files",
+            "origins": ["https://www.figma.com", "https://*.figma.com"],
+            "profile": cmux_app_manifest::embed_profile_id("local/figma"), "symbol": "paintbrush"
+        }])
+    );
+    assert_eq!(app_entry(&list, WEB_APP)["embed_pages"], json!([]));
+}

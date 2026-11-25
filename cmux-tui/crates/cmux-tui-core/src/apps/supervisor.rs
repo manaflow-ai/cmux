@@ -1129,7 +1129,21 @@ pub(super) fn entry(
         // file root inside `bundle_dir` and its entry file, as the manifest
         // rules accepted them (cmux_app_manifest::web_pages).
         "web_pages": package.map(|p| web_pages_json(&p.manifest)).unwrap_or_default(),
+        // External web apps in embed mode (cmux_app_manifest::embed_pages):
+        // the url, where the pane may navigate, and the app's own browser
+        // profile id the client keys its data store by.
+        "embed_pages": package.map(|p| embed_pages_json(&p.manifest)).unwrap_or_default(),
     })
+}
+
+fn embed_pages_json(manifest: &Value) -> Vec<Value> {
+    cmux_app_manifest::embed_pages(manifest)
+        .into_iter()
+        .map(|page| {
+            json!({ "interface": page.interface, "url": page.url, "origins": page.origins,
+                    "profile": page.profile, "symbol": page.symbol })
+        })
+        .collect()
 }
 
 fn web_pages_json(manifest: &Value) -> Vec<Value> {

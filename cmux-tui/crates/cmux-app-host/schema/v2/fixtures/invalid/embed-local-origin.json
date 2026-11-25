@@ -1,0 +1,20 @@
+{
+  "manifestVersion": 2,
+  "id": "local/x",
+  "name": "X",
+  "version": "1.0.0",
+  "description": "d",
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "implements": {
+    "cmux.pane/1": {
+      "embed": {
+        "url": "https://www.figma.com/",
+        "origins": [
+          "https://intranet.local"
+        ]
+      }
+    }
+  }
+}

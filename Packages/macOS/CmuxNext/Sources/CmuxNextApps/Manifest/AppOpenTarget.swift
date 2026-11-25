@@ -52,7 +52,7 @@ public nonisolated enum AppOpenTarget: Sendable, Hashable {
     /// remote pane then counts as not deployed).
     /// - Parameter manifest: The app's manifest.
     public init(_ manifest: AppManifest) {
-        if manifest.scenePane != nil || manifest.webPages.contains(where: \.isPane) {
+        if manifest.scenePane != nil || manifest.webPages.contains(where: \.isPane) || manifest.embedPane {
             self = .scenePane
         } else if manifest.remotePane {
             self = .notDeployed

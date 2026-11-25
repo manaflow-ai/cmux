@@ -56,6 +56,8 @@ public nonisolated struct AppRecord: Sendable, Hashable, Identifiable {
     public var instance: AppInstance?
     /// The web panes the daemon lets this client host (`web_pages`, `render: web`).
     public var webPages: [AppWebPage] = []
+    /// The embedded web apps the daemon lets this client host (`embed_pages`, `embed`).
+    public var embedPages: [AppEmbedPage] = []
 
     /// One palette command of an app: a catalog op of its own family.
     public struct Command: Sendable, Hashable, Identifiable {
@@ -168,6 +170,7 @@ public nonisolated struct AppRecord: Sendable, Hashable, Identifiable {
         revision = json["revision"]?.numberValue.flatMap { UInt64(exactly: $0) }
         instance = AppInstance(json: json["instance"])
         webPages = json["web_pages"]?.arrayValue?.compactMap(AppWebPage.init(json:)) ?? []
+        embedPages = json["embed_pages"]?.arrayValue?.compactMap(AppEmbedPage.init(json:)) ?? []
         commands = (json["commands"]?.arrayValue ?? []).compactMap { entry in
             guard let op = entry["op"]?.stringValue else { return nil }
             let keys = (entry["keys"]?.arrayValue ?? []).compactMap { key in

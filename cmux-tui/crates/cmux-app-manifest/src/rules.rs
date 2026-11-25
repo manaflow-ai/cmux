@@ -169,6 +169,7 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
     crate::toolbar::check(m, &mut out);
     crate::menus::check(m, &mut out);
     crate::web_pane::check(m, &mut out);
+    crate::embed_pane::check(m, &mut out);
     if !m["icon"].is_string() {
         out.push(Issue::warning(
             "/icon",
