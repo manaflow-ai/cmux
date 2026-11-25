@@ -51,11 +51,6 @@ type View = { id: string; holder: string; epoch: number; version: number; lastSe
 
 const MOVE_BUDGET_MS = 6 * 60_000;
 const TURN_BUDGET_MS = 4 * 60_000;
-/**
- * One cloud.machine.create call's wait. A fresh staging machine holds the call open past the ops default of 60 s
- * (151 s end to end, 2026-11-25), so run 45558893474 gave up on a create that went on to make a machine.
- */
-const CREATE_TIMEOUT_MS = 300_000;
 const HARNESS = "auto-journey";
 const RAN_FILE = "auto-journey-ran.txt";
 
@@ -309,7 +304,7 @@ async function main(): Promise<number> {
     }
     const machine = await J.step("Cloud machine for this run (create, running)", async () => {
       const name = `auto journey ${tag}`;
-      const v = await api.op("cloud.machine.create", { name, size: CHAT_START_SIZE }, `${tag}-create`, {}, CREATE_TIMEOUT_MS).catch(async (e) => {
+      const v = await api.op("cloud.machine.create", { name, size: CHAT_START_SIZE }, `${tag}-create`).catch(async (e) => {
         // A create that errored or timed out may still have made the machine: find it by this run's name so cleanup deletes it.
         const rows = await listAllMachines((params) => api.read("cloud.machine.list", params)).catch(() => []);
         const made = rows.find((r: any) => r?.name === name && r.status !== "deleted" && r.status !== "deleting");

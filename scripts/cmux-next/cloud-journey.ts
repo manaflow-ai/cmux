@@ -487,6 +487,10 @@ const OWNER_RETRY_NOTE = "retried once after owner.unreachable";
 /** The running Journey step's notes; the API client adds a note here when it retries. */
 const stepNotes = new AsyncLocalStorage<string[]>();
 
+/** One cloud.machine.create attempt's wait. A fresh staging create holds the call open past 60 s
+ *  (151 s, 2026-11-25), so a 60 s cut made every journey and bench fail its create and leak the machine. */
+export const CREATE_OP_TIMEOUT_MS = 300_000;
+
 export class Api {
   bearer = "";
   constructor(readonly origin: string, readonly team?: string) {}
@@ -494,8 +498,8 @@ export class Api {
     return { authorization: `Bearer ${this.bearer}`, ...(this.team ? { "x-cmux-team": this.team } : {}) };
   }
   /** `extra`: headers for this op only (a send's trace headers, cloud-start-trace.ts mintSendTrace).
-   *  `timeoutMs` is one attempt's wait: a fresh staging cloud.machine.create holds the call open past 60 s (151 s, 2026-11-25). */
-  async op(op: string, params: unknown, key?: string, extra: Record<string, string> = {}, timeoutMs = 60_000): Promise<any> {
+   *  `timeoutMs` is one attempt's wait; a machine create gets CREATE_OP_TIMEOUT_MS by default. */
+  async op(op: string, params: unknown, key?: string, extra: Record<string, string> = {}, timeoutMs = op === "cloud.machine.create" ? CREATE_OP_TIMEOUT_MS : 60_000): Promise<any> {
     let ownerRetried = false;
     for (let attempt = 1; ; attempt++) {
       const r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, { ...this.headers(), ...extra }, timeoutMs, !!key);
