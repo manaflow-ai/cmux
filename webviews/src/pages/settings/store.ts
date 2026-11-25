@@ -94,6 +94,9 @@ import {
   type McpServersRun,
   type McpServersState,
   type HubRun,
+  type CreatedToken,
+  type DeveloperTokensRun,
+  type DeveloperTokensState,
   type HubState,
   type RowNoteData,
   type AgentSkillsRun,
@@ -911,6 +914,19 @@ export class SettingsStore {
   async runHub(run: HubRun): Promise<HubState | null> {
     await this.request("cmux.settings.hub.run", run);
     return this.hubState();
+  }
+
+  /** Settings > Developer (API tokens); null when the host has none. */
+  async tokensState(): Promise<DeveloperTokensState | null> {
+    const reply = await this.request("cmux.settings.tokens.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Developer gesture, then the card as it is after it. `created` is the new token, answered once. */
+  async runTokens(run: DeveloperTokensRun): Promise<{ state: DeveloperTokensState | null; created: CreatedToken | null }> {
+    const reply = await this.request("cmux.settings.tokens.run", run);
+    const created = reply.ok ? (reply.value?.created ?? null) : null;
+    return { state: await this.tokensState(), created };
   }
 
   /** Settings > Automations (Cloud automations); null when the host has none. */
