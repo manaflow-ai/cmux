@@ -52,6 +52,10 @@ struct ChatRow: Equatable, Identifiable, Sendable {
         /// An acpmux "who else is working on these files" call (`toolCallID`) as its card
         /// (`WhoElseCard`), in place of the tool row.
         case whoElse(String, WhoElseCall)
+        /// A GitHub call this turn's agent made was refused for want of GitHub access (no
+        /// connection, or the App's updated permissions not accepted): one Sign in with GitHub
+        /// card under the turn's work (`GitHubSignInCard`), as the Mac's `GitHubConnectCard`.
+        case githubSignIn(GitHubSignInNeed)
         /// A finished turn's work under one "Worked for" line (`WorkedFold`), its rows drawn under
         /// the line when it is open.
         indirect case worked(WorkedFold)
@@ -366,6 +370,10 @@ final class ChatTranscriptBuilder {
         if !running, context.foldsWork {
             WorkedFold.fold(&rows, work: workStart..<rows.count, keeping: replyRows, turnID: turnID,
                             status: turn.status, seconds: turn.duration)
+        }
+        // One Sign in with GitHub card per turn, for its last refused GitHub call (the Mac's rule).
+        if let need = GitHubSignInNeed.turn(turn.items) {
+            add("g-\(turnID)", .githubSignIn(need))
         }
         if let wrapUp {
             let answer = wrapUp.question.isEmpty ? nil : context.nextPrompt.map { wrapUp.chosenAnswer($0) }

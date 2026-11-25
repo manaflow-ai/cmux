@@ -173,6 +173,9 @@ struct ChatRowView: View {
             }
         case .whoElse(let id, let call):
             WhoElseCard(id: id, call: call, open: openWhoElse)
+        case .githubSignIn(let need):
+            // Back from GitHub, the chat goes on by itself: its Continue (the Mac card's).
+            GitHubSignInCard(need: need) { store.send(prompt: GitHubSignInNeed.continuePrompt) }
         case .worked(let fold):
             WorkedForRow(fold: fold, context: context)
         case .actions(let turn, let isLast):

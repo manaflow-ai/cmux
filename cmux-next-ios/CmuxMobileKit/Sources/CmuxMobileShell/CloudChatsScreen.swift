@@ -309,6 +309,8 @@ private struct CloudMachineChatsScreen: View {
     @State private var starting = false
     @State private var startFailed = false
     @State private var startError = ""
+    /// The last start was refused for want of GitHub on the machine: its Sign in with GitHub card.
+    @State private var gitHubNeed: GitHubSignInNeed?
     /// A New Chat tap made before the relay was ready.
     @State private var startQueue = CloudChatStartQueue()
     /// How many of the machine's chats the list draws, newest first (Show Older Chats adds a page).
@@ -344,6 +346,15 @@ private struct CloudMachineChatsScreen: View {
                 CloudChatsConnectFailed(cause: cause) { refresh += 1 }
             } else {
                 List {
+                    if let need = gitHubNeed {
+                        // Back from GitHub, the start runs again.
+                        GitHubSignInCard(need: need) {
+                            gitHubNeed = nil
+                            startChat()
+                        }
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                        .listRowBackground(Color.clear)
+                    }
                     if let cause = relay?.hub.isReady == true ? listError : failure {
                         Text(cause).foregroundStyle(.secondary)
                         Button("Retry") {
@@ -488,7 +499,13 @@ private struct CloudMachineChatsScreen: View {
             defer { starting = false }
             do {
                 selectedSession = try await relay.startChat()
+                gitHubNeed = nil
             } catch {
+                // No GitHub access on the machine: one Sign in with GitHub card, not an alert.
+                if let need = (error as? CloudChatStartError)?.github {
+                    gitHubNeed = need
+                    return
+                }
                 startError = (error as? CloudChatStartError)?.message ?? "Try again."
                 startFailed = true
             }

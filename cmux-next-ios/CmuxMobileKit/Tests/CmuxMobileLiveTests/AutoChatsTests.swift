@@ -456,4 +456,18 @@ import Testing
         #expect(service.starts.count == 3)
         #expect(service.starts.allSatisfy { $0.hasSuffix(" m1 go") })
     }
+
+    /// The Cloud has no GitHub access to the repository: Sign in with GitHub for it, not a failure.
+    @Test func aStartRefusedForGitHubAsksToSignIn() async {
+        let service = Service()
+        let model = AutoChatsModel(service: service)
+        let repo = AutoChatRepo(remote: Self.remote, branch: "main")
+        service.answersStart(.failure(.refused(status: 409, code: "seed.needs_github")))
+        guard case let .needsGitHub(need) = await model.start(repo: repo, text: "go", messageID: "m1") else {
+            Issue.record("expected needsGitHub")
+            return
+        }
+        #expect(need.repo == "acme/app")
+        #expect(model.chats.isEmpty)
+    }
 }
