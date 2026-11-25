@@ -224,6 +224,10 @@ jobs:
   coalesce-failed:
     needs: [coalesce, tree-preflight, build-linux, build, build-windows, cmux-next-daemon-tests, publish-tree]
     if: ${{ always() && needs.coalesce.outputs.claimed == 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
+    # actions: read: base-coalesce's coalesce job asks for it even when mark_failed skips that job; GitHub checks
+    # every callee job's permissions at startup (2026-11-25 19:08Z on: every run a startup_failure).
+    permissions:
+      actions: read
     uses: ./.github/workflows/base-coalesce.yml
     with:
       key: cmux-tui-artifacts

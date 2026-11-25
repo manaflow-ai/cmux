@@ -805,6 +805,10 @@ concurrency:
 jobs:
   # Why: 2026-11-24-workflow-1.md
   pure-checks-coalesce:
+    # actions: read: base-coalesce's coalesce job lists its runs (#55503); without it GitHub fails this workflow
+    # at startup (scripts/ci/check_reusable_workflow_permissions.py).
+    permissions:
+      actions: read
     uses: ./.github/workflows/base-coalesce.yml
     with:
       key: cmux-next-pure-checks
