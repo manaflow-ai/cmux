@@ -593,6 +593,7 @@
 				"$(SRCROOT)/cmux-tui/crates/cmux-rd-link",
 				"$(SRCROOT)/cmux-tui/crates/cmux-rd-proto",
 				"$(SRCROOT)/cmux-tui/crates/cmux-transport",
+				"$(SRCROOT)/cmux-tui/crates/cmux-wg",
 				"$(SRCROOT)/cmux-tui/vendor",
 				"$(SRCROOT)/cmux-tui/Cargo.toml",
 				"$(CMUX_NEXT_SCREEN_HELPER_BIN)",
