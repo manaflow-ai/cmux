@@ -999,7 +999,9 @@ fn connect_github_sends_the_apps_return_link_and_key_in_the_requests_team() {
 #[test]
 fn connect_github_for_a_repository_sends_it_and_answers_connected_when_a_connection_covers_it() {
     let (origin, seen) = fake(|_| {
-        ok(r#"{"ok":true,"value":{"connection":{"id":"conn_1","status":"active"},"connected":true}}"#)
+        ok(
+            r#"{"ok":true,"value":{"connection":{"id":"conn_1","status":"active"},"connected":true}}"#,
+        )
     });
     let args = json!({ "idempotencyKey": "key-1", "repo": "manaflow-ai/cmux" });
     let answer = go(&request(&origin, Auth::Owner, "owner.github_connect", args)).unwrap();
