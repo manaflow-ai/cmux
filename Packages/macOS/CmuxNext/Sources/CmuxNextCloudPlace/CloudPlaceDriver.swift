@@ -127,6 +127,15 @@ public final class CloudPlaceDriver {
         return nil
     }
 
+    /// `chatPriority.set`: Keep Running on (`high`) or off (`normal`) for the chat. Whether it holds a slot, waits for
+    /// one or moves first when this Mac goes away is Rust's slot rule (`priority::view`, `leave_order`) on the next read.
+    /// `chatPriority.set`: Keep Running on (`high`) or off (`normal`); any other value is refused, with why.
+    public func setPriority(_ priority: String?, tab: String?, session: String? = nil) -> CloudPlaceRefusal? {
+        guard let priority, ["high", "normal"].contains(priority) else { return .refused("priority must be high or normal") }
+        if let chat = chat(tab: tab, session: session) { place.setPriority(priority, of: chat.session) }
+        return nil
+    }
+
     /// `chatMove.cancel`: the reducer decides whether the move stops (through `sync`) or finishes.
     public func cancel(tab: String?, session: String?) {
         guard let session = session ?? tab.flatMap(chat(_:))?.session else { return }
