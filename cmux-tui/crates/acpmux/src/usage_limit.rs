@@ -107,7 +107,8 @@ fn hit_your_limit(lower: &str) -> Option<Option<String>> {
         let window =
             words[..limit].iter().rev().find(|w| WINDOWS.contains(w)).map(|w| (*w).to_owned());
         // "hit your limit" is; "hit your rate limit" or "hit your token limit" is not an account's allowance.
-        if limit > 0 && window.is_none() && !words[..limit].contains(&"usage") {
+        // The word right before "limit" names the allowance: "hit your daily rate limit" is a rate limit.
+        if limit > 0 && !WINDOWS.contains(&words[limit - 1]) && words[limit - 1] != "usage" {
             continue;
         }
         return Some(window);

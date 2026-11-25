@@ -84,7 +84,7 @@ public final class AgentPaneView: NSView {
     var runsOnOtherInstall = false
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
     var remoteApprovalsNotice: AgentPaneNotice?
-    /// "The Cloud chat ended" on a Mac tab whose Cloud chat went (``showCloudChatEnded(machine:)``, cmux#55066).
+    /// "The Cloud chat ended" on a Mac tab whose Cloud chat went (``showCloudChatEnded(machine:promptBack:)``, cmux#55066).
     var cloudChatEndedNotice: AgentPaneNotice?
     var remoteApprovals: AgentPaneRemoteApprovals?
     /// Why the notice says a peer of this Mac's daemon did not count this Mac's allow (peer-route
