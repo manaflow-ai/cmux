@@ -211,7 +211,7 @@ jobs:
     # environment for non-pull-request runs, as in ios-reliability-matrix.yml.
     environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    timeout-minutes: 15
+    timeout-minutes: 25
     permissions:
       contents: read
       # The macOS pool pick reads the queue janitor's pool snapshot (an artifact).
@@ -469,6 +469,38 @@ jobs:
           fi
           exit "$status"
 
+      # The iOS billing packages that scripts/ci/swift-linux-packages.txt lists
+      # (CmuxMobileBilling, cmux#51128) run here, on Linux, in the same swift
+      # container and through the same `package-test-lane.sh suite` as
+      # swift-linux-packages.yml, so ios-billing's Mac runs only what needs
+      # Apple: the unlisted packages and the StoreKit slot (RFD 0051). The
+      # container runs as root, so the step hands Packages/ back to the
+      # runner's user: a persistent runner reuses this workspace.
+      - name: iOS billing unit tests (Linux)
+        if: ${{ !cancelled() && steps.route.outputs.ios == 'true' }}
+        timeout-minutes: 12
+        env:
+          SWIFT_IMAGE: public.ecr.aws/docker/library/swift:6.2-noble@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
+        run: |
+          set -euo pipefail
+          rows="$(awk '$1 ~ /^Packages\/iOS\/[^\/]*Billing[^\/]*$/ { print $1, $2 }' scripts/ci/swift-linux-packages.txt)"
+          if [ -z "$rows" ]; then
+            echo "no listed iOS billing package; ios-billing's Mac runs them all"
+            exit 0
+          fi
+          printf '%s\n' "$rows" > "$RUNNER_TEMP/billing-linux-rows.txt"
+          docker run --rm -v "$GITHUB_WORKSPACE:/w" -v "$RUNNER_TEMP:/rt" -w /w \
+            -e CMUX_SWIFTPM_TARGET_LINUX=1 -e OWNER="$(id -u):$(id -g)" "$SWIFT_IMAGE" bash -c '
+              apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 libsqlite3-dev >/dev/null
+              status=0
+              while read -r dir targets; do
+                echo "::group::$dir ($targets)"
+                bash scripts/ci/package-test-lane.sh suite "$dir" "$targets" || { echo "::error::$dir failed on Linux"; status=1; }
+                echo "::endgroup::"
+              done < /rt/billing-linux-rows.txt
+              chown -R "$OWNER" /w/Packages
+              exit "$status"'
+
   ios-billing:
     name: ios-billing
     needs: billing
@@ -516,6 +548,12 @@ jobs:
             found=1
             package="$(dirname "$manifest")"
             name="$(basename "$package")"
+            # A package scripts/ci/swift-linux-packages.txt lists ran in
+            # billing's "iOS billing unit tests (Linux)" step.
+            if awk -v d="$package" '$1 == d { hit = 1 } END { exit !hit }' scripts/ci/swift-linux-packages.txt; then
+              echo "$package: tested on Linux by the billing job"
+              continue
+            fi
             log_path="$RUNNER_TEMP/$name-tests.log"
             echo "::group::swift test $package"
             python3 scripts/ci/hung_test_watchdog.py --silence-seconds 180 \

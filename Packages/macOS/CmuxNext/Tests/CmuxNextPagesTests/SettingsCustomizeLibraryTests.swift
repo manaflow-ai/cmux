@@ -186,6 +186,27 @@ import Testing
 
 /// What the fake CLI saw and answers. `nonisolated` against the target's MainActor default: the runner
 /// closure is `@Sendable` and runs off the main actor. Each test runs its calls one at a time.
+/// Settings > General's Customize cmux checklist: a read with no gesture, each connection the page
+/// reports one `--has NAME`, and a name the CLI does not know refused before any run.
+@MainActor @Suite struct SettingsCustomizeChecklistTests {
+    @Test func theChecklistReadsWithTheConnectionsThePageReports() async throws {
+        let runs = SettingsCustomizeLibraryRuns()
+        let provider = SettingsCustomizeLibraryTests().library(runs)
+        _ = try await provider.call(SettingsCustomizeLibrary.checklistOp, params: ["has": ["github", "models"]],
+                                    context: SettingsCustomizeLibraryTests.page)
+        _ = try await provider.call(SettingsCustomizeLibrary.checklistOp, params: [:], context: SettingsCustomizeLibraryTests.page)
+        #expect(runs.arguments == [
+            ["--json", "customize", "checklist", "--has", "github", "--has", "models"],
+            ["--json", "customize", "checklist"],
+        ])
+        await #expect(throws: PageError.self) {
+            try await provider.call(SettingsCustomizeLibrary.checklistOp, params: ["has": ["--json"]],
+                                    context: SettingsCustomizeLibraryTests.page)
+        }
+        #expect(runs.arguments.count == 2)
+    }
+}
+
 nonisolated final class SettingsCustomizeLibraryRuns: @unchecked Sendable {
     var arguments: [[String]] = []
     var configFiles: [String?] = []
