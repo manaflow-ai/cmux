@@ -174,13 +174,16 @@
   50% { opacity: 0.9; transform: scale(1.6) rotate(0deg); }
   100% { opacity: 0.55; transform: scale(1) rotate(40deg); }
 }
-:root[data-cmux-motion="reduced"] .acpmux-hybrid-toggle :is(.acpmux-hybrid-cloud__shape, .acpmux-hybrid-arc, .acpmux-hybrid-arc__band, .acpmux-hybrid-glyph::before),
-:root[data-cmux-motion="off"] .acpmux-hybrid-toggle :is(.acpmux-hybrid-cloud__shape, .acpmux-hybrid-arc, .acpmux-hybrid-arc__band, .acpmux-hybrid-glyph::before) {
+:root[data-cmux-motion="reduced"] .acpmux-hybrid-toggle :is(.acpmux-hybrid-cloud__shape, .acpmux-hybrid-arc, .acpmux-hybrid-arc__band),
+:root[data-cmux-motion="off"] .acpmux-hybrid-toggle :is(.acpmux-hybrid-cloud__shape, .acpmux-hybrid-arc, .acpmux-hybrid-arc__band),
+:root[data-cmux-motion="reduced"] .acpmux-hybrid-toggle .acpmux-hybrid-glyph::before,
+:root[data-cmux-motion="off"] .acpmux-hybrid-toggle .acpmux-hybrid-glyph::before {
   animation: none;
   transition: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  .acpmux-hybrid-toggle :is(.acpmux-hybrid-cloud__shape, .acpmux-hybrid-arc, .acpmux-hybrid-arc__band, .acpmux-hybrid-glyph::before) {
+  .acpmux-hybrid-toggle :is(.acpmux-hybrid-cloud__shape, .acpmux-hybrid-arc, .acpmux-hybrid-arc__band),
+  .acpmux-hybrid-toggle .acpmux-hybrid-glyph::before {
     animation: none;
     transition: none;
   }

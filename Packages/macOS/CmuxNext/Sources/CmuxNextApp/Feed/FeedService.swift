@@ -21,8 +21,6 @@ final class FeedService {
     private let auth: CloudAuth
     /// Whether the app is active (`AppServices.appActiveSource`), for the owner's presence; never the global `NSApp`.
     private let appActive: @MainActor () -> Bool
-    /// The system is about to sleep (true) or woke (false): Cloud Auto starts its moves before sleep.
-    private let slept: @MainActor (Bool) -> Void
     private var observers: [MainActorObservation] = []
     private var tasks: [Task<Void, Never>] = []
     private let approvalHolds: CloudApprovalHolds?
@@ -33,8 +31,8 @@ final class FeedService {
         auth.configuration.ownerAPIBaseURL(environment: environment)
     }
 
-    init(auth: CloudAuth, local: DaemonService?, approvalHolds: CloudApprovalHolds? = nil, appActive: @escaping @MainActor () -> Bool, slept: @escaping @MainActor (Bool) -> Void = { _ in }) {
-        (self.auth, self.approvalHolds, self.appActive, self.slept) = (auth, approvalHolds, appActive, slept)
+    init(auth: CloudAuth, local: DaemonService?, approvalHolds: CloudApprovalHolds? = nil, appActive: @escaping @MainActor () -> Bool) {
+        (self.auth, self.approvalHolds, self.appActive) = (auth, approvalHolds, appActive)
         apiBaseURL = Self.apiBaseURL(auth: auth)
         daemon = FeedDaemonClient(connection: { [weak local] in local?.connection })
         guard let local else { return }
@@ -75,17 +73,16 @@ final class FeedService {
             guard let self else { return }
             daemon.setPresence(active: forced ?? self.appActive())
         }
-        let slept = slept
-        func on(_ center: NotificationCenter, _ name: Notification.Name, _ forced: Bool?, asleep: Bool? = nil) -> MainActorObservation {
-            MainActorObservation(name, center: center) { update(forced); if let asleep { slept(asleep) } }
+        func on(_ center: NotificationCenter, _ name: Notification.Name, _ forced: Bool?) -> MainActorObservation {
+            MainActorObservation(name, center: center) { update(forced) }
         }
         observers = [
             on(app, NSApplication.didBecomeActiveNotification, true),
             on(app, NSApplication.didResignActiveNotification, false),
             on(workspace, NSWorkspace.screensDidSleepNotification, false),
             on(workspace, NSWorkspace.sessionDidResignActiveNotification, false),
-            on(workspace, NSWorkspace.willSleepNotification, false, asleep: true),
-            on(workspace, NSWorkspace.didWakeNotification, nil, asleep: false),
+            on(workspace, NSWorkspace.willSleepNotification, false),
+            on(workspace, NSWorkspace.didWakeNotification, nil),
             on(workspace, NSWorkspace.screensDidWakeNotification, nil),
             on(workspace, NSWorkspace.sessionDidBecomeActiveNotification, nil),
         ]

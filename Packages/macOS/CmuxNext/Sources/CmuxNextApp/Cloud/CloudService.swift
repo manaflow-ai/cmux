@@ -336,7 +336,6 @@ final class CloudService {
         })
         // After sleep the list is stale even with cmux in front: the idle auto-pause may have parked
         // machines while the lid was closed. acpmux is told of the wake too, for its Auto chats.
-        // The place driver hears sleep and wake from the app's one presence adapter (``FeedService``).
         observers.append(Task { [weak self] in
             for await _ in NSWorkspace.shared.notificationCenter.notifications(named: NSWorkspace.didWakeNotification) {
                 self?.placeDriver?.slept(false)

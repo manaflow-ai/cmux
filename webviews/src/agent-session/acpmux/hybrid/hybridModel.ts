@@ -54,3 +54,9 @@ export function clicked(view: HybridView): HybridView {
   if (view.used >= view.total) return { ...view, waiting: true };
   return { ...view, lit: true, used: view.used + 1 };
 }
+
+/// Settings > Advanced > Experiments' Cloud Toggle (`experiments.cloudToggle`, off by default): the
+/// composer's place chip and cloud toggle, the move card, Session Info's cloud rows and the chat
+/// cards' place and Evacuate rows draw only while it is on (Leo, 2026-11-24: "don't unilaterally
+/// MERGE ui stuff yet"; a new look ships as a switch people can turn on).
+export const CLOUD_TOGGLE_SWITCH = "cloudToggle";

@@ -74,7 +74,11 @@ extension CloudHandlers {
             let cancels = id == AppServices.placeCancel || id == AppServices.placeEvacuateCancel
             // A cancel is never refused.
             let allowed: @MainActor () -> String? = { nil }
-            bind(id, registry, reason: cancels ? allowed : reason) { invocation in
+            // Off with Settings > Experiments' Cloud Toggle (`experiments.cloudToggle`, default off), like the page's controls.
+            let gated: @MainActor () -> String? = {
+                reason() ?? (services.settings?.snapshot.experimentSwitches["cloudToggle"] == true ? nil : CloudMoveStrings.placeExperimentOff)
+            }
+            bind(id, registry, reason: cancels ? allowed : gated) { invocation in
                 guard !CloudMoveAsks.isAgent(invocation), !invocation.viaControlSocket else { throw ActionFailure(message: CloudMoveStrings.placeIsPersons) }
                 let tab = context.daemonTab(invocation)?.0.id, named = CloudPlaceDriver.named(invocation["sessions"]?.stringValue), row = CloudPlaceDriver.row(named)
                 switch id {

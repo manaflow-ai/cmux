@@ -3,12 +3,14 @@
 // `auto`, Only in Cloud `cloud`, Only on This Mac `local`. High priority (the lit Hybrid, Keep
 // Running) has no wire yet, so neither mount offers it: no light, no switch, no slot count.
 import { useMemo } from "react";
+import { useExperimentSwitch } from "../../../experiments/switches";
 import { useHeaderState } from "../header/headerState";
 import { useT, type Translate } from "../i18n";
 import { placeName } from "../place/PlaceControl";
 import type { PlaceState } from "../place/placeModel";
 import { placeActions, type PlaceClaims } from "../place/usePlace";
 import { CloudTriToggle } from "./CloudTriToggle";
+import { CLOUD_TOGGLE_SWITCH } from "./hybridModel";
 import type { SessionInfoCloudControl } from "./SessionInfoCloud";
 
 /// Where the chat runs now, in the place lane's own words: the move in flight, else the place the
@@ -33,9 +35,10 @@ export function HybridChip({
   claims?: () => PlaceClaims;
 }) {
   const t = useT();
+  const on = useExperimentSwitch(CLOUD_TOGGLE_SWITCH);
   const { place } = useHeaderState();
   const actions = useMemo(() => (session ? placeActions(session, say, claims) : undefined), [session, say, claims]);
-  if (!place || !actions) return null;
+  if (!on || !place || !actions) return null;
   return (
     <CloudTriToggle
       pin={place.mode}
@@ -54,13 +57,14 @@ export function useSessionInfoCloud(
   session: string | undefined,
   say?: (text: string) => void,
 ): SessionInfoCloudControl | undefined {
+  const on = useExperimentSwitch(CLOUD_TOGGLE_SWITCH);
   const { place } = useHeaderState();
   return useMemo(() => {
-    if (!place || !session) return undefined;
+    if (!on || !place || !session) return undefined;
     const actions = placeActions(session, say);
     return {
       view: { lit: false, pin: place.mode, at: place.at, used: 0, total: 0 },
       setPin: actions.setMode,
     };
-  }, [place, session, say]);
+  }, [on, place, session, say]);
 }
