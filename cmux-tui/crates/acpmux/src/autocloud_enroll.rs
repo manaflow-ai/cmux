@@ -99,7 +99,9 @@ impl Enrollment {
     /// From a parsed settings document: `true`, or an object with `enabled: true`. Anything
     /// else (missing, `false`, a string, a malformed object) is not enrolled.
     pub fn from_doc(doc: &Value) -> Self {
-        crate::user_settings::value(doc, ENROLL_KEY).map(|v| Self::from_value(&v)).unwrap_or_default()
+        crate::user_settings::value(doc, ENROLL_KEY)
+            .map(|v| Self::from_value(&v))
+            .unwrap_or_default()
     }
 
     /// From the setting's own value: `true`, or an object with `enabled: true`. Anything else

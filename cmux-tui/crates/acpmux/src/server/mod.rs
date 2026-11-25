@@ -3196,6 +3196,7 @@ mod share_host;
 mod vault;
 mod web_device;
 pub(crate) use vault::reply as vault_reply;
+mod autocloud_enroll;
 mod races;
 mod session_auth;
 mod session_files;
@@ -3205,7 +3206,6 @@ pub(crate) mod trust_gate;
 pub mod upload_frames;
 mod view;
 mod vm_host;
-mod autocloud_enroll;
 pub(crate) mod wait;
 #[cfg(windows)]
 mod windows_socket;
