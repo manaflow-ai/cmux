@@ -589,6 +589,7 @@ import { ACCESS_ACTIONS, type AccessOffer } from "./accessOffer";
 import { type ChatAccounts, ChatAccountsContext, readChatAccounts } from "./chatAccounts";
 import { ForkPendingLine } from "./ForkPendingLine";
 import { HostError, HostLineSlot, HostRecoveringLine, HostUnavailableLine } from "./HostError";
+import { usePublishHostRecovery } from "./composerStatusStore";
 import { hostLineText } from "./hostLine";
 import { AcpmuxRestartGate, type HostRestoring, readHostRestoring, hostSelfRetrying } from "./hostRetry";
 import { pageShowsWhatItIs } from "./firstPaint";
@@ -10514,6 +10515,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         }
       />
     </Notice>
+  );
+  // The composer's status dot says the quiet recovery below instead, once mounted (composerStatusStore.ts).
+  usePublishHostRecovery(
+    restartingAcpmux ? undefined : { linkDown, restoring: hostRestoring, failureShown: hostErrorSaid },
   );
   // While the pane gets its chat back on its own, one quiet line says so: "Restoring sessions…"
   // while the host says acpmux restores, "Reconnecting…" while the link is down for real (`linkDown`).

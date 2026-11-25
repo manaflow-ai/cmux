@@ -2612,8 +2612,6 @@ export class AcpmuxDirectClient {
         this.resetRequestCheck();
         this.wire.lifecycle("open");
         acpmuxPerf.markLaunch("socketOpen");
-        // The action trace's spans and its status question go on this socket (actionTrace.ts).
-        actionTrace.connect((method, params) => this.request(method, params));
         resolve(socket);
       };
       socket.onerror = () => {
@@ -2674,6 +2672,10 @@ export class AcpmuxDirectClient {
         AcpmuxDirectClient.DAEMON_PROBE_AFTER_MS,
       );
       acpmuxPerf.markLaunch("initialized");
+      // The action trace's status question and spans go on this socket once it is initialized: a
+      // connection's first frame is its initialize, which the relay carries the LocalApp token in
+      // and refuses anything else as (actionTrace.ts, cmux-agent-pane-policy check.rs).
+      actionTrace.connect((method, params) => this.request(method, params));
       this.canFork = servesOperation(initialized, FORK_OP);
       const features = initialized?._meta?.acpmux?.features;
       this.features = new Set(

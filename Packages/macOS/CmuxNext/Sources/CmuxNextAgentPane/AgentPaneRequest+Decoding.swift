@@ -48,6 +48,12 @@ extension AgentPaneRequest {
         return name != "." && name != ".."
     }
 
+    /// A GitHub account or org name: 1 to 39 letters, digits and inner dashes (webviews githubConnect.ts
+    /// `isGitHubOwner`, acpmux `settings_ask`).
+    static func isGitHubOwner(_ value: String) -> Bool {
+        value.utf8.count <= 39 && value.range(of: #"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$"#, options: .regularExpression) != nil
+    }
+
     nonisolated static func uploadStage(_ method: String, _ params: [String: Any]?) -> AgentPaneRequest {
         guard let params else { return .unsupported(method) }
         switch method {
@@ -726,8 +732,9 @@ extension AgentPaneRequest {
                 let github = id == "accounts.githubConnect"
                 let repo = (params?["repo"] as? String).flatMap { github && AgentPaneRequest.isGitHubRepo($0) ? $0 : nil }
                 let returnTo = (params?["returnTo"] as? String).flatMap { github && $0.utf8.count <= 512 ? $0 : nil }
+                let org = (params?["org"] as? String).flatMap { github && AgentPaneRequest.isGitHubOwner($0) ? $0 : nil }
                 self = .runAction(id, session: session ?? nil, environment: environment ?? nil, handoff: handoff ?? nil, app: app ?? nil,
-                                  repo: repo, returnTo: returnTo,
+                                  repo: repo, returnTo: returnTo, org: org,
                                   mode: mode ?? nil, queued: queued ?? nil, hasDraft: hasDraft ?? nil, sessions: sessions ?? nil)
             } else {
                 self = .unsupported(method)
