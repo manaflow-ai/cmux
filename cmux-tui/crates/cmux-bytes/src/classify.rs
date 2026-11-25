@@ -81,7 +81,7 @@ pub fn classify(name: &str, head: &[u8]) -> Kind {
 
 /// No NUL and mostly printable in the first bytes.
 fn looks_text(head: &[u8]) -> bool {
-    let head = &head[..head.len().min(4096)];
+    let head = head.get(..head.len().min(4096)).unwrap_or(head);
     if head.contains(&0) {
         return false;
     }

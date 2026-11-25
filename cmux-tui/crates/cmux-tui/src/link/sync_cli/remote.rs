@@ -713,7 +713,7 @@ impl Remote {
             Ok(answer) => answer,
             Err(_) => return Ok(None),
         };
-        if ready["ok"] != json!(true) {
+        if !answered_ok(&ready) {
             let refusal = refusal_of(&ready);
             // The line path's answer to a stream: this carrier hands dials to one line
             // connection.
@@ -722,7 +722,9 @@ impl Remote {
             }
             return Err(refusal.into());
         }
-        if ready["data"]["ready"] != json!(true) {
+        if ready.get("data").and_then(|data| data.get("ready")).and_then(Value::as_bool)
+            != Some(true)
+        {
             return Ok(None);
         }
         let silence = self.read_timeout();
@@ -732,7 +734,7 @@ impl Remote {
                 // A daemon that refused mid-stream (bytes past `decoded_size`, a full disk)
                 // answers before it stops reading: that answer says why.
                 if let Ok(answer) = stream_answer(&mut reader, id, Duration::from_secs(1), progress)
-                    && answer["ok"] != json!(true)
+                    && !answered_ok(&answer)
                 {
                     return Err(refusal_of(&answer).into());
                 }
@@ -751,10 +753,10 @@ impl Remote {
         }
         let answer = stream_answer(&mut reader, id, answer_budget(silence, wire.len()), progress)?;
         progress();
-        if answer["ok"] != json!(true) {
+        if !answered_ok(&answer) {
             return Err(refusal_of(&answer).into());
         }
-        Ok(Some(answer["data"].clone()))
+        Ok(Some(answer.get("data").cloned().unwrap_or(Value::Null)))
     }
 
     /// Reads the whole file at `path` into memory, up to [`READ_CAP`]
@@ -993,7 +995,12 @@ fn choose(
         None if deflate && shrinks(part) => (cmux_tui_core::fs_ops::DEFLATE, self::deflate(part)?),
         None => return Ok(None),
     };
-    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a part is at most PART_BYTES and keep_ratio is in 0..=1, so the product fits a usize"
+    )]
     let keep = (part.len() as f64 * params.keep_ratio) as usize;
     Ok((coded.1.len() < keep).then_some(coded))
 }
@@ -1005,7 +1012,7 @@ fn zstd_level() -> i32 {
     if rate == 0 {
         return DEFAULT_ZSTD_LEVEL;
     }
-    #[allow(clippy::cast_precision_loss)]
+    #[allow(clippy::cast_precision_loss, reason = "a link rate in bytes/s is far below 2^52")]
     let link = cmux_bytes::policy::Link { bytes_per_sec: rate as f64, rtt: 0.0, cores: 1 };
     cmux_bytes::policy::level_for(&link, &cmux_bytes::params::Params::default())
 }
@@ -1061,17 +1068,22 @@ fn stream_answer(
         return Err(Dropped("the machine daemon closed the write stream".into()).into());
     }
     let answer: Value = serde_json::from_slice(&line).context("the answer is not JSON")?;
-    if answer["id"] != json!(id) {
+    if answer.get("id") != Some(&json!(id)) {
         bail!("the machine daemon answered another request on a write stream");
     }
     Ok(answer)
 }
 
+/// Whether a stream answer says `ok: true`.
+fn answered_ok(answer: &Value) -> bool {
+    answer.get("ok").and_then(Value::as_bool) == Some(true)
+}
+
 /// The refusal an `ok: false` answer carries.
 fn refusal_of(answer: &Value) -> FsRefusal {
     FsRefusal {
-        code: answer["error_code"].as_str().unwrap_or("fs.unknown").to_string(),
-        message: answer["error"].as_str().unwrap_or_default().to_string(),
+        code: answer.get("error_code").and_then(Value::as_str).unwrap_or("fs.unknown").to_string(),
+        message: answer.get("error").and_then(Value::as_str).unwrap_or_default().to_string(),
     }
 }
 

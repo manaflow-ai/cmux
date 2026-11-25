@@ -122,10 +122,11 @@ pub fn plan_chunk(
     if entropy::bits_per_byte(chunk, params.entropy_sample) >= params.entropy_store_bits {
         return Plan { encoding: Encoding::Store, reason: Reason::HighEntropy };
     }
-    if params.dictionaries && chunk.len() <= params.dict_max_chunk {
-        if let Some(id) = dicts.for_kind(kind) {
-            return Plan { encoding: Encoding::ZstdDict(level, id), reason: Reason::Dictionary };
-        }
+    if params.dictionaries
+        && chunk.len() <= params.dict_max_chunk
+        && let Some(id) = dicts.for_kind(kind)
+    {
+        return Plan { encoding: Encoding::ZstdDict(level, id), reason: Reason::Dictionary };
     }
     Plan { encoding: Encoding::Zstd(level), reason: Reason::Compress }
 }

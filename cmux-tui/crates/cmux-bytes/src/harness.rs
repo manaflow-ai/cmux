@@ -285,7 +285,7 @@ pub fn encode_today(
             if bytes.is_empty() { vec![&[][..]] } else { bytes.chunks(PART).collect() };
         let t = Clock::start();
         let probe_shrinks = {
-            let p = &bytes[..bytes.len().min(PROBE)];
+            let p = bytes.get(..bytes.len().min(PROBE)).unwrap_or_default();
             let w = deflate(p);
             w.len() + 64 < p.len() && w.len() * 10 < p.len() * 9
         };
@@ -321,7 +321,7 @@ pub fn encode_today(
         *out.reasons.entry(if probe_shrinks { "deflate" } else { "base64" }).or_default() +=
             bytes.len() as u64;
         if bytes.len() <= PART
-            && (batch_files + 1 <= BATCH_FILES)
+            && (batch_files < BATCH_FILES)
             && batch_bytes + bytes.len() as u64 <= BATCH_BYTES
         {
             batch.wire_up += wire;
@@ -466,7 +466,7 @@ pub fn encode_new(
             Scenario::Edit => {
                 // The VM holds the original: its chunks are in `have`.
                 for (o, l) in chunker.chunks(&file.bytes) {
-                    let h = cas::hash(&file.bytes[o..o + l]);
+                    let h = cas::hash(file.bytes.get(o..o + l).unwrap_or_default());
                     have.insert(h);
                     store.insert(h, ());
                 }
@@ -477,12 +477,13 @@ pub fn encode_new(
             }
         };
         out.raw_bytes += bytes.len() as u64;
-        let kind = classify::classify(&entry.path, &bytes[..bytes.len().min(4096)]);
+        let kind =
+            classify::classify(&entry.path, bytes.get(..bytes.len().min(4096)).unwrap_or_default());
         let mut item =
             Item { first_turn, wire_up: 12 + entry.path.len().min(16) as u64, ..Item::default() };
         let chunks = if bytes.is_empty() { vec![(0, 0)] } else { chunker.chunks(&bytes) };
         for (o, l) in chunks {
-            let raw = &bytes[o..o + l];
+            let raw = bytes.get(o..o + l).unwrap_or_default();
             let t = Clock::start();
             let h = cas::hash(raw);
             let none = Trained::default();
@@ -606,15 +607,23 @@ pub fn simulate(
             let w = it.wire_up as f64 / per;
             let i = least(&load);
             if it.round_trip {
-                load[i] += it.cpu_send + w + p.rtt + it.cpu_recv;
+                if let Some(slot) = load.get_mut(i) {
+                    *slot += it.cpu_send + w + p.rtt + it.cpu_recv;
+                }
             } else {
                 let c = least(&pool);
-                let start = if it.needs_dicts { pool[c].max(dicts_ready) } else { pool[c] };
-                pool[c] = start + it.cpu_send;
-                if it.trains_dicts {
-                    dicts_ready = pool[c];
+                let free = pool.get(c).copied().unwrap_or(0.0);
+                let start = if it.needs_dicts { free.max(dicts_ready) } else { free };
+                let done = start + it.cpu_send;
+                if let Some(slot) = pool.get_mut(c) {
+                    *slot = done;
                 }
-                load[i] = load[i].max(pool[c]) + w;
+                if it.trains_dicts {
+                    dicts_ready = done;
+                }
+                if let Some(slot) = load.get_mut(i) {
+                    *slot = slot.max(done) + w;
+                }
             }
             wire += it.wire_up + it.wire_down;
             cs += it.cpu_send;
@@ -655,8 +664,11 @@ fn least(v: &[f64]) -> usize {
 
 /// The `i`-th little-endian u32 of a hash.
 fn word(h: &blake3::Hash, i: usize) -> u32 {
-    let b = h.as_bytes();
-    u32::from_le_bytes([b[4 * i], b[4 * i + 1], b[4 * i + 2], b[4 * i + 3]])
+    h.as_bytes()
+        .chunks_exact(4)
+        .nth(i)
+        .and_then(|w| <[u8; 4]>::try_from(w).ok())
+        .map_or(0, u32::from_le_bytes)
 }
 
 /// p-th percentile (0..=100) of `v`, nearest rank.
@@ -667,7 +679,7 @@ pub fn pct(v: &[f64], p: f64) -> f64 {
     let mut s = v.to_vec();
     s.sort_by(f64::total_cmp);
     let rank = ((p / 100.0) * s.len() as f64).ceil().max(1.0) as usize;
-    s[rank.min(s.len()) - 1]
+    s.get(rank.min(s.len()).saturating_sub(1)).copied().unwrap_or(f64::NAN)
 }
 
 /// Deterministic jitter for run `i`: bandwidth 0.8..1.1, RTT 0.95..1.4 (a heavy tail on RTT).

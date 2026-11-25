@@ -2,6 +2,13 @@
 //! a few evenly spaced windows. Random, encrypted and compressed data reads
 //! near 8 bits per byte; source text reads 4 to 5.5.
 
+/// Counts one byte (a u8 always indexes the 256-entry table).
+fn bump(counts: &mut [u32; 256], b: u8) {
+    if let Some(c) = counts.get_mut(usize::from(b)) {
+        *c += 1;
+    }
+}
+
 /// Bits per byte of `bytes`, sampled from up to `sample` bytes in four windows.
 pub fn bits_per_byte(bytes: &[u8], sample: usize) -> f64 {
     if bytes.is_empty() {
@@ -11,15 +18,15 @@ pub fn bits_per_byte(bytes: &[u8], sample: usize) -> f64 {
     let mut total = 0u32;
     if bytes.len() <= sample {
         for b in bytes {
-            counts[*b as usize] += 1;
+            bump(&mut counts, *b);
         }
         total = bytes.len() as u32;
     } else {
         let window = (sample / 4).max(1);
         let step = (bytes.len() - window) / 3;
         for i in 0..4 {
-            for b in &bytes[i * step..i * step + window] {
-                counts[*b as usize] += 1;
+            for b in bytes.get(i * step..i * step + window).unwrap_or_default() {
+                bump(&mut counts, *b);
             }
             total += window as u32;
         }

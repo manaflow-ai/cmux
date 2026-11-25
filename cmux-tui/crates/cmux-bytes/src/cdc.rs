@@ -3,6 +3,10 @@
 //! it and the rest dedup against what the receiver already holds.
 
 /// Gear table: 256 pseudo-random u64s, fixed so cut points are stable across builds and peers.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "const fill of a 256-entry table: i < 256 by the loop bound"
+)]
 const GEAR: [u64; 256] = {
     let mut table = [0u64; 256];
     let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
@@ -18,6 +22,12 @@ const GEAR: [u64; 256] = {
     }
     table
 };
+
+/// The gear value of one byte (a u8 always indexes the 256-entry table).
+#[inline]
+fn gear(b: u8) -> u64 {
+    GEAR.get(usize::from(b)).copied().unwrap_or(0)
+}
 
 /// Chunk boundaries for a given average size.
 #[derive(Clone, Copy, Debug)]
@@ -54,19 +64,19 @@ impl Chunker {
         let normal = end.min(self.avg);
         let mut hash = 0u64;
         let mut i = self.min;
-        while i < normal {
-            hash = (hash << 1).wrapping_add(GEAR[data[i] as usize]);
+        for &b in data.get(self.min..normal).unwrap_or_default() {
+            hash = (hash << 1).wrapping_add(gear(b));
+            i += 1;
             if hash & self.mask_small == 0 {
-                return i + 1;
+                return i;
             }
-            i += 1;
         }
-        while i < end {
-            hash = (hash << 1).wrapping_add(GEAR[data[i] as usize]);
-            if hash & self.mask_large == 0 {
-                return i + 1;
-            }
+        for &b in data.get(normal..end).unwrap_or_default() {
+            hash = (hash << 1).wrapping_add(gear(b));
             i += 1;
+            if hash & self.mask_large == 0 {
+                return i;
+            }
         }
         end
     }
@@ -80,7 +90,7 @@ impl Chunker {
         let mut out = Vec::new();
         let mut at = 0;
         while at < data.len() {
-            let len = self.cut(&data[at..]);
+            let len = self.cut(data.get(at..).unwrap_or_default());
             out.push((at, len));
             at += len;
         }

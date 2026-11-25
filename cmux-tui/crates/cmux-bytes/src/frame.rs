@@ -110,16 +110,16 @@ pub fn encode(
         }
         _ => None,
     };
-    if let Some((payload, tag, dict)) = compressed {
-        if payload.len() < limit {
-            out.push(tag);
-            put_varint(&mut out, raw.len() as u64);
-            if let Some(id) = dict {
-                out.extend_from_slice(&id.to_le_bytes());
-            }
-            out.extend_from_slice(&payload);
-            return (out, want);
+    if let Some((payload, tag, dict)) = compressed
+        && payload.len() < limit
+    {
+        out.push(tag);
+        put_varint(&mut out, raw.len() as u64);
+        if let Some(id) = dict {
+            out.extend_from_slice(&id.to_le_bytes());
         }
+        out.extend_from_slice(&payload);
+        return (out, want);
     }
     out.push(TAG_STORE);
     put_varint(&mut out, raw.len() as u64);
@@ -148,14 +148,14 @@ pub fn decode(frame: &[u8], dicts: &dyn Dicts) -> io::Result<Decoded> {
     }
     match tag {
         TAG_STORE => {
-            let body = &frame[at..];
+            let body = frame.get(at..).ok_or_else(short)?;
             if body.len() as u64 != raw_len {
                 return Err(bad("stored length mismatch"));
             }
             Ok(Decoded::Bytes(body.to_vec()))
         }
         TAG_ZSTD => {
-            let out = zstd::bulk::decompress(&frame[at..], raw_len as usize)?;
+            let out = zstd::bulk::decompress(frame.get(at..).ok_or_else(short)?, raw_len as usize)?;
             if out.len() as u64 != raw_len {
                 return Err(bad("zstd length mismatch"));
             }
@@ -164,7 +164,7 @@ pub fn decode(frame: &[u8], dicts: &dyn Dicts) -> io::Result<Decoded> {
         TAG_ZSTD_DICT => {
             let id = u32::from_le_bytes(array(frame.get(at..at + 4).ok_or_else(short)?)?);
             at += 4;
-            let out = dicts.decompress(id, &frame[at..], raw_len as usize)?;
+            let out = dicts.decompress(id, frame.get(at..).ok_or_else(short)?, raw_len as usize)?;
             if out.len() as u64 != raw_len {
                 return Err(bad("zstd length mismatch"));
             }
