@@ -807,6 +807,9 @@ jobs:
   pure-checks-coalesce:
     # A foreign label event skips it (its dependents test `!= 'false'`, so a skip reads as run).
     if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    # actions: read: base-coalesce lists this workflow's runs to re-run a window whose run failed (#55503 missed this caller).
+    permissions:
+      actions: read
     uses: ./.github/workflows/base-coalesce.yml
     with:
       key: cmux-next-pure-checks
