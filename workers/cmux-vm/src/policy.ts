@@ -98,7 +98,7 @@ export const DEFAULT_MAX_VMS = NO_VM_COUNT_CAP;
  * Dev/test tenants off production have no machine-count cap either, the same as a production product tenant. The
  * cap was 300 (NEXT Max's machines kept, #45892) so a leaked test loop stopped early, but it stopped the shared
  * staging test team instead: drills and journeys failed `cloud.quota.vm_limit` at 300 of 300 while the leftovers
- * waited for their reaper (Leo, 2026-11-25: "why arbitrary quotas please remove these if they make no sense"). What
+ * waited for their reaper (2026-11-25). What
  * stops a leak now is what reclaims it, not a count: every dev/test VM pauses after at most DEV_TEST_MAX_IDLE_SECONDS
  * idle, the agent reaper (src/agents/reaper.ts, every 5 minutes) deletes expired and revoked agent keys' VMs,
  * cmux-platform's test reaper (CLOUD_TEST_REAP, 6 h on development and staging) deletes test machines, the team's
