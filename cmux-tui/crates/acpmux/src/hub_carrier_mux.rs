@@ -142,8 +142,26 @@ pub(crate) struct Mux {
     stats: Arc<Stats>,
     /// The dialer's: where the answer to its `mux` hello goes, the circuit's first record back.
     hello: Mutex<Option<oneshot::Sender<Result<(), ServiceRefusal>>>>,
+    /// Why the circuit ended before its `mux` hello was answered (the far machine's welcome
+    /// refusal, say), for the dialer's error.
+    ended: Mutex<Option<String>>,
     /// `gauges.links.hubKeptOpen`: given back at `close`, or when the circuit drops unclosed.
     open: Mutex<Option<crate::gauges::Held>>,
+}
+
+/// The most early bytes a stream open carries behind its OPEN ([`Mux::open`]): well inside a
+/// stream's first window, so they never wait on credit.
+pub(crate) const EARLY_BYTES: usize = 64 * 1024;
+const _: () = assert!(EARLY_BYTES < WINDOW_BYTES as usize);
+
+/// Why a stream open failed under it.
+#[derive(Debug)]
+pub(crate) struct OpenFailed {
+    pub(crate) why: String,
+    /// The stream's early bytes left this machine: the far service may have read and acted on
+    /// them, so the dial must not be sent again on another circuit (a broker call that pushed
+    /// or merged would run twice). The caller reports the failure instead.
+    pub(crate) early_out: bool,
 }
 
 /// The answer to a kept circuit's `mux` hello.
@@ -162,6 +180,7 @@ impl Mux {
             quiet_since: Mutex::new(Instant::now()),
             stats,
             hello: Mutex::new(None),
+            ended: Mutex::new(None),
             open: Mutex::new(Some(crate::gauges::Held::on(&crate::gauges::links().hub_kept_open))),
         })
     }
@@ -175,8 +194,19 @@ impl Mux {
         self.streams.lock().unwrap_or_else(|e| e.into_inner()).len()
     }
 
+    /// Why the circuit ended before its `mux` hello was answered, if it did.
+    pub(crate) fn ended(&self) -> Option<String> {
+        self.ended.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
     fn heard(&self) -> Instant {
         *self.heard.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Set when the circuit last heard a record (tests: a circuit silent for a while).
+    #[cfg(test)]
+    pub(crate) fn heard_at(&self, at: Instant) {
+        *self.heard.lock().unwrap_or_else(|e| e.into_inner()) = at;
     }
 
     async fn send(&self, kind: u8, id: u32, payload: &[u8]) -> Result<(), String> {
@@ -197,6 +227,8 @@ impl Mux {
             entry.credit.close();
         }
         self.open.lock().unwrap_or_else(|e| e.into_inner()).take();
+        // A hello still waiting hears the close now, not at its timeout.
+        self.hello.lock().unwrap_or_else(|e| e.into_inner()).take();
         self.closing.notify_waiters();
         let _ = self.link.close().await;
     }
@@ -234,9 +266,13 @@ impl Mux {
         loop {
             let record = match self.link.receive().await {
                 Ok(Some(record)) => record,
-                Ok(None) => break,
+                Ok(None) => {
+                    self.end_before_hello("the machine closed the circuit before answering");
+                    break;
+                }
                 Err(e) => {
                     tracing::debug!("hub carrier: a kept circuit ended: {e}");
+                    self.end_before_hello(&e.to_string());
                     break;
                 }
             };
@@ -313,6 +349,15 @@ impl Mux {
             }
         }
         self.close().await;
+    }
+
+    /// Keep why the circuit ended when its `mux` hello is still unanswered: a pipelined
+    /// handshake's refusal (`not one of this person's machines`) arrives as the first receive's
+    /// error, and the dialer reports it rather than a hello timeout.
+    fn end_before_hello(&self, why: &str) {
+        if self.hello.lock().unwrap_or_else(|e| e.into_inner()).is_some() {
+            *self.ended.lock().unwrap_or_else(|e| e.into_inner()) = Some(why.to_owned());
+        }
     }
 
     /// The serving side of one OPEN: admit the service as a plain circuit's hello is admitted,
@@ -499,20 +544,54 @@ impl Mux {
     }
 
     /// Open one stream naming `hello`'s service. `Ok(Err)` is the far machine's refusal;
-    /// `Err` says the circuit failed under the open (the caller drops it and dials again).
+    /// `Err` says the circuit failed under the open (the caller drops it and dials again, unless
+    /// [`OpenFailed::early_out`]).
+    ///
+    /// `early` is the stream's first bytes (at most [`EARLY_BYTES`]), sent as DATA right behind
+    /// the OPEN instead of after its ANSWER, so a request-and-reply stream (the lane-gh broker's)
+    /// costs one round trip, not two. The serving side takes them as any DATA: it registered the
+    /// stream on its OPEN, so they wait in the stream's queue until the service is admitted, and
+    /// a refusal drops them unread. Nothing on the serving side changes, so a machine on an older
+    /// acpmux takes them too.
     pub(crate) async fn open(
         self: &Arc<Self>,
         hello: Bytes,
+        early: &[u8],
         answer_wait: Duration,
-    ) -> Result<Result<HubStream, ServiceRefusal>, String> {
+    ) -> Result<Result<HubStream, ServiceRefusal>, OpenFailed> {
+        let unsent = |why: String| OpenFailed { why, early_out: false };
         let id = self.next.fetch_add(2, Ordering::SeqCst);
         let (answered, answer) = oneshot::channel();
-        let (events, credit) =
-            self.register(id, Some(answered)).ok_or("the kept circuit closed")?;
+        let (events, credit) = self
+            .register(id, Some(answered))
+            .ok_or_else(|| unsent("the kept circuit closed".into()))?;
         let sent_at = Instant::now();
         if let Err(e) = self.send(OPEN, id, &hello).await {
             self.remove(id);
-            return Err(e);
+            return Err(unsent(e));
+        }
+        let early_out = !early.is_empty();
+        let failed = |why: String| OpenFailed { why, early_out };
+        if early_out {
+            let chunk =
+                self.link.maximum_frame_bytes().saturating_sub(HEADER).clamp(1, CHUNK_BYTES);
+            for piece in early.chunks(chunk) {
+                // Within the stream's first window (`EARLY_BYTES` < `WINDOW_BYTES`): no wait.
+                let permits = u32::try_from(piece.len()).unwrap_or(u32::MAX);
+                let sent = match credit.try_acquire_many(permits) {
+                    Ok(permit) => {
+                        permit.forget();
+                        self.send(DATA, id, piece).await
+                    }
+                    Err(_) => Err("a stream's early bytes overran its window".to_owned()),
+                };
+                if let Err(e) = sent {
+                    self.remove(id);
+                    return Err(failed(e));
+                }
+                self.stats.sent.fetch_add(piece.len() as u64, Ordering::Relaxed);
+                self.stats.records.fetch_add(1, Ordering::Relaxed);
+            }
         }
         // A PING with every OPEN: if anything comes back, the circuit is alive.
         let _ = self.send(PING, 0, &[]).await;
@@ -538,11 +617,11 @@ impl Mux {
             }
             Err(_) => {
                 self.remove(id);
-                return Err("the kept circuit went silent".into());
+                return Err(failed("the kept circuit went silent".into()));
             }
         };
         match answered {
-            Err(_) => Err("the kept circuit closed before the stream was answered".into()),
+            Err(_) => Err(failed("the kept circuit closed before the stream was answered".into())),
             Ok(Err(refusal)) => Ok(Err(refusal)),
             Ok(Ok(())) => {
                 self.stats.kept_opens.fetch_add(1, Ordering::Relaxed);
@@ -651,6 +730,12 @@ impl KeptCircuits {
                 );
             }
         }
+    }
+
+    /// The live kept circuits to `daemon` that heard no record at all for `silent`: no byte on
+    /// any stream, no keepalive PONG.
+    pub(crate) fn silent_for(&self, daemon: &str, silent: Duration) -> Vec<Arc<Mux>> {
+        self.live(daemon).into_iter().filter(|mux| mux.heard().elapsed() >= silent).collect()
     }
 
     /// The live kept circuits to `daemon` open now, cheap first.

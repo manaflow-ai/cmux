@@ -17,6 +17,10 @@
 //! - `system`: the root filesystem's used bytes less the two above: everything outside home.
 //!
 //! Sizes are allocated bytes (`st_blocks`), a hard-linked file once, never across a mount.
+//!
+//! The same walk counts each chat's bytes (`~/chats/<id>`, the worktrees inside it included)
+//! into `chats`, the [`CHATS`] largest, and lists the idle cargo build output `disk_evict.rs`
+//! may clear when the disk runs low; that eviction, when one ran, rides in `evicted`.
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -32,6 +36,10 @@ pub const WALK_MAX_ENTRIES: u64 = 3_000_000;
 const LOCK_STALE: Duration = Duration::from_secs(10 * 60);
 /// How many of the largest home directories the split names.
 pub const TOP: usize = 3;
+/// How many of the largest chats the split names.
+pub const CHATS: usize = 50;
+/// The directory under home whose children are the chats (`~/chats/<id>`).
+pub const CHATS_DIR: &str = "chats";
 
 /// The caches under the home directory, relative to it: package stores and build caches.
 pub const CACHE_DIRS: &[&str] = &[
@@ -69,6 +77,24 @@ pub struct TopDir {
     pub bytes: u64,
 }
 
+/// One chat's bytes: `~/chats/<id>` and everything under it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChatBytes {
+    pub id: String,
+    pub bytes: u64,
+}
+
+/// What the guest cleared when its disk ran low (`disk_evict.rs`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Evicted {
+    /// When, milliseconds since the epoch.
+    pub at: u64,
+    /// The root filesystem's free bytes after less before.
+    pub freed_bytes: u64,
+    pub paths: Vec<String>,
+}
+
 /// The last walk's split of the root disk's used bytes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -82,6 +108,12 @@ pub struct DiskSplit {
     pub complete: bool,
     /// The [`TOP`] largest directories under home, largest first.
     pub top: Vec<TopDir>,
+    /// The [`CHATS`] largest chats, largest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub chats: Vec<ChatBytes>,
+    /// The last eviction, kept across walks until a newer one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evicted: Option<Evicted>,
 }
 
 /// The filesystem holding `path`.
@@ -194,11 +226,24 @@ pub fn walk_and_store() -> anyhow::Result<()> {
     }
     let result = (|| {
         let home = home_dir().ok_or_else(|| anyhow::anyhow!("no HOME"))?;
-        let root = statvfs(Path::new("/")).ok_or_else(|| anyhow::anyhow!("statvfs / failed"))?;
         let walked = walk(&home, WALK_BUDGET, WALK_MAX_ENTRIES);
         let same_disk = same_device(Path::new("/"), &home);
-        let split = split_of(&home, root, same_disk, walked, crate::store::now_ms());
         let path = cache_path();
+        let now = crate::store::now_ms();
+        // Under the disk budget, clear caches and idle build output before the walk's numbers go
+        // out; the split then reads the disk after it.
+        let evicted = if same_disk {
+            crate::disk_evict::evict_if_low(&home, &walked.build_dirs, now)
+        } else {
+            None
+        };
+        let root = statvfs(Path::new("/")).ok_or_else(|| anyhow::anyhow!("statvfs / failed"))?;
+        let mut walked = walked;
+        if let Some(e) = &evicted {
+            walked.caches = walked.caches.saturating_sub(e.freed_bytes);
+        }
+        let mut split = split_of(&home, root, same_disk, walked, now);
+        split.evicted = evicted.or_else(|| read_cached(&path, now).0.and_then(|s| s.evicted));
         let tmp = path.with_extension("json.tmp");
         std::fs::write(&tmp, serde_json::to_vec(&split)?)?;
         std::fs::rename(&tmp, &path)?;
@@ -227,6 +272,22 @@ pub struct Walked {
     pub complete: bool,
     /// Bytes per directory at most two levels under home (a file directly in home: its own).
     pub buckets: Vec<(PathBuf, u64)>,
+    /// Bytes per chat (`~/chats/<id>`), largest first.
+    pub chats: Vec<(String, u64)>,
+    /// Cargo build directories (a `CACHEDIR.TAG` written by cargo) outside the package caches.
+    pub build_dirs: Vec<PathBuf>,
+}
+
+/// The chat a path under home belongs to: `chats/<id>/...` gives `<id>`.
+pub fn chat_of(rel: &Path) -> Option<&str> {
+    let mut parts = rel.components();
+    (parts.next()?.as_os_str() == CHATS_DIR).then_some(())?;
+    parts.next()?.as_os_str().to_str()
+}
+
+/// Whether `dir` is cargo's build output: its `CACHEDIR.TAG` says cargo made it.
+fn is_cargo_target(dir: &Path) -> bool {
+    std::fs::read(dir.join("CACHEDIR.TAG")).is_ok_and(|tag| tag.windows(5).any(|w| w == b"cargo"))
 }
 
 /// Whether `dir` (at `rel` under home) is a cache.
@@ -246,6 +307,7 @@ pub fn walk(home: &Path, budget: Duration, max_entries: u64) -> Walked {
     let dev = top.dev();
     let mut out = Walked { complete: true, ..Walked::default() };
     let mut buckets: HashMap<PathBuf, u64> = HashMap::new();
+    let mut chats: HashMap<String, u64> = HashMap::new();
     let mut linked: HashSet<u64> = HashSet::new();
     let mut entries: u64 = 0;
     // (directory, whether it is inside a cache)
@@ -270,7 +332,14 @@ pub fn walk(home: &Path, budget: Duration, max_entries: u64) -> Walked {
             }
             let rel = path.strip_prefix(home).unwrap_or(&path);
             let bytes = meta.blocks().saturating_mul(512);
-            let cache = in_cache || (meta.is_dir() && is_cache(&path, rel));
+            let tagged = !in_cache && meta.is_dir() && is_cache(&path, rel);
+            let cache = in_cache || tagged;
+            if tagged && is_cargo_target(&path) {
+                out.build_dirs.push(path.clone());
+            }
+            if let Some(chat) = chat_of(rel) {
+                *chats.entry(chat.to_owned()).or_default() += bytes;
+            }
             if cache {
                 out.caches += bytes;
             } else {
@@ -292,6 +361,9 @@ pub fn walk(home: &Path, budget: Duration, max_entries: u64) -> Walked {
     let mut buckets: Vec<(PathBuf, u64)> = buckets.into_iter().collect();
     buckets.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
     out.buckets = buckets;
+    let mut chats: Vec<(String, u64)> = chats.into_iter().collect();
+    chats.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    out.chats = chats;
     out
 }
 
@@ -319,6 +391,12 @@ pub fn split_of(home: &Path, root: Root, same_disk: bool, walked: Walked, at: u6
             bytes: *bytes,
         })
         .collect();
+    let chats = walked
+        .chats
+        .iter()
+        .take(CHATS)
+        .map(|(id, bytes)| ChatBytes { id: id.clone(), bytes: *bytes })
+        .collect();
     DiskSplit {
         at,
         system_bytes: system,
@@ -326,6 +404,8 @@ pub fn split_of(home: &Path, root: Root, same_disk: bool, walked: Walked, at: u6
         caches_bytes: walked.caches,
         complete: walked.complete,
         top,
+        chats,
+        evicted: None,
     }
 }
 

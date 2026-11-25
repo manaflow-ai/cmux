@@ -3,7 +3,7 @@ use crate::config::HarnessKind;
 
 /// `sr2 claude` is the case that starved (module docs, item 2).
 #[test]
-fn a_claude_launcher_defaults_to_normal_and_claude_itself_to_background() {
+fn a_claude_launcher_is_normal_whatever_the_default_and_claude_itself_takes_the_default() {
     let default = |kind, program: &str| default_for(kind, &[program.to_owned()]);
     for launcher in ["/Users/me/.local/bin/claude-sr2", "/Users/me/bin/sr", "sr2", "python3"] {
         assert_eq!(default(HarnessKind::ClaudeStdio, launcher), CpuClass::Normal, "{launcher}");
@@ -54,7 +54,7 @@ fn the_first_valid_source_names_the_class_else_the_default() {
     let bg = Some(CpuClass::Background);
     let normal = Some(CpuClass::Normal);
     let resolve = |profile, daemon, config| CpuClass::resolve(profile, daemon, config, DEFAULT);
-    assert_eq!(resolve(None, None, None), CpuClass::Background);
+    assert_eq!(resolve(None, None, None), CpuClass::Normal);
     assert_eq!(resolve(None, None, normal), CpuClass::Normal);
     // The daemon's env overrides config; the profile overrides both.
     assert_eq!(resolve(None, Some("normal".into()), bg), CpuClass::Normal);
@@ -62,7 +62,7 @@ fn the_first_valid_source_names_the_class_else_the_default() {
     assert_eq!(resolve(Some(" Normal "), None, bg), CpuClass::Normal);
     // A value that names no class is skipped.
     assert_eq!(resolve(Some("utility"), Some("normal".into()), bg), CpuClass::Normal);
-    assert_eq!(resolve(Some(""), None, None), CpuClass::Background);
+    assert_eq!(resolve(Some(""), None, None), CpuClass::Normal);
     // What the harness defaults to comes last: any named class wins over it.
     let launcher = |profile, config| CpuClass::resolve(profile, None, config, CpuClass::Normal);
     assert_eq!(launcher(None, None), CpuClass::Normal);
@@ -205,6 +205,24 @@ fn linux_harness_state_reads_the_process_tree_and_tells_work_from_idle() {
     let _ = spinner.wait();
     assert!(b.cpu_ms > a.cpu_ms, "{a:?} {b:?}");
     assert!(b.worked_since(&a, WORK_WINDOW), "{a:?} {b:?}");
+}
+
+/// A person's turn takes a background harness out of background class and its end puts it
+/// back (module docs, item 6); a process it starts during the turn is not at background class.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_persons_turn_lifts_a_background_harness_and_its_end_lowers_it_again() {
+    let mut harness = std::process::Command::new("sleep").arg("30").spawn().expect("spawn sleep");
+    let pid = harness.id();
+    assert!(CpuClass::Background.enter(pid));
+    assert!(harness_state(pid).expect("read it").background);
+    assert!(person_turn(pid, true));
+    let lifted = harness_state(pid).expect("read it lifted");
+    assert!(!lifted.background, "{lifted:?}");
+    assert!(person_turn(pid, false));
+    assert!(harness_state(pid).expect("read it after").background);
+    let _ = harness.kill();
+    let _ = harness.wait();
 }
 
 #[cfg(target_os = "linux")]

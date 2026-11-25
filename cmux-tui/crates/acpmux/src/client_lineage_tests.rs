@@ -16,6 +16,17 @@ fn a_session_new_names_the_env_tool_call_once() {
 }
 
 #[test]
+fn an_admission_waiting_note_prints_its_warning() {
+    let note = json!({"warning": "a machine is being added", "scalingUp": true});
+    assert_eq!(
+        admission_waiting_text(Some(&note)).as_deref(),
+        Some("acpmux: a machine is being added")
+    );
+    assert_eq!(admission_waiting_text(Some(&json!({}))), None);
+    assert_eq!(admission_waiting_text(None), None);
+}
+
+#[test]
 fn a_parentless_session_new_asks_for_no_parent() {
     let sent = parentless(json!({"cwd": "/tmp", "_meta": {"acpmux": {"ephemeral": true}}}));
     assert_eq!(sent["_meta"]["acpmux"]["parent"], Value::Null);

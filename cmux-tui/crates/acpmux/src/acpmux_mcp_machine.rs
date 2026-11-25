@@ -19,7 +19,7 @@ pub(super) fn tools() -> Vec<Value> {
     vec![
         json!({
             "name": "machine_read",
-            "description": "Read on another of the person's signed-in machines (their Mac, from an agent on a VM): a file's text, a folder's entries, files matching a glob, or lines matching a regex. Use it for what lives on that machine; for this machine use your own tools. Paths are absolute, inside that machine's home or temp folders. That machine must allow control from the person's other machines (Settings > Devices there); a refusal says what is missing.",
+            "description": "Read on another of the person's signed-in machines (their Mac, from an agent on a VM): a file's text, a folder's entries, files matching a glob, or lines matching a regex. For this machine use your own tools. Paths are absolute, in that machine's home or temp folders. That machine must allow control (Settings > Devices); a refusal says what is missing.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -37,7 +37,7 @@ pub(super) fn tools() -> Vec<Value> {
         }),
         json!({
             "name": "machine_edit",
-            "description": "Change a file on another of the person's signed-in machines: write its whole text, replace exact strings in it, or apply a unified diff. An edit names the sha256 machine_read gave, so a file changed since is not overwritten. That machine's own cmux files, system paths, credentials and startup files are refused.",
+            "description": "Change a file on another of the person's signed-in machines: write its whole text, replace exact strings in it, or apply a unified diff. An edit names the sha256 machine_read gave, so a file changed since is not overwritten. Its cmux files, system paths, credentials and startup files are refused.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -54,14 +54,14 @@ pub(super) fn tools() -> Vec<Value> {
         }),
         json!({
             "name": "machine_exec",
-            "description": "Run one command on another of the person's signed-in machines and return its exit code, stdout and stderr (each up to 256 KB). Use it for what only that machine can do (open an app, run a tool installed there); build and test on this machine. Default timeout two minutes, at most ten. Destructive commands and ones that touch credentials are refused there.",
+            "description": "Run one command on another of the person's signed-in machines and return its exit code, stdout and stderr (each up to 256 KB). Only for what that machine alone can do; build and test here. Timeout two minutes by default, at most ten. Destructive commands and ones that touch credentials are refused there.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "machine": machine,
                     "command": {"type": "string", "description": "A shell command line, run by /bin/sh -c."},
                     "argv": {"type": "array", "items": {"type": "string"}, "minItems": 1, "description": "Instead of command: the program and its arguments, run with no shell."},
-                    "cwd": {"type": "string", "description": "Its folder, absolute: a folder inside that machine's home folder or a temp folder. The home folder itself is refused, and with no cwd the command runs in that machine's work folder, which is the home folder on a machine that has none set."},
+                    "cwd": {"type": "string", "description": "Its folder, absolute, inside that machine's home or a temp folder (not home itself). Default: that machine's work folder."},
                     "timeout_ms": {"type": "integer", "minimum": 1}
                 },
                 "required": ["machine"]

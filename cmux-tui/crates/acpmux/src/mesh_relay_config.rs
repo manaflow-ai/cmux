@@ -165,6 +165,18 @@ pub fn policy_reach(policy: crate::config::PermissionPolicy) -> u8 {
     }
 }
 
+/// The `sameUser` entry an older join wrote (no `maxPolicy`, untouched by its owner) becomes
+/// the one a join writes now, so the person's own machines keep starting chats on each other in
+/// the policy they name. An entry the owner changed keeps its choice. True when one changed.
+pub fn upgrade_join_entries(control_from: &mut [MeshControlFrom]) -> bool {
+    let mut changed = false;
+    for entry in control_from.iter_mut().filter(|entry| entry.is_unmarked_join_entry()) {
+        *entry = MeshControlFrom::same_user();
+        changed = true;
+    }
+    changed
+}
+
 /// The widest cap among `entries` that grant `op` to `from` here (each entry's
 /// [`MeshControlFrom::policy_cap`]), or None when none grants it.
 pub fn control_cap(

@@ -1,7 +1,7 @@
 //! The wait between connect attempts (`Peer::run`), and how a client that waits on the peer
 //! shortens it. A client's request refused because the link is down (`server/peer_forward.rs`),
-//! or a ready link that ended (chats are open on it), marks the peer wanted for `WANTED_FOR`: each
-//! wait in that window is bounded by `Backoff::WANTED_CAP`, and a refusal cuts the running wait
+//! or a ready link that ended (chats are open on it), marks the peer wanted for the outage window:
+//! each wait in that window is bounded by `Backoff::WANTED_CAP`, and a refusal cuts the running wait
 //! to that bound at once. Nothing new runs in the background: the bound is read by the wait
 //! that is already there, and it lapses by itself `WANTED_FOR` after the last ask.
 //!
@@ -207,7 +207,7 @@ impl Peer {
     pub(super) fn link_ending(&self, restarting: bool) {
         let ready_for = self.link().ready_for(crate::store::now_ms());
         if ready_for.is_some_and(|up| restarting || up >= READY_FOR) {
-            self.want_for(if restarting { RESTART_WANTED_FOR } else { WANTED_FOR });
+            self.want_for(if restarting { RESTART_WANTED_FOR } else { WANTED_OUTAGE_FOR });
         }
     }
 
@@ -229,6 +229,16 @@ impl Peer {
     pub(super) fn asks_shorten(&self, now: u64) -> bool {
         let young = |at: u64| now.saturating_sub(at) < WANTED_OUTAGE_FOR.as_millis() as u64;
         self.waking() || self.link().down_since.is_none_or(young)
+    }
+
+    /// Whether a client that waits on the peer now gets a connect attempt within about
+    /// `Backoff::WANTED_CAP`: the outage is young enough for its ask to cut the wait
+    /// (`asks_shorten`), and no refused ssh login holds the attempts back. A new chat for it
+    /// (`server/requests.rs` `new_on_peer`) waits for the link only then; a machine long gone is
+    /// refused at once, as before.
+    pub(crate) fn reconnects_soon(&self) -> bool {
+        !self.login_refused.load(std::sync::atomic::Ordering::SeqCst)
+            && self.asks_shorten(crate::store::now_ms())
     }
 
     /// Waits out one backoff delay, or its `Backoff::wanted` bound while the peer is wanted

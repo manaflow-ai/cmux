@@ -78,7 +78,7 @@ async fn team_mode_injects_exactly_the_gateway_vars() {
         ])
     );
     // Every name a team launch sets is one a sign-in never sees.
-    for p in [Provider::Gemini, Provider::Grok] {
+    for p in [Provider::Gemini, Provider::Grok, Provider::Antigravity] {
         for (k, _) in p.team_env("https://o") {
             assert!(crate::agent_login::MODEL_PLANE_ENV.contains(&k.as_str()), "{k}");
         }
@@ -123,6 +123,51 @@ async fn an_own_login_keeps_own_mode() {
         mode(&m, Provider::Gemini, &[("CMUX_GEMINI_AUTH", "own")], Some(BOTH)).await,
         Mode::Own("env")
     );
+}
+
+#[tokio::test]
+async fn antigravity_takes_geminis_route_and_keeps_its_own_sign_in() {
+    let m = machine("owner");
+    // Team: Gemini's base URL and placeholder key, served when the gateway serves Gemini.
+    let got = mode(&m, Provider::Antigravity, &[], Some(BOTH)).await;
+    assert_eq!(got, Mode::Team(Provider::Gemini.team_env("https://coderouter.cmux.internal")));
+    let xai_only = Providers { gemini: false, xai: true };
+    assert_eq!(mode(&m, Provider::Antigravity, &[], Some(xai_only)).await, Mode::Own("not-served"));
+    // Gemini CLI's sign-in is not Antigravity's.
+    std::fs::create_dir_all(m.home.join(".gemini")).unwrap();
+    std::fs::write(m.home.join(".gemini/oauth_creds.json"), "{}").unwrap();
+    assert_eq!(mode(&m, Provider::Antigravity, &[], Some(BOTH)).await, team(Provider::Antigravity));
+    // Its own token files are; GEMINI_HOME moves the ACP server's.
+    let acp = m.root.join("gemini-home/antigravity-acp");
+    std::fs::create_dir_all(&acp).unwrap();
+    std::fs::write(acp.join("acp_token.json"), r#"{"t":"x"}"#).unwrap();
+    let home = m.root.join("gemini-home").to_string_lossy().into_owned();
+    assert_eq!(
+        mode(&m, Provider::Antigravity, &[("GEMINI_HOME", &home)], Some(BOTH)).await,
+        Mode::Own("login")
+    );
+    let cli = m.home.join(".gemini/antigravity-cli");
+    std::fs::create_dir_all(&cli).unwrap();
+    std::fs::write(cli.join("antigravity-oauth-token"), "tok").unwrap();
+    assert_eq!(mode(&m, Provider::Antigravity, &[], Some(BOTH)).await, Mode::Own("login"));
+    // A key of its own, its pin and its endpoint keep own too.
+    let m = machine("owner");
+    for var in [
+        ("GEMINI_API_KEY", "real-key-123"),
+        ("CMUX_ANTIGRAVITY_AUTH", "own"),
+        ("GOOGLE_GEMINI_BASE_URL", "https://proxy.example.test"),
+        ("GOOGLE_GENAI_USE_VERTEXAI", "true"),
+    ] {
+        assert!(
+            matches!(mode(&m, Provider::Antigravity, &[var], Some(BOTH)).await, Mode::Own(_)),
+            "{var:?}"
+        );
+    }
+    // Only `agy` itself, by family `antigravity`.
+    let argv = |w: &[&str]| w.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+    assert!(launches_itself(Provider::Antigravity, &argv(&["/home/u/.local/bin/agy", "acp"])));
+    assert!(!launches_itself(Provider::Antigravity, &argv(&["gemini", "--experimental-acp"])));
+    assert_eq!(Provider::for_family("antigravity"), Some(Provider::Antigravity));
 }
 
 #[tokio::test]

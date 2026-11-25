@@ -7,6 +7,9 @@ fn server(name: &'static str) -> Served {
         tools: json!([]),
         instructions: None,
         call: boxed(|_, _| async { json!({}) }),
+        on_initialize: None,
+        list: None,
+        handle: None,
     }
 }
 
@@ -77,5 +80,8 @@ fn it_owns_only_acpmux_s_own_server_commands() {
     assert!(owns("acpmux", &args(&["acp", "acpmux-mcp"])));
     assert!(!owns("cmux-forum", &args(&["acpmux-mcp"])));
     assert!(!owns("cmux-repo", &args(&["repo-mcp"])));
+    assert!(owns("cmux-cloud-repos", &args(&["repo-mcp"])));
+    assert!(owns("cmux-hosted", &args(&["acp", "hosted-mcp"])));
     assert!(!owns("cmux-cua", &args(&["cua-mcp"])));
+    assert!(owns("cmux-computer-use", &args(&["computer-use-mcp"])));
 }

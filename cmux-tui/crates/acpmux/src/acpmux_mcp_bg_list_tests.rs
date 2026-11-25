@@ -180,7 +180,10 @@ fn a_listing_row_carries_neither_what_every_row_shares_nor_what_it_derives() {
     assert!(after * 2 < before, "{after} of {before} bytes: less than half was cut");
     // full: true is the call that asks for everything, and still gets it.
     let (whole, _) = page(json!({"full": true})).apply(as_the_daemon_lists(2), NOW);
-    assert_eq!(whole["tasks"], as_the_daemon_lists(2)["tasks"]);
+    // Every field of every task, newest first as every page lists them (the daemon's oldest first).
+    let mut newest_first = as_the_daemon_lists(2)["tasks"].as_array().unwrap().clone();
+    newest_first.reverse();
+    assert_eq!(whole["tasks"], json!(newest_first));
     assert!(whole.get("sessionId").is_none(), "nothing hoisted out of a full page");
 }
 

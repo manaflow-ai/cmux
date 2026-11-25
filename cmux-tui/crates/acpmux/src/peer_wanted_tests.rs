@@ -6,6 +6,25 @@ fn peer() -> std::sync::Arc<Peer> {
     Peer::new("huge-blue", "ws://127.0.0.1:9", None, None, tx)
 }
 
+/// remote-ssh-reconnect probe: a chat started as the network comes back after a 150 s drop
+/// waits for the link (`new_on_peer`); one for a machine gone for longer is refused at once.
+#[test]
+fn a_new_chat_waits_on_a_young_outage_only() {
+    let peer = peer();
+    let now = crate::store::now_ms();
+    peer.with_link(|l| {
+        l.down(now - 150_000, Duration::from_secs(1));
+    });
+    assert!(peer.reconnects_soon(), "a 150 s outage still reconnects within a second");
+    peer.login_refused.store(true, std::sync::atomic::Ordering::SeqCst);
+    assert!(!peer.reconnects_soon(), "a refused login holds its attempts back");
+    let gone = self::peer();
+    gone.with_link(|l| {
+        l.down(now - 2 * WANTED_OUTAGE_FOR.as_millis() as u64, Duration::from_secs(60));
+    });
+    assert!(!gone.reconnects_soon(), "a machine gone for long is refused at once");
+}
+
 /// cosmic-gray, 2026-11-21: reads that kept asking about swarm VMs long gone re-dialed each
 /// one's ssh about once a second. Past `WANTED_OUTAGE_FOR` an ask no longer cuts the wait;
 /// a message still does.
@@ -272,6 +291,17 @@ fn a_ready_link_that_ends_is_wanted_unless_it_died_right_after_its_handshake() {
         peer.is_wanted()
     };
     assert!(ended(Some(20_000), false), "a link up 20 s drops: its chats wait on it");
+    let outage = peer();
+    outage.with_link(|l| {
+        l.opened(now - 20_000);
+        l.ready(now - 20_000);
+    });
+    outage.link_ending(false);
+    let until = outage.wanted.until.lock().unwrap().unwrap();
+    assert!(
+        until > Instant::now() + WANTED_FOR,
+        "a stable outage keeps fast reconnects longer than one ask"
+    );
     let restarted = peer();
     restarted.with_link(|l| {
         l.opened(now);

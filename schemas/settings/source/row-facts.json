@@ -14,6 +14,7 @@
   "validation": {
     "keys": {
       "agents.chats.roots": "domain:chat_roots",
+      "appearance.appFont": "domain:ui_font_family",
       "appearance.background": "domain:backdrop_selection",
       "appearance.backgroundLight": "domain:backdrop_picture",
       "appearance.backgroundDark": "domain:backdrop_picture",

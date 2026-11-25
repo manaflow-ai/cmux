@@ -6,6 +6,7 @@ fn binary_without_a_matching_ready_marker_is_not_ready() {
     let binary = dir.path().join("codex");
     let marker = dir.path().join("ready.json");
     std::fs::write(&binary, b"partial").unwrap();
+    std::fs::write(dir.path().join(HOST), b"host").unwrap();
     assert!(!is_ready_at(&binary, &marker, "abc"), "no marker");
     std::fs::write(&marker, b"not json").unwrap();
     assert!(!is_ready_at(&binary, &marker, "abc"), "corrupt marker");
@@ -15,6 +16,9 @@ fn binary_without_a_matching_ready_marker_is_not_ready() {
     assert!(!is_ready_at(&binary, &marker, "abc"), "other hash");
     std::fs::write(&marker, format!(r#"{{"version":"{VERSION}","sha256":"abc"}}"#)).unwrap();
     assert!(is_ready_at(&binary, &marker, "abc"));
+    std::fs::remove_file(dir.path().join(HOST)).unwrap();
+    assert!(!is_ready_at(&binary, &marker, "abc"), "no code-mode host beside codex");
+    std::fs::write(dir.path().join(HOST), b"host").unwrap();
     std::fs::remove_file(&binary).unwrap();
     assert!(!is_ready_at(&binary, &marker, "abc"), "marker without binary");
     assert!(!is_ready_at(&binary, &marker, ""), "unsupported platform");
@@ -24,6 +28,7 @@ fn binary_without_a_matching_ready_marker_is_not_ready() {
 fn install(dir: &Path, body: &str) {
     std::fs::create_dir_all(dir).unwrap();
     std::fs::write(dir.join("codex"), body).unwrap();
+    std::fs::write(dir.join(HOST), body).unwrap();
     std::fs::write(dir.join("ready.json"), "{}").unwrap();
 }
 
@@ -60,6 +65,7 @@ fn an_unfinished_install_changes_nothing() {
     let half = base.path().join(format!("{VERSION}-2-2"));
     std::fs::create_dir_all(&half).unwrap();
     std::fs::write(half.join("codex"), "half").unwrap();
+    std::fs::write(half.join(HOST), "half").unwrap();
     assert!(activate(base.path(), &half).is_err());
     assert_eq!(current(base.path()), "old");
     assert!(old.exists());
@@ -104,4 +110,21 @@ fn prune_leaves_a_recent_install_another_installer_has_not_linked_yet() {
     assert!(pending.exists(), "a fresh directory may be mid-install elsewhere");
     activate(base.path(), &pending).unwrap();
     assert_eq!(current(base.path()), "pending");
+}
+
+#[test]
+fn the_runtime_takes_codex_and_its_code_mode_host_or_refuses() {
+    let staging = tempfile::tempdir().unwrap();
+    let bin = staging.path().join("package/vendor/x/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(bin.join("codex"), "codex").unwrap();
+    // A release-tarball shape: codex alone. Refused, never installed half.
+    let err = take_binaries(staging.path(), "package/vendor/x/bin").unwrap_err();
+    assert!(err.to_string().contains(HOST), "{err}");
+    assert!(bin.join("codex").is_file(), "nothing moved on refusal");
+    std::fs::write(bin.join(HOST), "host").unwrap();
+    take_binaries(staging.path(), "package/vendor/x/bin").unwrap();
+    assert_eq!(std::fs::read_to_string(staging.path().join("codex")).unwrap(), "codex");
+    assert_eq!(std::fs::read_to_string(staging.path().join(HOST)).unwrap(), "host");
+    assert!(!staging.path().join("package").exists());
 }

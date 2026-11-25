@@ -115,7 +115,7 @@ import Testing
         let text = card.shownText
         #expect(text.first?.localizedCaseInsensitiveContains("sign-ins") == true, "the title offers sign-ins: \(text)")
         #expect(text.first?.contains("Google Chrome") == true, "and names the browser: \(text)")
-        #expect(text.contains(BrowserImportOfferStrings.dontShowAgain), "Don't Show Again is one of the answers: \(text)")
+        #expect(text.contains(BrowserImportOfferStrings.never(browser: "Chrome")), "Never for Chrome is one of the answers: \(text)")
         #expect(text.contains(BrowserImportOfferStrings.importData))
         #expect(text.contains(BrowserImportOfferStrings.notNow))
     }
@@ -402,7 +402,7 @@ import Testing
         #expect(!(await p.waitForCard(within: .seconds(2))), "a newsletter field is not a sign-in page")
     }
 
-    @Test func dontShowAgainTurnsTheSettingOffInCmuxJSON() async throws {
+    @Test func permanentDismissalTurnsTheSettingOffInCmuxJSON() async throws {
         let h = try await make()
         defer { h.tearDown() }
         h.services.onboarding.browserImportOffer.answer(.never)

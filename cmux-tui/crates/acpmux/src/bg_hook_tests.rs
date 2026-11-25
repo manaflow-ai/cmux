@@ -9,7 +9,12 @@ fn call(background: bool) -> Value {
 /// A stand-in for this binary: a shell that prints each argument it gets on a line.
 fn cli() -> TaskCli {
     let words = ["sh", "-c", "printf '%s\\n' \"$@\"", "acpmux"].map(str::to_owned).to_vec();
-    TaskCli { words, denied: "/h/chat's mcp.json.bg-denied".into(), key: "k1".to_owned() }
+    TaskCli {
+        words,
+        denied: "/h/chat's mcp.json.bg-denied".into(),
+        key: "k1".to_owned(),
+        run_vm: None,
+    }
 }
 
 /// The rewritten call's input, or a panic when the hook did not rewrite it.

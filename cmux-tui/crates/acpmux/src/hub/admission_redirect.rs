@@ -294,7 +294,10 @@ mod tests {
             local,
             peers,
             redirect,
+            auto: false,
+            waiting: None,
             harness: None,
+            caller: None,
         }
     }
 

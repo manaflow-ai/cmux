@@ -114,6 +114,19 @@ fn the_schema_says_every_bound_and_enforces_none() {
     assert_eq!(shown(json!({"recap": at}))["recap"], at);
 }
 
+/// https://github.com/manaflow-ai/cmux/issues/52766: an agent woken by background-command
+/// notices ended seven turns on the same "Can you click the dev build tab in my right split"
+/// ask. The ask's description rules out both: a request to click a tab, and asking again.
+#[test]
+fn the_ask_rules_out_clicking_tabs_and_asking_again() {
+    let tool = tool();
+    let said = tool["inputSchema"]["properties"]["ask"]["description"].as_str().unwrap();
+    for phrase in ["Never ask them to click", "focus or capture it yourself", "do not ask it again"]
+    {
+        assert!(said.contains(phrase), "{phrase}: {said}");
+    }
+}
+
 /// The census of 2026-11-23 (cmuxterm-hq docs/findings/2026-11-23-mcp-tool-error-census.md):
 /// 54 wrap_up calls in 48 h on one VM sent `learned` as one string and were refused "learned
 /// is a list". A string is a list of it (of its lines, or the list a JSON string spells), and
@@ -153,6 +166,63 @@ fn summary_and_other_aliases_are_taken_as_their_field_and_said_so() {
     // The field itself wins over an alias sent beside it.
     assert_eq!(shown(json!({"recap": "Done.", "summary": "Other."}))["recap"], "Done.");
     assert!(check(&json!({"summary": "  "})).is_err());
+}
+
+#[test]
+fn typed_actions_are_kept_checked_and_labelled() {
+    let got = shown(json!({
+        "recap": "Built it.",
+        "ask": "Try it on?",
+        "actions": [
+            {"label": "Try it on", "run": {"customize": "try", "target": "pr:51234", "minutes": 15, "extra": 1}},
+            "Not now",
+        ],
+    }));
+    assert_eq!(
+        got["actions"],
+        json!([
+            {"label": "Try it on", "run": {"customize": "try", "target": "pr:51234", "minutes": 15}},
+            "Not now"
+        ])
+    );
+    // No label: the verb's own. Keep and revert take no target.
+    let got = shown(
+        json!({"recap": "x", "ask": "Keep?", "actions": [{"run": {"customize": "keep"}}, {"run": {"customize": "revert"}}]}),
+    );
+    assert_eq!(got["actions"][0], json!({"label": "Keep", "run": {"customize": "keep"}}));
+    assert_eq!(got["actions"][1]["label"], "Revert");
+}
+
+#[test]
+fn a_run_outside_the_allowlist_is_dropped_and_said_so() {
+    let (got, notes) = check(&json!({
+        "recap": "x", "ask": "Go?",
+        "actions": [{"label": "Do it", "run": {"customize": "try", "target": "--help"}}, {"run": {"customize": "apply"}}],
+    }))
+    .unwrap();
+    assert_eq!(got["actions"], json!(["Do it"]));
+    let said = notes.join("; ");
+    assert!(
+        said.contains("action 1 run dropped") && said.contains("action 2 has no label"),
+        "{said}"
+    );
+}
+
+#[test]
+fn the_schema_says_what_a_typed_action_is() {
+    let tool = tool();
+    let items = &tool["inputSchema"]["properties"]["actions"]["items"]["anyOf"];
+    assert_eq!(items[0]["type"], "string");
+    assert_eq!(
+        items[1]["properties"]["run"]["properties"]["customize"]["enum"],
+        json!(["try", "keep", "revert"])
+    );
+    assert!(
+        tool["inputSchema"]["properties"]["actions"]["description"]
+            .as_str()
+            .unwrap()
+            .contains("customize")
+    );
 }
 
 #[test]

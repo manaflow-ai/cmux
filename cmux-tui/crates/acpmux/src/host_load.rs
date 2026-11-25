@@ -49,6 +49,15 @@ pub struct Load {
     pub swap_used_fraction: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub oom_kills: Option<u64>,
+    /// `/proc/vmstat`'s reclaim counters since boot (allocations stalled on direct reclaim,
+    /// pages it scanned, evicted pages read back): the memory stall where PSI is off. The
+    /// server diffs two samples, as with `oomKills` (cmuxterm-hq RFD 0182 B1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alloc_stalls: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub direct_scanned: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refaults: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disk_free_bytes: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -412,7 +421,14 @@ fn linux(load: &mut Load) {
         load.mem_available_fraction = p::parse_meminfo_available(&meminfo);
         load.swap_used_fraction = p::parse_meminfo_swap_used(&meminfo);
     }
-    load.oom_kills = read("/proc/vmstat").and_then(|s| p::parse_vmstat_oom_kill(&s));
+    if let Some(vmstat) = read("/proc/vmstat") {
+        load.oom_kills = p::parse_vmstat_oom_kill(&vmstat);
+        if let Some(r) = p::parse_vmstat_reclaim(&vmstat) {
+            load.alloc_stalls = Some(r.alloc_stalls);
+            load.direct_scanned = Some(r.direct_scanned);
+            load.refaults = Some(r.refaults);
+        }
+    }
     // The window is the sleep alone: the reads above stay out of it.
     let before = stat();
     std::thread::sleep(CPU_WINDOW);

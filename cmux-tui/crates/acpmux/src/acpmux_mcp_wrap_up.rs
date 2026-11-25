@@ -38,13 +38,13 @@ pub(crate) const MAX_FACT: usize = 200;
 pub(super) fn tool() -> Value {
     json!({
         "name": NAME,
-        "description": "Finish with a recap below your answer. When a decision is needed, clicking an answer button sends the person's next message.",
+        "description": "Finish with a recap below your answer. When a decision is needed, clicking an answer button sends the person's next message; a {label, run} answer runs cmux customize try, keep or revert instead.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "recap": {"type": "string", "description": format!("Two or three sentences on changes, verification and unfinished work, at most {MAX_RECAP} characters. Trimmed above {RECAP_CEILING}.")},
-                "ask": {"type": "string", "description": format!("Ask only for a decision the person needs to make, at most {MAX_ASK} characters.")},
-                "actions": {"type": "array", "items": {"type": "string"}, "description": format!("With ask, up to {MAX_ACTIONS} answer buttons of at most {MAX_ACTION} characters each, preferred first. Defaults to Yes and Not now.")},
+                "ask": {"type": "string", "description": format!("Ask only for a decision the person needs to make, at most {MAX_ASK} characters. Never ask them to click or switch tabs: focus or capture it yourself. An unanswered question still waits, so do not ask it again.")},
+                "actions": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "object", "properties": {"label": {"type": "string"}, "run": {"type": "object", "properties": {"customize": {"type": "string", "enum": ["try", "keep", "revert"]}, "target": {"type": "string", "description": "With try: pr:N, branch:B, sha:S, dir:PATH or a profile name."}, "minutes": {"type": "integer", "description": "With try: how long it stays on, 1 to 240."}}, "required": ["customize"]}}, "required": ["run"]}]}, "description": format!("With ask, up to {MAX_ACTIONS} answer buttons of at most {MAX_ACTION} characters each, preferred first. Defaults to Yes and Not now. After a customization, an answer may be {{label, run}}: run {{customize: \"try\", target: \"pr:123\", minutes: 15}} tries it on (the card then offers Keep and Revert), or {{customize: \"keep\"}} / {{customize: \"revert\"}}.")},
                 "learned": {"type": "array", "items": {"type": "string"}, "description": format!("After a correction or a failed then successful command, offer up to {MAX_LEARNED} one-line project facts for the person to accept (at most {MAX_FACT} characters each).")}
             },
             "required": ["recap"]
@@ -114,6 +114,19 @@ fn canonical(args: &Value) -> (Value, Vec<String>) {
     (Value::Object(map), said)
 }
 
+/// A typed `run` of an action, checked against `customize_run`'s allowlist and cut to its own
+/// keys, or why it is not allowed.
+fn typed_run(run: &Value) -> Result<Value, String> {
+    crate::customize_run::argv(run)?;
+    let mut out = serde_json::Map::new();
+    for key in ["customize", "target", "minutes"] {
+        if let Some(v) = run.get(key).filter(|v| !v.is_null()) {
+            out.insert(key.to_owned(), v.clone());
+        }
+    }
+    Ok(Value::Object(out))
+}
+
 /// The call's input checked: a recap, and an ask with its answers when there is one. A field
 /// past its bound is cut (`trim_to`), never refused; each cut is one line of the second value.
 /// A field sent under another name (ALIASES) is taken as that field.
@@ -171,13 +184,63 @@ pub(super) fn check(args: &Value) -> Result<(Value, Vec<String>), String> {
             Some(_) => Err(what.to_owned()),
         }
     };
-    let mut actions = list("actions", "actions is a list of one or two short strings", &mut notes)?;
+    // An answer is a string, or `{label, run}` where `run` is a typed customize request
+    // (`customize_run.rs`) the card runs on a click. A run that is not allowed is dropped, and the
+    // button stays an ordinary answer.
+    let mut actions: Vec<Value> = match args.get("actions") {
+        Some(Value::Array(list)) => list
+            .iter()
+            .filter_map(|item| match item {
+                Value::Object(_) => Some(item.clone()),
+                other => other.as_str().map(str::trim).filter(|v| !v.is_empty()).map(|v| json!(v)),
+            })
+            .collect(),
+        _ => list("actions", "actions is a list of one or two short answers", &mut notes)?
+            .into_iter()
+            .map(|a| json!(a))
+            .collect(),
+    };
     if actions.len() > MAX_ACTIONS {
         notes.push(format!("{} actions given; the first {MAX_ACTIONS} kept", actions.len()));
         actions.truncate(MAX_ACTIONS);
     }
-    let actions: Vec<String> = (actions.iter().enumerate())
-        .map(|(n, a)| cut(&format!("action {}", n + 1), a, MAX_ACTION, &mut notes))
+    let actions: Vec<Value> = (actions.iter().enumerate())
+        .filter_map(|(n, a)| {
+            let what = format!("action {}", n + 1);
+            let Some(object) = a.as_object() else {
+                return Some(json!(cut(&what, a.as_str()?, MAX_ACTION, &mut notes)));
+            };
+            let run = object.get("run").map(typed_run);
+            let verb = |run: &Value| match run["customize"].as_str() {
+                Some("try") => "Try it on",
+                Some("keep") => "Keep",
+                _ => "Revert",
+            };
+            let label = object
+                .get("label")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|v| !v.is_empty());
+            match (label, run) {
+                (label, Some(Ok(run))) => {
+                    let label = label.map_or_else(
+                        || verb(&run).to_owned(),
+                        |l| cut(&what, l, MAX_ACTION, &mut notes),
+                    );
+                    Some(json!({"label": label, "run": run}))
+                }
+                (Some(label), run) => {
+                    if let Some(Err(why)) = run {
+                        notes.push(format!("{what} run dropped: {why}"));
+                    }
+                    Some(json!(cut(&what, label, MAX_ACTION, &mut notes)))
+                }
+                (None, _) => {
+                    notes.push(format!("{what} has no label and no allowed run; dropped"));
+                    None
+                }
+            }
+        })
         .collect();
     if !actions.is_empty() && ask.is_none() {
         return Err("actions answer an ask; add the question, or leave actions out".to_owned());
