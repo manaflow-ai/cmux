@@ -5,6 +5,7 @@
 // together in one frame, in a slot of fixed height, so nothing around them moves.
 import type { Strings } from "../pages/shared/i18n";
 import { Button } from "../ui/Button";
+import { useConnectionQuiet } from "../ui/lasting";
 import { indicatorHeadline, type HealthTone } from "./model";
 import type { HealthSnapshot } from "./types";
 import "./appHealth.css";
@@ -38,7 +39,11 @@ export function AppHealthIndicator({
 }) {
   // A part that is only slow shows nothing here (model.ts indicatorHeadline); the native card still lists it.
   const head = indicatorHeadline(snapshot, strings);
-  if (!head) return null;
+  // A queued action alone ("Reconnecting; will close X when back") is a link the person can do nothing
+  // about: it waits the shared 10 s. A part that is stuck, repairing or failed shows at once, with its click.
+  const pendingOnly = head !== null && head.part === null;
+  const pendingLasting = useConnectionQuiet(pendingOnly);
+  if (!head || (pendingOnly && !pendingLasting)) return null;
   if (treatment === "titlebar")
     return (
       <Button

@@ -4,14 +4,18 @@
 //   generated/scopes.json    op name -> scope (the host's scope check and the consent UI)
 //   generated/ops.json       op names
 //   generated/signals.json   signal sources for cmux.watch (from schema/v2/signals.json)
+//   schema/merged/            index, per-family op rows and type digests of the four op sources (drift check; no second copy)
+//   generated/REFERENCE.md   the docs reference: ops, event streams and signal sources in tables
 // Sources until the merged D7 catalog exists: cmux-tui resource ops, cloud ops,
 // app actions, and every first-party app's catalog fragment (app-catalogs.ts).
 // `--check` exits 1 when a generated file is stale.
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { createHash } from "node:crypto"
+import { dirname, join } from "node:path"
 import { loadAppCatalogs, schemaType } from "./app-catalogs.ts"
 import { SchemaValidator } from "./json-schema.ts"
+import { referenceMarkdown } from "./gen-reference.ts"
 import { createCmux } from "../js/src/cmux.ts"
 
 const here = new URL(".", import.meta.url).pathname
@@ -39,7 +43,8 @@ const EXECUTE = /(^terminal\.input\.(write|keys|mouse)$|\.run$|^terminal\.(attac
 // team.audit.list and team.members.remove (cx-3bi.4): the audit chain and member removal are a person's session only.
 // agent.message.list/mark/release/send/unsend (#16430): no app access to agent messages until the agent-inbox lane designs a scoped
 // grant. An app that sends to an agent is a prompt-injection path; an app that reads them sees the agent's context.
-// settings.set/reset/reset_all/edit (cx-9ce.10): the settings file is the person's; an app may read settings only.
+// settings.set/reset/reset_all/edit/undo/restore/reset_group (cx-9ce.10): the settings file is the person's; an app may
+// read settings (and settings.history, which lists changed keys, never values) only.
 // layout.bulk (cx-gzh.5) closes tabs, panes, screens and workspaces, like every .close op.
 // workspace.open_url (cx-ebm.59.3) navigates the person's browser tabs; Home and the person's tools only.
 // conductor_import.plan/record read Conductor's database and worktrees and keep the import ledger: the app's
@@ -48,15 +53,19 @@ const EXECUTE = /(^terminal\.input\.(write|keys|mouse)$|\.run$|^terminal\.(attac
 // move from classic cmux only.
 // browser_import.read reads another browser's bookmarks, history and tabs by path: the app's own browser
 // import only (the daemon also refuses any origin but the verified app).
+// language_packs.ensure downloads the app's languages into its own cache by path: the app itself only.
 // palette.rank ranks rows for a cmux page's own palette (the Channels page); apps have `cmux.palette`, the
 // app palette, so the op family would collide with it.
-const NEVER = /(^settings\.(set|reset|reset_all|edit)$|^layout\.bulk$|^keybindings\.(set|remove|reset)$|\.close$|\.shutdown$|^session\.(open|reload_config|creation\.resolve)$|\.renderer_grant\.|\.history\.clear$|^workspace\.agent_(folder|start)\.|^workspace\.open_url$|^conductor_import\.|^browser_import\.|^classic_import\.|^palette\.rank$|^team_vm\.retired\.export$|^team\.(audit\.list|members\.remove)$|^agent\.message\.(list|mark|release|send|unsend)$|^diff\.comments\.send$)/
+const NEVER = /(^settings\.(set|reset|reset_all|edit|undo|restore|reset_group)$|^layout\.bulk$|^keybindings\.(set|remove|reset)$|\.close$|\.shutdown$|^session\.(open|reload_config|creation\.resolve)$|\.renderer_grant\.|\.history\.clear$|^workspace\.agent_(folder|start)\.|^workspace\.open_url$|^conductor_import\.|^browser_import\.|^language_packs\.|^classic_import\.|^palette\.rank$|^team_vm\.retired\.export$|^team\.(audit\.list|members\.remove)$|^agent\.message\.(list|mark|release|send|unsend)$|^diff\.comments\.send$)/
 
 /** The daemon's Cloud API calls carry the person's own access token in their params; the app's own Cloud code only. */
 const CLOUD_API_CALLS = [
   "cloud.machine.chat_access",
   "cloud.machine.io",
   "cloud.machine.share_chat",
+  "cloud.machine.chief_start",
+  "cloud.machine.chief_resize",
+  "cloud.machine.fork",
   "cloud.owner.acpmux_keyed_start",
   "cloud.owner.acpmux_person_holds",
   "cloud.owner.fork_run",
@@ -137,6 +146,35 @@ export function loadCatalog(): { ops: Record<string, Op>; types: Record<string, 
     ops[op.name] = { class: op.class, risk: op.risk, docs: op.docs, source: "app", owner: op.owner, input: op.input, output: op.output }
   }
   return { ops, types: { ...cloud.types, ...local.types }, generics: { ...(cloud.generics ?? {}), ...(local.generics ?? {}) }, actions: actions.filter((a) => a.cli === "offered").map((a) => a.id).sort() }
+}
+
+/** The merged schema directory, relative to generated/. */
+export const MERGED_DIR = "../schema/merged"
+
+const digest = (v: unknown): string => createHash("sha256").update(JSON.stringify(v)).digest("hex").slice(0, 16)
+
+/**
+ * The merged schema directory: one small file per op family (ops/<family>.json: each op's source, owner,
+ * class, risk and a digest of its whole definition), types.json (a digest per type and generic) and
+ * index.json (version, families, offered actions). The definitions stay in their four sources, so no
+ * clone carries a second copy; a change to any of them changes a digest, and `--check` fails until the
+ * directory is regenerated.
+ */
+function mergedFiles(ops: Record<string, Op>, types: Record<string, TypeIR>, generics: Record<string, unknown>, actions: string[]): Record<string, string> {
+  const out: Record<string, string> = {}
+  const json = (v: unknown) => JSON.stringify(v, null, 2) + "\n"
+  const byFamily: Record<string, Record<string, unknown>> = {}
+  for (const name of Object.keys(ops).sort()) {
+    const op = ops[name]!
+    const family = name.split(".")[0]!
+    ;(byFamily[family] ??= {})[name] = { source: op.source, ...(op.owner ? { owner: op.owner } : {}), class: op.class, ...(op.risk ? { risk: op.risk } : {}), digest: digest(op) }
+  }
+  const families = Object.keys(byFamily).sort()
+  for (const f of families) out[`${MERGED_DIR}/ops/${f}.json`] = json({ family: f, ops: byFamily[f] })
+  const digests = (o: Record<string, unknown>) => Object.fromEntries(Object.keys(o).sort().map((k) => [k, digest(o[k])]))
+  out[`${MERGED_DIR}/types.json`] = json({ types: digests(types), generics: digests(generics) })
+  out[`${MERGED_DIR}/index.json`] = json({ apiVersion: API_VERSION, families, offeredActions: actions })
+  return out
 }
 
 const ident = (s: string) => (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(s) ? s : JSON.stringify(s))
@@ -273,7 +311,7 @@ export function loadEvents(scopes: Record<string, { scope: string; class: string
 }
 
 export function generate(): Record<string, string> {
-  const { ops, types, generics } = loadCatalog()
+  const { ops, types, generics, actions } = loadCatalog()
   const names = Object.keys(ops).sort()
   const scopes: Record<string, { scope: string; class: string }> = {}
   const never: string[] = []
@@ -295,6 +333,12 @@ export function generate(): Record<string, string> {
     // A notice in the app's own toast presenter, one slot per app (ToastAppOps in CmuxNextApps). Local and
     // non-network, so no grant: scope `none` is always held.
     "toast.show": { scope: "none", class: "mutation" },
+    // Extension signal sources (cmux.signal.source/1, cmux-tui-core apps/signal_sources.rs). Scope `none` here:
+    // the daemon decides each call per source (only the declaring app publishes; a reader needs the source's
+    // `<app namespace>:read` scope).
+    "signal.publish": { scope: "none", class: "mutation" },
+    "signal.read": { scope: "none", class: "read" },
+    "signal.sources.list": { scope: "none", class: "read" },
     "integration.request": { scope: "integration:<provider>", class: "runtime" },
     // Mac-side app ops (AppHostCapabilities in CmuxNextApp, served over the provider channel).
     "coderouter.status": { scope: "coderouter:read", class: "read" },
@@ -311,7 +355,17 @@ export function generate(): Record<string, string> {
     // and link hints drawn and followed by the built-in hints' own scripts. Hints and follow need a gesture.
     "page.read": { scope: "page:read", class: "read" },
     "page.hints": { scope: "page:write", class: "mutation" },
-    "page.follow": { scope: "page:write", class: "mutation" }
+    "page.follow": { scope: "page:write", class: "mutation" },
+    // What plays in cmux, from the Now Playing card's sources (cmux's player, a browser tab, another
+    // app while sidebar.nowPlaying.otherApps is on), answered by the Mac app (MediaAppOps). media.control
+    // runs only on a tap (PLAYBACK_OPS in cmux-app-manifest capabilities.rs).
+    "media.get": { scope: "media:read", class: "read" },
+    "media.control": { scope: "media:control", class: "mutation" },
+    // The person's system calendar on the Mac (CalendarAppOps in CmuxNextApps, EventKit), apart from the
+    // Cloud's Google `calendar.*` family: events
+    // never prompts; request_access shows the system prompt, so it needs a gesture.
+    "system_calendar.events": { scope: "system_calendar:read", class: "read" },
+    "system_calendar.request_access": { scope: "system_calendar:read", class: "mutation" }
   }
   Object.assign(scopes, hostOps)
   const signals = loadSignals(scopes, types)
@@ -386,6 +440,13 @@ interface CmuxPageRead {
 /** A link-hint label \`page.hints\` drew: type it to \`page.follow\` it. \`href\` is null for a button, field or other non-link. */
 interface CmuxPageHint { label: string; text: string; href: string | null }
 
+/** Whether cmux may read the person's calendar: the system's answer, or \`unavailable\` where there is no system calendar (not macOS). */
+type CmuxCalendarAccess = "granted" | "denied" | "restricted" | "notDetermined" | "unavailable"
+/** One event of the person's calendar (\`system_calendar.events\`). Times are epoch ms; \`calendar\` is the calendar's title, \`color\` its color as \`#rrggbb\` when it has one. */
+interface CmuxCalendarEvent { id: string; title: string; start: number; end: number; allDay: boolean; calendar: string; location?: string; url?: string; color?: string }
+/** \`system_calendar.events\`' answer: the access status, and the events (empty unless \`access\` is \`granted\`). */
+interface CmuxCalendarEvents { access: CmuxCalendarAccess; events: CmuxCalendarEvent[] }
+
 interface CmuxGlobal {
 ${render(root, "  ")}
   call<T = unknown>(name: string, params?: unknown, options?: CmuxCallOptions): Promise<T>
@@ -417,6 +478,20 @@ ${render(root, "  ")}
     hints: CmuxOp<{ tab?: string; action: "show" | "clear" }, { tab: string; hints: CmuxPageHint[] }>
     /** \`page.follow\` (mutation, scope \`page:write\`, needs a gesture): clicks the element of a shown hint, or with \`new_split\` opens its link in a new browser split (the built-in \`F\`), then clears the hints. \`followed\` is false when the label is not shown (any more), or \`new_split\` names a hint with no link. */
     follow: CmuxOp<{ tab?: string; label: string; new_split?: boolean }, { tab: string; followed: boolean; href: string | null }>
+  }
+  /** What plays in cmux, answered by the cmux app: the track the Now Playing card shows. To follow it live, \`cmux.watch("media.now_playing")\`. */
+  media: {
+    /** \`media.get\` (read, scope \`media:read\`): what plays now, or \`{track: null}\` while nothing does. */
+    get: CmuxOp<Record<string, never>, CmuxSignalMap["media.now_playing"]["value"]>
+    /** \`media.control\` (mutation, scope \`media:control\`, needs a gesture): play or pause, skip, or seek to \`seconds\` in. Throws CmuxError \`media.nothing_playing\` while nothing plays. */
+    control: CmuxOp<{ command: "play_pause" | "previous" | "next" } | { command: "seek"; seconds: number }, null>
+  }
+  /** The person's system calendar, read by the cmux app on the Mac (EventKit). Not the Cloud's Google \`calendar.*\` ops. */
+  system_calendar: {
+    /** \`system_calendar.events\` (read, scope \`system_calendar:read\`): events from now (ones in progress too) through \`days\` (1-31, default 7), sorted by start, at most \`limit\` (1-50, default 20), from every calendar. Never prompts: without full access it answers the status and no events. */
+    events: CmuxOp<{ days?: number; limit?: number }, CmuxCalendarEvents>
+    /** \`system_calendar.request_access\` (mutation, scope \`system_calendar:read\`, needs a gesture): shows the system calendar prompt when the person has not answered it yet, and answers the access status. */
+    request_access: CmuxOp<{}, { access: CmuxCalendarAccess }>
   }
   palette: CmuxPalette
   act: typeof act
@@ -503,15 +578,24 @@ type CmuxGradient = { linear: { colors: string[]; angle?: number } } | { radial:
 type CmuxFill = string | CmuxGradient
 interface CmuxView {
   font(v: Bindable<string | number>): this; weight(v: Bindable<string>): this; bold(): this; italic(): this; monospaced(): this
+  /** The system font's design at the same type-scale size (heavy and rounded is the Lock Screen's time). */
+  fontDesign(v: Bindable<"default" | "rounded" | "serif" | "monospaced">): this
   color(v: Bindable<string | null>): this; secondary(): this; lineLimit(v: Bindable<number>): this; truncation(v: Bindable<"head" | "middle" | "tail">): this
   strikethrough(v?: Bindable<boolean>): this; marquee(delaySeconds?: number): this; fade(width: Bindable<number>): this
   transition(v: "opacity" | "slide" | "scale" | "move"): this; contentTransition(v: "numericText" | "opacity"): this; animation(v?: "smooth" | "snappy" | "none"): this
   padding(v?: Bindable<number | Record<string, number>>): this; paddingHorizontal(v: Bindable<number>): this; paddingVertical(v: Bindable<number>): this
   frame(v: Bindable<Record<string, number | string>>): this; layoutPriority(v: Bindable<number>): this; fixedSize(axis?: "both" | "horizontal" | "vertical"): this
-  background(v: Bindable<CmuxFill | null>): this; hoverBackground(v: Bindable<string | null>): this; cornerRadius(v: Bindable<number>): this
+  background(v: Bindable<CmuxFill | null>): this; hoverBackground(v: Bindable<string | null>): this; glass(level?: Bindable<"chrome" | "popover" | "menu" | "chip" | null>): this; cornerRadius(v: Bindable<number>): this
   borderColor(v: Bindable<string | null>): this; borderWidth(v: Bindable<number>): this; opacity(v: Bindable<number>): this
   fill(v: Bindable<CmuxFill | null>): this; stroke(v: Bindable<string | null>): this; strokeWidth(v: Bindable<number>): this; size(v: Bindable<number>): this
-  rotation(degrees: Bindable<number>): this; cursor(v: "pointer" | "default"): this; help(v: Bindable<string>): this
+  rotation(degrees: Bindable<number>): this
+  /** SwiftUI's name for \`rotation\`: clockwise degrees about the node's center; animates only under \`.animation(...)\`. */
+  rotationEffect(degrees: Bindable<number>): this
+  /** Moves the drawing by \`{x, y}\` points, not the layout; a rotation turns the moved drawing about the node's center (a clock hand). */
+  offset(v: Bindable<{ x?: number; y?: number }>): this
+  /** In a ZStack: the node's center at \`{x, y}\` points, or with \`unit: "fraction"\` 0...1 of the stack (SwiftUI's \`.position\`); a placed child does not size the stack. */
+  position(v: Bindable<{ x?: number; y?: number; unit?: "points" | "fraction" }>): this
+  cursor(v: "pointer" | "default"): this; help(v: Bindable<string>): this
   fixed(): this; destructive(): this; disabled(v?: Bindable<boolean>): this; onTap(fn: () => unknown): this; contextMenu(items: CmuxView[] | (() => CmuxView[])): this
   /** How an Icon's layers take color, as SF Symbols draw them: monochrome (the default), hierarchical, palette (1 to 3 colors, in layer order) or multicolor (the symbol's own colors, the tint where it has none). */
   symbolRendering(mode: "monochrome" | "hierarchical" | "palette" | "multicolor", colors?: readonly string[]): this
@@ -523,7 +607,12 @@ declare function HStack(propsOrChildren?: Record<string, unknown> | CmuxChildren
 declare function ZStack(propsOrChildren?: Record<string, unknown> | CmuxChildren, children?: CmuxChildren): CmuxView
 declare function LazyVStack(propsOrChildren?: Record<string, unknown> | CmuxChildren, children?: CmuxChildren): CmuxView
 declare function Group(propsOrChildren?: Record<string, unknown> | CmuxChildren, children?: CmuxChildren): CmuxView
-declare function Text(text: Bindable<string | number | null | undefined>): CmuxView
+type CmuxDateTextStyle = "time" | "timer" | "relative" | "date" | "offset"
+/** A Text the host formats and ticks itself, like SwiftUI's \`Text(date, style:)\` (no render or scene batch per tick).
+ * \`date\` is Unix ms; \`time\` "9:41 AM", \`date\` "November 16, 2026", \`timer\` "4:05", \`relative\` "2 hr, 23 min",
+ * \`offset\` "+2 hours". The page's locale and time zone; \`timeZone\` (IANA) overrides the zone. */
+interface CmuxDateText { date: Bindable<number>; style?: Bindable<CmuxDateTextStyle>; timeZone?: Bindable<string> }
+declare function Text(text: Bindable<string | number | null | undefined> | CmuxDateText): CmuxView
 declare function Icon(name: Bindable<string>): CmuxView
 declare function Image(source: Bindable<string> | { systemName: Bindable<string> }): CmuxView
 declare function Button(label: Bindable<string> | CmuxView, action?: () => unknown): CmuxView
@@ -534,6 +623,8 @@ declare function Circle(props?: Record<string, unknown>): CmuxView
 declare function Capsule(props?: Record<string, unknown>): CmuxView
 declare function Rectangle(props?: Record<string, unknown>): CmuxView
 declare function RoundedRectangle(props?: Record<string, unknown>): CmuxView
+/** A stroke along its width: \`strokeWidth\` thick (1 by default) in \`stroke\` (the separator ink by default). */
+declare function Line(props?: Record<string, unknown>): CmuxView
 declare function ProgressView(value?: Bindable<number | null>): CmuxView
 declare function TextField(value: Bindable<string>, options?: { placeholder?: string; autofocus?: boolean; onSubmit?: (t: string) => unknown; onEdit?: (t: string) => unknown; onCancel?: () => unknown }): CmuxView
 declare function Row(props: { title: Bindable<string>; subtitle?: Bindable<string | null>; symbol?: Bindable<string | null>; badge?: Bindable<string | number | null>; unread?: Bindable<boolean>; selected?: Bindable<boolean>; tint?: Bindable<string | null>; accessory?: Bindable<string | null> }): CmuxView
@@ -555,9 +646,18 @@ declare function radialGradient(colors: readonly string[]): CmuxGradient
   const scopesJson = JSON.stringify({ apiVersion: API_VERSION, ops: Object.fromEntries(Object.entries(scopes).sort(([a], [b]) => a.localeCompare(b))), never: never.sort() }, null, 2) + "\n"
   const opsJson = JSON.stringify({ apiVersion: API_VERSION, ops: Object.keys(scopes).sort() }, null, 2) + "\n"
   // Checked here, read where it is used: the SDKs read events.json with scopes.json (cmux-extension-sdk).
-  loadEvents(scopes)
+  const events = loadEvents(scopes)
+  const reference = referenceMarkdown({
+    apiVersion: API_VERSION,
+    ops: Object.fromEntries(Object.entries(scopes).map(([n, o]) => [n, { ...o, docs: ops[n]?.docs }])),
+    never,
+    events,
+    signals: JSON.parse(signals.json).signals
+  })
   return {
-    "cmux-app.d.ts": dts, "scopes.json": scopesJson, "ops.json": opsJson, "signals.json": signals.json
+    "cmux-app.d.ts": dts, "scopes.json": scopesJson, "ops.json": opsJson, "signals.json": signals.json, "REFERENCE.md": reference,
+    // The merged schema directory (schema/merged), so drift in any of the four op sources fails --check.
+    ...mergedFiles(ops, types, generics, actions)
   }
 }
 
@@ -572,7 +672,7 @@ if (import.meta.main) {
     if (check) {
       console.error(`generated/${name} is stale: run bun tools/gen-cmux-global.ts`)
       stale = true
-    } else writeFileSync(path, content)
+    } else { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, content) }
   }
   if (stale) process.exit(1)
   console.log(check ? "generated files up to date" : "generated files written")

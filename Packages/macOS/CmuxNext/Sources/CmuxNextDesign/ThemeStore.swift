@@ -39,6 +39,9 @@ public final class ThemeStore {
     /// as last applied: what the iPhone's terminals load. Unlike ``configInput`` it carries every
     /// key the terminals draw with (all 256 palette entries, cursor and selection, contrast).
     public private(set) var terminalConfigLines: [String] = []
+    /// The Ghostty config's `background-image` as the terminals draw it (`GhosttyRuntime.backgroundImage`),
+    /// as last applied; nil without one. The iPhone shows it when no cmux background is chosen.
+    public private(set) var terminalBackgroundImage: TerminalBackgroundImage?
     /// The app theme's colors while `appearance.appTheme` names one.
     @ObservationIgnored private var appInput: ThemeInput?
     /// Bumps on every applied change (tests, diagnostics).
@@ -49,6 +52,8 @@ public final class ThemeStore {
     public private(set) var appTheme: AppTheme?
     /// `appearance.accent`: every scope derives its tokens with it (`ThemeInput.accent`).
     public private(set) var accent: ThemeAccent = .neutral
+    /// `appearance.selection`: whether the selection fill takes the accent's tint (default) or stays neutral.
+    public private(set) var selection: ThemeSelection = .accent
     /// Art Color (`appearance.accent: "art"`): each scope's accent takes the hue of the art it
     /// shows (`BackdropArt.accentHue`), over the theme's own.
     public private(set) var accentFollowsArt = false
@@ -96,6 +101,7 @@ public final class ThemeStore {
         defer { if publishesGlobally { hasAppliedConfig = true } }
         var input = input
         input.accent = accent
+        input.selection = selection
         let previousConfig = configInput
         configInput = input
         let changed = applyChrome(firstConfig: firstConfig)
@@ -108,10 +114,11 @@ public final class ThemeStore {
         return changed
     }
 
-    /// Applies the Ghostty config's terminal theme lines (the iPhone's terminals). No change, no
-    /// observation.
-    public func applyTerminalConfigLines(_ lines: [String]) {
+    /// Applies the Ghostty config's terminal theme lines (the iPhone's terminals) and its
+    /// `background-image` (nil: none). No change, no observation.
+    public func applyTerminalConfig(lines: [String], backgroundImage image: TerminalBackgroundImage?) {
         if terminalConfigLines != lines { terminalConfigLines = lines }
+        if terminalBackgroundImage != image { terminalBackgroundImage = image }
     }
 
     /// Derives the chrome from the app theme's colors, else the config's. `firstConfig`: the
@@ -120,6 +127,7 @@ public final class ThemeStore {
         let firstConfig = firstConfig ?? !hasAppliedConfig
         var input = appInput ?? configInput
         input.accent = accent
+        input.selection = selection
         let previous = self.input
         self.input = input
         let derived = ThemeTokens.derive(from: input)
@@ -162,6 +170,7 @@ public final class ThemeStore {
     public func setAppTheme(from input: ThemeInput?) -> Bool {
         var input = input
         input?.accent = accent
+        input?.selection = selection
         guard input != appInput else { return false }
         appInput = input
         appTheme = input.map(AppTheme.derive)
@@ -198,6 +207,26 @@ public final class ThemeStore {
         configInput.accent = accent
         // Two accents can give the config's theme the same tokens (`theme` and `magenta` under
         // Rose Pine) while an overridden scope's theme still differs, so scopes re-derive anyway.
+        if !applyChrome(), publishesGlobally {
+            ThemeRepaint.batch {
+                root?.storeDidChange()
+                repaintAll(crossfade: true)
+            }
+        }
+        return true
+    }
+
+    /// Sets what the selection fill takes (`appearance.selection`) and re-derives every scope's
+    /// tokens with it. Returns false when it did not change.
+    @discardableResult
+    public func setSelection(_ selection: ThemeSelection) -> Bool {
+        guard selection != self.selection else { return false }
+        self.selection = selection
+        if var app = appInput {
+            app.selection = selection
+            appInput = app
+        }
+        configInput.selection = selection
         if !applyChrome(), publishesGlobally {
             ThemeRepaint.batch {
                 root?.storeDidChange()

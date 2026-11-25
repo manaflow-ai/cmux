@@ -627,3 +627,91 @@ fn set_mode_says_when_repair_turned_on() {
     assert!(!ultra.set_mode(UltraMode::Off));
     assert!(ultra.set_mode(UltraMode::SETTING), "and again after it turned off");
 }
+
+/// A liveness ping or pong leaves as one datagram in every mode: no copies,
+/// no parity, and it leaves the data group around it alone.
+#[test]
+fn a_liveness_datagram_goes_alone_and_unrepaired() {
+    let index = [3, 3, 3, 3];
+    for mode in
+        [UltraMode::SETTING, UltraMode::fec(8, 2).unwrap(), UltraMode::Duplicate { copies: 3 }]
+    {
+        let script = Script { inbox: VecDeque::new(), sent: Arc::default() };
+        let wire = Arc::clone(&script.sent);
+        let mut ultra = UltraUnderlay::new(Box::new(script), mode, Arc::default());
+        ultra.send_liveness(&data(index, 0, 38, 0), false);
+        ultra.send_liveness(&data(index, 1, 38, 0), true);
+        ultra.flush();
+        assert_eq!(wire.lock().unwrap().len(), 2, "{mode:?}: one datagram each");
+        assert_eq!(ultra.counters.snapshot().parity_sent, 0, "{mode:?}");
+    }
+    // Between two data datagrams the group they form still gets its parity.
+    let script = Script { inbox: VecDeque::new(), sent: Arc::default() };
+    let wire = Arc::clone(&script.sent);
+    let mut ultra = UltraUnderlay::new(Box::new(script), UltraMode::SETTING, Arc::default());
+    ultra.send(&data(index, 0, 40, 0));
+    ultra.send_liveness(&data(index, 1, 38, 0), false);
+    ultra.flush();
+    let parity = wire.lock().unwrap().iter().filter(|d| d[0] == TAG).count();
+    assert!(parity >= 1, "the data datagram keeps its repair");
+}
+
+/// What `n` datagrams of `class` leave as under `mode`, with the loss window
+/// at `lost` of `total`: (datagrams on the wire, parity or copies sent).
+fn class_cost(mode: UltraMode, class: Priority, lost: u64, total: u64) -> (usize, usize) {
+    let script = Script { inbox: VecDeque::new(), sent: Arc::default() };
+    let wire = Arc::clone(&script.sent);
+    let mut ultra = UltraUnderlay::new(Box::new(script), mode, Arc::default());
+    ultra.window.add(LossSample { lost, received: total - lost, ..LossSample::default() });
+    for counter in 0..8 {
+        ultra.send_classified(&data([5, 5, 5, 5], counter, 60, counter as u8), class);
+    }
+    ultra.flush();
+    let sent = wire.lock().unwrap().len();
+    (sent, sent - 8)
+}
+
+const REPAIR_MODES: [UltraMode; 3] = [
+    UltraMode::Duplicate { copies: 2 },
+    UltraMode::Fec { group: 8, parity: 2 },
+    UltraMode::SETTING,
+];
+
+#[test]
+fn bulk_keeps_the_modes_repair() {
+    for mode in REPAIR_MODES {
+        for (lost, total) in [(0, 1000), (200, 1000)] {
+            assert!(class_cost(mode, Priority::Bulk, lost, total).1 > 0, "{mode:?}");
+        }
+    }
+}
+
+#[test]
+fn interactive_is_repaired_at_any_measured_loss() {
+    for mode in REPAIR_MODES {
+        for (lost, total) in [(0, 1000), (5, 1000), (20, 1000)] {
+            assert!(class_cost(mode, Priority::Interactive, lost, total).1 > 0, "{mode:?}");
+        }
+    }
+}
+
+#[test]
+fn screen_is_repaired_only_above_one_percent_loss() {
+    for mode in REPAIR_MODES {
+        assert_eq!(class_cost(mode, Priority::Screen, 0, 1000).1, 0, "{mode:?}: clean");
+        assert_eq!(class_cost(mode, Priority::Screen, 5, 1000).1, 0, "{mode:?}: 0.5 %");
+        assert_eq!(class_cost(mode, Priority::Screen, 10, 1000).1, 0, "{mode:?}: exactly 1 %");
+        assert!(class_cost(mode, Priority::Screen, 20, 1000).1 > 0, "{mode:?}: 2 %");
+    }
+}
+
+#[test]
+fn the_loss_window_forgets_old_loss() {
+    let mut window = LossWindow::default();
+    window.add(LossSample { lost: 100, received: 900, ..LossSample::default() });
+    assert!(window.above_one_percent());
+    for _ in 0..20 {
+        window.add(LossSample { received: 1000, ..LossSample::default() });
+    }
+    assert!(!window.above_one_percent());
+}

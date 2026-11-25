@@ -13,11 +13,15 @@
 
 # net_retry WHAT COMMAND...: runs COMMAND until it succeeds, ORIGIN_NET_TRIES times; its output is
 # the last attempt's. Fails naming WHAT and the network when no attempt succeeds.
+# A git transfer under 1 KB/s for 120 s ends and is tried again, unless the caller set its own
+# GIT_HTTP_LOW_SPEED_*: nightly run 44232805509 lost 9.5 min to a cmux-cua transfer that stalled
+# and then died with `RPC failed; curl 56`.
 net_retry() {
   local what="$1" tries="${ORIGIN_NET_TRIES:-4}" pause="${ORIGIN_NET_SLEEP_S:-3}" attempt status=0
   shift
   for ((attempt = 1; attempt <= tries; attempt++)); do
-    if "$@"; then return 0; else status=$?; fi
+    if GIT_HTTP_LOW_SPEED_LIMIT="${GIT_HTTP_LOW_SPEED_LIMIT:-1000}" GIT_HTTP_LOW_SPEED_TIME="${GIT_HTTP_LOW_SPEED_TIME:-120}" \
+      "$@"; then return 0; else status=$?; fi
     if ((attempt < tries)); then
       echo "warn: $what failed (exit $status, try $attempt of $tries); trying again" >&2
       sleep "$((pause * attempt * attempt))"

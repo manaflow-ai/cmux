@@ -1,7 +1,7 @@
 //! The Chief's turn tools (plans/cmux-next/chief-tools-DESIGN.md; the user,
 //! 2026-10-20: "you probably should have replied twice separately to the two
 //! different messages ... a `send message` tool ... a `stop` tool call ...
-//! another tool called `sleep`"): `send` posts one message now (text, files,
+//! another tool called `sleep`": `send` posts one or more messages now (text, files,
 //! a thread), `stop` ends the turn with no final text, `sleep` ends it and
 //! wakes the Chief later.
 
@@ -154,6 +154,24 @@ fn send(text: &str) -> SendCall {
     }
 }
 
+fn plain_reply_script() -> Script {
+    Box::new(|_, _| {
+        vec![
+            json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+            json!({
+                "dir": "in",
+                "kind": "claude.assistant",
+                "msg": {"message": {"id": "m1", "model": "test", "usage": {"input_tokens": 10, "output_tokens": 4}}}
+            }),
+            update(
+                "agent_message_chunk",
+                json!({"content": {"type": "text", "text": "A plain reply ends this turn."}}),
+            ),
+            json!({"dir": "in", "kind": "claude.result", "msg": {"type": "result", "subtype": "success"}}),
+        ]
+    })
+}
+
 #[test]
 fn turn_tools_send_posts_a_top_level_message_now_and_a_repeat_is_a_noop() {
     let mut h = Harness::new(default_script());
@@ -174,6 +192,108 @@ fn turn_tools_send_posts_a_top_level_message_now_and_a_repeat_is_a_noop() {
 }
 
 #[test]
+fn a_plain_reply_ends_without_a_stop_request_and_is_posted() {
+    let mut h = Harness::new(plain_reply_script());
+    running(&mut h, "answer this directly");
+    h.agents.hold(false);
+    h.agents.release();
+    h.settle_posts();
+
+    assert_eq!(h.agents.inner.lock().unwrap().prompts.len(), 1);
+    let model_requests = h
+        .agents
+        .inner
+        .lock()
+        .unwrap()
+        .events
+        .values()
+        .flatten()
+        .filter(|event| event.kind == "claude.assistant")
+        .count();
+    assert_eq!(
+        model_requests, 1,
+        "one model request; no follow-up stop request"
+    );
+    assert_eq!(h.agents.inner.lock().unwrap().cancels.len(), 1);
+    assert!(
+        sends(&h)
+            .iter()
+            .any(|(_, parts, _, _)| texts(parts).contains("A plain reply ends this turn.")),
+        "the final plain text is posted"
+    );
+}
+
+/// cmux#25634: `send` with `delay_seconds` posts nothing now; the owner
+/// holds the message as the Chief's own `message.send` for that time
+/// (`conversation-scheduled-v1`), a repeat is a noop, and a local file (whose
+/// upload belongs to a live send) is refused before anything is queued.
+#[test]
+fn turn_tools_send_with_a_delay_queues_it_on_the_owner_and_posts_nothing_now() {
+    let mut h = Harness::new(default_script());
+    h.connect();
+    h.say("user_local", "remind me about the standup in an hour");
+    h.settle_posts();
+    let before = sends(&h).len();
+    let started = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    let call = || SendCall {
+        delay_seconds: Some(3_600),
+        ..send("Standup starts now.")
+    };
+    let sp = spawner(&h);
+    let first = call();
+    let answer = run(&mut h, move || sp.send(first)).expect("send answers");
+    assert!(answer.contains("scheduled sch_1"), "{answer}");
+    let scheduled = h.owner.lock().unwrap().scheduled.clone();
+    assert_eq!(scheduled.len(), 1, "{scheduled:?}");
+    let (conversation, op, send_at_ms) = &scheduled[0];
+    assert!(
+        h.owner.lock().unwrap().is_main(conversation),
+        "{conversation}"
+    );
+    let Op::MessageSend {
+        client_msg_id,
+        parts,
+        ..
+    } = op
+    else {
+        panic!("a message.send: {op:?}");
+    };
+    assert!(!client_msg_id.is_empty());
+    assert_eq!(texts(parts), "Standup starts now.");
+    assert!(
+        (started + 3_600_000..started + 3_660_000).contains(send_at_ms),
+        "an hour from now: {send_at_ms} vs {started}"
+    );
+    assert_eq!(sends(&h).len(), before, "nothing posted now");
+
+    let sp = spawner(&h);
+    let again = call();
+    let repeat = run(&mut h, move || sp.send(again)).expect("send answers");
+    assert!(repeat.starts_with("outcome: noop"), "{repeat}");
+    assert_eq!(h.owner.lock().unwrap().scheduled.len(), 1);
+
+    let report = h.dir.path().join("REPORT.pdf");
+    std::fs::write(&report, b"%PDF-1.4 fake").unwrap();
+    let sp = spawner(&h);
+    let refused = run(&mut h, move || {
+        sp.send(SendCall {
+            attachments: vec![report.display().to_string()],
+            delay_seconds: Some(600),
+            ..send("the report, later")
+        })
+    });
+    assert!(refused.is_err(), "{refused:?}");
+    assert_eq!(h.owner.lock().unwrap().scheduled.len(), 1, "nothing queued");
+    assert!(
+        Call::parse("send", &json!({"text": "soon", "delay_seconds": 5})).is_err(),
+        "under a minute is refused"
+    );
+}
+
+#[test]
 fn turn_tools_send_with_reply_to_goes_into_that_messages_thread() {
     let mut h = Harness::new(default_script());
     h.connect();
@@ -186,7 +306,11 @@ fn turn_tools_send_with_reply_to_goes_into_that_messages_thread() {
         ..send("Green on every Mac mini.")
     };
     let answer = run(&mut h, move || sp.send(call)).expect("send answers");
-    assert!(answer.starts_with("outcome: done"), "{answer}");
+    // Taken: posted now, or queued behind an upload or the gap.
+    assert!(
+        answer.starts_with("outcome: done") || answer.starts_with("outcome: queued"),
+        "{answer}"
+    );
     let posted = wait_send(&mut h, "Green on every Mac mini.");
     assert_eq!(posted[0].3.as_deref(), Some("msg_1"), "{posted:?}");
     assert_eq!(
@@ -209,7 +333,11 @@ fn turn_tools_send_attaches_any_file_and_refuses_a_missing_one() {
         ..send("Here is the report.")
     };
     let answer = run(&mut h, move || sp.send(call)).expect("send answers");
-    assert!(answer.starts_with("outcome: done"), "{answer}");
+    // Taken: posted now, or queued behind an upload or the gap.
+    assert!(
+        answer.starts_with("outcome: done") || answer.starts_with("outcome: queued"),
+        "{answer}"
+    );
     let posted = wait_send(&mut h, "REPORT.pdf");
     let parts = &posted[0].1;
     assert!(
@@ -343,7 +471,11 @@ fn turn_tools_send_a_refused_upload_goes_as_a_file_link() {
         ..send("The test alarm rang.")
     };
     let answer = run(&mut h, move || sp.send(call)).expect("send answers");
-    assert!(answer.starts_with("outcome: done"), "{answer}");
+    // Taken: posted now, or queued behind an upload or the gap.
+    assert!(
+        answer.starts_with("outcome: done") || answer.starts_with("outcome: queued"),
+        "{answer}"
+    );
     let posted = wait_send(&mut h, "Attachment upload failed:");
     let text = texts(&posted[0].1);
     assert_eq!(
@@ -598,39 +730,43 @@ fn turn_tools_the_chief_has_send_stop_and_sleep_and_a_subagent_does_not() {
     }
 }
 
-/// The reply length gate (chief_kernel::replies): the first send of a turn
-/// over `replies.maxWords` posts nothing and answers with its word count, so
-/// Chief cuts it; the next send of that turn posts as is.
+/// The reply length gate (chief_kernel::replies) keeps a long send within the
+/// short-message style by posting sentence-sized parts in one tool call.
 #[test]
-fn turn_tools_send_refuses_the_first_long_reply_of_a_turn_then_posts_the_next() {
+fn turn_tools_send_splits_a_long_reply_without_a_resend() {
     let mut h = Harness::new(default_script());
     running(&mut h, "status?");
-    let long = format!("{} end.", "word ".repeat(80));
+    let long = (0..3)
+        .map(|n| format!("Point {n}: {}.", "word ".repeat(20)))
+        .collect::<Vec<_>>()
+        .join(" ");
     let sp = spawner(&h);
-    let first = long.clone();
-    let refused = run(&mut h, move || sp.send(send(&first))).expect_err("refused");
-    assert!(
-        refused.contains("80 words") || refused.contains("81 words"),
-        "{refused}"
-    );
-    assert!(refused.contains("nothing was posted"), "{refused}");
-    assert!(
-        sends(&h).iter().all(|s| !texts(&s.1).contains("word word")),
-        "nothing posted"
-    );
-    let sp = spawner(&h);
-    let again = long.clone();
-    let answer = run(&mut h, move || sp.send(send(&again))).expect("the second send posts");
+    let answer = run(&mut h, move || sp.send(send(&long))).expect("send answers");
     assert!(answer.starts_with("outcome: done"), "{answer}");
-    wait_send(&mut h, "end.");
+    wait_send(&mut h, "Point 0:");
+    h.settle_posts();
+    let posted: Vec<_> = sends(&h)
+        .into_iter()
+        .filter(|(_, parts, _, _)| texts(parts).contains("Point "))
+        .collect();
+    assert!(
+        posted.len() >= 2,
+        "one tool call posts multiple parts: {posted:?}"
+    );
+    assert!(
+        posted.iter().any(|(key, _, _, _)| key.contains(":part-")),
+        "split parts keep distinct idempotency keys: {posted:?}"
+    );
+    assert!(posted.iter().all(|(_, parts, _, _)| {
+        chief_kernel::replies::reply_words(&texts(parts)) <= chief_kernel::replies::REPLY_MAX_WORDS
+    }));
     h.agents.hold(false);
     h.agents.release();
     h.settle_posts();
 }
 
-/// Leo, 2026-11-02: the 45-word refusal cost a resend each time Chief already
-/// knew its answer was long (a status list he asked for). `long: true` says so
-/// up front: the first send posts as is, and `send` without it is still gated.
+/// `long: true` keeps the explicit one-message escape hatch for an answer the
+/// user asked to receive as one block. The normal send path splits first.
 #[test]
 fn turn_tools_send_marked_long_posts_on_the_first_try() {
     assert_eq!(
@@ -645,16 +781,7 @@ fn turn_tools_send_marked_long_posts_on_the_first_try() {
         Call::parse("send", &json!({"text": "hi", "long": "yes"})).is_err(),
         "`long` must be a boolean"
     );
-    let mut h = Harness::new(default_script());
-    running(&mut h, "list every open PR");
     let long_text = "item ".repeat(80);
-    let sp = spawner(&h);
-    let gated = long_text.clone();
-    let refused = run(&mut h, move || sp.send(send(&gated)));
-    assert!(
-        refused.is_err(),
-        "unmarked long send is refused once: {refused:?}"
-    );
     let mut h = Harness::new(default_script());
     running(&mut h, "list every open PR");
     let sp = spawner(&h);
@@ -666,4 +793,143 @@ fn turn_tools_send_marked_long_posts_on_the_first_try() {
     assert!(answer.starts_with("outcome: done"), "{answer}");
     let posted = wait_send(&mut h, "item item");
     assert_eq!(posted.len(), 1, "{posted:?}");
+}
+
+/// A follow-up the Chief set for a loop fires on time as a wake run; the run
+/// posts (its default turn reply), so a loop that says `Closes when:
+/// follow-up sent` closes by code, and the run is recorded with outcome send.
+#[test]
+fn turn_tools_an_on_time_follow_up_closes_its_loop_when_its_run_posts() {
+    let mut h = Harness::new(endless_first_turn());
+    let files = Arc::new(
+        optchat_chief::memory_files::MemoryFiles::open_in(&h.dir.path().join("optchat")).unwrap(),
+    );
+    h.brain.set_memory_files(files.clone());
+    files
+        .write(
+            "loops/renew-domain.md",
+            "renew cmux.dev before Fri",
+            "Left: tell the person it is due\nCloses when: follow-up sent",
+            optchat_chief::memory_files::Trust::Person,
+            "t",
+        )
+        .unwrap();
+    running(&mut h, "remind me tomorrow to renew the domain");
+    let sp = spawner(&h);
+    run(&mut h, move || sp.send(send("I'll remind you."))).expect("send answers");
+    let sp = spawner(&h);
+    let set = run(&mut h, move || {
+        sp.wake_tool(optchat_chief::tools::WakeCall::FollowUp {
+            note: "tell the person the domain renewal is due".into(),
+            at: None,
+            within: Some("2h".into()),
+            loop_path: Some("loops/renew-domain.md".into()),
+            for_person: true,
+        })
+    })
+    .expect("follow_up answers");
+    assert!(set.starts_with("outcome: done. follow-up fu_"), "{set}");
+    let sp = spawner(&h);
+    run(&mut h, move || sp.stop_turn()).expect("stop answers");
+    h.agents.hold(false);
+    h.settle_posts();
+    let wakes = h.brain.pending_wakes();
+    assert_eq!(wakes.len(), 1, "{wakes:?}");
+    assert_eq!(wakes[0].loop_path.as_deref(), Some("loops/renew-domain.md"));
+    // On time: no "late" text after the loop.
+    h.brain.fire_wakes_at(wakes[0].at_ms);
+    h.settle_posts();
+    let last =
+        serde_json::to_string(h.agents.inner.lock().unwrap().prompts.last().unwrap()).unwrap();
+    assert!(last.contains("[follow-up loops/renew-domain.md]"), "{last}");
+    let runs = files.wake_runs(5).unwrap();
+    let posts = sends(&h).len();
+    assert!(
+        files.get("loops/renew-domain.md").unwrap().is_none(),
+        "the loop closed when its follow-up's run posted: runs {runs:?}, posts {posts}"
+    );
+    assert_eq!(runs.len(), 1, "{runs:?}");
+    assert_eq!(runs[0].outcome, "send", "{runs:?}");
+    // The spec's fields: the wake's planned time, and what the send posted.
+    assert_eq!(
+        runs[0].scheduled_at,
+        Some(wakes[0].at_ms as i64),
+        "{runs:?}"
+    );
+    assert!(!runs[0].result.is_empty(), "{runs:?}");
+    assert!(runs[0].outcome_text.is_empty(), "{runs:?}");
+}
+
+/// The owner refuses a send it would not store (here the agent turn budget:
+/// six agent texts since the person last wrote). `send` must say so, not
+/// "sent": on 2026-11-20 the Chief got "outcome: done. sent" for 25 messages
+/// the owner refused, and the person saw none of them.
+#[test]
+fn turn_tools_send_reports_an_owner_refusal_instead_of_sent() {
+    let mut h = Harness::new(default_script());
+    running(&mut h, "how is the fleet?");
+    h.owner
+        .lock()
+        .unwrap()
+        .rejects
+        .push_back(Some("agent_budget".into()));
+    let sp = spawner(&h);
+    let answer = run(&mut h, move || sp.send(send("Fleet is at 9 of 28.")));
+    let error = answer.expect_err("a refused send is an error, not \"sent\"");
+    assert!(error.contains("nothing was posted"), "{error}");
+    assert!(error.contains("agent_budget"), "{error}");
+    assert!(
+        !sends(&h).is_empty(),
+        "the owner was asked: {:?}",
+        sends(&h)
+    );
+    // The refused key is not "already sent": the same send may try again,
+    // and posts once the owner takes it.
+    let sp = spawner(&h);
+    let again =
+        run(&mut h, move || sp.send(send("Fleet is at 9 of 28."))).expect("the owner takes it now");
+    assert!(again.starts_with("outcome: done"), "{again}");
+    h.agents.hold(false);
+    h.agents.release();
+    h.settle_posts();
+}
+
+/// A send still waiting in the outbox (the gap after the last agent message)
+/// says it is queued, not sent; a later refusal of it is told on the next
+/// `send`, so no refusal goes untold.
+#[test]
+fn turn_tools_send_says_queued_and_tells_a_later_refusal() {
+    let mut h = Harness::new(default_script());
+    running(&mut h, "two asks");
+    let sp = spawner(&h);
+    let first = run(&mut h, move || sp.send(send("First answer."))).expect("send answers");
+    assert!(first.starts_with("outcome: done. sent"), "{first}");
+    h.owner
+        .lock()
+        .unwrap()
+        .rejects
+        .push_back(Some("agent_budget".into()));
+    // Inside the gap: it waits in the outbox.
+    let sp = spawner(&h);
+    let second = run(&mut h, move || sp.send(send("Second answer."))).expect("send answers");
+    assert!(second.starts_with("outcome: queued"), "{second}");
+    // The gap passes and the owner refuses it.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while sends(&h).len() < 2 {
+        assert!(std::time::Instant::now() < deadline, "{:?}", sends(&h));
+        std::thread::sleep(Duration::from_millis(10));
+        if let Some(at) = h.brain.next_timer()
+            && at <= std::time::Instant::now()
+        {
+            h.brain.on_timer();
+        }
+    }
+    let sp = spawner(&h);
+    let third = run(&mut h, move || sp.send(send("Third answer."))).expect("send answers");
+    assert!(third.contains("Second answer."), "{third}");
+    assert!(third.contains("agent_budget"), "{third}");
+    assert!(third.contains("not posted"), "{third}");
+    h.agents.hold(false);
+    h.agents.release();
+    h.settle_posts();
 }

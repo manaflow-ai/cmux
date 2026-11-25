@@ -26,6 +26,9 @@ public struct ThemeInput: Hashable, Sendable {
     /// The theme's own accent: a per-theme edit (`<theme>/accent` in `appearance.themeEdits`) or the
     /// theme file's `# cmux-accent = #rrggbb` line. Wins over ``accent`` for this theme.
     public var accentColor: ThemeRGB?
+    /// What the selection fill takes (`appearance.selection`): the accent's tint (the default) or
+    /// the neutral fill whatever the accent.
+    public var selection: ThemeSelection = .accent
 
     /// A theme from its colors.
     ///

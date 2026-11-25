@@ -21,7 +21,30 @@
             "key": "settings.agentPane.display.width.help",
             "text": "The widest the chat's column gets. On a wider pane the chat stays centered."
           },
-          "kind": "number",
+          "kind": "choice_or_number",
+          "choices": [
+            {
+              "value": "narrow",
+              "title": {
+                "key": "settings.choice.width.narrow",
+                "text": "Narrow"
+              }
+            },
+            {
+              "value": "medium",
+              "title": {
+                "key": "settings.choice.editor.medium",
+                "text": "Medium"
+              }
+            },
+            {
+              "value": "wide",
+              "title": {
+                "key": "settings.choice.width.wide",
+                "text": "Wide"
+              }
+            }
+          ],
           "range": {
             "min": 480,
             "max": 4000,
@@ -128,6 +151,63 @@
           ]
         },
         {
+          "key": "agentPane.display.environmentCard",
+          "note": "A floating card at the chat's top right (webviews session-info/EnvironmentCard.tsx), after the Codex app's Environment panel: the chat folder's changes (Session Info's Changes row, changeCounts.ts), its branch or worktree, Commit or push (the diff tab's Commit form and Push, as the palette's Commit opens it) and Create PR (git.pullRequest). Off by default: today's chat draws no card. A look turns it on (chameleon-codex).",
+          "title": {
+            "key": "settings.agentPane.display.environmentCard",
+            "text": "Environment Card"
+          },
+          "help": {
+            "key": "settings.agentPane.display.environmentCard.help",
+            "text": "A card at the chat's top right with its changes, branch, commit and pull request."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "chat",
+            "display",
+            "environment",
+            "card",
+            "panel",
+            "changes",
+            "branch",
+            "worktree",
+            "commit",
+            "push",
+            "pull",
+            "request",
+            "git",
+            "codex"
+          ]
+        },
+        {
+          "key": "agentPane.display.changesPill",
+          "note": "A pill centered over the composer naming how many files the chat folder changed and their lines (webviews session-info/EnvironmentCard.tsx ChangesPill), after the Codex app's \"1 file changed +2 -2\"; a click opens the diff beside the chat. Off by default: today's chat draws no pill.",
+          "title": {
+            "key": "settings.agentPane.display.changesPill",
+            "text": "Changes Pill"
+          },
+          "help": {
+            "key": "settings.agentPane.display.changesPill.help",
+            "text": "A pill over the composer with how many files the chat changed."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "chat",
+            "display",
+            "changes",
+            "pill",
+            "files",
+            "changed",
+            "diff",
+            "composer",
+            "codex"
+          ]
+        },
+        {
           "key": "agentPane.display.finishSound",
           "note": "A soft sound when a long turn ends, the chat's checks pass or its pull request merges (webviews finish/finishMoments.ts; the host's pane.finishSound plays it only while macOS plays user interface sound effects). Off by default (leo-workspace research/2026-10-26-delight.md rule 7).",
           "title": {
@@ -153,6 +233,35 @@
             "checks",
             "turn",
             "notification"
+          ]
+        },
+        {
+          "key": "agentPane.display.sendPop",
+          "note": "A sent prompt pops in and settles where it lands, Claude's own user-message entrance (conversation.css SEND-POP; Leo, 2026-11-22: \"it does a little pop and settle\"). Off unless switched on: Leo, 2026-11-22: \"hm im not necessarily sure if people will be wanting to do the send pop by default\". The page sets data-send-pop on its root when on (chatDisplay.ts).",
+          "title": {
+            "key": "settings.agentPane.display.sendPop",
+            "text": "Pop In Sent Prompts"
+          },
+          "help": {
+            "key": "settings.agentPane.display.sendPop.help",
+            "text": "A prompt you send pops in and settles where it lands, instead of appearing at once."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "send",
+            "sent",
+            "prompt",
+            "pop",
+            "animation",
+            "motion",
+            "entrance",
+            "bubble",
+            "toggle"
           ]
         },
         {
@@ -600,6 +709,27 @@
               }
             },
             {
+              "value": "cmux-sans-squat",
+              "title": {
+                "key": "settings.choice.agentChatUiFontCmuxSansSquat",
+                "text": "cmux Sans Squat"
+              }
+            },
+            {
+              "value": "cmux-sans-candy",
+              "title": {
+                "key": "settings.choice.agentChatUiFontCmuxSansCandy",
+                "text": "cmux Sans Candy"
+              }
+            },
+            {
+              "value": "cmux-sans-open",
+              "title": {
+                "key": "settings.choice.agentChatUiFontCmuxSansOpen",
+                "text": "cmux Sans Open"
+              }
+            },
+            {
               "value": "hanken",
               "title": {
                 "key": "settings.choice.agentChatUiFontHanken",
@@ -635,6 +765,90 @@
             "hanken",
             "atkinson",
             "system"
+          ]
+        },
+        {
+          "key": "agentPane.display.font.uiFamily",
+          "name": "uiFamily",
+          "note": "A CSS family or comma stack, no quotes; when set it wins over agentPane.display.font.ui (webviews chatUiFont). A theme's font pack names its faces here and in agentPane.display.font.faces.",
+          "title": {
+            "key": "settings.agentPane.display.uiFamily",
+            "text": "Chat Interface Font Family"
+          },
+          "help": {
+            "key": "settings.agentPane.display.uiFamily.help",
+            "text": "A font family or a comma list of them. When set, it replaces the Chat Interface Font."
+          },
+          "kind": "font_family",
+          "default": null,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "font",
+            "interface",
+            "ui",
+            "family",
+            "typeface",
+            "custom"
+          ]
+        },
+        {
+          "key": "agentPane.display.font.proseFamily",
+          "name": "proseFamily",
+          "note": "The face of the agent's reply prose; when set it wins over agentPane.display.font.preset.",
+          "title": {
+            "key": "settings.agentPane.display.proseFamily",
+            "text": "Chat Reply Font Family"
+          },
+          "help": {
+            "key": "settings.agentPane.display.proseFamily.help",
+            "text": "The font of the agent's replies. When set, it replaces the Chat Font."
+          },
+          "kind": "font_family",
+          "default": null,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "font",
+            "reply",
+            "prose",
+            "family",
+            "serif",
+            "typeface",
+            "custom"
+          ]
+        },
+        {
+          "key": "agentPane.display.font.faces",
+          "name": "faces",
+          "note": "Font files the chat page declares as @font-face: key = family, optionally suffixed :italic; value = file:PATH (absolute or at ~; in a theme file relative to the themes folder). At most 8 faces, each a plain woff2, woff, ttf or otf file of at most 2 MiB whose extension matches its bytes (cmux-config font_faces, Swift ChatFontFaces); the page gets each as a data:font URL.",
+          "title": {
+            "key": "settings.agentPane.display.fontFaces",
+            "text": "Chat Font Files"
+          },
+          "help": {
+            "key": "settings.agentPane.display.fontFaces.help",
+            "text": "A font file for each family, such as \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          },
+          "kind": "string_map",
+          "default": null,
+          "keywords": [
+            "agent",
+            "chat",
+            "display",
+            "font",
+            "file",
+            "woff2",
+            "ttf",
+            "otf",
+            "face",
+            "typeface",
+            "custom"
           ]
         },
         {
@@ -1002,6 +1216,94 @@
           ]
         },
         {
+          "key": "agentPane.display.transcriptLook",
+          "note": "A named look of the transcript (docs/cmux-next/transcript-customization.md): a bundle of look tokens from schemas/transcript-look/transcript-look.json. cmux sets no token, so it is the chat as it draws today.",
+          "title": {
+            "key": "settings.agentPane.display.transcriptLook",
+            "text": "Transcript Look"
+          },
+          "help": {
+            "key": "settings.agentPane.display.transcriptLook.help",
+            "text": "How messages, cards and spacing look."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "cmux",
+              "title": {
+                "key": null,
+                "text": "cmux"
+              }
+            },
+            {
+              "value": "claude",
+              "title": {
+                "key": null,
+                "text": "Claude"
+              }
+            },
+            {
+              "value": "codex",
+              "title": {
+                "key": null,
+                "text": "Codex"
+              }
+            },
+            {
+              "value": "studio",
+              "title": {
+                "key": null,
+                "text": "Studio"
+              }
+            }
+          ],
+          "default": "cmux",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "look",
+            "style",
+            "preset",
+            "claude",
+            "codex",
+            "studio",
+            "bubble",
+            "density",
+            "spacing"
+          ]
+        },
+        {
+          "key": "agentPane.display.transcriptTokens",
+          "note": "Per-token overrides of the transcript look: an object of token name to value, each checked against schemas/transcript-look/transcript-look.json (cmux-config transcript_look; the page drops a value it refuses).",
+          "title": {
+            "key": "settings.agentPane.display.transcriptTokens",
+            "text": "Transcript Look Tokens"
+          },
+          "help": {
+            "key": "settings.agentPane.display.transcriptTokens.help",
+            "text": "Token values that override the transcript look."
+          },
+          "kind": "text",
+          "default": {},
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "look",
+            "token",
+            "theme",
+            "bubble",
+            "radius",
+            "spacing"
+          ],
+          "page_hidden": "an object of look tokens, edited in cmux-next.json or a theme file"
+        },
+        {
           "key": "agentPane.display.promptCoach",
           "note": "Prompt coach (webviews conversation/PromptCoachCard.tsx; Leo, 2026-11-08): after a chat in which the person corrected the agent three or more times before moving on, a card under that turn shows the chat's first prompt rewritten with what they added later, with Copy. Off: the chat asks acpmux for no rewrite (`_acpmux/prompt_coach`) and draws no card.",
           "title": {
@@ -1108,6 +1410,163 @@
           ]
         },
         {
+          "key": "agentPane.display.thinking.shimmer",
+          "name": "thinkingShimmer",
+          "note": "How the live line's light band moves while the agent works (webviews agent chat). Cadenced is today's one-second sweep every four seconds; Continuous sweeps back to back, eased in and out, over shimmerPeriod.",
+          "title": {
+            "key": "settings.agentPane.display.thinking.shimmer",
+            "text": "Thinking Shimmer"
+          },
+          "help": {
+            "key": "settings.agentPane.display.thinking.shimmer.help",
+            "text": "How the light band moves across the live status line."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "cadenced",
+              "title": {
+                "key": "settings.choice.thinkingShimmerCadenced",
+                "text": "Every Few Seconds"
+              }
+            },
+            {
+              "value": "continuous",
+              "title": {
+                "key": "settings.choice.thinkingShimmerContinuous",
+                "text": "Continuous"
+              }
+            }
+          ],
+          "default": "cadenced",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "thinking",
+            "shimmer",
+            "status",
+            "animation",
+            "sweep",
+            "claude"
+          ]
+        },
+        {
+          "key": "agentPane.display.thinking.shimmerPeriod",
+          "name": "thinkingShimmerPeriod",
+          "note": "One continuous shimmer pass in milliseconds; read only when shimmer is continuous.",
+          "title": {
+            "key": "settings.agentPane.display.thinking.shimmerPeriod",
+            "text": "Shimmer Speed"
+          },
+          "help": {
+            "key": "settings.agentPane.display.thinking.shimmerPeriod.help",
+            "text": "How long one continuous pass of the shimmer takes."
+          },
+          "kind": "number",
+          "range": {
+            "min": 600,
+            "max": 4000,
+            "step": 50,
+            "unit": "milliseconds",
+            "placeholder": 1250
+          },
+          "default": 1250,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "thinking",
+            "shimmer",
+            "speed",
+            "period",
+            "duration",
+            "animation",
+            "claude"
+          ]
+        },
+        {
+          "key": "agentPane.display.thinking.shimmerBand",
+          "name": "thinkingShimmerBand",
+          "note": "The shimmer band's width in points; 0 keeps today's band, half the line's width.",
+          "title": {
+            "key": "settings.agentPane.display.thinking.shimmerBand",
+            "text": "Shimmer Width"
+          },
+          "help": {
+            "key": "settings.agentPane.display.thinking.shimmerBand.help",
+            "text": "The width of the shimmer's light band. 0 uses half the line."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 240,
+            "step": 4,
+            "unit": "points",
+            "placeholder": 0
+          },
+          "default": 0,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "thinking",
+            "shimmer",
+            "band",
+            "width",
+            "animation",
+            "claude"
+          ]
+        },
+        {
+          "key": "agentPane.display.thinking.jumpButton",
+          "name": "thinkingJumpButton",
+          "note": "What Jump to latest shows while the agent works: the arrow (today), or three small dots in the theme accent moving in turn; the arrow comes back on hover and when the agent stops.",
+          "title": {
+            "key": "settings.agentPane.display.thinking.jumpButton",
+            "text": "Jump to Latest While Working"
+          },
+          "help": {
+            "key": "settings.agentPane.display.thinking.jumpButton.help",
+            "text": "What the Jump to latest button shows while the agent works."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "arrow",
+              "title": {
+                "key": "settings.choice.thinkingJumpArrow",
+                "text": "Arrow"
+              }
+            },
+            {
+              "value": "dots",
+              "title": {
+                "key": "settings.choice.dots",
+                "text": "Dots"
+              }
+            }
+          ],
+          "default": "arrow",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "thinking",
+            "jump",
+            "latest",
+            "scroll",
+            "button",
+            "arrow",
+            "dots",
+            "claude"
+          ]
+        },
+        {
           "key": "agentPane.display.harnessPlacement",
           "title": {
             "key": "settings.agentPane.display.harnessPlacement",
@@ -1161,6 +1620,60 @@
           ]
         },
         {
+          "key": "agentPane.display.modelChipIcon",
+          "note": "Whether the composer's model chip draws its provider's logo left of the model's name (webviews modelChipIcon.ts, cmux#38053). The chip's right-click writes it; the agent pages' storage ends with the launch, so the pick lives here.",
+          "title": {
+            "key": "settings.agentPane.display.modelChipIcon",
+            "text": "Model Logo in Composer"
+          },
+          "help": {
+            "key": "settings.agentPane.display.modelChipIcon.help",
+            "text": "Shows the provider's logo next to the model's name in the message box. Right-click the model to turn it off or on."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "composer",
+            "model",
+            "chip",
+            "logo",
+            "icon",
+            "provider",
+            "picker"
+          ]
+        },
+        {
+          "key": "agentPane.display.queueing",
+          "note": "Whether a prompt sent while a turn runs waits in the queue (webviews queueing.ts; Leo, 2026-10-21, after ChatGPT's and Codex's \"Turn off queueing\"). A queued row's menu and the composer's button row write it; the agent pages' storage ends with the launch, so the pick lives here.",
+          "title": {
+            "key": "settings.agentPane.display.queueing",
+            "text": "Queue Prompts During a Turn"
+          },
+          "help": {
+            "key": "settings.agentPane.display.queueing.help",
+            "text": "On, Send and ⌘Return queue a prompt sent while a turn runs, and Return steers it into the turn. Off, every send steers, so nothing waits."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "composer",
+            "queue",
+            "queueing",
+            "steer",
+            "send",
+            "turn",
+            "prompt",
+            "wait"
+          ]
+        },
+        {
           "key": "agentPane.display.rail.side",
           "name": "railSide",
           "title": {
@@ -1206,6 +1719,131 @@
           ]
         },
         {
+          "key": "agentPane.display.rail.show",
+          "name": "railShow",
+          "note": "What the prompt rail draws a tick for (webviews threadMinimap/railShow.ts; Leo, 2026-11-21: \"why cant you see an agents'? why cant you filter it? customize it immediately?\"). The rail's right-click menu and its head control write it too, so every rail changes at once.",
+          "title": {
+            "key": "settings.agentPane.display.rail.show",
+            "text": "Prompt Rail Shows"
+          },
+          "help": {
+            "key": "settings.agentPane.display.rail.show.help",
+            "text": "Right-click the rail to change it."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "prompts",
+              "title": {
+                "key": "settings.agentPane.display.rail.show.prompts",
+                "text": "All Messages"
+              }
+            },
+            {
+              "value": "mine",
+              "title": {
+                "key": "settings.agentPane.display.rail.show.mine",
+                "text": "My Messages"
+              }
+            },
+            {
+              "value": "received",
+              "title": {
+                "key": "settings.agentPane.display.rail.show.received",
+                "text": "Agent Messages"
+              }
+            },
+            {
+              "value": "replies",
+              "title": {
+                "key": "settings.agentPane.display.rail.show.replies",
+                "text": "Agent Replies"
+              }
+            },
+            {
+              "value": "everything",
+              "title": {
+                "key": "settings.agentPane.display.rail.show.everything",
+                "text": "Messages and Replies"
+              }
+            },
+            {
+              "value": "errors",
+              "title": {
+                "key": "settings.agentPane.display.rail.show.errors",
+                "text": "Turns with Errors"
+              }
+            },
+            {
+              "value": "edits",
+              "title": {
+                "key": "settings.agentPane.display.rail.show.edits",
+                "text": "Turns with Edits"
+              }
+            },
+            {
+              "value": "tools",
+              "title": {
+                "key": "settings.agentPane.display.rail.show.tools",
+                "text": "Turns with Tool Calls"
+              }
+            },
+            {
+              "value": "subagents",
+              "title": {
+                "key": "settings.agentPane.display.rail.show.subagents",
+                "text": "Turns with Subagents"
+              }
+            }
+          ],
+          "default": "prompts",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "rail",
+            "minimap",
+            "prompts",
+            "ticks",
+            "scroll",
+            "filter",
+            "replies",
+            "errors",
+            "edits",
+            "tools",
+            "subagents"
+          ]
+        },
+        {
+          "key": "agentPane.display.rail.control",
+          "name": "railControl",
+          "note": "A control at the prompt rail's head that names what it shows and opens the same choices (webviews threadMinimap/RailShowControl.tsx). Off by default: the rail looks as it did.",
+          "title": {
+            "key": "settings.agentPane.display.rail.control",
+            "text": "Prompt Rail Button"
+          },
+          "help": {
+            "key": "settings.agentPane.display.rail.control.help",
+            "text": "Shows what the rail lists above it while you point at it."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "rail",
+            "minimap",
+            "filter",
+            "button",
+            "control",
+            "replies"
+          ]
+        },
+        {
           "key": "agentPane.display.commandLabels",
           "note": "How the chat's running tray names background commands no built-in rule knows (CommandLabelsSetting; webviews session-info/commandLabelSettings.ts): preset names and rules of one's own, edited as JSON.",
           "title": {
@@ -1233,6 +1871,150 @@
             "shell"
           ],
           "page_hidden": "a list of preset names and rule objects, edited in cmux-next.json"
+        },
+        {
+          "key": "agentPane.display.layout.messages",
+          "name": "layoutMessages",
+          "note": "Chat layout (structure a look reshapes; webviews/src/agent-session/acpmux/chatLayout.ts sets it on the page root as a data attribute, chatLayout.css draws it). Hot-applies with the display event.",
+          "title": {
+            "key": "settings.agentPane.display.layout.messages",
+            "text": "Message Layout"
+          },
+          "help": {
+            "key": "settings.agentPane.display.layout.messages.help",
+            "text": "How your messages sit in the chat: a bubble on the right, a flat row on the left with an accent rule, or a card on the left."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "bubbles",
+              "title": {
+                "key": "settings.choice.chatLayout.bubbles",
+                "text": "Bubbles"
+              }
+            },
+            {
+              "value": "flat",
+              "title": {
+                "key": "settings.choice.chatLayout.flat",
+                "text": "Flat Rows"
+              }
+            },
+            {
+              "value": "card",
+              "title": {
+                "key": "settings.choice.chatLayout.card",
+                "text": "Cards"
+              }
+            }
+          ],
+          "default": "bubbles",
+          "keywords": [
+            "agent",
+            "chat",
+            "display",
+            "layout",
+            "look",
+            "messages",
+            "bubbles",
+            "flat",
+            "cards",
+            "prompt"
+          ]
+        },
+        {
+          "key": "agentPane.display.layout.composer",
+          "name": "layoutComposer",
+          "note": "Chat layout (structure a look reshapes; webviews/src/agent-session/acpmux/chatLayout.ts sets it on the page root as a data attribute, chatLayout.css draws it). Hot-applies with the display event.",
+          "title": {
+            "key": "settings.agentPane.display.layout.composer",
+            "text": "Message Box Shape"
+          },
+          "help": {
+            "key": "settings.agentPane.display.layout.composer.help",
+            "text": "The message box's outline: rounded, a pill, or square and docked."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "rounded",
+              "title": {
+                "key": "settings.choice.chatLayout.rounded",
+                "text": "Rounded"
+              }
+            },
+            {
+              "value": "pill",
+              "title": {
+                "key": "settings.choice.chatLayout.pill",
+                "text": "Pill"
+              }
+            },
+            {
+              "value": "square",
+              "title": {
+                "key": "settings.choice.chatLayout.square",
+                "text": "Square"
+              }
+            }
+          ],
+          "default": "rounded",
+          "keywords": [
+            "agent",
+            "chat",
+            "display",
+            "layout",
+            "look",
+            "composer",
+            "message box",
+            "pill",
+            "square",
+            "rounded",
+            "shape"
+          ]
+        },
+        {
+          "key": "agentPane.display.layout.header",
+          "name": "layoutHeader",
+          "note": "Chat layout (structure a look reshapes; webviews/src/agent-session/acpmux/chatLayout.ts sets it on the page root as a data attribute, chatLayout.css draws it). Hot-applies with the display event.",
+          "title": {
+            "key": "settings.agentPane.display.layout.header",
+            "text": "Chat Header"
+          },
+          "help": {
+            "key": "settings.agentPane.display.layout.header.help",
+            "text": "Full shows the chat's header tools at all times; Quiet shows them only while the pointer is over the header."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "full",
+              "title": {
+                "key": "settings.choice.chatLayout.full",
+                "text": "Full"
+              }
+            },
+            {
+              "value": "quiet",
+              "title": {
+                "key": "settings.choice.chatLayout.quiet",
+                "text": "Quiet"
+              }
+            }
+          ],
+          "default": "full",
+          "keywords": [
+            "agent",
+            "chat",
+            "display",
+            "layout",
+            "look",
+            "header",
+            "toolbar",
+            "quiet",
+            "hide",
+            "chrome"
+          ]
         }
       ]
     }

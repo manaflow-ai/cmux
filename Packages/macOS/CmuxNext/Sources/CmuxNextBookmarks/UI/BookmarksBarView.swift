@@ -186,7 +186,7 @@ public final class BookmarksBarView: NSView {
         folderMenu.menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: view, gap: 2), in: view)
     }
 
-    public override func menu(for event: NSEvent) -> NSMenu? { source?.contextMenu(for: nil)?.themeRows(in: themeScope.fullStrength) }
+    public override func menu(for event: NSEvent) -> NSMenu? { NSMenu.withoutSystemItems(source?.contextMenu(for: nil)?.themeRows(in: themeScope.fullStrength)) }
 
     // MARK: Drag and drop (BookmarksBarView+Drag)
 

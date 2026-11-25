@@ -19,21 +19,21 @@ name: Swift packages on Linux
 # build on it incrementally (tests/test_ci_swift_packages_linux_cache.py).
 
 on:
-  pull_request:
-    branches: [feat-cmux-next]
-    paths:
-      - Packages/**
-      - vendor/stack-auth-swift-sdk-prerelease/**
-      - scripts/ci/swift-linux-packages.txt
-      - scripts/ci/package-test-lane.sh
-      - .github/workflows/swift-linux-packages.yml
+  # A feat-cmux-next pull request starts this only through pr-router.yml (one router per push, RFD 0023):
+  # the router lists the changed files once and calls it when a change reaches a package this tests
+  # (scripts/ci/pr_router.json `affects`: Packages/Shared, Packages/iOS, the Stack Auth SDK, the lane
+  # scripts). A Packages/macOS-only change (a third of merges) no longer starts four Linux legs.
+  workflow_call:
   push:
     branches: [feat-cmux-next]
     paths:
       - Packages/**
       - vendor/stack-auth-swift-sdk-prerelease/**
+      - cmux-next-ios/CmuxMobileKit/**
       - scripts/ci/swift-linux-packages.txt
       - scripts/ci/package-test-lane.sh
+      - scripts/ci/swift-test-debug-info.sh
+      - scripts/ci/swiftpm-binary-module-guard.sh
       - .github/workflows/swift-linux-packages.yml
   workflow_dispatch:
 
@@ -46,15 +46,18 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
-  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   swift-linux-packages:
     name: Swift packages on Linux (${{ matrix.group }})
+    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
+    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
+    if: ${{ (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     # 32 vCPU: swift build compiles a package's modules in parallel (tests/test_ci_linux_compile_runners.py);
     # 16 vCPU while the Blacksmith outage switch is on (tests/test_ci_blacksmith_linux_failover.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 30
     container: public.ecr.aws/docker/library/swift:6.2-noble@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
     defaults:
@@ -69,14 +72,16 @@ jobs:
             packages: Packages/Shared/CmuxSentryTelemetry
           - group: mobile-core
             packages: >-
-              Packages/Shared/CMUXMobileCore
+              Packages/Shared/CmuxHomeCore
               Packages/Shared/CmuxTheme
-              Packages/iOS/CmuxMobilePairedMac
-              Packages/iOS/CmuxMobileShellModel
           # Other SDK suites need a local Stack backend; these use URLProtocol fixtures.
           - group: stack-auth
             packages: vendor/stack-auth-swift-sdk-prerelease
             test_filter: RefreshLifecycleTests|RefreshDeadlineTests|RefreshTransportTimingTests|RateLimitRetryTests|PublishableKeyOptionalTests|TokenRefreshAlgorithmTests/[a-zA-Z]*Fresh
+          # The cmux-next iPhone app's modules that need no UI framework (the manifest's CMUX_SWIFTPM_TARGET_LINUX
+          # shape); cmux-next-ios-kit.yml skips their test targets on the Mac.
+          - group: ios-kit
+            packages: cmux-next-ios/CmuxMobileKit
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -91,7 +96,7 @@ jobs:
         id: key
         run: |
           set -euo pipefail
-          inputs="$({ find Packages vendor/stack-auth-swift-sdk-prerelease -type d \( -name .build -o -name .git -o -name node_modules \) -prune -o \
+          inputs="$({ find Packages vendor/stack-auth-swift-sdk-prerelease cmux-next-ios -type d \( -name .build -o -name .git -o -name node_modules \) -prune -o \
               -type f \( -name Package.swift -o -name Package.resolved \) -print0
             printf '%s\0' scripts/ci/swift-linux-packages.txt scripts/ci/swift-test-debug-info.sh; } |
             LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d ' ' -f1)"
@@ -108,6 +113,7 @@ jobs:
           path: |
             Packages/**/.build
             vendor/stack-auth-swift-sdk-prerelease/.build
+            cmux-next-ios/CmuxMobileKit/.build
           key: swift-linux-packages-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ runner.arch }}-${{ matrix.group }}-${{ steps.key.outputs.inputs }}
           restore-keys: |
             swift-linux-packages-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ runner.arch }}-${{ matrix.group }}-
@@ -166,4 +172,5 @@ jobs:
           path: |
             Packages/**/.build
             vendor/stack-auth-swift-sdk-prerelease/.build
+            cmux-next-ios/CmuxMobileKit/.build
           key: swift-linux-packages-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ runner.arch }}-${{ matrix.group }}-${{ steps.key.outputs.inputs }}

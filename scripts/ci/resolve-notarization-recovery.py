@@ -39,7 +39,7 @@ def validate_manifest(
     *,
     strict: bool = False,
 ) -> dict[str, Any]:
-    """Validate one exact DMG or pre-DMG helper recovery artifact."""
+    """Validate one exact DMG recovery artifact."""
     if channel not in CHANNELS or variant not in VARIANTS:
         raise ValueError("unsupported recovery channel or variant")
     if not re.fullmatch(r"[0-9]+\Z", str(source_run_id)):
@@ -48,17 +48,14 @@ def validate_manifest(
         raise ValueError("invalid recovery source head SHA")
     manifest = dict(manifest)
     kind = manifest.get("recovery_kind", "dmg")
-    if kind not in {"dmg", "computer-use-helper"}:
+    if kind != "dmg":
         raise ValueError("unsupported recovery kind")
     common = (
         "source_run_id", "head_sha", "channel", "variant", "release_tag", "dmg_prefix",
         "build", "dmg_path", "app_path", "app_archive_path", "immutable_path", "submission_id",
     )
     _required(manifest, common)
-    if kind == "dmg":
-        _required(manifest, ("state_path", "log_path", "dmg_sha256"))
-    else:
-        _required(manifest, ("helper_state_path", "helper_log_path", "helper_cdhashes"))
+    _required(manifest, ("state_path", "log_path", "dmg_sha256"))
     if str(manifest["source_run_id"]) != str(source_run_id):
         raise ValueError("recovery source run mismatch")
     if str(manifest["head_sha"]).lower() != str(source_head_sha).lower():
@@ -85,32 +82,18 @@ def validate_manifest(
         raise ValueError("recovery app path is not in the extracted app directory")
     if manifest["app_archive_path"] != "cmux-nightly-notarization-recovery-app.tar.gz":
         raise ValueError("recovery app archive name is not canonical")
-    if kind == "dmg":
-        if manifest["state_path"] != f"{expected_dmg}.notarization.state":
-            raise ValueError("recovery state path is not canonical")
-        if manifest["log_path"] != f"{expected_dmg}.notarization.log":
-            raise ValueError("recovery log path is not canonical")
-        if not HEX_SHA256.fullmatch(str(manifest["dmg_sha256"])):
-            raise ValueError("invalid recovery DMG SHA-256")
-    else:
-        if manifest["helper_state_path"] != "cmux-computer-use-notarization.state":
-            raise ValueError("helper state path is not canonical")
-        if manifest["helper_log_path"] != "cmux-computer-use-notarization.state.log":
-            raise ValueError("helper log path is not canonical")
-        hashes = str(manifest["helper_cdhashes"]).split(",")
-        if not hashes or any(not re.fullmatch(r"[A-Za-z0-9_=-]+=[0-9a-fA-F]{40}", value) for value in hashes):
-            raise ValueError("invalid helper CDHash evidence")
-        if "app_entitlements_path" in manifest or "app_entitlements_sha256" in manifest:
-            if not manifest.get("app_entitlements_path") or not HEX_SHA256.fullmatch(str(manifest.get("app_entitlements_sha256", ""))):
-                raise ValueError("invalid helper app entitlements evidence")
-            if Path(str(manifest["app_entitlements_path"])).name != str(manifest["app_entitlements_path"]):
-                raise ValueError("helper app entitlements path must be a file name")
+    if manifest["state_path"] != f"{expected_dmg}.notarization.state":
+        raise ValueError("recovery state path is not canonical")
+    if manifest["log_path"] != f"{expected_dmg}.notarization.log":
+        raise ValueError("recovery log path is not canonical")
+    if not HEX_SHA256.fullmatch(str(manifest["dmg_sha256"])):
+        raise ValueError("invalid recovery DMG SHA-256")
     if not SUBMISSION_ID.fullmatch(str(manifest["submission_id"])):
         raise ValueError("invalid recovery submission id")
     short_sha = str(manifest.get("short_sha", ""))
     if not re.fullmatch(r"[0-9a-fA-F]{7}", short_sha) or not str(manifest["head_sha"]).lower().startswith(short_sha.lower()):
         raise ValueError("invalid recovery short SHA")
-    expected_schema = 1 if kind == "dmg" else 2
+    expected_schema = 1
     schema = manifest.get("schema")
     if schema is not None and schema != expected_schema:
         raise ValueError("unsupported recovery manifest schema")
@@ -186,9 +169,7 @@ def extract_app_archive(root: Path, archive_path: Path, app_relative: str) -> No
 def resolve_state(manifest: Mapping[str, Any], manifest_path: Path) -> Path:
     """Bind a saved Apple submission to the validated source manifest."""
     root = manifest_path.parent.resolve()
-    kind = manifest.get("recovery_kind", "dmg")
-    state_key = "helper_state_path" if kind == "computer-use-helper" else "state_path"
-    state_path = safe_path(root, str(manifest[state_key]), state_key)
+    state_path = safe_path(root, str(manifest["state_path"]), "state_path")
     state = {}
     for line in state_path.read_text(encoding="utf-8").splitlines():
         key, separator, value = line.partition("=")
@@ -197,53 +178,19 @@ def resolve_state(manifest: Mapping[str, Any], manifest_path: Path) -> Path:
         state[key] = value
     if state.get("submission_id") != manifest["submission_id"]:
         raise ValueError("notarization state does not match recovery manifest")
-    if kind == "computer-use-helper":
-        if state.get("cdhashes") != manifest["helper_cdhashes"]:
-            raise ValueError("helper state CDHashes do not match recovery manifest")
-        if state.get("wait_exit", "0") == "0" and state.get("status") == "Accepted" and state.get("post_wait_pending") != "true":
-            raise ValueError("accepted helper state is not pending recovery")
-    else:
-        if state.get("dmg_sha256", "").lower() != str(manifest["dmg_sha256"]).lower():
-            raise ValueError("notarization state does not match recovery manifest")
-        # A DMG around the stapled app whose upload failed every retry is
-        # recorded as unsubmitted: it can only reach its 6 h fallback.
-        unsubmitted = state.get("stapled_app") == "true" and state.get("submission_id") == "unsubmitted"
-        if state.get("submit_exit", "0") != "0" and not unsubmitted:
-            raise ValueError("notarization submit exited nonzero")
+    if state.get("dmg_sha256", "").lower() != str(manifest["dmg_sha256"]).lower():
+        raise ValueError("notarization state does not match recovery manifest")
+    # A DMG around the stapled app whose upload failed every retry is
+    # recorded as unsubmitted: it can only reach its 6 h fallback.
+    unsubmitted = state.get("stapled_app") == "true" and state.get("submission_id") == "unsubmitted"
+    if state.get("submit_exit", "0") != "0" and not unsubmitted:
+        raise ValueError("notarization submit exited nonzero")
     return state_path
 
 
 def resolve_files(manifest: Mapping[str, Any], manifest_path: Path, *, extract_app: bool = False) -> dict[str, Path | str]:
     root = manifest_path.parent.resolve()
     kind = manifest.get("recovery_kind", "dmg")
-    if kind == "computer-use-helper":
-        state_file = safe_path(root, str(manifest["helper_state_path"]), "helper_state_path")
-        evidence_file = safe_path(root, str(manifest["helper_log_path"]), "helper_log_path")
-        archive = safe_path(root, str(manifest["app_archive_path"]), "app_archive_path")
-        if extract_app:
-            extract_app_archive(root, archive, str(manifest["app_path"]))
-        app = safe_path(root, str(manifest["app_path"]), "app_path", directory=True)
-        entitlements = None
-        if manifest.get("app_entitlements_path"):
-            entitlements = safe_path(root, str(manifest["app_entitlements_path"]), "app_entitlements_path")
-            digest = hashlib.sha256(entitlements.read_bytes()).hexdigest()
-            if digest.lower() != str(manifest["app_entitlements_sha256"]).lower():
-                raise ValueError("helper app entitlements SHA-256 mismatch")
-        if not (app / "Contents").is_dir():
-            raise ValueError("recovery app is not a bundle")
-        resolve_state(manifest, manifest_path)
-        values = {
-            "RECOVERY_KIND": kind, "HELPER_STATE_FILE": state_file,
-            "HELPER_EVIDENCE_FILE": evidence_file, "APP_PATH": app,
-            "DMG_RELEASE": root / Path(Path(str(manifest["dmg_path"])).name),
-            "IMMUTABLE_NAME": Path(str(manifest["immutable_path"])).name,
-            "ALIAS_NAME": f"{manifest['dmg_prefix']}-{manifest['variant']}.dmg",
-            "DMG_PREFIX": manifest["dmg_prefix"], "RELEASE_TAG": manifest["release_tag"],
-            "BUILD": manifest["build"],
-        }
-        if entitlements is not None:
-            values["APP_ENTITLEMENTS"] = entitlements
-        return values
     files = {key: safe_path(root, str(manifest[key]), key) for key in ("state_path", "dmg_path", "log_path", "app_archive_path")}
     if extract_app:
         extract_app_archive(root, files["app_archive_path"], str(manifest["app_path"]))
