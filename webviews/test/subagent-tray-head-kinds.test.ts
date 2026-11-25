@@ -61,7 +61,7 @@ describe("the running tray header counts each kind", () => {
       [agent("d", "completed"), agent("f", "failed"), agent("x", "cancelled")],
       { waiting: new Set(["w"]) },
     );
-    expect(counts.text).toBe("2 subagents running · 1 session · 1 waiting · 1 command · 1 subagent done · 1 stopped");
+    expect(counts.text).toBe("2 subagents · 1 session · 1 waiting · 1 command · 1 subagent done · 1 stopped");
     expect(counts.failed).toBe(1);
     // A Codex subagent under a Claude chat is named by its mark; the chat's own family is not.
     expect(counts.marks).toEqual(["codex"]);
@@ -72,19 +72,17 @@ describe("the running tray header counts each kind", () => {
     expect(head([command("c")], [chat("s", "failed")]).failed).toBe(1);
   });
 
-  test("between turns it says the work runs in the background", () => {
-    expect(head([agent("r", "running"), command("c")], [], { working: false }).text).toBe(
-      "Running in background · 1 subagent · 1 command",
-    );
+  test("between turns it counts by kind, with no Running in background (Leo, 2026-11-23)", () => {
+    expect(head([agent("r", "running"), command("c")], [], { working: false }).text).toBe("1 subagent · 1 command");
   });
 
   test("the arms: no marks, sessions as subagents, and only what runs", () => {
     const items = [agent("r", "running", "codex"), chat("s", "running"), command("c")];
     const finished = [agent("d", "completed"), agent("f", "failed")];
     expect(head(items, finished, { arm: "plain" }).marks).toEqual([]);
-    expect(head(items, finished, { arm: "sub" }).text).toBe("2 subagents running · 1 command · 1 subagent done");
+    expect(head(items, finished, { arm: "sub" }).text).toBe("2 subagents · 1 command · 1 subagent done");
     expect(head(items, finished, { arm: "running" })).toEqual({
-      text: "2 subagents running · 1 command",
+      text: "2 subagents · 1 command",
       failed: 0,
       marks: [],
     });
@@ -120,18 +118,18 @@ describe("the header counts the commands by what they do", () => {
 
   test("each kind apart, in a fixed order, after the agents", () => {
     expect(head(coordinator, []).text).toBe(
-      "1 subagent running · 1 message · 1 review · 1 test run · 1 build · 2 waits · 1 server · 1 command",
+      "1 subagent · 1 message · 1 review · 1 test run · 1 build · 2 waits · 1 server · 1 command",
     );
   });
 
   test("the separator arms", () => {
     for (const separator of [" / ", " | ", " \\ "])
       expect(head(coordinator.slice(0, 3), [], { separator }).text).toBe(
-        `1 subagent running${separator}1 message${separator}1 review`,
+        `1 subagent${separator}1 message${separator}1 review`,
       );
   });
 
   test("only what runs keeps the one count of commands", () => {
-    expect(head(coordinator, [], { arm: "running" }).text).toBe("1 subagent running · 8 commands");
+    expect(head(coordinator, [], { arm: "running" }).text).toBe("1 subagent · 8 commands");
   });
 });

@@ -8,12 +8,15 @@ import { legacyPart } from "./legacyLinks";
 import type {
   AgentsState,
   ChannelsState,
-  DoctorReport,
+  Checklist,
   KeysState,
   SharesState,
   TailnetState,
   LibraryListing,
+  DoctorReport,
+  ArchivedState,
 } from "./ops";
+import { checklistFacts } from "./customizeProgress";
 import { settingsKeys } from "./queries";
 import { loadCards } from "./components/cardModules";
 import type { SettingsStore } from "./store";
@@ -84,6 +87,18 @@ export function sharesQuery(store: SettingsStore) {
   });
 }
 
+export const ARCHIVED_KEY = [...settingsKeys.all, "archived"] as const;
+
+/** Settings > Sidebar > Archived Workspaces: the archived rows (null: the host has none). */
+export function archivedQuery(store: SettingsStore) {
+  return queryOptions<ArchivedState | null>({
+    queryKey: ARCHIVED_KEY,
+    queryFn: () => store.archived(),
+    staleTime: SECTION_READ_FRESH_MS,
+    structuralSharing: true,
+  });
+}
+
 /** Appearance > Customization Library's key; a change the card makes writes the library it answers here. */
 export const LIBRARY_KEY = [...settingsKeys.all, "customize-library"] as const;
 
@@ -92,6 +107,22 @@ export function libraryQuery(store: SettingsStore) {
   return queryOptions<LibraryRead>({
     queryKey: LIBRARY_KEY,
     queryFn: () => store.customizeLibrary({ verb: "list" }),
+    staleTime: SECTION_READ_FRESH_MS,
+    structuralSharing: true,
+  });
+}
+
+/** Settings > General > Customize cmux: the checklist at settings revision `revision` with the
+ * connections `has` (null: no CLI). A write moves the revision, so the progress follows it. */
+/** The checklist's one key: the section read and the card share it whatever the revision and
+ * connections are when each starts, so the card draws in the first screen; the card refreshes it
+ * when either changes (CustomizeProgressCard). The read asks with the connections the store holds then. */
+export const checklistKey = [...settingsKeys.all, "customize-checklist"] as const;
+
+export function checklistQuery(store: SettingsStore) {
+  return queryOptions<Checklist | null>({
+    queryKey: checklistKey,
+    queryFn: () => store.customizeChecklist(checklistFacts(store.getSnapshot())),
     staleTime: SECTION_READ_FRESH_MS,
     structuralSharing: true,
   });
@@ -156,8 +187,15 @@ export function sectionReads(store: SettingsStore, section: string): SectionRead
     reads.push({ options: { queryKey: settingsKeys.models }, revalidate: false });
   if (cards.has("agentHarnesses")) reads.push({ options: agentsQuery(store), revalidate: true });
   if (cards.has("sharedLinks")) reads.push({ options: sharesQuery(store), revalidate: true });
+  if (cards.has("archivedWorkspaces")) reads.push({ options: archivedQuery(store), revalidate: true });
   if (cards.has("customizeLibrary") || cards.has("customizeChecklist"))
     reads.push({ options: libraryQuery(store), revalidate: true });
+  if (cards.has("customizeProgress")) {
+    // The checklist's connection steps read the Accounts and Models parts the store keeps.
+    reads.push({ options: { queryKey: settingsKeys.accounts }, revalidate: false });
+    reads.push({ options: { queryKey: settingsKeys.models }, revalidate: false });
+    reads.push({ options: checklistQuery(store), revalidate: true });
+  }
   // Customization Problems draws above the library, in its slot.
   if (cards.has("customizeLibrary")) reads.push({ options: doctorQuery(store), revalidate: true });
   if (cards.has("keys")) reads.push({ options: keysQuery(store), revalidate: true });
