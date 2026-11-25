@@ -18,4 +18,4 @@ difference is the client side:
 - `mcp.py`: stdio MCP servers: per-chat copies vs shared, startup, call latency, reaping, crash recovery
 - `optimum.py`: the floor per metric on the same machine, and the formula for N chats with K MCP servers
 
-Results: RESULTS.md (pending).
+Results: RESULTS.md; raw per-bench tables under results/
