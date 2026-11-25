@@ -83,6 +83,8 @@ pub(crate) struct Direct {
     pub(crate) kept: super::mux::KeptCircuits,
     /// The current registration's admission of incoming circuits.
     incoming: RwLock<Option<Weak<Incoming>>>,
+    /// Punches toward machines on other networks (`hub_carrier_punch.rs`).
+    pub(crate) punch: super::punch::Punches,
 }
 
 impl Direct {
@@ -90,7 +92,7 @@ impl Direct {
         *self.incoming.write().unwrap_or_else(|e| e.into_inner()) = Some(Arc::downgrade(incoming));
     }
 
-    fn incoming(&self) -> Option<Arc<Incoming>> {
+    pub(crate) fn incoming(&self) -> Option<Arc<Incoming>> {
         self.incoming.read().unwrap_or_else(|e| e.into_inner()).as_ref()?.upgrade()
     }
 
@@ -207,14 +209,26 @@ impl HubCarrier {
         address: SocketAddr,
     ) -> Result<(cmux_remote::crypto::SecureLink, DialStages), String> {
         let mut stages = DialStages::default();
-        let pinned = key_bytes(daemon).ok_or("a direct dial needs the machine's node key")?;
         let step = Instant::now();
         let tcp = tokio::time::timeout(CONNECT_BOUND, tokio::net::TcpStream::connect(address))
             .await
             .map_err(|_| format!("direct: no connect to {address} in {CONNECT_BOUND:?}"))?
             .map_err(|e| format!("direct: connect to {address}: {e}"))?;
-        let _ = tcp.set_nodelay(true);
         stages.relay = step.elapsed();
+        self.secure_direct(daemon, tcp, address, stages).await
+    }
+
+    /// The Noise handshake, as the initiator with `daemon`'s key pinned, on a direct
+    /// connection to it (dialed or punched).
+    pub(crate) async fn secure_direct(
+        &self,
+        daemon: &str,
+        tcp: tokio::net::TcpStream,
+        address: SocketAddr,
+        mut stages: DialStages,
+    ) -> Result<(cmux_remote::crypto::SecureLink, DialStages), String> {
+        let pinned = key_bytes(daemon).ok_or("a direct dial needs the machine's node key")?;
+        let _ = tcp.set_nodelay(true);
         let (read, write) = tcp.into_split();
         let link = LengthDelimitedLink::new(
             format!("hub carrier direct {address}"),
@@ -256,10 +270,8 @@ impl HubCarrier {
                     }
                 };
                 let Some(carrier) = carrier.upgrade() else { return };
-                if !private_address(from.ip()) {
-                    tracing::debug!("hub carrier direct: closed a connection from {from}");
-                    continue;
-                }
+                // From any address: a punched connection comes from another network. The Noise
+                // handshake admits only the keys the hub names, as on the relay.
                 let Some(incoming) = carrier.direct.incoming() else {
                     // Not registered yet: no admitted keys to check a handshake against.
                     continue;
@@ -287,7 +299,7 @@ impl HubCarrier {
     }
 }
 
-fn scope() -> &'static cmux_scope::Scope {
+pub(crate) fn scope() -> &'static cmux_scope::Scope {
     static SCOPE: std::sync::OnceLock<cmux_scope::Scope> = std::sync::OnceLock::new();
     SCOPE.get_or_init(|| cmux_scope::Scope::new("hub carrier direct links"))
 }
