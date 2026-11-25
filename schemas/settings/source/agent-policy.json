@@ -332,6 +332,7 @@
         "ui.reducedBackgrounds",
         "appearance.agentGlow",
         "appearance.experimentalControls",
+        "appearance.glassControls",
         "appearance.settingsBetaChips",
         "app.uiScale",
         "appearance.glassTransparency",
