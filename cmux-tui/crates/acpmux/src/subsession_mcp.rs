@@ -61,7 +61,7 @@ pub(crate) fn tools() -> Value {
                     "harness": {"type": "string", "description": "The agent to run it, e.g. claude or codex. Default: the same agent as yours."},
                     "model": {"type": "string", "description": "The model. Default: the agent's default."},
                     "cwd": {"type": "string", "description": "Absolute folder to work in (default: yours). An untrusted folder waits on a Trust / Not now card in your chat; Not now refuses (do not ask again)."},
-                    "host": {"type": "string", "description": "This machine only. \"auto\" first checks this machine has room (free RAM, busy cores, disk, lane limit) and the result's placed line says why; past its room it starts anyway with a warning. \"auto-build\" also requires a build machine, else refused. Default: unchecked."},
+                    "host": {"type": "string", "description": "This machine only. \"auto\" first checks this machine has room (free RAM, busy cores, disk, lane limit; as `cmux agent new --machine auto`) and the result's line says why (\"placed on ...\"); past its room it starts anyway with a warning. \"auto-build\" also requires a build machine, else refused. Default: unchecked."},
                     "fork": {"type": "boolean", "description": "Fork this chat as it is now, with all your history, instead of starting empty; the prompt is the fork's next message. Takes no harness, model, cwd or worktree."},
                     "worktree": {"type": "boolean", "description": "Work in a new git worktree of that folder's repository (branch cmux/<name>), apart from your edits until the user applies them; checked out as committed, without hooks or filters (LFS files stay pointers)."}
                 },

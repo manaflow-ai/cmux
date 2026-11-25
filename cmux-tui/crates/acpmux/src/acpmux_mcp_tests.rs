@@ -108,22 +108,26 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
     assert_eq!(tools[9]["inputSchema"]["required"], json!(["id"]));
 }
 
-/// The first shape's fields are as they were (a snapshot): only new optional fields were added,
-/// and `required` went, because a batch names its recipients and texts in `messages`; a call
-/// without them is still refused for want of to and text (below).
+/// The first shape's fields are as they were (a snapshot of names, types and enums; their
+/// descriptions were shortened, since every schema byte is sent on every turn): only new
+/// optional fields were added, and `required` went, because a batch names its recipients and
+/// texts in `messages`; a call without them is still refused for want of to and text (below).
 #[test]
 fn the_send_schema_keeps_its_first_shape() {
     let props = &tools()[0]["inputSchema"]["properties"];
     let first = json!({
-        "to": {"type": "string", "description": "The session: its name, id, or host/name for a session on a peer (as ls lists them)."},
-        "text": {"type": "string", "description": "The message, self-contained."},
-        "steer": {"type": "boolean", "description": "true (default): into a running turn at its next tool step. false: queued behind the running turn."},
-        "class": {"type": "string", "enum": ["block", "question", "result", "fyi", "blocker", "action"], "description": "What the message asks of the receiver: block or blocker (you cannot go on until it acts; wakes an idle receiver), question (you wait for its answer; wakes it too), result or action (work you finished or work for it; the default; wakes an idle receiver only when you started it or gave it its first work) or fyi (wakes no one)."},
-        "pr": {"type": "integer", "description": "The pull request this message is about: the receiver's inbox threads it with the others about it."},
-        "thread": {"type": "string", "description": "The thread this message goes in, a topic or a threadId from inbox_read (default: your messages about the PR its first line names, else all your messages)."}
+        "to": {"type": "string"},
+        "text": {"type": "string"},
+        "steer": {"type": "boolean"},
+        "class": {"type": "string", "enum": ["block", "question", "result", "fyi", "blocker", "action"]},
+        "pr": {"type": "integer"},
+        "thread": {"type": "string"}
     });
     for (key, want) in first.as_object().unwrap() {
-        assert_eq!(&props[key], want, "{key}");
+        let mut have = props[key].clone();
+        have.as_object_mut().unwrap().remove("description");
+        assert_eq!(&have, want, "{key}");
+        assert!(props[key]["description"].is_string(), "{key} lost its description");
     }
     let mut names: Vec<&String> = props.as_object().unwrap().keys().collect();
     names.sort_unstable();
