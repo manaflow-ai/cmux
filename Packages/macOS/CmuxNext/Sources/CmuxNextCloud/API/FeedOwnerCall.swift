@@ -25,10 +25,15 @@ public struct FeedOwnerCall: Sendable {
     }
 
     /// The Worker's reply: its HTTP status and its body when that is a JSON object.
-    public struct Reply: @unchecked Sendable {
-        // @unchecked: `body` is a JSONSerialization tree, read only.
+    public struct Reply: Sendable {
         public var status: Int
-        public var body: [String: Any]?
+        /// The body as JSON text (a Sendable value); nil when the Worker's body was not a JSON object.
+        var bodyJSON: Data?
+
+        /// The body, parsed: nil when it was not a JSON object.
+        public var body: [String: Any]? {
+            bodyJSON.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
+        }
     }
 
     let baseURL: URL
@@ -77,7 +82,8 @@ public struct FeedOwnerCall: Sendable {
         }
         guard let answer = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let status = answer["status"] as? Int else { throw FeedServiceError.badReply }
-        return Reply(status: status, body: answer["reply"] as? [String: Any])
+        let body = (answer["reply"] as? [String: Any]).flatMap { try? JSONSerialization.data(withJSONObject: $0) }
+        return Reply(status: status, bodyJSON: body)
     }
 
     /// ``send(_:_:)``'s reply as the feed reads it: the body, or ``FeedServiceError/owner(code:message:)`` for
