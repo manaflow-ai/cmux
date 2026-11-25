@@ -1147,7 +1147,6 @@ CmuxNextAgentPermissions	struct	PermissionReasonCheck	0	LOGIC	100	0	Packages/mac
 CmuxNextAgentPermissions	struct	PermissionRequest	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPermissions/Model/PermissionRequest.swift	Permission request outcome/reason check/request/requester models
 CmuxNextAgentPermissions	struct	PermissionRequester	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPermissions/Model/PermissionRequester.swift	Permission request outcome/reason check/request/requester models
 CmuxNextAgentPermissions	enum	PermissionStatus	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPermissions/Model/PermissionStatus.swift	TCC status enum
-CmuxNextAgentPermissions	struct	ComputerUseOnboardingFlow	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPermissions/Onboarding/ComputerUseOnboardingFlow.swift	Computer use onboarding flow and steps
 CmuxNextAgentPermissions	enum	ComputerUseOnboardingStep	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPermissions/Onboarding/ComputerUseOnboardingStep.swift	Computer use onboarding flow and steps
 CmuxNextAgentPermissions	class	MockPermissionProbe	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPermissions/Probe/MockPermissionProbe.swift	from class MockPermissionProbe:9: Mock permission probe
 CmuxNextAgentPermissions	protocol	PermissionProbe	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPermissions/Probe/PermissionProbe.swift	from protocol PermissionProbe:8: TCC probe / settings opening seams
@@ -5648,7 +5647,6 @@ CmuxNextDaemon	struct	AgentCLIJobStatus	0	MIRROR	0	100	Packages/macOS/CmuxNext/S
 CmuxNextDaemon	struct	AgentCLIStoredIntent	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Agents/AgentCLIStoredIntent.swift	hand-written DaemonRequest/response wire type (V-30)
 CmuxNextDaemon	struct	AgentCLIUpdateIntent	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Agents/AgentCLIUpdateIntent.swift	hand-written DaemonRequest/response wire type (V-30)
 CmuxNextDaemon	struct	AgentInventoryRefreshReceipt	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Agents/AgentInventoryRefreshReceipt.swift	hand-written DaemonRequest/response wire type (V-30)
-CmuxNextDaemon	struct	AgentInventoryRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Agents/AgentInventoryRequest.swift	hand-written DaemonRequest/response wire type (V-30)
 CmuxNextDaemon	struct	AgentInventoryWatchReceipt	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Agents/AgentInventoryWatchReceipt.swift	hand-written DaemonRequest/response wire type (V-30)
 CmuxNextDaemon	struct	AgentPresence	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Agents/AgentPresence.swift	hand-written DaemonRequest/response wire type (V-30)
 CmuxNextDaemon	struct	AgentSessionShare	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Agents/AgentSessionShares.swift	from struct AgentSessionShareCreateRequest:12: hand-written DaemonRequest/response wire type (V-30)
