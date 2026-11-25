@@ -9,4 +9,4 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)/cmux-next-ios/rust"
 cargo test --release -p cmux-mobile-host --test relay_cache_rows -- --ignored --nocapture 2>&1 \
-  | grep -E '^(RELAYCELL|RELAYROW) |panicked|^test result'
+  | grep -E '^(RELAYCELL|RELAYROW) |panicked|^test result' 

@@ -313,7 +313,7 @@ async fn cold_open(load: &Load, arm: &str, n: usize) {
                 let round = |v: f64| (v * 10.0).round() / 10.0;
                 (
                     Some(ms),
-                    json!({"bytes": t.bytes, "plaintext": t.plaintext,
+                    json!({"bytes": t.bytes, "plaintext": t.plaintext, 
                            "fetch_ms": round(t.fetch_ms), "air_ms": round(air_ms(t.bytes)), "open_ms": round(t.open_ms),
                            "whole_ms": whole_ms.map(round)}),
                 )
