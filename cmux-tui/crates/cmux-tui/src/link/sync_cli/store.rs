@@ -554,7 +554,7 @@ impl Client {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let runtime =
             tokio::runtime::Builder::new_multi_thread().worker_threads(4).enable_all().build()?;
-        let http = reqwest::Client::builder()
+        let http = cmux_egress::client_builder("cmux_tui::link::sync_cli::store")
             .default_headers(cmux_build_space::headers()?)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))

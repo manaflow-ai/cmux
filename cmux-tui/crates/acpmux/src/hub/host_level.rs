@@ -76,6 +76,29 @@ pub(super) fn made_for_a_person(
 pub(super) const MOVE_AFTER: std::time::Duration = std::time::Duration::from_secs(10);
 
 impl Hub {
+    /// The subrouter priority `session`'s agent starts with (`subrouter_priority.rs`
+    /// [`crate::subrouter_priority::classify_role`]): its tag `priority`, else its role, from
+    /// how many live chats on this machine report to it (`lane.reportsTo`), else its name.
+    pub(super) fn subrouter_priority(
+        &self,
+        session: &Session,
+        meta: &crate::store::SessionMeta,
+        for_person: bool,
+    ) -> &'static str {
+        let leads = self
+            .session_handles()
+            .iter()
+            .filter(|other| other.id != session.id)
+            .filter(|other| {
+                let m = other.meta();
+                m.status != SessionStatus::Closed
+                    && m.tags.get(super::REPORTS_TO_TAG).is_some_and(|t| t.value == session.id)
+            })
+            .count();
+        let tag = meta.tags.get(crate::subrouter_priority::TAG).map(|t| t.value.as_str());
+        crate::subrouter_priority::classify_role(&meta.name, for_person, leads, tag)
+    }
+
     /// Whether the agent start of `session` beginning now is a person's: the chat on a person's
     /// screen (`seen.rs` `shown`), else what asked for it (`Session::start_for`): their own
     /// prompt, their typing or open (`wake_for`), a chat with no creator the person asked for
@@ -169,7 +192,7 @@ impl Hub {
                 })
             }) && !self.for_a_person(session)
         };
-        (below || started_below())
+        (session.respawn_when_quiet.load(Ordering::Relaxed) || below || started_below())
             && !self
                 .host_moved
                 .lock()
@@ -177,13 +200,28 @@ impl Hub {
                 .contains(&session.id)
     }
 
-    /// The idle period of `session`: [`MOVE_AFTER`] when its host moves, else `idle`.
+    /// The idle period of `session`: [`MOVE_AFTER`] when its host moves (`idle.rs`
+    /// `quiet_respawn` when it is marked to restart once quiet, `Session::respawn_when_quiet`),
+    /// else `pool_pressure::SHED_IDLE` for background work while the sr2 pool sheds
+    /// (`pool_pressure.rs`), else `idle` bounded by the chat's next known event
+    /// (`idle_governor.rs`: at least 7 min with a background task that will report to it, 30 s
+    /// with a continuation due later than that).
     pub(super) fn idle_period(
         &self,
         session: &Session,
         idle: std::time::Duration,
     ) -> std::time::Duration {
-        if self.host_moves(session) { MOVE_AFTER.min(idle) } else { idle }
+        if !self.host_moves(session) {
+            if self.pool_pressure_sleeps(session) {
+                super::pool_pressure::SHED_IDLE.min(idle)
+            } else {
+                super::idle_governor::period_for(self.next_event(session), idle)
+            }
+        } else if session.respawn_when_quiet.load(Ordering::Relaxed) {
+            super::idle::quiet_respawn().min(idle)
+        } else {
+            MOVE_AFTER.min(idle)
+        }
     }
 
     /// `session`'s move is done or given up: it waits for the normal idle period from now on.
