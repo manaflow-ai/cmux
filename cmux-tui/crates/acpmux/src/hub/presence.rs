@@ -207,7 +207,8 @@ impl Presence {
         if !self.is_live() {
             return Vec::new();
         }
-        let scope = cmux_presence::Sharing { live: true, private_chat: false, share_agent_files: false };
+        let scope =
+            cmux_presence::Sharing { live: true, private_chat: false, share_agent_files: false };
         let state = self.inner.state.lock_or_recover();
         let mut people: BTreeMap<String, Record> = BTreeMap::new();
         for (chat, entries) in &state.chats {
@@ -215,7 +216,8 @@ impl Presence {
             for person in participants(Some(entries)) {
                 let record = person.record(chat, epoch);
                 let better = |old: &Record| {
-                    (record.doing == Doing::Typing, record.epoch) > (old.doing == Doing::Typing, old.epoch)
+                    (record.doing == Doing::Typing, record.epoch)
+                        > (old.doing == Doing::Typing, old.epoch)
                 };
                 match people.get(&*record.id.0) {
                     Some(old) if !better(old) => {}
@@ -554,7 +556,9 @@ mod tests {
         let presence = Presence::default();
         presence.view("a", "c1", &ana(), true).unwrap();
         presence.view("b", "c1", &ana(), true).unwrap();
-        presence.view("b", "c2", &Who { id: "tailnet:bo".to_owned(), name: "Bo".to_owned() }, true).unwrap();
+        presence
+            .view("b", "c2", &Who { id: "tailnet:bo".to_owned(), name: "Bo".to_owned() }, true)
+            .unwrap();
         assert!(presence.live_list().is_empty(), "off by default");
         assert!(!presence.set_live(true));
         assert!(presence.is_live());
