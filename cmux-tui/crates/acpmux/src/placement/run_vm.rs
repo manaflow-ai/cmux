@@ -385,7 +385,7 @@ async fn stream<L: ForkLink>(
 
 /// The git checkout `cwd` is in.
 fn toplevel(cwd: &Path) -> Result<PathBuf, String> {
-    let out = std::process::Command::new("git")
+    let out = cmux_process::Command::new("git")
         .arg("-C")
         .arg(cwd)
         .args(["rev-parse", "--show-toplevel"])
