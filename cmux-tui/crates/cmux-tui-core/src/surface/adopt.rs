@@ -237,7 +237,7 @@ impl Surface {
                 reader_completion: Arc::new(ReaderCompletion::default()),
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
-                term: TerminalMirror::new(Box::new(term)),
+                term: TerminalMirror::new(Box::new(term), opts.scrollback),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(terminal_metadata),
                 tail_pin: Default::default(),

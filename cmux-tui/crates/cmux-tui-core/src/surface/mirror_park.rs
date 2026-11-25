@@ -4,10 +4,15 @@
 //! host link went quiet and that has no viewer needs none of it: the mirror
 //! is written down as the same snapshot a host sends at reconnect (a bounded,
 //! theme-portable VT replay plus the color overrides) and swapped for a
-//! one-screen placeholder with no scrollback. The first lock afterwards
+//! one-cell placeholder with no scrollback. The first lock afterwards
 //! rebuilds it from that snapshot the way a reconnect does, under the
 //! terminal lock alone, so every caller of `lock`/`try_lock` sees the real
 //! terminal and none of them changed.
+//!
+//! An ended terminal whose tab stays (a parked or kept tab, an exited pane,
+//! a never-started lazy tab) parks the same way once nobody views it, with
+//! its last render frame: nothing writes to it again, and a thousand of them
+//! kept their whole parsed screens (infinite-items).
 //!
 //! The snapshot lives in the daemon rather than being asked of the host at
 //! attach: a lock site cannot wait on a host round trip under the lock ranks,
@@ -48,14 +53,18 @@ pub(crate) struct TerminalMirror {
     /// Only touched with `term` held.
     parked: Mutex<Option<ParkedMirror>>,
     is_parked: AtomicBool,
+    /// The scrollback budget the terminal was made with, for parking an
+    /// ended terminal, which has no reader to say it.
+    scrollback: usize,
 }
 
 impl TerminalMirror {
-    pub(crate) fn new(term: Box<Terminal>) -> Self {
+    pub(crate) fn new(term: Box<Terminal>, scrollback: usize) -> Self {
         Self {
             term: RankedMutex::new(LockRank::Terminal, "pty.term", term),
             parked: Mutex::new(None),
             is_parked: AtomicBool::new(false),
+            scrollback,
         }
     }
 
@@ -106,9 +115,9 @@ impl TerminalMirror {
             Err(_) => return false,
         };
         let colors = term.color_overrides();
-        let Ok(placeholder) =
-            Terminal::new(park.geometry.cols, park.geometry.rows, 0, Callbacks::default())
-        else {
+        // Every reader locks, which rebuilds at the real size first, so the
+        // placeholder is one cell: its page holds one row, not a screen.
+        let Ok(placeholder) = Terminal::new(1, 1, 0, Callbacks::default()) else {
             return false;
         };
         *self.parked.lock().unwrap_or_else(PoisonError::into_inner) = Some(ParkedMirror {
@@ -172,6 +181,45 @@ fn rebuild(parked: ParkedMirror) -> ghostty_vt::Result<Terminal> {
 }
 
 impl PtySurface {
+    /// An ended terminal's mirror parks once nobody views it: no reader
+    /// writes to it again, and a kept or exited tab can sit for days. A
+    /// shown tab locks it, which rebuilds it with the same screen and
+    /// history. Returns whether it parked.
+    pub(crate) fn park_exited_mirror(&self) -> bool {
+        if !self.dead.load(Ordering::Acquire)
+            || self.stream_progress.has_resource_waiters()
+            || !self.taps.lock().map(|taps| taps.is_empty()).unwrap_or(false)
+            || !self.render.lock().map(|render| render.taps.is_empty()).unwrap_or(false)
+        {
+            return false;
+        }
+        let defaults = self.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
+        // Geometry ranks before the terminal (as in `park_mirror`).
+        let Ok(geometry) = self.geometry.lock() else { return false };
+        // An ended terminal parses no more output: its rebuild needs no
+        // reply, title, bell or status sink.
+        let parked = self.term.park(ParkMirror {
+            geometry: *geometry,
+            scrollback: self.term.scrollback,
+            defaults,
+            callbacks: Callbacks::default(),
+            title_changed: &Arc::new(AtomicBool::new(false)),
+        });
+        drop(geometry);
+        // Its last frame (about 100 bytes a cell) goes too: an exited attach
+        // builds one from the terminal first (`attach_render_stream`).
+        if let Ok(mut render) = self.render.lock() {
+            render.release_when_unviewed();
+        }
+        if parked
+            && let Some(terminal_id) = self.terminal_public_id.as_deref()
+            && let Some(mux) = self.mux.upgrade()
+        {
+            mux.output_store.forget_scrollback_budget(terminal_id);
+        }
+        parked
+    }
+
     /// Nothing reads this terminal's mirror on its own: no attach or render
     /// viewer and no resource subscriber. Anyone who comes later locks the
     /// mirror, which rebuilds it.
@@ -229,6 +277,11 @@ impl HostedReader {
 }
 
 impl Surface {
+    /// See [`PtySurface::park_exited_mirror`].
+    pub(crate) fn park_exited_mirror(&self) -> bool {
+        self.as_pty().is_some_and(PtySurface::park_exited_mirror)
+    }
+
     /// The terminal's daemon mirror is parked (rebuilt by the next lock).
     pub(crate) fn mirror_parked(&self) -> bool {
         self.as_pty().is_some_and(|pty| pty.term.is_parked())

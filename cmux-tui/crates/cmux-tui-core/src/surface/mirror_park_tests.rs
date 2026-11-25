@@ -9,7 +9,7 @@ fn mirror_with(bytes: &[u8]) -> (TerminalMirror, Arc<AtomicBool>) {
     };
     let mut term = Terminal::new(20, 4, 1 << 20, callbacks).unwrap();
     term.vt_write(bytes);
-    (TerminalMirror::new(Box::new(term)), title_changed)
+    (TerminalMirror::new(Box::new(term), 1 << 20), title_changed)
 }
 
 fn park(mirror: &TerminalMirror, title_changed: &Arc<AtomicBool>) -> bool {
@@ -91,4 +91,54 @@ fn a_parked_mirror_holds_no_scrollback() {
     // Read the placeholder without rebuilding it.
     assert_eq!(mirror.term.lock().unwrap().scrollback_rows(), 0);
     assert_eq!(mirror.lock().unwrap().scrollback_rows(), rows);
+}
+
+#[cfg(unix)]
+fn ended_terminal() -> Arc<Surface> {
+    Surface::exited_terminal_placeholder(
+        7,
+        SurfaceOptions { cols: 20, rows: 4, ..SurfaceOptions::default() },
+        Weak::new(),
+        crate::terminal_host_runtime::TerminalHostIdentity {
+            terminal_id: "00000000000040008000000000000007".into(),
+            incarnation: "10000000000040008000000000000007".into(),
+        },
+    )
+    .unwrap()
+}
+
+/// An ended terminal nobody views drops its parsed screen and last frame;
+/// the next lock (a shown tab, an exited attach) gets the same terminal.
+#[cfg(unix)]
+#[test]
+fn an_ended_terminal_parks_its_mirror_until_a_lock() {
+    let surface = ended_terminal();
+    let pty = surface.as_pty().unwrap();
+    {
+        let mut term = pty.term.lock().unwrap();
+        term.vt_write(SCREEN);
+        let _ = pty.build_frame_locked(&mut term, 2, true);
+    }
+    assert!(pty.render.lock().unwrap().latest.is_some());
+    let before = state(&pty.term);
+    assert!(surface.park_exited_mirror());
+    assert!(surface.mirror_parked());
+    assert!(pty.render.lock().unwrap().latest.is_none(), "its last frame went with it");
+    // Read the placeholder without rebuilding it: one cell.
+    assert_eq!(pty.term.term.lock().unwrap().cols(), 1);
+    assert!(!surface.park_exited_mirror(), "a parked mirror does not park again");
+    assert_eq!(before, state(&pty.term));
+    assert!(!surface.mirror_parked());
+    assert_eq!(pty.term.lock().unwrap().cols(), 20);
+}
+
+/// A live terminal is the reader's to park (`park_mirror`), never this.
+#[cfg(unix)]
+#[test]
+fn a_running_terminal_does_not_park_as_ended() {
+    let surface = ended_terminal();
+    let pty = surface.as_pty().unwrap();
+    pty.dead.store(false, Ordering::Release);
+    assert!(!surface.park_exited_mirror());
+    assert!(!surface.mirror_parked());
 }
