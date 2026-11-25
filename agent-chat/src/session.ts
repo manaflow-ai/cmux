@@ -478,6 +478,8 @@ export function useSession(): SessionState {
   const [questions, setQuestions] = useState<PendingQuestion[]>([]);
   const [questionAttempt, setQuestionAttempt] = useState(0);
   const [blocks, setBlocks] = useState<Block[]>([]);
+  const [historyHasMore, setHistoryHasMore] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [options, setOptions] = useState<SessionOption[]>([]);
   const [actions, setActions] = useState<SessionActions>({});
   const [commands, setCommands] = useState<CommandGroup[]>([]);
@@ -501,6 +503,8 @@ export function useSession(): SessionState {
   const pendingForkSourceSessionRef = useRef<string | null>(null);
   const pendingForkRequestRef = useRef<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const eventHistoryRef = useRef<AgentEvent[]>([]);
+  const historyCursorRef = useRef<number | undefined>(undefined);
   const sessionIdRef = useRef<string | null>(routedSessionId);
   const pendingFileDiffRequestsRef = useRef(new Map<string, { sessionId: string; key: string; timer: number }>());
   const pendingStartRef = useRef<{
@@ -635,6 +639,7 @@ export function useSession(): SessionState {
         setReady(false);
         failFileDiffRequests();
         latestCommandRequestsRef.current.clear();
+        setHistoryLoading(false);
       },
       onOpen: () => {
         for (const requestId of pendingStartStopsRef.current) sendRaw({ op: "stop", requestId });
@@ -727,9 +732,13 @@ export function useSession(): SessionState {
             document.title = msg.session.title || "cmux agent";
             serverStatusRef.current = msg.session.status;
             setSession(msg.session);
-            setRouting(latestRouteStatus(msg.events as AgentEvent[]));
-            setBlocks((msg.events as AgentEvent[]).reduce(foldEvent, [] as Block[]));
-            setQuestions(pendingQuestions(msg.events as AgentEvent[]));
+            eventHistoryRef.current = msg.events as AgentEvent[];
+            historyCursorRef.current = undefined;
+            setHistoryHasMore(msg.session.mode === "transcript");
+            setHistoryLoading(false);
+            setRouting(latestRouteStatus(eventHistoryRef.current));
+            setBlocks(eventHistoryRef.current.reduce(foldEvent, [] as Block[]));
+            setQuestions(pendingQuestions(eventHistoryRef.current));
             optimisticUsersRef.current = [];
             setOptions(latestOptions(msg.events as AgentEvent[]));
             setActions(latestActions(msg.events as AgentEvent[]));
@@ -738,6 +747,17 @@ export function useSession(): SessionState {
             setFileDiffs({});
             setFileDiffErrors({});
             setPhase("chat");
+            break;
+          case "history-page":
+            if (msg.sessionId !== sessionIdRef.current) break;
+            {
+              const page = Array.isArray(msg.events) ? msg.events as AgentEvent[] : [];
+              eventHistoryRef.current = [...page, ...eventHistoryRef.current];
+              historyCursorRef.current = typeof msg.before === "number" ? msg.before : undefined;
+              setHistoryHasMore(Boolean(msg.hasMore));
+              setHistoryLoading(false);
+              setBlocks(eventHistoryRef.current.reduce(foldEvent, [] as Block[]));
+            }
             break;
           case "no-session":
             if (!sessionIdRef.current || msg.sessionId !== sessionIdRef.current) break;
@@ -757,6 +777,10 @@ export function useSession(): SessionState {
             setFileDiffErrors({});
             setPhase("composer");
             optimisticUsersRef.current = [];
+            eventHistoryRef.current = [];
+            historyCursorRef.current = undefined;
+            setHistoryHasMore(false);
+            setHistoryLoading(false);
             break;
           case "session-status":
             if (msg.sessionId === sessionIdRef.current) {
@@ -786,6 +810,7 @@ export function useSession(): SessionState {
           case "event":
             if (msg.sessionId === sessionIdRef.current) {
               const evt = msg.evt as AgentEvent;
+              eventHistoryRef.current = [...eventHistoryRef.current, evt];
               if (evt.kind === "routing") setRouting(normalizeRouteStatus(evt));
               if (evt.kind === "user" && consumeOptimisticUserEcho(optimisticUsersRef.current, evt.text)) {
                 break;
@@ -1010,6 +1035,18 @@ export function useSession(): SessionState {
   const focusTerminal = useCallback(() => {
     if (sessionIdRef.current) sendRaw({ op: "focus-terminal", sessionId: sessionIdRef.current });
   }, [sendRaw]);
+  const loadOlderHistory = useCallback(() => {
+    if (!sessionIdRef.current || !historyHasMore || historyLoading) return false;
+    const requestId = newClientRequestId("history");
+    if (!sendRaw({
+      op: "load-history",
+      sessionId: sessionIdRef.current,
+      requestId,
+      ...(historyCursorRef.current === undefined ? {} : { before: historyCursorRef.current }),
+    })) return false;
+    setHistoryLoading(true);
+    return true;
+  }, [historyHasMore, historyLoading, sendRaw]);
   const answerQuestion = useCallback((questionId: string, answers: Record<string, string> | null) => {
     if (!sessionIdRef.current) return false;
     return sendRaw({ op: "answer-question", sessionId: sessionIdRef.current, questionId, answers });

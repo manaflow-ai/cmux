@@ -3,7 +3,7 @@
 // without starting a second agent process. The terminal stays the source of
 // truth: this adapter tails the file and normalizes it into AgentEvent, and
 // prompts and interrupts go to the terminal through the cmux control socket.
-import { open, stat } from "node:fs/promises";
+import { open, readFile, stat } from "node:fs/promises";
 import type { Adapter, AgentEvent, OptionValue, SessionCtx } from "../types";
 import { cmuxRpc, type CmuxRpcResult } from "../cmux-rpc";
 import { tryParse, truncate } from "./lines";
@@ -90,6 +90,55 @@ export function parseTranscriptText(agent: TranscriptAgent, text: string): { eve
     if (line.trim()) events.push(...parser.parse(line));
   }
   return { events, title: parser.title, cwd: parser.cwd };
+}
+
+export interface TranscriptHistoryPage {
+  events: AgentEvent[];
+  /** Cursor for the next request. Events before this index are older. */
+  before: number;
+  hasMore: boolean;
+}
+
+function eventKey(event: AgentEvent): string {
+  return JSON.stringify(event);
+}
+
+function currentHistoryEnd(all: AgentEvent[], current: readonly AgentEvent[]): number {
+  for (let currentIndex = current.length - 1; currentIndex >= 0; currentIndex -= 1) {
+    const key = eventKey(current[currentIndex]!);
+    for (let allIndex = all.length - 1; allIndex >= 0; allIndex -= 1) {
+      if (eventKey(all[allIndex]!) === key) return allIndex + 1;
+    }
+  }
+  return all.length;
+}
+
+/** Reads one older page from the transcript source without disturbing its live tail. */
+export function transcriptHistoryPage(
+  all: readonly AgentEvent[],
+  current: readonly AgentEvent[],
+  before: number | undefined,
+  limit = 200,
+): TranscriptHistoryPage {
+  const pageSize = Number.isInteger(limit) ? Math.max(1, Math.min(1_000, limit)) : 200;
+  const end = before === undefined
+    ? currentHistoryEnd(all as AgentEvent[], current)
+    : Math.max(0, Math.min(all.length, Math.floor(before)));
+  const start = Math.max(0, end - pageSize);
+  return { events: all.slice(start, end) as AgentEvent[], before: start, hasMore: start > 0 };
+}
+
+/** Parses the source file and returns one page before the currently retained tail. */
+export async function readTranscriptHistoryPage(
+  path: string,
+  agent: TranscriptAgent,
+  current: readonly AgentEvent[],
+  before?: number,
+  limit = 200,
+): Promise<TranscriptHistoryPage> {
+  const text = await readFile(path, "utf8");
+  const all = parseTranscriptText(agent, text).events;
+  return transcriptHistoryPage(all, current, before, limit);
 }
 
 // Tool inputs worth showing as the one-line activity detail, in priority order.

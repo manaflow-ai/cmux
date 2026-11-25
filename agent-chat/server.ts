@@ -17,7 +17,7 @@ import { claudeAdapter } from "./adapters/claude";
 import { codexAdapter } from "./adapters/codex";
 import { piAdapter } from "./adapters/pi";
 import { makeAcpAdapter } from "./adapters/acp";
-import { attachTranscript, focusTranscriptTerminal, queuedTranscriptMessages, transcriptAdapter, type QueuedAgentMessage, type TranscriptAgent } from "./adapters/transcript";
+import { attachTranscript, focusTranscriptTerminal, queuedTranscriptMessages, readTranscriptHistoryPage, transcriptAdapter, type QueuedAgentMessage, type TranscriptAgent } from "./adapters/transcript";
 import { resolveSessionTranscript, resolveSurfaceTranscript, transcriptAttention, type TranscriptSource } from "./transcript-sources";
 import { pickAccentColor, resolveGhosttyTheme, resolveGhosttyThemeAsync, type GhosttyTheme } from "./theme";
 import { agentModelCatalog, type AgentModelProviderCatalog } from "./catalog";
@@ -180,6 +180,7 @@ const FILES_TTL_MS = 30_000;
 const FILES_LIMIT = 5_000;
 const FILE_DIFF_ALLOWLIST_LIMIT = 5_000;
 const MAX_SESSION_EVENTS = 5_000;
+const TRANSCRIPT_HISTORY_PAGE_EVENTS = 200;
 const GIT_TIMEOUT_MS = 10_000;
 /// Reading one config value is fast, and this runs on the path that starts a
 /// session, so an unresponsive directory gives up quickly and the session
@@ -2529,6 +2530,22 @@ export function handleSessionMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) 
         events: sess.events,
       }));
       refreshSession(sess);
+      break;
+    }
+    case "load-history": {
+      const sessionId = String(msg.sessionId);
+      const sess = sessions.get(sessionId);
+      if (!sess?.transcript || ws.data.subscribed !== sessionId) return;
+      const before = typeof msg.before === "number" && Number.isFinite(msg.before) ? msg.before : undefined;
+      const requestId = typeof msg.requestId === "string" && msg.requestId ? msg.requestId : undefined;
+      readTranscriptHistoryPage(sess.transcript.path, sess.transcript.agent, sess.events, before, TRANSCRIPT_HISTORY_PAGE_EVENTS)
+        .then((page) => ws.send(JSON.stringify({
+          kind: "history-page",
+          sessionId,
+          ...(requestId ? { requestId } : {}),
+          ...page,
+        })))
+        .catch((err) => sendWsErrorDetails(ws, "load-history", err, { sessionId, requestId }));
       break;
     }
     case "focus-terminal": {
