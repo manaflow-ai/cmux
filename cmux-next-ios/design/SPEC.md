@@ -1178,7 +1178,7 @@ full spec: `verify/workspaces-design-loop.md`. Code: `CmuxMobileWorkspaces/Works
   online" words (Leo, 2026-11-24: "red dot green dot when you switch between your computers'
   stuff"). Never that a refresh runs. Trailing glass capsule: the Mac filter (only with 2+
   Macs) and New Workspace.
-- Mac filter: a toolbar `Menu` of `Toggle`s (a checkmark on the chosen one): All Macs, then
+- Mac filter: a toolbar `Menu` of `Toggle`s (a checkmark on the chosen one): All Computers, then
   each Mac (online first) titled with its name and a green (online) or red (offline) dot; its
   presence words are the VoiceOver value only. Not an inline `Picker`: it drops the dots. Filtered fills the symbol
   (`line.3.horizontal.decrease.circle.fill`). Remembered per team
@@ -1187,7 +1187,7 @@ full spec: `verify/workspaces-design-loop.md`. Code: `CmuxMobileWorkspaces/Works
 - New Workspace (`square.and.pencil`): a tap creates one at once on the filtered Mac, else the
   preferred Mac, and pushes it; the row is optimistic (mini spinner) at the top of Recent
   until the Mac confirms. A hold opens the starts the backend supports (agent or browser
-  first tab, recent directories, a Mac picker under All Macs only). Disabled while the
+  first tab, recent directories, a Mac picker under All Computers only). Disabled while the
   filtered Mac is offline. No Mac: "Connect your Mac" steps.
 - Search: `.searchable` in the navigation bar drawer, tucked under the bar at launch,
   revealed by a pull-down. Matches name, branch, directory, Mac name and agent tabs' titles

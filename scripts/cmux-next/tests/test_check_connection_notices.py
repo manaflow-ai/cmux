@@ -284,6 +284,19 @@ class WebShapes(unittest.TestCase):
         code, out = tree.check()
         self.assertEqual(code, 0, out)
 
+    def test_forwarded_action_must_reach_the_rendered_local_button(self):
+        tree = Tree(self)
+        tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
+        path = f"{WEB}/AutoResumeNotice.tsx"
+        button = '<button type="button" onClick={onRetry}>{t("page.retry")}</button>'
+        child = "\nfunction RetryButton({ onSubmit }) {\n  return <button onClick={onSubmit}>Retry</button>;\n}\n"
+        for prop, expected in [("onSubmit", 0), ("onPreview", 1)]:
+            with self.subTest(prop=prop):
+                notice = ACTION_NOTICE.replace(button, f"<RetryButton {prop}={{onRetry}} />")
+                tree.write(path, textwrap.dedent(notice) + child)
+                code, out = tree.check()
+                self.assertEqual(code, expected, out)
+
     def test_a_literal_grace_under_the_bound_is_no_bound(self):
         tree = Tree(self)
         tree.write("schemas/notice-timing/notice-timing.json", json.dumps({"connectionQuietMs": 10000}))

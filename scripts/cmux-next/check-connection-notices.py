@@ -366,6 +366,24 @@ def module_of(path: str) -> str:
     return m.group(1) if m else str(Path(path).parent) + "/"
 
 
+# A composed JSX notice may pass its action into a local button component. Only count a
+# forwarded handler when that same prop reaches an actual button in the child's declaration.
+LOCAL_JSX_TAG = re.compile(r"<([A-Z]\w*)\b([^<>]*)>")
+FORWARDED_HANDLER = re.compile(r"\b(on[A-Z]\w*)\s*=\s*\{\s*on[A-Z]\w*\s*\}")
+BUTTON_HANDLER = re.compile(r"<button\b[^<>]*?\bonClick\s*=\s*\{\s*(on[A-Z]\w*)\s*\}")
+
+
+def has_local_button_action(unit: Unit, units: dict[str, Unit]) -> bool:
+    for tag in LOCAL_JSX_TAG.finditer("\n".join(unit.lines)):
+        child = units.get(f"{unit.path}::{tag[1]}")
+        if child is None:
+            continue
+        forwarded = set(FORWARDED_HANDLER.findall(tag[2]))
+        if forwarded and forwarded.intersection(BUTTON_HANDLER.findall("\n".join(child.lines))):
+            return True
+    return False
+
+
 def scan(tree: Tree) -> list[Unit]:
     files = tree.files()
     keys = connection_keys(tree, files)
@@ -411,6 +429,9 @@ def scan(tree: Tree) -> list[Unit]:
         unit.literal_grace += [m.group(0) + ")" for m in SWIFT_LITERAL_GRACE.finditer(text)
                                if int(m.group(2).replace("_", "")) * (1000 if m.group(1) == "seconds" else 1) < bound]
     propagate(units, imports)
+    for unit in units.values():
+        if unit.hits and not unit.acted and unit.path.endswith(".tsx"):
+            unit.acted = has_local_button_action(unit, units)
     tree.unit_ids = set(units)  # every declaration read, connection words or not
     for unit in units.values():
         unit.lines = []
