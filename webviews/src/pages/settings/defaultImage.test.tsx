@@ -8,8 +8,8 @@ import type { SchemaRow } from "./schema";
 const restore = installDom();
 afterAll(() => restore());
 const { renderCard, changeValue, ops } = await import("./testing");
-const { DefaultImageEditor, defaultImageOptions, defaultImageStatus, DEFAULT_IMAGE_KEY } =
-  await import("./editors/DefaultImageEditor");
+const { DefaultImageEditor, DEFAULT_IMAGE_KEY } = await import("./editors/DefaultImageEditor");
+const { defaultImageOptions, defaultImageStatus } = await import("./editors/defaultImage");
 
 const row = { key: DEFAULT_IMAGE_KEY, kind: "text", default: "auto" } as unknown as SchemaRow;
 const WEB = "env_00000000000000000001";
