@@ -446,15 +446,19 @@ fn a_full_seed_then_deltas_carry_the_working_state() {
     assert_eq!(files(&remote), expected);
     // No bundle is left beside the folder; only the folder's repository sync barrier stays
     // (`cmux_git::sync_barrier`: never unlinked, so a later seed and agent writes share its lock),
-    // with its head and owner locks (#38084), never unlinked either.
+    // with its head and owner locks (#38084) and its filled and want ledgers (#53320), never
+    // unlinked either.
     let mut left: Vec<_> = std::fs::read_dir(w.home.join("work"))
         .unwrap()
         .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
     left.sort();
     let barrier = format!(".cmux-sync-{:x}", sha2::Sha256::digest(b"widget"));
-    let (head, owner) = (format!("{barrier}.head"), format!("{barrier}.owner"));
-    assert_eq!(left, [barrier.as_str(), head.as_str(), owner.as_str(), "widget"], "{left:?}");
+    let sidecars = ["filled", "head", "owner", "want"].map(|kind| format!("{barrier}.{kind}"));
+    let mut kept = vec![barrier.as_str()];
+    kept.extend(sidecars.iter().map(String::as_str));
+    kept.push("widget");
+    assert_eq!(left, kept, "{left:?}");
 
     // A change since: only it goes.
     write(&w.work.join("notes/todo.md"), "untracked, edited\n");
@@ -836,19 +840,18 @@ fn a_held_head_link_through_other_links_lands_whole() {
 }
 
 #[test]
-fn a_held_head_that_would_start_mcp_servers_is_copied_whole_before_the_answer() {
+fn a_held_head_with_project_mcp_servers_still_opens_at_its_head() {
+    // A project `.mcp.json` no longer holds the head back (#43929): `cmux repo mcp-lazy`
+    // starts its servers once the whole folder is in, so the chat opens at the head.
     let w = World::new(Serves::Hold);
     let plain = plain_project(&w.root);
     write(&plain.join(".mcp.json"), "{}\n");
     let remote = w.remote("plain");
     let (ok, copied) = w.push_head_first(&plain, &remote, "");
     assert!(ok, "{copied}");
-    assert!(copied.get("filling").is_none(), "{copied}");
-    // The head went first, so the whole copy after it finds those four unchanged.
-    assert_eq!(copied["copy"]["written"], json!(4), "{copied}");
-    assert_eq!(copied["copy"]["unchanged"], json!(4), "{copied}");
-    // Ready already; a wait only rides out another test's fork holding a copy of a lock.
-    cmux_git::sync_barrier::wait_ready(&remote, std::time::Duration::from_secs(10)).unwrap();
+    assert_eq!(copied["filling"], json!(true), "{copied}");
+    cmux_git::sync_barrier::wait_ready(&remote, std::time::Duration::from_secs(60)).unwrap();
+    assert_eq!(std::fs::read_to_string(remote.join(".mcp.json")).unwrap(), "{}\n");
 }
 
 #[test]
