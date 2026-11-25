@@ -41,7 +41,8 @@ import Testing
     /// The first line's baseline in the field's coordinates (those of `fieldRect`), from the layout AppKit made.
     private func firstBaseline(_ compose: ComposeView) throws -> CGFloat {
         let field = compose.textView.view
-        let tlm = try #require(field.textLayoutManager)
+        let manager = field.textLayoutManager
+        let tlm = try #require(manager)
         tlm.ensureLayout(for: tlm.documentRange)
         var baseline: CGFloat?
         tlm.enumerateTextLayoutFragments(from: tlm.documentRange.location, options: [.ensuresLayout]) { fragment in
@@ -51,15 +52,18 @@ import Testing
             return false
         }
         let local = try #require(baseline) + field.textContainerOrigin.y
-        let space = try #require(compose.textView.clip.superview)
+        let superview = compose.textView.clip.superview
+        let space = try #require(superview)
         return field.convert(NSPoint(x: 0, y: local), to: space).y
     }
 
     /// The caret at the end of the draft, in the field's coordinates.
     private func caret(_ compose: ComposeView) throws -> CGRect {
         let field = compose.textView.view
-        let rect = try #require(field.caretRects(at: [field.string.utf16.count]).kept.first ?? nil)
-        let space = try #require(compose.textView.clip.superview)
+        let first = field.caretRects(at: [field.string.utf16.count]).kept.first ?? nil
+        let rect = try #require(first)
+        let superview = compose.textView.clip.superview
+        let space = try #require(superview)
         return field.convert(rect, to: space)
     }
 
@@ -76,10 +80,14 @@ import Testing
         let baseline = try firstBaseline(compose)
         let optical = baseline - ComposeTextCentre.opticalCentreAboveBaseline(ComposeView.font)
         let caret = try caret(compose)
-        print("COMPOSE_CENTRE|field=\(f)|baseline=\(baseline - f.minY)|optical=\(optical - f.minY)|caret=\(caret.minY - f.minY)-\(caret.maxY - f.minY)|plus=\(compose.plusRect.midY - f.minY)|lift=\(ComposeTextCentre.textLift)|caretLift=\(ComposeTextCentre.caretLift)")
+        // Plain numbers only inside #expect: an expectation that names `compose` makes Swift Testing reflect the whole
+        // view, whose `pasteboard` (`NSPasteboard.general`) is a null pointer on a fleet guest with no pasteboard server,
+        // and the run aborts with signal 6 instead of reporting (ci-step 48467-compose-1e7a54e1 on ultra1-guest).
+        let plusMidY = compose.plusRect.midY
+        print("COMPOSE_CENTRE|field=\(f)|baseline=\(baseline - f.minY)|optical=\(optical - f.minY)|caret=\(caret.minY - f.minY)-\(caret.maxY - f.minY)|plus=\(plusMidY - f.minY)|lift=\(ComposeTextCentre.textLift)|caretLift=\(ComposeTextCentre.caretLift)")
         #expect(abs(optical - f.midY) <= 0.5, "the line's optical centre is \(optical - f.midY) pt off the field's centre")
         #expect(abs(caret.midY - f.midY) <= 0.5, "the caret's centre is \(caret.midY - f.midY) pt off the field's centre")
-        #expect(abs(compose.plusRect.midY - f.midY) <= 0.5, "the + is off the field's centre")
+        #expect(abs(plusMidY - f.midY) <= 0.5, "the + is off the field's centre")
         // The placeholder draws its baseline where the typed line's is.
         #expect(abs(ComposeView.firstBaseline - ComposeTextCentre.textLift - (baseline - f.minY)) <= 0.75,
                 "the placeholder's baseline is off the typed line's")
