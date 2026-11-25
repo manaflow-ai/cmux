@@ -23,11 +23,7 @@ fn a_project_value_wins_over_the_users_but_not_a_managed_one() {
     assert_eq!(cache(&merged), Some(Value::from("5m")));
     let Settings::Parsed(doc) = &merged else { panic!() };
     assert_eq!(doc["a"], 1, "the user's other keys stay");
-    assert_eq!(
-        value(doc, "appearance.theme"),
-        None,
-        "a key that is not per project is ignored"
-    );
+    assert_eq!(value(doc, "appearance.theme"), None, "a key that is not per project is ignored");
     let managed = overlay(user(), &layer, &|key| key == "agents.promptCache");
     assert_eq!(cache(&managed), Some(Value::from("1h")));
     let missing = overlay(Settings::Missing, &layer, &|_| false);
