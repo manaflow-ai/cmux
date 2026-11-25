@@ -384,6 +384,19 @@ fn a_listed_machine_reads_its_records_disk_report_first() {
     assert_eq!(disk["segments"][2]["kind"], json!("caches"));
 }
 
+/// A record report with a split alone (no total, no used) does not hide the per-call stats.
+#[test]
+fn a_partial_records_disk_report_leaves_the_stats() {
+    let list: MachineList = serde_json::from_value(json!({
+        "loaded": true, "signedIn": true,
+        "machines": [{"machineId": "vm-1", "title": "box", "status": "running", "diskAllocatedMb": 20480.0,
+                      "diskTotalMb": 20480.0, "diskUsedMb": 5120.0, "diskFreeMb": 15360.0,
+                      "disk": {"caches_bytes": 1_073_741_824_u64}}],
+    }))
+    .unwrap();
+    assert_eq!(machine_list(&list)["machines"][0]["disk"]["label"], json!("5 / 20 GB"));
+}
+
 /// `cmux chat --on cloud` picks the person's most recently used running chat VM: the list says
 /// who is signed in and when each machine was last used.
 #[test]

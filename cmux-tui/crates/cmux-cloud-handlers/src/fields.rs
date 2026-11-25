@@ -421,12 +421,19 @@ pub fn describe(status: &Status) -> String {
 impl Status {
     /// The disk bar: used over the disk's size, split when the guest splits it.
     pub fn disk(&self) -> Option<DiskView> {
-        let report = self.disk.unwrap_or_else(|| {
+        let report = record_or_stats(self.disk, || {
             DiskReport::from_mib(self.disk_total_mb, self.disk_used_mb, self.disk_free_mb)
                 .with_split_mib(self.disk_system_mb, self.disk_project_mb, self.disk_caches_mb)
         });
         disk::view(None, &report)
     }
+}
+
+/// The record's disk report when it carries sizes (a total or a used), else the
+/// per-call stats: one sample's numbers, never a mix of two, and a partial record
+/// (a split alone) never hides the stats.
+fn record_or_stats(record: Option<DiskReport>, stats: impl FnOnce() -> DiskReport) -> DiskReport {
+    record.filter(|r| r.total_bytes.is_some() || r.used_bytes.is_some()).unwrap_or_else(stats)
 }
 
 /// The disk bar as `machine-status` prints it: "disk: 13.2 / 20 GB", then the
@@ -496,7 +503,7 @@ impl Listed {
 
     /// The row's disk bar ([`disk::view`]), none when nothing says how big the disk is.
     pub fn disk(&self) -> Option<DiskView> {
-        let report = self.disk.unwrap_or_else(|| {
+        let report = record_or_stats(self.disk, || {
             DiskReport::from_mib(self.disk_total_mb, self.disk_used_mb, self.disk_free_mb)
                 .with_split_mib(self.disk_system_mb, self.disk_project_mb, self.disk_caches_mb)
         });
