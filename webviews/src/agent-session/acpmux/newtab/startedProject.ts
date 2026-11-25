@@ -68,3 +68,34 @@ export function startedProjectChoices(fromApp: string | undefined): string[] {
     .map((folder) => folder.replace(/(.)\/+$/, "$1"));
   return [...new Set(choices)];
 }
+
+// The folder the person last started a Cloud chat in from a New Tab page (a folder of this Mac, which the start
+// copies onto the machine, or a GitHub repository, `github:owner/name`): a New Tab with Cloud picked starts
+// there. Cloud's own, apart from This Mac's started project, so each mode comes back to its own last pick;
+// with none yet, Cloud starts in This Mac's (cmux#53226: Cmd+N from a Cloud workspace named a repository the
+// person never picked, a local folder's GitHub origin, or No folder).
+const CLOUD_KEY = "cmux.acpmux.newTab.cloudPick.v1";
+
+function isCloudPick(folder: string | undefined): folder is string {
+  return /^github:[^/\s]+\/[^/\s]+$/.test(folder ?? "") || (isStartableProject(folder) && !isTemporaryFolder(folder));
+}
+
+/// The person started a Cloud chat in `folder` from a New Tab page.
+export function rememberCloudPick(folder: string | undefined): void {
+  if (!isCloudPick(folder)) return;
+  try {
+    storage()?.setItem(CLOUD_KEY, folder.replace(/(.)\/+$/, "$1"));
+  } catch {
+    // A full or blocked store: Cloud starts in This Mac's started project.
+  }
+}
+
+/// The folder this run's pages last started a Cloud chat in, if any.
+export function rememberedCloudPick(): string | undefined {
+  try {
+    const value = storage()?.getItem(CLOUD_KEY) ?? undefined;
+    return isCloudPick(value) ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}

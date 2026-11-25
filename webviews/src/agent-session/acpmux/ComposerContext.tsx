@@ -161,6 +161,7 @@ export function ComposerContext({
   started = false,
   onProject,
   projectChoices,
+  pickedBefore,
   machineFolders,
   onBrowseProject,
   onNewWorktree,
@@ -231,6 +232,9 @@ export function ComposerContext({
   started?: boolean;
   onProject?(cwd: string, peer?: string): void;
   projectChoices?: Project[];
+  /// A folder the person picked before (New Tab's Cloud default, their last pick): with Cloud picked it is
+  /// itself on the chip, as a pick made here is (cmux#53226).
+  pickedBefore?: string | undefined;
   /// A chat on another machine: that machine's own folders (its `project.list`), listed in its
   /// folder menu while the chat's own machine is picked; a pick there is this chat's folder.
   machineFolders?: Project[];
@@ -627,10 +631,14 @@ export function ComposerContext({
     noProject && !readOnly && !cloudStartOut
       ? undefined
       : cloudSide && !readOnly && !machineOnCloud && !cloudStartOut
-        ? (cloudRepositoryPick(
-            pickedFolder,
-            pickedRepo ?? folders.find((folder) => folder.id === pickedFolder)?.repo?.github,
-          ) ?? (localOnCloud && pickedFolder !== undefined && pickedFolder === pickedHere ? pickedFolder : undefined))
+        ? // The person's pick (here, or New Tab's last pick, `pickedBefore`) is itself: a folder of this Mac goes
+          // to Cloud as that folder, never as its GitHub origin's repository (cmux#53226).
+          localOnCloud && pickedFolder !== undefined && (pickedFolder === pickedHere || pickedFolder === pickedBefore)
+          ? pickedFolder
+          : cloudRepositoryPick(
+              pickedFolder,
+              pickedRepo ?? folders.find((folder) => folder.id === pickedFolder)?.repo?.github,
+            )
         : pickedFolder;
   const cloudFolders = useMemo(() => {
     if (!cloudSide || readOnly) return [];

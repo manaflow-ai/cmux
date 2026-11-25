@@ -4495,12 +4495,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // to the machine, when it is no clone of a GitHub repository (cmux#53226). Never an inherited folder: a tab's
   // start folder once went as a 23 GB copy (#53186), so one nobody picked still starts with none.
   const cloudSourcePick = (cwd: string | undefined) =>
+    // The person's own pick first, as itself: a folder of this Mac, never its GitHub origin's repository.
+    (cwd !== undefined && cwd === pickedProject.current && checkedOutGitHub?.cwd !== cwd ? cwd : undefined) ??
     cloudRepositoryPick(
       cwd,
       checkedOutGitHub?.cwd === cwd
         ? checkedOutGitHub?.name
         : directProjects.find((item) => item.cwd === cwd)?.repo?.github,
-    ) ?? (cwd !== undefined && cwd === pickedProject.current ? cwd : undefined);
+    );
   const [cloudFolderGrant] = useState(() => cloudFolderGrants());
   /// A folder of this Mac picked here whose grant the host has not answered yet: a Cloud send waits for it, at most
   /// CLOUD_FOLDER_GRANT_WAIT_MS as every grant wait, so a Return right after the pick never starts the chat with no

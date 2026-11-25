@@ -94,7 +94,7 @@ import { listingWanted, omnibarFolders, omnibarFolder } from "./launchRows";
 import { type CompleteFolder, useFolderListing } from "./omnibarReads";
 import { useRecentlyClosed } from "./recentlyClosed";
 import { initialRecentProject } from "./recentProject";
-import { startedProjectChoices } from "./startedProject";
+import { rememberCloudPick, rememberedCloudPick, startedProjectChoices } from "./startedProject";
 import {
   canonicalAddress,
   defaultSelection,
@@ -840,12 +840,30 @@ export function NewTabScreen(props: Props) {
   const cloudMode = props.runMode?.mode === "cloud";
   // A folder of this Mac the person picked here goes to Cloud as itself (copied, granted on the pick) when it is
   // no clone of a GitHub repository; never the tab's inherited folder (cmux#53226).
+  // With nothing picked here, Cloud starts in the person's last pick as it was: Cloud's own last start, else the
+  // folder they last started a chat in (`started`), a folder of this Mac as itself, never its GitHub origin's
+  // repository and never No folder (cmux#53226). A folder no pick named (the tab's inherited one) still goes as
+  // none: it once went as a 23 GB copy (#53186).
+  const [cloudRemembered] = useState(rememberedCloudPick);
+  const cloudDefault = !picked && !none ? (cloudRemembered ?? started) : undefined;
+  // The default is the person's pick from before: the host grants it here too, so the Cloud start can copy it.
+  const grantDefault = useRef(props.onProjectPicked);
+  useLayoutEffect(() => {
+    grantDefault.current = props.onProjectPicked;
+  });
+  const cloudDefaultHere = cloudMode && cloudDefault !== undefined && !githubFolderRepo(cloudDefault) ? cloudDefault : undefined;
+  useEffect(() => {
+    if (cloudDefaultHere) grantDefault.current?.(cloudDefaultHere);
+  }, [cloudDefaultHere]);
   const cloudFolder =
+    cloudDefault ??
+    (picked && project !== undefined && localAskFolder === project && !githubFolderRepo(project) ? project : undefined) ??
     cloudRepositoryPick(
       localAskFolder,
       (localGitHubPick?.cwd === localAskFolder ? localGitHubPick?.name : undefined) ??
         props.projects?.find((candidate) => candidate.cwd === localAskFolder)?.repo?.github,
-    ) ?? (picked && project !== undefined && localAskFolder === project ? project : undefined);
+    ) ??
+    (picked && project !== undefined && localAskFolder === project ? project : undefined);
   const askFolder = cloudMode ? cloudFolder : githubFolderRepo(localAskFolder) ? undefined : localAskFolder;
   // A GitHub repository picked with This Mac picked, not checked out yet: the chip names it, Return checks it out.
   const pendingGitHubFolder = !cloudMode && githubFolderRepo(localAskFolder) ? localAskFolder : undefined;
@@ -1035,6 +1053,7 @@ export function NewTabScreen(props: Props) {
     if (cloudMode && !machine && props.onCloud) {
       const started = props.onCloud(agent, sent.text, askFolder, model, sentAttachments);
       setSandboxRefusal(typeof started === "string" ? started : undefined);
+      if (started === true) rememberCloudPick(askFolder);
       return started === true;
     }
     if (props.runMode?.mode === "sandboxed" && props.onSandbox) {
@@ -2444,6 +2463,7 @@ export function NewTabScreen(props: Props) {
         {...(props.onCloudMachinePicked ? { onCloudMachinePicked: props.onCloudMachinePicked } : {})}
         {...(props.machineName ? { localName: props.machineName } : {})}
         projectChoices={props.projects ?? NO_PROJECTS}
+        pickedBefore={cloudDefault ?? (picked ? project : undefined)}
         onProject={(cwd, peer) => (peer ? pickMachine({ peer, folder: cwd }) : pickProject(cwd))}
         onNoProject={() => pickProject(undefined)}
         onCloudFolderWaiting={setCloudFolderWaiting}

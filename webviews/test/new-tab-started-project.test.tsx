@@ -508,3 +508,70 @@ test("cmd-N: with nothing known the chip still holds its place (no layout shift)
   // The label keeps its text (hidden by CSS), so the chip has its width from the first frame.
   expect(first.label.length).toBeGreaterThan(0);
 });
+
+/// A New Tab with Cloud picked; its Return starts Cloud (`onCloud`), and its folder grants (`onProjectPicked`).
+async function cloudTab(sessions: ReturnType<typeof session>[], fields: { startedProject?: string } = {}) {
+  const { createRoot } = await import("react-dom/client");
+  const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+  act(() => root?.unmount());
+  root = createRoot(host);
+  const clouded: unknown[][] = [];
+  const granted: string[] = [];
+  await act(async () =>
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat(sessions)}
+        omnibar={EMPTY_OMNIBAR}
+        lastAgent="claude"
+        home={HOME}
+        {...fields}
+        // PICKED is a clone of a GitHub repository: Cloud still starts in it as itself.
+        projects={[{ cwd: PICKED, label: "atlas", repo: { root: PICKED, name: "atlas", github: "acme/atlas" } }]}
+        environments
+        runMode={{ mode: "cloud", onMode: noop }}
+        onCloud={(...args: unknown[]) => (clouded.push(args), true)}
+        onProjectPicked={(cwd: string) => void granted.push(cwd)}
+        onAsk={noop}
+        onOpen={noop}
+        onSearch={noop}
+        onShell={noop}
+        onJump={noop}
+        onOpenSession={noop}
+        onShowAll={noop}
+      />,
+    ),
+  );
+  const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
+  for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  await act(async () => {
+    field.acpmuxMarkdownField!.focus();
+    field.acpmuxMarkdownField!.type("fix the flaky upload test");
+  });
+  const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
+  const chip = host.querySelector(".nt-location")?.textContent ?? "";
+  await act(async () =>
+    editor.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
+  );
+  return { chip, folder: clouded[0]?.[2], granted };
+}
+
+test("with Cloud picked, a New Tab starts in the folder the person last picked, as itself, never its GitHub repository or No folder (cmux#53226)", async () => {
+  await startChat(PICKED);
+  const page = await cloudTab([theirs, ...agents]);
+  // Before: the chip named acme/atlas (the folder's origin), or No folder for a folder with none.
+  expect(page.chip).toContain("atlas");
+  expect(page.chip).not.toContain("acme/atlas");
+  expect(page.folder).toBe(PICKED);
+  // The host grants it, so the Cloud start can copy it to the machine.
+  expect(page.granted).toContain(PICKED);
+});
+
+test("Cloud comes back to its own last pick: a repository started on Cloud is the next Cloud New Tab's default (cmux#53226)", async () => {
+  await startChat(PICKED);
+  const { rememberCloudPick } = await import("../src/agent-session/acpmux/newtab/startedProject");
+  rememberCloudPick("github:acme/api");
+  const page = await cloudTab([theirs]);
+  expect(page.chip).toContain("acme/api");
+  expect(page.folder).toBe("github:acme/api");
+});
