@@ -1009,6 +1009,9 @@ pub(crate) struct ConversationHost {
     /// The live text of running runs (`chief-live-v1`, memory only).
     pub(crate) live: Mutex<crate::conversation_live::LiveBuffers>,
     pub(crate) publish: Mutex<()>,
+    /// `conversation-inbox-op`'s recent `op_id`s (memory only). Lock order: this, then
+    /// `publish`.
+    pub(crate) inbox_ops: Mutex<crate::conversation_inbox_once::InboxOpsOnce>,
     /// The participant each connection bound with an agent token (memory only).
     pub(crate) bindings: Mutex<std::collections::BTreeMap<u64, String>>,
     /// Who is typing in each conversation now (memory only): typing is never

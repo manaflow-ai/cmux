@@ -778,6 +778,41 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>standard</string>
+			<key>pfm_description</key>
+			<string>Vim moves through lists with j, k, gg, G and /. Emacs uses Control-N, P, F, B, A and E.</string>
+			<key>pfm_name</key>
+			<string>app.keyStyle</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>standard</string>
+				<string>vim</string>
+				<string>emacs</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Key Style</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>followLayout</string>
+			<key>pfm_description</key>
+			<string>Keep QWERTY Positions puts shortcuts on the US keys, for Dvorak, Colemak, AZERTY and QWERTZ.</string>
+			<key>pfm_name</key>
+			<string>app.shortcutLayout</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>followLayout</string>
+				<string>qwertyPositions</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Keyboard Layout</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
 			<string>Hold Command or Control for 0.30 seconds to show shortcut hints.</string>
@@ -1498,6 +1533,18 @@
 			<string>cloud.turnCheckpoints</string>
 			<key>pfm_title</key>
 			<string>Save a Checkpoint Before Each Cloud Chat Turn</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Auto runs a new chat on this Mac when it has room, else on a Cloud machine.</string>
+			<key>pfm_name</key>
+			<string>cloud.autoCloud</string>
+			<key>pfm_title</key>
+			<string>Auto Places Chats in Cloud</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -2335,6 +2382,39 @@
 			<string>Remember Palette Searches</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Shows the steps for making cmux your own at the top of Settings, with how many are done.</string>
+			<key>pfm_name</key>
+			<string>customize.checklist.enabled</string>
+			<key>pfm_title</key>
+			<string>Show the Customize cmux Checklist</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>The checklist steps you marked done yourself.</string>
+			<key>pfm_name</key>
+			<string>customize.checklist.done</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Checked Off Customize Steps</string>
+			<key>pfm_type</key>
+			<string>array</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -4250,44 +4330,6 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>standard</string>
-			<key>pfm_description</key>
-			<string>How a pane's buttons draw: today's, plain glyphs, a grouped pill, or glass.</string>
-			<key>pfm_name</key>
-			<string>appearance.toolbarButtonStyle</string>
-			<key>pfm_range_list</key>
-			<array>
-				<string>standard</string>
-				<string>plain</string>
-				<string>grouped</string>
-				<string>glass</string>
-			</array>
-			<key>pfm_title</key>
-			<string>Top Right Buttons</string>
-			<key>pfm_type</key>
-			<string>string</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<string>standard</string>
-			<key>pfm_description</key>
-			<string>How the cards on Home and the New Tab page draw: today's, flat, raised, or glass.</string>
-			<key>pfm_name</key>
-			<string>appearance.homeCardStyle</string>
-			<key>pfm_range_list</key>
-			<array>
-				<string>standard</string>
-				<string>flat</string>
-				<string>raised</string>
-				<string>glass</string>
-			</array>
-			<key>pfm_title</key>
-			<string>Home Cards</string>
-			<key>pfm_type</key>
-			<string>string</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
 			<string>oneColor</string>
 			<key>pfm_description</key>
 			<string>The title bar, tab bar and sidebar in the content's color, or shaded apart.</string>
@@ -5051,6 +5093,33 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>codex</string>
+			<key>pfm_description</key>
+			<string>The marks for agent working, blocked, done and error on sidebar rows, tabs and badges.</string>
+			<key>pfm_name</key>
+			<string>appearance.statusIndicator.iconSet</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>codex</string>
+				<string>current</string>
+				<string>still</string>
+				<string>symbols</string>
+				<string>symbolsOutline</string>
+				<string>pips</string>
+				<string>rings</string>
+				<string>badges</string>
+				<string>signs</string>
+				<string>shapes</string>
+				<string>bars</string>
+				<string>letters</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Status Icons</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<integer>1</integer>
 			<key>pfm_name</key>
 			<string>appearance.statusIndicator.size</string>
@@ -5783,14 +5852,13 @@
 			<key>pfm_default</key>
 			<string>overlay</string>
 			<key>pfm_description</key>
-			<string>Push narrows the chat; Overlay covers it; Inline puts it atop the chat.</string>
+			<string>Push narrows the chat; Overlay covers it.</string>
 			<key>pfm_name</key>
 			<string>agentPane.display.sessionInfo.placement</string>
 			<key>pfm_range_list</key>
 			<array>
 				<string>push</string>
 				<string>overlay</string>
-				<string>inline</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Session Info</string>
@@ -5997,11 +6065,38 @@
 			<array>
 				<string>arrow</string>
 				<string>dots</string>
+				<string>glyph</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Jump to Latest While Working</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>Dots a look plays while the agent works, as a cmux.particles/1 document.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.thinking.glyph</string>
+			<key>pfm_title</key>
+			<string>Thinking Glyph</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>0</integer>
+			<key>pfm_description</key>
+			<string>The dot size of the thinking glyph in Jump to latest. 0 uses the glyph's own size.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.thinking.glyphSize</string>
+			<key>pfm_range_max</key>
+			<real>16</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Jump Button Glyph Size</string>
+			<key>pfm_type</key>
+			<string>real</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -6673,6 +6768,18 @@
 			<string>Add a Cursor With</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Normal, Insert and Visual modes in the code editor, with the mode shown in its status bar.</string>
+			<key>pfm_name</key>
+			<string>editor.vimMode</string>
+			<key>pfm_title</key>
+			<string>Vim Keys in the Editor</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -7486,6 +7593,20 @@
 			<string>Sidebar Side</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>Distance between the centers of neighboring Space buttons. The density default fits them to the sidebar.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.spaceButtonSpacing</string>
+			<key>pfm_range_max</key>
+			<real>48</real>
+			<key>pfm_range_min</key>
+			<real>18</real>
+			<key>pfm_title</key>
+			<string>Space Button Spacing</string>
+			<key>pfm_type</key>
+			<string>real</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -8314,6 +8435,23 @@
 			<string>Second Line Order</string>
 			<key>pfm_type</key>
 			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>trailing</string>
+			<key>pfm_description</key>
+			<string>Where the row's status mark draws: at the row's end, or before the name in the icon's place.</string>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.statusPlacement</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>trailing</string>
+				<string>leading</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Status Position</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_description</key>
@@ -11037,6 +11175,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>Keep Send, attachment removal, and queued message actions visible in agent chats.</string>
+			<key>pfm_name</key>
+			<string>experiments.composerButtonsVisible</string>
+			<key>pfm_title</key>
+			<string>Always Show Composer Buttons</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>A glass composer with mode chips, mention chips and a round send button. Still being shaped.</string>
 			<key>pfm_name</key>
 			<string>experiments.composerV2</string>
@@ -11054,6 +11204,18 @@
 			<string>experiments.hoverLook</string>
 			<key>pfm_title</key>
 			<string>Tooltip Refresh</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>The conversation stays visible behind the notices and the Needs your input row above the composer.</string>
+			<key>pfm_name</key>
+			<string>experiments.seeThroughDock</string>
+			<key>pfm_title</key>
+			<string>See-Through Dock</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -11126,6 +11288,30 @@
 			<string>experiments.chatWidgets</string>
 			<key>pfm_title</key>
 			<string>Extension Chat Widgets</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>While an attachment loads, its chip shows a file or image icon instead of the loading mark.</string>
+			<key>pfm_name</key>
+			<string>experiments.attachmentTypeIcons</string>
+			<key>pfm_title</key>
+			<string>Attachment Type Icons</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A finished turn's Worked for line also says what it hides, such as ran 4 commands, edited 2 files.</string>
+			<key>pfm_name</key>
+			<string>experiments.foldSummaryCounts</string>
+			<key>pfm_title</key>
+			<string>Fold Summary Counts</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -11542,6 +11728,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Adds a small server to Claude Code's settings so messages from other agents arrive without being held. Applies to Claude Code chats started afterwards.</string>
+			<key>pfm_name</key>
+			<string>agents.claudeCodeInboxRelay</string>
+			<key>pfm_title</key>
+			<string>Add Message Relay to Claude Code</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>deepseek/deepseek-v4.1-flash-1017</string>
 			<key>pfm_description</key>
 			<string>The model new cmux model router chats start on.</string>
@@ -11773,6 +11971,24 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>off</string>
+			<key>pfm_description</key>
+			<string>Race a peer's direct Tailscale address with the other transports when tailscaled reports one.</string>
+			<key>pfm_name</key>
+			<string>transport.tailnetCarrier</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>off</string>
+				<string>direct-only</string>
+				<string>on</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Tailscale Carrier</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>balanced</string>
 			<key>pfm_description</key>
 			<string>Ultra spends the link on a fast direct connection when viewing another Mac: up to 120 fps, up to 150 Mbps, near-lossless text. Balanced is the default. Not Ultra Connection Mode, which repairs a lossy network.</string>
@@ -11785,6 +12001,57 @@
 			</array>
 			<key>pfm_title</key>
 			<string>Screen Sharing Profile</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>auto</string>
+			<key>pfm_description</key>
+			<string>The quality a new Screen Sharing session starts at. The session's toolbar can still change it.</string>
+			<key>pfm_name</key>
+			<string>remoteDesktop.quality</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>auto</string>
+				<string>sharpText</string>
+				<string>smoothMotion</string>
+				<string>lowBandwidth</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Screen Sharing Quality</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>auto</string>
+			<key>pfm_description</key>
+			<string>The most frames per second a Screen Sharing session asks for. Auto follows this display's refresh rate. Also accepts a number from 1 to 240 in a raw profile.</string>
+			<key>pfm_name</key>
+			<string>remoteDesktop.maxFps</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>auto</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Screen Sharing Frame Rate Limit</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>auto</string>
+			<key>pfm_description</key>
+			<string>The most megabits per second a new Screen Sharing session may use. Auto lets the host decide. Also accepts a number from 0 to 80 in a raw profile.</string>
+			<key>pfm_name</key>
+			<string>remoteDesktop.maxBitrateMbps</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>auto</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Screen Sharing Bitrate Limit</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
