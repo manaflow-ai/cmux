@@ -66,7 +66,7 @@
 // prints `RESTART_SETTLED_JSON {...}` (bench/restartSettled.ts): first content, settled (the live chat showing the
 // newest answer with nothing in view moving after), shifts after first content and how far they moved, and the
 // bytes the daemon sent. scripts/measure/restart-settled-linux.sh runs it per link beside the terminal's reattach.
-// NO_TAIL=1 serves no kept tail; WIRE_TRACE=1 prints each daemon request as it arrives (ms from the round's start).
+// NO_TAIL=1 serves no kept tail; NO_COPY=1 no saved copy (with NO_TAIL=1, an update's revive: nothing kept); WIRE_TRACE=1 prints each daemon request as it arrives (ms from the round's start).
 // PANE_SOURCE_REF=<sha> loads that immutable App/direct/hostRetry revision under this same harness for a baseline.
 /// <reference types="bun" />
 import fs from "node:fs";
@@ -133,6 +133,9 @@ for (const [name, value] of [
 /// waits for the pipe and half a round trip. The copy and the kept tail are the app's own, so they do not cross it.
 const LINK_NAME = process.env.LINK ?? "local";
 const NO_TAIL = process.env.NO_TAIL === "1";
+/// NO_COPY=1 serves no saved copy in any mode: an update's relaunch, whose copy another build wrote, so the page
+/// refuses it. With NO_TAIL=1 that is a revive after an update: nothing of the chat is in the page or the host.
+const NO_COPY = process.env.NO_COPY === "1";
 const WIRE_TRACE = process.env.WIRE_TRACE === "1";
 const LINK = linkProfile(LINK_NAME);
 /// How long each relaunch is recorded from navigation: acpmux's absence, the page's next retry (at most
@@ -322,7 +325,11 @@ type BenchWindow = {
   __firstLoad: Recording;
   __benchHost: { tailAskedAt: number; tailCalls: number; readyAnsweredAt: number; asks: number[] };
   __cmuxChatSnapshotMiss?: string;
-  __cmuxChatSnapshotShown?: { at: number; swappedAt?: number };
+  __cmuxChatSnapshotShown?: {
+    at: number;
+    swappedAt?: number;
+    hold?: { by: string; at: number; differs?: string };
+  };
   captureSnapshot: (doc: Document, theme: string) => ChatSnapshot | undefined;
   captureMiss: () => string;
 };
@@ -652,6 +659,10 @@ type Round = {
   /// When the copy drew and when the live page took over (chatSnapshot/paint.ts, live.ts), ms from navigation.
   copyShownMs: number | null;
   swapMs: number | null;
+  /// How the copy's wait for the chat's draft ran out (draftSettleHold.ts): the composer showed the
+  /// copy's when the rows came in (`shown`) or later (`match`), the 2 s cap (`cap`, with what still
+  /// differed), or the draft read answered first (`read`); null with no copy.
+  hold: { by: string; atMs: number | null; differs: string | null } | null;
   /// Why no copy drew (boot.ts), or null when one did.
   copyMiss: string | null;
   tailAskedMs: number | null;
@@ -829,7 +840,23 @@ try {
     logLevel: "error",
   });
   const bundle = async (entry: string): Promise<string> => {
-    const built = await Bun.build({ entrypoints: [entry], format: "iife", target: "browser" });
+    // At PANE_SOURCE_REF too: the boot script is a pane source like the bundle's.
+    const built = await Bun.build({
+      entrypoints: [entry],
+      format: "iife",
+      target: "browser",
+      plugins: [
+        {
+          name: "immutable-pane-baseline",
+          setup: (builder) => {
+            builder.onLoad({ filter: /\.tsx?$/ }, (args) => {
+              const contents = priorSources.get(args.path);
+              return contents === undefined ? undefined : { contents, loader: args.path.endsWith("x") ? "tsx" : "ts" };
+            });
+          },
+        },
+      ],
+    });
     if (!built.success) throw new Error(built.logs.map(String).join("\n"));
     return await built.outputs[0]!.text();
   };
@@ -843,6 +870,17 @@ try {
       "Object.assign(globalThis, { captureMiss, captureSnapshot });\n",
   );
   const captureScript = await bundle(captureEntry);
+  // The app's host is there before any page script runs (its WebKit handlers, or the page host's): the
+  // dev host stands in for it from the document's start here, not from the bundle's dev entry (dev.tsx,
+  // which installs it only when the bundle ran and leaves one already there), so a page script that
+  // asks the host first (boot.ts) is answered as in the app.
+  const hostEntry = path.join(work, "host-entry.ts");
+  fs.writeFileSync(
+    hostEntry,
+    `import { devHostParams, installDevHost } from ${JSON.stringify(path.join(webviews, "src/dev-host/host.ts"))};\n` +
+      "const params = devHostParams(location.hash);\nif (params) installDevHost(params);\n",
+  );
+  const hostScript = await bundle(hostEntry);
 
   // The page as the app serves it (build-agent-pane-web.sh): every sheet in one linked `pane.css`
   // (id cmux-pane-styles), which the writer leaves out of the copy and whose rules the copy draws under
@@ -1032,6 +1070,8 @@ try {
     await installPaintedFrames(page);
     if (BRIDGE) await serveBridge(page);
     await page.addInitScript(installHost, { tail, readyDelayMs, refuseUntilMs, bridge: BRIDGE });
+    // After installHost, whose setter wraps the handlers it installs.
+    await page.addInitScript({ content: hostScript });
     await page.addInitScript(recordFrames, { windowMs, latest: LATEST, hostTag: SNAPSHOT_HOST_TAG });
   };
 
@@ -1080,6 +1120,17 @@ try {
         return { snapshot: snapshot ?? null, miss: snapshot ? "" : w.captureMiss() };
       }, THEME);
       if (TRACE) console.log(`warm bottom band:\n  ${(await page.evaluate(bottomBand)).join("\n  ")}`);
+      if (TRACE)
+        console.log(
+          `warm rows at the copy: ${(
+            await page.evaluate(() =>
+              Array.from(document.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]"))
+                .map((row) => [row.dataset.rowId, row.getBoundingClientRect()] as const)
+                .filter(([, box]) => box.bottom > 0 && box.top < innerHeight)
+                .map(([id, box]) => `${id}@${box.top.toFixed(0)}+${box.height.toFixed(0)}`),
+            )
+          ).join(" ")}`,
+        );
       if (!written.snapshot) throw new Error(`the settled page wrote no copy: ${written.miss}`);
       return written.snapshot;
     } finally {
@@ -1209,6 +1260,7 @@ try {
           .map((shift) => ({ ...shift, at: shift.at - start.at })),
         copyShownMs: null,
         swapMs: null,
+        hold: null,
         copyMiss: "none: the spare draws the carried tail",
         tailAskedMs: null,
         readyAnsweredMs: null,
@@ -1230,7 +1282,7 @@ try {
   };
 
   const openPage = async (mode: Mode, copy: ChatSnapshot): Promise<Round> => {
-    servedCopy = ["native-ready-tail", "reopen-no-copy", "refused-no-copy"].includes(mode) ? null : copy;
+    servedCopy = NO_COPY || ["native-ready-tail", "reopen-no-copy", "refused-no-copy"].includes(mode) ? null : copy;
     // A reopen builds its page in the warm renderer; a relaunch in a cold context.
     const context =
       isReopen(mode) && warmContext ? warmContext : await browser.newContext({ viewport: RELAUNCH_VIEWPORT });
@@ -1304,6 +1356,13 @@ try {
         layoutShifts: got.layoutShifts,
         copyShownMs: got.shown?.at ?? null,
         swapMs: got.shown?.swappedAt ?? null,
+        hold: got.shown
+          ? {
+              by: got.shown.hold?.by ?? "read",
+              atMs: got.shown.hold?.at ?? null,
+              differs: got.shown.hold?.differs ?? null,
+            }
+          : null,
         copyMiss: got.miss,
         tailAskedMs: got.tailAskedAt || null,
         readyAnsweredMs: got.readyAnsweredAt || null,
@@ -1352,7 +1411,8 @@ try {
     layoutShift: (r: Round) => r.layoutShift,
     frames: (r: Round) => r.metrics.frames,
   } as const;
-  const json: Record<string, unknown> = { turns: TURNS, downMs: DOWN_MS, recordMs: RECORD_MS, rounds: ROUNDS };
+  // How long each round recorded is its mode's (`recordMs`: a refused mode records longer), so it goes with the mode.
+  const json: Record<string, unknown> = { turns: TURNS, downMs: DOWN_MS, rounds: ROUNDS };
   let failed = false;
   for (const [mode, rounds] of byMode) {
     console.log(
@@ -1487,6 +1547,16 @@ try {
     };
     console.log(`RESTART_SETTLED_JSON ${JSON.stringify(settledRow)}`);
     json[`${mode}.settled`] = settledRow;
+    // How each round's wait for the draft ran out: a composer that never matches the copy's holds the
+    // copy to the 2 s cap, the wait cmux#45669 removed (cmux#45994 review).
+    const holds: Record<string, number> = { shown: 0, match: 0, read: 0, cap: 0 };
+    for (const r of rounds) if (r.hold) holds[r.hold.by] = (holds[r.hold.by] ?? 0) + 1;
+    const differs = [...new Set(rounds.flatMap((r) => (r.hold?.differs ? [r.hold.differs] : [])))];
+    const counts = Object.entries(holds).map(([by, count]) => `${by} ${count}`);
+    console.log(
+      `draft wait [${mode}]: ${counts.join(", ")}${differs.length ? `; at the cap: ${differs.join(" | ")}` : ""}`,
+    );
+    json[`${mode}.hold`] = holds;
     for (const r of rounds) if (r.copyShownMs === null) console.log(`  warning: a round drew no copy (${r.copyMiss})`);
     // A round that never handed over to the live chat proves nothing: a copy held over the whole
     // recording paints no blank and no shift.
@@ -1524,6 +1594,13 @@ try {
               `composer ${composer}`,
               `scrollTop ${frame.scrollTop === null ? "-" : frame.scrollTop.toFixed(0)}`,
               ...(shifts.has(at) ? [shifts.get(at)!] : []),
+              // A shift names every row in view on both sides of it, so the row that came, went or moved shows.
+              ...(shifts.has(at) && at > 0
+                ? [
+                    `was ${worst.frames[at - 1]!.rows.map((row) => `${row.id}@${row.top.toFixed(0)}`).join(" ")}`,
+                    `now ${frame.rows.map((row) => `${row.id}@${row.top.toFixed(0)}`).join(" ")}`,
+                  ]
+                : []),
             ].join(" | "),
           );
         });
@@ -1558,6 +1635,7 @@ try {
       });
     }
     json[mode] = {
+      recordMs: recordMs(mode),
       rounds: rounds.map(({ frames: _frames, metrics: { blankAt: _blankAt, shiftAt, ...metrics }, ...rest }) => ({
         ...rest,
         ...metrics,
