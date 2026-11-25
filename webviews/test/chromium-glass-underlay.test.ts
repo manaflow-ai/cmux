@@ -13,7 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
 import { PNG } from "pngjs";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("chromium-glass-underlay.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -83,7 +83,9 @@ await requireBrowserLane("chromium-glass-underlay.test.ts", async () => {
       const faded = await barContrast(after, FLOATING);
       // Without the underlay the clear page leaves the bars crisp under the tint.
       expect(crisp, "bars under the tint alone").toBeGreaterThan(30);
-      expect(faded, "bars under the default underlay").toBeLessThan(crisp * 0.45);
+      // The default underlay is the design scale's 40% (design/glass-system.md, rule 6: a menu's 80%
+      // over it covers 88%, not 93%), so what the tint lets through drops by 40%: a trace, not a slab.
+      expect(faded, "bars under the default underlay").toBeLessThan(crisp * 0.7);
       expect(await barContrast(after, IN_FLOW)).toBeCloseTo(await barContrast(before, IN_FLOW), 0);
       await before.close();
       await after.close();
@@ -111,19 +113,22 @@ await requireBrowserLane("chromium-glass-underlay.test.ts", async () => {
     });
   });
 
-  describe("glass underlay in webkit", () => {
-    let browser: Browser;
-    beforeAll(async () => {
-      browser = await webkit.launch({ headless: true });
-    });
-    afterAll(async () => browser?.close());
+  // WebKit runs where it launches; where it cannot and the lane is not required, it skips (probeEngineOrSkip).
+  if (await probeEngineOrSkip("chromium-glass-underlay webkit", "webkit", webkit)) {
+    describe("glass underlay in webkit", () => {
+      let browser: Browser;
+      beforeAll(async () => {
+        browser = await webkit.launch({ headless: true });
+      });
+      afterAll(async () => browser?.close());
 
-    // WebKit's backdrop takes in the window glass and frosts the text itself: the tint alone.
-    test("draws no underlay", async () => {
-      const page = await open(browser, "medium");
-      const image = await page.evaluate(() => getComputedStyle(document.getElementById("floating")!).backgroundImage);
-      expect(image).toBe("none");
-      await page.close();
+      // WebKit's backdrop takes in the window glass and frosts the text itself: the tint alone.
+      test("draws no underlay", async () => {
+        const page = await open(browser, "medium");
+        const image = await page.evaluate(() => getComputedStyle(document.getElementById("floating")!).backgroundImage);
+        expect(image).toBe("none");
+        await page.close();
+      });
     });
-  });
+  }
 });

@@ -1,3 +1,4 @@
+import { spaceOfEnv, spacedName } from "./build-space.ts"
 import type { Principal } from "@cmux/ownership"
 import { admit } from "./domains/common.ts"
 import { chiefActive, grantFor, userPathAllowed, type UserState } from "./domains/user.ts"
@@ -43,7 +44,7 @@ const avatarSet = async (ctx: DurableObjectState, env: Env, refs: AvatarRefs, st
     // The blob first, then its reference: a failed write changes nothing.
     if (ref && data) {
       try {
-        await bucket.put(avatarKey(entity, ref.sha256), data, { httpMetadata: { contentType: ref.media_type } })
+        await bucket.put(avatarKey(spacedName(spaceOfEnv(env), entity), ref.sha256), data, { httpMetadata: { contentType: ref.media_type } })
       } catch (error) {
         return { ok: false as const, code: "owner.unreachable", message: `the picture could not be stored: ${String(error)}` }
       }
@@ -55,7 +56,7 @@ const avatarSet = async (ctx: DurableObjectState, env: Env, refs: AvatarRefs, st
   })
   if (!result.ok) return result
   // Unreferenced blobs: best effort (a failed delete leaves bytes nothing names).
-  for (const sha of new Set(result.gone)) await bucket.delete(avatarKey(entity, sha)).catch(() => undefined)
+  for (const sha of new Set(result.gone)) await bucket.delete(avatarKey(spacedName(spaceOfEnv(env), entity), sha)).catch(() => undefined)
   return { ok: true, avatar: result.avatar }
 }
 
@@ -63,7 +64,7 @@ const avatarSet = async (ctx: DurableObjectState, env: Env, refs: AvatarRefs, st
 const avatarGet = async (env: Env, refs: AvatarRefs, entity: string, participant: string): Promise<AvatarAnswer> => {
   const ref = refs.get(participant)
   if (!ref || !env.HOME_ATTACHMENTS) return { ok: true, avatar: null }
-  const object = await env.HOME_ATTACHMENTS.get(avatarKey(entity, ref.sha256))
+  const object = await env.HOME_ATTACHMENTS.get(avatarKey(spacedName(spaceOfEnv(env), entity), ref.sha256))
   if (!object) return { ok: true, avatar: null }
   return { ok: true, avatar: { ...ref, data: toBase64(new Uint8Array(await object.arrayBuffer())) } }
 }

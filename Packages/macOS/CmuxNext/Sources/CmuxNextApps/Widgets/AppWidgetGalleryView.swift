@@ -20,7 +20,7 @@ final class AppWidgetGalleryView: NSView {
     static let maxHeight: CGFloat = 520
     /// Runs with the app and size of the preview the person picked.
     var onAdd: ((String, AppWidgetSize) -> Void)?
-    private let scroll = NSScrollView()
+    private let scroll = OverlayScrollView() // the style stays put when a mouse comes or goes (SCROLLBARS)
     private let document = FlippedView()
     private let title = ChromeLabel(labelWithString: AppWidgetStrings.galleryTitle)
     private var laidOutHeight: CGFloat = 0
@@ -127,7 +127,7 @@ final class AppWidgetPreviewButton: NSView {
         press.actions = ["backgroundColor": NSNull(), "bounds": NSNull(), "position": NSNull()]
         layer?.addSublayer(press)
         let label = AppWidgetStrings.addSized(title, AppWidgetStrings.size(preview.size))
-        toolTip = label
+        themedToolTip = label
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(label)

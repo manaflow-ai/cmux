@@ -58,6 +58,8 @@ def draft_row(row):
             out["range"]["placeholder"] = rng["placeholder"]
     if "url_key" in row:
         out["url_key"] = row["url_key"]
+    if "shape" in row:
+        out["shape"] = row["shape"]
     out["default"] = row["default"]
     for field in ("default_label", "placeholder"):
         if row.get(field):

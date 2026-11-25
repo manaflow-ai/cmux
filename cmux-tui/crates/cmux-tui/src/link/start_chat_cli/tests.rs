@@ -190,8 +190,9 @@ fn a_tab_retry_keeps_its_target_pane_on_the_pinned_machine() {
 }
 
 /// Codex review F1 on #40957: a start that can't go on deletes the machine made for it only when
-/// it is still that start's alone. A second chat from the same workspace that planned onto the
-/// machine first keeps it; one that plans after the strand never finds it.
+/// it is still that start's alone. Since #40159 every new start plans a machine of its own, so a
+/// second chat shares one only when it is pinned there (the person picked it); that chat keeps
+/// it, and one that plans after the strand never finds it.
 #[test]
 fn a_stranded_start_deletes_its_machine_only_when_no_other_send_took_it() {
     let scratch = scratch();
@@ -201,19 +202,24 @@ fn a_stranded_start_deletes_its_machine_only_when_no_other_send_took_it() {
             "machines": [{"id": "vm-new", "title": "cloud-chats", "created_by": ME, "status": "running"}]})
         .to_string()
     };
-    // The first start made vm-new and pinned it; a second chat of ws-1 planned onto it while the first copied.
+    // The first start made vm-new and pinned it; a second chat of ws-1 was pinned to it while the first copied.
     let (first, second) = (key(), key());
     assert_eq!(pin(&path, &first, ACCOUNT, "vm-new", Some("ws-1"))["ok"], true);
+    assert_eq!(
+        plan(&path, &on(&key()))["machine"],
+        Value::Null,
+        "a new start makes its own machine"
+    );
+    assert_eq!(pin(&path, &second, ACCOUNT, "vm-new", Some("ws-1"))["ok"], true);
     assert_eq!(plan(&path, &on(&second))["machine"], "vm-new");
     // The first start fails for good: the machine is the second chat's too, so it is released, not deleted.
     assert_eq!(
         super::strand(&path, &first, ACCOUNT, "vm-new"),
         json!({"ok": true, "delete": false})
     );
-    assert_eq!(plan(&path, &on(&key()))["machine"], "vm-new", "the workspace keeps its machine");
-    // The second fails for good too, after the third planned onto it: still shared.
+    // The second fails for good too, after a third was pinned to it: still shared.
     let third = key();
-    assert_eq!(plan(&path, &on(&third))["machine"], "vm-new");
+    assert_eq!(pin(&path, &third, ACCOUNT, "vm-new", Some("ws-1"))["ok"], true);
     assert_eq!(super::strand(&path, &second, ACCOUNT, "vm-new")["delete"], false);
 
     // Alone on its machine: the strand deletes it, and the workspace's next send never finds it.
@@ -1453,6 +1459,13 @@ fn ensure_asks_for_the_workspaces_machine_under_the_plans_create_key() {
     assert_eq!(
         with_ref.body(),
         json!({"clientKey": Keys::of(&key).create, "repo": "a/b", "ref": "main"})
+    );
+    // `cloud new-machine --environment`: no folder, so no repository; the environment alone names the machine's setup.
+    let in_environment =
+        Ensure::of(&flags(&["--workspace", &key, "--key", &key, "--environment", ENV])).unwrap();
+    assert_eq!(
+        in_environment.body(),
+        json!({"clientKey": Keys::of(&key).create, "environment": ENV})
     );
     for bad in [
         vec!["--key", key.as_str(), "--repo", "a/b"],

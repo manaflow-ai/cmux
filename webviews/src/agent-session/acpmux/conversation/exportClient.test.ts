@@ -1,7 +1,7 @@
 // l10n-allow-file: synthetic relay fixtures, not shipped UI.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import type { EventRecord } from "../direct";
+import type { EventRecord } from "../eventRecord";
 import { settleReact } from "../../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });

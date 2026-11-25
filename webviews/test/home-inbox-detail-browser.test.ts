@@ -39,22 +39,25 @@ await requireBrowserLane("home-inbox-detail-browser.test.ts", async () => {
           await page.goto(`http://127.0.0.1:${port}${frame}`);
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
           const details = page.locator(".acpmux-home-inbox-detail");
+          // A cut command shows whole on hover, in its facts card (HomeInbox.tsx `WithFacts`), not a title.
           const tooltipTexts: (string | null)[] = [];
           for (let index = 0; index < (await details.count()); index++) {
             await details.nth(index).hover();
-            await page.waitForFunction((index) => {
-              const detail = document.querySelectorAll(".acpmux-home-inbox-detail")[index]!;
-              const target = detail.closest("[title], [data-tooltip]");
-              const expected = target?.getAttribute("data-tooltip") ?? target?.getAttribute("title");
-              const tip = document.querySelector<HTMLElement>(".ui-title-tooltip");
-              return tip && !tip.hidden && tip.textContent === expected;
-            }, index);
-            tooltipTexts.push(await page.locator(".ui-title-tooltip").textContent());
+            const whole = await details.nth(index).textContent();
+            const shown = await page.waitForFunction(
+              (text) =>
+                [...document.querySelectorAll<HTMLElement>(".ui-facts-card__value")].find(
+                  (value) => value.textContent === text && value.checkVisibility(),
+                )?.textContent,
+              whole,
+            );
+            tooltipTexts.push((await shown.jsonValue()) ?? null);
           }
           const commands = await details.evaluateAll((elements) =>
             elements.map((element) => ({
               text: element.textContent,
-              hoverText: element.getAttribute("data-tooltip") ?? element.getAttribute("title"),
+              hoverText: element.ownerDocument.getElementById(element.getAttribute("aria-describedby") ?? "")
+                ?.textContent,
               clientWidth: element.clientWidth,
               scrollWidth: element.scrollWidth,
               whiteSpace: getComputedStyle(element).whiteSpace,
@@ -62,13 +65,13 @@ await requireBrowserLane("home-inbox-detail-browser.test.ts", async () => {
               ellipsis: getComputedStyle(element).textOverflow,
             })),
           );
-          // Capture the real shared title tooltip, including where it extends beyond the inbox.
+          // Capture the real facts card, including where it extends beyond the inbox.
           if (process.env.HOME_INBOX_CAPTURE && width === 280) {
             const output = path.resolve(process.env.HOME_INBOX_CAPTURE);
             await mkdir(output, { recursive: true });
             const clip = await page.evaluate(() => {
               const inbox = document.querySelector(".acpmux-home-inbox")!.getBoundingClientRect();
-              const tip = document.querySelector(".ui-title-tooltip")!.getBoundingClientRect();
+              const tip = [...document.querySelectorAll(".ui-facts-card")].at(-1)!.getBoundingClientRect();
               const y = Math.max(0, Math.min(inbox.top, tip.top) - 8);
               return {
                 x: 0,
@@ -90,6 +93,7 @@ await requireBrowserLane("home-inbox-detail-browser.test.ts", async () => {
             expect(command.overflow).toBe("hidden");
             expect(command.ellipsis).toBe("ellipsis");
             expect(tooltipTexts[index]).toBe(command.text);
+            expect(command.hoverText).toBe(command.text);
           }
         } finally {
           await page.close();

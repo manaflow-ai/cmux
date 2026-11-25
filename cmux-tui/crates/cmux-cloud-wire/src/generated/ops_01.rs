@@ -379,6 +379,117 @@ wire_errors! {
 }
 
 wire_op! {
+    /// The names of an automation's secrets (who may edit it). Never returns a value.
+    AutomationSecretListOp {
+        name: "automation.secret.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:SchedulerDO",
+        risk: "read",
+        principals: [Session],
+        params: AutomationSecretListParams,
+        result: AutomationSecretListResult,
+        error: AutomationSecretListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AutomationSecretListParams {
+    pub automation: AutomationId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AutomationSecretListResult {
+    pub automation: AutomationId,
+    pub secrets: Vec<AutomationSecretState>,
+}
+
+wire_errors! {
+    /// The error codes automation.secret.list declares.
+    AutomationSecretListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        SelectorNotFound = "selector.not_found",
+    }
+}
+
+wire_op! {
+    /// Remove one secret of an automation (its creator, editors and team admins).
+    AutomationSecretRemoveOp {
+        name: "automation.secret.remove",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:SchedulerDO",
+        risk: "destructive",
+        principals: [Session],
+        params: AutomationSecretRemoveParams,
+        result: AutomationSecretRemoveResult,
+        error: AutomationSecretRemoveError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AutomationSecretRemoveParams {
+    pub automation: AutomationId,
+    pub name: AutomationSecretName,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AutomationSecretRemoveResult {
+    pub automation: AutomationId,
+    pub name: AutomationSecretName,
+    pub removed: bool,
+}
+
+wire_errors! {
+    /// The error codes automation.secret.remove declares.
+    AutomationSecretRemoveError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Add or replace one secret of an automation (its creator, editors and team admins, in a person's session). Its machine steps get it as the environment variable NAME. The value is never returned.
+    AutomationSecretSetOp {
+        name: "automation.secret.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:SchedulerDO",
+        risk: "mutate-shared",
+        principals: [Session],
+        params: AutomationSecretSetParams,
+        result: AutomationSecretState,
+        error: AutomationSecretSetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AutomationSecretSetParams {
+    pub automation: AutomationId,
+    pub name: AutomationSecretName,
+    pub value: String,
+}
+
+wire_errors! {
+    /// The error codes automation.secret.set declares.
+    AutomationSecretSetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        AutomationSecretNotConfigured = "automation_secret.not_configured",
+        AutomationSecretTooMany = "automation_secret.too_many",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Read the team's automation settings (default limit of agent runs).
     AutomationSettingsGetOp {
         name: "automation.settings.get",
@@ -784,117 +895,6 @@ wire_errors! {
         MutationIndeterminate = "mutation.indeterminate",
         PolicyDenied = "policy.denied",
         ProviderError = "provider.error",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// List events of a Google calendar (single events, ordered by start). Read at call time; nothing is stored.
-    CalendarEventsListOp {
-        name: "calendar.events.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:ConnectionDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: CalendarEventsListParams,
-        result: Value,
-        error: CalendarEventsListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CalendarEventsListParams {
-    pub connection: ConnectionId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub calendar_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub time_min: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub time_max: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub query: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_results: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub page_token: Option<String>,
-}
-
-wire_errors! {
-    /// The error codes calendar.events.list declares.
-    CalendarEventsListError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IntegrationUnavailable = "integration.unavailable",
-        PolicyDenied = "policy.denied",
-        ProviderError = "provider.error",
-        SelectorNotFound = "selector.not_found",
-    }
-}
-
-wire_op! {
-    /// Create a channel: a group conversation you own with its own Chief, scoped to it (it is woken only by that conversation and keeps its own memory, instructions, personality and avatar). Answers the channel Chief; its channel.conversation is the channel. display_name defaults to "<title> Chief". Invite people with participants.add or invite.create on the channel.
-    ChannelCreateOp {
-        name: "channel.create",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: ChannelCreateParams,
-        result: HomeChief,
-        error: ChannelCreateError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ChannelCreateParams {
-    pub title: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub display_name: Option<String>,
-}
-
-wire_errors! {
-    /// The error codes channel.create declares.
-    ChannelCreateError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Archive a chief (not the default): it stops waking; restorable for 30 days, then a tombstone keeps its id forever.
-    ChiefArchiveOp {
-        name: "chief.archive",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "destructive",
-        principals: [Session],
-        params: ChiefArchiveParams,
-        result: HomeChief,
-        error: ChiefArchiveError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ChiefArchiveParams {
-    pub chief: ChiefId,
-    pub expected_rev: WireNumber,
-}
-
-wire_errors! {
-    /// The error codes chief.archive declares.
-    ChiefArchiveError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ChiefIsDefault = "chief_is_default",
-        IdempotencyConflict = "idempotency.conflict",
         RevisionConflict = "revision.conflict",
         SelectorNotFound = "selector.not_found",
         ValidationInvalid = "validation.invalid",

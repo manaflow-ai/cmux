@@ -1,0 +1,12 @@
+{
+  "caption": "The tab bar ends with your tabs: no ⋮ menu after them, in every pane.",
+  "launch_args": ["--showcase"],
+  "frameInterval": 0.25,
+  "steps": [
+    {"title": "Open a workspace", "cmux": ["action", "run", "newTab", "--name", "Tabs", "--focus", "--cwd", "/tmp"], "wait": 1},
+    {"title": "Split it: each pane's tab bar ends with its tabs", "cmux": ["action", "run", "splitRight"], "wait": 1.5, "clip": true},
+    {"title": "A second tab in the new pane", "cmux": ["action", "run", "newSurface"], "wait": 1.5, "clip": true},
+    {"title": "Stills", "wait": 1}
+  ],
+  "crop": [0, 0, 1, 0.25]
+}

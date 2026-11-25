@@ -152,3 +152,18 @@ fn a_relay_group_names_both_machines_and_its_seed() {
         .is_none()
     );
 }
+
+#[test]
+fn history_later_is_off_unless_asked() {
+    assert!(parsed(&[]).is_some_and(|a| a.history_later.is_none()));
+    assert_eq!(parsed(&["--history-later", "4"]).and_then(|a| a.history_later), Some(4));
+    assert!(parsed(&["--history-later", "many"]).is_none(), "a word is bad usage");
+    assert!(parsed(&["--history-later"]).is_none(), "the flag takes a count");
+    assert_eq!(history_later::turns(None, None), None);
+    assert_eq!(history_later::turns(None, Some("12")), Some(12));
+    assert_eq!(history_later::turns(None, Some(" 3\n")), Some(3));
+    assert_eq!(history_later::turns(None, Some("0")), None, "0 is off");
+    assert_eq!(history_later::turns(None, Some("yes")), None);
+    assert_eq!(history_later::turns(Some(2), Some("9")), Some(2), "the flag wins");
+    assert_eq!(history_later::turns(Some(0), Some("9")), None);
+}

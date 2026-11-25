@@ -35,6 +35,9 @@ import Foundation
 ///   the list's offset and top inset, the refresh wheel's and the search field's frames in the window.
 /// - `CMUX_MOBILE_LIST_GIANT=1` (chat): every third replayed prompt is a pasted raw log (hundreds of
 ///   lines with emoji, CJK, tabs, ANSI escapes and unbroken tokens), the GUI stress loop's long rows.
+/// - `CMUX_MOBILE_LIST_EVENTS=PATH` (chat): the chat is a file of acpmux records instead of the mock agent, one heavy
+///   coordinator from coord-sim (`coord-sim surface --target ios`); `CMUX_MOBILE_LIST_EVENTS_HISTORY=N` says how many
+///   came before the chat opens (an attach page of them), the rest stream at their recorded pace (CoordSimReplaySource).
 public struct ListStressSettings: Equatable, Sendable {
     public static let shared = ListStressSettings()
 
@@ -68,12 +71,20 @@ public struct ListStressSettings: Equatable, Sendable {
     public var plainCards: Set<String>
     /// `CMUX_MOBILE_LIST_NO_CARD_PICTURES=1`: agent cards are never drawn into pictures.
     public var noCardPictures: Bool
+    /// `CMUX_MOBILE_LIST_MAC_CARDS=1` (tabs): the mock Mac pushes its `tabs` records once, as the feed
+    /// hands them to `MacTabCards` (favicon and thumbnail of each browser, screen of each terminal),
+    /// and they are kept on disk. A later launch without it is cold: it reads them from disk.
+    public var macCards: Bool
     /// `CMUX_MOBILE_LIST_GIANT=1`: giant pasted-log prompts (`MockStressContent.giantPrompt`).
     public var giant: Bool
     /// `CMUX_MOBILE_LIST_REFRESH_SECONDS=S`: a mock pull to refresh lasting S seconds.
     public var refreshSeconds: Double?
     /// `CMUX_MOBILE_LIST_PULL_TRACE=1`: the per-frame pull-to-refresh trace.
     public var pullTrace: Bool
+    /// `CMUX_MOBILE_LIST_EVENTS=PATH` (chat): the chat replays a file of acpmux records (coord-sim).
+    public var events: String?
+    /// `CMUX_MOBILE_LIST_EVENTS_HISTORY=N`: its first N records are the chat before it opens.
+    public var eventsHistory: Int
 
     public init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         screen = environment["CMUX_MOBILE_LIST_SCREEN"]
@@ -97,9 +108,22 @@ public struct ListStressSettings: Equatable, Sendable {
         holdY = environment["CMUX_MOBILE_LIST_HOLD_Y"].flatMap(Double.init)
         plainCards = Set((environment["CMUX_MOBILE_LIST_PLAIN_CARDS"] ?? "").split(separator: ",").map(String.init))
         noCardPictures = environment["CMUX_MOBILE_LIST_NO_CARD_PICTURES"] == "1"
+        macCards = environment["CMUX_MOBILE_LIST_MAC_CARDS"] == "1"
         giant = environment["CMUX_MOBILE_LIST_GIANT"] == "1"
         refreshSeconds = environment["CMUX_MOBILE_LIST_REFRESH_SECONDS"].flatMap(Double.init)
         pullTrace = environment["CMUX_MOBILE_LIST_PULL_TRACE"] == "1"
+        events = environment["CMUX_MOBILE_LIST_EVENTS"].flatMap { $0.isEmpty ? nil : $0 }
+        eventsHistory = environment["CMUX_MOBILE_LIST_EVENTS_HISTORY"].flatMap(Int.init) ?? 0
+    }
+
+    /// The id prefix of the workspaces the rig seeds (`ws-s0`, `ws-s1`, ...).
+    public static let seededWorkspacePrefix = "ws-s"
+
+    /// Whether row `id` may take the launch marks' `workspaces_list_frame`: with the workspaces
+    /// rig, only a row it seeded, not a mock row shown before the seeding replaced them.
+    public func countsListFrame(rowID id: String) -> Bool {
+        guard screen == "workspaces", count > 0 else { return true }
+        return id.hasPrefix(Self.seededWorkspacePrefix) && id.dropFirst(Self.seededWorkspacePrefix.count).first?.isNumber == true
     }
 
     /// Whether a working row logs each redraw of its elapsed time (the rig's running chat).

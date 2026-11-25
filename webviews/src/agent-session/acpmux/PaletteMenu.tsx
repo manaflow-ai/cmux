@@ -4,14 +4,23 @@ import { focusWithRing } from "../../ui/focusWithRing";
 import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
 import { useEscapingPopup } from "../../ui/popupHost";
 import { usePopupHost } from "../../ui/UiProvider";
+import { usePopupSettle } from "../../ui/popupSettle";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { isMousePress } from "../../ui/pressRelease";
+import { useListKeys } from "../../ui/useListKeys";
 import { registerPicker } from "./pickerOpeners";
 
 import { useT } from "./i18n";
 import { scrollActiveMenuRow } from "./scrollActiveMenuRow";
 import { useScrollEdges } from "./summary/scrollEdges";
-import { type PaletteSection, filterPaletteSections } from "./paletteMenuModel";
+import { Keycap } from "./Keycap";
+import {
+  type PaletteSection,
+  filterPaletteSections,
+  type PaletteReturnLook,
+  descriptionRestatesName,
+} from "./paletteMenuModel";
+import { focusRoute } from "../../ui/focusRoute";
 type Props = {
   label: string;
   className?: string;
@@ -21,6 +30,13 @@ type Props = {
   returnFocus?: boolean;
   tooltip?: string;
   onOpen?: () => void;
+  /** How the highlighted row says what Return does (paletteMenuModel `PaletteReturnLook`). Default "verb": the keycap and
+   * the verb Return carries out (Leo, 2026-11-22). "none" is the look before. */
+  returnLook?: PaletteReturnLook;
+  /** The search field's placeholder and name; default "Search actions, chats and tabs" (`palette.searchPlaceholder`). */
+  placeholder?: string;
+  /** Leave out a description that only restates its row's title (`descriptionRestatesName`). Default on. */
+  quietDescriptions?: boolean;
 };
 
 /** Searchable, keyboard navigable + menu. It dispatches every row through the native action registry. */
@@ -33,6 +49,9 @@ export function PaletteMenu({
   returnFocus = true,
   tooltip,
   onOpen,
+  returnLook = "verb",
+  placeholder,
+  quietDescriptions = true,
 }: Props) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -50,13 +69,14 @@ export function PaletteMenu({
   const edges = useScrollEdges();
   const host = usePopupHost();
   const [shown, setShown] = useState<HTMLDivElement | null>(null);
-  const attach = useCallback(
+  const attachNode = useCallback(
     (node: HTMLDivElement | null) => {
       menu.current = node;
       if (host) setShown(node);
     },
     [host],
   );
+  const attach = usePopupSettle<HTMLDivElement>(attachNode);
   const menuStyle = useUiAnchor(trigger, menu, open, { side: "above", align });
   useEscapingPopup(host, shown, () => trigger.current, {
     side: "top",
@@ -73,6 +93,10 @@ export function PaletteMenu({
     [filtered],
   );
   const selected = Math.min(active, Math.max(rows.length - 1, 0));
+  const searchLabel = placeholder ?? t("palette.searchPlaceholder");
+  // The outcome line under the list (the `footer` look): the highlighted row's whole outcome with its target.
+  const outcome = returnLook === "footer" ? rows[selected]?.choice.outcome : undefined;
+  const outcomeId = `${menuId}-outcome`;
   const openMenu = useCallback(() => {
     dispatch.current += 1;
     setError(undefined);
@@ -129,10 +153,38 @@ export function PaletteMenu({
       );
     }
   };
+  // `app.keyStyle`: in the list Vim's j/k, gg/G and l (pick), / (the search field); in the field
+  // Vim's Esc (Emacs' Ctrl-G) gives the keyboard to the list, whose Esc closes as before; Emacs'
+  // Ctrl-N/P move in both and Ctrl-A/E go to the ends in the list.
+  const listKeys = useListKeys({
+    onCommand: (command, event) => {
+      const inField = event.target === search.current;
+      if (command === "list.next" || command === "list.previous") {
+        const step = command === "list.next" ? 1 : -1;
+        if (rows.length) setActive((current) => (current + step + rows.length) % rows.length);
+        return;
+      }
+      if (command === "list.leave") {
+        const list = menu.current?.ownerDocument.getElementById(menuId);
+        if (!inField || !list) return false;
+        focusRoute(list, "person", "key style list key", { preventScroll: true });
+        return;
+      }
+      if (inField) return false;
+      if (command === "list.first" || command === "list.last") {
+        if (rows.length) setActive(command === "list.first" ? 0 : rows.length - 1);
+      } else if (command === "list.open") void pick(selected);
+      else if (command === "list.search")
+        focusRoute(search.current, "person", "key style list key", { preventScroll: true });
+      else return false;
+    },
+  });
   const keyDown = (event: React.KeyboardEvent) => {
     // IME commit keys (including WebKit's keyCode 229 after compositionend) belong to the
     // editor. Never dispatch or close the palette for them; the following plain Enter may pick.
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+    listKeys(event);
+    if (event.defaultPrevented) return;
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
@@ -178,6 +230,7 @@ export function PaletteMenu({
         className="acpmux-picker-button"
         data-menu={label}
         aria-label={label}
+        // tooltip-allow: the trigger is the caller's glyph (the composer's +), with no words of its own.
         title={tooltip}
         onKeyDown={(event) => {
           if (!open && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
@@ -220,9 +273,10 @@ export function PaletteMenu({
               aria-haspopup="listbox"
               aria-expanded={open}
               aria-controls={menuId}
-              aria-label={t("sidebar.searchPlaceholder")}
+              aria-label={searchLabel}
+              aria-describedby={outcome ? outcomeId : undefined}
               aria-activedescendant={rows.length ? `${menuId}-${selected}` : undefined}
-              placeholder={t("sidebar.searchPlaceholder")}
+              placeholder={searchLabel}
               autoComplete="off"
             />
           </div>
@@ -256,6 +310,14 @@ export function PaletteMenu({
                   {section.choices.map((choice) => {
                     index += 1;
                     const at = index;
+                    const description =
+                      quietDescriptions && descriptionRestatesName(choice.name, choice.description)
+                        ? undefined
+                        : choice.description;
+                    // Return's row says so before Return: the keycap the slash menu, New Tab and the cards use,
+                    // and under the `verb` and `footer` looks the verb Return carries out.
+                    const verb =
+                      returnLook === "verb" || returnLook === "footer" ? (choice.verb ?? section.verb) : undefined;
                     return (
                       <div
                         key={`${section.title}-${choice.id}`}
@@ -276,9 +338,15 @@ export function PaletteMenu({
                         {choice.icon}
                         <span className="acpmux-menu-text">
                           <span className="acpmux-menu-label">{choice.name}</span>
-                          {choice.description && <span className="acpmux-menu-description">{choice.description}</span>}
+                          {description && <span className="acpmux-menu-description">{description}</span>}
                         </span>
                         {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
+                        {returnLook !== "none" && at === selected && (
+                          <span className="acpmux-palette-return" aria-hidden="true">
+                            {verb && <span className="acpmux-palette-return-verb">{verb}</span>}
+                            <Keycap>↩</Keycap>
+                          </span>
+                        )}
                       </div>
                     );
                   })}
@@ -287,6 +355,12 @@ export function PaletteMenu({
             ))}
             {!rows.length && <div className="acpmux-palette-empty">{t("composer.noMatchingCommands")}</div>}
           </div>
+          {outcome && (
+            <div id={outcomeId} className="acpmux-palette-outcome">
+              <Keycap>↩</Keycap>
+              <span className="acpmux-palette-outcome-text">{outcome}</span>
+            </div>
+          )}
         </div>
       )}
     </span>

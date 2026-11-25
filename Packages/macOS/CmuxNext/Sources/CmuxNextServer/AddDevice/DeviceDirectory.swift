@@ -73,6 +73,15 @@ public final class DeviceDirectory {
         }
     }
 
+    /// Reads `cmux device list` alone and returns the listing (the last one when this read fails): Screen
+    /// Sharing's refusal of a machine it does not list reads why that machine offers no screen.
+    public func readDevices() async -> DeviceListing? {
+        if let data = await run(["device", "list", "--json"]), let listing = try? DeviceListing.parse(data) {
+            self.listing = listing
+        }
+        return listing
+    }
+
     /// Reads again and returns the listing (the Add Device card's network way).
     public func read() async -> DeviceListing? {
         await refresh()

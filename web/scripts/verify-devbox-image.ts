@@ -63,6 +63,7 @@ import {
   cmuxTuiWebsocketSmokeCommand,
   sha256File,
   devboxClaudeTeamOnboardingCheckCommand,
+  devboxClaudeSettingsDefaultsCheckCommand,
 } from "./devbox-image-common";
 import {
   DEVBOX_DESKTOP_DISPLAY,
@@ -161,6 +162,7 @@ const CHECKS: readonly string[] = [
   // seed for root, and the sandbox env every login shell exports.
   `python3 -c 'import tomllib; d = tomllib.load(open("/etc/codex/managed_config.toml", "rb")); assert d["projects"]["/root"]["trust_level"] == "trusted"; assert d["projects"]["${DEVBOX_DESKTOP_HOME}"]["trust_level"] == "trusted"' && bash -lc 'test "$CLAUDE_CODE_SANDBOXED:$IS_SANDBOX:$DISABLE_AUTOUPDATER" = 1:1:1' && python3 -c "import json; j = json.load(open('/root/.claude.json')); assert j['hasCompletedOnboarding'] is True and j['bypassPermissionsModeAccepted'] is True and j['projects']['/']['hasTrustDialogAccepted'] is True and isinstance(j['customApiKeyResponses']['approved'], list) and '-vm-edge-placeholder' in j['customApiKeyResponses']['approved']" && echo agent-trust-ok`,
   devboxClaudeTeamOnboardingCheckCommand(),
+  devboxClaudeSettingsDefaultsCheckCommand(),
   "whoami; nproc; free -m | sed -n 2p; df -h / | tail -1",
 ];
 

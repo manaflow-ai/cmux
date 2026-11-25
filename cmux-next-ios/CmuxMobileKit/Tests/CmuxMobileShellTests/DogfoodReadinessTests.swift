@@ -43,6 +43,24 @@ import Testing
         #expect(json["phone_device_ids"] as? [String] == ["link-1", "presence-1"])
     }
 
+    /// The receipt names the build space the app's requests carry, signed in or out, so the hand-off can
+    /// require its tagged Mac's (`handoff_receipt.py --build-space`). A Demo hand-off build without
+    /// `CMUX_MOBILE_DEV_TAG` sat in the default space while its Mac was in `dev:<tag>`.
+    @Test func receiptNamesTheBuildSpace() throws {
+        let tagged = DogfoodReadiness(environment: [:], bundleID: "dev.cmux.mobile.t", info: [:], buildSpace: "dev:t")
+        let signedIn = tagged.body(nonce: "n", apiBase: base, email: "a@b.c", userID: "u", macs: macs, focus: nil,
+                                   now: Date(timeIntervalSince1970: 0))
+        let signedOut = tagged.signedOutBody(nonce: "n", apiBase: nil, now: Date(timeIntervalSince1970: 0))
+        for body in [signedIn, signedOut] {
+            let json = try #require(try JSONSerialization.jsonObject(with: DogfoodReadiness.encode(body)) as? [String: Any])
+            #expect(json["build_space"] as? String == "dev:t")
+        }
+        let nightly = DogfoodReadiness(environment: [:], bundleID: "b", info: [:])
+        let json = try #require(try JSONSerialization.jsonObject(
+            with: DogfoodReadiness.encode(nightly.signedOutBody(nonce: "n", apiBase: nil, now: Date(timeIntervalSince1970: 0)))) as? [String: Any])
+        #expect(json["build_space"] as? String == "")
+    }
+
     @Test func signedOutReceiptNamesNoAccount() throws {
         let r = DogfoodReadiness(environment: ["CMUX_DOGFOOD_CLIENT_ID": "client"], bundleID: "dev.cmux.mobile.t",
                                  info: ["CmuxMobileTag": ".t", "CmuxMobileSourceCommit": "abc"])
@@ -89,6 +107,49 @@ import Testing
         #expect(linked(.init(id: "mac-tagged", paired: true, connected: false)).first?.linked == false)
         #expect(linked(.init(id: "mac-tagged", paired: false, connected: true)).first?.linked == false)
         #expect(linked(.init(id: "unlisted", paired: true, connected: true)).first?.name == "")
+    }
+
+    /// How the linked link travels, from the controller's transport and path and the Rust link's peer scope:
+    /// the person's iPhone and Mac may both run Tailscale, and a tailnet link is never taken for the LAN.
+    @Test func routeNamesTransportPathAndTailnet() {
+        func route(_ transport: String, _ path: String, _ scope: String) -> [String] {
+            let r = DogfoodReadiness.Route(transport: transport, path: path, peerScope: scope)
+            return [r.transport, r.path, "\(r.tailnet)"]
+        }
+        #expect(route("wireguard", "direct", "lan") == ["wireguard", "direct-lan", "false"])
+        #expect(route("wireguard", "direct", "tailnet") == ["wireguard", "direct-wan", "true"])
+        #expect(route("wireguard", "direct", "wan") == ["wireguard", "direct-wan", "false"])
+        #expect(route("webrtc", "direct", "") == ["webrtc", "direct", "false"])
+        #expect(route("wireguard", "turn", "") == ["wireguard", "turn", "false"])
+        #expect(route("wireguard", "turnTLS", "") == ["wireguard", "turn-tls", "false"])
+        #expect(route("wireguard", "noPath", "") == ["wireguard", "none", "false"])
+        // Only a direct path has a peer of its own: a relayed one is never a tailnet path.
+        #expect(route("wireguard", "turn", "tailnet") == ["wireguard", "turn", "false"])
+    }
+
+    /// The linked Mac's entry carries the route (`handoff_receipt.py` names it); an entry not linked carries
+    /// none, and a route change is a new receipt (the writer rewrites on any `paired_macs` change).
+    @Test func linkedReceiptNamesTheRoute() throws {
+        let r = readiness([:])
+        let tailnet = DogfoodReadiness.Route(transport: "wireguard", path: "direct", peerScope: "tailnet")
+        let turn = DogfoodReadiness.Route(transport: "wireguard", path: "turn", peerScope: "")
+        func body(_ focus: DogfoodReadiness.Focus) -> DogfoodReadiness.Body {
+            r.body(nonce: "n", apiBase: base, email: "a@b.c", userID: "u", macs: macs, focus: focus,
+                   now: Date(timeIntervalSince1970: 0))
+        }
+        func entry(_ focus: DogfoodReadiness.Focus) throws -> [String: Any] {
+            let json = try #require(try JSONSerialization.jsonObject(with: DogfoodReadiness.encode(body(focus))) as? [String: Any])
+            return try #require((json["paired_macs"] as? [[String: Any]])?.first)
+        }
+        let linked = try entry(.init(id: "mac-tagged", paired: true, connected: true, route: tailnet))
+        #expect(linked["transport"] as? String == "wireguard")
+        #expect(linked["path"] as? String == "direct-wan")
+        #expect(linked["tailnet"] as? Bool == true)
+        let unpaired = try entry(.init(id: "mac-tagged", paired: false, connected: true, route: tailnet))
+        #expect(unpaired["linked"] as? Bool == false)
+        #expect(unpaired["transport"] == nil && unpaired["path"] == nil && unpaired["tailnet"] == nil)
+        #expect(body(.init(id: "mac-tagged", paired: true, connected: true, route: tailnet)).paired_macs
+                != body(.init(id: "mac-tagged", paired: true, connected: true, route: turn)).paired_macs)
     }
 
     @Test func receiptKeysAndNoSecrets() throws {

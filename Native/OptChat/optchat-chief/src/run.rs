@@ -241,8 +241,14 @@ impl RunSteps {
     }
 
     /// The turn is over: every talk and thought step still open closes, so
-    /// its last live frame (`final`) goes before the run's end and the reply.
+    /// its last live frame (`final`) goes before the run's end and the reply;
+    /// a tool call the harness never ended ends with the turn, so no row
+    /// reads as running after it ("clear stale 'Telling' rows", Leo 2026-10-20).
     pub fn close_all(&mut self) {
+        let unfinished: Vec<String> = self.running.iter().map(|(id, _, _)| id.clone()).collect();
+        for id in unfinished {
+            self.call_failed(&id);
+        }
         let open: Vec<String> = self
             .steps
             .iter()
@@ -396,6 +402,22 @@ impl RunSteps {
                 data,
             });
         }
+    }
+
+    /// Call `id` will never end on its own (its permission was denied or
+    /// cancelled, or the turn is over): its row ends `failed` and the line
+    /// moves on, as for an end the harness sent.
+    pub fn call_failed(&mut self, id: &str) {
+        let key = step_id("tool", id);
+        let Some(step) = self.steps.get_mut(&key) else {
+            self.running.retain(|(call, _, _)| call != id);
+            return;
+        };
+        if step.value.get("status").and_then(Value::as_str) == Some("running") {
+            step.value.insert("status".into(), json!("failed"));
+            self.dirty.insert(key);
+        }
+        self.call_ended(id);
     }
 
     /// Call `id` ended. When the line named it, the line moves to the earliest
@@ -706,6 +728,7 @@ fn control_line(input: Option<&Value>) -> String {
         ("cancel", Some(id)) => format!("Cancelling {id}"),
         ("restart", Some(id)) => format!("Restarting {id}"),
         ("priority", Some(id)) => format!("Putting {id} first"),
+        ("tasks", Some(id)) => format!("Updating {id}'s task list"),
         ("show", Some(id)) => format!("Showing {id}'s workspace"),
         ("hide", Some(id)) => format!("Hiding {id}'s workspace"),
         ("cap", _) => "Setting how many agents work at once".to_owned(),

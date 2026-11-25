@@ -170,10 +170,11 @@ public final class ImportStepModel {
     public func importPasswordsFromCSV() { services.importPasswordsFromCSV(into: mergeTarget) }
 
     /// The kinds every profile row is shown for.
-    public static let offeredKinds: [ImportDataKind] = [.bookmarks, .history, .openTabs, .cookies, .searchEngines]
-    /// Offered unchecked: the search engine is one setting for every profile, and open tabs open a
-    /// workspace per profile, so each happens only when asked.
-    public static let optInKinds: Set<ImportDataKind> = [.openTabs, .searchEngines]
+    public static let offeredKinds: [ImportDataKind] = [.bookmarks, .history, .openTabs, .extensions, .cookies, .searchEngines]
+    /// Offered unchecked: the search engine is one setting for every profile, and open tabs and
+    /// extensions open a workspace per profile (its pages, its extensions' store pages), so each
+    /// happens only when asked.
+    public static let optInKinds: Set<ImportDataKind> = [.openTabs, .extensions, .searchEngines]
 
     /// The one line of checkboxes: passwords too when this build can save them.
     public var kindChoices: [ImportDataKind] { passwordStore ? Self.offeredKinds + [.passwords] : Self.offeredKinds }

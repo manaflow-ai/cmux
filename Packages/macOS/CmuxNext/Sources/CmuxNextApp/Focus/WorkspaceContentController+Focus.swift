@@ -12,8 +12,8 @@ extension WorkspaceContentController {
     func sendTopology(_ file: StaticString = #fileID, _ line: UInt = #line) {
         guard !isParked, !isApplying else { return }
         focus.topologySent(by: self)
+        DebugLayoutCounters.topologySends &+= 1 // counted in every build (one add): `perf.layout_counters` reads it in Release
         #if DEBUG
-        DebugLayoutCounters.topologySends &+= 1
         debugTopologySends &+= 1
         DebugLayoutCounters.note("topology", file, line)
         #endif
@@ -39,8 +39,8 @@ extension WorkspaceContentController {
         guard !isParked, !isApplying else { return }
         focus.setNeedsTopology(owner: self) { [weak self] in
             guard let self, !self.isParked, !self.isApplying else { return nil }
+            DebugLayoutCounters.topologySends &+= 1 // counted in every build (one add): `perf.layout_counters` reads it in Release
             #if DEBUG
-            DebugLayoutCounters.topologySends &+= 1
             self.debugTopologySends &+= 1
             DebugLayoutCounters.note("topology", file, line)
             #endif
