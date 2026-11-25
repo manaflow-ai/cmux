@@ -54,6 +54,9 @@ public final class SettingsModels {
     @ObservationIgnored var onCloudClaudeSignIn: (@MainActor (String) -> Void)?
     @ObservationIgnored var presentClaudeCallback: CloudClaudeMachine.CallbackOpener?
     @ObservationIgnored var claudeLoginAttempts: [ClaudeLoginTarget: ClaudeLoginAttempt] = [:]
+    @ObservationIgnored var claudeLoginCancellations: Set<ClaudeLoginTarget> = []
+    nonisolated let cloudClaudeApproval: CloudClaudeApproval
+    nonisolated let cloudClaudeApprovalOwner = UUID()
     /// The current owner machine, keeping the machine this dialog used while it is still ready.
     @ObservationIgnored public var cloudClaudeLogin: (@MainActor (String?, String?, String?) -> CloudClaudeLogin)?
     /// Prepares an owned machine for Connect. Nil means the Cloud create card handled the request.
@@ -90,6 +93,8 @@ public final class SettingsModels {
 
     nonisolated deinit {
         cloudClaudeAccountWatch?.cancel()
+        let approval = cloudClaudeApproval, owner = cloudClaudeApprovalOwner
+        MainDelivery().run { approval.release(owner) }
     }
     @ObservationIgnored private(set) var chatgptTask: Task<Void, Never>?
     @ObservationIgnored private var watch: Task<Void, Never>?
@@ -102,6 +107,7 @@ public final class SettingsModels {
     ///   - openURL: opens the ChatGPT sign-in page in the person's browser, in the background.
     ///   - team: the active team's id and name; nil signed out or for the personal team.
     ///   - spreadSetting, writeSpreadSetting: `models.spreadUsage`, read and written through the settings writer.
+    ///   - cloudClaudeApproval: the app's approval slot shared across Settings windows.
     public init(environment: @escaping @MainActor () async -> AcpmuxEnvironment?,
                 call: (@Sendable (AcpmuxEnvironment, AcpmuxHarnessMethod, [String: any Sendable]) async throws -> Data)? = nil,
                 keys: any ModelKeyStoring,
@@ -110,7 +116,8 @@ public final class SettingsModels {
                 agentKeys: TeamAgentKeys? = nil,
                 policy: TeamModelsPolicy? = nil,
                 spreadSetting: (@MainActor () -> Bool)? = nil,
-                writeSpreadSetting: (@MainActor (Bool) async throws -> Void)? = nil) {
+                writeSpreadSetting: (@MainActor (Bool) async throws -> Void)? = nil,
+                cloudClaudeApproval: CloudClaudeApproval = CloudClaudeApproval()) {
         self.environment = environment
         self.call = call
         self.keys = keys
@@ -120,6 +127,7 @@ public final class SettingsModels {
         self.policy = policy
         self.spreadSetting = spreadSetting
         self.writeSpreadSetting = writeSpreadSetting
+        self.cloudClaudeApproval = cloudClaudeApproval
     }
 
     // MARK: State
@@ -154,6 +162,7 @@ public final class SettingsModels {
             "members": members,
             "claudeLogin": claudeLoginState(.mac).pageState,
             "cloudClaudeLogin": claudeLoginState(.cloud).pageState,
+            "cloudClaudeApprovalBusy": .bool(cloudClaudeApproval.isBusy(for: cloudClaudeApprovalOwner)),
             "claudeCodeAvailable": claudeCodeAvailable.map(JSONValue.bool) ?? .null,
             "chatgpt": ["attempt": chatgptAttempt.map(JSONValue.string) ?? .null, "error": chatgptError.map(JSONValue.string) ?? .null],
             "chatgptDevice": chatgptDevice.pageState,
@@ -240,6 +249,7 @@ public final class SettingsModels {
         let servesCloud = value["serves_cloud"]?.boolValue ?? value["servesCloud"]?.boolValue ?? false
         return [
             "id": .string(id), "kind": .string(kind), "provider": .string(provider),
+            "credentialInstance": text("credential_instance"),
             "families": strings("families", "families"), "label": .string(value["label"]?.stringValue ?? id),
             "email": text("email"), "plan": text("plan"),
             "signedIn": .bool(value["signed_in"]?.boolValue ?? value["signedIn"]?.boolValue ?? false),
@@ -435,12 +445,17 @@ public final class SettingsModels {
         case "addKey":
             let provider = params["provider"]?.stringValue ?? ""
             let key = params["key"]?.stringValue ?? ""
-            let replace = params["replace"]?.stringValue
-            if let replace, !connections.contains(where: {
-                $0["id"]?.stringValue == replace && $0["provider"]?.stringValue == provider
-                    && $0["canReplaceKey"]?.boolValue == true
-            }) {
-                throw PageError.invalidParams("replacement needs a listed API-key connection")
+            let replacement: (id: String, instance: String)?
+            if let replace = params["replace"]?.stringValue {
+                guard let instance = params["replaceInstance"]?.stringValue, connections.contains(where: {
+                    $0["id"]?.stringValue == replace && $0["provider"]?.stringValue == provider
+                        && $0["canReplaceKey"]?.boolValue == true && $0["credentialInstance"]?.stringValue == instance
+                }) else {
+                    throw PageError.invalidParams("replacement needs a listed API-key connection")
+                }
+                replacement = (replace, instance)
+            } else {
+                replacement = nil
             }
             if params["verifyAccess"]?.boolValue == true {
                 let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -460,7 +475,7 @@ public final class SettingsModels {
                     throw PageError.unavailable("the local acpmux could not check model access")
                 }
             }
-            try await addKey(provider: provider, key: key, label: params["label"]?.stringValue, replacing: replace, servesCloud: params["servesCloud"]?.boolValue)
+            try await addKey(provider: provider, key: key, label: params["label"]?.stringValue, replacing: replacement, servesCloud: params["servesCloud"]?.boolValue)
         case "orgKey":
             // `key: null` removes; a missing key is a mistake, not a removal.
             guard let key = params["key"] else { throw PageError.invalidParams("orgKey needs key (a key, or null to remove)") }

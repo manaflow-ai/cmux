@@ -433,7 +433,7 @@ fn plan_with_calls(
     }
     let environment = request.environment.as_deref();
     if selected.is_some_and(|id| {
-        request.machines.iter().any(|vm| &vm.id == id && vm.conflicts_with_environment(environment))
+        request.machines.iter().any(|vm| &vm.id == id && !vm.matches_environment(environment))
     }) {
         return environment_mismatch();
     }

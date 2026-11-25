@@ -144,7 +144,7 @@ public final class CloudSetup {
         public var claudeAuth: AgentSessionAttachClient.ClaudeAuth? {
             switch self {
             case .claudeMachineLogin: .own
-            case .gateway(let family) where family == "claude": .team
+            case .gateway(let family), .organization(let family): family == "claude" ? .team : nil
             default: nil
             }
         }
@@ -232,7 +232,7 @@ public final class CloudSetup {
         guard !Task.isCancelled, scope == accountScope?() else { return [] }
         let candidates = (claudeMachines?() ?? []).filter {
             (machine == nil || $0.id == machine)
-                && (environment == nil || $0.environmentId == environment || (machine != nil && $0.environmentId == nil))
+                && CloudStartCore().matchesEnvironment(environment, machine: $0)
                 && (name == nil || $0.title == name)
                 && [.running, .provisioning, .starting, .unknown].contains($0.shownStatus)
         }.map(\.id).sorted()

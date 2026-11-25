@@ -61,6 +61,7 @@ const claudeToken: ModelConnection = {
 
 const openrouterKey: ModelConnection = {
   id: "openrouter-key",
+  credentialInstance: "fixture-openrouter",
   kind: "api-key",
   provider: "openrouter",
   families: ["claude", "codex"],
@@ -235,7 +236,12 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
       if (!run.key.trim()) throw new Error("a key is required");
       if (run.replace) {
         const connection = find(run.replace);
-        if (!connection.canReplaceKey || connection.provider !== run.provider)
+        if (
+          !connection.canReplaceKey ||
+          connection.provider !== run.provider ||
+          !run.replaceInstance ||
+          connection.credentialInstance !== run.replaceInstance
+        )
           throw new Error("replacement needs a matching API-key connection");
         return personal({
           connections: connections.map((c) => (c.id === run.replace ? { ...c, signedIn: true } : c)),
@@ -247,6 +253,7 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
       // The key itself never lands in the state: the app keeps it in the Keychain.
       const added: ModelConnection = {
         id: nextId(`${run.provider}-key`, connections),
+        credentialInstance: crypto.randomUUID(),
         kind: "api-key",
         provider: run.provider,
         families: [...provider.families],

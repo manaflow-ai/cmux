@@ -1,6 +1,7 @@
 public import Foundation
 import CryptoKit
 public import CmuxNextDaemon
+import CmuxNextWakeups
 
 /// One model connection's credential as this Mac's acpmux gives it for a Cloud chat
 /// (`_acpmux/connections/credential {id}` -> `{family, kind, env, expires_at}`,
@@ -106,27 +107,41 @@ public final class CloudAgentCredentials {
 
     private struct ChatKey: Hashable { let machine: String, chat: String }
 
-    private struct KeyDelivery {
-        let id = UUID()
-        let connection: String
+    private struct KeyDelivery: Sendable {
+        var id = UUID()
         let binding: String
+        let sessionID: String?
         let harness: String
         let model: String?
-        let originalKind: String
         let replace: CloudAgentCredentialRefresher.Replace
+        let onDelivered: @MainActor () -> Void
+        let onRefusal: @MainActor (Failure) -> Void
+        // Reconciliation and scheduled refresh share this write queue.
+        var write: Task<CloudAgentCredentialRefresher.PushOutcome, Never>?
+        var withdrawalPending = false
     }
 
-    /// Reads Cloud connection identities and access settings. Nil means the list is unavailable.
-    public var readCredentialConnections: (@MainActor () async -> [CloudSetup.Connection]?)?
-    /// Subscribes to local connection changes while a key-backed Cloud chat is tracked.
+    package struct ConnectionState: Sendable {
+        package let connections: [CloudSetup.Connection]
+        fileprivate let disconnected: [String: [String]]
+
+        package init(connections: [CloudSetup.Connection], disconnected: [String: [String]] = [:]) {
+            self.connections = connections
+            self.disconnected = disconnected
+        }
+    }
+
+    /// Reads saved connections and explicit disconnects. Nil means the list is unavailable.
+    package var readCredentialConnections: (@MainActor () async -> ConnectionState?)?
+    /// Subscribes to local connection changes while a bound Cloud chat is tracked.
     public var watchCredentialConnections: (@MainActor () async -> AsyncStream<Void>?)?
     private var keyWatch: Task<Void, Never>?
     private var keyDeliveries: [ChatKey: KeyDelivery] = [:]
     private(set) var keySync: Task<Void, Never>?
     private var keyChangesPending = false
+    private let withdrawalRetry: DemandTimer
 
-    /// Reconcile an owner's key-backed launches after a route change or a guest reconnect.
-    /// Only a matching connection can withdraw its credential.
+    /// Reconcile an owner's bound launches after a connection change or a guest reconnect.
     public func credentialConnectionsChanged() {
         guard !keyDeliveries.isEmpty else { return }
         startKeyWatch()
@@ -135,7 +150,7 @@ public final class CloudAgentCredentials {
 
     private func startKeyWatch() {
         guard keyWatch == nil, let watchCredentialConnections else { return }
-        // task-owner: keyWatch, until acpmux closes its watch or no key-backed chat remains.
+        // task-owner: keyWatch, until acpmux closes its watch or no bound chat remains.
         keyWatch = Task { [weak self] in
             if let changes = await watchCredentialConnections() {
                 for await _ in changes { self?.queueKeySync() }
@@ -148,38 +163,117 @@ public final class CloudAgentCredentials {
         keyChangesPending = true
         guard keySync == nil else { return }
         // task-owner: keySync; changes coalesce into this worker and send in order.
-        keySync = Task { [weak self] in
-            guard let self else { return }
-            await self.syncKeys()
-        }
+        keySync = Task { [weak self] in await self?.syncKeys() }
     }
 
     private func syncKeys() async {
         defer {
             keySync = nil
             if keyDeliveries.isEmpty { keyWatch?.cancel() }
+            if keyDeliveries.values.contains(where: \.withdrawalPending) {
+                withdrawalRetry.scheduleIfIdle(after: CloudAgentCredentialRefresher.retry) { @MainActor [weak self] in
+                    self?.queueKeySync()
+                }
+            } else {
+                withdrawalRetry.cancel()
+            }
         }
         while keyChangesPending {
             keyChangesPending = false
-            guard let connections = await readCredentialConnections?() else { continue }
+            guard let state = await readCredentialConnections?() else { continue }
             for (chat, delivery) in keyDeliveries {
-                guard let connection = connections.first(where: { $0.id == delivery.connection }),
-                      binding(connection: connection.id, instance: connection.credentialInstance) == delivery.binding else { continue }
-                let replacement: CloudAgentCredential?
-                if connection.enabled && connection.signedIn && connection.servesCloud {
-                    guard let credential = try? await boundCredential(delivery.binding, model: delivery.model, harness: delivery.harness),
-                          credential.kind == delivery.originalKind else { continue }
-                    replacement = credential
-                } else {
-                    replacement = nil
-                }
-                guard keyDeliveries[chat]?.id == delivery.id else { continue }
-                let result = await delivery.replace(replacement)
-                if keyDeliveries[chat]?.id == delivery.id && (result == .gone || result == .delivered && replacement == nil) {
-                    keyDeliveries[chat] = nil
-                }
+                await reconcile(chat, delivery: delivery, state: state)
             }
         }
+    }
+
+    private func reconcile(_ chat: ChatKey, delivery: KeyDelivery, state: ConnectionState) async {
+        guard keyDeliveries[chat]?.id == delivery.id, let separator = delivery.binding.firstIndex(of: ":") else { return }
+        let id = String(delivery.binding[..<separator])
+        let connection = state.connections.first { binding(connection: $0.id, instance: $0.credentialInstance) == delivery.binding }
+        let disconnected = state.disconnected[id]?.contains { binding(connection: id, instance: $0) == delivery.binding } == true
+        if disconnected || connection.map({ $0.canServeCloud && !$0.servesCloud }) == true {
+            stopRefresh(chat)
+            let outcome = await send(nil, to: chat, delivery: delivery)
+            guard keyDeliveries[chat]?.id == delivery.id else { return }
+            keyDeliveries[chat]?.withdrawalPending = outcome == .failed
+            if outcome == .delivered && disconnected { keyDeliveries[chat] = nil }
+            // Keep an opted-out connection tracked so the same open chat resumes on re-enable.
+            return
+        }
+        guard let connection, connection.servesCloud else { return }
+        keyDeliveries[chat]?.withdrawalPending = false
+        guard connection.enabled, connection.signedIn else { return }
+        do {
+            guard let credential = try await boundCredential(delivery.binding, model: delivery.model, harness: delivery.harness) else { return }
+            guard await send(credential, to: chat, delivery: delivery) == .delivered,
+                  keyDeliveries[chat]?.id == delivery.id else { return }
+            trackRefresh(credential, chat: chat, delivery: delivery)
+            delivery.onDelivered()
+        } catch let failure as Failure {
+            if keyDeliveries[chat]?.id == delivery.id { delivery.onRefusal(failure) }
+        } catch {}
+    }
+
+    private func send(_ credential: CloudAgentCredential?, to chat: ChatKey, delivery: KeyDelivery) async
+        -> CloudAgentCredentialRefresher.PushOutcome {
+        guard let current = keyDeliveries[chat], current.id == delivery.id else { return .gone }
+        // task-owner: the delivery retains its most recent write so the next write follows it.
+        let write = Task { [weak self] in
+            _ = await current.write?.value
+            guard let next = self?.keyDeliveries[chat], next.id == delivery.id else {
+                return CloudAgentCredentialRefresher.PushOutcome.gone
+            }
+            return await next.replace(credential)
+        }
+        keyDeliveries[chat]?.write = write
+        let result = await write.value
+        if result == .gone, keyDeliveries[chat]?.id == delivery.id {
+            keyDeliveries[chat] = nil
+            stopRefresh(chat)
+            if keyDeliveries.isEmpty { keyWatch?.cancel() }
+        }
+        return result
+    }
+
+    private func stopRefresh(_ chat: ChatKey) {
+        if let previous = tracked.removeValue(forKey: chat) { refresher.untrack(previous) }
+    }
+
+    @discardableResult
+    private func trackRefresh(_ credential: CloudAgentCredential, chat: ChatKey, delivery: KeyDelivery) -> UUID? {
+        stopRefresh(chat)
+        let id = refresher.track(credential, onReauth: {
+            delivery.onRefusal(.refused(reason: "chatgpt.reauth_required"))
+        }, replace: { [weak self] credential in
+            guard let self, let credential else { return .gone }
+            return await self.refresh(credential, chat: chat, delivery: delivery)
+        }, push: { _ in .gone })
+        tracked[chat] = id
+        return id
+    }
+
+    private func refresh(_ credential: CloudAgentCredential, chat: ChatKey, delivery: KeyDelivery) async
+        -> CloudAgentCredentialRefresher.PushOutcome {
+        guard tracked[chat] != nil else { return .gone }
+        return await send(credential, to: chat, delivery: delivery)
+    }
+
+    /// Reattach through the same reconciliation as Settings, including a refused withdrawal.
+    package func restoreBinding(_ binding: String, chat: String, machine: String, sessionID: String, harness: String, model: String?,
+                                replace: @escaping CloudAgentCredentialRefresher.Replace,
+                                onDelivered: @escaping @MainActor () -> Void,
+                                onRefusal: @escaping @MainActor (Failure) -> Void) async {
+        let key = ChatKey(machine: machine, chat: chat)
+        let previous = keyDeliveries[key]
+        let sameBinding = previous?.binding == binding && previous?.sessionID == sessionID
+        if !sameBinding { stopRefresh(key) }
+        keyDeliveries[key] = KeyDelivery(id: (sameBinding ? previous?.id : nil) ?? UUID(), binding: binding,
+                                         sessionID: sessionID, harness: harness, model: model, replace: replace,
+                                         onDelivered: onDelivered, onRefusal: onRefusal, write: previous?.write,
+                                         withdrawalPending: sameBinding && previous?.withdrawalPending == true)
+        credentialConnectionsChanged()
+        await keySync?.value
     }
 
     public private(set) lazy var refresher = CloudAgentCredentialRefresher { [weak self] id in
@@ -187,8 +281,9 @@ public final class CloudAgentCredentials {
         return try await self.credential(forConnection: id)
     }
 
-    public init(machineIdentity: String? = nil, read: Read? = nil) {
+    public init(machineIdentity: String? = nil, clock: any Clock<Duration> = ContinuousClock(), read: Read? = nil) {
         self.machineIdentity = machineIdentity
+        self.withdrawalRetry = DemandTimer(owner: "cloud.agentCredentials.withdrawalRetry", clock: clock)
         self.read = read
     }
 
@@ -209,12 +304,6 @@ public final class CloudAgentCredentials {
         let id = String(expected[..<separator])
         let fresh = try await credential(forConnection: id, model: model, harness: harness)
         return credentialBinding(fresh) == expected ? fresh : nil
-    }
-
-    package func connection(forBinding expected: String) async -> CloudSetup.Connection? {
-        await readCredentialConnections?()?.first {
-            binding(connection: $0.id, instance: $0.credentialInstance) == expected
-        }
     }
 
     /// The credential of connection `id`, read now for the selected harness and model.
@@ -243,7 +332,7 @@ public final class CloudAgentCredentials {
         let key = ChatKey(machine: machine, chat: chat)
         chosen[key] = Selection(connection: nil, harness: harness, claudeAuth: nil)
         keyDeliveries[key] = nil
-        if let previous = tracked.removeValue(forKey: key) { refresher.untrack(previous) }
+        stopRefresh(key)
     }
 
     /// The chat's tab got the key `key` on `machine` (not the one its start planned): its choice follows.
@@ -297,24 +386,26 @@ public final class CloudAgentCredentials {
 
     /// Keeps the chat's delivered credential current after its start or reattach.
     @discardableResult
-    public func started(chat: String, machine: String, on credential: CloudAgentCredential,
+    public func started(chat: String, machine: String, sessionID: String? = nil, on credential: CloudAgentCredential,
                         onReauth: @escaping @MainActor () -> Void = {},
                         replace: CloudAgentCredentialRefresher.Replace? = nil,
                         push: @escaping CloudAgentCredentialRefresher.Push) -> UUID? {
         let key = ChatKey(machine: machine, chat: chat)
         chosen[key] = nil
-        if let previous = tracked.removeValue(forKey: key) { refresher.untrack(previous) }
-        keyDeliveries[key] = nil
-        guard let binding = credentialBinding(credential) else { return nil }
-        if !credential.refreshes && ["copilot-plan", "api-key", "endpoint"].contains(credential.kind) {
-            keyDeliveries[key] = KeyDelivery(connection: credential.connectionID, binding: binding, harness: credential.harness ?? credential.family,
-                                           model: credential.model, originalKind: credential.kind,
-                                           replace: replace ?? { credential in await push(credential?.env ?? [:]) })
-            credentialConnectionsChanged()
-            return nil
+        stopRefresh(key)
+        guard let binding = credentialBinding(credential) else {
+            keyDeliveries[key] = nil
+            // A pre-instance Mac daemon still returns valid ChatGPT refresh tokens.
+            let id = refresher.track(credential, onReauth: onReauth, replace: replace, push: push)
+            tracked[key] = id
+            return id
         }
-        let id = refresher.track(credential, onReauth: onReauth, replace: replace, push: push)
-        tracked[key] = id
-        return id
+        let delivery = KeyDelivery(binding: binding, sessionID: sessionID, harness: credential.harness ?? credential.family, model: credential.model,
+                                   replace: replace ?? { credential in await push(credential?.env ?? [:]) },
+                                   onDelivered: {}, onRefusal: { if $0.requiresSignIn { onReauth() } },
+                                   write: keyDeliveries[key]?.write)
+        keyDeliveries[key] = delivery
+        credentialConnectionsChanged()
+        return trackRefresh(credential, chat: key, delivery: delivery)
     }
 }

@@ -60,11 +60,13 @@ struct AgentTabRemoteStartTests {
     @Test(arguments: ClaudeStart.allCases)
     func claudeReadinessSendsTheExplicitAuthChoiceToTheVM(entry: ClaudeStart) async throws {
         let machine = CloudMachine(id: "Cloud fixture", displayName: "cloud-chats")
-        let setup = CloudSetup(read: { .init(personal: [], organization: []) })
-        setup.claudeMachines = { [machine] }
-        setup.readClaudeMachineLogin = { $0 == machine.id }
-        for team in [false, true] {
-            setup.gateway = { team ? ["claude"] : ["codex"] }
+        let choices: [CloudSetup.Choice] = [.claudeMachineLogin, .gateway(family: "claude"), .organization(family: "claude")]
+        for expected in choices {
+            let team = expected != .claudeMachineLogin
+            let setup = CloudSetup(read: { .init(personal: [], organization: expected == .organization(family: "claude") ? ["claude"] : []) })
+            setup.claudeMachines = { [machine] }
+            setup.readClaudeMachineLogin = { $0 == machine.id }
+            setup.gateway = { expected == .gateway(family: "claude") ? ["claude"] : ["codex"] }
             let choice: CloudSetup.Choice
             switch entry {
             case .appAutomatic, .appExplicit:
@@ -84,7 +86,7 @@ struct AgentTabRemoteStartTests {
                 #expect(resolved == machine.id)
                 choice = await preflight.launchReadiness(setup: setup, machine: resolved).choice
             }
-            #expect(choice == (team ? .gateway(family: "claude") : .claudeMachineLogin))
+            #expect(choice == expected)
             let frame = try await start(harness: "claude", model: nil, launchChoice: choice)
             #expect(frame["claude_machine_login"] as? Bool == (team ? nil : true))
             #expect(frame["claude_team_route"] as? Bool == (team ? true : nil))

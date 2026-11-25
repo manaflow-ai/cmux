@@ -268,7 +268,10 @@ impl Hub {
     async fn detach_idle_route_child(&self, session: &Arc<Session>) {
         let _spawn = session.spawn_lock.lock().await;
         if session.turn().is_none()
+            && !session.harness_turn.load(Ordering::SeqCst)
+            && session.asks_in_flight.load(Ordering::SeqCst) == 0
             && session.pending_permissions().is_empty()
+            && !self.holds_work_below(session)
             && session.child.lock().await.is_some()
         {
             self.detach_child(session).await;

@@ -48,7 +48,11 @@ export function ModelKeyForm({
           provider: vertex ? "vertex-express" : provider.id,
           key: apiKey,
           verifyAccess: canCheck && !vertex && !verificationFailed,
-          ...(edit ? { replace: edit.id } : cloud ? { servesCloud: true } : {}),
+          ...(edit
+            ? { replace: edit.id, replaceInstance: edit.credentialInstance ?? undefined }
+            : cloud
+              ? { servesCloud: true }
+              : {}),
         },
         cloud ? () => setVerificationFailed(true) : undefined,
       ))

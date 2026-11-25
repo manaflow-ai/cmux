@@ -161,7 +161,7 @@ pub struct Service {
     attempts: Mutex<HashMap<String, Arc<Attempt>>>,
     device_begin: tokio::sync::Mutex<()>,
     refreshing: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
-    pending_writes: Mutex<HashMap<(PathBuf, String), PendingWrite>>,
+    pending_writes: Arc<Mutex<HashMap<(PathBuf, String), PendingWrite>>>,
 }
 
 impl Default for Service {
@@ -212,7 +212,7 @@ impl Service {
             attempts: Mutex::new(HashMap::new()),
             device_begin: tokio::sync::Mutex::new(()),
             refreshing: Mutex::new(HashMap::new()),
-            pending_writes: Mutex::new(HashMap::new()),
+            pending_writes: Arc::default(),
         }
     }
 
@@ -495,10 +495,10 @@ impl Service {
     pub async fn remove(&self, home: &Path, id: &str) -> Result<bool, Failure> {
         let lock = self.lock_for(id);
         let _one = lock.lock().await;
-        let _save = self.oauth.save_slot().await;
+        let save = self.oauth.save_slot().await;
         let key = (home.to_owned(), id.to_owned());
         let (path, route) = key.clone();
-        let stored = store_work(move || store::read(&path, &route)).await.ok().flatten();
+        let stored = store_work(move || store::read(&path, &route)).await?;
         let record = stored.map(|stored| {
             self.pending_writes
                 .lock()
@@ -507,18 +507,19 @@ impl Service {
                 .filter(|pending| pending.previous == stored || pending.current == stored)
                 .map_or(stored, |pending| pending.current.clone())
         });
-        let (path, route) = key.clone();
+        let pending_writes = Arc::clone(&self.pending_writes);
         store_work(move || {
-            let _save = _save;
-            store::delete(&path, &route)
+            let _save = save;
+            store::delete(&key.0, &key.1)?;
+            pending_writes.lock().unwrap_or_else(|p| p.into_inner()).remove(&key);
+            Ok(())
         })
         .await?;
-        self.pending_writes.lock().unwrap_or_else(|p| p.into_inner()).remove(&key);
         let revoked = if let Some(record) = record.filter(store::Record::signed_in) {
             match self.oauth.revoke(&record).await {
                 Ok(()) => true,
                 Err(failure) => {
-                    tracing::warn!(route = %id, code = %failure.code, "ChatGPT revocation failed: {}", failure.message);
+                    tracing::warn!(route = %id, code = %failure.code, "ChatGPT revocation failed");
                     false
                 }
             }

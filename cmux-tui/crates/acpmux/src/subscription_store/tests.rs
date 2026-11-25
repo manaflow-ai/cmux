@@ -80,11 +80,23 @@ impl Keychain for MemoryKeychain {
     }
 
     fn delete(&self, service: &str, account: &str) -> Result<(), Error> {
-        self.authorize(service, account, false)?;
+        self.authorize(service, account, true)?;
         if let Some(items) = self.items.lock().unwrap().as_mut() {
             items.remove(&(service.to_owned(), account.to_owned()));
         }
         Ok(())
+    }
+
+    fn accounts(&self, service: &str, id: &str) -> Result<Vec<String>, Error> {
+        Ok(self
+            .items
+            .lock()
+            .unwrap()
+            .iter()
+            .flat_map(|items| items.keys())
+            .filter(|(scope, name)| scope == service && is_subscription_account(name, id))
+            .map(|(_, name)| name.clone())
+            .collect())
     }
 }
 
@@ -121,8 +133,76 @@ fn a_large_chatgpt_grant_migrates_and_rotates_in_the_login_keychain() {
     record["refresh_token"] = json!("d".repeat(3_000));
     store.write(id, &record).unwrap();
     assert!(store.read::<Value>(id).is_ok_and(|value| value.as_ref() == Some(&record)));
+    let retired = account(id, Some(Uuid::new_v4()));
+    let unrelated = account("chatgpt-second", Some(Uuid::new_v4()));
+    for name in [&retired, &unrelated] {
+        Keychain::write(&items, &store.service(), name, &bytes).unwrap();
+    }
     store.delete(id).unwrap();
     assert!(Keychain::read(&items, &store.service(), id).is_ok_and(|value| value.is_none()));
+    assert!(Keychain::read(&items, &store.service(), &retired).is_ok_and(|value| value.is_none()));
+    assert!(
+        Keychain::read(&items, &store.service(), &unrelated).is_ok_and(|value| value.is_some())
+    );
+}
+
+#[test]
+fn chatgpt_migration_keeps_the_restored_subject_and_client() {
+    let home = tempfile::tempdir().unwrap();
+    let keychain = MemoryKeychain::new();
+    let store = Store { home: home.path(), provider: "chatgpt", keychain: Some(&keychain) };
+    let restored = json!({
+        "client_id": "restored-client", "sub": "restored-user", "expires_at": 100,
+        "refresh_token": "fixture-restored"
+    });
+    for (id, field) in [("different-user", "sub"), ("different-client", "client_id")] {
+        let mut stored = restored.clone();
+        stored[field] = json!("other");
+        stored["expires_at"] = json!(200);
+        stored["refresh_token"] = json!("fixture-other");
+        store.write(id, &stored).unwrap();
+        crate::chatgpt::store::write_atomic(
+            &store.path(id).unwrap(),
+            &serde_json::to_vec(&restored).unwrap(),
+        )
+        .unwrap();
+
+        assert!(store.read::<Value>(id).is_ok_and(|grant| grant.as_ref() == Some(&restored)));
+        assert!(store.read::<Value>(id).is_ok_and(|grant| grant.as_ref() == Some(&restored)));
+    }
+}
+
+#[test]
+fn chatgpt_disconnect_keeps_its_index_until_every_chatgpt_copy_is_deleted() {
+    let home = tempfile::tempdir().unwrap();
+    let keychain = MemoryKeychain::new();
+    let store = Store { home: home.path(), provider: "chatgpt", keychain: Some(&keychain) };
+    let id = "chatgpt";
+    let service = store.service();
+    let retired = account(id, Some(Uuid::new_v4()));
+    let other_provider = account(id, Some(Uuid::new_v4()));
+    let record = json!({"client_id": "client", "sub": "account", "refresh_token": "fixture"});
+    store.write(id, &record).unwrap();
+    keychain.write(&service, &retired, &serde_json::to_vec(&record).unwrap()).unwrap();
+    keychain.write(&service, &other_provider, br#"{"region":"global"}"#).unwrap();
+
+    // The older grant is readable, but its access list refuses deletion.
+    keychain.refuse(&service, &retired, Error::KeychainOtherBuild, true);
+    assert_eq!(store.delete(id), Err(Error::KeychainOtherBuild));
+    assert!(store.path(id).unwrap().exists());
+    assert!(keychain.read(&service, id).unwrap().is_some());
+    keychain.refusals.lock().unwrap().clear();
+
+    // The current grant can also refuse deletion independently of reads.
+    keychain.refuse(&service, id, Error::KeychainOtherBuild, true);
+    assert_eq!(store.delete(id), Err(Error::KeychainOtherBuild));
+    assert!(store.path(id).unwrap().exists());
+    keychain.refusals.lock().unwrap().clear();
+    store.delete(id).unwrap();
+    assert!(!store.path(id).unwrap().exists());
+    assert!(keychain.read(&service, id).unwrap().is_none());
+    assert!(keychain.read(&service, &retired).unwrap().is_none());
+    assert!(keychain.read(&service, &other_provider).unwrap().is_some());
 }
 
 #[test]

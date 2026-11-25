@@ -3,7 +3,7 @@
 
 use std::sync::Mutex;
 
-use security_framework::item::{ItemClass, ItemSearchOptions};
+use security_framework::item::{ItemClass, ItemSearchOptions, Limit};
 use security_framework::os::macos::keychain::{KeychainUserInteractionLock, SecKeychain};
 use security_framework::os::macos::passwords::find_generic_password;
 use zeroize::Zeroizing;
@@ -99,15 +99,49 @@ impl SubscriptionItems {
             without_ui(|| match find_generic_password(self.search_list(), SERVICE, &account) {
                 Ok((_, item)) => {
                     item.delete();
-                    Ok(())
+                    match find_generic_password(self.search_list(), SERVICE, &account) {
+                        Err(error) if error.code() == ITEM_NOT_FOUND => Ok(()),
+                        Err(error) => Err(self.failure(error.code(), &account)),
+                        Ok(_) => Err(LOCKED),
+                    }
                 }
                 Err(error) if error.code() == ITEM_NOT_FOUND => Ok(()),
                 Err(error) => Err(self.failure(error.code(), &account)),
             })?;
         if matches!(result, Err(OTHER_BUILD | LOCKED)) && self.legacy_item(name, &account) {
-            return OsStore.delete(name);
+            OsStore.delete(name)?;
+            return if self.read(name)?.is_some() { Err(LOCKED) } else { Ok(()) };
         }
         result
+    }
+
+    pub(crate) fn subscription_accounts(&self, scope: &str) -> Result<Vec<String>, &'static str> {
+        let prefix = account(&format!(".subscription/{scope}/"));
+        without_ui(|| {
+            let mut options = ItemSearchOptions::new();
+            if let Some(keychains) = self.search_list() {
+                options.keychains(keychains);
+            }
+            let results = options
+                .class(ItemClass::generic_password())
+                .service(SERVICE)
+                .limit(Limit::All)
+                .load_attributes(true)
+                .search();
+            let results = match results {
+                Ok(results) => results,
+                Err(error) if error.code() == ITEM_NOT_FOUND => return Ok(Vec::new()),
+                Err(_) => return Err(LOCKED),
+            };
+            let mut accounts = Vec::new();
+            for item in results {
+                let attrs = item.simplify_dict().ok_or(LOCKED)?;
+                if let Some(name) = attrs.get("acct").and_then(|name| name.strip_prefix(&prefix)) {
+                    accounts.push(name.to_owned());
+                }
+            }
+            Ok(accounts)
+        })?
     }
 
     fn legacy_item(&self, name: &str, account: &str) -> bool {

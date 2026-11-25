@@ -126,6 +126,27 @@ async fn recovery_keeps_the_live_host_after_partial_replay() {
 }
 
 #[tokio::test]
+async fn recovery_rechecks_replay_after_a_transient_timeout() {
+    let (mut daemon, session, host) = token_chat("r10-retry-replay").await;
+    let replay_gate = daemon.home.join("replay-stalled");
+    std::fs::write(&replay_gate, "").unwrap();
+    daemon.env.push((
+        "ACPMUX_TEST_REPLAY_INCOMPLETE_FILE".into(),
+        replay_gate.to_string_lossy().into_owned(),
+    ));
+    let mut rpc = restart_after_recovery(&mut daemon, &session, false).await;
+
+    let reply = prompt_reply(&mut rpc, &session).await;
+    assert_eq!(reply["error"]["data"]["reason"], "credentials.claude_login_busy", "{reply}");
+    assert_old_child_untouched(&daemon, &session, &host);
+
+    std::fs::remove_file(replay_gate).unwrap();
+    let reply = prompt_reply(&mut rpc, &session).await;
+    assert_eq!(reply["result"]["stopReason"], "end_turn", "{reply}");
+    assert_ne!(daemon.host_record(&session)["host_pid"], host["host_pid"]);
+}
+
+#[tokio::test]
 async fn recovery_refuses_the_prompt_when_the_old_host_outlives_the_end_deadline() {
     let (mut daemon, session, host) = token_chat("r9-timeout").await;
     let mut rpc = restart_after_recovery(&mut daemon, &session, false).await;

@@ -346,26 +346,44 @@ impl Hub {
         for key in &inv.env_remove {
             cmd.env_remove(key);
         }
+        let local_key = cmd
+            .as_std()
+            .get_envs()
+            .find_map(|(key, value)| {
+                (key == crate::agent_credentials::LOCAL_REDACTION).then_some(value).flatten()
+            })
+            .and_then(|name| {
+                cmd.as_std()
+                    .get_envs()
+                    .find_map(|(key, value)| (key == name).then_some(value).flatten())
+            })
+            .and_then(|key| key.to_str())
+            .map(str::to_owned);
+        cmd.env_remove(crate::agent_credentials::LOCAL_REDACTION);
+        let redact = |bytes: Vec<u8>| {
+            [copilot_token.as_deref(), local_key.as_deref()].into_iter().flatten().fold(
+                bytes,
+                |bytes, key| {
+                    crate::agent_credentials::redact_line(
+                        String::from_utf8_lossy(&bytes).into_owned(),
+                        Some(key),
+                    )
+                    .into_bytes()
+                },
+            )
+        };
         let input = inv.stdin_prompt.then_some(req.prompt.as_bytes());
         let left = deadline.saturating_duration_since(tokio::time::Instant::now());
         let mut out = run::run(cmd, input, left).await.map_err(|e| match e {
             RunError::Timeout => timed_out(),
             RunError::Spawn(why) => failed(format!("cannot start {}: {why}", inv.program)),
         })?;
-        if let Some(token) = copilot_token.as_deref().filter(|token| !token.is_empty()) {
-            for bytes in [&mut out.stdout, &mut out.stderr] {
-                *bytes = crate::agent_credentials::redact_line(
-                    String::from_utf8_lossy(bytes).into_owned(),
-                    Some(token),
-                )
-                .into_bytes();
-            }
-        }
+        out.stderr = redact(out.stderr);
         let answer = match &inv.output_file {
             Some(file) => run::read_file_capped(file, complete::OUTPUT_CAP).await,
             None => out.stdout.clone(),
         };
-        let text = complete::finish(name, &out, &answer, req.max_tokens)?;
+        let text = complete::finish(name, &out, &redact(answer), req.max_tokens)?;
         Ok(json!({
             "text": text,
             "harness": name,

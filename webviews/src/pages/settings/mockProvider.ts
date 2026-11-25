@@ -551,7 +551,13 @@ export class MockSettingsProvider {
       "cmux.chief.backend.add": async (params) => {
         await this.agents.endpoint.holdAdd;
         const before = this.agents.endpoint.addFails;
-        if (before) throw new ProtocolError(before, "the endpoint's model list could not be read");
+        const { validateEndpoint, model } = params as { validateEndpoint?: boolean; model?: string };
+        if (
+          before &&
+          (before !== "cmux.agents.endpoint_check" || validateEndpoint || model?.split(",").includes("*"))
+        ) {
+          throw new ProtocolError(before, "the endpoint's model list could not be read");
+        }
         const added = this.agents.addEndpoint(params);
         const endpoint = this.agents.modelEndpoint(added.id);
         if (endpoint && this.models) {

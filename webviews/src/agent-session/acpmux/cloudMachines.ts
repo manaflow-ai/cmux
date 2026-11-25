@@ -389,7 +389,8 @@ export async function readUntilMoved(
 }
 
 export function currentCloudMachine(name: string): CloudMachine | undefined {
-  return machines.find((machine) => machine.id === name) ?? uniqueCloudMachine(machines, name);
+  const matches = machines.filter((machine) => machine.id === name || lower(machine.name) === lower(name));
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
 export function useCloudMachines(): readonly CloudMachine[] {

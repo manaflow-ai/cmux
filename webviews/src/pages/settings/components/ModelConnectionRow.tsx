@@ -1,8 +1,9 @@
-import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, type ReactNode } from "react";
 import { Spinner } from "../../../agent-session/acpmux/conversation/icons";
 import { Button } from "../../../ui/Button";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator } from "../../../ui/Menu";
 import { useSettingsState, useStore } from "../context";
+import { Switch } from "../editors/ToggleEditor";
 import { DeviceSignInCard } from "../../shared/signIn/DeviceSignInCard";
 import { parseAccountRow } from "../../shared/signIn/accountSignIn";
 import { useSettingsSignIn } from "./useSettingsSignIn";
@@ -12,7 +13,7 @@ import { revealRow } from "../keyboard";
 import type { ModelConnection } from "../ops";
 import { endpointPresetId, providerById, type CatalogProvider, ENDPOINT_MARK } from "../providerCatalog";
 import { locale, t } from "../strings";
-import { ModelAccess, ToggleConnectionLabel, useModelAccess } from "./ModelConnectionFields";
+import { ModelAccess, useModelAccess } from "./ModelConnectionFields";
 import { ModelProviderMark } from "./ModelProviderMark";
 import { isCloudSubscription, markOf, tokenTimeRemaining, type Run, type SetupSelection } from "./modelConnections";
 
@@ -60,6 +61,7 @@ export function ModelConnectionRow({
   onCloudChange?(): void;
 }) {
   const row = useRef<HTMLDivElement>(null);
+  const nameId = useId();
   const menu = useRef<HTMLButtonElement>(null);
   useLayoutEffect(() => {
     if (focusRequest) revealRow(row.current);
@@ -105,7 +107,8 @@ export function ModelConnectionRow({
   );
   const provider = apiKey ? providerById(connection.provider) : undefined;
   const edit =
-    (apiKey && connection.canReplaceKey && provider?.kind === "api-key") || (endpoint && !!connection.endpoint);
+    (apiKey && connection.canReplaceKey && !!connection.credentialInstance && provider?.kind === "api-key") ||
+    (endpoint && !!connection.endpoint);
   const reauthProvider =
     connection.id === "claude-cloud-login"
       ? "claude"
@@ -128,12 +131,7 @@ export function ModelConnectionRow({
   const reconnect = useRef<HTMLButtonElement>(null);
   const rename = tools && !nativeLogin && connection.kind !== "claude-login" && (!endpoint || !!connection.endpoint);
   const disconnect = cloud ? cloudSubscription : !nativeLogin && !builtin && (!endpoint || !!connection.endpoint);
-  const canEnable =
-    connection.id !== "claude-cloud-login" &&
-    !nativeLogin &&
-    !endpoint &&
-    (!cloud || cloudSubscription) &&
-    (!disconnect || !connection.enabled);
+  const enableCloudSubscription = cloud && cloudSubscription && !connection.enabled;
   const status =
     connection.kind === "claude-token"
       ? undefined
@@ -180,6 +178,7 @@ export function ModelConnectionRow({
       <ModelRow
         mark={endpoint ? ENDPOINT_MARK : { agent: markOf(connection) }}
         label={label}
+        nameId={nameId}
         detail={legacyClaude ? undefined : kind}
         account={builtin ? (connection.email ?? undefined) : undefined}
         status={status}
@@ -187,6 +186,16 @@ export function ModelConnectionRow({
         loading={connecting || checking}
         checking={checking}
       >
+        {cloud && apiKey && !connection.enabled && (
+          <Button
+            variant="solid"
+            size="sm"
+            disabled={busy}
+            onClick={() => void run({ action: "enable", id: connection.id, on: true })}
+          >
+            {t("settingsWindow.cloud.turnOn")}
+          </Button>
+        )}
         {legacyClaude && reauthProvider && (
           <Button
             variant="solid"
@@ -240,7 +249,7 @@ export function ModelConnectionRow({
                         {
                           id: connection.endpoint ? endpointPresetId(connection.endpoint) : connection.provider,
                           target: connection.id,
-                          edit: true,
+                          edit: connection,
                           onKeyReplaced: apiKey ? access.clear : undefined,
                         },
                         menu.current,
@@ -302,15 +311,15 @@ export function ModelConnectionRow({
                   </MenuItem>
                 </>
               )}
-              {canEnable && (
+              {enableCloudSubscription && (
                 <>
                   <MenuSeparator />
                   <MenuItem
-                    className={connection.enabled ? "ui-menu-item-destructive" : undefined}
                     data-value="enable"
-                    onSelect={() => void run({ action: "enable", id: connection.id, on: !connection.enabled })}
+                    onSelect={() => void run({ action: "enable", id: connection.id, on: true })}
                   >
-                    <ToggleConnectionLabel enabled={connection.enabled} />
+                    <Icon name="link" />
+                    {t("settingsWindow.cloud.turnOn")}
                   </MenuItem>
                 </>
               )}
@@ -345,6 +354,14 @@ export function ModelConnectionRow({
             </MenuPopup>
           </Menu>
         )}
+        {!cloud && !nativeLogin && !endpoint && (
+          <Switch
+            checked={connection.enabled}
+            disabled={busy}
+            labelId={nameId}
+            onToggle={(on) => void run({ action: "enable", id: connection.id, on })}
+          />
+        )}
       </ModelRow>
       {signIn.running && (
         <div className="harness-sign-in" data-connection-sign-in={connection.id}>
@@ -366,6 +383,7 @@ export function ModelConnectionRow({
 export function ModelRow({
   mark,
   label,
+  nameId,
   detail,
   account,
   status,
@@ -376,6 +394,7 @@ export function ModelRow({
 }: {
   mark: CatalogProvider["mark"];
   label: string;
+  nameId?: string;
   detail?: string;
   account?: string;
   status?: string;
@@ -391,7 +410,9 @@ export function ModelRow({
     <div className="row-main">
       <ModelProviderMark mark={mark} />
       <div className="row-label">
-        <div className="row-title models-connection-name">{label}</div>
+        <div className="row-title models-connection-name" id={nameId}>
+          {label}
+        </div>
         {detail && <div className="row-help models-row-detail">{detail}</div>}
         {account && <div className="row-help models-account-email">{account}</div>}
         {status && (

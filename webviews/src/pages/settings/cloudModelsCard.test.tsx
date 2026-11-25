@@ -404,6 +404,24 @@ test("the Cloud Claude dialog shows a daemon busy refusal and still offers retry
   expect(panel()?.querySelector('input[type="password"]')).toBeNull();
 });
 
+test("a Claude approval owned by another Settings window blocks Connect until it ends", async () => {
+  const models = { ...mockModels.empty, cloudClaudeApprovalBusy: true };
+  const rendered = await render(models, "/settings/models?provider=claude&machine=vm_b&open=busy");
+  expect(panel()?.textContent).toContain("Another sign-in is in progress.");
+  expect(panel()?.querySelector('button[type="submit"]')).toBeNull();
+  await act(async () => rendered.provider.setModels({ ...models, cloudClaudeApprovalBusy: false }));
+  expect(panel()?.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(false);
+});
+
+test("Cloud Models can turn on a disabled API key", async () => {
+  const rendered = await render(mockModels.macLogins);
+  const key = card(rendered).querySelector('[data-connection="openrouter-key"]')!;
+  const turnOn = [...key.querySelectorAll("button")].find((button) => button.textContent === "Turn On")!;
+  await click(turnOn);
+  expect(rendered.provider.modelRuns).toEqual([{ action: "enable", id: "openrouter-key", on: true }]);
+  expect(rendered.provider.models?.personal.connections.find((c) => c.id === "openrouter-key")?.enabled).toBe(true);
+});
+
 test("Cloud models can enable and disable a key added in Models without removing the local row", async () => {
   const rendered = await render(mockModels.empty, "/settings/models?focus=models.add.openai");
   await changeValue(panel()!.querySelector('input[type="password"]')!, "fixture-api-key");

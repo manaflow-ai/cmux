@@ -294,7 +294,7 @@ export type PaneBodyDeps = NewTabShown &
     newTabKnownProjects: readonly string[] | null;
     startFolder: string | undefined;
     onNewTabPromptTyped: (text: string, target?: { harness?: string; cwd?: string }) => void;
-    onCloudMachinePicked: (machine: CloudMachine | undefined) => void;
+    onCloudMachinePicked: (machine: CloudMachine | undefined, peer?: string | null) => void;
     cloudOfferable: boolean;
     cloudFolderGrant: ReturnType<typeof cloudFolderGrants>;
     handshaken: boolean;

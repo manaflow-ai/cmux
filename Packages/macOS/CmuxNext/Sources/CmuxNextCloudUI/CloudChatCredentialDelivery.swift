@@ -20,21 +20,10 @@ extension CloudAgentCredentials {
         guard let status, let binding = status.connection, binding.contains(":") else { return }
         let replace = CloudAgentCredentialRefresher.machineReplace(surface: surface, sessionID: sessionID, ownerLink: ownerLink,
                                                                    reconnect: reconnect, endpoint: endpoint)
-        do {
-            guard let credential = try await boundCredential(binding, model: status.model, harness: status.harness) else { return }
-            guard await replace(credential) == .delivered else { return }
-            onDelivered()
-            trackModelConnection(credential, chat: chat, machine: machine, surface: surface, sessionID: sessionID, ownerLink: ownerLink,
-                                 reconnect: reconnect, endpoint: endpoint) {
-                onRefusal(.refused(reason: "chatgpt.reauth_required"), status.harness)
-            }
-        } catch let failure as Failure {
-            guard let connection = await self.connection(forBinding: binding) else { return }
-            if !connection.enabled || !connection.signedIn || !connection.servesCloud {
-                _ = await replace(nil)
-            }
+        await restoreBinding(binding, chat: chat, machine: machine, sessionID: sessionID, harness: status.harness, model: status.model,
+                             replace: replace, onDelivered: onDelivered) { failure in
             onRefusal(failure, status.harness)
-        } catch {}
+        }
     }
 
     /// Refresh and replace the same credential after launching or reattaching a guest chat.
@@ -43,7 +32,7 @@ extension CloudAgentCredentials {
                                       reconnect: AgentSessionAttachClient.Reconnect?,
                                       endpoint: @escaping AgentSessionAttachClient.EndpointProvider,
                                       onReauth: @escaping @MainActor () -> Void) {
-        started(chat: chat, machine: machine, on: credential, onReauth: onReauth,
+        started(chat: chat, machine: machine, sessionID: sessionID, on: credential, onReauth: onReauth,
                 replace: CloudAgentCredentialRefresher.machineReplace(surface: surface, sessionID: sessionID, ownerLink: ownerLink, reconnect: reconnect, endpoint: endpoint),
                 push: CloudAgentCredentialRefresher.machinePush(surface: surface, sessionID: sessionID, ownerLink: ownerLink, reconnect: reconnect, endpoint: endpoint))
     }

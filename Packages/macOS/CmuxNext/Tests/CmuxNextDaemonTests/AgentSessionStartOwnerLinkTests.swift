@@ -135,6 +135,30 @@ import Testing
     }
 
     @Test(arguments: [false, true])
+    func chatGPTRefreshUsesTheGuestWireVersion(supportsBoundCredentials: Bool) async throws {
+        var capabilities = ["agent-session-attach-v1", "agent-session-start-v1",
+                            DaemonCapability.agentSessionStartVMKind.rawValue,
+                            AgentSessionAttachClient.startCredentialsCapability, AgentSessionAttachClient.startCodexCredentialsCapability]
+        if supportsBoundCredentials { capabilities.append(DaemonCapability.agentSessionBoundCredentials.rawValue) }
+        let daemon = try PresenceDaemon(capabilities: capabilities)
+        defer { daemon.stop() }
+        let client = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
+        let token = ["CMUX_CHATGPT_ACCESS_TOKEN": "fixture"]
+        // The recording daemon acknowledges frames but does not create a real session.
+        _ = try? await client.start(cwd: "/w", harness: "codex", ownerLink: link(3, 3), credentials: token)
+        await client.close()
+        let refresher = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
+        _ = try await refresher.updateCredentials(token, sessionID: "durable-chat", ownerLink: link(3, 3))
+        await refresher.close()
+        let start = try #require(daemon.frames.first { $0["cmd"] as? String == "agent-session-start" })
+        #expect((start["credentials"] as? [String: Any])?["env"] as? [String: String] == token)
+        let refresh = try #require(daemon.frames.first { $0["cmd"] as? String == "agent-session-credentials" })
+        #expect(refresh["env"] as? [String: String] == token)
+        #expect(refresh["vm_kind"] as? String == "owner")
+        #expect(refresh["session"] as? String == (supportsBoundCredentials ? "durable-chat" : nil))
+    }
+
+    @Test(arguments: [false, true])
     func claudePrewarmUsesTheSameCredentialNameAsStart(supportsEndpointCredentials: Bool) async throws {
         var capabilities = ["agent-session-attach-v1", "agent-session-start-v1",
                             DaemonCapability.agentSessionStartVMKind.rawValue, AgentSessionAttachClient.startCredentialsCapability]

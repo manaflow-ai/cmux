@@ -21,6 +21,20 @@ mod journal;
 /// daemon startup (`REPLAY_CEILING`). A reattach's resend of unlogged answers waits the same.
 use crate::agent::{REPLAY_CEILING, REPLAY_STALL};
 
+fn replay_stalls() -> bool {
+    // Debug fixtures can hold replay proof back until a retry.
+    #[cfg(debug_assertions)]
+    {
+        std::env::var_os("ACPMUX_TEST_REPLAY_INCOMPLETE").is_some()
+            || std::env::var_os("ACPMUX_TEST_REPLAY_INCOMPLETE_FILE")
+                .is_some_and(|path| Path::new(&path).exists())
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        false
+    }
+}
+
 /// What the session log says about the work in flight under one host
 /// incarnation when the previous controller stopped.
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
@@ -117,6 +131,17 @@ pub(super) struct OpenWork {
     /// previous controller stopped. Recovered from its logged `compaction`
     /// updates so Stop keeps the prompt-first path after a restart.
     compacting: bool,
+}
+
+impl OpenWork {
+    fn can_end_replayed_host(&self) -> bool {
+        !self.receipts_unproven
+            && self.turn.is_none()
+            && self.carry_next.is_none()
+            && self.requests.is_empty()
+            && self.unwritten.is_empty()
+            && !self.compacting
+    }
 }
 
 /// What the host records say (`Hub::read_host_records`).
@@ -795,7 +820,7 @@ impl Hub {
         // (`spawn.rs` decides it at session/new for a spawned one).
         let meta = session.meta();
         let claude_recovery = super::credentials::claude_login_needs_restart(&meta)
-            || super::credentials::has_saved_claude_token(session, &meta);
+            || self.has_saved_claude_token(session, &meta).await;
         let (_, env) = self.harness_env(&meta).await;
         let (all, kind) = {
             let cfg = self.config.read().await;
@@ -815,14 +840,8 @@ impl Hub {
         self.note_host_kind(session, &child, kind).await;
         // Scan only once every entry the host had is in the log: what the
         // previous daemon wrote or answered may still sit in its buffer.
-        // Debug builds only: `ACPMUX_TEST_REPLAY_INCOMPLETE` makes every replay count as incomplete,
-        // as a host that stalls mid-replay does. Release builds have no seam.
-        #[cfg(debug_assertions)]
-        let stalls = std::env::var_os("ACPMUX_TEST_REPLAY_INCOMPLETE").is_some();
-        #[cfg(not(debug_assertions))]
-        let stalls = false;
-        let mut replayed =
-            !stalls && child.wait_replayed(adopted.last_h, REPLAY_STALL, REPLAY_CEILING).await;
+        let mut replayed = !replay_stalls()
+            && child.wait_replayed(adopted.last_h, REPLAY_STALL, REPLAY_CEILING).await;
         session.floor.left_host_read.store(false, Ordering::SeqCst);
         let managed = off.off();
         // Claude login recovery uses the rebuilt work state to decide whether it may end this
@@ -886,14 +905,18 @@ impl Hub {
             let told = replayed && adopted.version >= agent_host::QUEUED_VERSION;
             Self::hold_unwritten(session, hold, &record, told, &work);
         }
-        let recovery_complete = claude_recovery
-            && replayed
-            && adopted.acked_h <= resume_after
-            && !work.receipts_unproven;
+        let intact = adopted.acked_h <= resume_after && !work.receipts_unproven;
+        let recovery_complete = claude_recovery && replayed && intact;
+        // Work already recovered from a partial log must never be rebuilt twice. An
+        // idle, intact prefix can be checked again after its live replay catches up.
+        let recovery_retryable = intact && (recovery_complete || work.can_end_replayed_host());
         let changes = session.status_changes.load(Ordering::SeqCst);
         self.recover_work(session, &child, &incarnation, work).await;
         if recovery_complete {
             child.mark_recovery_replay_complete();
+        }
+        if recovery_retryable {
+            child.mark_recovery_replay_retryable();
         }
         // The status after recovery, not before it: set before, `ready` was logged and shown
         // between `host_adopted` and a turn the host still runs (an idle chat that was working).

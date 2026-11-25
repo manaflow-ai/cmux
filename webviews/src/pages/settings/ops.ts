@@ -724,6 +724,8 @@ export type ModelProvider = "openai" | "anthropic" | "openrouter" | "google" | "
 export type ModelConnection = {
   /** The acpmux route id. */
   id: string;
+  /** Identity of this saved route, even when its ID is reused later. */
+  credentialInstance?: string | null;
   kind: ModelConnectionKind;
   provider: string;
   families: string[];
@@ -781,6 +783,7 @@ export type ModelsState = {
   cloudRunnersOffline?: boolean;
   cloudSubscriptionRunnersPending?: boolean;
   claudeCodeAvailable?: boolean | null;
+  cloudClaudeApprovalBusy?: boolean;
   /** `available`: false when this Mac's daemon does not list connections. */
   personal: { connections: ModelConnection[]; spread: boolean; available: boolean };
   organization: {
@@ -851,6 +854,7 @@ export type ModelsRun =
       verifyAccess?: boolean;
       servesCloud?: boolean;
       replace?: string;
+      replaceInstance?: string;
     }
   | { action: "orgKey"; agent: "claude" | "codex"; key: string | null }
   | { action: "members"; ownConnections?: boolean; chooseRunout?: boolean }

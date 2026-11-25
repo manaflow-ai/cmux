@@ -369,7 +369,8 @@ fn connection(route: &Route, facts: Facts, b: &Bindings) -> Connection {
         serves_cloud: can_serve_cloud && route.file.cloud_enabled != Some(false),
         can_serve_cloud,
         can_check_access,
-        can_replace_key: standard_endpoint.then_some(true),
+        can_replace_key: (standard_endpoint && route.file.credential_instance.is_some())
+            .then_some(true),
         endpoint: None,
         expires_at: route.file.claude_token_expires_at,
         endpoint_credentials: (openrouter || native.is_some()).then_some(true),
@@ -536,6 +537,13 @@ fn list(
         if route.id == routes::CODEX_LOGIN_ROUTE_ID {
             continue;
         }
+        let route = if route.file.credential_instance.is_none()
+            && standard_key_endpoint(&route.file).is_some()
+        {
+            routes::for_credential(dir, &route.id).unwrap_or(route)
+        } else {
+            route
+        };
         let file = &route.file;
         let facts = match file.kind {
             RouteKind::DirectSubscription => {
@@ -733,11 +741,15 @@ fn state(dir: Option<&Path>, home: &Path, sources: &ProfileSources) -> Value {
             _ => {}
         }
     }
-    json!({
+    let mut state = json!({
         "connections": ordered(connections, &b.connection_order),
         "spread": b.spread.unwrap_or(true),
         "order_explicit": !b.connection_order.is_empty(),
-    })
+    });
+    if !b.disconnected_credentials.is_empty() {
+        state["disconnected_credentials"] = json!(b.disconnected_credentials);
+    }
+    state
 }
 
 fn route_error(e: &routes::RouteError) -> RpcError {
@@ -836,10 +848,14 @@ fn replace_key(
     id: &str,
     provider: &str,
     secret: &str,
+    expected_instance: &str,
     sources: &ProfileSources,
 ) -> Result<Value, RpcError> {
     let (_, previous) = routes::edit(dir, id, |file| {
-        if file.provider() != provider || standard_key_endpoint(file).is_none() {
+        if file.provider() != provider
+            || standard_key_endpoint(file).is_none()
+            || file.credential_instance.as_deref() != Some(expected_instance)
+        {
             return Err(routes::RouteError::BadParams(
                 "replacement needs a matching API-key connection".into(),
             ));
@@ -1347,7 +1363,9 @@ pub(super) async fn handle(
             let provider = need("provider")?;
             let secret = need("secret")?;
             let label = text("label").map(str::to_owned);
-            let replace = text("replace").map(str::to_owned);
+            let replace = text("replace")
+                .map(|id| need("replaceInstance").map(|instance| (id.to_owned(), instance)))
+                .transpose()?;
             let cloud_enabled = params
                 .get("servesCloud")
                 .map(|value| {
@@ -1357,8 +1375,8 @@ pub(super) async fn handle(
                 })
                 .transpose()?;
             let state = blocking(move || {
-                if let Some(id) = replace {
-                    replace_key(dir.as_deref(), &home, &id, &provider, &secret, &sources)
+                if let Some((id, instance)) = replace {
+                    replace_key(dir.as_deref(), &home, &id, &provider, &secret, &instance, &sources)
                 } else {
                     add_key(
                         dir.as_deref(),
@@ -1806,6 +1824,7 @@ mod tests {
             &id,
             "anthropic",
             "keychain:rotated",
+            &original,
             &sources,
         )
         .unwrap();
@@ -1818,6 +1837,22 @@ mod tests {
         let (reused_id, new_instance) = connection(&first, "keychain:new");
         assert_eq!(reused_id, id);
         assert_ne!(new_instance, original);
+        assert!(
+            replace_key(
+                Some(&first.routes),
+                &first.home,
+                &id,
+                "anthropic",
+                "keychain:stale",
+                &original,
+                &sources,
+            )
+            .is_err()
+        );
+        let (_, _, _, reference, instance) =
+            credential_plan(Some(&first.routes), &first.home, &id).unwrap();
+        assert_eq!(reference.as_deref(), Some("keychain:new"));
+        assert_eq!(instance.as_deref(), Some(new_instance.as_str()));
     }
 
     #[test]
@@ -2036,7 +2071,13 @@ secret = "keychain:work"
         let settings = state(dir, &d.home, &ProfileSources::none());
         assert_eq!(find(&settings, id)["signed_in"], false);
         assert_eq!(find(&settings, id)["sign_in_reason"], "keychain_other_build");
+        assert!(settings.get("disconnected_credentials").is_none());
         assert!(store.metadata(id).is_some_and(|record| record["signed_in"] == true));
+
+        let instance = find(&settings, id)["credential_instance"].as_str().unwrap();
+        routes::remove(dir, &d.home, id).unwrap();
+        let disconnected = state(dir, &d.home, &ProfileSources::none());
+        assert_eq!(disconnected["disconnected_credentials"][id], json!([instance]));
     }
 
     #[test]
@@ -2144,18 +2185,19 @@ secret = "keychain:work"
         expected.disabled = true;
         routes::add(dir, &id, &expected, true).unwrap();
         set_order(dir, &d.home, std::slice::from_ref(&id), &sources).unwrap();
+        let instance = expected.credential_instance.as_deref().unwrap().to_owned();
 
-        assert!(replace_key(dir, &d.home, &id, "anthropic", new, &sources).is_err());
+        assert!(replace_key(dir, &d.home, &id, "anthropic", new, &instance, &sources).is_err());
         assert_eq!(routes::find(dir, &id).unwrap().file.secret.as_deref(), Some(old));
 
-        let state = replace_key(dir, &d.home, &id, "openai", new, &sources).unwrap();
+        let state = replace_key(dir, &d.home, &id, "openai", new, &instance, &sources).unwrap();
         assert_eq!(state_ids(&state)[0], id);
         assert_eq!(state["replaced_secret"], old);
         expected.secret = Some(new.to_owned());
         assert_eq!(routes::find(dir, &id).unwrap().file, expected);
         assert_eq!(routes::load(dir).0.len(), 1);
         routes::remove(dir, &d.home, &id).unwrap();
-        assert!(replace_key(dir, &d.home, &id, "openai", old, &sources).is_err());
+        assert!(replace_key(dir, &d.home, &id, "openai", old, &instance, &sources).is_err());
         assert!(routes::find(dir, &id).is_err());
     }
 
@@ -2189,7 +2231,10 @@ secret = "keychain:work"
             "connections.not_cloud"
         );
 
-        replace_key(dir, &d.home, &openai, "openai", "keychain:replacement", &sources).unwrap();
+        let route = routes::find(dir, &openai).unwrap();
+        let instance = route.file.credential_instance.as_deref().unwrap();
+        replace_key(dir, &d.home, &openai, "openai", "keychain:replacement", instance, &sources)
+            .unwrap();
         assert_eq!(find(&state(dir, &d.home, &sources), &openai)["serves_cloud"], false);
     }
 

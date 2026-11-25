@@ -576,7 +576,7 @@ final class CloudService {
     func reconcile(_ list: [CloudMachine], read: Int, connectsAtRead: [String: Int] = [:]) {
         // A list that arrives after Cloud was turned off connects nothing.
         guard !policyDisabled else { return }
-        let visible = list.filter { $0.status != .destroyed }.map { setup.machineEnvironment($0, account: account, defaults: move.ledger) }
+        let visible = list.filter { $0.status != .destroyed }
         for machine in visible {
             if let session = machines.session(machine.id) {
                 apply(machine, to: session, read: read, connectsAtRead: connectsAtRead[machine.id])
@@ -585,7 +585,7 @@ final class CloudService {
                 guard read > recordReadApplied[machine.id, default: 0] else { continue }
                 // The machine's record now comes from this list: older reads land behind it.
                 recordReadApplied[machine.id] = read
-                addSession(changes.applyingPending(to: machine, read: read))
+                addSession(changes.applyingPending(to: setup.machineEnvironment(machine, account: account, defaults: move.ledger), read: read))
             }
         }
         let ids = Set(visible.map(\.id))
@@ -641,7 +641,7 @@ final class CloudService {
         }
         // Read ordering admits the record; mutation tracking supplies presentation until the
         // matching operation settles, so an in-flight status read cannot reopen action gates.
-        session.listed(changes.applyingPending(to: machine, read: read), connectsAtRead: connectsAtRead ?? session.connects)
+        session.listed(changes.applyingPending(to: setup.machineEnvironment(machine, account: account, defaults: move.ledger), read: read), connectsAtRead: connectsAtRead ?? session.connects)
     }
 
     @discardableResult

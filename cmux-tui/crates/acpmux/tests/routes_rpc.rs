@@ -54,7 +54,7 @@ impl Client {
         loop {
             let line = tokio::time::timeout(Duration::from_secs(30), self.1.recv())
                 .await
-                .expect("no reply in 30 s")
+                .unwrap_or_else(|_| panic!("{m} gave no reply in 30 s"))
                 .unwrap();
             let v: Value = serde_json::from_str(&line).unwrap();
             if v.get("id") == Some(&json!(id)) {
@@ -123,7 +123,7 @@ fn reason(error: &Value) -> &str {
 fn hub(root: &Path) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "claude",
-                               "env": {"ANTHROPIC_API_KEY": "zzprofilekey"}}},
+                               "env": {"ANTHROPIC_API_KEY": "zzprofilekey", "FAKE_AUTH_FAIL": "1"}}},
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
         // No automatic continuation runs behind this test's own prompts (`auto_resume.rs`).
@@ -340,8 +340,10 @@ notes = "The work account"
     // A failed turn names its route and the fallback to offer; with
     // autoFallback the chat moves onto it by itself.
     local.ok("_acpmux/route/edit", json!({"id": "proxy-b", "fallback": ["proxy-a"]})).await;
-    let limit = json!({"sessionId": id, "prompt": [{"type": "text", "text": "limit: now"}]});
-    let (failed, _) = local.call_text("session/prompt", limit.clone()).await;
+    // This fixture uses the fake agent's sign-in refusal. A usage limit would
+    // hold the next prompt for the account reset before it could test overload.
+    let auth_error = json!({"sessionId": id, "prompt": [{"type": "text", "text": "limit: now"}]});
+    let (failed, _) = local.call_text("session/prompt", auth_error.clone()).await;
     let data = &failed["error"]["data"];
     assert_eq!(data["route"]["routeId"], "proxy-b", "{failed}");
     assert_eq!(data["fallback"], json!({"routeId": "proxy-a", "name": "Proxy A"}), "{failed}");
@@ -357,7 +359,7 @@ notes = "The work account"
         "ANTHROPIC_BASE_URL=http://127.0.0.1:9/b"
     );
     local.ok("_acpmux/route/edit", json!({"id": "proxy-b", "autoFallback": true})).await;
-    let (failed, _) = local.call_text("session/prompt", limit).await;
+    let (failed, _) = local.call_text("session/prompt", auth_error).await;
     assert_eq!(failed["error"]["data"]["fallback"]["applied"], true, "{failed}");
     assert_eq!(
         local.env_of(&id, "ANTHROPIC_BASE_URL").await,

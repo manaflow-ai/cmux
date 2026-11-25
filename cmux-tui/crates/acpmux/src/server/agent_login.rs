@@ -237,10 +237,10 @@ async fn signed_in(
         tracing::warn!(agent = agent.name(), error = %e, "agent login: record the own sign-in choice");
     }
     if let Some(session) = recovery {
-        hub.use_claude_machine_login(&session).await?;
+        let switched = hub.use_claude_machine_login(&session).await?;
         let changed = hub.login_changed(agent.name(), store, None).await;
         let ids = std::collections::BTreeSet::from([session.id.clone()]);
-        let restarted = hub.restart_harnesses(None, Some(&ids)).await.now > 0;
+        let restarted = switched && hub.restart_harnesses(None, Some(&ids)).await.now > 0;
         changed?;
         return Ok(restarted);
     }
@@ -277,9 +277,9 @@ async fn recovery_session(
         error(LoginError::new(reason::UNKNOWN_SESSION, "no such chat on this machine"))
     })?;
     let (profile, route) = hub.login_profile(&session, "claude").await?;
-    if route.is_some()
-        || !cli_for(&*hub.config.read().await, Agent::Claude, Some(profile))
-            .is_some_and(|cli| cli.store(Agent::Claude) == store)
+    hub.check_claude_recovery(&session, route.as_deref()).await?;
+    if !cli_for(&*hub.config.read().await, Agent::Claude, Some(profile))
+        .is_some_and(|cli| cli.store(Agent::Claude) == store)
     {
         return Err(RpcError::invalid_params("this chat uses a different Claude account store"));
     }
@@ -437,9 +437,8 @@ pub(super) async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Va
             // No code: Codex's device flow, or Claude after an automatic link.
             let code = params.get("code").and_then(Value::as_str);
             let done = login::finish(id, code, recovery_id(params)?).await.map_err(error)?;
-            // A paste that raced the wait for the approve reads the same end;
-            // only the first finish takes the after-sign-in steps.
-            let restarted = if done.signed_in && done.fresh {
+            // A repeated recovery finish must still verify the chat switched.
+            let restarted = if done.signed_in && (done.fresh || done.recovery_session.is_some()) {
                 let recovery = done.recovery_session.as_deref();
                 let machine_params = json!({});
                 signed_in(
@@ -492,12 +491,26 @@ mod tests {
             "defaultHarness": "claude"
         }))
         .unwrap();
+        config.path = Some(home.path().join("config.json"));
         config.profile_sources = crate::config::ProfileSources::none();
+        config.profile_sources.cmux_json = Some(home.path().join("cmux.json"));
+        let (routes_dir, state) = crate::routes::places(&config);
+        let routes_dir = routes_dir.unwrap();
+        std::fs::create_dir_all(&routes_dir).unwrap();
+        std::fs::write(
+            routes_dir.join("work-claude.toml"),
+            "kind = \"claude-token\"\nfamilies = [\"claude\"]\nsecret = \"env:FIXTURE_CLAUDE_TOKEN\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            crate::routes::find(Some(&routes_dir), "work-claude").unwrap().file.kind,
+            crate::routes::RouteKind::ClaudeToken
+        );
         let store = crate::store::open(&config.store, home.path()).unwrap();
         let hub = Hub::new(config, store);
         let cli_home = cli(&hub, Agent::Claude, &json!({})).await.unwrap().0.store(Agent::Claude);
         let mut chats = Vec::new();
-        for id in ["claude-token", "claude-token-2"] {
+        for id in ["work-claude", "legacy-claude", "claude-token-2"] {
             let credential = AgentCredential::parse(&json!({
                 "connection": id, "env": {CLAUDE_OAUTH: "sk-ant-oat01-fixture"}
             }))
@@ -513,13 +526,15 @@ mod tests {
             hub.edit_test_meta(&session, |meta| {
                 meta.last_turn =
                     Some(json!({"status": "error", "errorText": "OAuth token revoked"}));
-                meta.claude_token_recovery =
-                    Some(crate::store::ClaudeTokenRecovery::LegacyRejected);
+                if id == "legacy-claude" {
+                    meta.claude_token_recovery =
+                        Some(crate::store::ClaudeTokenRecovery::LegacyRejected);
+                }
             });
             chats.push((session, credential));
         }
         let (target, token) = &chats[0];
-        let (other, _) = &chats[1];
+        let (other, _) = &chats[2];
         signed_in(&hub, Agent::Claude, &json!({}), &cli_home, None).await.unwrap();
         assert_eq!(hub.credential_status(&target.id).await.unwrap()["held"], true);
 
@@ -528,13 +543,21 @@ mod tests {
         });
         // An upgraded daemon may have only the saved connection id until the Mac reconnects.
         hub.revoke_credential(&target.id).await.unwrap();
+        let binding = format!("chat:{}", target.id);
+        crate::routes::set_binding(&state, &binding, Some("work-claude")).unwrap();
+        let error = signed_in(&hub, Agent::Claude, &json!({}), &cli_home, Some(&target.id))
+            .await
+            .unwrap_err();
+        assert!(error.message.contains("provider route"));
+        assert_eq!(hub.credential_status(&target.id).await.unwrap()["connection"], "work-claude");
+        crate::routes::set_binding(&state, &binding, None).unwrap();
         signed_in(&hub, Agent::Claude, &json!({}), &cli_home, Some(&target.id)).await.unwrap();
 
         let status = hub.credential_status(&target.id).await.unwrap();
         assert_eq!(status["claudeTokenRecovery"], "machineLogin");
         assert!(status["connection"].is_null());
         assert_eq!(status["held"], false);
-        assert!(hub.update_credential(&target.id, token.clone()).await.is_err());
+        assert!(hub.update_credential(&target.id, token.clone(), false).await.is_err());
         let persisted: crate::store::SessionMeta =
             serde_json::from_value(serde_json::to_value(target.meta()).unwrap()).unwrap();
         assert_eq!(
@@ -542,6 +565,14 @@ mod tests {
             Some(crate::store::ClaudeTokenRecovery::MachineLogin)
         );
         assert!(persisted.credential_connection.is_none());
+
+        let (legacy, _) = &chats[1];
+        hub.revoke_credential(&legacy.id).await.unwrap();
+        signed_in(&hub, Agent::Claude, &json!({}), &cli_home, Some(&legacy.id)).await.unwrap();
+        let status = hub.credential_status(&legacy.id).await.unwrap();
+        assert_eq!(status["claudeTokenRecovery"], "machineLogin");
+        assert!(status["connection"].is_null());
+        assert_eq!(status["held"], false);
 
         let status = hub.credential_status(&other.id).await.unwrap();
         assert_eq!(status["connection"], "claude-token-2");

@@ -42,7 +42,7 @@ extension SettingsModels: PageProvider {
     /// active team (none for the personal team) with its keys and policy.
     public static func live(environment: @escaping @MainActor () async -> AcpmuxEnvironment?,
                             settings: SettingsController, activeTeam: @escaping @MainActor () -> ActiveTeam?,
-                            agentKeys: TeamAgentKeys, policy: TeamModelsPolicy,
+                            agentKeys: TeamAgentKeys, policy: TeamModelsPolicy, cloudClaudeApproval: CloudClaudeApproval,
                             openSignInPage: @escaping @MainActor (URL, String) async -> Bool,
                             openClaudeCallback: CloudClaudeMachine.CallbackOpener? = nil,
                             closeSignInPage: @escaping @MainActor (String) -> Void) -> SettingsModels {
@@ -58,7 +58,7 @@ extension SettingsModels: PageProvider {
             writeSpreadSetting: { on in
                 let value: JSONValue? = on == ModelsSettings.spreadUsageDefault ? nil : .bool(on)
                 try await settings.setSetting(at: ModelsSettings.spreadUsagePath, to: value, by: .user)
-            })
+            }, cloudClaudeApproval: cloudClaudeApproval)
         models.presentSignInPage = openSignInPage
         models.presentClaudeCallback = openClaudeCallback
         models.dismissSignInPage = closeSignInPage

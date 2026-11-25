@@ -374,7 +374,7 @@ extension CloudStartChat {
         services.cloud.setup.gateway = { [weak services] in guard let services else { return nil }; return await gatewayServes(services) }
         services.cloud.agentCredentials.readCredentialConnections = { [weak services] in
             let host = services?.agentTabs.host as? AcpmuxHost
-            return await host?.readyCloudConnections()
+            return await host?.readyCloudCredentialConnections()
         }
         services.cloud.agentCredentials.watchCredentialConnections = { [weak services] in
             guard let host = services?.agentTabs.host as? AcpmuxHost,

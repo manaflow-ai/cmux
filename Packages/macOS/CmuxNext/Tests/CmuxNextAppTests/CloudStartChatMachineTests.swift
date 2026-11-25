@@ -39,6 +39,29 @@ struct CloudStartChatMachineTests {
         }
     }
 
+    @Test func aStatusReadPreservesTheVerifiedEnvironmentAcrossDerivedAndOmittedIDs() throws {
+        let services = MachineIconTests.services(), cloud = services.cloud
+        let session = MachineIconTests.cloudMachine(services, id: "vm-status-environment")
+        let suite = "cloud-status-environment-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite); session.disconnect() }
+        cloud.move.ledger = defaults
+        let selected = "env_0123456789abcdef01234567"
+        var status = CloudMachine(id: session.machineID, status: .paused)
+        status.environmentId = "denv_fedcba9876543210fedcba98"
+        session.machine = cloud.setup.machineEnvironment(status, ensured: selected, account: cloud.account, defaults: defaults)
+
+        cloud.reconcile([status], read: cloud.beginRecordRead())
+        #expect(session.machine.environmentId == selected)
+        cloud.apply(status, to: session, read: cloud.beginRecordRead(machineID: session.machineID))
+        #expect(session.machine.environmentId == selected)
+
+        status.environmentId = nil
+        cloud.apply(status, to: session, read: cloud.beginRecordRead(machineID: session.machineID))
+        #expect(CloudStartCore().matchesEnvironment(selected, machine: session.machine))
+        #expect(session.machine.startChatPlanEntry(connected: false, chats: nil)["environment"] as? String == selected)
+    }
+
     @Test func cloudAPIEnvironmentSurvivesThePinnedMachineFFIAndPlannerEntry() async throws {
         let selected = "env_0123456789abcdef01234567"
         let raw: JSONValue = .object(["id": .string("vm_test"), "environment_id": .string(selected)])
@@ -47,14 +70,15 @@ struct CloudStartChatMachineTests {
         let listed = decoded.listed(over: withoutEnvironment, connectedSinceRead: false)
         #expect(listed.environmentId == selected)
         #expect(listed.startChatPlanEntry(connected: false, chats: nil)["environment"] as? String == selected)
-        #expect(CloudStartCore().matchesEnvironment(selected, machine: withoutEnvironment))
+        #expect(!CloudStartCore().matchesEnvironment(selected, machine: withoutEnvironment))
+        #expect(CloudStartCore().matchesEnvironment(nil, machine: withoutEnvironment))
         let other = "env_fedcba9876543210fedcba98"
         #expect(!CloudStartCore().matchesEnvironment(other, machine: listed))
         let setup = CloudSetup()
         setup.claudeMachines = { [withoutEnvironment] }
         setup.readClaudeMachineLogin = { _ in true }
-        #expect(setup.machineMatchesEnvironment(withoutEnvironment.id, environment: selected))
-        #expect(await setup.readyClaudeMachines(machine: withoutEnvironment.id, environment: selected) == [withoutEnvironment.id])
+        #expect(!setup.machineMatchesEnvironment(withoutEnvironment.id, environment: selected))
+        #expect(await setup.readyClaudeMachines(machine: withoutEnvironment.id, environment: selected).isEmpty)
         #expect(await setup.readyClaudeMachines(environment: selected).isEmpty)
         setup.claudeMachines = { [listed] }
         #expect(!setup.machineMatchesEnvironment(listed.id, environment: other))
@@ -79,7 +103,7 @@ struct CloudStartChatMachineTests {
         let record = try #require(CloudMachine(next: .object(["id": .string("vm_test")])))
         #expect(plan.machine == record.id)
         #expect(plan.ensuredEnvironment == (withEnvironment ? selected : nil))
-        #expect(CloudStartCore().matchesEnvironment(selected, machine: record, ensured: plan.ensuredEnvironment))
+        #expect(CloudStartCore().matchesEnvironment(selected, machine: record, ensured: plan.ensuredEnvironment) == withEnvironment)
         if withEnvironment {
             let derived = try #require(CloudMachine(next: .object([
                 "id": .string("vm_test"), "environment_id": .string("denv_fedcba9876543210fedcba98"),

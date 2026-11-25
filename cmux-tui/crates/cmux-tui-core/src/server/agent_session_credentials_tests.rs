@@ -260,6 +260,20 @@ fn the_owners_refresh_reaches_the_tabs_own_session_only_from_the_owner() {
 }
 
 #[test]
+fn a_legacy_chatgpt_refresh_resolves_an_owner_tab_to_its_own_session() {
+    let mut chat = connect("cred-legacy-chatgpt", AgentStartHost::OwnerCloud, false);
+    assert_eq!(chat.start(env(TOKEN), json!("owner"))["ok"], true);
+    let token = json!({"CMUX_CHATGPT_ACCESS_TOKEN": "fixture-token"});
+    let mut refresh = json!({"cmd":"agent-session-credentials","surface":chat.surface,"env":token});
+    assert_eq!(chat.client.request(refresh.clone())["ok"], false);
+    refresh["vm_kind"] = json!("owner");
+    assert_eq!(chat.client.request(refresh)["ok"], true);
+    let updates = chat.sent("agent/credentials.update");
+    assert_eq!(updates.len(), 1);
+    assert_eq!(updates[0]["params"], json!({"sessionId":SESSION,"env":token,"legacyRefresh":true}));
+}
+
+#[test]
 fn credential_writes_refuse_a_surface_reused_by_another_chat() {
     let mut chat = connect("cred-reused-slot", AgentStartHost::OwnerCloud, false);
     assert_eq!(chat.start(env(TOKEN), json!("owner"))["ok"], true);
@@ -271,9 +285,11 @@ fn credential_writes_refuse_a_surface_reused_by_another_chat() {
             "session":"chat-from-before-restart","vm_kind":"owner","env":env});
         assert_code(&chat.client.request(frame), "agent_session.unknown_tab");
     }
-    let no_session = json!({"cmd":"agent-session-credentials","surface":chat.surface,
-        "vm_kind":"owner","env":{}});
-    assert_code(&chat.client.request(no_session), "agent_session.bad_request");
+    for env in [json!({"ANTHROPIC_API_KEY": TOKEN}), json!({})] {
+        let no_session = json!({"cmd":"agent-session-credentials","surface":chat.surface,
+            "vm_kind":"owner","env":env});
+        assert_code(&chat.client.request(no_session), "agent_session.bad_request");
+    }
     assert!(chat.sent("agent/credentials.update").is_empty());
 }
 

@@ -1648,6 +1648,68 @@ fn login_steps_go_to_acpmux_on_the_pinned_session() {
     fake.no_frame();
 }
 
+#[test]
+fn owner_cloud_chat_login_forwards_non_claude_providers() {
+    let fake = FakeAcpmux::start("owner-card");
+    let mux = mux_with(&fake, "asa-owner-card");
+    mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    let client = mux.control_clients.register(ClientTransport::Remote, writer.clone());
+    let peer = crate::remote_relay_state::LinkPeer {
+        install: "inst_owner_card".into(),
+        user: "42".into(),
+        team: "team_a".into(),
+    };
+    mux.record_remote_check(&peer.install).unwrap();
+    mux.bind_remote_peer_checked(client, &peer, true).unwrap();
+    mux.control_clients.state.lock().unwrap().clients.get_mut(&client).unwrap().native_vm_kind =
+        Some(Some(cmux_link::token::VmKind::Owner));
+    let surface = agent_tab(&mux, Some(SESSION));
+    let send = |id: u64, mut request: Value| {
+        request["id"] = json!(id);
+        assert_eq!(
+            native_owner::try_handle(&mux, client, &request.to_string(), &writer),
+            Some(true)
+        );
+        let deadline = Instant::now() + WAIT;
+        loop {
+            while let Some(line) = outbound.try_pop() {
+                let reply: Value = serde_json::from_str(&line).unwrap();
+                if reply["id"] == id {
+                    return reply;
+                }
+            }
+            assert!(Instant::now() < deadline, "no reply for request {id}");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    };
+    let reply = send(
+        1,
+        json!({"cmd":"agent-session-attach","surface":surface,"limit":400,"kinds":["transcript"]}),
+    );
+    assert_eq!(reply["ok"], true, "{reply}");
+    let _ = fake.frame();
+    for (id, op, agent, key) in [
+        (2, "start", "codex", None),
+        (3, "api_key", "gemini", Some("gemini-fixture")),
+        (4, "api_key", "opencode", Some("opencode-fixture")),
+    ] {
+        let mut request =
+            json!({"cmd":"agent-session-login","surface":surface,"op":op,"agent":agent});
+        if let Some(key) = key {
+            request["key"] = json!(key);
+        }
+        let reply = send(id, request);
+        assert_eq!(reply["ok"], true, "{reply}");
+        let sent = fake.frame();
+        assert_eq!(sent["method"], format!("_acpmux/agent_login/{op}"));
+        assert_eq!(sent["params"]["sessionId"], SESSION);
+        assert_eq!(sent["params"]["agent"], agent);
+        assert_eq!(sent["params"]["key"], json!(key));
+    }
+}
+
 /// An unbound agent tab of this store (a new chat whose start has not made a session, or whose
 /// start was refused).
 fn unbound_store_tab(mux: &Arc<Mux>, harness: &str) -> SurfaceId {

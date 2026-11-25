@@ -45,6 +45,20 @@ fn save_chatgpt(root: &Path, token: &str) {
     .unwrap();
 }
 
+fn save_kimi(root: &Path, id: &str, token: &str, expiry: i64) {
+    crate::subscription_store::Store::new(root, "kimi")
+        .write(
+            id,
+            &json!({
+                "access_token": token,
+                "refresh_token": "fixture-refresh",
+                "expires_at": expiry,
+                "region": "global",
+            }),
+        )
+        .unwrap();
+}
+
 #[tokio::test]
 async fn a_mismatched_cloud_credential_keeps_the_machine_route() {
     let root = tempfile::tempdir().unwrap();
@@ -97,6 +111,10 @@ async fn local_chatgpt_refresh_resumes_the_chat_before_the_next_turn() {
         .as_mut()
         .unwrap()
         .insert(chatgpt::LOCAL_EXPIRY_ENV.into(), (chatgpt::now_unix() + 1).to_string());
+    *session.work_below_since.lock().unwrap() = 1;
+    hub.prompt(&session, prompt(), "test", false).await.unwrap();
+    assert_eq!(hub.child_for(&session).await.unwrap().generation, before);
+    *session.work_below_since.lock().unwrap() = 0;
     hub.prompt(&session, prompt(), "test", false).await.unwrap();
     assert_ne!(hub.child_for(&session).await.unwrap().generation, before);
     assert_eq!(session.meta().agent_session_id.as_deref(), Some(native_id.as_str()));
@@ -135,20 +153,7 @@ async fn local_kimi_refresh_replaces_the_launch_grant_before_a_turn() {
     let id = "kimi-test";
     let (hub, _) = fixture_for(root.path(), "opencode", "kimi-plan", id);
     let now = crate::subscriptions::now();
-    let save = |token, expiry| {
-        crate::subscription_store::Store::new(root.path(), "kimi")
-            .write(
-                id,
-                &json!({
-                    "access_token": token,
-                    "refresh_token": "fixture-refresh",
-                    "expires_at": expiry,
-                    "region": "global",
-                }),
-            )
-            .unwrap();
-    };
-    save("kimi-before-refresh", now + 3600);
+    save_kimi(root.path(), id, "kimi-before-refresh", now + 3600);
     let session = hub
         .new_session(NewRequest { cwd: Some(root.path().to_owned()), ..NewRequest::default() })
         .await
@@ -164,7 +169,11 @@ async fn local_kimi_refresh_replaces_the_launch_grant_before_a_turn() {
         assert_eq!(env[crate::subscriptions::LOCAL_KIMI_EXPIRY], (now + 3600).to_string());
         env.insert(crate::subscriptions::LOCAL_KIMI_EXPIRY.into(), (now - 1).to_string());
     }
-    save("kimi-after-refresh", now + 7200);
+    save_kimi(root.path(), id, "kimi-after-refresh", now + 7200);
+    *session.work_below_since.lock().unwrap() = 1;
+    hub.prompt(&session, prompt(), "test", false).await.unwrap();
+    assert_eq!(hub.child_for(&session).await.unwrap().generation, before);
+    *session.work_below_since.lock().unwrap() = 0;
     hub.prompt(&session, prompt(), "test", false).await.unwrap();
     assert_ne!(hub.child_for(&session).await.unwrap().generation, before);
     assert_eq!(session.meta().agent_session_id.as_deref(), Some(native_id.as_str()));
@@ -185,4 +194,53 @@ async fn adopted_chatgpt_without_a_launch_snapshot_uses_the_accounts_expiry() {
     let expiry = hub.legacy_adopted_chatgpt_expiry(&session, None).await;
     assert_eq!(expiry, Some(stored.expires_at));
     assert!(expiry.unwrap() - chatgpt::now_unix() > chatgpt::REFRESH_MARGIN_SECS);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn completion_redacts_subscription_grants_from_answers_and_errors() {
+    use std::os::unix::fs::PermissionsExt;
+
+    const TOKEN: &str = "fixture-completion-subscription-grant";
+    for (family, kind, var) in [
+        ("codex", "chatgpt-plan", CHATGPT_TOKEN),
+        ("opencode", "kimi-plan", crate::byo_endpoint::OPENAI_KEY_ENV),
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let id = if family == "codex" { ROUTE } else { "kimi-test" };
+        let (hub, _) = fixture_for(dir, family, kind, id);
+        let program = dir.join(family);
+        let success = if family == "codex" {
+            "while [ \"$1\" != --output-last-message ]; do shift || exit 3; done; printf '%s\\n' \"$grant\" > \"$2\""
+        } else {
+            "printf '%s\\n' \"$grant\""
+        };
+        std::fs::write(
+            &program,
+            format!("#!/bin/sh\ngrant=${{{var}}}\ncase \" $* \" in\n  *' fixture-failure '*) echo \"rejected: $grant\" >&2; exit 1 ;;\nesac\n{success}\n"),
+        )
+        .unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+        hub.config.write().await.harnesses.get_mut("route-fake").unwrap().argv =
+            vec![program.to_string_lossy().into_owned()];
+        if family == "codex" {
+            save_chatgpt(dir, TOKEN);
+        } else {
+            save_kimi(dir, id, TOKEN, crate::subscriptions::now() + 3600);
+        }
+        let request = |model: &str| {
+            json!({
+                "prompt": "fixture", "harness": "route-fake", "model": model
+            })
+        };
+
+        let local = crate::server::Origin::Local;
+        let success = hub.complete(local, &request("fixture-model")).await.unwrap();
+        assert_eq!(success["text"], "[redacted]");
+        let rpc = hub.complete(local, &request("fixture-failure")).await.unwrap_err();
+        assert!(rpc.message.contains("rejected: [redacted]"));
+        assert!(!rpc.message.contains(TOKEN));
+        assert!(!rpc.data.unwrap().to_string().contains(TOKEN));
+    }
 }

@@ -744,7 +744,7 @@ async fn remove_revokes_the_refresh_token() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn chatgpt_remove_discards_unreadable_keychain_index() {
+async fn chatgpt_remove_reports_an_unreadable_keychain_and_keeps_the_index() {
     let s = setup().await;
     sign_in(&s, &[("code", "c1")]).await;
     let home = &s.places.home;
@@ -756,8 +756,9 @@ async fn chatgpt_remove_discards_unreadable_keychain_index() {
         Err(crate::subscription_store::Error::KeychainOtherBuild)
     ));
 
-    assert!(!s.service.remove(home, id).await.unwrap());
-    assert!(store.metadata(id).is_none());
+    let error = s.service.remove(home, id).await.unwrap_err();
+    assert_eq!(error.code, "keychain_other_build");
+    assert_eq!(store.metadata(id).unwrap()["signed_in"], true);
     assert!(s.fake.state.lock().unwrap().revoke_forms.is_empty());
 }
 

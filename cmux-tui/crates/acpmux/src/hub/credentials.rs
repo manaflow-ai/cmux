@@ -64,13 +64,16 @@ impl Hub {
     }
 
     /// After explicit sign-in, switch this exact chat to its machine's Claude account.
+    /// A false result means the chat already switched.
     pub(crate) async fn use_claude_machine_login(
         &self,
         session: &Arc<Session>,
     ) -> Result<bool, RpcError> {
         let _spawn = session.spawn_lock.lock().await;
         let previous = session.meta();
-        if !has_saved_claude_token(session, &previous) {
+        let (_, route) = self.login_profile(session, "claude").await?;
+        self.check_claude_recovery(session, route.as_deref()).await?;
+        if uses_claude_machine_login(&previous) {
             return Ok(false);
         }
         {
@@ -92,6 +95,55 @@ impl Hub {
         Ok(true)
     }
 
+    pub(crate) async fn check_claude_recovery(
+        &self,
+        session: &Session,
+        route: Option<&str>,
+    ) -> Result<(), RpcError> {
+        if route.is_some() {
+            return Err(RpcError::invalid_params(
+                "this chat uses a provider route; sign in to that route",
+            )
+            .with_data(json!({"reason": crate::agent_login::reason::RECOVERY_MISMATCH})));
+        }
+        let meta = session.meta();
+        if uses_claude_machine_login(&meta) || self.has_saved_claude_token(session, &meta).await {
+            return Ok(());
+        }
+        Err(RpcError::invalid_params("this chat has no saved Claude token to replace")
+            .with_data(json!({"reason": crate::agent_login::reason::RECOVERY_MISMATCH})))
+    }
+
+    pub(super) async fn has_saved_claude_token(
+        &self,
+        session: &Session,
+        meta: &SessionMeta,
+    ) -> bool {
+        {
+            let held = session.credential.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(credential) = held.as_ref() {
+                return credential.uses_claude_subscription_token();
+            }
+        }
+        let Some(connection) = meta.credential_connection.as_deref() else { return false };
+        if is_saved_claude_token(connection)
+            || meta.claude_token_recovery == Some(ClaudeTokenRecovery::LegacyRejected)
+            || meta.last_turn.as_ref().and_then(|turn| turn["errorCode"].as_str())
+                == Some("claude_cloud_token_rejected")
+        {
+            return true;
+        }
+        let dir = crate::routes::places(&*self.config.read().await).0;
+        let Some(dir) = dir else { return false };
+        let id = connection.split_once(':').map_or(connection, |(id, _)| id).to_owned();
+        tokio::task::spawn_blocking(move || {
+            crate::routes::find(Some(&dir), &id)
+                .is_ok_and(|route| route.file.kind == crate::routes::RouteKind::ClaudeToken)
+        })
+        .await
+        .unwrap_or(false)
+    }
+
     /// Under the turn and spawn locks, recover a missed host's work before deciding whether it can end.
     /// Returns whether the restart should prewarm a replacement.
     pub(super) async fn end_previous_claude_host(
@@ -99,6 +151,7 @@ impl Hub {
         session: &Arc<Session>,
     ) -> Result<bool, RpcError> {
         let current = session.child.lock().await.clone();
+        let retry = current.is_some();
         let child = match current {
             Some(child) if child.is_alive().await && !child.is_stopped() => Some(child),
             _ if Self::host_record_gone(&session.id) => None,
@@ -108,17 +161,19 @@ impl Hub {
             Some(child) => child.try_hold_host_link().map_err(|_| claude_login_busy())?,
             None => None,
         };
-        if let Some(child) = &child
-            && (!child.recovery_replay_complete()
-                || !Self::drain_inbound(session).await
-                || !child.is_alive().await
-                || child.is_stopped()
-                || child.is_retired())
-        {
-            return Err(claude_login_busy());
+        if let Some(child) = &child {
+            let verified = if child.recovery_replay_complete() {
+                Self::drain_inbound(session).await
+            } else {
+                retry && self.verify_recovery_replay(session, child).await
+            };
+            if !verified || !child.is_alive().await || child.is_stopped() || child.is_retired() {
+                return Err(claude_login_busy());
+            }
         }
         if session.turn().is_some()
             || session.harness_turn.load(Ordering::SeqCst)
+            || session.compacting.load(Ordering::SeqCst)
             || session.asks_in_flight.load(Ordering::SeqCst) != 0
             || !session.pending_permissions().is_empty()
             || self.holds_work_below(session)
@@ -158,6 +213,7 @@ impl Hub {
         self: &Arc<Self>,
         id: &str,
         mut credential: AgentCredential,
+        legacy_refresh: bool,
     ) -> Result<Value, RpcError> {
         let (session, family) = self.credential_session(id).await?;
         if Family::of_harness(&family) != Some(credential.family()) {
@@ -172,8 +228,21 @@ impl Hub {
             if uses_claude_machine_login(&meta) {
                 return Err(RpcError::invalid_params("this chat uses the machine's Claude login"));
             }
-            credential.keep_connection(meta.credential_connection.as_deref());
             let mut held = session.credential.lock().unwrap_or_else(|e| e.into_inner());
+            if legacy_refresh
+                && (!credential.is_chatgpt_plan()
+                    || meta
+                        .credential_connection
+                        .as_ref()
+                        .is_some_and(|binding| binding.contains(':'))
+                    || held.as_ref().is_some_and(|current| !current.is_chatgpt_plan()))
+            {
+                return Err(RpcError::invalid_params(
+                    "this credential does not serve this chat's agent",
+                )
+                .with_data(json!({"reason": "credentials.family"})));
+            }
+            credential.keep_connection(meta.credential_connection.as_deref());
             let changed = held.as_ref() != Some(&credential);
             #[cfg(unix)]
             if changed && credential.family() == Family::Copilot {
@@ -293,16 +362,6 @@ pub(super) fn claude_login_needs_restart(meta: &SessionMeta) -> bool {
     uses_claude_machine_login(meta) && meta.claude_login_restart_pending != Some(false)
 }
 
-pub(super) fn has_saved_claude_token(session: &Session, meta: &SessionMeta) -> bool {
-    meta.credential_connection.as_deref().is_some_and(is_saved_claude_token)
-        || session
-            .credential
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .as_ref()
-            .is_some_and(AgentCredential::uses_claude_subscription_token)
-}
-
 pub(super) fn claude_login_busy() -> RpcError {
     RpcError::invalid_params(
         "This chat is moving to this machine's Claude sign-in. Send again when its background work ends.",
@@ -312,7 +371,7 @@ pub(super) fn claude_login_busy() -> RpcError {
 
 #[cfg(test)]
 mod tests {
-    use crate::agent_credentials::{AgentCredential, CLAUDE_OAUTH};
+    use crate::agent_credentials::{AgentCredential, CHATGPT_TOKEN, CLAUDE_OAUTH};
     use crate::config::{Config, StoreMode};
     use crate::hub::{Hub, NewRequest};
     use serde_json::json;
@@ -323,10 +382,15 @@ mod tests {
     const SECOND: &str = "sk-ant-oat01-second-token-value";
 
     fn hub() -> Arc<Hub> {
+        hub_for("claude")
+    }
+
+    fn hub_for(family: &str) -> Arc<Hub> {
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let harness = format!("{family}-fake");
         let mut cfg = serde_json::from_value::<Config>(json!({
-            "harnesses": {"claude-fake": {"argv": ["python3", fake], "family": "claude"}},
-            "defaultHarness": "claude-fake"
+            "harnesses": {(&harness): {"argv": ["python3", fake], "family": family}},
+            "defaultHarness": harness
         }))
         .unwrap();
         cfg.store.mode = StoreMode::Memory;
@@ -387,7 +451,7 @@ mod tests {
         };
         let session = hub.new_session(req).await.unwrap();
         let before = hub.child_for(&session).await.unwrap().generation;
-        let reply = hub.update_credential(&session.id, credential(SECOND)).await.unwrap();
+        let reply = hub.update_credential(&session.id, credential(SECOND), false).await.unwrap();
         assert_eq!(reply["restart"], "now");
         let after = hub.child_for(&session).await.unwrap().generation;
         assert_ne!(before, after, "a new agent process");
@@ -396,7 +460,7 @@ mod tests {
         let text = format!("{reply}{}", written(&hub, &session.id));
         assert!(!text.contains(FIRST) && !text.contains(SECOND));
         // The same credential again restarts nothing.
-        let again = hub.update_credential(&session.id, credential(SECOND)).await.unwrap();
+        let again = hub.update_credential(&session.id, credential(SECOND), false).await.unwrap();
         assert_eq!(again["restart"], "none");
     }
 
@@ -717,8 +781,37 @@ mod tests {
         let error = hub.child_for(&session).await.err().expect("missing grant blocks launch");
         assert_eq!(error.data.unwrap()["reason"], "credentials.needed");
 
-        hub.update_credential(&session.id, credential).await.unwrap();
+        hub.update_credential(&session.id, credential, false).await.unwrap();
         hub.child_for(&session).await.unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn legacy_refresh_cannot_replace_a_bound_chatgpt_credential() {
+        let hub = hub_for("codex");
+        let credential =
+            AgentCredential::parse(&json!({"env": {CHATGPT_TOKEN: "old-fixture-token"}})).unwrap();
+        let fresh =
+            AgentCredential::parse(&json!({"env": {CHATGPT_TOKEN: "new-fixture-token"}})).unwrap();
+        let binding = format!("chatgpt:{}", "a".repeat(64));
+        for (connection, allowed) in [(None, true), (Some(binding.as_str()), false)] {
+            let mut initial = credential.clone();
+            initial.keep_connection(connection);
+            let session = hub
+                .new_session(NewRequest {
+                    cwd: Some(std::env::temp_dir()),
+                    credential: Some(initial.clone()),
+                    ..NewRequest::default()
+                })
+                .await
+                .unwrap();
+            assert_eq!(
+                hub.update_credential(&session.id, fresh.clone(), true).await.is_ok(),
+                allowed
+            );
+            let held = session.credential.lock().unwrap();
+            assert_eq!(held.as_ref(), Some(if allowed { &fresh } else { &initial }));
+        }
+        hub.shutdown_all().await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -732,9 +825,10 @@ mod tests {
             &json!({"env": {crate::agent_credentials::OPENAI_KEY: "sk-proj-x"}}),
         )
         .unwrap();
-        let e = hub.update_credential(&session.id, codex).await.unwrap_err();
+        let e = hub.update_credential(&session.id, codex, false).await.unwrap_err();
         assert_eq!(e.data.unwrap()["reason"], "credentials.family");
-        let e = hub.update_credential("no-such-session", credential(FIRST)).await.unwrap_err();
+        let e =
+            hub.update_credential("no-such-session", credential(FIRST), false).await.unwrap_err();
         assert_eq!(e.data.unwrap()["reason"], "credentials.no_session");
     }
 }

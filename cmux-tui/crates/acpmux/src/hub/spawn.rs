@@ -417,12 +417,17 @@ impl Hub {
         if meta.remote_origin {
             p.env.insert(crate::agent::REMOTE_ENV_POLICY_KEY.into(), "1".into());
         }
-        if super::credentials::uses_claude_machine_login(meta) {
+        let requires_claude_team =
+            meta.session_env.contains_key(crate::claude_cloud_auth::REQUIRED_TEAM);
+        p.env.remove(crate::claude_cloud_auth::REQUIRED_TEAM);
+        if requires_claude_team {
+            p.env.insert("CMUX_CLAUDE_AUTH".into(), "team".into());
+        } else if super::credentials::uses_claude_machine_login(meta) {
             p.env.insert("CMUX_CLAUDE_AUTH".into(), "own".into());
         }
         // The owner's Cloud credential: straight to the provider, no coderouter route
         // (`agent_credentials.rs`). Its names only are logged, never a value.
-        let direct = if let Some(c) = credential {
+        let direct = if let Some(c) = credential.filter(|_| !requires_claude_team) {
             let family = crate::config::derive_family(&meta.harness, &p);
             if (c.has_anthropic_endpoint() || c.uses_direct_anthropic_credential())
                 && family == "claude"
@@ -450,8 +455,8 @@ impl Hub {
         } else {
             false
         };
-        // The bound route owns the provider variables if the credential did not apply.
-        let account_home = if direct {
+        // An explicit Cloud team launch takes precedence over a saved route binding.
+        let account_home = if direct || requires_claude_team {
             None
         } else {
             self.apply_route(meta, forking, profile, &mut p.env).await?
@@ -572,6 +577,13 @@ impl Hub {
             && !p.env.contains_key(crate::routes::NAME_KEY);
         let claude_launch =
             claude_family && crate::claude_cloud_auth::launches_claude_itself(&p.argv);
+        let team_unavailable = || {
+            RpcError::invalid_params("The selected Claude model route is unavailable.")
+                .with_data(serde_json::json!({"reason": "route.unavailable"}))
+        };
+        if requires_claude_team && !claude_launch {
+            return Err(team_unavailable());
+        }
         if claude_family
             && !claude_launch
             && !meta.remote_origin
@@ -586,8 +598,9 @@ impl Hub {
             );
             tracing::warn!(session = %meta.id, agent = "claude", why = %why, code = "joined_model_plane.keeps_own", "a launch that chose the team's model route keeps its own on this joined machine");
         }
-        let claude_on_cloud =
-            claude_launch && crate::codex_cloud_auth::owner_cloud_image_at(&self.vm_marker_root());
+        let claude_on_cloud = requires_claude_team
+            || (claude_launch
+                && crate::codex_cloud_auth::owner_cloud_image_at(&self.vm_marker_root()));
         let claude_here = claude_launch && !claude_on_cloud && !meta.remote_origin;
         let claude_opted = claude_here
             && crate::joined_model_plane::may_opt_in(&p.env, "CMUX_CLAUDE_AUTH", "claude");
@@ -604,6 +617,7 @@ impl Hub {
             .then(|| crate::agent::resolved_profile_env(&p))
         {
             Some(Ok(env)) => Some(env),
+            Some(Err(_)) if requires_claude_team => return Err(team_unavailable()),
             Some(Err(error)) if claude_join.is_some() => {
                 let why = format!("its profile env does not resolve: {error}");
                 return Err(joined_declined(&meta.id, "claude", "profile_env", &why));
@@ -652,6 +666,13 @@ impl Hub {
                 return Err(RpcError::invalid_params(crate::joined_model_plane::no_sign_in()));
             }
             let pair = match &flag {
+                Ok(_) if requires_claude_team => {
+                    crate::claude_cloud_auth::required_team_pair(
+                        &inputs,
+                        crate::codex_cloud_auth::host_resolves,
+                    )
+                    .await
+                }
                 Ok(flag) if claude_on_cloud => {
                     crate::claude_cloud_auth::team_pair(
                         &inputs,
@@ -678,6 +699,9 @@ impl Hub {
                     None
                 }
             };
+            if requires_claude_team && pair.is_none() {
+                return Err(team_unavailable());
+            }
             if pair.is_none()
                 && let (Some(join), Ok(flag)) = (&claude_join, &flag)
             {

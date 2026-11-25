@@ -1031,6 +1031,9 @@ pub fn remove(dir: Option<&Path>, home: &Path, id: &str) -> Result<String, Route
     // gone") instead of running on the owner's own provider without a word.
     if !id.starts_with(ONE_RUN_PREFIX) {
         update_bindings(home, |b| {
+            if let Some(instance) = route.file.credential_instance {
+                b.disconnected_credentials.entry(id.to_owned()).or_default().insert(instance);
+            }
             b.chats.retain(|_, r| r != id);
             b.workspaces.retain(|_, r| r != id);
             b.families.retain(|_, r| r != id);
@@ -1099,6 +1102,13 @@ pub struct Bindings {
     /// `_acpmux/account/set`). A route's own switch is its file's `disabled`.
     #[serde(default, rename = "disabled_connections", skip_serializing_if = "BTreeSet::is_empty")]
     pub disabled_connections: BTreeSet<String>,
+    /// Explicit removals of delivered credentials, keyed by route id and saved instance.
+    #[serde(
+        default,
+        rename = "disconnected_credentials",
+        skip_serializing_if = "BTreeMap::is_empty"
+    )]
+    pub disconnected_credentials: BTreeMap<String, BTreeSet<String>>,
 }
 
 static BINDINGS_LOCK: Mutex<()> = Mutex::new(());
@@ -1544,7 +1554,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn generic_route_creation_refuses_unmanaged_claude_tokens() {
+    fn generic_route_creation_refuses_claude_tokens_but_existing_files_still_load() {
         let dir = tempfile::tempdir().unwrap();
         let error = file_from_json(&json!({
             "kind": "claude-token",
@@ -1560,9 +1570,9 @@ mod tests {
         )
         .unwrap();
         let (routes, problems) = load(Some(dir.path()));
-        assert!(routes.is_empty());
-        assert_eq!(problems.len(), 1);
-        assert!(problems[0].contains("cmux cloud connect claude"));
+        assert!(problems.is_empty(), "{problems:?}");
+        assert_eq!(routes.len(), 1);
+        assert_eq!(routes[0].file.kind, RouteKind::ClaudeToken);
     }
 
     #[test]

@@ -53,6 +53,7 @@ export function ModelEndpointForm({
   const azure = provider.id === "azure";
   const cloudflare = fields.includes("gateway");
   const manualRequired = !!provider.deploymentName || cloudflare;
+  const showModels = editableUrl || manualRequired || !provider.defaultModels?.length;
   const kind = existing?.kind ?? "openai-endpoint";
   const store = useStore();
   const service = useMemo(() => new ChiefHost(store.chiefCalls), [store]);
@@ -72,7 +73,7 @@ export function ModelEndpointForm({
     const saved = existing?.models ?? [...(provider.defaultModels ?? [])];
     return cloudflare ? saved.filter((id) => cloudflareModel.test(id)) : saved;
   });
-  const [manual, setManual] = useState<string | null>(manualRequired ? "" : null);
+  const [manual, setManual] = useState("");
   const [urlTouched, setUrlTouched] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const savingNow = useRef(false);
@@ -114,30 +115,30 @@ export function ModelEndpointForm({
   const apiKey = key.trim();
   const keepKey = !!original?.signedIn && sameUrl;
   const canRequest = !urlProblem && (apiKey ? validKey(apiKey) : keepKey || (!provider.keyRequired && !cloud));
-  const model = manual?.trim() ?? "";
+  const model = manual.trim();
   const invalidModel =
     !!model && (/[,*]/.test(model) || !validModel(model) || (cloudflare && !cloudflareModel.test(model)));
   const duplicateModel = !!model && models.includes(model);
   const canAddModel = !!model && !invalidModel && !duplicateModel && models.length < MAX_MODELS;
-  const selectedModels = manualRequired && canAddModel ? [...models, model] : models;
+  const selectedModels = canAddModel ? [...models, model] : models;
   const canConnect =
     canRequest &&
     !!name.trim() &&
     !invalidModel &&
-    !(manualRequired && model && !canAddModel) &&
+    (!model || canAddModel) &&
     new TextEncoder().encode(name.trim()).length <= 100 &&
     (selectedModels.length > 0 || !manualRequired) &&
     !!next.target;
   const addModel = () => {
     if (!canAddModel) return;
     setModels([...models, model]);
-    setManual(manualRequired ? "" : null);
+    setManual("");
   };
 
   const resetCredentials = () => {
     setKey("");
     setModels([...(provider.defaultModels ?? [])]);
-    setManual(manualRequired ? "" : null);
+    setManual("");
     setFailure(null);
   };
 
@@ -164,7 +165,7 @@ export function ModelEndpointForm({
             servesCloud: cloud && !existing ? true : undefined,
           },
         ),
-        validateEndpoint: !original || !!apiKey || !sameUrl,
+        validateEndpoint: cloudflare && (!original || !!apiKey || !sameUrl),
       });
       await store.refreshModels();
       onDone();
@@ -192,8 +193,6 @@ export function ModelEndpointForm({
     }
   };
 
-  // Connect checks the key and lists the endpoint's models itself; only a provider that cannot list them
-  // (Azure deployments, Cloudflare's gateway) asks for a model by name.
   return (
     <form
       className="models-form"
@@ -319,9 +318,7 @@ export function ModelEndpointForm({
           setFailure(null);
         }}
       />
-      {/* A provider with a preset list (Morph, MiniMax) sends it without showing it; Azure and
-          Cloudflare name their deployments or models here. */}
-      {manualRequired && (
+      {showModels && (
         <div className="models-endpoint-models">
           {models.length > 0 && (
             <ul className="models-model-list">
@@ -342,49 +339,47 @@ export function ModelEndpointForm({
               ))}
             </ul>
           )}
-          {manual === null ? null : (
-            <div className="models-manual-model">
-              <label className="models-field">
-                <span>
+          <div className="models-manual-model">
+            <label className="models-field">
+              <span>
+                {t(
+                  provider.deploymentName
+                    ? "settingsWindow.models.endpoint.deploymentName"
+                    : "settingsWindow.models.endpoint.modelId",
+                )}
+              </span>
+              <Input
+                className="field"
+                type="text"
+                value={manual}
+                placeholder={cloudflare ? "vendor/model" : undefined}
+                disabled={busy}
+                aria-invalid={invalidModel || duplicateModel || undefined}
+                aria-describedby={invalidModel || duplicateModel ? modelDescription : undefined}
+                onChange={(event) => setManual(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                    event.preventDefault();
+                    addModel();
+                  }
+                }}
+              />
+              {invalidModel || duplicateModel ? (
+                <small id={modelDescription} className="row-error" role="alert">
                   {t(
-                    provider.deploymentName
-                      ? "settingsWindow.models.endpoint.deploymentName"
-                      : "settingsWindow.models.endpoint.modelId",
+                    duplicateModel
+                      ? "settingsWindow.models.endpoint.duplicateModel"
+                      : cloudflare
+                        ? "settingsWindow.models.endpoint.cloudflareModel"
+                        : "settingsWindow.models.endpoint.invalidModel",
                   )}
-                </span>
-                <Input
-                  className="field"
-                  type="text"
-                  value={manual}
-                  placeholder={cloudflare ? "vendor/model" : undefined}
-                  disabled={busy}
-                  aria-invalid={invalidModel || duplicateModel || undefined}
-                  aria-describedby={invalidModel || duplicateModel ? modelDescription : undefined}
-                  onChange={(event) => setManual(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.nativeEvent.isComposing) {
-                      event.preventDefault();
-                      addModel();
-                    }
-                  }}
-                />
-                {invalidModel || duplicateModel ? (
-                  <small id={modelDescription} className="row-error" role="alert">
-                    {t(
-                      duplicateModel
-                        ? "settingsWindow.models.endpoint.duplicateModel"
-                        : cloudflare
-                          ? "settingsWindow.models.endpoint.cloudflareModel"
-                          : "settingsWindow.models.endpoint.invalidModel",
-                    )}
-                  </small>
-                ) : null}
-              </label>
-              <Button type="button" className="button" disabled={busy || !canAddModel} onClick={addModel}>
-                {t("settingsWindow.models.endpoint.addModel")}
-              </Button>
-            </div>
-          )}
+                </small>
+              ) : null}
+            </label>
+            <Button type="button" className="button" disabled={busy || !canAddModel} onClick={addModel}>
+              {t("settingsWindow.models.endpoint.addModel")}
+            </Button>
+          </div>
         </div>
       )}
       {models.length === MAX_MODELS && <p className="row-help">{t("settingsWindow.models.endpoint.listLimit")}</p>}

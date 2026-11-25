@@ -75,7 +75,7 @@ export function ClaudeLoginForm({
 
   const fallback = phase === "code";
   const disabled =
-    (phase === "disabled" && !(cloud && login?.error === "update_claude")) ||
+    (phase === "disabled" && !(cloud && (login?.error === "update_claude" || login?.error === "cli_missing"))) ||
     (phase === "connected" && !replace && !recover && !allowConnected);
   const preparing = phase === "preparing";
   const waiting = preparing || phase === "approving" || phase === "cancelling";

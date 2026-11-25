@@ -81,7 +81,8 @@ import Testing
     private func make(daemon: Daemon, keys: Keys = Keys(), opened: Opened = Opened(),
                       waitForReady: @escaping @MainActor () async -> Void = {},
                       waitForDevice: @escaping @Sendable () async -> Data = { Data(#"{"status":"cancelled"}"#.utf8) },
-                      spread: (read: @MainActor () -> Bool, write: @MainActor (Bool) async throws -> Void)? = nil) -> SettingsModels {
+                      spread: (read: @MainActor () -> Bool, write: @MainActor (Bool) async throws -> Void)? = nil,
+                      approval: SettingsModels.CloudClaudeApproval = .init()) -> SettingsModels {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cn-models-\(UUID().uuidString)")
         let environment = AcpmuxEnvironment(executable: directory.appending(path: "acpmux"), home: directory,
                                             socketPath: directory.appending(path: "a.sock").path, daemonArguments: [], childEnvironment: [:])
@@ -153,7 +154,8 @@ import Testing
             keys: keys,
             openURL: { opened.urls.append($0) },
             spreadSetting: spread?.read,
-            writeSpreadSetting: spread?.write)
+            writeSpreadSetting: spread?.write,
+            cloudClaudeApproval: approval)
     }
 
     private var click: PageCallContext {
@@ -257,44 +259,51 @@ import Testing
     @Test(.timeLimit(.minutes(1)))
     func aSecondSettingsWindowShowsBusyAndLeavesTheFirstClaudeApprovalOpen() async throws {
         let daemon = Daemon()
+        let approval = SettingsModels.CloudClaudeApproval()
         let firstBrowser = Opened(), secondBrowser = Opened()
-        let first = make(daemon: daemon, opened: firstBrowser), second = make(daemon: daemon, opened: secondBrowser)
-        var pending = false
+        let first = make(daemon: daemon, opened: firstBrowser, approval: approval)
+        let second = make(daemon: daemon, opened: secondBrowser, approval: approval)
+        var pending: Set<String> = []
+        var started: [String] = []
         var finished: [String] = []
         let (cancellations, reportCancellation) = AsyncStream<String>.makeStream()
         defer { reportCancellation.finish() }
-        let machine = SettingsModels.CloudClaudeMachine(id: "vm_b", environment: "env_b", request: { op, fields in
-            switch op {
-            case "start":
-                if pending { return Data(#"{"refused":{"reason":"busy"}}"#.utf8) }
-                pending = true
-                return Data(#"{"loginId":"approval","url":"https://claude.ai/oauth/manual"}"#.utf8)
-            case "finish":
-                guard pending, fields["loginId"] == "approval", let chat = fields["recoverySession"] else { throw NoAnswer() }
-                finished.append(chat)
-                pending = false
-                return Data(#"{"signedIn":true}"#.utf8)
-            case "cancel":
-                pending = false
-                reportCancellation.yield(fields["loginId"] ?? "")
-                reportCancellation.finish()
-                return Data("{}".utf8)
-            default:
-                throw NoAnswer()
-            }
-        }, openCallback: { _, _, _ in false })
-        first.cloudClaudeLogin = { _, _, _ in .ready(machine) }
-        second.cloudClaudeLogin = { _, _, _ in .ready(machine) }
-        let secondSubscription = try await second.subscribe("cmux.settings.models.changed", filter: .object([:]), context: click) { _ in }
-        func connect(_ chat: String) -> JSONValue {
-            ["action": "connectClaude", "cloud": true, "machine": "vm_b", "environment": "env_b", "recoverySession": .string(chat)]
+        func machine(_ id: String) -> SettingsModels.CloudClaudeMachine {
+            .init(id: id, request: { op, fields in
+                switch op {
+                case "start":
+                    started.append(id)
+                    pending.insert(id)
+                    return Data(#"{"loginId":"\#(id)-approval","url":"https://claude.ai/oauth/manual"}"#.utf8)
+                case "finish":
+                    guard fields["loginId"] == "\(id)-approval", pending.remove(id) != nil,
+                          let chat = fields["recoverySession"] else { throw NoAnswer() }
+                    finished.append(chat)
+                    return Data(#"{"signedIn":true}"#.utf8)
+                case "cancel":
+                    pending.remove(id)
+                    reportCancellation.yield(fields["loginId"] ?? "")
+                    reportCancellation.finish()
+                    return Data("{}".utf8)
+                default:
+                    throw NoAnswer()
+                }
+            }, openCallback: { _, _, _ in false })
         }
-        let connectFirst = connect("chat-a")
-        let connectSecond = connect("chat-b")
+        first.cloudClaudeLogin = { _, _, _ in .ready(machine("vm_a")) }
+        second.cloudClaudeLogin = { _, _, _ in .ready(machine("vm_b")) }
+        let secondSubscription = try await second.subscribe("cmux.settings.models.changed", filter: .object([:]), context: click) { _ in }
+        func connect(_ id: String, _ chat: String) -> JSONValue {
+            ["action": "connectClaude", "cloud": true, "machine": .string(id), "recoverySession": .string(chat)]
+        }
+        let connectFirst = connect("vm_a", "chat-a")
+        let connectSecond = connect("vm_b", "chat-b")
         _ = try await first.run(connectFirst, context: click)
+        #expect(second.state["cloudClaudeApprovalBusy"] == true)
         await first.claudeLoginTasks[.cloud]?.value
         _ = try await second.run(connectSecond, context: click)
         await second.claudeLoginTasks[.cloud]?.value
+        #expect(started == ["vm_a"])
         #expect(first.state["cloudClaudeLogin"]?["phase"] == "code")
         #expect(second.state["cloudClaudeLogin"]?["error"] == "busy")
         #expect(second.state["cloudClaudeLogin"]?["recoverySession"] == "chat-b")
@@ -305,13 +314,16 @@ import Testing
         await first.claudeLoginTasks[.cloud]?.value
         #expect(first.state["cloudClaudeLogin"]?["phase"] == "connected")
         #expect(finished == ["chat-a"])
+        #expect(second.state["cloudClaudeApprovalBusy"] == false)
         _ = try await second.run(connectSecond, context: click)
         await second.claudeLoginTasks[.cloud]?.value
         #expect(second.state["cloudClaudeLogin"]?["phase"] == "code")
+        #expect(started == ["vm_a", "vm_b"])
         #expect(secondBrowser.urls.count == 1)
         secondSubscription.cancel()
-        for await id in cancellations { #expect(id == "approval") }
-        #expect(!pending)
+        for await id in cancellations { #expect(id == "vm_b-approval") }
+        #expect(pending.isEmpty)
+        #expect(first.state["cloudClaudeApprovalBusy"] == false)
     }
 
     @Test func cloudClaudePreparationFailureKeepsItsRequestedEnvironment() async throws {
@@ -327,19 +339,34 @@ import Testing
         #expect(login?["environment"] == "env_b")
     }
 
-    @Test(arguments: [false, true])
-    func cloudClaudeCanRetryAfterUpdatingTheCLI(connect: Bool) async throws {
+    @Test func cloudClaudeShowsUnsupportedForTheRequestedGuest() async throws {
+        let models = make(daemon: Daemon())
+        models.cloudClaudeLogin = { _, _, _ in .connectable }
+        models.prepareCloudClaudeLogin = { _, _, _ in
+            throw PageError(code: "cmux.models.unsupported", message: "unsupported")
+        }
+        _ = try await models.run(["action": "connectClaude", "cloud": true, "machine": "vm_b", "environment": "env_b"], context: click)
+        await models.claudeLoginTasks[.cloud]?.value
+        let login = models.state["cloudClaudeLogin"]
+        #expect(login?["phase"] == "disabled")
+        #expect(login?["error"] == "unsupported")
+        #expect(login?["machine"] == "vm_b")
+        #expect(login?["environment"] == "env_b")
+    }
+
+    @Test(arguments: [false, true], ["update_claude", "cli_missing"])
+    func cloudClaudeCanRetryAfterInstallingOrUpdatingTheCLI(connect: Bool, refusal: String) async throws {
         let models = make(daemon: Daemon())
         var updated = false
         var operations: [String] = []
         let machine = SettingsModels.CloudClaudeMachine(id: "vm_b", environment: "env_b", request: { op, _ in
             operations.append(op)
-            return Data((updated ? #"{"signedIn":true}"# : #"{"refused":{"reason":"update_claude"}}"#).utf8)
+            return Data((updated ? #"{"signedIn":true}"# : #"{"refused":{"reason":"\#(refusal)"}}"#).utf8)
         }, openCallback: { _, _, _ in false })
         models.cloudClaudeLogin = { _, _, _ in .ready(machine) }
         await models.checkClaudeLogin(.cloud, machine: "vm_b", environment: "env_b")
         #expect(models.state["cloudClaudeLogin"]?["phase"] == "disabled")
-        #expect(models.state["cloudClaudeLogin"]?["error"] == "update_claude")
+        #expect(models.state["cloudClaudeLogin"]?["error"] == .string(refusal))
         updated = true
         if connect {
             _ = try await models.run(["action": "connectClaude", "cloud": true, "machine": "vm_b", "environment": "env_b"], context: click)
@@ -558,7 +585,7 @@ import Testing
         // An unknown kind is not drawn; the rest keep acpmux's order, in the page's camelCase.
         #expect(rows.map { $0["id"]?.stringValue } == ["codex-login", "claude-login"])
         #expect(rows[0] == [
-            "id": "codex-login", "kind": "codex-login", "provider": "openai", "families": ["codex"], "label": "ChatGPT",
+            "id": "codex-login", "credentialInstance": .null, "kind": "codex-login", "provider": "openai", "families": ["codex"], "label": "ChatGPT",
             "email": .null, "plan": "plus", "signedIn": true, "enabled": true, "defaultFor": ["codex"], "servesCloud": false,
             "signInReason": .null, "canServeCloud": false, "cloudFamilies": ["codex"], "canCheckAccess": false,
             "canReplaceKey": false, "endpoint": .null, "launchHarness": .null, "expiresAt": .null,

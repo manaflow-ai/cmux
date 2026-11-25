@@ -223,6 +223,8 @@ struct Hosted {
     replay_to: std::sync::atomic::AtomicU64,
     /// Whether adoption rebuilt the daemon's work state after the entire replay was logged.
     recovery_replay_complete: std::sync::atomic::AtomicBool,
+    /// The adopted journal prefix was intact and no work needed rebuilding from partial replay.
+    recovery_replay_retryable: std::sync::atomic::AtomicBool,
     /// The reader of the current link stopped otherwise (the link closed, or an acknowledgement
     /// failed while its socket still looked open): the agent is not heard through this link
     /// (`is_stopped`, review 68 of #23322); a reattach clears it. Under MDM's off only: with it
@@ -2498,6 +2500,16 @@ impl ChildAgent {
         }
     }
 
+    pub(crate) fn mark_recovery_replay_retryable(&self) {
+        if let Some(h) = &self.hosted {
+            h.recovery_replay_retryable.store(true, Ordering::SeqCst);
+        }
+    }
+
+    pub(crate) fn recovery_replay_retryable(&self) -> bool {
+        self.hosted.as_ref().is_some_and(|h| h.recovery_replay_retryable.load(Ordering::SeqCst))
+    }
+
     pub(crate) fn recovery_replay_complete(&self) -> bool {
         !self.replay_pending()
             && self
@@ -2624,6 +2636,7 @@ impl ChildAgent {
                 broken_retry: std::sync::atomic::AtomicBool::new(false),
                 replay_to: std::sync::atomic::AtomicU64::new(0),
                 recovery_replay_complete: std::sync::atomic::AtomicBool::new(true),
+                recovery_replay_retryable: std::sync::atomic::AtomicBool::new(false),
                 stopped: std::sync::atomic::AtomicBool::new(false),
                 unlogged_answers: std::sync::Mutex::new(Vec::new()),
                 reattach_turn: tokio::sync::Mutex::new(()),

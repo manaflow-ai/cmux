@@ -67,6 +67,11 @@ impl Keychain for Vault {
             .delete(&format!(".subscription/{scope}/{account}"))
             .map_err(|_| Error::KeychainLocked)
     }
+
+    fn accounts(&self, _scope: &str, _id: &str) -> Result<Vec<String>, Error> {
+        // ChatGPT records use files on this platform.
+        Ok(Vec::new())
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -99,6 +104,10 @@ impl Keychain for Vault {
     fn delete(&self, scope: &str, account: &str) -> Result<(), Error> {
         Keychain::delete(&Self::store()?, scope, account)
     }
+
+    fn accounts(&self, scope: &str, id: &str) -> Result<Vec<String>, Error> {
+        Keychain::accounts(&Self::store()?, scope, id)
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -116,6 +125,17 @@ impl Keychain for SubscriptionItems {
 
     fn delete(&self, scope: &str, account: &str) -> Result<(), Error> {
         self.delete(&format!(".subscription/{scope}/{account}")).map_err(vault_error)
+    }
+
+    fn accounts(&self, scope: &str, id: &str) -> Result<Vec<String>, Error> {
+        let mut accounts = self.subscription_accounts(scope).map_err(vault_error)?;
+        accounts.retain(|name| is_subscription_account(name, id));
+        accounts.sort_unstable();
+        if accounts.windows(2).any(|pair| pair[0] == pair[1]) {
+            // The matching items can belong to different providers in different Keychains.
+            return Err(Error::Storage);
+        }
+        Ok(accounts)
     }
 }
 
@@ -155,6 +175,8 @@ pub(super) trait Keychain: Sync {
     /// True if the write created a new item.
     fn write(&self, service: &str, account: &str, value: &[u8]) -> Result<bool, Error>;
     fn delete(&self, service: &str, account: &str) -> Result<(), Error>;
+    /// The bare account and any generated accounts for this route.
+    fn accounts(&self, service: &str, id: &str) -> Result<Vec<String>, Error>;
 }
 
 pub(crate) struct Store<'a> {
@@ -279,7 +301,9 @@ impl<'a> Store<'a> {
                     if legacy_item_provider(&current) != Some(self.provider) {
                         // A refused delete can leave a bare account after its index is gone.
                         Some(Uuid::new_v4())
-                    } else if index["expires_at"].as_i64() <= current["expires_at"].as_i64() {
+                    } else if (self.provider != "chatgpt" || same_chatgpt_account(&index, &current))
+                        && index["expires_at"].as_i64() <= current["expires_at"].as_i64()
+                    {
                         let stored = decode(&value)?;
                         self.write_index(id, &service, None, &current)?;
                         let parent = path.parent().ok_or(Error::Storage)?;
@@ -366,7 +390,7 @@ impl<'a> Store<'a> {
         crate::chatgpt::store::write_atomic(&self.path(id)?, &bytes).map_err(|_| Error::Storage)
     }
 
-    /// Call on a blocking worker. Keychain deletion is best effort.
+    /// Call on a blocking worker. ChatGPT keeps its index until Keychain cleanup succeeds.
     pub(crate) fn delete(&self, id: &str) -> Result<(), Error> {
         let _guard = self.lock()?;
         self.delete_locked(id)
@@ -388,7 +412,12 @@ impl<'a> Store<'a> {
 
     fn delete_locked(&self, id: &str) -> Result<(), Error> {
         let path = self.path(id)?;
-        if let Some(keychain) = self.keychain {
+        if let Some(keychain) = self.keychain
+            && self.provider == "chatgpt"
+        {
+            let index = file(&path)?.as_deref().map(decode::<Value>).transpose()?;
+            self.delete_chatgpt_items(keychain, id, index.as_ref())?;
+        } else if let Some(keychain) = self.keychain {
             let index = file(&path).ok().flatten().and_then(|bytes| decode::<Value>(&bytes).ok());
             if let Some(index) = index
                 && index.get("keychain").is_some()
@@ -401,6 +430,38 @@ impl<'a> Store<'a> {
             Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(Error::Storage),
             _ => Ok(()),
         }
+    }
+
+    fn delete_chatgpt_items(
+        &self,
+        keychain: &dyn Keychain,
+        id: &str,
+        index: Option<&Value>,
+    ) -> Result<(), Error> {
+        let service = self.service();
+        let current = index
+            .filter(|index| index.get("keychain").is_some())
+            .map(|index| generation(index).map(|generation| account(id, generation)))
+            .transpose()?;
+        // A rotated grant can leave an older Keychain account behind. Clean those up before
+        // removing the indexed item so a failed cleanup leaves the active grant available.
+        for name in keychain.accounts(&service, id)? {
+            if current.as_ref() == Some(&name) {
+                continue;
+            }
+            if let Some(bytes) = keychain.read(&service, &name)? {
+                let record: Value = decode(&bytes)?;
+                match legacy_item_provider(&record) {
+                    Some("chatgpt") => keychain.delete(&service, &name)?,
+                    Some(_) => {}
+                    None => return Err(Error::Storage),
+                }
+            }
+        }
+        if let Some(name) = current {
+            keychain.delete(&service, &name)?;
+        }
+        Ok(())
     }
 
     fn lock(&self) -> Result<Option<cmux_file_lock::FileLock>, Error> {
@@ -459,6 +520,23 @@ fn generation(index: &Value) -> Result<Option<Uuid>, Error> {
 
 fn account(id: &str, generation: Option<Uuid>) -> String {
     generation.map_or_else(|| id.to_owned(), |generation| format!("{id}.{generation}"))
+}
+
+fn same_chatgpt_account(a: &Value, b: &Value) -> bool {
+    ["client_id", "sub"].into_iter().all(|key| {
+        a[key]
+            .as_str()
+            .is_some_and(|identity| !identity.is_empty() && b[key].as_str() == Some(identity))
+    })
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn is_subscription_account(name: &str, id: &str) -> bool {
+    name == id
+        || name
+            .strip_prefix(id)
+            .and_then(|suffix| suffix.strip_prefix('.'))
+            .is_some_and(|generation| Uuid::parse_str(generation).is_ok())
 }
 
 fn legacy_item_provider(record: &Value) -> Option<&'static str> {

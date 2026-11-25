@@ -100,7 +100,7 @@ impl Candidate {
         }
     }
 
-    /// An explicit or pinned destination can predate environment metadata in the app FFI.
+    /// A pin can predate environment metadata. The app verifies it before copying.
     pub(crate) fn conflicts_with_environment(&self, selected: Option<&str>) -> bool {
         matches!((selected, self.environment.as_deref()), (Some(selected), Some(actual)) if selected != actual)
     }

@@ -117,7 +117,7 @@ extension AgentTabStore {
         do { result = .success(try await client.start(cwd: fallback, harness: machineHarness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink, model: machineModel, permissionMode: startPermissionMode(),
                                                       startMode: ownerLink != nil && harness == seed?.harness ? seed?.mode : nil, // the Cloud send's mode pick, own machine only
                                                       credentials: credential?.env, launchEndpoint: credential?.endpoint,
-                                                      credentialConnection: credential.map { cloudCredentials?.credentialBinding($0) ?? $0.connectionID }, claudeAuth: ownerLink != nil ? cloudCredentials?.claudeAuth(chat: key, machine: machine, harness: harness) : nil)) } catch { result = .failure(error) }
+                                                      credentialConnection: credential.map { cloudCredentials?.credentialBinding($0) ?? $0.connectionID }, claudeAuth: cloudCredentials?.claudeAuth(chat: key, machine: machine, harness: harness))) } catch { result = .failure(error) }
         let phases = await client.startPhases
         await client.close()
         switch result {

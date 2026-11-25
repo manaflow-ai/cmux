@@ -1,9 +1,9 @@
-//! The guest's start request pins the Claude auth source in the launched agent's env.
+//! A guest start with explicit team auth must install that route before launching Claude.
 
 use super::*;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn explicit_team_auth_overrides_the_harness_default_for_one_guest_launch() {
+async fn explicit_team_auth_refuses_a_launcher_that_cannot_install_it() {
     let mut daemon = Daemon::new("claude-launch-auth", "approve-all");
     daemon.sigterm();
     std::fs::write(
@@ -23,11 +23,15 @@ async fn explicit_team_auth_overrides_the_harness_default_for_one_guest_launch()
     .unwrap();
     daemon.start();
     let mut rpc = daemon.rpc().await;
-    for (meta, expected) in [
-        (json!({"claudeTeamRoute": true}), "team"),
-        (json!({"claudeMachineLogin": true}), "own"),
-        (json!({}), "own"),
-    ] {
+    let refused = rpc
+        .reply(
+            "session/new",
+            json!({"cwd": daemon.home, "mcpServers": [], "_meta": {"acpmux": {"claudeTeamRoute": true}}}),
+        )
+        .await;
+    assert_eq!(refused["error"]["data"]["reason"], "route.unavailable");
+    assert!(refused.get("result").is_none());
+    for meta in [json!({"claudeMachineLogin": true}), json!({})] {
         let started = rpc
             .call(
                 "session/new",
@@ -45,9 +49,6 @@ async fn explicit_team_auth_overrides_the_harness_default_for_one_guest_launch()
                 .as_str()
                 .is_some_and(|text| text.starts_with("CMUX_CLAUDE_AUTH="))
         });
-        assert_eq!(
-            event["msg"]["params"]["update"]["content"]["text"],
-            format!("CMUX_CLAUDE_AUTH={expected}")
-        );
+        assert_eq!(event["msg"]["params"]["update"]["content"]["text"], "CMUX_CLAUDE_AUTH=own");
     }
 }

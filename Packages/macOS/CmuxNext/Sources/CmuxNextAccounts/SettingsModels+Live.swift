@@ -147,12 +147,15 @@ extension SettingsModels {
 
     /// Save an API key in the Keychain and send its reference to the connection owner.
     /// A refused write removes the newly saved item.
-    func addKey(provider: String, key: String, label: String?, replacing: String?, servesCloud: Bool?) async throws {
+    func addKey(provider: String, key: String, label: String?, replacing: (id: String, instance: String)?, servesCloud: Bool?) async throws {
         guard Self.providers.contains(provider) else { throw PageError.invalidParams("addKey needs a known provider") }
         let key = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard Self.isModelAPIKey(key) else { throw PageError.invalidParams("addKey needs a valid API key") }
         var params: [String: any Sendable] = ["provider": provider]
-        if let replacing { params["replace"] = replacing }
+        if let replacing {
+            params["replace"] = replacing.id
+            params["replaceInstance"] = replacing.instance
+        }
         else if let servesCloud { params["servesCloud"] = servesCloud }
         try await addSecret(key, store: provider, method: .connectionsKeyAdd, params: params, label: label)
     }

@@ -209,5 +209,37 @@ async fn a_discovered_claude_with_no_sign_in_gets_the_team_plane() {
     assert_eq!(own.env.get("CMUX_CLAUDE_AUTH").map(String::as_str), Some("own"));
     assert!(!own.env.contains_key("ANTHROPIC_BASE_URL"));
     assert_eq!(std::fs::read_to_string(choice.join("claude")).unwrap(), "team\n");
+
+    // The explicit Cloud start replaces even a profile's personal launch key and endpoint.
+    std::fs::write(choice.join("claude"), "own\n").unwrap();
+    let mut requested = meta.clone();
+    requested.session_env.insert("CMUX_CLAUDE_AUTH".into(), "team".into());
+    requested.session_env.insert(crate::claude_cloud_auth::REQUIRED_TEAM.into(), "1".into());
+    let mut personal = profile(&[
+        ("ANTHROPIC_BASE_URL", "https://personal.test"),
+        ("ANTHROPIC_API_KEY", "personal-key"),
+        ("ANTHROPIC_AUTH_TOKEN", "personal-token"),
+    ]);
+    personal.argv.extend(["--".into(), "positional".into()]);
+    let team = hub.spawn_profile_for(&requested, &personal, &none).await.unwrap();
+    let child =
+        crate::agent::harness_command(&requested.harness, &team, &home, None, None).unwrap();
+    let env: std::collections::BTreeMap<String, String> =
+        crate::agent::command_env(&child).into_iter().collect();
+    assert_eq!(env["ANTHROPIC_BASE_URL"], "https://localhost");
+    assert_eq!(env["ANTHROPIC_API_KEY"], crate::codex_cloud_auth::PLACEHOLDER_KEY);
+    assert!(!env.contains_key("ANTHROPIC_AUTH_TOKEN"));
+    assert!(!env.contains_key(crate::claude_cloud_auth::REQUIRED_TEAM));
+    let args: Vec<_> =
+        child.as_std().get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+    let settings = crate::claude_cloud_auth::flag_settings(&args, &home).unwrap().unwrap();
+    assert_eq!(settings["env"]["ANTHROPIC_BASE_URL"], "https://localhost");
+    assert_eq!(settings["env"]["ANTHROPIC_API_KEY"], crate::codex_cloud_auth::PLACEHOLDER_KEY);
+    assert_eq!(settings["env"]["ANTHROPIC_AUTH_TOKEN"], "");
+
+    std::fs::remove_file(root.join("etc/cmux/model-plane.env")).unwrap();
+    let refused = hub.spawn_profile_for(&requested, &personal, &none).await.err().unwrap();
+    assert_eq!(refused.data.unwrap()["reason"], "route.unavailable");
+    assert_eq!(std::fs::read_to_string(choice.join("claude")).unwrap(), "own\n");
     let _ = std::fs::remove_dir_all(&root);
 }

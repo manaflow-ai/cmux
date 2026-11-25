@@ -243,12 +243,3 @@ export function SignInWaiting({
     </div>
   );
 }
-
-export function ToggleConnectionLabel({ enabled }: { enabled: boolean }) {
-  return (
-    <>
-      <Icon name={enabled ? "link.slash" : "link"} />
-      {t(enabled ? "settingsWindow.models.disconnect" : "settingsWindow.models.connect")}
-    </>
-  );
-}

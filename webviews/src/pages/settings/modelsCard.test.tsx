@@ -126,10 +126,35 @@ test("Move Down sends the whole new order, and the rows follow", async () => {
   expect(connectionIds(rendered)).toEqual(["claude-login", "codex-login", "chatgpt", "openrouter-key"]);
 });
 
+test("Move Up crosses the previous visible row while the hidden Claude token keeps its place", async () => {
+  const rendered = await render(mockModels.macLogins);
+  await chooseAction(rendered, "openrouter-key", "moveUp");
+  expect(rendered.provider.modelRuns).toEqual([
+    { action: "order", ids: ["codex-login", "claude-login", "openrouter-key", "claude-token", "chatgpt"] },
+  ]);
+  expect(connectionIds(rendered)).toEqual(["codex-login", "claude-login", "openrouter-key", "chatgpt"]);
+});
+
+test.each(["openrouter-key", "chatgpt"])("%s can be turned off and on without removing it", async (id) => {
+  const models = structuredClone(mockModels.macLogins);
+  models.personal.connections.find((connection) => connection.id === id)!.enabled = true;
+  const rendered = await render(models);
+  const toggle = () => row(rendered, id).querySelector('[role="switch"]')!;
+  expect(toggle()?.getAttribute("aria-checked")).toBe("true");
+  await click(toggle());
+  expect(toggle().getAttribute("aria-checked")).toBe("false");
+  await click(toggle());
+  expect(toggle().getAttribute("aria-checked")).toBe("true");
+  expect(rendered.provider.modelRuns).toEqual([
+    { action: "enable", id, on: false },
+    { action: "enable", id, on: true },
+  ]);
+});
+
 test("subscription rows keep their type and account details without Cloud controls", async () => {
   const rendered = await render(mockModels.macLogins);
   for (const connection of card(rendered).querySelectorAll("[data-connection]")) {
-    expect(connection.querySelectorAll("button")).toHaveLength(1);
+    expect(connection.querySelectorAll("button")).toHaveLength(2);
     expect(connection.querySelector(".row-main")?.firstElementChild?.classList.contains("models-provider-mark")).toBe(
       true,
     );
@@ -148,13 +173,7 @@ test("subscription rows keep their type and account details without Cloud contro
   await click(menuButton(rendered, "codex-login"));
   expect(document.querySelector(".models-menu-details")?.textContent).toContain("alex@example.com");
   const items = [...document.querySelectorAll('[role="menuitem"]')];
-  expect(items.map((item) => item.textContent)).toEqual([
-    "Reauthenticate",
-    "Rename",
-    "Move up",
-    "Move down",
-    "Disconnect",
-  ]);
+  expect(items.map((item) => item.textContent)).toEqual(["Reauthenticate", "Rename", "Move up", "Move down"]);
   expect(card(rendered).textContent).not.toMatch(/Cloud|This Mac/i);
   expect(items.every((item) => item.querySelector("svg"))).toBe(true);
 });
@@ -758,7 +777,7 @@ test.each([
   ["cancelling", null, "Cancelling…", true],
   ["failed", "expired", "The sign-in expired. Start again.", false],
   ["failed", "failed", "Sign-in didn't finish. Try again.", false],
-  ["disabled", "cli_missing", "Couldn’t start Claude sign-in.", true],
+  ["disabled", "cli_missing", "Couldn’t start Claude sign-in.", false],
   ["disabled", "shared_machine", "Only the machine's owner can connect Claude here", true],
   ["disabled", "unsupported", "Update", true],
   ["disabled", "update_claude", "Update Claude Code", false],
@@ -1119,6 +1138,29 @@ test("Add custom provider checks its URL and saves every model it lists through 
   expect(rendered.provider.agents.modelEndpoint("inference")).toEqual(latest);
 });
 
+test("a custom endpoint without model discovery saves a manual model and rotates its key", async () => {
+  const rendered = await render(mockModels.empty);
+  rendered.provider.agents.endpoint.addFails = "cmux.agents.endpoint_check";
+  await pick("endpoint");
+  const form = () => panel()!.querySelector<HTMLFormElement>("[data-models-endpoint-form]")!;
+  await changeValue(form().querySelector('input[type="text"]')!, "Private endpoint");
+  await changeValue(form().querySelector('input[type="url"]')!, "https://private.example.com/v1");
+  await changeValue(form().querySelector('input[type="password"]')!, "fixture-initial-key");
+  await click(action(form(), "addEndpoint")!);
+  expect(form().querySelector('[role="alert"]')?.textContent).toContain("model list could not be read");
+  await changeValue(form().querySelector(".models-manual-model input")!, "known-model");
+  await click(action(form(), "addEndpoint")!);
+  expect(panel()).toBeNull();
+  expect(rendered.provider.agents.modelEndpoint("private-endpoint")?.endpoint?.models).toEqual(["known-model"]);
+
+  await chooseAction(rendered, "private-endpoint", "edit");
+  await changeValue(form().querySelector('input[type="password"]')!, "fixture-rotated-key");
+  await click(action(form(), "addEndpoint")!);
+  expect(panel()).toBeNull();
+  expect(rendered.provider.agents.keys.get("private-endpoint")).toBe("fixture-rotated-key");
+  expect(rendered.provider.agents.modelEndpoint("private-endpoint")?.endpoint?.models).toEqual(["known-model"]);
+});
+
 test("Rename changes only a saved connection's name", async () => {
   const rendered = await render(mockModels.macLogins);
   const menu = card(rendered).querySelector('[data-menu="connection-openrouter-key"]')!;
@@ -1189,11 +1231,33 @@ test("Edit leaves a blank key alone and replaces a filled key on the same connec
       key: "fixture-replacement",
       verifyAccess: true,
       replace: "openrouter-key",
+      replaceInstance: "fixture-openrouter",
     },
   ]);
   expect(connectionIds(rendered)).toEqual(["codex-login", "claude-login", "chatgpt", "openrouter-key"]);
   expect(detail(rendered, "openrouter-key")?.textContent).toBe("API key");
   expect(status(rendered, "openrouter-key")?.textContent).toBe("Turned off");
+});
+
+test("an API key draft keeps its original connection identity when Settings receives a replacement row", async () => {
+  const rendered = await render(mockModels.macLogins);
+  await chooseAction(rendered, "openrouter-key", "edit");
+  const state = rendered.provider.models!;
+  const connections = state.personal.connections.map((connection) =>
+    connection.id === "openrouter-key"
+      ? { ...connection, credentialInstance: "new-instance", label: "New connection" }
+      : connection,
+  );
+  await act(async () => rendered.provider.setModels({ ...state, personal: { ...state.personal, connections } }));
+  await changeValue(panel()!.querySelector('input[type="password"]')!, "stale-fixture-key");
+  await click(action(panel()!, "addKey")!);
+  expect(rendered.provider.modelRuns.at(-1)).toMatchObject({
+    action: "addKey",
+    replace: "openrouter-key",
+    replaceInstance: "fixture-openrouter",
+  });
+  expect(panel()?.querySelector('[role="alert"]')).not.toBeNull();
+  expect(rendered.provider.models?.personal.connections).toEqual(connections);
 });
 
 test("a saved key shows a spinner while Check access runs and reports results in the menu", async () => {

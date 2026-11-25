@@ -259,12 +259,15 @@ struct CloudAgentCredentialRefresherTests {
         // Even a copied route file with the same instance does not prove ownership on this Mac.
         let other = CloudAgentCredentials(machineIdentity: "second-mac") { _ in data }
         #expect(try await other.boundCredential(expected, model: nil, harness: "claude") == nil)
+        let machine = Machine()
         other.readCredentialConnections = {
-            [.init(id: "anthropic-key", families: ["claude"], enabled: false, credentialInstance: instance)]
+            .init(connections: [.init(id: "anthropic-key", families: ["claude"], servesCloud: false,
+                                      canServeCloud: true, credentialInstance: instance)],
+                  disconnected: ["anthropic-key": [instance]])
         }
-        #expect(await other.connection(forBinding: expected) == nil)
-        other.readCredentialConnections = { [] }
-        #expect(await other.connection(forBinding: expected) == nil)
+        await other.restoreBinding(expected, chat: "chat", machine: "guest", sessionID: "session", harness: "claude", model: nil,
+                                   replace: { await machine.push($0?.env ?? [:]) }, onDelivered: {}, onRefusal: { _ in })
+        #expect(machine.pushes.isEmpty)
     }
 
     @Test func replacingAKeyKeepsTheBindingAndDeletingThenAddingBreaksIt() async throws {
@@ -276,7 +279,7 @@ struct CloudAgentCredentialRefresherTests {
         let credentials = CloudAgentCredentials(machineIdentity: "mac") { _ in
             try keyReply(kind: "api-key", instance: instance, key: key)
         }
-        credentials.readCredentialConnections = { listed }
+        credentials.readCredentialConnections = { listed.map { .init(connections: $0) } }
         let first = try await credentials.credential(forConnection: "anthropic-key")
         let expected = try #require(credentials.credentialBinding(first))
         credentials.started(chat: "chat", machine: "guest", on: first, push: machine.push)
@@ -292,7 +295,6 @@ struct CloudAgentCredentialRefresherTests {
         listed = []
         credentials.credentialConnectionsChanged()
         await credentials.keySync?.value
-        #expect(await credentials.connection(forBinding: expected) == nil)
         #expect(machine.pushes.count == 2)
 
         instance = UUID().uuidString
@@ -301,39 +303,99 @@ struct CloudAgentCredentialRefresherTests {
         credentials.credentialConnectionsChanged()
         await credentials.keySync?.value
         #expect(try await credentials.boundCredential(expected, model: nil, harness: "claude") == nil)
-        #expect(await credentials.connection(forBinding: expected) == nil)
         #expect(machine.pushes.count == 2)
     }
 
-    @Test func copilotRevokesOnlyAfterTheMatchingConnectionIsDisabled() async throws {
+    @Test(arguments: ["chatgpt.keychain_other_build", "chatgpt.keychain_locked", "chatgpt.storage"])
+    func reattachingWithAnUnreadableGrantSendsNothing(reason: String) async throws {
         let machine = Machine()
         let instance = UUID().uuidString
-        var listed: [CloudSetup.Connection]? = [.init(id: "copilot", families: ["github-copilot"], credentialInstance: instance)]
         let credentials = CloudAgentCredentials(machineIdentity: "mac") { _ in
-            try keyReply(kind: "copilot-plan", instance: instance, key: "fixture-first")
+            throw CloudAgentCredentials.Failure.refused(reason: reason)
         }
-        credentials.readCredentialConnections = { listed }
-        let first = try await credentials.credential(forConnection: "copilot")
+        let credential = CloudAgentCredential(connectionID: "chatgpt", family: "codex", kind: "chatgpt-plan",
+                                              env: ["CMUX_CHATGPT_ACCESS_TOKEN": "fixture"], expiresAt: .now.addingTimeInterval(3_600),
+                                              instance: instance)
+        let binding = try #require(credentials.credentialBinding(credential))
+        for signedIn in [false, true] {
+            credentials.readCredentialConnections = {
+                .init(connections: [.init(id: "chatgpt", families: ["codex"], signedIn: signedIn, credentialInstance: instance)])
+            }
+            await credentials.restoreBinding(binding, chat: "chat", machine: "guest", sessionID: "session", harness: "codex", model: nil,
+                                             replace: { await machine.push($0?.env ?? [:]) }, onDelivered: {}, onRefusal: { _ in })
+        }
+        #expect(machine.pushes.isEmpty)
+    }
+
+    @Test func credentialsWithoutAnInstanceStillTrackLegacyChatGPTRefresh() throws {
+        let credentials = CloudAgentCredentials()
+        let credential = CloudAgentCredential(connectionID: "chatgpt", family: "codex", kind: "chatgpt-plan",
+                                              env: ["CMUX_CHATGPT_ACCESS_TOKEN": "fixture"], expiresAt: .now.addingTimeInterval(3_600))
+        #expect(credentials.started(chat: "chat", machine: "guest", on: credential, push: Machine().push) != nil)
+        #expect(credentials.refresher.trackedCount == 1)
+    }
+
+    @Test func reEnablingCloudUseRedeliversToTheOpenChat() async throws {
+        let machine = Machine()
+        let instance = UUID().uuidString
+        var cloudOn = true
+        let credentials = CloudAgentCredentials(machineIdentity: "mac") { _ in
+            try keyReply(kind: "api-key", instance: instance, key: "fixture-first")
+        }
+        credentials.readCredentialConnections = {
+            .init(connections: [.init(id: "key", families: ["claude"], servesCloud: cloudOn,
+                                      canServeCloud: true, credentialInstance: instance)])
+        }
+        let first = try await credentials.credential(forConnection: "key")
         credentials.started(chat: "chat", machine: "guest", on: first, push: machine.push)
         await credentials.keySync?.value
-        #expect(machine.pushes == [first.env])
+        cloudOn = false
+        credentials.credentialConnectionsChanged()
+        await credentials.keySync?.value
+        cloudOn = true
+        credentials.credentialConnectionsChanged()
+        await credentials.keySync?.value
+        #expect(machine.pushes == [first.env, [:], first.env])
+    }
 
-        listed = nil
+    @Test func reattachRetriesARefusedWithdrawalOfAnExplicitDisconnect() async throws {
+        let machine = Machine()
+        let clock = ManualClock()
+        let instance = UUID().uuidString
+        var state = CloudAgentCredentials.ConnectionState(connections: [
+            .init(id: "copilot", families: ["github-copilot"], credentialInstance: instance)
+        ])
+        let credentials = CloudAgentCredentials(machineIdentity: "mac", clock: clock) { _ in
+            try keyReply(kind: "copilot-plan", instance: instance, key: "fixture-first")
+        }
+        credentials.readCredentialConnections = { state }
+        let first = try await credentials.credential(forConnection: "copilot")
+        let binding = try #require(credentials.credentialBinding(first))
+        credentials.started(chat: "chat", machine: "guest", sessionID: "session", on: first, push: machine.push)
+        await credentials.keySync?.value
+
+        // A missing connection has no authority to withdraw.
+        state = .init(connections: [])
         credentials.credentialConnectionsChanged()
         await credentials.keySync?.value
         #expect(machine.pushes == [first.env])
 
-        listed = [.init(id: "copilot", families: ["github-copilot"], enabled: false, credentialInstance: instance)]
+        state = .init(connections: [], disconnected: ["copilot": [instance]])
         machine.answer = .failed
         credentials.credentialConnectionsChanged()
         await credentials.keySync?.value
-        #expect(machine.pushes.last == [:])
+        #expect(machine.pushes == [first.env, [:]])
+
+        // The guest can finish adopting the host without another settings or link event.
+        try await clock.waitForSleeper()
+        clock.advance(by: CloudAgentCredentialRefresher.retry)
+        try await clock.waitForSleeper()
+        #expect(machine.pushes == [first.env, [:], [:]])
+
         machine.answer = .delivered
-        credentials.credentialConnectionsChanged()
-        await credentials.keySync?.value
-        #expect(machine.pushes.count == 3 && machine.pushes.last == [:])
-        credentials.credentialConnectionsChanged()
-        #expect(credentials.keySync == nil)
+        await credentials.restoreBinding(binding, chat: "chat", machine: "guest", sessionID: "session", harness: "opencode", model: nil,
+                                         replace: { await machine.push($0?.env ?? [:]) }, onDelivered: {}, onRefusal: { _ in })
+        #expect(machine.pushes == [first.env, [:], [:], [:]])
     }
 
     private func keyReply(kind: String, instance: String, key: String) throws -> Data {

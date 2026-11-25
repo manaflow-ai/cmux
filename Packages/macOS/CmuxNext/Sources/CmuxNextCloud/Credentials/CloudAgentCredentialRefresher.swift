@@ -133,7 +133,7 @@ public final class CloudAgentCredentialRefresher {
                 continue
             }
             let outcome: PushOutcome
-            if let replace = agent.replace, fresh.endpoint != nil { outcome = await replace(fresh) }
+            if let replace = agent.replace { outcome = await replace(fresh) }
             else { outcome = await agent.push(fresh.env) }
             switch outcome {
             case .delivered: agents[connection]?[id]?.delivered = expires

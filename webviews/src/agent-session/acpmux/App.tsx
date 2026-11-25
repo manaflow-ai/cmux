@@ -498,7 +498,7 @@ import { createCloudPlanSubscribe } from "./cloudPlanSubscribe";
 import { type CloudSignInWait } from "./cloudSignIn";
 import { connectHeldCloudSend, retryWithSetUpPick, type CloudSetupAction, type CloudSetupNeed } from "./cloudSetup";
 import { ClaudeConnectContext, openClaudeCloudSettings, setupConnect } from "./claudeConnect";
-import { useCloudServed, CloudServedContext, selectFamilyOnReturn } from "./cloudServed";
+import { cloudPickerMachineForDraft, useCloudServed, CloudServedContext, selectFamilyOnReturn } from "./cloudServed";
 import { type QuickActionMode } from "./header/quickActions";
 import {
   useAutoCloudKey,
@@ -1114,6 +1114,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // explicit picker choice; never guess a machine from the account inventory. Null records a
   // non-Cloud destination and suppresses the previous identity while its handshake catches up.
   const cloudDraftMachineID = useRef<string | null | undefined>(undefined);
+  const cloudDraftPeer = useRef<string | null | undefined>(undefined);
   // Whether `cloudChatIdentity` still names the chat shown (cloudIdentityKept): set by the
   // handshake that gave it, cleared when the pane moves to another chat or New Tab page.
   const cloudIdentityBound = useRef(false);
@@ -4317,6 +4318,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // Run mode is a new destination (including a brand-new Cloud machine); an account-machine
     // picker target must not survive that choice and wake the old machine on the next edit.
     cloudDraftMachineID.current = null;
+    cloudDraftPeer.current = undefined;
     cloudTypingPrewarm.reset();
     runModePicked.current = true;
     sandbox.setMode(mode);
@@ -4606,7 +4608,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   });
   const cloudSetupNeed = heldCloudSetup(cloudStart);
   const cloudSetupWaiting = cloudStart?.signingIn === true;
-  const cloudPickerMachine = useCallback(() => cloudDraftMachineID.current ?? undefined, []);
+  const cloudPickerMachine = useCallback(
+    () => cloudPickerMachineForDraft(cloudDraftMachineID.current, cloudDraftPeer.current),
+    [],
+  );
   const pickerEnvironment = cloudStartEnvironment(undefined, cloudEnvironment.pick.current);
   const cloudServed = useCloudServed(callNative, cloudPicked, {
     readMachine: cloudPickerMachine,
@@ -4629,7 +4634,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             composerHandle.current,
             sessionIdRef.current,
             lastCloudAttempt.current,
-            cloudDraftMachineID.current,
+            cloudPickerMachine(),
             pickerEnvironment,
             summary?.configOptions?.map((option) => option.currentValue).join("\u0000"),
             JSON.stringify(intent?.config.options ?? {}),
@@ -4644,7 +4649,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       });
       connectCloudPicker(family, select);
     },
-    [connectCloudPicker, cloudSetupNeed, cloudSetupWaiting, cloudStartShown, harnessSwitch, pickerEnvironment],
+    [
+      cloudPickerMachine,
+      connectCloudPicker,
+      cloudSetupNeed,
+      cloudSetupWaiting,
+      cloudStartShown,
+      harnessSwitch,
+      pickerEnvironment,
+    ],
   );
   const cloudPickerSetup = useMemo(
     () => ({ ...cloudServed, openSettings: openCloudPickerSettings }),
@@ -4823,6 +4836,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cloudTypedDuringStart.current = undefined;
     newTabCloudSent.current = false;
     cloudDraftMachineID.current = undefined;
+    cloudDraftPeer.current = undefined;
     cloudTypingPrewarm.reset();
     const view = { ...(snapshot.sessionId ? { session: snapshot.sessionId } : {}), generation: newTabGeneration };
     if (!cloudIdentityKept(cloudShownView.current, view)) cloudIdentityBound.current = false;
@@ -8791,8 +8805,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   const cloudHintUsed = cloudHint.used;
   const onCloudMachinePicked = useCallback(
-    (machine: CloudMachine | undefined) => {
+    (machine: CloudMachine | undefined, peer?: string | null) => {
       cloudDraftMachineID.current = machine?.id ?? null;
+      cloudDraftPeer.current = peer;
       refreshCloudPicker();
       // A Cloud machine picked is a pick of Cloud: the hint is done.
       if (machine) cloudHintUsed();

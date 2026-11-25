@@ -342,7 +342,7 @@ type Props = NewTabScreenActions & {
   /// can copy it (cloud.startChat copies only the pane's own folders, AgentPaneHandOff), while the
   /// Return that sends keeps its own gesture for the start.
   onProjectPicked?(cwd: string): void;
-  onCloudMachinePicked?(machine: CloudMachine | undefined): void;
+  onCloudMachinePicked?(machine: CloudMachine | undefined, peer?: string | null): void;
   /// The machine acpmux lists that the person last picked for a new chat (lastNewChatPlace.ts,
   /// cmux#46019): the page starts there, as if picked, until a place is picked here.
   startMachine?: string;
@@ -530,10 +530,14 @@ export function NewTabScreen(props: Props) {
   /// A place was picked on this page (a machine, a folder, New project, a run mode): the last pick's
   /// machine (`startMachine`) no longer replaces it, even when acpmux lists that machine only later.
   const placePicked = useRef(false);
+  const pickPeerForCloud = (peer: string | undefined) =>
+    props.onCloudMachinePicked?.(undefined, peer && snapshot.peerKinds?.[peer] === "ssh" ? null : peer);
+  const pickInitialPeerForCloud = useEffectEvent(pickPeerForCloud);
   useEffect(() => {
     if (!props.startMachine || placePicked.current) return;
     placePicked.current = true;
     setMachine({ peer: props.startMachine });
+    pickInitialPeerForCloud(props.startMachine);
   }, [props.startMachine]);
   const folderless = !props.cwd || props.cwd === home || isAgentHome(props.cwd);
   // A temporary folder (the tab beside a scratch chat or terminal in /tmp, which the app also proposes
@@ -2134,8 +2138,7 @@ export function NewTabScreen(props: Props) {
     setNewProject(undefined);
     // A folder made for a start that failed is New project's only while it stays the choice.
     newProjectMade.current = undefined;
-    // Choosing a local or SSH machine replaces an account Cloud target for this draft.
-    props.onCloudMachinePicked?.(undefined);
+    pickPeerForCloud(next?.peer);
     saved.pick(undefined);
     touch();
     // A machine picked with a folder there (the location row picks its first known folder) is a
@@ -2374,7 +2377,9 @@ export function NewTabScreen(props: Props) {
         {...(snapshot.peerLinks ? { peerLinks: snapshot.peerLinks } : {})}
         {...(props.onRefreshMachines ? { onRefreshMachines: props.onRefreshMachines } : {})}
         onComputer={(computer) => pickMachine(computer === "local" ? undefined : { peer: computer })}
-        {...(props.onCloudMachinePicked ? { onCloudMachinePicked: props.onCloudMachinePicked } : {})}
+        onCloudMachinePicked={(machine) => {
+          if (machine) props.onCloudMachinePicked?.(machine);
+        }}
         {...(props.machineName ? { localName: props.machineName } : {})}
         projectChoices={props.projects ?? NO_PROJECTS}
         onProject={(cwd, peer) => (peer ? pickMachine({ peer, folder: cwd }) : pickProject(cwd))}

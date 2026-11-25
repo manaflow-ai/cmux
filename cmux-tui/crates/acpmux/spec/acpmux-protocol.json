@@ -2399,18 +2399,6 @@
     },
     {
       "kind": "request",
-      "name": "_acpmux/connections/chatgpt.import",
-      "params": true,
-      "result": true
-    },
-    {
-      "kind": "request",
-      "name": "_acpmux/connections/claude_token.add",
-      "params": true,
-      "result": true
-    },
-    {
-      "kind": "request",
       "name": "_acpmux/connections/subscription.begin",
       "params": true,
       "result": true
@@ -2436,6 +2424,18 @@
     {
       "kind": "request",
       "name": "_acpmux/connections/chatgpt.token",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/chatgpt.import",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/claude_token.add",
       "params": true,
       "result": true
     },
@@ -3102,6 +3102,7 @@
         },
         "code": true,
         "loginId": true,
+        "recoverySession": true,
         "sessionId": true
       },
       "type": "object"
@@ -3113,6 +3114,7 @@
           "$ref": "#/types/RequestMeta"
         },
         "agent": true,
+        "recoverySession": true,
         "reuseExisting": true,
         "sessionId": true
       },

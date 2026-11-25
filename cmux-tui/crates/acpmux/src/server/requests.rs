@@ -1860,6 +1860,9 @@ async fn dispatch_request_with_identity(
                 let auth = if claude_machine_login { "own" } else { "team" };
                 env.insert("CMUX_CLAUDE_AUTH".into(), auth.into());
             }
+            if claude_team_route {
+                env.insert(crate::claude_cloud_auth::REQUIRED_TEAM.into(), "1".into());
+            }
             let disallowed_tools = disallowed_tools(meta)?;
             let additional_directories = crate::hub::additional_dirs::requested(&params).await?;
             let stop_condition = crate::hub::stop_condition::requested(meta)?;
@@ -4718,9 +4721,16 @@ async fn agent_credentials_update(
         .and_then(Value::as_str)
         .filter(|id| !id.is_empty())
         .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;
-    if params
-        .as_object()
-        .is_some_and(|o| o.keys().any(|k| !matches!(k.as_str(), "sessionId" | "env" | "endpoint")))
+    if params.as_object().is_some_and(|o| {
+        o.keys().any(|k| !matches!(k.as_str(), "sessionId" | "env" | "endpoint" | "legacyRefresh"))
+    }) {
+        return Err(RpcError::invalid_params(
+            "agent/credentials.update takes sessionId, env, and endpoint",
+        ));
+    }
+    let legacy_refresh = params["legacyRefresh"] == true;
+    if params.get("legacyRefresh").is_some()
+        && (!legacy_refresh || params.get("endpoint").is_some() || params.get("env").is_none())
     {
         return Err(RpcError::invalid_params(
             "agent/credentials.update takes sessionId, env, and endpoint",
@@ -4729,7 +4739,7 @@ async fn agent_credentials_update(
     let Some(env) = params.get("env") else {
         return hub.credential_status(id).await;
     };
-    if env.as_object().is_some_and(|env| env.is_empty()) {
+    if !legacy_refresh && env.as_object().is_some_and(|env| env.is_empty()) {
         return hub.revoke_credential(id).await;
     }
     let mut wire = json!({"env": env});
@@ -4737,5 +4747,5 @@ async fn agent_credentials_update(
         wire["endpoint"] = endpoint.clone();
     }
     let credential = crate::agent_credentials::AgentCredential::parse(&wire)?;
-    hub.update_credential(id, credential).await
+    hub.update_credential(id, credential, legacy_refresh).await
 }

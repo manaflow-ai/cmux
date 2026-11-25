@@ -274,7 +274,9 @@ pub(super) async fn handle(
             .await
             .map_err(joined)?
             .map_err(rpc_error)?;
-            hub.reload_and_announce().await;
+            if !hub.reload_and_announce().await {
+                super::connections::announce_later(hub);
+            }
             // A key `forgetKey` could not delete: removed (Undo still works), and `keyError` says why.
             json!({"id": removed.id, "backup": removed.backup, "keyError": removed.key_error})
         }

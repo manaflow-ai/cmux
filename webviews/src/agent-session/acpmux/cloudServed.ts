@@ -1,5 +1,6 @@
 // The desktop host advertises Cloud launch support separately from connection readiness.
 import { createContext, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { currentCloudMachine } from "./cloudMachines";
 import { pageIsKey, watchPageKey } from "./pageKey";
 
 export type CloudConnectionReason = "none" | "signedOut" | "off" | "cloudOff";
@@ -113,8 +114,15 @@ export function selectFamilyOnReturn(
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
+/// Undefined is automatic placement. Null means the explicit peer has no verified account VM.
+export function cloudPickerMachineForDraft(machine: string | null | undefined, peer: string | null | undefined) {
+  if (peer === undefined) return machine ?? undefined;
+  return (peer && currentCloudMachine(peer)?.id) || null;
+}
+
 type CloudReturn = {
   family: string;
+  machine?: string | undefined;
   onReady(): void;
   unwatch(): void;
 };
@@ -131,12 +139,13 @@ export function useCloudServed(
   }: {
     watchKey?: typeof watchPageKey;
     isKey?: typeof pageIsKey;
-    readMachine?(): string | undefined;
+    readMachine?(): string | null | undefined;
     environment?: string;
   } = {},
 ) {
   const [served, setServed] = useState<CloudServed>();
   const reads = useRef(0);
+  const lastMachine = useRef<string | null | undefined>(undefined);
   const pendingReturn = useRef<CloudReturn>(undefined);
   const returned = useRef<CloudReturn>(undefined);
   const callRef = useRef(call);
@@ -146,6 +155,11 @@ export function useCloudServed(
   const read = useCallback(() => {
     const id = ++reads.current;
     const machine = readMachine?.();
+    if (machine !== lastMachine.current) {
+      lastMachine.current = machine;
+      setServed(undefined);
+    }
+    if (machine === null) return;
     void callRef
       .current("cloud.setup.state", {
         ...(machine ? { machine } : {}),
@@ -153,13 +167,13 @@ export function useCloudServed(
       })
       .then(
         (reply) => {
-          if (id !== reads.current) return;
+          if (id !== reads.current || readMachine?.() !== machine) return;
           const next = readCloudServed(reply);
           setServed(next);
           const wanted = returned.current;
           returned.current = undefined;
           const state = wanted && cloudPickerState(next, wanted.family);
-          if (wanted && (state === "ready" || state === "pending")) wanted.onReady();
+          if (wanted && wanted.machine === machine && (state === "ready" || state === "pending")) wanted.onReady();
         },
         () => {
           if (id !== reads.current) return;
@@ -191,10 +205,13 @@ export function useCloudServed(
     (family: string, onReady: () => void) => {
       if (!active) return;
       disarm();
+      const machine = readMachine?.();
+      if (machine === null) return;
       // A new Connect replaces a return read already in flight.
       reads.current += 1;
       const wanted = {
         family,
+        machine,
         onReady,
         unwatch: watchKey(() => {
           if (!isKey() || pendingReturn.current !== wanted) return;
@@ -204,7 +221,6 @@ export function useCloudServed(
         }),
       };
       pendingReturn.current = wanted;
-      const machine = readMachine?.();
       void callRef
         .current("cloud.connect", {
           family,

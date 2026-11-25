@@ -12,7 +12,7 @@ export type SetupSelection = {
   id: string;
   target?: string;
   machine?: string;
-  edit?: boolean;
+  edit?: ModelConnection;
   useSettingsClaudeLogin?: boolean;
   onKeyReplaced?(): void;
 };

@@ -81,7 +81,9 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   const cloudRows = connections.filter(
     (c) => !isLocalOnlyPlan(c) && (isCloudSubscription(c) || (c.canServeCloud ?? c.servesCloud)),
   );
-  const routeRows = cloud ? cloudRows : connections.filter((c) => c.kind !== "native-login");
+  const routeRows = cloud
+    ? cloudRows
+    : connections.filter((c) => c.kind !== "native-login" && c.kind !== "claude-token");
   const cloudClaude = models?.cloudClaudeLogin;
   const namedVisit = machineName ? request : null;
   const claudeLogin = cloud
@@ -112,14 +114,11 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
       : undefined;
   const displayed = cloud
     ? [...(nativeCloud ? [nativeCloud] : []), ...routeRows]
-    : // The old Claude token only ever served Cloud: it lives in Cloud models.
-      [...routeRows.filter((c) => c.kind !== "claude-token"), ...connections.filter((c) => c.kind === "native-login")];
+    : [...routeRows, ...connections.filter((c) => c.kind === "native-login")];
   const claudeAvailable = models?.claudeCodeAvailable;
-  const cloudUnavailable =
-    cloud && !namedVisit && claudeLogin?.phase === "disabled" && claudeLogin.error !== "update_claude";
   const cloudClaudeMachine = cloud && !namedVisit && claudeLogin?.machineName;
   useEffect(() => {
-    if (available && (cloud ? !cloudUnavailable : claudeAvailable !== false)) {
+    if (available && (cloud || claudeAvailable !== false)) {
       const checked = store.runModels({
         action: "checkClaudeLogin",
         cloud,
@@ -138,18 +137,7 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
         };
       }
     }
-  }, [
-    available,
-    cloud,
-    claudeAvailable,
-    cloudUnavailable,
-    cloudClaudeMachine,
-    machine,
-    environment,
-    machineName,
-    namedVisit,
-    store,
-  ]);
+  }, [available, cloud, claudeAvailable, cloudClaudeMachine, machine, environment, machineName, namedVisit, store]);
   const now = Date.now();
   const cloudRunnerStatus = (connection: ModelConnection): "updating" | "offline" | "notReady" | undefined => {
     const runner = connection.launchHarness;
@@ -249,7 +237,6 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   };
   const setup = selection && "id" in selection ? selection : undefined;
   const rowAction = selection && "kind" in selection ? selection : undefined;
-  const editingConnection = setup?.edit ? connections.find((c) => c.id === setup.target) : undefined;
   const visitMachine = setup?.machine ?? machine;
   const visitRecovery = setup && setup.machine === machine && !setup.target ? recoverySession : undefined;
   const visitLogin =
@@ -263,7 +250,7 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   };
   const existingClaude =
     setup?.id === requestedId && family === "claude" && nativeCloud && !recoverySession && !setup?.target;
-  const active = setup && !existingClaude && (!setup.edit || editingConnection) ? providerById(setup.id) : undefined;
+  const active = setup && !existingClaude ? providerById(setup.id) : undefined;
   const awaitingSignIn =
     active?.id === devicePreset
       ? devicePending || locked
@@ -435,7 +422,7 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
         visit={request}
         cloud={cloud}
         recoverClaude={!!visitRecovery}
-        claudeAttemptBlocked={claudePending && !visitLogin}
+        claudeAttemptBlocked={(cloud && models?.cloudClaudeApprovalBusy === true) || (claudePending && !visitLogin)}
         useSettingsClaudeLogin={setup?.useSettingsClaudeLogin}
         provider={available ? active : undefined}
         models={models && cloud ? { ...models, cloudClaudeLogin: visitLogin } : (models ?? undefined)}
@@ -443,7 +430,7 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
         setSaving={setSaving}
         error={formError ? error : null}
         target={setup?.target}
-        edit={editingConnection}
+        edit={setup?.edit}
         onKeyReplaced={setup?.onKeyReplaced}
         rowAction={rowAction}
         run={panelRun}

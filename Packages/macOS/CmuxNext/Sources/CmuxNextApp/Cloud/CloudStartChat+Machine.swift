@@ -122,7 +122,6 @@ extension CloudStartChat {
             let machineID = session.machineID; try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
             guard CloudStartCore().matchesEnvironment(start.environment, machine: session.machine, ensured: plan.ensuredEnvironment) else { throw CloudStartSessionStrings.environmentMismatch }
             session.machine = cloud.setup.machineEnvironment(session.machine, ensured: plan.ensuredEnvironment, account: account, defaults: cloud.move.ledger)
-            // The chat's agent reaches a model: the machine's edge, its own sign-in there, or the chat's own connection with its launch.
             let launchConnection = await cloud.setup.launchConnection(connection)
             let endpoint = launchConnection?.endpointCredentials == true
             let subscription = launchConnection?.subscriptionCredentials == true
@@ -137,7 +136,9 @@ extension CloudStartChat {
                 )
             }
             try Self.requireEndpointHarness(start.harness == "openrouter" && connection != nil ? "opencode" : launchConnection?.launchHarness, on: session, subscription: subscription)
-            let (choice, refusal) = await cloud.setup.launchReadiness(for: start.onMachine(machineID), checkMachineLogin: connection == nil)
+            let (choice, refusal): (CloudSetup.Choice, CloudSetup.Refusal?) = origin.readiness.choice.claudeAuth == .team
+                ? (origin.readiness.choice, nil)
+                : await cloud.setup.launchReadiness(for: start.onMachine(machineID), checkMachineLogin: connection == nil)
             let machineLogin = connection == nil && choice == .claudeMachineLogin
             if connection == nil, refusal?.family == "claude" { throw CloudMachineRoute.NeedsClaudeLogin(machine: machineID) }
             if start.machine != nil || machineLogin {
@@ -163,6 +164,5 @@ extension CloudStartChat {
         throw CloudMove.Failure(message: refusal.userMessage)
     }
 
-    /// `answer`, or its error as the person reads it (``CloudMoveStrings/checked(_:)``).
     static func checked<T>(_ answer: (CloudMoveCLI.Answer, T)) throws -> T { try CloudMoveStrings.checked(answer) }
 }

@@ -1103,7 +1103,7 @@ pub(super) fn try_handle(
     if !mux.agent_carrier_allowed(client) && !mux.cloud_mobile_client(client) && !member {
         return Some(refuse(writer, id, Refusal::NotTrusted));
     }
-    if let AgentSessionCommand::Login(params) = &command
+    if let AgentSessionCommand::Login(_) = &command
         && mux.control_clients.agent_sessions.starts.on_cloud_vm()
     {
         if phone_sign_in(mux, client) || !mux.agent_carrier_allowed(client) || author.is_some() {
@@ -1111,12 +1111,6 @@ pub(super) fn try_handle(
         }
         if !mux.control_clients.agent_sessions.starts.owner_cloud(true) {
             return Some(ok(writer, id, json!({"refused": {"reason": "shared_machine"}})));
-        }
-        if mux.is_remote_client(client)
-            && !(settings_login_step(params)
-                || (params.op == "api_key" && params.agent.as_deref() == Some("claude")))
-        {
-            return Some(refuse(writer, id, Refusal::BadRequest));
         }
     }
     let sessions = &mux.control_clients.agent_sessions;
@@ -1344,10 +1338,17 @@ fn credentials(
     if !agent_session_start::credentials_admitted(mux, client, &vm_kind) {
         return refuse(writer, id, Refusal::OwnerOnly);
     }
-    if credential.is_some() && expected.as_deref().is_none_or(str::is_empty) {
+    // Before durable ids, the Mac sent only the surface for a ChatGPT refresh.
+    let legacy_refresh = expected.is_none()
+        && credential.as_ref().is_some_and(|c| {
+            c.endpoint.is_none() && c.env.contains_key("CMUX_CHATGPT_ACCESS_TOKEN")
+        });
+    if expected.as_deref() == Some("")
+        || (credential.is_some() && expected.is_none() && !legacy_refresh)
+    {
         return bad_field::refuse_field(writer, id, Some("session"));
     }
-    // Check the durable identity before writing. A daemon restart can reuse the surface.
+    // Check the durable identity when the client sent it. A daemon restart can reuse the surface.
     let session =
         mux.surface(surface).and_then(|runtime| match mux.conversation_tab_of(&runtime) {
             Some(ConversationTabRecord::AgentSession { host, session: Some(session), .. })
@@ -1370,8 +1371,22 @@ fn credentials(
             let answer = agent_session_start::connect(&worker_mux, &socket).and_then(|link| {
                 let mut params = credential.as_ref().map_or_else(|| json!({}), |c| c.wire());
                 params["sessionId"] = json!(session);
+                if legacy_refresh {
+                    params["legacyRefresh"] = json!(true);
+                }
                 // A restart waits for the agent's new process (spawn, initialize, resume).
-                let reply = link.call("agent/credentials.update", params, CREDENTIALS_TIMEOUT);
+                let mut reply =
+                    link.call("agent/credentials.update", params.clone(), CREDENTIALS_TIMEOUT);
+                // The merge-base acpmux only accepted sessionId and env and had no bound chats.
+                if legacy_refresh
+                    && matches!(&reply, Err(LinkError::Rpc(message, _))
+                        if message == "agent/credentials.update takes sessionId and env")
+                {
+                    if let Some(params) = params.as_object_mut() {
+                        params.remove("legacyRefresh");
+                    }
+                    reply = link.call("agent/credentials.update", params, CREDENTIALS_TIMEOUT);
+                }
                 link.close();
                 reply.map_err(Refusal::of)
             });

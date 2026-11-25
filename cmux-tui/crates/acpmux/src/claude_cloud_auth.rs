@@ -34,6 +34,9 @@ use serde_json::{Map, Value};
 
 use crate::codex_cloud_auth::{Inputs, PLACEHOLDER_KEY};
 
+/// Persisted in the session env by the owner start RPC, separate from a profile's team preference.
+pub(crate) const REQUIRED_TEAM: &str = "ACPMUX_CLAUDE_TEAM_REQUIRED";
+
 /// The model-plane pair to add to a Claude launch in team mode, or None (own mode, a pair already
 /// set, or not an owner Cloud image). `env` is the launch's effective env (`inputs.var` reads the
 /// same), `cwd` its project for project settings, and `resolves` answers whether the team
@@ -54,13 +57,56 @@ where
         return None;
     }
     let origin = inputs.team_origin()?;
+    let base = inputs.model_plane_var("ANTHROPIC_BASE_URL").unwrap_or_else(|| origin.clone());
+    let key =
+        inputs.model_plane_var("ANTHROPIC_API_KEY").unwrap_or_else(|| PLACEHOLDER_KEY.to_owned());
+    cloud_pair(origin, base, key, resolves).await
+}
+
+/// An explicit Cloud start uses the image's team plane even if the profile carries a personal key.
+/// Managed settings can outrank our settings flag, so refuse if they control provider selection.
+pub(crate) async fn required_team_pair<F, Fut>(
+    inputs: &Inputs<'_>,
+    resolves: F,
+) -> Option<[(String, String); 2]>
+where
+    F: FnOnce(String) -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    if !inputs.root.join("etc/cmux/agent-auth.sh").is_file()
+        || managed_provider_override(inputs.root)
+    {
+        return None;
+    }
+    let path = inputs.root.join("etc/cmux/model-plane.env");
+    let owner = inputs.owner_cloud_image();
+    let var = |key| {
+        if owner {
+            inputs.model_plane_var(key)
+        } else {
+            crate::codex_cloud_auth::file_var(&path, key)
+        }
+    };
+    let origin = var("CMUX_CODEROUTER_URL").filter(|origin| origin.starts_with("https://"))?;
+    let base = var("ANTHROPIC_BASE_URL").unwrap_or_else(|| origin.clone());
+    let key = var("ANTHROPIC_API_KEY").unwrap_or_else(|| PLACEHOLDER_KEY.to_owned());
+    cloud_pair(origin, base, key, resolves).await
+}
+
+async fn cloud_pair<F, Fut>(
+    origin: String,
+    base: String,
+    key: String,
+    resolves: F,
+) -> Option<[(String, String); 2]>
+where
+    F: FnOnce(String) -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
     let host = origin.trim_start_matches("https://").split(['/', '?', '#']).next()?.to_owned();
     if host.is_empty() || !resolves(host).await {
         return None;
     }
-    let base = inputs.model_plane_var("ANTHROPIC_BASE_URL").unwrap_or_else(|| origin.clone());
-    let key =
-        inputs.model_plane_var("ANTHROPIC_API_KEY").unwrap_or_else(|| PLACEHOLDER_KEY.to_owned());
     Some([("ANTHROPIC_BASE_URL".to_owned(), base), ("ANTHROPIC_API_KEY".to_owned(), key)])
 }
 
@@ -457,9 +503,9 @@ pub(crate) fn apply_team(
     let kept = cmux_headers(headers);
     if !remote && let Some((program, args)) = argv.split_first() {
         let mut rest = settings_args(args).0;
+        let at = rest.iter().position(|arg| arg == "--").unwrap_or(rest.len());
+        rest.splice(at..at, ["--settings".to_owned(), team_settings(flag, &pair, &kept)]);
         rest.insert(0, program.clone());
-        rest.push("--settings".to_owned());
-        rest.push(team_settings(flag, &pair, &kept));
         *argv = rest;
     }
     let mut unset: Vec<String> = env

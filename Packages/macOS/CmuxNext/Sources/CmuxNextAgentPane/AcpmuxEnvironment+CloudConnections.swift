@@ -5,10 +5,11 @@ extension AcpmuxEnvironment {
     /// This Mac's connections in order (`_acpmux/connections`, cmux-tui/docs/model-connections.md), for
     /// Cloud first use (``CloudSetup``); nil when no daemon answers or it predates the method. Never
     /// starts a daemon.
-    public nonisolated func cloudConnections(deadline: Duration? = .seconds(3)) async -> [CloudSetup.Connection]? {
+    fileprivate nonisolated func cloudCredentialConnections(deadline: Duration?) async -> CloudAgentCredentials.ConnectionState? {
         guard let result = try? await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/connections", deadline: deadline),
               let rows = result["connections"] as? [[String: Any]] else { return nil }
-        return rows.compactMap(CloudSetup.Connection.init(json:))
+        return .init(connections: rows.compactMap(CloudSetup.Connection.init(json:)),
+                     disconnected: result["disconnected_credentials"] as? [String: [String]] ?? [:])
     }
 
     /// Reads a connection's launch credential as the person. Only a typed refusal
@@ -35,9 +36,13 @@ extension AcpmuxHost {
     /// Joins the Settings startup path and gives readiness plus the connection read five seconds
     /// together. Cancellation ends only this caller's wait on shared daemon startup.
     public func readyCloudConnections() async -> [CloudSetup.Connection]? {
+        await readyCloudCredentialConnections()?.connections
+    }
+
+    package func readyCloudCredentialConnections() async -> CloudAgentCredentials.ConnectionState? {
         try? await withAgentPaneDeadline(.seconds(5), label: "cloud connections") {
             let environment = try await self.readyEnvironment()
-            return await environment.cloudConnections(deadline: nil)
+            return await environment.cloudCredentialConnections(deadline: nil)
         }
     }
 }

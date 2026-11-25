@@ -1268,6 +1268,15 @@ pub fn remove(
     let backup = format!("{id}-{}.toml", unix_millis());
     let text = std::fs::read_to_string(&path).unwrap_or_default();
     move_file(&path, &dir.join(&backup))?;
+    if let Some(instance) = crate::agent_credentials::stored_instance(&text) {
+        let state = cfg.path.as_deref().and_then(Path::parent).unwrap_or(acpmux_home);
+        if let Err(error) = crate::routes::update_bindings(state, |bindings| {
+            bindings.disconnected_credentials.entry(id.to_owned()).or_default().insert(instance);
+        }) {
+            move_file(&dir.join(&backup), &path)?;
+            return Err(failed(error));
+        }
+    }
     // Only on `forget`: the items in this id's own Keychain space (`cmux-harness/<id>/...`)
     // go too. Kept otherwise, for Undo; a later fresh add of this id never reads them (it names
     // no item unless given a key, which then replaces the item).

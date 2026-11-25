@@ -62,6 +62,10 @@ public actor AgentSessionAttachClient {
     public static let startEndpointCredentialsCapability = "agent-session-start-endpoint-credentials-v1"
     public static let startSubscriptionCredentialsCapability = "agent-session-start-subscription-credentials-v1"
 
+    private static func isChatGPTRefresh(_ env: [String: String]) -> Bool {
+        env.count == 1 && env["CMUX_CHATGPT_ACCESS_TOKEN"] != nil
+    }
+
     private static func needsSubscriptionCapability(_ credentials: [String: String]?) -> Bool {
         credentials?["CMUX_GROK_PLAN_ACCESS_TOKEN"] != nil || credentials?["CMUX_COPILOT_GITHUB_TOKEN"] != nil
     }
@@ -324,7 +328,9 @@ public actor AgentSessionAttachClient {
             guard credentialConnection == nil || served.credentials && served.vmKind else {
                 throw AgentSessionAttachError(code: Self.endpointCredentialsUnsupported, message: "the daemon does not take model credentials")
             }
-            guard credentials == nil || harness != "codex" || served.codexCredentials else {
+            let chatGPT = credentials.map(Self.isChatGPTRefresh) == true
+            guard !chatGPT || (served.credentials && served.vmKind),
+                  credentials == nil || !(harness == "codex" || chatGPT) || served.codexCredentials else {
                 throw AgentSessionAttachError(code: Self.codexCredentialsUnsupported, message: "the machine's cmux would drop the Codex credential")
             }
         }
@@ -500,8 +506,10 @@ public actor AgentSessionAttachClient {
     /// here otherwise, never sent.
     public func updateCredentials(_ env: [String: String], sessionID: String, ownerLink: OwnerLink?, launchEndpoint: LaunchEndpoint? = nil) async throws -> String? {
         guard mode == .attach, ownerLink != nil else { throw Self.notOwner }
-        let (transport, _, callerOwnsVM) = try await ownedConnection(ownerLink) { served in
-            guard served.boundCredentials, served.credentials, (!Self.needsSubscriptionCapability(env) || served.subscriptionCredentials),
+        let (transport, served, callerOwnsVM) = try await ownedConnection(ownerLink) { served in
+            let legacyRefresh = Self.isChatGPTRefresh(env) && launchEndpoint == nil && served.codexCredentials && served.vmKind
+            guard served.credentials, served.boundCredentials || legacyRefresh,
+                  (!Self.needsSubscriptionCapability(env) || served.subscriptionCredentials),
                   (launchEndpoint == nil || served.endpointCredentials) else {
                 throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not take model credentials")
             }
@@ -510,7 +518,8 @@ public actor AgentSessionAttachClient {
         guard !transport.isClosed else {
             throw AgentSessionAttachError(code: "agent_session.closed", message: "the connection ended before the credential was sent")
         }
-        var params: [String: any Sendable] = ["env": env, "vm_kind": "owner", "session": sessionID]
+        var params: [String: any Sendable] = ["env": env, "vm_kind": "owner"]
+        if served.boundCredentials { params["session"] = sessionID }
         if let launchEndpoint { params["endpoint"] = launchEndpoint.wire }
         let data = try await call("agent-session-credentials", params, on: transport)
         return ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["restart"] as? String

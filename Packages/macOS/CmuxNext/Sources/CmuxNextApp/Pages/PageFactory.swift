@@ -210,7 +210,7 @@ struct PageFactory {
         provider.loadSignInAccounts = { await harnesses.loadSignInAccounts(ready: modelEnvironment) }
         let models = SettingsModels.live(environment: modelEnvironment,
             settings: settings, activeTeam: { [weak services] in services?.accounts.activeTeam },
-            agentKeys: services.accounts.agentKeys, policy: services.accounts.modelsPolicy,
+            agentKeys: services.accounts.agentKeys, policy: services.accounts.modelsPolicy, cloudClaudeApproval: services.accounts.cloudClaudeApproval,
             openSignInPage: { [weak services] url, owner in
                 guard let services else { return false }
                 opened(owner, services.linkOpener.openSignInPage(url, beside: anchor()))

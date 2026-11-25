@@ -2406,13 +2406,15 @@ fn claude_plans_keep_the_explicit_machine_and_environment() {
 }
 
 #[test]
-fn explicit_and_pinned_machines_can_predate_ffi_environment_metadata() {
+fn an_explicit_machine_requires_environment_proof_before_it_can_be_pinned() {
     let dir = scratch();
     let path = ledger_in(dir.path());
     let mut request = json!({
         "key": key(), "account": ACCOUNT, "loaded": true, "environment": ENV,
         "machine": "vm_a", "machines": [{"id": "vm_a"}]
     });
+    assert_eq!(plan(&path, &request.to_string())["error_code"], "environment_mismatch");
+    request["machines"] = json!([{"id": "vm_a", "environment": ENV}]);
     assert_eq!(plan(&path, &request.to_string())["machine"], "vm_a");
     request["machine"] = Value::Null;
     assert_eq!(plan(&path, &request.to_string())["machine"], "vm_a");
