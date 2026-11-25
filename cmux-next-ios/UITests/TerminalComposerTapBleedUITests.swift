@@ -71,6 +71,8 @@ final class TerminalComposerTapBleedUITests: XCTestCase {
 
         let probe = app.descendants(matching: .any)["terminal.keyBar.fired"].firstMatch
         XCTAssertTrue(probe.waitForExistence(timeout: 5), "no key row probe (a DEBUG build?)")
+        let target = app.descendants(matching: .any)["terminal.typingTarget"].firstMatch
+        XCTAssertTrue(target.waitForExistence(timeout: 5), "no typing target probe")
         let card = app.descendants(matching: .any)["terminal.composer.card"].firstMatch
         XCTAssertTrue(card.waitForExistence(timeout: 5), "no composer card")
         let cardFrame = card.frame
@@ -112,6 +114,7 @@ final class TerminalComposerTapBleedUITests: XCTestCase {
         var before = probe.value as? String ?? ""
         var bled: [String] = []
         var tapped = 0
+        var cardEdgeTaps = 0
         let origin = app.coordinate(withNormalizedOffset: .zero)
         for (id, x) in columns {
             for y in ys where y < cardFrame.maxY {
@@ -119,6 +122,7 @@ final class TerminalComposerTapBleedUITests: XCTestCase {
                 guard !avoid.contains(where: { $0.contains(point) }) else { continue }
                 origin.withOffset(CGVector(dx: point.x, dy: point.y)).tap()
                 tapped += 1
+                if point.y >= cardFrame.minY && point.y <= cardFrame.minY + 10 { cardEdgeTaps += 1 }
                 let after = probe.value as? String ?? ""
                 if after != before {
                     bled.append("(\(Int(point.x)), \(Int(point.y))) under \(id): \(before) -> \(after)")
@@ -128,13 +132,13 @@ final class TerminalComposerTapBleedUITests: XCTestCase {
         }
         attach("\(name)-after-edge-taps")
         XCTAssertGreaterThan(tapped, 12, "too few taps landed")
+        XCTAssertGreaterThan(cardEdgeTaps, 3, "too few taps landed on the composer's top edge")
         XCTAssertTrue(bled.isEmpty, "\(bled.count) of \(tapped) taps on the composer's edge fired a key "
             + "(row \(rowFrame), card \(cardFrame)):\n" + bled.joined(separator: "\n"))
 
         // The composer keeps (or takes) the focus: the keyboard still types into the field.
         XCTAssertTrue(app.keyboards.firstMatch.exists, "the keyboard went down")
-        let focused = (field.value(forKey: "hasKeyboardFocus") as? Bool) ?? false
-        XCTAssertTrue(focused, "the composer lost the focus")
+        XCTAssertEqual(target.value as? String, "composer", "the composer lost the focus")
 
         // The positive control: a tap in the middle of a key does reach it, so the probe counts.
         let escape = app.buttons["terminal.key.escape"]
