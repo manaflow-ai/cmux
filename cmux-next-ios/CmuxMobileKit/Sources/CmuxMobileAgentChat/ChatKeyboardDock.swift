@@ -122,9 +122,19 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// SwiftUI's keyboard inset moved. From then on the stack follows the
     /// keyboard's notifications (inside their animation) and, while a drag
     /// dismisses the keyboard, its drawn frame every display frame.
-    /// Internal for tests: a test window with no scene has no live keyboard
-    /// layout guide, so a test that posts keyboard frames sets it first.
-    static var layoutGuideStalls = false
+    /// Process-wide latch: once one page sees the stall, every page follows
+    /// the notified frames. Only the probe in `keyboardWillChange` sets it.
+    private static var layoutGuideProbeStalled = false
+    /// This controller follows the notified keyboard frames from the start,
+    /// whatever the shared probe saw. A test window with no scene has no live
+    /// keyboard layout guide, so a test that posts keyboard frames passes
+    /// `true`; it never writes the process-wide latch other suites read.
+    private let assumesStalledLayoutGuide: Bool
+    /// The guide is stalled for this controller: its own override or the
+    /// shared probe's latch.
+    var layoutGuideStalls: Bool {
+        assumesStalledLayoutGuide || Self.layoutGuideProbeStalled
+    }
     private var lastOffsetY: CGFloat = 0
     /// The jump button's rule (clamped distance, hysteresis; see
     /// `JumpToBottomVisibility`).
@@ -155,13 +165,15 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// driving the notified keyboard frame. Geometry and drag handling must
     /// use the same source as the active constraint pair.
     private var usesNotifiedKeyboardFrame: Bool {
-        Self.layoutGuideStalls || trackerFallbackActive
+        layoutGuideStalls || trackerFallbackActive
     }
 
     init(placement: ChatDockPlacement, surface: AgentChatSurface, store: AgentChatStore,
          empty: AnyView, dock: AnyView?, jump: AnyView?,
-         keyboardTracker: MobileKeyboardFrameTracker? = nil) {
+         keyboardTracker: MobileKeyboardFrameTracker? = nil,
+         assumesStalledLayoutGuide: Bool = false) {
         self.placement = placement
+        self.assumesStalledLayoutGuide = assumesStalledLayoutGuide
         self.surface = surface
         self.keyboardTracker = keyboardTracker
         list = ChatTranscriptList(store: store, surface: surface)
@@ -343,7 +355,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         // composer jumped there, feat-cnx-ios-e2e); `keyboardPinApplies`
         // switches the pin off for such a frame and the stack rests.
         let pin = dockGuide.bottomAnchor.constraint(lessThanOrEqualTo: view.keyboardLayoutGuide.topAnchor, constant: -Self.dockGap)
-        pin.isActive = !Self.layoutGuideStalls
+        pin.isActive = !layoutGuideStalls
         keyboardPin = pin
         // The same pin against the keyboard's frame from its notifications,
         // for when the layout guide stalls (see `layoutGuideStalls`).
@@ -351,7 +363,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         let notifiedTop = notifiedKeyboard.topAnchor.constraint(equalTo: view.bottomAnchor)
         notifiedKeyboardTop = notifiedTop
         let fallback = dockGuide.bottomAnchor.constraint(lessThanOrEqualTo: notifiedKeyboard.topAnchor, constant: -Self.dockGap)
-        fallback.isActive = Self.layoutGuideStalls
+        fallback.isActive = layoutGuideStalls
         fallbackPin = fallback
         NSLayoutConstraint.activate([
             notifiedTop,
@@ -477,7 +489,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             applyReconciledKeyboardFrame(frame, layoutNow: false)
         }
         list.boundsMayHaveChanged()
-        if let pin = keyboardPin, !Self.layoutGuideStalls, !trackerFallbackActive, pin.isActive != keyboardPinApplies {
+        if let pin = keyboardPin, !layoutGuideStalls, !trackerFallbackActive, pin.isActive != keyboardPinApplies {
             pin.isActive = keyboardPinApplies
             view.setNeedsLayout()
             view.layoutIfNeeded()
@@ -895,7 +907,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             pendingTrackedKeyboardFrame = nil
         }
         let top = notifiedTop(note) ?? view.bounds.maxY
-        if trackerFallbackActive, !Self.layoutGuideStalls {
+        if trackerFallbackActive, !layoutGuideStalls {
             trackerFallbackActive = false
             followDraggedKeyboard(false)
             fallbackPin?.isActive = false
@@ -908,14 +920,14 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             self.view.layoutIfNeeded()
             // A docked keyboard the guide did not follow: switch to the
             // notified frame, in this same animation.
-            if !Self.layoutGuideStalls, top < self.view.bounds.maxY - 40,
+            if !self.layoutGuideStalls, top < self.view.bounds.maxY - 40,
                self.view.keyboardLayoutGuide.layoutFrame.minY > top + 40 {
-                Self.layoutGuideStalls = true
+                Self.layoutGuideProbeStalled = true
             }
             // The latch is process-wide, so a page built before it flipped
             // (any page but the first one to hear this notification) still
             // rides the stalled guide: it switches here too.
-            if Self.layoutGuideStalls, self.keyboardPin?.isActive == true {
+            if self.layoutGuideStalls, self.keyboardPin?.isActive == true {
                 self.keyboardPin?.isActive = false
                 self.fallbackPin?.isActive = true
                 self.view.setNeedsLayout()
