@@ -1,6 +1,60 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.labs.connectionsUpcoming": {
+      "comment": "Settings > Advanced > Labs: toggle that lists Slack and Google in Settings > Integrations > Connections before they can be connected",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Upcoming Connections"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الاتصالات القادمة"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Nadolazeće veze"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Kommende forbindelser"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Kommende Verbindungen"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Próximas conexiones"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Connexions à venir"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Connessioni in arrivo"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "今後の接続"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ការតភ្ជាប់នាពេលខាងមុខ"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "예정된 연결"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Kommende tilkoblinger"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Nadchodzące połączenia"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Próximas conexões"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Будущие подключения"}},
+        "th": {"stringUnit": {"state": "translated", "value": "การเชื่อมต่อที่กำลังจะมา"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Yaklaşan bağlantılar"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Майбутні підключення"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Kết nối sắp có"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "即将推出的连接"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "即將推出的連線"}}
+      }
+    },
+    "settings.labs.connectionsUpcoming.help": {
+      "comment": "Settings > Advanced > Labs: help under the Upcoming Connections toggle",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Lists Slack and Google in Connections before they can be connected."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يعرض Slack وGoogle في الاتصالات قبل أن يصبح ربطها ممكنًا."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Prikazuje Slack i Google u Vezama prije nego što se mogu povezati."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Viser Slack og Google under Forbindelser, før de kan forbindes."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Zeigt Slack und Google unter Verbindungen, bevor sie verbunden werden können."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Muestra Slack y Google en Conexiones antes de que se puedan conectar."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Affiche Slack et Google dans Connexions avant qu’ils puissent être connectés."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Mostra Slack e Google in Connessioni prima che si possano collegare."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "接続できるようになる前に、Slack と Google を接続に表示します。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "បង្ហាញ Slack និង Google ក្នុងការតភ្ជាប់ មុនពេលអាចតភ្ជាប់បាន។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "연결할 수 있기 전에 Slack과 Google을 연결 목록에 표시합니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Viser Slack og Google under Tilkoblinger før de kan kobles til."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Pokazuje Slack i Google w Połączeniach, zanim będzie można je połączyć."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Mostra Slack e Google em Conexões antes que possam ser conectados."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Показывает Slack и Google в разделе «Подключения» до того, как их можно подключить."}},
+        "th": {"stringUnit": {"state": "translated", "value": "แสดง Slack และ Google ในการเชื่อมต่อก่อนที่จะเชื่อมต่อได้"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Slack ve Google'ı bağlanabilir olmadan önce Bağlantılar'da listeler."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Показує Slack і Google у розділі «Підключення» ще до того, як їх можна підключити."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Hiện Slack và Google trong Kết nối trước khi có thể kết nối."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在可以连接之前，于“连接”中列出 Slack 和 Google。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在可以連線之前，於「連線」中列出 Slack 和 Google。"}}
+      }
+    },
     "settings.labs.previousBuild": {
       "comment": "Settings > Advanced > Labs: toggle that shows the Go Back to Previous Build row on the Updates card",
       "extractionState": "manual",
@@ -238635,6 +238689,798 @@
         }
       }
     },
+    "settings.experiments.forum": {
+      "comment": "Settings > Experimental row title: the team's agent forum as a page in the app.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forum"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forum"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forum"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forum"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forum"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forum"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forum"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forum"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forum"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forum"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forum"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forum"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forum"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forum"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forum"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forum"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forum"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forum"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forum"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forum"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forum"
+          }
+        }
+      }
+    },
+    "settings.experiments.forum.help": {
+      "comment": "Settings > Experimental > Forum help: what the forum page shows.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box."
+          }
+        }
+      }
+    },
+    "settings.experiments.terminalAgentMark": {
+      "comment": "Settings > Experimental row title: an agent in a terminal tab draws its mark on a rounded square.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal Agent Marks"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal Agent Marks"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal Agent Marks"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal Agent Marks"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Agent Marks"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal Agent Marks"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal Agent Marks"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal Agent Marks"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal Agent Marks"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal Agent Marks"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal Agent Marks"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal Agent Marks"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal Agent Marks"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal Agent Marks"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal Agent Marks"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal Agent Marks"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal Agent Marks"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal Agent Marks"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal Agent Marks"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal Agent Marks"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal Agent Marks"
+          }
+        }
+      }
+    },
+    "settings.experiments.terminalAgentMark.help": {
+      "comment": "Settings > Experimental > Terminal Agent Marks help: how a terminal agent's mark differs from an agent chat's.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat."
+          }
+        }
+      }
+    },
+    "settings.sessions.keepAwakeWhenLocked": {
+      "comment": "Settings > Sessions row title: a locked Mac stays awake for a working agent.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keep Agents Running While Locked"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keep Agents Running While Locked"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keep Agents Running While Locked"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keep Agents Running While Locked"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Agents Running While Locked"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keep Agents Running While Locked"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keep Agents Running While Locked"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keep Agents Running While Locked"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keep Agents Running While Locked"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keep Agents Running While Locked"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keep Agents Running While Locked"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keep Agents Running While Locked"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keep Agents Running While Locked"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keep Agents Running While Locked"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keep Agents Running While Locked"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keep Agents Running While Locked"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keep Agents Running While Locked"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keep Agents Running While Locked"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keep Agents Running While Locked"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keep Agents Running While Locked"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keep Agents Running While Locked"
+          }
+        }
+      }
+    },
+    "settings.sessions.keepAwakeWhenLocked.help": {
+      "comment": "Settings > Sessions > Keep Agents Running While Locked help: how long and when the Mac stays awake.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
+          }
+        }
+      }
+    },
     "settings.experiments.composerHatGroups": {
       "comment": "Settings > Experimental row title: the composer hat groups subagents and background tasks.",
       "extractionState": "manual",
@@ -253445,6 +254291,60 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "在終端機按 Cmd-F 會搜尋其全部歷史，可選區分大小寫、全字比對和正規表示式。"}}
       }
     },
+    "settings.experiments.themedPrompts": {
+      "comment": "Settings > Experimental row title: prompts that float over other apps (a teammate asking to control this Mac) use the theme's glass and colors.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "مطالبات عائمة بالسمة"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Plutajući upiti s temom"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Svævende prompter med tema"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Schwebende Abfragen im Design"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Themed Floating Prompts"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Avisos flotantes con tema"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Invites flottantes thématisées"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Richieste fluttuanti con tema"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "テーマ付きフローティングプロンプト"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ប្រអប់សួរអណ្តែតតាមរចនាប័ទ្ម"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "테마 적용 플로팅 프롬프트"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Flytende forespørsler med tema"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Pływające monity z motywem"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Avisos flutuantes com tema"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Плавающие запросы в стиле темы"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ข้อความถามแบบลอยตามธีม"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Temalı Kayan İstemler"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Плаваючі запити в стилі теми"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Lời nhắc nổi theo chủ đề"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "主题化浮动提示"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "主題化浮動提示"}}
+      }
+    },
+    "settings.experiments.themedPrompts.help": {
+      "comment": "Settings > Experimental row help for Themed Floating Prompts.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "تستخدم المطالبات فوق التطبيقات الأخرى، مثل طلب زميل التحكم في هذا الـ Mac، زجاج سمتك وألوانها."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Upiti preko drugih aplikacija, npr. kad kolega traži kontrolu nad ovim Macom, koriste staklo i boje vaše teme."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Prompter over andre apps, f.eks. når en kollega beder om at styre denne Mac, bruger dit temas glas og farver."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Abfragen über anderen Apps, etwa wenn ein Teammitglied diesen Mac steuern möchte, nutzen Glas und Farben deines Designs."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Prompts over other apps, such as a teammate asking to control this Mac, use your theme's glass and colors."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Los avisos sobre otras apps, como cuando un compañero pide controlar este Mac, usan el cristal y los colores de tu tema."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Les invites au-dessus des autres apps, comme un coéquipier qui demande à contrôler ce Mac, utilisent le verre et les couleurs de votre thème."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Le richieste sopra le altre app, ad esempio un collega che chiede di controllare questo Mac, usano il vetro e i colori del tuo tema."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "チームメイトがこの Mac の操作を求めるときなど、他のアプリの上に出るプロンプトがテーマのガラスと色を使います。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ប្រអប់សួរនៅលើកម្មវិធីផ្សេង ដូចជាមិត្តរួមក្រុមសុំគ្រប់គ្រង Mac នេះ ប្រើកញ្ចក់ និងពណ៌នៃរចនាប័ទ្មរបស់អ្នក។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "팀원이 이 Mac 제어를 요청할 때처럼 다른 앱 위에 뜨는 프롬프트가 테마의 글래스와 색상을 사용합니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Forespørsler over andre apper, for eksempel når en kollega ber om å styre denne Macen, bruker temaets glass og farger."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Monity nad innymi aplikacjami, np. gdy członek zespołu prosi o sterowanie tym Makiem, używają szkła i kolorów Twojego motywu."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Avisos sobre outros apps, como um colega pedindo para controlar este Mac, usam o vidro e as cores do seu tema."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Запросы поверх других приложений, например когда коллега просит управлять этим Mac, используют стекло и цвета вашей темы."}},
+        "th": {"stringUnit": {"state": "translated", "value": "ข้อความถามที่อยู่เหนือแอปอื่น เช่น เมื่อเพื่อนร่วมทีมขอควบคุม Mac เครื่องนี้ จะใช้กระจกและสีของธีมคุณ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Diğer uygulamaların üzerindeki istemler, örneğin bir ekip arkadaşınızın bu Mac'i denetlemek istemesi, temanızın camını ve renklerini kullanır."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Запити поверх інших застосунків, наприклад коли колега просить керувати цим Mac, використовують скло й кольори вашої теми."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Lời nhắc trên các ứng dụng khác, như khi đồng đội xin điều khiển máy Mac này, dùng kính và màu của chủ đề bạn."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "浮在其他应用上方的提示（例如队友请求控制这台 Mac）使用你主题的玻璃和颜色。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "浮在其他 App 上方的提示（例如隊友要求控制這台 Mac）使用你主題的玻璃和顏色。"}}
+      }
+    },
     "settings.experiments.composerButtonsVisible": {
       "comment": "Settings > Advanced > Experiments: the Always Show Composer Buttons taste prototype row",
       "extractionState": "manual",
@@ -256483,6 +257383,60 @@
             "value": "機器"
           }
         }
+      }
+    },
+    "settings.sidebar.showAgentSessions": {
+      "comment": "Settings toggle title: list sessions that agents start in the sidebar, under the session that started them.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Show Sessions Started by Agents"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إظهار الجلسات التي بدأها الوكلاء"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Prikaži sesije koje su pokrenuli agenti"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Vis sessioner startet af agenter"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Von Agenten gestartete Sitzungen anzeigen"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Mostrar sesiones iniciadas por agentes"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Afficher les sessions lancées par des agents"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Mostra sessioni avviate dagli agenti"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "エージェントが開始したセッションを表示"}},
+        "km": {"stringUnit": {"state": "translated", "value": "បង្ហាញវគ្គដែលភ្នាក់ងារចាប់ផ្ដើម"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "에이전트가 시작한 세션 표시"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Vis økter startet av agenter"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Pokazuj sesje uruchomione przez agentów"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Mostrar sessões iniciadas por agentes"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Показывать сеансы, запущенные агентами"}},
+        "th": {"stringUnit": {"state": "translated", "value": "แสดงเซสชันที่เอเจนต์เริ่ม"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Ajanların başlattığı oturumları göster"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Показувати сеанси, запущені агентами"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Hiện phiên do tác tử khởi động"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "显示由智能体启动的会话"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "顯示由代理程式啟動的工作階段"}}
+      }
+    },
+    "settings.sidebar.showAgentSessions.help": {
+      "comment": "Help for the Show Sessions Started by Agents setting.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Sessions an agent starts list under the session that started them. Off, they stay in the parent chat's list; one that needs you still shows."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تظهر الجلسات التي يبدؤها وكيل تحت الجلسة التي بدأتها. عند الإيقاف، تبقى في قائمة المحادثة الأم؛ وتظهر الجلسة التي تحتاج إليك."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Sesije koje agent pokrene prikazuju se ispod sesije koja ih je pokrenula. Kad je isključeno, ostaju na listi roditeljskog chata; ona kojoj trebate i dalje se prikazuje."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Sessioner, som en agent starter, vises under den session, der startede dem. Slået fra bliver de i overordnet chats liste; en, der har brug for dig, vises stadig."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Von einem Agenten gestartete Sitzungen erscheinen unter der Sitzung, die sie gestartet hat. Aus bleiben sie in der Liste des übergeordneten Chats; eine, die dich braucht, erscheint trotzdem."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Las sesiones que inicia un agente aparecen bajo la sesión que las inició. Desactivado, quedan en la lista del chat principal; la que te necesita sigue apareciendo."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Les sessions lancées par un agent s’affichent sous la session qui les a lancées. Désactivé, elles restent dans la liste du chat parent ; celle qui a besoin de vous s’affiche quand même."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Le sessioni avviate da un agente compaiono sotto la sessione che le ha avviate. Disattivato, restano nell’elenco della chat principale; quella che ha bisogno di te compare comunque."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "エージェントが開始したセッションを、開始したセッションの下に表示します。オフにすると親チャットのリストに収まり、あなたの対応が必要なものは表示されます。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "វគ្គដែលភ្នាក់ងារចាប់ផ្ដើម បង្ហាញនៅក្រោមវគ្គដែលបានចាប់ផ្ដើមវា។ ពេលបិទ វានៅក្នុងបញ្ជីរបស់ជជែកមេ; វគ្គដែលត្រូវការអ្នកនៅតែបង្ហាញ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "에이전트가 시작한 세션을 시작한 세션 아래에 표시합니다. 끄면 상위 채팅의 목록에 남고, 내 응답이 필요한 세션은 계속 표시됩니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Økter en agent starter, vises under økten som startet dem. Av blir de i overordnet chats liste; en som trenger deg, vises fortsatt."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Sesje uruchomione przez agenta są widoczne pod sesją, która je uruchomiła. Wyłączone zostają na liście czatu nadrzędnego; ta, która Cię potrzebuje, nadal jest widoczna."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Sessões iniciadas por um agente aparecem sob a sessão que as iniciou. Desativado, elas ficam na lista do chat principal; a que precisa de você continua aparecendo."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Сеансы, запущенные агентом, видны под сеансом, который их запустил. Если выключено, они остаются в списке родительского чата; сеанс, которому нужны вы, всё равно виден."}},
+        "th": {"stringUnit": {"state": "translated", "value": "เซสชันที่เอเจนต์เริ่มจะแสดงใต้เซสชันที่เริ่มมัน เมื่อปิด จะอยู่ในรายการของแชตหลัก เซสชันที่ต้องการคุณยังคงแสดง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bir ajanın başlattığı oturumlar, onları başlatan oturumun altında görünür. Kapalıyken üst sohbetin listesinde kalır; size ihtiyaç duyan yine görünür."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Сеанси, запущені агентом, видно під сеансом, який їх запустив. Якщо вимкнено, вони лишаються в списку батьківського чату; сеанс, якому потрібні ви, усе одно видно."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Các phiên do tác tử khởi động hiện dưới phiên đã khởi động chúng. Khi tắt, chúng nằm trong danh sách của cuộc trò chuyện cha; phiên cần bạn vẫn hiện."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "智能体启动的会话显示在启动它们的会话下方。关闭时，它们留在父聊天的列表中；需要你处理的会话仍会显示。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "代理程式啟動的工作階段會顯示在啟動它們的工作階段下方。關閉時，它們留在上層聊天的清單中；需要你處理的工作階段仍會顯示。"}}
       }
     },
     "settings.sidebar.showAutomaticSessions": {

@@ -697,7 +697,8 @@ dependencies = [
  "cmux-terminal-projection",
  "cmux-transport",
  "cmux-wg",
- "cmux-wire-lockstep",
+ "core-foundation",
+ "core-foundation-sys",
  "flate2",
  "futures-util",
  "getrandom 0.3.4",
@@ -707,6 +708,7 @@ dependencies = [
  "rcgen",
  "reqwest 0.12.28",
  "rustls",
+ "rustls-platform-verifier",
  "serde",
  "serde_json",
  "sha2",
@@ -718,6 +720,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
+ "url",
  "uuid",
  "webpki-roots 1.0.10",
  "webrtc",
@@ -976,14 +979,6 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
-]
-
-[[package]]
-name = "cmux-wire-lockstep"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
 ]
 
 [[package]]
