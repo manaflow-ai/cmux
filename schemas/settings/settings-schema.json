@@ -127,10 +127,21 @@
               "key" : "settings.group.announcements",
               "text" : "Announcements"
             }
+          },
+          {
+            "key" : "settings.group.customizeChecklist",
+            "rows" : [
+              "customize.checklist.enabled"
+            ],
+            "title" : {
+              "key" : "settings.group.customizeChecklist",
+              "text" : "Customize cmux"
+            }
           }
         ],
         "id" : "general",
         "lead" : [
+          "customizeProgress",
           "textSize"
         ],
         "symbol" : "gearshape",
@@ -635,7 +646,8 @@
           "text" : "Sidebar"
         },
         "trail" : [
-          "spaces"
+          "spaces",
+          "archivedWorkspaces"
         ]
       },
       {
@@ -1681,6 +1693,29 @@
       },
       {
         "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+
+        ],
+        "id" : "automations",
+        "lead" : [
+          "automationsCloud"
+        ],
+        "symbol" : "bolt",
+        "title" : {
+          "key" : "settings.category.automations",
+          "text" : "Automations"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
           "notifications"
         ],
         "aliases" : [
@@ -2555,7 +2590,8 @@
           "chat",
           "agents",
           "chief",
-          "models"
+          "models",
+          "automations"
         ],
         "id" : "ai",
         "title" : {
@@ -18226,7 +18262,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 1000,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.subsessions",
@@ -18369,7 +18405,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 10,
+      "default" : 30,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.subsessions",
@@ -23960,6 +23996,290 @@
           "value" : "none"
         }
       ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.customizeChecklist",
+        "text" : "Customize cmux"
+      },
+      "help" : {
+        "key" : "settings.customizeChecklist.enabled.help",
+        "text" : "Shows the steps for making cmux your own at the top of Settings, with how many are done."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "customize.checklist.enabled",
+      "keywords" : [
+        "customize",
+        "checklist",
+        "getting started",
+        "onboarding",
+        "progress",
+        "setup"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "customize",
+        "checklist",
+        "enabled"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:customize.checklist.enabled"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.customizeChecklist.enabled",
+        "text" : "Show the Customize cmux Checklist"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.customizeChecklist",
+        "text" : "Customize cmux"
+      },
+      "help" : {
+        "key" : "settings.customizeChecklist.done.help",
+        "text" : "The checklist steps you marked done yourself."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "customize.checklist.done",
+      "keywords" : [
+        "customize",
+        "checklist"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : true,
+      "path" : [
+        "customize",
+        "checklist",
+        "done"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : false,
+          "operations" : [
+
+          ],
+          "reason" : "The checklist card checks steps off; the ids are not for typing.",
+          "row" : null
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.customizeChecklist.done",
+        "text" : "Checked Off Customize Steps"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
       "consumers" : [
         "cmux-next"
       ],
