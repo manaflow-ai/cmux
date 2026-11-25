@@ -364,12 +364,12 @@ enum CloudHandlers {
         if let reason = CloudStrings.machineChanging(session.machine.shownStatus) { throw ActionFailure(message: reason) }
     }
 
-    /// ``requireAttachableState(_:)`` after waiting out a resume (``CloudWait/outwaitResume(of:within:read:)``): a
-    /// machine that is resuming is waited for, up to `limit`, instead of refused with "This machine is resuming"
-    /// (prod, 2026-11-05: `cloud start-chat` refused at once after `cloud resume-machine`, then worked in 12 s once
-    /// the machine ran). A pause or delete still refuses at once, and so does a resume still running at `limit`.
+    /// ``requireAttachableState(_:)`` once the machine settles (Rust's `cloud_move_settle`): a resume (prod, 2026-11-05)
+    /// or a pause in flight (ask-259986a6c4: a leased machine idled out before Send) is waited out up to `limit`, and a
+    /// paused one goes on to the attach, which resumes it. A delete, a change still running at `limit`, or
+    /// `CMUX_CLOUD_SETTLE=0` refuses at once.
     static func requireAttachableState(_ session: CloudMachineSession, waitingOutResume limit: Duration) async throws {
-        await CloudWait.outwaitResume(of: { session.machine.shownStatus }, within: limit) { await session.refresher?(false) }
-        try requireAttachableState(session)
+        let settled = await CloudWait.settle(of: { session.machine.shownStatus }, within: limit) { await session.refresher?(false) }
+        if settled != .proceed { try requireAttachableState(session) }
     }
 }

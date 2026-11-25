@@ -4,7 +4,7 @@
 import { useId, useMemo } from "react";
 import type { AcpmuxActivity } from "../model";
 import { useFindReveal } from "./chatFind";
-import { ChevronRight, Envelope, ToolGroup } from "./icons";
+import { Envelope, ToolGroup } from "./icons";
 import { CopyButton } from "./CopyButton";
 import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { useT } from "../i18n";
@@ -12,6 +12,7 @@ import { dispatchDestination, type DispatchCall } from "./dispatchCalls";
 import { messagePreview } from "./agentMessageRowModel";
 import "./DispatchCard.css";
 import { lineLabel, briefAnchor } from "./dispatchCardModel";
+import { DisclosureChevron } from "./DisclosureChevron";
 
 export function DispatchCard({ item, call }: { item: AcpmuxActivity; call: DispatchCall }) {
   const t = useT();
@@ -59,7 +60,7 @@ export function DispatchCard({ item, call }: { item: AcpmuxActivity; call: Dispa
       >
         <span className="cv-tool__icon">{call.kind === "report" ? <Envelope /> : <ToolGroup />}</span>
         <span className="cv-tool__text">{line}</span>
-        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
+        <DisclosureChevron open={open} />
       </button>
       {call.kind === "report" && anchor && (
         <a

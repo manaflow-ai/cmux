@@ -36,8 +36,6 @@ use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-type MakeImporter = Box<dyn FnOnce(Arc<Hub>, FakeAutoCloud, PathBuf) -> Arc<dyn SessionImporter>>;
-
 use acpmux::auto_session::record::AutoRecord;
 use acpmux::auto_session::runtime::ManualClock;
 use acpmux::auto_session::{
