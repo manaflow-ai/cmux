@@ -23,10 +23,12 @@ use cmux_json::JsonSet as _;
 
 pub mod actions;
 mod answering;
+mod capacity_wait;
 mod composer_draft;
 #[cfg(all(test, unix))]
 mod composer_draft_tests;
 mod events;
+mod reconnect_wait;
 mod run;
 mod scheduler;
 mod state;

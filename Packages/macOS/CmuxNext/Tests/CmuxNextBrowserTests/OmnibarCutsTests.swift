@@ -5,7 +5,7 @@ import Foundation
 import Testing
 
 /// The omnibar, cut down (Lawrence 2026-11-21, "drastically simplify all parts of the UI"): at rest the field shows
-/// Chrome's compact URL (the host alone read as a wrong link, https://github.com/manaflow-ai/cmux/issues/50986); the site-info chip of a secure page and the star of a page not bookmarked show only on hover or focus,
+/// Chrome's compact URL (the host alone read as a wrong link, https://github.com/manaflow-ai/cmux/issues/50986); the site-info chip and the star always show, and the profile avatar shows only on hover or focus,
 /// keeping their room; a suggestion row is its title and the host, at most 6 rows; the placeholder is a short
 /// "Search or enter address".
 @MainActor
@@ -82,6 +82,21 @@ struct OmnibarCutsTests {
         window.contentView?.layoutSubtreeIfNeeded()
         #expect(bar.chip.alphaValue == 1 && bar.starButton.alphaValue == 1, "focus hides an icon")
         #expect(bar.field.frame == fieldAtRest, "focus moved the field: \(fieldAtRest) to \(bar.field.frame)")
+    }
+
+    /// The address bar holds no profile avatar, at rest or focused (Leo 2026-11-22, "why do we have the profile icon
+    /// here if it's always visible ... move it outside the omnibar"): it is the toolbar's profile button
+    /// (`BrowserToolbarProfileButtonTests`).
+    @Test func theAddressBarHoldsNoProfileAvatar() throws {
+        let (bar, window) = try bar("https://github.com/manaflow-ai/cmux")
+        defer { window.closeAfterTest() }
+        func avatars(in view: NSView) -> [ProfileBadgeView] {
+            view.subviews.flatMap { ($0 as? ProfileBadgeView).map { [$0] } ?? avatars(in: $0) }
+        }
+        #expect(avatars(in: bar).isEmpty, "the address bar draws a profile avatar")
+        bar.focus()
+        window.contentView?.layoutSubtreeIfNeeded()
+        #expect(avatars(in: bar).isEmpty, "the focused address bar draws a profile avatar")
     }
 
     @Test func aPageThatIsNotSecureShowsItsChip() throws {

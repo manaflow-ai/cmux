@@ -212,6 +212,8 @@ pub struct Pairing {
     /// Notification replies already applied, over a link or from the mailbox
     /// (`mailbox.rs`): a reply that came both ways is applied once.
     pub spent_replies: Arc<crate::mailbox::SpentReplies>,
+    /// The highest settled mailbox `seq` per phone (`mailbox.rs`, `mailbox-cursor.json`).
+    pub mailbox_cursor: Arc<crate::mailbox::MailboxCursor>,
     /// What other machines did here (`activity.rs`).
     pub activity: Arc<crate::activity::Activity>,
     /// The requests this hostd asked the app about and still waits on, which another of the
@@ -235,6 +237,7 @@ impl Pairing {
             identity: watch::channel(None).1,
             push_keys: Arc::new(crate::push_keys::PushKeys::memory()),
             spent_replies: Arc::new(crate::mailbox::SpentReplies::memory()),
+            mailbox_cursor: Arc::new(crate::mailbox::MailboxCursor::memory()),
             activity: Arc::new(crate::activity::Activity::memory()),
             waiting: Arc::default(),
         }
@@ -249,6 +252,12 @@ impl Pairing {
     /// With the store of applied notification replies.
     pub fn with_spent_replies(mut self, spent: Arc<crate::mailbox::SpentReplies>) -> Self {
         self.spent_replies = spent;
+        self
+    }
+
+    /// With the store of each phone's settled mailbox `seq`.
+    pub fn with_mailbox_cursor(mut self, cursor: Arc<crate::mailbox::MailboxCursor>) -> Self {
+        self.mailbox_cursor = cursor;
         self
     }
 

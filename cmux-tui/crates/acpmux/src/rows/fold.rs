@@ -164,6 +164,10 @@ const NOTICE_KINDS: &[&str] = &[
     // A model name read as its catalog id, or a turn retried under it (`hub/model_alias.rs`).
     "model_rewrite",
     "model_reroute",
+    // A sustained overload moved the chat to a smaller model, or back
+    // (`hub/auto_resume/capacity_failover.rs`).
+    "capacity_failover",
+    "capacity_restored",
     "policy_unenforced",
     "recap",
     "stopping",
@@ -312,6 +316,13 @@ impl RowTable {
             "tool_call" | "tool_call_update" => self.tool(rec, update, kind == "tool_call", out),
             "plan" => self.plan(rec, update, out),
             "compaction" => self.compaction(rec, update, out),
+            // A Stop hook sent the agent back (`claude_stdio` `stop_hook_feedback`): one notice line
+            // with its reason, so the reply after it reads as the hook's doing.
+            "stop_hook_feedback" => {
+                let text = owned(update, "text").unwrap_or_default();
+                let head = self.head(rec, format!("{kind}@{}", rec.seq), RowKind::Notice);
+                self.insert(RowHead { notice: Some(kind.to_owned()), ..head }, text, out);
+            }
             _ => {}
         }
     }
