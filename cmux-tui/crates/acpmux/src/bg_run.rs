@@ -519,14 +519,14 @@ pub fn main() -> anyhow::Result<()> {
     let killed = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
     // Set once the task's output pipe ended (every holder of it is gone).
     let pipe_ended = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    // Whether nothing of the task's tree outside its group still runs (`signal_tree`'s set).
+    // Whether no process carrying the task's mark still runs. Not `tree::descendants` of this
+    // runner: it lists by running `ps`, a child of this runner, so it is never empty. The
+    // leader itself stays, unreaped, until the reap: it is not a running process. A process
+    // that dropped the mark from its environment still gets the SIGKILL that follows.
     let signal_tree_empty = {
         let mark = mark.clone();
         move |leader: u32| {
-            use crate::agent_host::tree;
-            // The leader itself stays, unreaped, until the reap: it is not a running process.
-            tree::descendants(&[std::process::id()]).iter().all(|p| p.pid == leader)
-                && tree::marked(TASK_MARK, &mark).iter().all(|p| p.pid == leader)
+            crate::agent_host::tree::marked(TASK_MARK, &mark).iter().all(|p| p.pid == leader)
         }
     };
     let stop = {

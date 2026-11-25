@@ -1085,7 +1085,8 @@ fn a_fleet_sized_list_answers_small_and_live_first() {
 
     let r = ls_result(&all, &json!({}));
     let size = r.to_string().len();
-    assert!(size < 64 * 1024, "reply is {size} bytes");
+    // A default answer fits a byte budget, as every tool schema does (`every_tool_schema_fits_its_byte_budget`).
+    assert!(size < 16 * 1024, "reply is {size} bytes");
     let rows = r["structuredContent"]["sessions"].as_array().unwrap();
     assert_eq!(rows.len(), LS_DEFAULT_LIMIT, "{}", text(&r));
     assert!(rows.iter().all(|s| s["status"] != "closed"), "closed rows by default");
@@ -1558,17 +1559,32 @@ fn the_most_called_tools_are_always_loaded_and_the_rest_deferred() {
     assert!(rest.into_iter().all(|t| t.get("_meta").is_none()));
 }
 
-/// Prints each tool schema this crate serves (acpmux's and the sub-session server's), one
-/// `TOOLJSON` line each, to measure what a harness pays per turn for them:
-/// `cargo test -p acpmux --lib print_tool_schemas -- --ignored --nocapture`.
+/// Why the bloat was possible: nothing measured what a tool costs, so a description, a field
+/// or a whole sub-schema could grow by a sentence per fix and nobody saw it. Codex sends every
+/// schema on every turn, and Claude reads a result's `structuredContent` whole, so these bytes
+/// are tokens. This fails when one tool's schema, or a server's whole list, goes past its
+/// budget; `--nocapture` prints every size. A tool that needs more says why in its own budget.
 #[test]
-#[ignore = "a measurement, not a check"]
-fn print_tool_schemas() {
-    for (server, list) in
-        [("acpmux", tools()), ("cmux-subsessions", crate::subsession_mcp::tools())]
-    {
+fn every_tool_schema_fits_its_byte_budget() {
+    const PER_TOOL: usize = 3 * 1024;
+    let mut over = Vec::new();
+    for (server, list, budget) in [
+        ("acpmux", tools(), 28 * 1024),
+        ("cmux-subsessions", crate::subsession_mcp::tools(), 11 * 1024),
+    ] {
+        let mut total = 0;
         for tool in list.as_array().into_iter().flatten() {
-            println!("TOOLJSON {server} {tool}");
+            let bytes = tool.to_string().len();
+            total += bytes;
+            println!("SCHEMA {server} {} {bytes}", tool["name"].as_str().unwrap_or("?"));
+            if bytes > PER_TOOL {
+                over.push(format!("{server}/{}: {bytes} B > {PER_TOOL}", tool["name"]));
+            }
+        }
+        println!("SCHEMA {server} TOTAL {total}");
+        if total > budget {
+            over.push(format!("{server}: {total} B of schemas > {budget}"));
         }
     }
+    assert!(over.is_empty(), "tool schemas over budget (shorten them): {over:#?}");
 }
