@@ -50,6 +50,7 @@ def decide(*, on: str = "1", direct: str = "0", claimed: str = "", own_hit: str 
         env = {
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
             "ON": on, "DIRECT": direct, "CLAIMED": claimed, "OWN_HIT": own_hit, "LAST_KEY": last_key,
+            "RETRY": "", "RETRIED": "", "ROUND": "",
             "WINDOW": "1", "KEY": "cmux-next-pure-checks", "HOLD_MINUTES": "30", "GITHUB_SHA": SHA,
             "GITHUB_OUTPUT": str(out), "GITHUB_STEP_SUMMARY": str(summary),
         }

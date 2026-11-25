@@ -57,7 +57,7 @@ enum WorkspaceCreation {
     /// (``DaemonConnection/retryingLateReplies(_:until:_:)``).
     @MainActor static func createWithFirstTab<T>(
         _ key: WorkspaceKey,
-        name: String?,
+        name: String?, nameSource: WorkspaceNameSource? = nil,
         on connection: DaemonConnection,
         repair: EmptyWorkspaceRepair,
         giveUp: ContinuousClock.Instant? = nil,
@@ -66,7 +66,7 @@ enum WorkspaceCreation {
         try await repair.populating(key) {
             var created: WorkspaceMutationResult?
             return try await repair.withTerminal(
-                key, createWorkspace: { created = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key, until: giveUp) },
+                key, createWorkspace: { created = try await connection.createWorkspaceRetryingLateReplies(name: name, nameSource: nameSource, key: key, until: giveUp) },
                 createTerminal: { _ in
                     guard let created else { throw DaemonError.notConnected }
                     return try await firstTab(created)

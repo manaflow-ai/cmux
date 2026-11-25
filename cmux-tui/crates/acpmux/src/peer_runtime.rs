@@ -18,6 +18,17 @@ impl Peer {
         peer_token: Option<String>,
         notices: mpsc::Sender<(String, u64, PeerNotice)>,
     ) -> Arc<Self> {
+        Self::new_with_lease(name, url, token, peer_token, notices, false)
+    }
+
+    pub(crate) fn new_with_lease(
+        name: &str,
+        url: &str,
+        token: Option<String>,
+        peer_token: Option<String>,
+        notices: mpsc::Sender<(String, u64, PeerNotice)>,
+        leased: bool,
+    ) -> Arc<Self> {
         let (out, out_rx) = mpsc::channel(1024);
         let scope = cmux_scope::Scope::new("acpmux peer");
         let notices = crate::peer_notice_outbox::NoticeOutbox::new(
@@ -28,6 +39,7 @@ impl Peer {
             scope,
             name: name.to_owned(),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::SeqCst),
+            leased,
             url: url.to_owned(),
             token,
             peer_token,
@@ -123,6 +135,7 @@ impl Peer {
             states: StdMutex::new(None),
             timings: LinkTimings::from_env(),
             silence: StdMutex::new(None),
+            replacement: StdMutex::new(None),
             cache_saved_at: AtomicU64::new(0),
             cache_saved_outage: AtomicBool::new(false),
             cache_write_pending: AtomicBool::new(false),
