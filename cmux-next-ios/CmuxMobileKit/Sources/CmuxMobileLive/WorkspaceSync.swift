@@ -90,6 +90,8 @@ public final class WorkspaceSync {
     @ObservationIgnored public private(set) var connectionSerial = 0
     @ObservationIgnored private let deviceID: String
     @ObservationIgnored private let deviceName: String
+    /// Which Macs take the first window (`ListFirstWindow`); tests use their own suite.
+    @ObservationIgnored var firstWindowDefaults: UserDefaults = .standard
 
     public init(deviceID: String, deviceName: String) {
         self.deviceID = deviceID
@@ -124,7 +126,9 @@ public final class WorkspaceSync {
             await channel.close(code: "eof", reason: "binding superseded")
             return
         }
-        let prepared = await Self.prepare(channel, deviceID: deviceID, deviceName: deviceName)
+        let prepared = await Self.prepare(channel, deviceID: deviceID, deviceName: deviceName,
+                                          firstWindow: ListFirstWindow.honors(macID, defaults: firstWindowDefaults),
+                                          macID: macID)
         guard connectionSerial == serial, !Task.isCancelled else {
             prepared.replies.cancel()
             await prepared.client.close()
@@ -141,6 +145,20 @@ public final class WorkspaceSync {
         let replies: Task<[Result<DaemonClient.ReceivedLine, any Error>], Never>
         /// The setup list carried `known` (`setupSendsKnown`).
         var sentKnown = false
+        /// The setup list asked for the first window (`ListFirstWindow`).
+        var sentFirstWindow = false
+        /// The setup list sent the revision of the tree this process held for the Mac (`heldKnown`).
+        var sentHeld: WorkspaceProjection.KnownTree?
+    }
+
+    /// The revision of the last whole tree each Mac's list gave this process, so the setup batch
+    /// of the next link to that Mac (a redial: a foreground return, a network change) can send it
+    /// as `known`. Written before `identify` answers, like `setupSendsKnown`.
+    nonisolated static let heldKnown = Mutex<[String: WorkspaceProjection.KnownTree]>([:])
+
+    /// Records what `projection` now holds for `macID` (nil: a list with no revision).
+    nonisolated static func noteHeld(_ known: WorkspaceProjection.KnownTree?, macID: String) {
+        heldKnown.withLock { $0[macID] = known }
     }
 
     /// Whether the last daemon this process identified takes `known` on `list-workspaces`.
@@ -157,13 +175,23 @@ public final class WorkspaceSync {
     /// (they came three serial round trips later from `refresh()`). The daemon answers a connection's lines in
     /// order; events after the subscribe wait in the client's stream. Does not
     /// wait for the answers (a Mac that pairs holds them until `auth` passes).
+    /// With `firstWindow` (the Mac advertised `list-workspaces-page-v1` last time) the list
+    /// is the first window only (`ListFirstWindow`); the whole tree follows after it is drawn.
     public nonisolated static func prepare(
         _ channel: any LinkChannel, deviceID: String, deviceName: String,
+        firstWindow: Bool = false,
+        macID: String? = nil,
         authorizationTimeout: Duration = LinkPairing.authorizationTimeout,
         replyTimeout: Duration = DaemonClient.defaultDeadline,
         sendsKnown: Bool? = nil
     ) async -> Prepared {
         let sendsKnown = sendsKnown ?? setupSendsKnown.withLock { $0 }
+        // A redial to a Mac whose tree this process holds sends that tree's revision: a Mac
+        // that has not changed answers `unchanged` and the phone keeps what it shows (no whole
+        // tree, no first window) (Leo, 2026-11-24: "deltas can be sipped and maintained").
+        let held = sendsKnown ? macID.flatMap { id in heldKnown.withLock { $0[id] } } : nil
+        let listParams = held.map { Self.listParams(known: $0, sendsKnown: true) }
+            ?? Self.setupListParams(sendsKnown: sendsKnown, firstWindow: firstWindow)
         let client = DaemonClient(channel: channel, orderedEvents: true)
         await client.start()
         let replies = Task.detached { () -> [Result<DaemonClient.ReceivedLine, any Error>] in
@@ -171,12 +199,12 @@ public final class WorkspaceSync {
                 ("set-client-info", [
                     "name": deviceName, "kind": "ios", "device_kind": "iphone", "device_name": deviceName, "device_id": deviceID,
                     // `page-tabs-v1`: the Mac's page tabs read as their page (a phone tab is a simulator tab).
-                    "capabilities": ["conversation-tabs-v1", "agent-session-tabs-v1", "page-tabs-v1"],
+                    "capabilities": WorkspaceSync.clientCapabilities,
                 ]),
                 ("identify", [:]),
                 ("subscribe", ["tree_events": "deltas"]),
                 ("list-agents", [:]),
-                ("list-workspaces", listParams(known: nil, sendsKnown: sendsKnown)),
+                ("list-workspaces", listParams),
                 ("list-personal", [:]),
             ], resources: [("sidebar_layout.get", [:])], deadline: authorizationTimeout + replyTimeout)
             // This eager batch can be held behind auth's human approval. Only
@@ -184,7 +212,8 @@ public final class WorkspaceSync {
             ConnectTimeline.shared.mark("first_daemon_response")
             return replies
         }
-        return Prepared(client: client, replies: replies, sentKnown: sendsKnown)
+        return Prepared(client: client, replies: replies, sentKnown: sendsKnown, sentFirstWindow: firstWindow && held == nil,
+                        sentHeld: held)
     }
 
     /// Binds a prepared `daemon` channel for `macID` and publishes its list
@@ -193,6 +222,8 @@ public final class WorkspaceSync {
         stopUpdates()
         let oldClient = client
         initializing = true
+        // The same Mac's projection, kept for a setup list answered `unchanged`.
+        let heldProjection = macID == self.macID && tree != nil ? projection : nil
         projection = WorkspaceProjection()
         let projection = projection
         // The same Mac again (a redial): its activity times, order and pins
@@ -257,6 +288,7 @@ public final class WorkspaceSync {
             identity = setup.identity
             listsKnown = setup.listsKnown
             Self.setupSendsKnown.withLock { $0 = setup.listsKnown }
+            ListFirstWindow.note(macID, honors: setup.pages, defaults: firstWindowDefaults)
             // A reconnect's list counts a prompt only by its own time (a turn already running
             // when the link came back is not a new prompt at the moment it is seen).
             for (surface, state) in setup.agents.bySurface where state.updatedAt != nil {
@@ -277,21 +309,52 @@ public final class WorkspaceSync {
                 arrangementSequence = personal.sequence
             }
             var snapshot = try replies[4].get()
-            if prepared.sentKnown, (try? Self.check(snapshot.data)) == nil {
-                // Sent `known` on the last Mac's word and this one refused it: list again without.
-                snapshot = try await client.requestOrdered("list-workspaces", params: Self.listParams(known: nil, sendsKnown: setup.listsKnown))
+            if prepared.sentKnown || prepared.sentFirstWindow, (try? Self.check(snapshot.data)) == nil {
+                // Sent `known` or `limit` on the last Mac's word and this one refused it: list
+                // again with only what this connection's `identify` advertised.
+                snapshot = try await client.requestOrdered("list-workspaces", params: Self.setupListParams(
+                    sendsKnown: setup.listsKnown, firstWindow: setup.pages))
                 guard self.client === client, !Task.isCancelled else {
                     await closeFailedClient(client)
                     return
                 }
             }
-            let known = (tree?.workspaces ?? []).filter { $0.macID == macID }
-            let next = try await projection.reset(snapshot: snapshot.data, macID: macID,
-                                                  previous: known.isEmpty ? cached : known,
+            var next: DaemonTree
+            if let sent = prepared.sentHeld, Self.isUnchanged(snapshot.data), let heldProjection,
+               await heldProjection.known == sent, let current = tree {
+                // The Mac's tree is the one this phone holds: keep it, with this link's agents
+                // and arrangement, instead of reading it again.
+                self.projection = heldProjection
+                let update = try await heldProjection.updateAgents(agents: agents, activity: activity)
+                let rearranged = await heldProjection.rearrange(arrangement)
+                next = rearranged ?? update?.tree ?? current
+                guard self.client === client, !Task.isCancelled else {
+                    await closeFailedClient(client)
+                    return
+                }
+            } else {
+                if prepared.sentHeld != nil, Self.isUnchanged(snapshot.data) {
+                    // `unchanged`, but this sync no longer holds that tree: read it whole.
+                    snapshot = try await client.requestOrdered("list-workspaces", params: Self.setupListParams(
+                        sendsKnown: setup.listsKnown, firstWindow: false))
+                    guard self.client === client, !Task.isCancelled else {
+                        await closeFailedClient(client)
+                        return
+                    }
+                }
+                let known = (tree?.workspaces ?? []).filter { $0.macID == macID }
+                let kept = known.isEmpty ? cached : known
+                next = try await projection.reset(snapshot: snapshot.data, macID: macID,
+                                                  previous: kept,
                                                   agents: agents, activity: activity, arrangement: arrangement)
-            guard self.client === client, !Task.isCancelled else {
-                await closeFailedClient(client)
-                return
+                guard self.client === client, !Task.isCancelled else {
+                    await closeFailedClient(client)
+                    return
+                }
+                Self.noteHeld(await projection.known, macID: macID)
+                // A first window: draw it over the rows already held; the whole tree follows
+                // from `refresh()` below, in the background.
+                if ListFirstWindow.isPartial(snapshot.data) { next = ListFirstWindow.drawn(next, keeping: kept) }
             }
             // Setup subscribed before its list. Replay every setup event;
             // reply arrival is not a watermark for the captured snapshot.
@@ -516,7 +579,7 @@ public final class WorkspaceSync {
         }
     }
 
-    private nonisolated static func decodeSetup(_ replies: [Result<Data, any Error>]) throws -> (identity: String?, agents: AgentStates, listsKnown: Bool) {
+    private nonisolated static func decodeSetup(_ replies: [Result<Data, any Error>]) throws -> (identity: String?, agents: AgentStates, listsKnown: Bool, pages: Bool) {
         _ = try check(replies[0].get())
         let identify = try check(replies[1].get())["data"] as? [String: Any]
         _ = try check(replies[2].get())
@@ -528,7 +591,7 @@ public final class WorkspaceSync {
         }
         let identity = identify.map { "\($0["app"] as? String ?? "cmux-tui") \($0["version"] as? String ?? "") protocol \($0["protocol"] as? Int ?? 0)" }
         let capabilities = identify?["capabilities"] as? [String] ?? []
-        return (identity, agents, capabilities.contains(Self.knownCapability))
+        return (identity, agents, capabilities.contains(Self.knownCapability), capabilities.contains(ListFirstWindow.capability))
     }
 
     public func refresh() async {
@@ -587,6 +650,7 @@ public final class WorkspaceSync {
                                                           previous: tree?.workspaces ?? [], agents: agents,
                                                           activity: activity, arrangement: arrangement)
                     guard self.client === client, !Task.isCancelled else { return }
+                    if !macID.isEmpty { Self.noteHeld(await projection.known, macID: macID) }
                     snapshotSequence = coveredThrough
                     if reloadArrangement { arrangementSequence = arrangementCoveredThrough }
                     discardBeforeSnapshot()
@@ -675,6 +739,13 @@ public final class WorkspaceSync {
         return ["known": known]
     }
 
+    /// The setup batch's `list-workspaces` params: `known` (`{}`) when the daemon takes it, and
+    /// the first window's `limit` when it takes that (`ListFirstWindow`). A first window carries
+    /// no `tree_revision`, so the `refresh()` after it sends `known: {}` and gets the whole tree.
+    nonisolated static func setupListParams(sendsKnown: Bool, firstWindow: Bool) -> [String: Any] {
+        listParams(known: nil, sendsKnown: sendsKnown).merging(ListFirstWindow.params(honors: firstWindow)) { $1 }
+    }
+
     /// Whether `reply` is the daemon's `{"unchanged": true}` answer to a `known` (the held
     /// tree is current). Only a short line can be one, so a whole tree is not parsed twice.
     nonisolated static func isUnchanged(_ reply: Data) -> Bool {
@@ -693,5 +764,79 @@ public final class WorkspaceSync {
             throw DaemonReplyError(message: object["error"] as? String ?? "request failed", code: object["error_code"] as? String)
         }
         return object
+    }
+}
+
+// MARK: - One-request catch-up (`catch-up` link service)
+
+extension WorkspaceSync {
+    /// What the phone's `daemon` line lists in `set-client-info`; a `catch-up` lists the same
+    /// for its own read, so its tree reads as this line's does.
+    nonisolated static let clientCapabilities = ["conversation-tabs-v1", "agent-session-tabs-v1", "page-tabs-v1"]
+
+    /// Where a `catch-up` starts: the held tree's `known` and the line position its answer will
+    /// cover (taken before the channel opens, as ``refresh()`` takes it before its list). Nil
+    /// while the line sets up or lists, or on a daemon that does not take `known`: today's
+    /// list answers then.
+    func catchUpStart() async -> (known: WorkspaceProjection.KnownTree?, coveredThrough: UInt64)? {
+        guard let client, !initializing, refreshTask == nil, listsKnown else { return nil }
+        let known = await projection.known
+        return (known, await client.receivedPosition)
+    }
+
+    /// Applies a `catch-up` reply's tree (`data`, the daemon's `list-workspaces` answer) as
+    /// ``refresh()`` applies its own list's: `unchanged` keeps the tree and orders it again, a
+    /// whole tree replaces it. False when it was not applied (a list ran meanwhile, the line
+    /// changed): the caller lists as today.
+    @discardableResult
+    func applyCatchUp(_ data: Data, unchanged: Bool, coveredThrough: UInt64) async -> Bool {
+        guard let client, !initializing, refreshTask == nil else { return false }
+        let projection = projection
+        let task = Task { [weak self] () -> Bool in
+            guard let self else { return false }
+            await updateTask?.value
+            defer {
+                if self.client === client {
+                    refreshTask = nil
+                    // A refresh() asked while this applied lists after it, as its own loop would.
+                    if dirty {
+                        dirty = false
+                        Task { await self.refresh() }
+                    } else {
+                        drain()
+                    }
+                }
+            }
+            guard self.client === client, !Task.isCancelled else { return false }
+            if unchanged {
+                let next = await projection.rearrange(arrangement)
+                guard self.client === client, !Task.isCancelled else { return false }
+                snapshotSequence = max(snapshotSequence, coveredThrough)
+                discardBeforeSnapshot()
+                lastError = nil
+                if let next {
+                    tree = next
+                    onTree?(next)
+                }
+                return true
+            }
+            do {
+                let next = try await projection.reset(snapshot: data, macID: macID,
+                                                      previous: tree?.workspaces ?? [], agents: agents,
+                                                      activity: activity, arrangement: arrangement)
+                guard self.client === client, !Task.isCancelled else { return false }
+                snapshotSequence = max(snapshotSequence, coveredThrough)
+                discardBeforeSnapshot()
+                tree = next
+                lastError = nil
+                onTree?(next)
+                return true
+            } catch {
+                log.error("catch-up tree: \(String(describing: error), privacy: .public)")
+                return false
+            }
+        }
+        refreshTask = Task { _ = await task.value }
+        return await task.value
     }
 }

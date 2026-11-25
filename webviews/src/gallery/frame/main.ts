@@ -3,7 +3,7 @@
 // language and the theme are in place before the page's own modules load, as the app has them
 // before a page's first script runs.
 import { installGalleryClock } from "../clock";
-import { overPicture, readEnv, SHELL_DEFAULT_BACKGROUND, widthPx } from "../env";
+import { overPicture, readEnv, widthPx, SHELL_DEFAULT_BACKGROUND } from "../env";
 import { readTunes } from "../../experiments/tunable";
 import { readOptions } from "../options";
 import type { GalleryEntry } from "../format";
@@ -13,7 +13,7 @@ import { watchStageErrors } from "./liveErrors";
 import { appHostSeeThrough, appHostTheme, isAppHosted } from "./appHost";
 import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, themeIsDark, type GhosttyTheme } from "../theme/ghostty";
 import { agentPaneTheme, diffAppearance, themeTokens, webThemePayload } from "../theme/web";
-import { deriveAppTheme, APP_ACCENTS, type AppAccent } from "../../theme/appTheme";
+import { APP_ACCENTS, deriveAppTheme, type AppAccent } from "../../theme/appTheme";
 import { lookTheme, schemeOf } from "../golden/look";
 import themes from "virtual:cmux-gallery/themes";
 import webThemeBootstrap from "virtual:cmux-gallery/web-theme";
@@ -370,8 +370,10 @@ function markReadyWhenStill(): void {
 
 async function mount(): Promise<void> {
   // A font study pairing (`fontStudy`) applies to every page host, the chat and Settings alike; its
-  // faces load before the page mounts, so the first frame draws in them.
-  if (env.fontStudy) await import("../fontStudy/apply").then((study) => study.applyFontStudy(env.fontStudy));
+  // faces load before the page mounts, so the first frame draws in them. The URL's wins over the
+  // variant's own (`fontStudy` in format.ts).
+  const fontStudy = env.fontStudy || entry.variants[variantName]!.fontStudy;
+  if (fontStudy) await import("../fontStudy/apply").then((study) => study.applyFontStudy(fontStudy));
   switch (entry.host) {
     case "agent-pane":
       return (await import("./agentPane")).mountAgentPane(entry.variants[variantName]!, context);

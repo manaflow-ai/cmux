@@ -41,7 +41,7 @@ extension CloudAPIClient {
     public func setupDesktop(_ id: String) async throws {
         try requireWorker()
         // The route's own deadline is 30 s in Rust; this one only bounds a child that hangs.
-        _ = try await daemon("machine.setup_desktop", ["id": id], timeout: .seconds(60))
+        _ = try await cloudCall("machine.setup_desktop", ["id": id], timeout: .seconds(60))
     }
 
     /// Lists a guest directory through the authenticated backend wrapper.
@@ -92,7 +92,7 @@ extension CloudAPIClient {
         let body: Data
         do {
             // The child's own HTTP deadlines end first; this one only bounds a child that hangs.
-            body = try await daemon("machine.io", args, timeout: timeout + .seconds(30))
+            body = try await cloudCall("machine.io", args, timeout: timeout + .seconds(30))
         } catch CloudAPIError.timedOut("cloud.machine.io") {
             throw CloudAPIError.transport("cmux did not answer; the \(op) may have run")
         }

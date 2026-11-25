@@ -16,7 +16,7 @@ struct CloudNetworkListTests {
     private func worker(answering body: String, _ seen: Seen = Seen()) throws -> CloudAPIClient {
         var api = CloudAPIClient.workerMachines(baseURL: try #require(URL(string: "https://worker.invalid")),
                                                 accessToken: { "session" }, teamID: { "team_1" }, installToken: { "install" })
-        api.daemonCall = { input, _ in
+        api.daemon.daemonCall = { input, _ in
             await seen.saw(input)
             return Data(#"{"ok":true,"body":\#(body)}"#.utf8)
         }
@@ -29,7 +29,8 @@ struct CloudNetworkListTests {
         // The id is the team's, so `cloud network-list` output feeds `cloud tunnel attach` as it is.
         #expect(networks == [CloudNetwork(id: "team_aaaaaaaaaaaaaaaaaaaa", meshId: "mesh_0123456789abcdefghjkmnpqrs",
                                           cidr: "10.128.16.0/20", cidrV6: nil, scope: "team")])
-        let request = try #require(try JSONSerialization.jsonObject(with: try #require(await seen.input)) as? [String: Any])
+        let input = try #require(await seen.input)
+        let request = try #require(try JSONSerialization.jsonObject(with: input) as? [String: Any])
         #expect(request["call"] as? String == "vm.networks")
         #expect(request["auth"] as? String == "worker")
         #expect(request["credential"] as? String == "install")
@@ -46,11 +47,12 @@ struct CloudNetworkListTests {
         var classic = CloudAPIClient(configuration: CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_VM_API_BASE_URL": "https://vm-api.standin.invalid"],
                                                                                 process: [:], isDebugBuild: true), tokens: { ("access", "refresh") },
                                      teamID: { "team_1" })
-        classic.daemonCall = { input, _ in
+        classic.daemon.daemonCall = { input, _ in
             await seen.saw(input)
             return Data()
         }
         await #expect(throws: CloudAPIError.self) { try await classic.listNetworks() }
-        #expect(await seen.input == nil)
+        let sent = await seen.input
+        #expect(sent == nil)
     }
 }

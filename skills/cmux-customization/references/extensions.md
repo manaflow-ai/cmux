@@ -17,6 +17,8 @@ errors and `scene` (an outline of what rendered). Before saying it is done, it r
 shows the extension ([docs/cmux-next/extensions/dev-loop.md](../../../docs/cmux-next/extensions/dev-loop.md)).
 The same output's `design` list is the design check: fix every entry before calling a view done,
 from the type roles, `SPACE` and components in [extension-design.md](extension-design.md).
+One copyable recipe per kind, each checked in CI, is in the
+[cmux-extension-author](../../cmux-extension-author/SKILL.md) skill.
 To share one, `cmux ext share` prints the link; `cmux ext add LINK` (or `OWNER/NAME`, a git URL,
 a folder) installs someone else's, and `cmux ext search` lists the ones tagged `cmux-extension`
 on GitHub. To find what a person wants, search before building it.

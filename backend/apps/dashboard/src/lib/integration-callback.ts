@@ -1,3 +1,5 @@
+import { callbackSearch } from "./search"
+
 /**
  * Reads only the team claim from an integration state's JWT for request routing.
  *
@@ -152,6 +154,9 @@ export const integrationAppHandoff = (search: {
   setup_action?: string
   error?: string
 }): string | undefined => {
+  // The API would not sign this connect on (AUTHORIZE_REFUSED): the app reads any `error` as a cancel and says
+  // nothing, so this one stays here, where the page tells the person to start again.
+  if (search.error === AUTHORIZE_REFUSED) return undefined
   const ret = stateReturnHint(search.state)
   if (!ret || ret.length > 512 || !RETURN_TO_PATTERN.test(ret) || !ret.endsWith("://integration/complete")) return undefined
   const query = new URLSearchParams()
@@ -162,6 +167,56 @@ export const integrationAppHandoff = (search: {
   return `${ret}?${query.toString()}`
 }
 
+/**
+ * The callback request's answer when it is an app handoff (``integrationAppHandoff``): a plain 302 to the app's link,
+ * sent by the route's server handler before the router runs. The router's own `redirect()` allows only http(s) and a
+ * few other schemes, so a `cmux://` redirect thrown from `beforeLoad` fails the whole render (HTTP 500) instead.
+ * Undefined for any other callback, which the page renders and finishes as before.
+ */
+export const integrationAppHandoffResponse = (url: string): Response | undefined => {
+  const search = Object.fromEntries(new URL(url).searchParams)
+  const handoff = integrationAppHandoff(callbackSearch(search))
+  if (!handoff) return undefined
+  // The query carries GitHub's one-time code: not cached, and not sent on as a referrer.
+  return new Response(null, { status: 302, headers: { Location: handoff, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } })
+}
+
+/** The API route that sends a code-less GitHub redirect on to GitHub's authorize page (api src/integrations/github-authorize-route.ts). */
+export const GITHUB_AUTHORIZE_PATH = "/v1/integrations/github/authorize"
+/** The `error` that route sends back here for a state it would not sign again (expired, or not its own). */
+export const AUTHORIZE_REFUSED = "connection_link_expired"
+
+/**
+ * GitHub's redirect after a person saves an installation that already existed: `installation_id` and
+ * `setup_action=update`, and no `code`. Connect opens the App's install page, and for an account that already has the
+ * App GitHub shows that installation's settings instead. Without a code nobody can finish the connection (the code is
+ * what proves who the GitHub user is), so the browser goes on to the API, which sends it through GitHub's authorize
+ * page with the installation named in the state; GitHub then comes back here with a code. Checked before the app
+ * hand-off: the app could only be refused. `api` is asked for only when the answer is a redirect.
+ *
+ * Undefined for every other callback: one with a code, a cancelled one (`error`), an organization's install request
+ * (`setup_action=request`, which has no installation to authorize), and another provider's. GitHub's authorize page
+ * returns a code or an error and never an installation, so this cannot send the same connect round twice.
+ */
+export const integrationAuthorizeBounce = (url: string, at: { readonly api: () => string; readonly host?: string | null }): Response | undefined => {
+  const search = callbackSearch(Object.fromEntries(new URL(url).searchParams))
+  if (!search.state || !search.installation_id || search.code || search.error || search.setup_action === "request") return undefined
+  if (unverifiedStateClaims(search.state)?.provider !== "github") return undefined
+  const api = integrationCompletionApi({ api: at.api(), ...(at.host ? { host: at.host } : {}) }, search.state).url
+  const query = new URLSearchParams({ state: search.state, installation_id: search.installation_id })
+  return new Response(null, { status: 302, headers: { Location: `${api}${GITHUB_AUTHORIZE_PATH}?${query}`, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } })
+}
+
+/**
+ * GitHub's redirect after a person saved an existing installation's settings page directly (its Setup URL):
+ * `installation_id`, `setup_action=update`, and no `state`, because no connect started it. (A fresh install from the
+ * App's public page, `setup_action=install` with no state, is linked to no team yet, so it keeps the page's own answer.) Nothing is left to finish here, and nobody needs to
+ * sign in to this page: the API hears the change from GitHub itself, and the cmux app reads GitHub again (#55104). The
+ * page says so instead of asking for a sign-in that could not help.
+ */
+export const integrationSavedOnGitHub = (search: { state?: string; installation_id?: string; setup_action?: string; error?: string }): boolean =>
+  !search.state && !search.error && !!search.installation_id && /^[0-9]{1,20}$/.test(search.installation_id) && search.setup_action === "update"
+
 export const integrationCompletionRequest = (state: string, extra: { code?: string; installation_id?: string; setup_action?: string } = {}) => ({
   params: {
     state,
@@ -170,8 +225,23 @@ export const integrationCompletionRequest = (state: string, extra: { code?: stri
     ...(extra.setup_action ? { setup_action: extra.setup_action } : {}),
   },
   team: integrationTeamHint(state),
-  idempotency_key: `complete:${state.slice(-40)}`,
+  idempotency_key: integrationCompletionKey(state, extra),
 })
+
+/**
+ * A completion's idempotency key: the state and the exact params GitHub gave (the app's CloudGitHubCompletion.idempotencyKey
+ * derives the same one). A reload of the same redirect replays; another redirect of the same state (a code-less update
+ * redirect, then the one with a code; a new installation id) is its own completion. Keyed on the state alone, the second
+ * one was refused for good as `idempotency.conflict` ("idempotency key reused with different params", cmux#55104).
+ * FNV-1a 64 of the params, so the one-time code never appears in a key.
+ */
+export const integrationCompletionKey = (state: string, extra: { code?: string; installation_id?: string; setup_action?: string } = {}) => {
+  let hash = 0xcbf29ce484222325n
+  for (const byte of new TextEncoder().encode(`${extra.code ?? ""}\n${extra.installation_id ?? ""}\n${extra.setup_action ?? ""}`)) {
+    hash = ((hash ^ BigInt(byte)) * 0x100000001b3n) & 0xffffffffffffffffn
+  }
+  return `complete:${state.slice(-40)}:${hash.toString(16).padStart(16, "0")}`
+}
 
 const RETURN_HEX = "[0-9a-f]{32}"
 const RETURN_SESSION = "[A-Za-z0-9._-]{1,200}"
