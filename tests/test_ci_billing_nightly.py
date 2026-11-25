@@ -96,7 +96,7 @@ class Workflow(unittest.TestCase):
                 for step in steps:
                     if step.startswith(("Checkout", "Check configuration")):
                         continue
-                    self.assertIn("if: steps.config.outputs.ready == 'true'", step, step.splitlines()[0])
+                    self.assertRegex(step, r"if: (\$\{\{ \()?steps\.config\.outputs\.ready == 'true'", step.splitlines()[0])
 
     def test_delivery_covers_both_environments_of_the_app_store_app(self) -> None:
         block = self.jobs["apple-delivery"]
