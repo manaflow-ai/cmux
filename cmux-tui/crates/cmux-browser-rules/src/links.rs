@@ -465,16 +465,17 @@ pub fn decide_window(
 
 /// What a link click with modifiers does in a WebKit tab (`WebKitLinkClick`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(tag = "click", rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub enum WebKitLinkClick {
     /// A plain click: the page's own behavior.
-    PageDefault,
+    PageDefault {},
     /// A modified click mapped to the current tab.
-    Navigate,
+    Navigate {},
     Open {
+        #[serde(rename = "_0")]
         disposition: NewTabDisposition,
     },
-    Download,
+    Download {},
 }
 
 /// The modifiers of a WebKit link click (`button` 2 is the middle button) through `mapping`.
