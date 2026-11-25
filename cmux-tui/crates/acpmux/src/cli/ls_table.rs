@@ -177,8 +177,8 @@ fn pending(row: &Value) -> u64 {
     row.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0)
 }
 
-/// The short reason a lane needs someone, or empty: a permission it waits on, the account's rate
-/// limit holding it ("rate-limited until 04:30Z"), the daemon's stuck reason (capacity, the
+/// The short reason a lane needs someone, or empty: a permission it waits on, a pause acpmux
+/// ends by itself ("paused: capacity, resumes 04:30Z"), the daemon's stuck reason (capacity, the
 /// harness down), a stalled, failed or lost turn, a question, or a harness
 /// whose sandbox refuses every command.
 fn stuck(row: &Value, now: u64, pauses: &BTreeMap<String, String>) -> String {
@@ -198,9 +198,11 @@ fn stuck(row: &Value, now: u64, pauses: &BTreeMap<String, String>) -> String {
     if row.get("rateLimitParked").and_then(Value::as_u64).is_some() {
         return "rate-limited, parked: acpmux retry".into();
     }
-    // The account's rate limit holds every turn until its reset (`hub/rate_hold.rs`).
-    if let Some(until) = row.get("rateLimitedUntil").and_then(Value::as_u64) {
-        return crate::hub::rate_hold::until_line(until);
+    // Paused (acpmux continues it by itself: a waiting retry, the account's rate-limit hold) or
+    // stranded (its last turn failed and nothing will): `hub/pause_state.rs`.
+    let pause = crate::hub::pause_state::of_row(row);
+    if let Some(state @ crate::hub::pause_state::PauseState::Paused { .. }) = &pause {
+        return crate::hub::pause_state::short_line(state);
     }
     match row.get_str("stuckReason").unwrap_or("") {
         "" => {}
@@ -217,6 +219,9 @@ fn stuck(row: &Value, now: u64, pauses: &BTreeMap<String, String>) -> String {
     let lane = &row["lane"];
     if let Some(since) = lane["stalledSince"].as_u64() {
         return format!("stalled {}", ago(now, since));
+    }
+    if let Some(state) = &pause {
+        return crate::hub::pause_state::short_line(state);
     }
     match lane["state"].as_str() {
         Some("failed") => "failed turn".into(),

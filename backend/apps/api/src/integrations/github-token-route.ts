@@ -9,6 +9,7 @@ import { ssoGate } from "../policy-gate.ts"
 import { principalForOwner, selectTeam } from "../team-select.ts"
 import type { TokenAsk } from "./github-tokens.ts"
 import { platformRead } from "../platform-api.ts"
+import { githubNext } from "./github-next.ts"
 
 /**
  * The GitHub token routes (gh-app-product contract; the work is in github-tokens.ts): POST /token
@@ -32,20 +33,22 @@ const REPOS_PER_ANSWER = 100
 type Fail = { status: number; code: string; message: string; retry_after?: number; configure_url?: string; reason?: string }
 // `configure_url` and a policy.denied's `reason` (github-tokens.ts DenyReason) ride in `error`, where the machine's
 // git and gh read them (cmux-host github.rs reply_for).
-const failed = (f: Fail) => Response.json({ error: { code: f.code, message: f.message, ...(f.configure_url === undefined ? {} : { configure_url: f.configure_url }), ...(f.reason === undefined ? {} : { reason: f.reason }) }, ...(f.retry_after === undefined ? {} : { retry_after: f.retry_after }) }, { status: f.status, headers: f.retry_after === undefined ? NO_STORE : { ...NO_STORE, "retry-after": String(f.retry_after) } })
+// `next` (github-next.ts): the one line that says what to do, and `next_action`, the cmux action that does it.
+const failed = (f: Fail) => Response.json({ error: { code: f.code, message: f.message, ...(f.configure_url === undefined ? {} : { configure_url: f.configure_url }), ...(f.reason === undefined ? {} : { reason: f.reason }), ...githubNext(f.code, f.reason) }, ...(f.retry_after === undefined ? {} : { retry_after: f.retry_after }) }, { status: f.status, headers: f.retry_after === undefined ? NO_STORE : { ...NO_STORE, "retry-after": String(f.retry_after) } })
 const no = (status: number, code: string, message: string): Fail => ({ status, code, message })
 const unreachable = (what: string) => no(503, "integration.unavailable", `${what} could not be checked; retry`)
 
 const connections = (env: Env, team: string) => env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(team))
 
 /**
- * Where the machine-only seam (POST /machine-token) answers: development and staging, where Cloud
- * environment builds mint through it. Production stays closed until the hosted connector rollout.
+ * Where the machine-only seam (POST /machine-token) answers: every deployed environment, so Cloud
+ * environment builds and machines mint scoped installation tokens in production too (on by default).
+ * The caller must still be a live `vm` install of its own machine under the SSO gate and team policy.
  */
-export const MACHINE_TOKEN_ENVIRONMENTS: ReadonlySet<string> = new Set(["development", "staging"])
+export const MACHINE_TOKEN_ENVIRONMENTS: ReadonlySet<string> = new Set(["development", "staging", "production"])
 
 /** The caller, in `team` (a vm install: its machine's team), with grant classes, or why not. */
-const caller = async (request: Request, env: Env, team: string | undefined): Promise<{ p: Principal; team: string; machine?: string } | Fail> => {
+const caller = async (request: Request, env: Env, team: string | undefined): Promise<{ p: Principal; team: string; machine?: string; edgeOnly?: true } | Fail> => {
   const authorization = request.headers.get("authorization") ?? ""
   const token = await authenticate(env, /^Bearer (.+)$/.exec(authorization)?.[1])
   if (!token?.user || !token.team) return no(401, "auth.required", "a cmux bearer token is required")
@@ -71,7 +74,10 @@ const caller = async (request: Request, env: Env, team: string | undefined): Pro
   // This live-machine ownership check gates the VM's existing vm-self read and write access. The platform reads it
   // as this same install's bearer, so it applies its own vm-self gate too.
   const self = await platformRead(env.PLATFORM, request.url, authorization, "cloud.vm.self.get", { machine: p.bound_machine ?? "" })
-  return self.ok ? { p, team: p.team!, machine: p.bound_machine! } : self.retryable ? unreachable("the VM's machine") : no(403, "auth.forbidden", "a VM install speaks only for its own live machine")
+  // An edge machine (cmux-platform PlatformEdge carries it: its git reaches GitHub through platform.cmux.internal)
+  // says so on this same read; then only the platform egress's own bearer (claim `edge`) mints, never the guest's.
+  const edgeOnly = self.ok && (self.value as { platform_edge?: unknown } | null)?.platform_edge === true && p.edge !== true
+  return self.ok ? { p, team: p.team!, machine: p.bound_machine!, ...(edgeOnly ? { edgeOnly: true as const } : {}) } : self.retryable ? unreachable("the VM's machine") : no(403, "auth.forbidden", "a VM install speaks only for its own live machine")
 }
 
 const decode = <A>(schema: Schema.Codec<A, unknown>, body: unknown): A | Fail => {
@@ -88,7 +94,7 @@ const teamAdmin = async (env: Env, p: Principal, team: string): Promise<boolean 
 }
 
 export const handleGithubToken = async (request: Request, env: Env, sub: string): Promise<Response> => {
-  // The machine-only seam answers in MACHINE_TOKEN_ENVIRONMENTS (not production). Repository
+  // The machine-only seam answers in MACHINE_TOKEN_ENVIRONMENTS (not the test runner's own `test`). Repository
   // enumeration answers in every environment: a signed-in person (a session or their own install), and a
   // `vm` install for its own team under exactly the gate POST /token applies to it (caller: its machine's
   // team only, the SSO gate, a live grant, vmGate's own live machine). The listing is no wider than the
@@ -138,6 +144,8 @@ export const handleGithubToken = async (request: Request, env: Env, sub: string)
     if (Object.keys(body.permissions).length === 0) return failed(no(400, "request.invalid", "permissions must name at least one permission"))
     const who = await caller(request, env, body.team)
     if (isFail(who)) return failed(who)
+    // No secret through a request the guest can make: on an edge machine its git needs no token (T15).
+    if (who.edgeOnly) return failed(no(403, "github.edge_only", "this machine's git reaches GitHub through its platform edge; the machine may not ask for a GitHub token"))
     if (sub === "machine-token" && (who.p.kind !== "install" || who.p.install_kind !== "vm" || !who.machine)) return failed(no(403, "auth.forbidden", "a machine install is required"))
     if (who.p.kind === "install" && who.p.install_kind !== "vm" && !who.p.grant_classes?.includes("read")) {
       return failed(no(403, "auth.forbidden", "this install's grant does not cover read"))
