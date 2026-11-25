@@ -378,6 +378,15 @@ fn respond_chat_agent(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
     let answer = match operation {
         // The tables the agent actions bind from.
         b"window_chat_agent_tables" => value(agent::tables())?,
+        // The agent pane page's host-op methods Rust decodes (the host decodes any other itself).
+        b"window_chat_agent_host_op_methods" => {
+            json!({ "methods": cmux_window_rules::chat::host_op::methods() })
+        }
+        // One page message (`{method, params}`), checked: what it asks for, or `unsupported`.
+        b"window_chat_agent_host_op" => {
+            let body: serde_json::Value = read(request)?;
+            value(cmux_window_rules::chat::host_op::decode(&body))?
+        }
         // The agent chat zoom after a step, clamped, and its percent.
         b"window_chat_agent_zoom" => {
             let request: AgentZoom = read(request)?;
