@@ -182,6 +182,8 @@ pub fn registry() -> Vec<MethodDecl> {
         acp(method::SESSION_UPDATE, Notification),
         acp(method::SESSION_REQUEST_PERMISSION, ServerRequest),
         acp(method::CANCEL_REQUEST, ClientNotification),
+        // Which of the connection's requests still run (server/in_flight.rs `states`).
+        untyped(method::MUX_REQUEST_STATE, Request),
         // ACP extensions acpmux names in the acp.* space.
         request::<ForkParams, Value>(method::ACP_SESSION_FORK),
         keyed::<params::TrustGetParams>(method::ACP_TRUST_GET, Request),
@@ -316,6 +318,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_GOAL_SET, Request),
         untyped(method::MUX_GOAL_UPDATE, Request),
         untyped(method::MUX_GOAL_GET, Request),
+        untyped(method::MUX_SURGERY, Request),
         untyped(method::MUX_TASK_LIST_SET, Request),
         untyped(method::MUX_TASK_LIST_GET, Request),
         untyped(method::MUX_PLAN_BUILD, Request),
@@ -602,6 +605,16 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_MACHINE_TUNNEL_ATTACH, Request),
         untyped(method::MUX_MACHINE_TUNNEL_DETACH, Request),
         untyped(method::MUX_MACHINE_TUNNEL_REKEY, Request),
+        // Agent byte channels (`server/channels.rs`).
+        untyped(method::MUX_CHANNEL_LISTEN, Request),
+        untyped(method::MUX_CHANNEL_UNLISTEN, Request),
+        untyped(method::MUX_CHANNEL_OPEN, Request),
+        untyped(method::MUX_CHANNEL_SEND, ClientNotification),
+        untyped(method::MUX_CHANNEL_CLOSE, ClientNotification),
+        untyped(method::MUX_CHANNEL_CONNECT, ClientNotification),
+        untyped(method::MUX_CHANNEL_OPENED, Notification),
+        untyped(method::MUX_CHANNEL_DATA, Notification),
+        untyped(method::MUX_CHANNEL_CLOSED, Notification),
         untyped(method::MUX_PAIR_REDEEM, Request),
         untyped(method::MUX_VAULT_PULL, Request),
         untyped(method::MUX_VAULT_FORGET, Request),
