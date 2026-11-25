@@ -287,17 +287,8 @@ impl Hub {
             .then(|| MoveWatch { hub: self.clone(), transfer_id: transfer_id.to_owned() })
     }
 
-    /// Watches the move `transfer_id` of `session` until it ends, unless another holds its watch.
-    pub(super) fn watch_transfer(self: &Arc<Self>, session: &Arc<Session>, transfer_id: &str) {
-        if tokio::runtime::Handle::try_current().is_err() {
-            return;
-        }
-        if let Some(watch) = self.claim_move_watch(transfer_id) {
-            self.watch_claimed(session, watch);
-        }
-    }
-
-    /// [`Hub::watch_transfer`] for a move this daemon found at start. A move whose bundle was not
+    /// Watches the move `transfer_id` of `session`, which this daemon found at start, until it
+    /// ends, unless another holds its watch. A move whose bundle was not
     /// read to its end cannot have landed anywhere, and its client's connection did not survive
     /// the restart, so it ends now (the chat runs here again) rather than after a lease the chat
     /// spends frozen (RFD 0063, "Nothing lives only on the VM"). A client still reading it gets
