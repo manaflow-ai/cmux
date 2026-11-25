@@ -568,6 +568,7 @@
         "experiments.foldSummaryCounts",
         "experiments.cloudDiskBar",
         "experiments.terminalHistoryFind",
+        "experiments.themedPrompts",
         "experiments.terminalHistory",
         "experiments.quietConnect",
         "experiments.threadMinimapRestReveal",
