@@ -1199,6 +1199,68 @@ class ScriptBehavior(unittest.TestCase):
         # A gate that does read it gets it on demand: the fetch marked origin as the promisor.
         self.assertEqual(git(work, "show", f"{old_commit}:old.txt"), "newer 20")
 
+    def pool_merge(self, pr: str) -> tuple[str, str, list[str]]:
+        """A base 60 commits deep, a pull request of 5 commits off it, and its merge ref; returns (base, head, own)."""
+        seed = self.seed
+        git(seed, "checkout", "-q", "feat-cmux-next")
+        commits(seed, [({"old.txt": f"old {n}\n"}, f"old base {n}") for n in range(60)])
+        fork = git(seed, "rev-parse", "HEAD")
+        git(seed, "checkout", "-q", "-b", f"pr{pr}", fork)
+        own = [commit(seed, {f"pr{pr}.txt": f"{n}\n"}, f"the pull request's change {n}") for n in range(5)]
+        git(seed, "checkout", "-q", "feat-cmux-next")
+        base = commit(seed, {"tip.txt": "moved\n"}, "the base moves on")
+        git(seed, "checkout", "-q", "--detach", base)
+        git(seed, "-c", "user.name=t", "-c", "user.email=t@example.com", "merge", "-q", "--no-ff", "--no-edit", own[-1])
+        git(seed, "push", "-q", "-f", str(self.remote), f"{base}:refs/heads/feat-cmux-next",
+            f"{own[-1]}:refs/pull/{pr}/head", f"HEAD:refs/pull/{pr}/merge")
+        git(seed, "checkout", "-q", "feat-cmux-next")
+        for key in ("uploadpack.allowReachableSHA1InWant", "uploadpack.allowFilter"):  # as GitHub allows
+            git(self.remote, "config", key, "true")
+        return base, own[-1], own
+
+    def pool_checkout(self, pr: str, mirror: Path) -> Path:
+        """What the pool checkout does: a fresh repo borrowing the mirror, the merge ref at depth 2."""
+        work = self.tmp / f"pool{pr}"
+        work.mkdir()
+        git(work, "init", "-q")
+        (work / ".git" / "objects" / "info" / "alternates").write_text(f"{mirror / 'objects'}\n")
+        git(work, "remote", "add", "origin", f"file://{self.remote}")
+        git(work, "fetch", "-q", "--depth=2", "origin", f"refs/pull/{pr}/merge")
+        git(work, "checkout", "-q", "--detach", "FETCH_HEAD")
+        self.assertTrue((work / ".git" / "shallow").exists(), "the fixture must start shallow")
+        return work
+
+    def test_pull_request_on_a_pool_mirror_unshallows_locally_without_a_deepen_fetch(self):
+        base, head, own = self.pool_merge("11")
+        mirror = self.tmp / "mirror.git"
+        subprocess.run(["git", "clone", "-q", "--mirror", str(self.remote), str(mirror)], check=True)
+        work = self.pool_checkout("11", mirror)
+
+        result = self.script(work, "prepare", "--event", "pull_request", "--head", head, "--base", base,
+                             "--output", str(self.tmp / "out.txt"))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("unshallowed locally", result.stderr)
+        self.assertNotIn("deepened by", result.stderr)
+        self.assertEqual(git(work, "rev-parse", "--is-shallow-repository"), "false")
+        merge = git(work, "rev-parse", "HEAD")
+        self.assertEqual(git(work, "rev-list", "--reverse", "--no-merges", f"{base}..{merge}").split(), own)
+
+    def test_pull_request_on_a_stale_pool_mirror_deepens_from_the_remote(self):
+        mirror = self.tmp / "mirror.git"
+        subprocess.run(["git", "clone", "-q", "--mirror", str(self.remote), str(mirror)], check=True)
+        base, head, own = self.pool_merge("12")  # all of it newer than the mirror's sync
+        work = self.pool_checkout("12", mirror)
+
+        result = self.script(work, "prepare", "--event", "pull_request", "--head", head, "--base", base,
+                             "--output", str(self.tmp / "out.txt"))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("lacks some history", result.stderr)
+        self.assertIn("deepened by", result.stderr)
+        merge = git(work, "rev-parse", "HEAD")
+        self.assertEqual(git(work, "rev-list", "--reverse", "--no-merges", f"{base}..{merge}").split(), own)
+
     def test_pull_request_deepens_until_the_base_reaches_below_the_pull_requests_fork(self):
         # #37015 at 5f689d98 (run 42236372118): the PR forked from an old base commit and later merged a newer tip
         # M. Deepening stopped once both sides met at M with no cut ahead of it, but the base's cut sat above the
