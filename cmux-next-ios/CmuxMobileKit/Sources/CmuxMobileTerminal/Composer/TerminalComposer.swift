@@ -207,7 +207,8 @@ struct TerminalComposer: View {
                 onReturn: { send() },
                 shouldInsert: { model.composerShouldInsert($0) },
                 onPasteAttachments: model.attachmentsAvailable ? { pasteFromClipboard() } : nil,
-                autocorrect: autocorrect
+                autocorrect: autocorrect,
+                reservedTop: model.attachments.isEmpty ? 0 : ComposerCardMetrics.attachmentStripHeight
             )
         } trailing: {
             primaryButton
