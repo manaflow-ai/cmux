@@ -31,9 +31,11 @@ struct PullRequestProbeServiceFetchTests {
         number: Int,
         branch: String,
         state: String = "open",
-        mergedAt: String? = nil
+        mergedAt: String? = nil,
+        closedAt: String? = nil
     ) -> String {
         let mergedField = mergedAt.map { "\"\($0)\"" } ?? "null"
+        let closedField = closedAt.map { "\"\($0)\"" } ?? "null"
         return """
         {
           "number": \(number),
@@ -41,6 +43,7 @@ struct PullRequestProbeServiceFetchTests {
           "html_url": "https://github.com/\(repoSlug)/pull/\(number)",
           "updated_at": "2026-07-01T12:00:00Z",
           "merged_at": \(mergedField),
+          "closed_at": \(closedField),
           "head": {"ref": "\(branch)"},
           "base": {"ref": "main"}
         }
@@ -99,6 +102,28 @@ struct PullRequestProbeServiceFetchTests {
         // The defeated-cache pagination path (?state=all&sort=updated&…&page=N)
         // must be gone — no listing request should be issued.
         #expect(urls.allSatisfy { !hasQueryItem(named: "page", in: $0) })
+    }
+
+    @Test func coldFetchDropsPullRequestClosedLongAgoAndKeepsOneWithNoCloseDate() async throws {
+        // Both responses carry both PRs (see multipleCandidateBranchesEachGetOwnHeadRequest).
+        // The fetch reads the real clock, so the stale PR is closed years back.
+        let combined = listBody(
+            pullRequestJSON(number: 4100, branch: "develop", state: "closed", closedAt: "2020-07-01T12:00:00Z"),
+            pullRequestJSON(number: 4200, branch: "feat/undated", state: "closed")
+        )
+        PullRequestProbeStubURLProtocol.reset(stubs: [
+            .init(statusCode: 200, data: combined),
+            .init(statusCode: 200, data: combined),
+        ])
+        let service = makeService()
+
+        let result = await fetch(service: service, branches: ["develop", "feat/undated"])
+
+        let resolved = try #require(entry(from: result))
+        #expect(resolved.pullRequestsByBranch["develop"] == nil)
+        #expect(resolved.knownAbsentBranches.contains("develop"))
+        #expect(resolved.pullRequestsByBranch["feat/undated"]?.number == 4200)
+        #expect(!resolved.knownAbsentBranches.contains("feat/undated"))
     }
 
     @Test func secondRefreshRevalidatesUnchangedBranchTo304() async throws {

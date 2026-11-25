@@ -12,6 +12,7 @@ import Testing
         url: String = "https://github.com/manaflow-ai/cmux/pull/1",
         updatedAt: String?,
         mergedAt: String? = nil,
+        closedAt: String? = nil,
         headRefName: String? = nil,
         baseRefName: String? = nil
     ) -> GitHubPullRequestProbeItem {
@@ -21,6 +22,7 @@ import Testing
             url: url,
             updatedAt: updatedAt,
             mergedAt: mergedAt,
+            closedAt: closedAt,
             headRefName: headRefName,
             baseRefName: baseRefName
         )
@@ -72,6 +74,54 @@ import Testing
         #expect(byBranch["feature/recent-two"]?.number == 2502)
     }
 
+    @Test func pullRequestMapDropsStaleClosedHeadPullRequestForLongLivedBranch() throws {
+        let now = try #require(ISO8601DateFormatter().date(from: "2026-04-20T12:00:00Z"))
+        let pullRequests = [
+            item(number: 2300, state: "CLOSED", url: "https://github.com/manaflow-ai/cmux/pull/2300", updatedAt: "2026-03-06T12:00:00Z", closedAt: "2026-03-06T12:00:00Z", headRefName: "develop", baseRefName: "main"),
+            item(number: 2503, state: "CLOSED", url: "https://github.com/manaflow-ai/cmux/pull/2503", updatedAt: "2026-04-19T12:00:00Z", closedAt: "2026-04-19T12:00:00Z", headRefName: "feature/recently-closed", baseRefName: "develop"),
+        ]
+
+        let byBranch = PullRequestProbeService.pullRequestMapByNormalizedBranch(from: pullRequests, now: now)
+        #expect(byBranch["develop"] == nil)
+        #expect(byBranch["feature/recently-closed"]?.number == 2503)
+    }
+
+    @Test func closedPullRequestGoesStaleByCloseDateNotLastUpdate() throws {
+        let now = try #require(ISO8601DateFormatter().date(from: "2026-04-20T12:00:00Z"))
+        // A comment on a PR closed long ago bumps updatedAt; the badge still drops.
+        let commentedAfterClose = item(number: 2301, state: "CLOSED", url: "https://github.com/manaflow-ai/cmux/pull/2301", updatedAt: "2026-04-19T12:00:00Z", closedAt: "2025-04-01T12:00:00Z")
+        #expect(PullRequestProbeService.preferredPullRequest(from: [commentedAfterClose], now: now) == nil)
+
+        // Exactly at the cutoff the PR is still shown, as a merged one is.
+        let closedAtCutoff = item(number: 2302, state: "CLOSED", url: "https://github.com/manaflow-ai/cmux/pull/2302", updatedAt: "2026-04-06T12:00:00Z", closedAt: "2026-04-06T12:00:00Z")
+        #expect(PullRequestProbeService.preferredPullRequest(from: [closedAtCutoff], now: now) == closedAtCutoff)
+    }
+
+    @Test func closedPullRequestWithoutCloseDateStaysBadgeCandidate() throws {
+        let now = try #require(ISO8601DateFormatter().date(from: "2026-04-20T12:00:00Z"))
+        let undated = item(number: 2304, state: "CLOSED", url: "https://github.com/manaflow-ai/cmux/pull/2304", updatedAt: "2025-04-01T12:00:00Z")
+        let unparseable = item(number: 2305, state: "CLOSED", url: "https://github.com/manaflow-ai/cmux/pull/2305", updatedAt: "2025-04-01T12:00:00Z", closedAt: "last year")
+        #expect(PullRequestProbeService.preferredPullRequest(from: [undated], now: now) == undated)
+        #expect(PullRequestProbeService.preferredPullRequest(from: [unparseable], now: now) == unparseable)
+    }
+
+    @Test func openPullRequestIgnoresAnOldCloseDate() throws {
+        let now = try #require(ISO8601DateFormatter().date(from: "2026-04-20T12:00:00Z"))
+        let staleClosed = item(number: 2306, state: "CLOSED", url: "https://github.com/manaflow-ai/cmux/pull/2306", updatedAt: "2025-04-01T12:00:00Z", closedAt: "2025-04-01T12:00:00Z")
+        // GitHub clears closed_at on reopen; an open PR is never dropped for age either way.
+        let reopened = item(number: 2307, state: "OPEN", url: "https://github.com/manaflow-ai/cmux/pull/2307", updatedAt: "2026-04-19T12:00:00Z", closedAt: "2025-04-01T12:00:00Z")
+        #expect(PullRequestProbeService.preferredPullRequest(from: [staleClosed, reopened], now: now) == reopened)
+    }
+
+    @Test func mergedPullRequestStillGoesStaleByMergeDate() throws {
+        let now = try #require(ISO8601DateFormatter().date(from: "2026-04-20T12:00:00Z"))
+        // REST sets closed_at on a merged PR too; the merged rule keeps reading merged_at.
+        let recentlyMerged = item(number: 2308, state: "MERGED", url: "https://github.com/manaflow-ai/cmux/pull/2308", updatedAt: "2026-04-19T12:00:00Z", mergedAt: "2026-04-19T12:00:00Z", closedAt: "2026-04-19T12:00:00Z")
+        let staleMerged = item(number: 2309, state: "MERGED", url: "https://github.com/manaflow-ai/cmux/pull/2309", updatedAt: "2026-03-06T12:00:00Z", mergedAt: "2026-03-06T12:00:00Z", closedAt: "2026-03-06T12:00:00Z")
+        #expect(PullRequestProbeService.preferredPullRequest(from: [recentlyMerged], now: now) == recentlyMerged)
+        #expect(PullRequestProbeService.preferredPullRequest(from: [staleMerged], now: now) == nil)
+    }
+
     // MARK: refresh policy
 
     @Test func shouldSkipLookupOnlyForExactMainAndMaster() {
@@ -113,6 +163,41 @@ import Testing
     }
 
     // MARK: REST decode + mapping
+
+    @Test func decodesRESTCloseDateOntoProbeItem() throws {
+        let json = """
+        [
+          {
+            "number": 6100,
+            "state": "closed",
+            "html_url": "https://github.com/manaflow-ai/cmux/pull/6100",
+            "updated_at": "2026-06-05T10:00:00Z",
+            "merged_at": null,
+            "closed_at": "2026-06-03T10:00:00Z",
+            "head": {"ref": "develop"},
+            "base": {"ref": "main"}
+          },
+          {
+            "number": 6101,
+            "state": "open",
+            "html_url": "https://github.com/manaflow-ai/cmux/pull/6101",
+            "updated_at": "2026-06-03T11:00:00Z",
+            "merged_at": null,
+            "closed_at": null,
+            "head": {"ref": "feat/open"},
+            "base": {"ref": "main"}
+          }
+        ]
+        """
+        let rest = try #require(
+            PullRequestProbeService.decodeJSON([WorkspacePullRequestRESTItem].self, from: Data(json.utf8))
+        )
+        let items = rest.map(PullRequestProbeService.probeItem)
+
+        #expect(PullRequestStatus(githubState: items[0].state) == .closed)
+        #expect(items[0].closedAt == "2026-06-03T10:00:00Z")
+        #expect(items[1].closedAt == nil)
+    }
 
     @Test func decodesRESTItemsAndSynthesizesMergedState() throws {
         let json = """
