@@ -434,7 +434,8 @@ mod tests {
             "Linux virtual machine",
             "until the machine is deleted",
             "push work",
-            "no repository",
+            // A chat started with no repository (Leo, 2026-11-02), said apart from a Mac folder's.
+            "empty when the chat started with none",
             "add_repo",
         ] {
             assert!(INSTRUCTIONS.contains(fact), "instructions lack {fact:?}");
