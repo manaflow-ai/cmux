@@ -280,6 +280,7 @@ async fn a_turn_the_store_refused_on_a_full_disk_goes_on_once_it_has_room() {
         control: Control::default(),
         trust_gate: false,
         from: None,
+        slash: Some("/compact --all"),
         goes_on: true,
     };
     // No rules (a caller that keeps none): ended failed, nothing scheduled.
@@ -328,7 +329,7 @@ async fn a_turn_the_store_refused_on_a_full_disk_goes_on_once_it_has_room() {
     let ids: Vec<&Value> = messages.iter().map(|m| &m["promptId"]).collect();
     assert_eq!(ids, [&json!("p2~resume-1")], "{messages:?}");
     let text = messages[0]["text"].as_str().unwrap_or_default();
-    assert!(text.contains("disk filling up"), "{text}");
+    assert_eq!(text, "/compact --all", "a refused compaction must be resent as itself");
     let skipped = kinds(&hub, &s, "auto_resume_skipped");
     assert!(skipped.iter().all(|m| m["turnId"] == "t"), "{skipped:?}");
 }

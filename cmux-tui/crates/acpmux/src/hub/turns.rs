@@ -970,6 +970,7 @@ impl Hub {
         let (mut blocks, control, trust_gate, cloud_mobile) =
             (run.blocks.clone(), run.control, run.trust_gate, run.cloud_mobile);
         // What a turn the store refuses on a full disk goes on under (`auto_resume/disk_wait.rs`).
+        let refused_prompt_text = super::session::prompt_text(&run.blocks);
         let rules = RefusedRules {
             control,
             trust_gate,
@@ -978,6 +979,7 @@ impl Hub {
                 .as_ref()
                 .filter(|p| super::subsession_guard::is_family(Some(p)))
                 .and_then(|p| p["from"].as_str()),
+            slash: super::auto_resume::resent_command(&refused_prompt_text),
             goes_on: !crate::prompt_provenance::is_trigger(run.provenance.as_ref())
                 && !super::idle::cache_compact::is_own(run.provenance.as_ref())
                 && !super::cold_wake::is_own(run.provenance.as_ref()),
