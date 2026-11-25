@@ -151,17 +151,17 @@ impl<K: Ord + Clone, V: Clone> Replica<K, V> {
         // A far-future remote stamp is deliberately not allowed to poison the HLC. A local
         // overwrite must still win that key, though, so advance only this key's stamp when the
         // wall clock is behind its current winner.
-        if let Some(current) = self.entries.get(&key) {
-            if stamp <= current.stamp {
-                stamp = current.stamp.clone();
-                if stamp.n == u32::MAX {
-                    stamp.ms = stamp.ms.saturating_add(1);
-                    stamp.n = 0;
-                } else {
-                    stamp.n += 1;
-                }
-                stamp.actor = actor.clone();
+        if let Some(current) = self.entries.get(&key)
+            && stamp <= current.stamp
+        {
+            stamp = current.stamp.clone();
+            if stamp.n == u32::MAX {
+                stamp.ms = stamp.ms.saturating_add(1);
+                stamp.n = 0;
+            } else {
+                stamp.n += 1;
             }
+            stamp.actor = actor.clone();
         }
         let dot = Dot { actor: actor.clone(), seq };
         self.vv.set(actor.clone(), seq);
