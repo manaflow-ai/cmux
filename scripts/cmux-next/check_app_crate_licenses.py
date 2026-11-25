@@ -73,6 +73,7 @@ FIRST_PARTY_GPL = {
     "cmux-sdk",
     "cmux-sdk-ffi",
     "cmux-terminal-prediction",
+    "cmux-url-input",
     "cmux-window-rules",
 }
 
