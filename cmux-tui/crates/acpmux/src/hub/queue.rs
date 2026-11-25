@@ -1633,6 +1633,9 @@ impl Hub {
                 tokio::spawn(async move {
                     // After the login env and the catalog reload: its harness may need them.
                     hub.wait_startup().await;
+                    let mut provenance = q.run.provenance.clone();
+                    let (inbox, thread, wake_or_fail) =
+                        super::prompt_admission::take_deferred_inbox(&mut provenance);
                     let opts = PromptOptions {
                         prompt_id: Some(q.prompt_id.clone()),
                         message_id: q.run.message_id.clone(),
@@ -1640,11 +1643,14 @@ impl Hub {
                         cloud_mobile: q.run.cloud_mobile,
                         trust_gate: q.run.trust_gate,
                         // Who sent it: a queued agent message stays that agent's after a restart.
-                        provenance: q.run.provenance.clone(),
+                        provenance,
                         message_sender: q.run.message_sender.clone(),
                         agent: q.run.agent.clone(),
                         class: q.run.class,
                         display_parts: q.run.display_parts.clone(),
+                        inbox,
+                        thread,
+                        wake_or_fail,
                         ..PromptOptions::default()
                     };
                     let blocks = q.run.blocks.clone();
