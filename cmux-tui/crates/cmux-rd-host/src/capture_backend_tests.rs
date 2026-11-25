@@ -63,3 +63,20 @@ fn display_defaults_to_the_session_then_display_then_zero() {
     assert_eq!(x_display(None, None, Some("")), ":0");
     assert_eq!(x_display(None, None, None), ":0");
 }
+
+#[test]
+fn gnome_is_cast_through_mutter_and_other_wayland_desktops_through_the_portal() {
+    assert_eq!(WaylandCapture::choose(true), WaylandCapture::Mutter);
+    assert_eq!(WaylandCapture::choose(false), WaylandCapture::Portal);
+    // mutter needs no grant; the portal does, once.
+    assert!(!WaylandCapture::Mutter.needs_grant());
+    assert!(WaylandCapture::Portal.needs_grant());
+}
+
+#[test]
+fn mutter_applies_input_with_its_remote_desktop_and_no_grant() {
+    assert!(wayland_control_with(WaylandCapture::Mutter, true, false));
+    assert!(!wayland_control_with(WaylandCapture::Mutter, false, true));
+    assert!(wayland_control_with(WaylandCapture::Portal, false, true));
+    assert!(!wayland_control_with(WaylandCapture::Portal, true, false));
+}

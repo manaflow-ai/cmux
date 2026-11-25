@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.browser.defaultEngine.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Browser tabs and cmux pages, such as History and Apps, open in this engine."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ブラウザタブと、履歴やアプリなどの cmux のページはこのエンジンで開きます。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تُفتح علامات تبويب المتصفح وصفحات cmux، مثل السجل والتطبيقات، بهذا المحرك."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kartice preglednika i cmux stranice, kao što su Historija i Aplikacije, otvaraju se u ovom mehanizmu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Browserfaner og cmux-sider som Historik og Apps åbnes med denne motor."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Browser-Tabs und cmux-Seiten wie Verlauf und Apps öffnen sich mit dieser Engine."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Las pestañas del navegador y las páginas de cmux, como Historial y Apps, se abren con este motor."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les onglets du navigateur et les pages de cmux, comme Historique et Apps, s’ouvrent avec ce moteur."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le schede del browser e le pagine di cmux, come Cronologia e App, si aprono con questo motore."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្ទាំងកម្មវិធីរុករក និងទំព័រ cmux ដូចជា ប្រវត្តិ និង កម្មវិធី បើកក្នុងម៉ាស៊ីននេះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "브라우저 탭과 기록, 앱 같은 cmux 페이지는 이 엔진으로 열립니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nettleserfaner og cmux-sider som Historikk og Apper åpnes med denne motoren."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Karty przeglądarki i strony cmux, takie jak Historia i Aplikacje, otwierają się w tym silniku."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Abas do navegador e páginas do cmux, como Histórico e Apps, abrem neste motor."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вкладки браузера и страницы cmux, такие как История и Приложения, открываются в этом движке."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แท็บเบราว์เซอร์และหน้าของ cmux เช่น ประวัติ และ แอป จะเปิดด้วยเอนจินนี้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tarayıcı sekmeleri ve Geçmiş ile Uygulamalar gibi cmux sayfaları bu motorla açılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вкладки браузера та сторінки cmux, як-от Історія та Програми, відкриваються в цьому рушії."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tab trình duyệt và các trang của cmux, như Lịch sử và Ứng dụng, mở bằng công cụ này."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "浏览器标签页和 cmux 页面（如历史记录和应用）使用此引擎打开。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "瀏覽器標籤頁和 cmux 頁面（例如歷史記錄和 App）會以此引擎開啟。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
