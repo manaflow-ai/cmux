@@ -728,11 +728,15 @@ async fn a_ready_link_that_goes_silent(url: &str) -> (Result<LinkEnd, String>, D
 async fn a_silent_link_whose_peer_still_answers_a_dial_moves_to_it_without_a_drop() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
+    // Every connection is served, and one that is not a WebSocket upgrade (a dial's probe) is
+    // let go: the listener stays up for the dial itself.
     let server = tokio::spawn(async move {
-        let (stream, _) = listener.accept().await.unwrap();
-        let ws = tokio_tungstenite::accept_async(stream).await.unwrap();
-        std::future::pending::<()>().await;
-        drop(ws);
+        let mut held = Vec::new();
+        while let Ok((stream, _)) = listener.accept().await {
+            if let Ok(ws) = tokio_tungstenite::accept_async(stream).await {
+                held.push(ws);
+            }
+        }
     });
     let (ended, took, replaced) =
         a_ready_link_that_goes_silent(&format!("ws://127.0.0.1:{port}")).await;
