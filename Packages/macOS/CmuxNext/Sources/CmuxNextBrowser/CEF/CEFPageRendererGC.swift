@@ -17,11 +17,26 @@ import Foundation
 /// grown past ``bound(afterLastCollection:)`` gets one full collection. A renderer of chats that stay open is
 /// checked too, at most once per ``delay``, and the bound keeps the blocking collection rare: it runs only once
 /// the garbage is about as large as what is live.
+///
+/// That bound alone leaves the last burst's garbage behind for good: up to ``floorBytes`` (or what is live) of V8
+/// heap below it, with the DOM and Blink memory those closed pages' wrappers hold. Infinite tabs (500 tabs, 200
+/// workspaces, 100 chats, all hibernated) ended with only two chat pages in this renderer and it still at 368 MB
+/// footprint against about 163 MB in the empty app. So ``quietDelay`` after the newest close, once closes stop,
+/// each renderer is checked once more against the lower ``quietBound(afterLastCollection:)``: a collection then
+/// costs one pause proportional to what is live (two pages), once, and no churn pays it.
+///
+/// The quiet check collects twice. One collection left the renderer at 655 MB resident on the same bench, and a
+/// second `HeapProfiler.collectGarbage` right after took it to 543 MB: the first frees the JavaScript wrappers,
+/// and the DOM they kept goes with the next. The second costs the same small pause, once per quiet period.
 @MainActor
 final class CEFPageRendererGC {
     static let delay: Duration = .seconds(10)
     /// The least growth worth a blocking collection, and the live size assumed before the first one.
     static let floorBytes = 64 << 20
+    /// From the newest cmux page close to the quiet check (each close moves it).
+    static let quietDelay: Duration = .seconds(60)
+    /// The least garbage the quiet check collects.
+    static let quietFloorBytes = 16 << 20
 
     /// A live page, as the check picks its targets.
     struct Page: Equatable {
@@ -37,12 +52,16 @@ final class CEFPageRendererGC {
     }
 
     private let timer = DemandTimer(owner: "CEFPageRendererGC")
+    private let quietTimer = DemandTimer(owner: "CEFPageRendererGC.quiet")
     private let pages: @MainActor () -> [Page]
     private let heapUsed: @MainActor (Int32) async -> Int?
     private let collect: @MainActor (Int32) async -> Void
     /// Each renderer's used heap right after its last collection.
     private var live: [Int32: Int] = [:]
     private var checking = false
+    /// What the collector did, for `debug.cef_pages` (a bench reads why a renderer was or was not collected).
+    private(set) var stats: [String: Int] = [:]
+    private func count(_ key: String, _ value: Int? = nil) { stats[key] = value ?? (stats[key, default: 0] + 1) }
 
     init(pages: @escaping @MainActor () -> [Page],
          heapUsed: @escaping @MainActor (Int32) async -> Int?,
@@ -52,21 +71,46 @@ final class CEFPageRendererGC {
         self.collect = collect
     }
 
-    /// A cmux page closed: its renderer is checked within ``delay``.
+    /// A cmux page closed: its renderer is checked within ``delay``, and once more ``quietDelay`` after the newest close.
     func pageClosed() {
+        count("closes")
         timer.scheduleIfIdle(after: Self.delay) { @MainActor [weak self] in await self?.check() }
+        scheduleQuietCheck()
     }
 
-    func check() async {
-        guard !checking else { return }
+    private func scheduleQuietCheck() {
+        quietTimer.schedule(after: Self.quietDelay) { @MainActor [weak self] in await self?.check(quiet: true) }
+    }
+
+    /// `quiet`: the check once closes stopped, against ``quietBound(afterLastCollection:)``.
+    func check(quiet: Bool = false) async {
+        guard !checking else {
+            // The burst's check is running: the quiet one still runs, later.
+            if quiet { scheduleQuietCheck() }
+            count("busy")
+            return
+        }
         checking = true
         defer { checking = false }
         let targets = Self.targets(pages())
+        count(quiet ? "quiet_checks" : "checks")
+        count("last_targets", targets.count)
         live = live.filter { renderer, _ in targets.contains { $0.renderer == renderer } }
         for target in targets {
-            guard let used = await heapUsed(target.browser), used >= Self.bound(afterLastCollection: live[target.renderer]) else { continue }
+            let bound = quiet ? Self.quietBound(afterLastCollection: live[target.renderer]) : Self.bound(afterLastCollection: live[target.renderer])
+            let used = await heapUsed(target.browser)
+            count("last_used_mb", (used ?? -(1 << 20)) >> 20)
+            count("last_bound_mb", bound >> 20)
+            guard let used, used >= bound else { continue }
             await collect(target.browser)
-            if let after = await heapUsed(target.browser) { live[target.renderer] = after }
+            count(quiet ? "quiet_collections" : "collections")
+            // What the first collection unhooked (closed pages' DOM, freed by the wrappers that went) goes back
+            // only with a second one.
+            if quiet {
+                await collect(target.browser)
+                count("quiet_second_collections")
+            }
+            if let after = await heapUsed(target.browser) { live[target.renderer] = after; count("last_live_mb", after >> 20) }
         }
     }
 
@@ -75,6 +119,12 @@ final class CEFPageRendererGC {
     static func bound(afterLastCollection live: Int?) -> Int {
         let live = max(live ?? floorBytes, 0)
         return max(2 * live, live + floorBytes)
+    }
+
+    /// The used heap at which the quiet check collects: ``quietFloorBytes`` more than was live after the last
+    /// collection; with none yet, past ``quietFloorBytes`` (that collection learns what is live).
+    static func quietBound(afterLastCollection live: Int?) -> Int {
+        max(live ?? 0, 0) + quietFloorBytes
     }
 
     /// One cmux page per renderer that hosts cmux pages (the lowest browser id of its main-frame renderer), in
