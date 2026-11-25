@@ -70,6 +70,7 @@ export const ROW_LEVELS: {
     "appearance.backgroundOpacity": "more",
     "appearance.inactiveWindowDim": "more",
     "appearance.wallpaperTint": "more",
+    "appearance.wallpaperLighting": "more",
     "appearance.displayBackgrounds": "hidden",
     "appearance.displayBackgroundRotations": "hidden",
     // What each background mode last showed: the Background card keeps it, nothing edits it by hand.
@@ -308,6 +309,7 @@ export const ROW_LEVELS: {
     "agentPane.display.statusVerbs.custom": "hidden",
     "agentPane.display.width": "more",
     "agentPane.display.vscodeMinimap": "hidden",
+    "agentPane.display.chatListStatusPills": "hidden",
     "agentPane.display.headerBreadcrumb": "hidden",
     "agentPane.display.trayHandle": "hidden",
     "agentPane.display.senderIcon.lead": "hidden",
