@@ -244,7 +244,7 @@ impl PausedFs {
         if !self.serve_reads {
             return Ok(Routed::NotPaused);
         }
-        self.browse(machine, dir, hub_resumes, |j, r, rel| list_dir(j, r, rel))
+        self.browse(machine, dir, hub_resumes, list_dir)
     }
 
     /// Lines matching `query` in the files of paused `machine` (`root` is its folder). Blocking.
