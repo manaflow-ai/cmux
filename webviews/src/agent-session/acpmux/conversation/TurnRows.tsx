@@ -36,12 +36,12 @@ import {
   isStopped,
   offersRetry,
   turnTimeKey,
-  FOLD_COUNTS_SWITCH,
   workedCallsText,
-  workedCountsText,
   workedLabel,
   workedMessagesText,
   formatDuration,
+  FOLD_COUNTS_SWITCH,
+  workedCountsText,
 } from "./turns";
 import { FailedCount } from "./FailedCount";
 import { useExperimentSwitch } from "../../../experiments/switches";
@@ -51,7 +51,8 @@ import { turnCopyText } from "./turnCopy";
 import { workedLine } from "./workedLine.experiment";
 import { workedCountParts, workedOutcome, workedOutcomeParts, workedSentence, type WorkedPart } from "./workedOutcome";
 import { TimedLabel } from "./TurnTokens";
-import { AlertCircle, ChevronRight, Close, Retry } from "./icons";
+import { AlertCircle, Close, Retry } from "./icons";
+import { DisclosureChevron } from "./DisclosureChevron";
 import { ForkButton, MessageCopy, MessageFooterRow, MessageMore, PinButton, ReadAloudButton } from "./MessageActions";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { dismissFailure, useFailureDismissed } from "./dismissedFailures";
@@ -207,7 +208,7 @@ export function WorkedFor({
       <span className="cv-worked__label">
         <WorkedLabel row={row} />
       </span>
-      <ChevronRight size={14} className={`cv-worked__chevron cv-rotor${expanded ? " is-open" : ""}`} />
+      <DisclosureChevron open={expanded} look="worked" />
     </button>
   );
 }
@@ -226,6 +227,8 @@ function groupNode(
   folded = false,
   thoughts = 0,
   runLine?: readonly string[],
+  foldId?: number,
+  onLoadFold?: (fold: number) => Promise<void>,
 ): ReactNode {
   switch (group.type) {
     case "group":
@@ -240,6 +243,8 @@ function groupNode(
           // run's line around it was (it draws inside the opened run's line as its own line too).
           inherits={group.kind === "edits" ? undefined : runLine}
           closedBy={group.kind === "edits" ? undefined : runLine}
+          foldId={foldId}
+          onLoadFold={onLoadFold}
           thoughtId={(n) => `${rowId}:thought:${thoughts + n}`}
         />
       );
@@ -334,7 +339,15 @@ function groupNode(
   }
 }
 
-export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: string }) {
+export function ToolRows({
+  row,
+  sessionId,
+  onLoadFold,
+}: {
+  row: AcpmuxRow;
+  sessionId?: string;
+  onLoadFold?: (fold: number) => Promise<void>;
+}) {
   const reveal = useContext(FindReveal);
   // Keep the original transcript for copy/export and reveal discovery calls when Find names them.
   const revealing = reveal && isRevealRow(row, reveal);
@@ -367,6 +380,8 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
           start.groupsClosed,
           thoughts[at],
           [key],
+          row.foldId,
+          onLoadFold,
         );
       });
     if (!stretch.fold) return drawn;

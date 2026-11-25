@@ -3421,6 +3421,117 @@ async fn hub_carrier_a_lane_gh_broker_stream_reaches_the_owners_broker_socket() 
     assert!(refused.contains("service.unknown_machine"), "{refused}");
 }
 
+/// A stand-in lane-gh broker at a fresh socket: each line in comes back as `broker:<line>`, and
+/// `seen` counts the lines it read.
+#[cfg(unix)]
+fn standin_broker(socket: &std::path::Path) -> Arc<AtomicU64> {
+    let listener = tokio::net::UnixListener::bind(socket).unwrap();
+    let seen = Arc::new(AtomicU64::new(0));
+    let counted = seen.clone();
+    tokio::spawn(async move {
+        while let Ok((conn, _)) = listener.accept().await {
+            let seen = counted.clone();
+            tokio::spawn(async move {
+                let (read, mut write) = conn.into_split();
+                let mut lines = tokio::io::BufReader::new(read).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    seen.fetch_add(1, Ordering::SeqCst);
+                    if write.write_all(format!("broker:{line}\n").as_bytes()).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    seen
+}
+
+/// A lane-gh call over the carrier costs one relay round trip on a kept circuit, not two: its
+/// request rides behind the stream's OPEN (`dial_service_early`) instead of waiting for the
+/// OPEN's ANSWER. Measured on a lane VM before this, a broker ping over the carrier took two hub
+/// round trips (the stream open, about 100-200 ms, then the request and reply) where `ssh -R`
+/// took one direct round trip. Here A's leg is 60 ms away each way (a 120 ms round trip): the
+/// call with its request sent early answers in about one round trip, the one that waits for the
+/// answer first in about two, and the broker reads every request exactly once. A refused
+/// stream's early bytes never reach the broker.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_broker_call_with_early_bytes_costs_one_round_trip() {
+    let _ = HERMETIC;
+    let delay = Duration::from_millis(60);
+    let rtt = delay * 2;
+    let fixture = kept_fixture(delay, true, true).await;
+    let broker = CircuitService::LaneGhBroker;
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("client-a.sock");
+    let seen = standin_broker(&socket);
+    fixture.b.set_lane_gh_broker_gate(Arc::new(TestBrokerGate {
+        admits: fixture.a.public_key(),
+        socket: socket.clone(),
+    }));
+    let request = b"{\"op\":\"ping\"}\n";
+    let reply = b"broker:{\"op\":\"ping\"}\n";
+    let read_reply = |mut stream: acpmux::hub_carrier::HubStream| async move {
+        let mut back = vec![0u8; reply.len()];
+        within("the broker's answer", stream.read_exact(&mut back)).await.unwrap();
+        assert_eq!(back, reply);
+    };
+    // The kept circuit is open (the fixture's dials opened it); one call warms the broker path.
+    let (stream, _) =
+        within("a warm-up call", fixture.a.dial_service_early(&fixture.b_key, broker, request))
+            .await
+            .unwrap();
+    read_reply(stream).await;
+
+    let (mut answer_first, mut early) = (Vec::new(), Vec::new());
+    for _ in 0..5 {
+        let started = std::time::Instant::now();
+        let (mut stream, report) =
+            within("a call", fixture.a.dial_service_reported(&fixture.b_key, broker))
+                .await
+                .unwrap();
+        assert!(report.kept && report.early == 0);
+        stream.write_all(request).await.unwrap();
+        read_reply(stream).await;
+        answer_first.push(started.elapsed());
+
+        let started = std::time::Instant::now();
+        let (stream, report) =
+            within("an early call", fixture.a.dial_service_early(&fixture.b_key, broker, request))
+                .await
+                .unwrap();
+        assert!(report.kept, "the call rode the kept circuit");
+        assert_eq!(report.early, request.len());
+        assert_eq!(report.to_json()["early"], request.len());
+        read_reply(stream).await;
+        early.push(started.elapsed());
+    }
+    let (answer_first, early) = (percentile(&mut answer_first, 0.5), percentile(&mut early, 0.5));
+    eprintln!(
+        "BROKER-EARLY rtt={}ms answer-first p50={:.1}ms early p50={:.1}ms n=5",
+        rtt.as_millis(),
+        answer_first.as_secs_f64() * 1e3,
+        early.as_secs_f64() * 1e3
+    );
+    assert!(answer_first >= rtt * 2, "the answer-first call took {answer_first:?}");
+    assert!(early < rtt * 3 / 2, "the early call took {early:?}, over one round trip ({rtt:?})");
+    assert_eq!(seen.load(Ordering::SeqCst), 11, "every request reached the broker once");
+    assert_eq!(fixture.plain_dials(), 0, "every call rode the kept circuit");
+
+    // Refused: the early bytes are dropped unread, and the refusal is the dial's answer.
+    fixture.b.set_lane_gh_broker_gate(Arc::new(TestBrokerGate {
+        admits: "someone else".to_owned(),
+        socket,
+    }));
+    let refused =
+        within("a refused call", fixture.a.dial_service_early(&fixture.b_key, broker, request))
+            .await
+            .unwrap_err();
+    assert!(refused.contains("service.unknown_machine"), "{refused}");
+    tokio::time::sleep(rtt).await;
+    assert_eq!(seen.load(Ordering::SeqCst), 11, "a refused stream's bytes reached the broker");
+}
+
 #[path = "hub_carrier_cases/held_ssh.rs"]
 mod held_ssh;
 

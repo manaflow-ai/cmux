@@ -7,6 +7,17 @@ use super::*;
 /// Returns the window and, over the last half of `run`, the bytes acked a
 /// second and the largest queueing delay a segment met.
 fn bottleneck(rate: f64, base: Duration, run: Duration) -> (u32, f64, Duration) {
+    let (window, goodput, worst, _) = bottleneck_from_start(rate, base, run);
+    (window, goodput, worst)
+}
+
+/// [`bottleneck`], and the largest queueing delay over the whole run, slow
+/// start included.
+fn bottleneck_from_start(
+    rate: f64,
+    base: Duration,
+    run: Duration,
+) -> (u32, f64, Duration, Duration) {
     let start = Instant::now();
     let mut delay = DelayWindow::default();
     let mut now = start;
@@ -16,6 +27,7 @@ fn bottleneck(rate: f64, base: Duration, run: Duration) -> (u32, f64, Duration) 
     let mut acks: VecDeque<(Instant, u32)> = VecDeque::new();
     let half = start + run / 2;
     let (mut acked_after_half, mut worst_queue) = (0u64, Duration::ZERO);
+    let mut worst_ever = Duration::ZERO;
     let (mut srtt, mut next_send): (Option<Duration>, Instant) = (None, start);
     let mut departed: VecDeque<(u32, Instant)> = VecDeque::new();
     while now < start + run {
@@ -28,6 +40,7 @@ fn bottleneck(rate: f64, base: Duration, run: Duration) -> (u32, f64, Duration) 
             if now >= half {
                 worst_queue = worst_queue.max(queued);
             }
+            worst_ever = worst_ever.max(queued);
             link_free = begin + Duration::from_secs_f64(f64::from(SEGMENT) / rate);
             snd_max = snd_max.wrapping_add(SEGMENT);
             delay.departed(snd_max, snd_max.wrapping_sub(snd_una), now);
@@ -56,7 +69,7 @@ fn bottleneck(rate: f64, base: Duration, run: Duration) -> (u32, f64, Duration) 
         snd_una = ack;
         delay.acked(ack, snd_max, now);
     }
-    (delay.window, acked_after_half as f64 / (run / 2).as_secs_f64(), worst_queue)
+    (delay.window, acked_after_half as f64 / (run / 2).as_secs_f64(), worst_queue, worst_ever)
 }
 
 #[test]
@@ -69,6 +82,21 @@ fn bulk_keeps_the_queue_near_the_target_at_full_rate_on_lte() {
     assert!(worst <= TARGET * 3, "queue reached {worst:?}");
     let bdp = rate * 0.070;
     assert!(f64::from(window) < bdp * 1.3, "window {window} for a {bdp:.0} B product");
+}
+
+#[test]
+fn slow_start_stops_near_the_product_on_lte() {
+    // Doubling blind from half the product to past it queued a whole
+    // round's extra (40 ms here, 60 to 110 ms behind the real stack's
+    // jitter): every keystroke echo behind it waited that long.
+    let rate = 12e6 / 8.0;
+    let (_, goodput, _, worst) =
+        bottleneck_from_start(rate, Duration::from_millis(70), Duration::from_secs(8));
+    assert!(goodput > 0.95 * rate, "goodput {goodput:.0} of {rate:.0} B/s");
+    // The first window leaves unpaced (no round trip yet): its own burst
+    // is the largest queue left, 32 segments at 12 Mbit/s, about 25 ms.
+    let first_burst = Duration::from_secs_f64(f64::from(INITIAL_WINDOW) / rate);
+    assert!(worst <= first_burst + TARGET, "queue reached {worst:?}");
 }
 
 #[test]

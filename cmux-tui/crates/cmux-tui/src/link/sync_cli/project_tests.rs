@@ -30,6 +30,22 @@ fn the_manifest_holds_what_a_copy_sends_and_never_a_secret() {
 }
 
 #[test]
+fn the_sent_line_counts_only_the_file_bytes_answered() {
+    let folder = tempfile::tempdir().unwrap();
+    let root = folder.path();
+    std::fs::write(root.join("a.txt"), "0123456789").unwrap();
+    let listed = list(&std::fs::canonicalize(root).unwrap()).unwrap();
+    let entry = listed.manifest.resolve("a.txt").unwrap();
+    let sent = Sent::default();
+    let counted = Counted { source: &listed, sent: &sent };
+    assert_eq!(Source::whole(&counted, entry), Part::ok(b"0123456789".to_vec()));
+    assert_eq!(Source::read(&counted, entry, 2, 3), Part::ok(b"234".to_vec()));
+    // A refusal is no bytes moved.
+    assert_eq!(Source::whole(&counted, 9999).status, wire::REFUSED);
+    assert_eq!(sent.line(), json!({"reads": 2, "bytes": 13}));
+}
+
+#[test]
 fn each_chat_folder_has_its_own_projection_name() {
     assert_eq!(name_of("/home/cmux/work/a"), name_of("/home/cmux/work/a"));
     assert_ne!(name_of("/home/cmux/work/a"), name_of("/home/cmux/work/b"));
@@ -146,10 +162,10 @@ fn a_repository_folder_keeps_nothing_home() {
 }
 
 /// A stand-in machine socket at `path`: each dial's ask is counted, then answered `ok`.
-fn answering(path: &Path) -> std::sync::Arc<std::sync::atomic::AtomicUsize> {
+fn answering(path: &Path) -> Arc<std::sync::atomic::AtomicUsize> {
     use std::sync::atomic::Ordering;
     let listener = std::os::unix::net::UnixListener::bind(path).unwrap();
-    let dials = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let dials = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let counted = dials.clone();
     std::thread::spawn(move || {
         for stream in listener.incoming() {
@@ -251,4 +267,26 @@ fn the_ready_line_splits_the_gate_into_listing_encoding_and_mount() {
     assert!(ready_timing(2, 1, 1, 10, 5, None)["mount_ms"].is_null());
     // One line in the log, for the start matrix to read back.
     assert!(!timing.to_string().contains('\n'));
+}
+
+/// Leo, 2026-11-25: a Cloud chat started on an empty folder must still be that folder, projected,
+/// so what the agent writes comes back to it. An empty or non-git folder lists to a manifest the
+/// machine mounts (never zero bytes, which the machine reads as a resume of a mount it has).
+#[test]
+fn an_empty_or_non_git_folder_is_projected_not_skipped() {
+    let empty = tempfile::tempdir().unwrap();
+    let listed = list(&std::fs::canonicalize(empty.path()).unwrap()).unwrap();
+    assert!(listed.served.iter().all(Option::is_none), "no file to serve");
+    assert_eq!(listed.manifest.len(), 1, "the folder itself and nothing in it");
+    let encoded = listed.manifest.encode().unwrap();
+    assert!(!encoded.is_empty(), "zero manifest bytes would ask the machine for a resume");
+    let decoded = Manifest::decode(&encoded).unwrap();
+    assert_eq!(decoded.len(), 1);
+
+    let plain = tempfile::tempdir().unwrap();
+    std::fs::write(plain.path().join("notes.txt"), "hi\n").unwrap();
+    assert!(!plain.path().join(".git").exists());
+    let listed = list(&std::fs::canonicalize(plain.path()).unwrap()).unwrap();
+    assert!(listed.manifest.resolve("notes.txt").is_some());
+    assert!(!listed.manifest.encode().unwrap().is_empty());
 }

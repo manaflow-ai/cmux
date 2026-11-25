@@ -36,6 +36,17 @@ struct CmuxAppLinksTests {
         #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/cloud/chatgpt")!, linkScheme: scheme) == "#/settings/cloud?focus=cloud.chatgpt")
         #expect(DeepLink.settingsRoute(for: URL(string: "\(scheme)://settings/cloud/api-key")!, linkScheme: scheme) == "#/settings/cloud?focus=cloud.apiKey")
         #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/background")!, linkScheme: scheme) == nil)
+        // ask-6bed134465: every setting and connection has a link that lands exactly on it.
+        for path in ["connections/github", "github", "accounts/github"] {
+            #expect(DeepLink.settingsRoute(for: URL(string: "\(scheme)://settings/\(path)")!, linkScheme: scheme)
+                == "#/settings/accounts?focus=connection.github")
+        }
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/terminal.fontSize")!, linkScheme: scheme) == "#/settings/terminal.fontSize")
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/accounts/machines")!, linkScheme: scheme) == "#/settings/accounts?focus=machines")
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/connections/linear")!, linkScheme: scheme) == "#/settings/connections?focus=linear")
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/nonsense")!, linkScheme: scheme) == "#/settings/nonsense")
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings")!, linkScheme: scheme) == "#/settings")
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/start-agent-from-any-app")!, linkScheme: scheme) == nil)
         #expect(DeepLink.settingsRoute(for: URL(string: "https://settings/models/add")!, linkScheme: scheme) == nil)
     }
 
