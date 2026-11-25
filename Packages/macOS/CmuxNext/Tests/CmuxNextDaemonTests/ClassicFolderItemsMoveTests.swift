@@ -27,14 +27,15 @@ struct ClassicFolderItemsMoveTests {
         try Self.write("classic", support.appending(path: "cmux/session-com.cmuxterm.app.json"))
 
         let move = ClassicFolderItemsMove(applicationSupport: support)
-        #expect(move.run() == [.moved, .moved])
+        // The ledger and the drafts move; the other folders are not there.
+        #expect(move.run() == [.moved, .moved] + Array(repeating: .nothing, count: ClassicFolderItemsMove.folders.count - 2))
         #expect(try Self.read(support.appending(path: "cmux-next/recovery/a.draft")) == "draft")
         #expect(try Self.read(support.appending(path: "cmux-next/server-fix-ledger/com.cmuxterm.app.nightly.server-helper.json")) == "{}")
         // An older build (a rollback) still finds its drafts through the old path.
         #expect(try Self.read(support.appending(path: "cmux/recovery/a.draft")) == "draft")
         #expect(try Self.read(support.appending(path: "cmux/session-com.cmuxterm.app.json")) == "classic")
         // Once: the links left behind are not moved again.
-        #expect(move.run() == [.nothing, .nothing])
+        #expect(move.run() == Array(repeating: StateFolderMove.Outcome.nothing, count: ClassicFolderItemsMove.folders.count))
     }
 
     @Test func aFolderOrFileAlreadyInUseIsNeverReplaced() throws {
@@ -82,7 +83,7 @@ struct ClassicFolderItemsMoveTests {
         let support = try Self.support()
         defer { try? FileManager.default.removeItem(at: support) }
         let move = ClassicFolderItemsMove(applicationSupport: support)
-        #expect(move.run() == [.nothing, .nothing])
+        #expect(move.run() == Array(repeating: StateFolderMove.Outcome.nothing, count: ClassicFolderItemsMove.folders.count))
         #expect(move.moveFile("dev/debug-tunables.json") == .nothing)
         #expect(!FileManager.default.fileExists(atPath: support.appending(path: "cmux").path))
         #expect(!FileManager.default.fileExists(atPath: support.appending(path: "cmux-next").path))
