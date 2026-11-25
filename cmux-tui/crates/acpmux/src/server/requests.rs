@@ -109,7 +109,11 @@ fn attach_shows(conn: &Conn, params: &Value) -> bool {
 /// A create's admission ask (`hub/admission.rs`): `_meta.acpmux.forceAdmit`
 /// (`acpmux new --force-admit`), and whether the person asks here (proven, or
 /// this host's app pane; a peer's `via: app` is its client's word, not proof).
-pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::admission::Ask<'a> {
+pub(super) fn ask<'a>(
+    conn: &'a Conn,
+    params: &Value,
+    who: &'a str,
+) -> crate::hub::admission::Ask<'a> {
     let can_force = can_force(conn.origin);
     let force = can_force && force_asked(params);
     let person = person_asks(conn);
@@ -121,6 +125,14 @@ pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::
     let peers = conn.origin != Origin::Peer;
     // Only `session/new` follows a placed create (`hub/admission_redirect.rs`).
     let redirect = crate::hub::admission_redirect::movable(params);
+    let auto = auto_place_asked(conn.origin, params);
+    // The caller hears the wait when it begins (`_acpmux/admission_waiting`), not only in the
+    // reply up to `AUTO_WAIT_BOUND` later.
+    let waiting: Option<crate::hub::admission::Waiting<'a>> = auto.then(|| {
+        Box::new(move |note: Value| {
+            conn.send(&Message::notification(method::MUX_ADMISSION_WAITING, note));
+        }) as crate::hub::admission::Waiting<'a>
+    });
     // The harness it asks for, as `session/new` reads it; none: the default harness.
     let harness = mux_meta(params).and_then(|m| m.get("harness")).and_then(Value::as_str);
     let harness = harness.map(str::to_owned);
@@ -134,7 +146,22 @@ pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::
         name,
         redirect,
         harness,
+        auto,
+        waiting,
     }
+}
+
+/// Whether a create may wait for the fleet to add a machine: only a start whose place choice was
+/// Auto (`_meta.acpmux.autoPlace: true`, sent by `acpmux new --host auto` or a placed `new`, and by
+/// the app's Auto start). An explicit choice (a named machine, this Mac, Cloud) never sends it and
+/// is admitted as before. A peer daemon's connection never waits: the daemon that forwarded or
+/// redirected the create already did.
+pub(super) fn auto_place_asked(origin: Origin, params: &Value) -> bool {
+    origin != Origin::Peer
+        && mux_meta(params)
+            .and_then(|meta| meta.get(crate::hub::admission::AUTO_PLACE_FIELD))
+            .and_then(Value::as_bool)
+            == Some(true)
 }
 
 /// A peer request's `reply` with what its `wait` saw (`Hub::wait_for_peer`) as `wait`; none
@@ -971,6 +998,19 @@ async fn new_on_peer(
         return super::mesh_control_send::start_through_hub(hub, conn, params, peer_name).await;
     }
     let peer = hub.peer_by_name(peer_name).ok_or_else(|| RpcError::no_peer(peer_name))?;
+    // A new chat started while the peer's link is coming back (a network that just returned)
+    // waits for it, as a prompt does (`wait_for_prompt_link`), instead of being refused in a few
+    // ms as not sent: its ask makes the next attempt come within a second (`peer_wanted.rs`).
+    // Before the feature checks below: a link that is down lists no features. A peer down past
+    // its outage window, or whose login was refused, is refused at once by the request, as before.
+    if !peer.ready() && peer.reconnects_soon() {
+        tokio::select! {
+            _ = super::peer_forward::await_link(&peer, super::peer_forward::PROMPT_LINK_WAIT) => {}
+            () = conn.closed() => {
+                return Err(RpcError::internal("the client closed the connection"));
+            }
+        }
+    }
     if super::trust_gate::gated(conn.origin, params) && !peer.supports_trust_gate() {
         return Err(super::trust_gate::peer_unsupported(&peer.name));
     }
@@ -1527,7 +1567,7 @@ async fn dispatch_request_with_identity(
                 // The daemon run decision proofs bind (`hub/person.rs`).
                 "personInstance": hub.person.instance(),
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", crate::config::chief_builtins::BRAIN_PRESETS_FEATURE, "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::file_uploads::window::FEATURE, crate::hub::journal_restore::PAGES_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, crate::hub::pause::FEATURE, crate::hub::session_hold::FEATURE, crate::hub::release_to_watch::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::hub::create_key::FEATURE, crate::sender_token::FEATURE, crate::hub::register::AUTO_FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE, crate::hub::fork_subagent::FEATURE, super::client_features::UNSENT_FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", crate::config::chief_builtins::BRAIN_PRESETS_FEATURE, "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::file_uploads::window::FEATURE, crate::hub::journal_restore::PAGES_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, crate::hub::pause::FEATURE, crate::hub::session_hold::FEATURE, crate::hub::release_to_watch::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::hub::create_key::FEATURE, crate::sender_token::FEATURE, crate::hub::register::AUTO_FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE, crate::hub::fork_subagent::FEATURE, super::fork_through::FORK_REQUEST_FEATURE, super::client_features::UNSENT_FEATURE], "trustGate": true}}
             });
             // This link carries the v2 list stream (`link_v2.rs`): the one change `peers` makes
             // to what v1 sends a link.
@@ -2693,7 +2733,10 @@ async fn dispatch_request_with_identity(
                     };
                     Ok((new, admitted.warning.clone()))
                 };
-                hub.fork_cancellable(token, fork).await?
+                // One fork per `requestId`: a retry after a restart gets the fork it made
+                // (`hub/fork_request.rs`, cmux#50084).
+                let request = params.pointer("/_meta/acpmux/requestId").and_then(Value::as_str);
+                hub.fork_once(&s, request, hub.fork_cancellable(token, fork)).await?
             };
             // Onto another harness from a remote device: the mode a chat that device starts runs
             // in (`session/new` above), its family's reviewed asking default, or the fork is
@@ -4419,6 +4462,23 @@ mod admission_force_tests {
         assert!(can_force(Origin::LocalApp), "the app");
         assert!(!can_force(Origin::Web), "a Web client");
         assert!(!can_force(Origin::Peer), "a peer");
+    }
+
+    /// Only an Auto start waits for a machine being added: an explicit choice from the app (this
+    /// Mac, which carries no `peer` either) is admitted as before the wait existed.
+    #[test]
+    fn only_an_auto_marked_start_may_wait_for_a_new_machine() {
+        let this_mac = json!({"cwd": "/tmp", "_meta": {"acpmux": {"harness": "claude"}}});
+        assert!(!auto_place_asked(Origin::LocalApp, &this_mac), "this Mac, from the app");
+        assert!(!auto_place_asked(Origin::LocalApp, &json!({"cwd": "/tmp"})), "no _meta");
+        let named = json!({"_meta": {"acpmux": {"peer": "box"}}});
+        assert!(!auto_place_asked(Origin::LocalApp, &named), "a named machine");
+        let off = json!({"_meta": {"acpmux": {"autoPlace": false}}});
+        assert!(!auto_place_asked(Origin::LocalApp, &off));
+        let auto = json!({"cwd": "/tmp", "_meta": {"acpmux": {"autoPlace": true}}});
+        assert!(auto_place_asked(Origin::LocalApp, &auto), "the app's Auto start");
+        assert!(auto_place_asked(Origin::Local, &auto), "acpmux new --host auto");
+        assert!(!auto_place_asked(Origin::Peer, &auto), "a forwarded create waited already");
     }
 
     #[test]

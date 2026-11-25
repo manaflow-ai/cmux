@@ -84,3 +84,7 @@ export const trayFoldHeadLook = defineExperiment({
   // `trayHeadLine` writes it.
   defaultArm: "line",
 });
+
+
+/// One of the folded header's arms.
+export type TrayFoldHeadArm = keyof typeof trayFoldHeadLook.arms;

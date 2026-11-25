@@ -299,9 +299,7 @@ export function trayHeadForms(t: Translate, part: TrayHeadPart): TrayHeadForms {
     ? part.long
     : part.tone
       ? short
-      : part.key.startsWith("agents")
-        ? t("subagents.allRunning", { n })
-        : t("tray.summary.kindRunning", { kind: short });
+      : t("tray.summary.kindRunning", { kind: short });
   return { long, short, count: String(n) };
 }
 

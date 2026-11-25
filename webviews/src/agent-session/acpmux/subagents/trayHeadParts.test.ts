@@ -99,7 +99,7 @@ test("each kind's long, short and count forms; a state kind is its state already
   });
   const items = trayItems([subagent("a"), subagent("b")], [...commands, command("misc", "ls -la")], [], true);
   const finished = finishedTrayItems([subagent("f", "failed")], []);
-  const parts = trayHeadParts(translate, { items, finished, waiting: new Set(), working: true }, true, "claude");
+  const parts = trayHeadParts(translate, { items, finished, waiting: new Set() }, true, "claude");
   expect(parts.map((part) => trayHeadForms(translate, part))).toEqual([
     { long: "2 subagents running", short: "2 subagents", count: "2" },
     { long: "1 message running", short: "1 message", count: "1" },
