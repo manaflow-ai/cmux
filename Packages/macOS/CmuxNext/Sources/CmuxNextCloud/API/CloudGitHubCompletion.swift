@@ -70,6 +70,14 @@ import Observation
         count += 1
     }
 
+    /// The person saved an installation's settings in the app's sheet (no state: nothing to finish). GitHub tells the API
+    /// itself; the picker reads GitHub again now.
+    public func savedOnGitHub() {
+        refusal = nil
+        phase = .connected(account: nil)
+        count += 1
+    }
+
     func finishing() {
         phase = .finishing
         count += 1
@@ -181,14 +189,27 @@ extension CloudGitHubCompletion {
         case authorize(URL)
     }
 
+    /// GitHub's return to the console after the person saved an installation's settings page (`installation_id`,
+    /// `setup_action=update`, no state): the console's `integrationSavedOnGitHub` page, which the app's sheet skips.
+    public static func isSavedOnGitHub(_ url: URL) -> Bool {
+        guard isConsoleCallback(url), let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems else { return false }
+        func value(_ name: String) -> String? { items.first(where: { $0.name == name })?.value.flatMap { $0.isEmpty ? nil : $0 } }
+        guard value("state") == nil, value("error") == nil, value("setup_action") == "update", let id = value("installation_id") else { return false }
+        return id.count <= 20 && id.allSatisfy { $0.isASCII && $0.isNumber }
+    }
+
+    /// `url` is a cmux console's `/integrations/callback` over https.
+    public static func isConsoleCallback(_ url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "https", let host = url.host(percentEncoded: false)?.lowercased(), consoleHosts.contains(host),
+              url.port == nil || url.port == 443, url.user == nil else { return false }
+        return url.path == consoleCallbackPath || url.path == consoleCallbackPath + "/"
+    }
+
     /// GitHub's return to the console's `/integrations/callback` for a connect this build started (the signed state's
     /// `ret` is this build's completion link), as the app finishes it with no page: nil for any other URL, another
     /// build's or the web's connect, and the console's own expired-link answer (which only the page words).
     public static func setupReturn(_ url: URL, scheme: String, api: URL) -> SetupReturn? {
-        guard url.scheme?.lowercased() == "https", let host = url.host(percentEncoded: false)?.lowercased(), consoleHosts.contains(host),
-              url.port == nil || url.port == 443, url.user == nil,
-              url.path == consoleCallbackPath || url.path == consoleCallbackPath + "/",
-              let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems else { return nil }
+        guard isConsoleCallback(url), let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems else { return nil }
         func value(_ name: String) -> String? { items.first(where: { $0.name == name })?.value.flatMap { $0.isEmpty ? nil : $0 } }
         guard let state = value("state"), let claims = claims(state), claims["provider"] as? String == "github",
               (claims["ret"] as? String)?.lowercased() == link(scheme: scheme).lowercased() else { return nil }
@@ -205,6 +226,42 @@ extension CloudGitHubCompletion {
         own.queryItems = items.filter { ["state", "code", "installation_id", "setup_action", "error"].contains($0.name) }
         guard let link = own.url, CloudGitHubCompletion(url: link, scheme: scheme) != nil else { return nil }
         return .complete(link)
+    }
+}
+
+/// The app's own GitHub panel (CmuxNextAccounts `GitHubInstallSheet`): which pages open in it, which return ends it, which
+/// goes on, and how the app finishes it. Leo, 2026-11-25: "you're already in the app. so it shouldnt say shit".
+extension CloudGitHubCompletion {
+    /// A github.com page over https (the App's install page, its account chooser, an installation's settings).
+    public static func opensInApp(_ url: URL) -> Bool {
+        url.scheme?.lowercased() == "https" && url.host(percentEncoded: false)?.lowercased() == "github.com" && url.user == nil
+    }
+
+    /// GitHub's return that ends the panel: this build's completion link, the console's callback for it, or a save on an
+    /// installation's settings page.
+    public static func endsInApp(_ url: URL, scheme: String, api: URL) -> Bool {
+        if CloudGitHubCompletion(url: url, scheme: scheme) != nil || isSavedOnGitHub(url) { return true }
+        if case .complete? = setupReturn(url, scheme: scheme, api: api) { return true }
+        return false
+    }
+
+    /// A code-less return from an installation that already existed goes on through the API's authorize route.
+    public static func nextInApp(_ url: URL, scheme: String, api: URL) -> URL? {
+        if case .authorize(let next)? = setupReturn(url, scheme: scheme, api: api) { return next }
+        return nil
+    }
+
+    /// The console callback for this build as the app's own completion link (a WebKit tab hands it over instead of loading).
+    @MainActor public static func ownReturn(_ url: URL, auth: CloudAuth) -> URL? {
+        guard case .complete(let own)? = setupReturn(url, scheme: auth.configuration.callbackScheme,
+                                                     api: auth.configuration.ownerAPIBaseURL()) else { return nil }
+        return own
+    }
+
+    /// Finishes the panel's end: a save on GitHub re-reads, a return finishes the connect, anything else closes it.
+    @MainActor public static func finishInApp(_ url: URL, auth: CloudAuth) {
+        if isSavedOnGitHub(url) { return auth.gitHubChanges.savedOnGitHub() }
+        if !handle(ownReturn(url, auth: auth) ?? url, auth: auth) { auth.gitHubChanges.closedGitHub() }
     }
 }
 
