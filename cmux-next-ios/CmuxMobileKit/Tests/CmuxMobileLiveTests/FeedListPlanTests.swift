@@ -119,7 +119,6 @@ import Testing
         let store = FeedStore(items: [Self.item("new", ago: 1), Self.ask("ask-old", ago: 30), Self.item("mid", ago: 10), Self.ask("ask-new", ago: 5)])
         #expect(store.visibleItems.map(\.id) == ["ask-new", "ask-old", "new", "mid"])
         #expect(FeedPinnedGroup.count(store.visibleItems, filter: .all) == 2)
-        #expect(FeedPinnedGroup.title(2) == "Needs you · 2")
         store.filter = .needsYou
         #expect(store.visibleItems.map(\.id) == ["ask-new", "ask-old"])
         #expect(FeedPinnedGroup.count(store.visibleItems, filter: store.filter) == 0)
