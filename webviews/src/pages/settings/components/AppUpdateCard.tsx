@@ -5,7 +5,7 @@
 // Previous Build names the build this Mac kept (PreviousBuildRow). Every text is the host's.
 import { useEffect, useState } from "react";
 import { Button } from "../../../ui/Button";
-import { useSettingsState, useStore } from "../context";
+import { useRowState, useSettingsState, useStore } from "../context";
 import type { AppUpdateAction, PreviousBuild } from "../ops";
 import { ActionRow } from "./ActionRow";
 import { PreviousBuildRow } from "./PreviousBuildRow";
@@ -17,7 +17,9 @@ export function AppUpdateCard() {
   const [running, setRunning] = useState<AppUpdateAction | null>(null);
   const state = host?.app_update;
   const [previous, setPrevious] = useState<PreviousBuild | null>(null);
-  const shown = Boolean(state);
+  // Default-off Labs row (labs.previousBuild): off, the card reads no kept build and shows no row.
+  const previousOn = useRowState("labs.previousBuild").value === true;
+  const shown = Boolean(state) && previousOn;
   // Read on demand when the card shows: the host checks the kept build the rollback would take.
   useEffect(() => {
     if (!shown) return;
@@ -68,7 +70,7 @@ export function AppUpdateCard() {
             />
           </div>
         )}
-        {previous && (
+        {previousOn && previous && (
           <PreviousBuildRow
             previous={previous}
             busy={running !== null}

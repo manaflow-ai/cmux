@@ -79,10 +79,10 @@ const previous: PreviousBuild = {
   refusal: null,
 };
 
-async function showPrevious(kept: PreviousBuild | null, refusal?: string) {
+async function showPrevious(kept: PreviousBuild | null, refusal?: string, on = true) {
   const page = await renderPage({
     path: "/settings/updates",
-    mock: { previousBuild: kept, previousBuildRefusal: refusal },
+    mock: { previousBuild: kept, previousBuildRefusal: refusal, values: { "labs.previousBuild": on } },
   });
   await act(async () => page.provider.setHost({ ...page.provider.host, app_update: ready }));
   await settle();
@@ -147,5 +147,11 @@ test("the schedule shows Last Updated and Next Check under the status", async ()
 test("no schedule: no schedule rows", async () => {
   const page = await show(ready);
   expect(card(page.container)!.querySelector("[data-app-update-schedule]")).toBeNull();
+  page.unmount();
+});
+
+test("labs.previousBuild off (the default): no Go Back row even with a kept build", async () => {
+  const page = await showPrevious(previous, undefined, false);
+  expect(card(page.container)!.querySelector("[data-previous-build]")).toBeNull();
   page.unmount();
 });

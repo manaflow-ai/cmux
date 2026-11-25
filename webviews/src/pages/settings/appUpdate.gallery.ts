@@ -82,7 +82,7 @@ export default settingsPageEntry({
     "previous-build": {
       section: "updates",
       host: { app_update: idle },
-      options: { previousBuild: previousBuild(null) },
+      options: { previousBuild: previousBuild(null), values: { "labs.previousBuild": true } },
       steps: [card("idle"), { selector: "[data-previous-build]", action: "wait" }],
       note: "Go Back to Previous Build: the kept build's number, day and commit, and its Go Back.",
     },
@@ -90,6 +90,7 @@ export default settingsPageEntry({
       section: "updates",
       host: { app_update: idle },
       options: {
+        values: { "labs.previousBuild": true },
         previousBuild: previousBuild(
           "1.0.0-nightly.3913596493800 cannot read this Mac's sessions store (it is newer). Your data stays safe here.",
         ),
