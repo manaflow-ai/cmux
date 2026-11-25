@@ -587,10 +587,19 @@ pub fn ids() -> Vec<&'static str> {
     ids_for_connection(true)
 }
 
-/// `initialize` lists only the surfaces available over its transport.
+/// `initialize` lists only the surfaces available over its transport. Debug builds only:
+/// `ACPMUX_TEST_HIDE_CAPABILITIES=ID,ID` leaves those ids out, so a test daemon lists what a
+/// daemon one version older lists (`tests/transfer_cli/session_move_history.rs`). Release builds
+/// have no seam.
 pub(crate) fn ids_for_connection(local_stream: bool) -> Vec<&'static str> {
+    #[cfg(debug_assertions)]
+    let hidden = std::env::var("ACPMUX_TEST_HIDE_CAPABILITIES").unwrap_or_default();
+    #[cfg(not(debug_assertions))]
+    let hidden = String::new();
+    let hidden: Vec<&str> = hidden.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
     CAPABILITIES
         .iter()
+        .filter(|capability| !hidden.contains(&capability.id))
         .filter(|capability| match capability.id {
             MACHINE_ROUTES => cfg!(feature = "hub-carrier"),
             REMOTE_PIPE => local_stream && cfg!(feature = "hub-carrier"),
