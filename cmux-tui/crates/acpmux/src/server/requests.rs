@@ -1594,6 +1594,9 @@ async fn dispatch_request_with_identity(
                 method::MUX_TURN_FRAMES,
                 method::MUX_PERF,
                 method::MUX_CALLERS,
+                method::MUX_CHAT_SECRETS_SET,
+                method::MUX_CHAT_SECRETS_CLEAR,
+                method::MUX_CHAT_SECRETS_LIST,
                 method::MUX_FELT_SNAPSHOT,
             ];
             let capabilities = crate::capabilities::ids_for_connection(matches!(
