@@ -497,6 +497,8 @@ export interface WorkerBindings {
   readonly APNS_KEY_P8?: string
   readonly APNS_KEY_ID?: string
   readonly APNS_TEAM_ID?: string
+  /** "1": each push carries `cmuxSentAtMs`, when it is handed to APNs, for the push-latency probe (optimum-ledger row 16). */
+  readonly PUSH_SENT_AT_PROBE?: string
   /** One UsageMeterDO per team: the automation usage ledger and hard cap (automations-billing.md). */
   readonly USAGE_METER_DO: DurableObjectNamespace<UsageMeterDO>
   /** Model router (src/inference, plans/cmux-next/model-router.md). One instance "global": daily caps and provider health. */

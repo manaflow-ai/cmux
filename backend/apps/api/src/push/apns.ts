@@ -12,10 +12,14 @@ export interface ApnsConfig {
   readonly keyP8: string
   readonly keyId: string
   readonly teamId: string
+  /** Push-latency probe (optimum-ledger row 16), on with PUSH_SENT_AT_PROBE=1: see `stampSentAt`. */
+  readonly sentAtProbe?: boolean
 }
 
-export const apnsConfig = (env: { APNS_KEY_P8?: string; APNS_KEY_ID?: string; APNS_TEAM_ID?: string }): ApnsConfig | null =>
-  env.APNS_KEY_P8 && env.APNS_KEY_ID && env.APNS_TEAM_ID ? { keyP8: env.APNS_KEY_P8, keyId: env.APNS_KEY_ID, teamId: env.APNS_TEAM_ID } : null
+export const apnsConfig = (env: { APNS_KEY_P8?: string; APNS_KEY_ID?: string; APNS_TEAM_ID?: string; PUSH_SENT_AT_PROBE?: string }): ApnsConfig | null =>
+  env.APNS_KEY_P8 && env.APNS_KEY_ID && env.APNS_TEAM_ID
+    ? { keyP8: env.APNS_KEY_P8, keyId: env.APNS_KEY_ID, teamId: env.APNS_TEAM_ID, ...(env.PUSH_SENT_AT_PROBE === "1" ? { sentAtProbe: true } : {}) }
+    : null
 
 /** Apple wants one token reused for 20 to 60 minutes; one per isolate, renewed after 50 or when Apple refuses it. */
 let cached: { id: string; token: string; at: number } | undefined
@@ -118,6 +122,20 @@ export const classifyApns = (status: number, reason: string | undefined): ApnsOu
   return "failed"
 }
 
+/**
+ * The message with `cmuxSentAtMs` (Unix ms, beside `aps`) set to `nowMs`, the wall clock where the send is
+ * handed to APNs; the phone's service extension logs its receive time minus it (`PushLatencyProbe`).
+ * Unchanged when the body is not a JSON object or the stamp would pass the APNs limit.
+ */
+export const stampSentAt = (message: ApnsMessage, nowMs: number): ApnsMessage => {
+  try {
+    const body = JSON.stringify({ ...(JSON.parse(message.body) as object), cmuxSentAtMs: nowMs })
+    return new TextEncoder().encode(body).length <= APNS_MAX_PAYLOAD_BYTES ? { ...message, body } : message
+  } catch {
+    return message
+  }
+}
+
 export interface SendResult {
   readonly token: string
   readonly outcome: ApnsOutcome
@@ -132,7 +150,7 @@ export const sendApnsMessage = async (config: ApnsConfig, targets: ReadonlyArray
   return Promise.all(
     targets.map(async (t) => {
       try {
-        const res = await fetcher(apnsMessageRequest(t, message, token))
+        const res = await fetcher(apnsMessageRequest(t, config.sentAtProbe ? stampSentAt(message, Date.now()) : message, token))
         const reason = res.status === 200 ? undefined : ((await res.json().catch(() => ({}))) as { reason?: string }).reason
         // A refused provider token is minted again on the next send.
         if (res.status === 403 && (reason === "ExpiredProviderToken" || reason === "InvalidProviderToken")) forgetProviderToken()

@@ -51,6 +51,8 @@ export interface Env {
   readonly APNS_KEY_P8?: string
   readonly APNS_KEY_ID?: string
   readonly APNS_TEAM_ID?: string
+  /** "1": each push carries `cmuxSentAtMs`, when it is handed to APNs, for the push-latency probe (optimum-ledger row 16). */
+  readonly PUSH_SENT_AT_PROBE?: string
   /** A second key of the same team for sandbox sends only (push.ts `signingConfig`): both or neither. */
   readonly APNS_SANDBOX_KEY_P8?: string
   readonly APNS_SANDBOX_KEY_ID?: string

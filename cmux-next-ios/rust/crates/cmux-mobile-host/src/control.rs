@@ -197,6 +197,19 @@ pub async fn request_cloud_links() -> Result<CloudLinks, &'static str> {
         Ok(Err(_)) | Err(_) => Err("Cloud link snapshot unavailable"),
     }
 }
+/// Test support: the `cloud_links` requests waiting for the app's answer, so an in-process
+/// bench can play the app (`tests/pair_matrix_ios_linux.rs`).
+#[doc(hidden)]
+pub fn pending_cloud_link_requests() -> Vec<u64> {
+    cloud_link_broker().pending.lock().unwrap_or_else(|e| e.into_inner()).keys().copied().collect()
+}
+
+/// Test support: answer request `request` as the app's `cloud_links` line does.
+#[doc(hidden)]
+pub fn answer_cloud_links(request: u64, links: CloudLinks) {
+    resolve_cloud_links(request, links.paid, links.desktops, links.links);
+}
+
 fn resolve_cloud_links(request: u64, paid: bool, desktops: bool, links: Vec<CloudLink>) {
     let links = links.into_iter().take(128).collect();
     if let Some(sender) =

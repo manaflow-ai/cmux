@@ -73,9 +73,11 @@ name = "cmux-mobile-fake-backend"
 required-features = ["fake-backend"]
 
 [dev-dependencies]
+# The ios-linux pair bench serves an in-process cmux-relay (tests/pair_matrix_ios_linux.rs).
+axum = "0.8"
 cmux-fault.workspace = true
-# Paused time for the silence-bound tests (src/mailbox_apply.rs).
-tokio = { workspace = true, features = ["test-util"] }
+cmux-relay.workspace = true
+cmux-remote-protocol.workspace = true
 cmux-mobile-link = { workspace = true, features = ["testing"] }
 cmux-rd-core.workspace = true
 cmux-rd-engine.workspace = true

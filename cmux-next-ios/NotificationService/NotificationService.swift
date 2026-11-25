@@ -16,6 +16,8 @@ final class NotificationService: UNNotificationServiceExtension {
     override func didReceive(_ request: UNNotificationRequest, withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
         self.contentHandler = contentHandler
         generic = request.content
+        // Row 16 of the optimum ledger: send -> receive, logged when the sender stamped the push.
+        PushLatencyProbe.record(userInfo: request.content.userInfo)
         let keys = PushKeys.current()
         let service = ServicePush()
         // The pairing key remains after sign-out, but the active-account
