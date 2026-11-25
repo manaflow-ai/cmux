@@ -17,8 +17,13 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
-/// A key slower than this (ms, tap to paint) is a spike (as `key_echo`'s).
+/// A key slower than its tag's usual (the median of its newest keys) by more than this (ms) is
+/// a spike; until [`BASELINE_KEYS`] keys, slower than this outright (as `key_echo`'s). On a
+/// link whose every key takes 200 ms (lossy-3) a spike is a key that felt slower than the rest,
+/// not every key.
 pub const SPIKE_MS: u32 = crate::key_echo::SPIKE_MS;
+/// Keys a tag needs before its median sets its spike line.
+pub const BASELINE_KEYS: u64 = 64;
 /// Upper edges (ms, inclusive) of the buckets; one more bucket holds the rest.
 pub const EDGES_MS: [u32; 15] = [8, 16, 25, 33, 50, 67, 100, 150, 200, 300, 500, 750, 1000, 2000, 5000];
 /// Upper edges (ms, inclusive) of the gap-between-spikes buckets; one more holds the rest.
@@ -60,6 +65,16 @@ struct Tag {
     buckets: [u64; EDGES_MS.len() + 1],
     recent: VecDeque<u32>,
     total: u64,
+    /// The spike line: `SPIKE_MS` over the median, refreshed every `BASELINE_KEYS` keys.
+    spike_over: u32,
+}
+
+impl Tag {
+    fn refresh_line(&mut self) {
+        let mut sorted: Vec<u32> = self.recent.iter().copied().collect();
+        sorted.sort_unstable();
+        self.spike_over = rank(&sorted, 50).saturating_add(SPIKE_MS);
+    }
 }
 
 /// One slow key.
@@ -99,6 +114,8 @@ pub struct TagSummary {
     /// Counts per bucket of [`EDGES_MS`] (the last: over the last edge).
     pub buckets: Vec<u64>,
     pub spikes: u64,
+    /// The spike line in force (ms): a key slower than this counted as a spike.
+    pub spike_over_ms: u32,
 }
 
 /// What a debug read prints.
@@ -150,7 +167,11 @@ impl Meter {
             tag.recent.pop_front();
         }
         tag.recent.push_back(ms);
-        if ms <= SPIKE_MS {
+        let line = if tag.total > BASELINE_KEYS { tag.spike_over } else { SPIKE_MS };
+        if tag.total % BASELINE_KEYS == 0 {
+            tag.refresh_line();
+        }
+        if ms <= line {
             return;
         }
         self.spike_count += 1;
@@ -183,6 +204,7 @@ impl Meter {
                     max: sorted[sorted.len() - 1],
                     buckets: tag.buckets.to_vec(),
                     spikes: self.tag_spikes.get(&(net.clone(), path.clone())).copied().unwrap_or(0),
+                    spike_over_ms: if tag.total > BASELINE_KEYS { tag.spike_over } else { SPIKE_MS },
                 }
             })
             .collect();
@@ -355,6 +377,26 @@ mod tests {
             m.record(300, "lte", "turn", Duration::from_millis(t));
         }
         assert_eq!(m.snapshot().period, None, "{:?}", m.snapshot().gaps_ms);
+    }
+
+    #[test]
+    fn a_slow_link_is_not_a_spike_storm() {
+        // lossy-3's shape: every key 150-350 ms; one key every 10 s takes 900.
+        let mut m = Meter::default();
+        let mut t = 0u64;
+        let mut x = 7u64;
+        while t < 120_000 {
+            x = x.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+            let ms = if t % 10_000 < 100 { 900 } else { 150 + ((x >> 33) % 200) as u32 };
+            m.record(ms, "lte", "direct", Duration::from_millis(t));
+            t += 100;
+        }
+        let s = m.snapshot();
+        let lte = &s.tags[0];
+        assert!(lte.spikes < 40, "{} spikes over {} ms", lte.spikes, lte.spike_over_ms);
+        assert!((350..=500).contains(&lte.spike_over_ms), "{}", lte.spike_over_ms);
+        let p = s.period.expect("the 10 s spikes still show");
+        assert!((9_800..=10_200).contains(&p.ms), "{p:?}");
     }
 
     #[test]

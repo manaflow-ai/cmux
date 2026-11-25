@@ -17006,6 +17006,17 @@ public func keepaliveBeatDelayMs(periodMs: UInt64) -> UInt64  {
 })
 }
 /**
+ * The key-to-paint histogram as JSON: per network and route p50/p95/p99,
+ * max and bucket counts; the newest spikes, the gaps between them and the
+ * period they share, if any (named by the link timer it matches).
+ */
+public func keyPaintSnapshot() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_key_paint_snapshot($0
+    )
+})
+}
+/**
  * The device's network changed or came back (iOS `NWPathMonitor`): every
  * WireGuard link moves onto the new network at once without a redial, and
  * the signaling socket is checked (and replaced when dead) so signaling
@@ -17071,6 +17082,25 @@ public func recordKeyEcho(echoMs: UInt32, ackMs: UInt32?)  {try! rustCall() {
 }
 }
 /**
+ * A typed key's echo was painted `paint_ms` after its tap (the terminal's
+ * first frame showing the Mac's echo of it, `TerminalViewController`).
+ * Counted in the key-to-paint histogram under the current network and route.
+ */
+public func recordKeyPaint(paintMs: UInt32)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_record_key_paint(
+        FfiConverterUInt32.lower(paintMs),$0
+    )
+}
+}
+/**
+ * Empty the key-to-paint histogram.
+ */
+public func resetKeyPaint()  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_reset_key_paint($0
+    )
+}
+}
+/**
  * Forget every warm socket and cached ICE server (sign-out, account switch).
  */
 public func resetWarmState()async   {
@@ -17124,6 +17154,16 @@ public func setCellularPath(cellular: Bool)  {try! rustCall() {
 public func setKeepaliveAlignment(on: Bool)  {try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_func_set_keepalive_alignment(
         FfiConverterBool.lower(on),$0
+    )
+}
+}
+/**
+ * The device's network now, `wifi`, `lte` (any cellular), `wired` or
+ * `other` (iOS `NWPathMonitor`, every path update): the key-to-paint tag.
+ */
+public func setNetworkKind(kind: String)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_set_network_kind(
+        FfiConverterString.lower(kind),$0
     )
 }
 }
@@ -17722,6 +17762,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_keepalive_beat_delay_ms() != 42732) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_key_paint_snapshot() != 27731) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_network_changed() != 41080) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -17734,6 +17777,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_record_key_echo() != 59925) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_record_key_paint() != 63665) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_reset_key_paint() != 7589) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_reset_warm_state() != 25219) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -17744,6 +17793,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_keepalive_alignment() != 23404) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_network_kind() != 35548) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_lean_stream_capabilities() != 31447) {
