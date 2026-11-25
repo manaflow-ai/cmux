@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "error.trustUntrusted" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "اخترت عدم الوثوق بهذا المجلد، لذا لن يعمل الوكيل هنا. امنح المجلد الثقة للمتابعة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Odabrali ste da ne vjerujete ovom folderu, pa agent ovdje neće raditi. Vjerujte folderu da nastavite."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Du valgte ikke at stole på denne mappe, så agenten kører ikke her. Stol på mappen for at fortsætte."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Du hast diesem Ordner nicht vertraut, daher läuft der Agent hier nicht. Vertraue dem Ordner, um fortzufahren."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You chose not to trust this folder, so the agent won’t run here. Trust the folder to continue."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Elegiste no confiar en esta carpeta, así que el agente no se ejecutará aquí. Confía en la carpeta para continuar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vous avez choisi de ne pas faire confiance à ce dossier : l’agent ne s’exécutera pas ici. Faites confiance au dossier pour continuer."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hai scelto di non fidarti di questa cartella, quindi l’agente non verrà eseguito qui. Fidati della cartella per continuare."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このフォルダを信頼しないことを選んだため、エージェントはここで実行されません。続けるにはフォルダを信頼してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "អ្នកបានជ្រើសមិនទុកចិត្តថតនេះ ដូច្នេះភ្នាក់ងារនឹងមិនដំណើរការនៅទីនេះទេ។ សូមទុកចិត្តថតនេះ ដើម្បីបន្ត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 폴더를 신뢰하지 않기로 했으므로 에이전트가 여기서 실행되지 않습니다. 계속하려면 폴더를 신뢰하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Du valgte å ikke stole på denne mappen, så agenten kjører ikke her. Stol på mappen for å fortsette."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wybrano brak zaufania do tego folderu, więc agent nie będzie tu działać. Zaufaj folderowi, aby kontynuować."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Você escolheu não confiar nesta pasta, então o agente não será executado aqui. Confie na pasta para continuar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вы решили не доверять этой папке, поэтому агент здесь не запустится. Доверьтесь папке, чтобы продолжить."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "คุณเลือกไม่เชื่อถือโฟลเดอร์นี้ เอเจนต์จึงจะไม่ทำงานที่นี่ เชื่อถือโฟลเดอร์เพื่อดำเนินการต่อ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu klasöre güvenmemeyi seçtiniz, bu yüzden ajan burada çalışmaz. Devam etmek için klasöre güvenin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ви вирішили не довіряти цій папці, тому агент тут не працюватиме. Довіртеся папці, щоб продовжити."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bạn đã chọn không tin cậy thư mục này nên tác nhân sẽ không chạy ở đây. Hãy tin cậy thư mục để tiếp tục."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你选择了不信任此文件夹，因此代理不会在此运行。信任此文件夹即可继续。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你選擇了不信任此資料夾，因此代理不會在此執行。信任此資料夾即可繼續。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
