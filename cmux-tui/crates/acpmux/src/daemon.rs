@@ -1220,8 +1220,10 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         });
     }
     // Opt-in team usage sharing's uploads (`server/chats/team_audit.rs`); idle while it is off.
-    let _usage_upload =
-        hub.scope.spawn_until_cancelled("usage-share-upload", crate::server::usage_upload_loop());
+    let _usage_upload = hub.scope.spawn_until_cancelled(
+        "usage-share-upload",
+        crate::server::usage_upload_loop(hub.settings_changes.subscribe()),
+    );
     #[cfg(target_os = "linux")]
     {
         let hub = hub.clone();

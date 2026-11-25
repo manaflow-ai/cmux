@@ -177,6 +177,7 @@
       "targets": [
         "CmuxNextActions",
         "CmuxNextAgentList",
+        "CmuxNextAgentPanePlacement",
         "CmuxNextApps",
         "CmuxNextCloud",
         "CmuxNextCompat",
@@ -198,6 +199,21 @@
         "CmuxAppAttest",
         "CmuxEgress"
       ]
+    },
+    "CmuxNextAgentPanePlacement": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPanePlacement",
+      "targets": [],
+      "packages": []
+    },
+    "CmuxNextAgentPanePlacementTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextAgentPanePlacementTests",
+      "targets": [
+        "CmuxNextAgentPanePlacement"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextAgentPaneTests": {
       "kind": "test",
