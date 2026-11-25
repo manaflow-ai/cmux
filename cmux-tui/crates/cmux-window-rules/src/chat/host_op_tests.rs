@@ -22,7 +22,7 @@ fn a_body_without_a_method_is_refused_with_no_name() {
 
 #[test]
 fn a_method_outside_the_table_stays_the_hosts() {
-    assert_eq!(op("pane.painted", json!({})), HostOp::Swift);
+    assert_eq!(op("tab.open", json!({})), HostOp::Swift);
     assert_eq!(op("cloud.environment", json!({})), HostOp::Swift);
     assert_eq!(op("imessage.send", json!({})), HostOp::Swift);
 }
@@ -30,7 +30,7 @@ fn a_method_outside_the_table_stays_the_hosts() {
 #[test]
 fn the_method_list_holds_every_family_once() {
     let all = methods();
-    assert_eq!(all.len(), 18);
+    assert_eq!(all.len(), 18 + 35);
     let mut unique = all.clone();
     unique.dedup();
     assert_eq!(unique, all);

@@ -13,6 +13,11 @@
 use serde::Serialize;
 use serde_json::{Map, Value};
 
+#[path = "host_op_pane.rs"]
+pub mod pane;
+
+use pane::characters;
+
 /// The page's Cloud environment editor (`cloud.environment.*`): an envelope
 /// only, the shared web editor and Rust's Cloud client check the fields.
 pub const CLOUD_ENVIRONMENT_METHODS: [&str; 5] = [
@@ -51,6 +56,7 @@ pub fn methods() -> Vec<&'static str> {
         .chain(CLOUD_RESERVATION_METHODS.iter())
         .chain(CLOUD_REPOSITORY_METHODS.iter())
         .chain(GITHUB_METHODS.iter())
+        .chain(pane::PANE_METHODS.iter())
         .copied()
         .collect();
     all.sort_unstable();
@@ -109,6 +115,8 @@ pub enum HostOp {
     CloudRepository { method: String, params: Value },
     #[serde(rename_all = "camelCase")]
     GitHub { github: GitHubRequest },
+    /// One of the pane's own messages ([`pane::PaneOp`]).
+    Pane { pane: pane::PaneOp },
 }
 
 /// Decodes one page message (`WKScriptMessage.body` as JSON): an object with
@@ -134,6 +142,8 @@ pub fn decode_method(method: &str, params: Option<&Map<String, Value>>) -> HostO
         cloud_repository(method, params)
     } else if GITHUB_METHODS.contains(&method) {
         github(method, params).map(|github| HostOp::GitHub { github })
+    } else if pane::PANE_METHODS.contains(&method) {
+        pane::decode(method, params).map(|pane| HostOp::Pane { pane })
     } else {
         return HostOp::Swift;
     };
@@ -383,12 +393,6 @@ pub fn are_session_targets(sessions: &[String], id: &str, alongside_session: boo
         }
         _ => false,
     }
-}
-
-/// Characters as Swift's `String.count` sees ASCII and most text (Unicode
-/// scalar count; a combined grapheme counts as more, so a bound stays tight).
-fn characters(text: &str) -> usize {
-    text.chars().count()
 }
 
 #[cfg(test)]
