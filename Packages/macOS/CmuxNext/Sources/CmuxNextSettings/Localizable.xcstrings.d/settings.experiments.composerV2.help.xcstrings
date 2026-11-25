@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.experiments.composerV2.help" : {
+      "comment" : "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A glass composer with mode chips, mention chips and a round send button. Still being shaped."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "مربع رسالة زجاجي مع شرائح للأوضاع والإشارات وزر إرسال دائري. لا يزال قيد التطوير."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stakleni okvir za poruke s oznakama načina i spominjanja i okruglim dugmetom za slanje. Još se oblikuje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Et beskedfelt af glas med tilstandschips, omtalechips og en rund send-knap. Stadig under udformning."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein gläsernes Nachrichtenfeld mit Modus- und Erwähnungs-Chips und einer runden Senden-Taste. Noch in Arbeit."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una caja de mensaje de cristal con fichas de modo y de mención y un botón de enviar redondo. Aún en desarrollo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une zone de message en verre avec des pastilles de mode et de mention et un bouton d'envoi rond. Encore en cours de mise au point."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una casella messaggio in vetro con chip di modalità e di menzione e un pulsante di invio rotondo. Ancora in lavorazione."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "モードとメンションのチップ、丸い送信ボタンを備えたガラス調のメッセージ欄。調整中です。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ប្រអប់សារកញ្ចក់ ដែលមានបន្ទះរបៀប បន្ទះការលើកឡើង និងប៊ូតុងផ្ញើរាងមូល។ នៅកំពុងរៀបចំ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "모드 칩, 멘션 칩, 둥근 보내기 버튼이 있는 유리 느낌의 메시지 상자입니다. 아직 다듬는 중입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Et meldingsfelt av glass med modusbrikker, omtalebrikker og en rund send-knapp. Fortsatt under utforming."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Szklane pole wiadomości z etykietami trybu i wzmianek oraz okrągłym przyciskiem wysyłania. Wciąż dopracowywane."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uma caixa de mensagem de vidro com chips de modo e de menção e um botão de enviar redondo. Ainda em desenvolvimento."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Стеклянное поле сообщения с метками режима и упоминаний и круглой кнопкой отправки. Ещё дорабатывается."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "กล่องข้อความแบบกระจกพร้อมชิปโหมด ชิปการกล่าวถึง และปุ่มส่งทรงกลม ยังอยู่ระหว่างปรับแต่ง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mod ve bahsetme etiketleri ile yuvarlak bir gönder düğmesi olan cam görünümlü mesaj kutusu. Hâlâ geliştiriliyor."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скляне поле повідомлення з мітками режиму й згадок і круглою кнопкою надсилання. Ще доопрацьовується."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ô soạn tin dạng kính với nhãn chế độ, nhãn nhắc tên và nút gửi tròn. Vẫn đang hoàn thiện."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "玻璃质感的消息框，带有模式标签、提及标签和圆形发送按钮。仍在打磨中。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "玻璃質感的訊息框，帶有模式標籤、提及標籤和圓形傳送按鈕。仍在打磨中。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
