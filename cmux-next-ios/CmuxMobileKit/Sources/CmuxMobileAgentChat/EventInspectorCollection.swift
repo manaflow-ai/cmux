@@ -177,6 +177,20 @@ final class EventInspectorCollection: NSObject, UICollectionViewDelegate {
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         let away = scrollView.contentOffset.y + scrollView.adjustedContentInset.top > 24
+        // Leaving the top holds at once. Coming back lands the held records only at rest: landed
+        // under a finger or a fling they would move the rows the reader is looking at (SH-11).
+        if away { report(true) } else if !scrollView.isTracking, !scrollView.isDragging, !scrollView.isDecelerating { report(false) }
+    }
+
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate { scrollViewDidScroll(scrollView) }
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        scrollViewDidScroll(scrollView)
+    }
+
+    private func report(_ away: Bool) {
         guard away != isAway else { return }
         isAway = away
         self.away(away)

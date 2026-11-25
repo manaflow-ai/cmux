@@ -100,8 +100,16 @@ import UIKit
         let (host, _) = Self.openNow(Self.runningLongStore(200))
         let visible = host.list.collectionView.indexPathsForVisibleItems.count
         #expect(visible > 0)
+        let byPath = host.list.layoutsMadeNowBy.sorted { $0.key < $1.key }
+        #expect((host.list.layoutsMadeNowBy["dequeue"] ?? 0) <= visible + 4,
+                "\(host.list.layoutsMadeNowBy["dequeue"] ?? 0) rows laid out as cells were made, for \(visible) on screen; by path: \(byPath)")
         #expect(host.list.layoutsMadeNow <= visible + 4,
-                "\(host.list.layoutsMadeNow) rows laid out on the main thread at the open for \(visible) on screen, by path: \(host.list.layoutsMadeNowBy.sorted { $0.key < $1.key })")
+                "\(host.list.layoutsMadeNow) rows laid out on the main thread at the open for \(visible) on screen, by path: \(byPath)")
+        if let set = host.list.openingOffsetSet {
+            #expect(abs(set.asked - set.kept) <= 0.5, "the opening offset \(set.asked) did not stick (kept \(set.kept))")
+        } else {
+            Issue.record("the list did not place itself at its opening offset")
+        }
     }
 
     /// Older rows put in above a running end move nothing the reader sees (0.5 pt), frame after
@@ -147,6 +155,8 @@ import UIKit
         await Self.fill(whole, wholeWindow)
         let (grown, grownWindow) = Self.openNow(store())
         await Self.fill(grown, grownWindow)
+        #expect(grown.list.growthsWithLandings > 0 || grown.chunks == 0,
+                "no growth took landed rows in place (\(grown.chunks) chunks): the guard did not cover landings")
         let a = whole.list.layout.items
         let b = grown.list.layout.items
         #expect(a.count == b.count, "rows: \(b.count) windowed, \(a.count) whole")
@@ -203,7 +213,10 @@ import UIKit
 
     // MARK: The Subagents list (#47189 r3: subagents-list-60)
 
-    /// 60 subagents, one changing: the list evaluates that row, not all 60.
+    /// 60 subagents, one changing: the list evaluates that row, not all 60. On a failure the
+    /// message says, per change, which rows were evaluated, what the change did to the store (the
+    /// changed subagent's fields; the list's order and whether the array was replaced) and the
+    /// running clocks' draws in the same window.
     @Test func aSubagentChangeEvaluatesItsRowOnly() async {
         let store = AgentChatStore(source: SmoothChatTests.Silent())
         store.nextFrame = nil
@@ -214,15 +227,37 @@ import UIKit
         for _ in 0..<6 { await Self.frame(window) }
         #expect(probe.subagentRowBodies > 0, "the rows were drawn")
         var perChange: [Int] = []
-        for tick in 0..<4 {
-            let before = probe.subagentRowBodies
+        var notes: [String] = []
+        for tick in 0..<5 {
+            let beforeAgents = store.subagents
+            let beforeRows = probe.subagentRowBodies
+            let beforeTicks = probe.subagentClockTicks
+            probe.subagentRowNames = []
             store.apply(.subagentUpdate(subagentID: running[0], .toolCall(ACPToolCall(id: "tick-\(tick)", title: "Run step \(tick)",
                                                                                       kind: .execute))))
+            let afterAgents = store.subagents
             for _ in 0..<3 { await Self.frame(window) }
-            perChange.append(probe.subagentRowBodies - before)
+            perChange.append(probe.subagentRowBodies - beforeRows)
+            let order = beforeAgents.map(\.id) == afterAgents.map(\.id) ? "same order" : "order changed"
+            let changedIDs = zip(beforeAgents, afterAgents).filter { $0 != $1 }.map(\.1.id)
+            let target = zip(beforeAgents, afterAgents).first { $0.0.id == running[0] }
+            var fields: [String] = []
+            if let (old, new) = target {
+                if old.name != new.name { fields.append("name") }
+                if old.state != new.state { fields.append("state") }
+                if old.action != new.action { fields.append("action") }
+                if old.task != new.task { fields.append("task") }
+                if old.items.count != new.items.count { fields.append("items \(old.items.count)->\(new.items.count)") }
+                if old.endedAt != new.endedAt { fields.append("endedAt") }
+            }
+            notes.append("change \(tick): \(probe.subagentRowBodies - beforeRows) rows [\(probe.subagentRowNames.joined(separator: ", "))]; "
+                + "store: \(order), \(beforeAgents.count)->\(afterAgents.count) agents, changed \(changedIDs); "
+                + "\(running[0]) fields \(fields); clock draws \(probe.subagentClockTicks - beforeTicks)")
         }
         window.isHidden = true
-        #expect(perChange.allSatisfy { $0 <= 2 }, "row body evaluations per change of one subagent: \(perChange)")
+        let report = notes.joined(separator: "\n")
+        Attachment.record(report, named: "subagents-row-changes")
+        #expect(perChange.allSatisfy { $0 <= 2 }, "row body evaluations per change of one subagent: \(perChange)\n\(report)")
     }
 
     /// A running subagent's time advances with nothing changing in the store (its own clock).

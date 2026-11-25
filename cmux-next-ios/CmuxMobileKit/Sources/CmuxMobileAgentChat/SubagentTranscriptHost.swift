@@ -50,6 +50,16 @@ final class SubagentTranscriptHost: UIViewController, UIScrollViewDelegate {
             return self.follow.sizeChangeAnchor(running: self.running()) == .bottom
         }
         list.collectionView.didLayout = { [weak self] in self?.laidOut() }
+        // The list places itself where it opens before its first cells are made.
+        list.openingOffset = { [weak self] height in
+            guard let self else { return 0 }
+            let scrollView = self.list.collectionView
+            let top = -scrollView.adjustedContentInset.top
+            let bottom = max(top, height + scrollView.adjustedContentInset.bottom - scrollView.bounds.height)
+            self.positioned = true
+            self.fill()
+            return self.follow.follows ? bottom : top
+        }
     }
 
     @available(*, unavailable)
@@ -72,23 +82,6 @@ final class SubagentTranscriptHost: UIViewController, UIScrollViewDelegate {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         list.boundsMayHaveChanged()
-        positionBeforeCells()
-    }
-
-    /// The opening place (the end of a running transcript, the top of a finished one) set before the
-    /// list's first layout pass: that pass runs after this view's (a parent lays out first), so the
-    /// cells it makes are the ones there. Set after it, the pass made the top's cells first and laid
-    /// out their rows for nothing (#47189 r5: 41 rows laid out for 21 shown).
-    private func positionBeforeCells() {
-        let scrollView = list.collectionView
-        guard !positioned, scrollView.bounds.height > 0, !list.layout.items.isEmpty else { return }
-        let height = list.layout.preparedContentHeight()
-        guard height > 0 else { return }
-        positioned = true
-        let top = -scrollView.adjustedContentInset.top
-        let bottom = max(top, height + scrollView.adjustedContentInset.bottom - scrollView.bounds.height)
-        scrollView.contentOffset.y = follow.follows ? bottom : top
-        fill()
     }
 
     private var bottomOffset: CGFloat {

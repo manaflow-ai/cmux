@@ -244,7 +244,7 @@ struct SubagentRow: View {
 
     var body: some View {
         #if DEBUG
-        let _ = probe.map { $0.subagentRowBodies += 1 }
+        let _ = probe.map { $0.subagentRowBodies += 1; $0.subagentRowNames.append(name) }
         #endif
         HStack(spacing: 12) {
             SubagentStateGlyph(state: state)

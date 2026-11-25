@@ -12,6 +12,8 @@ final class RenderProbe {
     var inspectorLastChanged = 0
     /// The Subagents list's row evaluations, and its running clocks' draws.
     var subagentRowBodies = 0
+    /// The rows evaluated, by name, since the test last cleared it.
+    var subagentRowNames: [String] = []
     var subagentClockTicks = 0
 }
 
