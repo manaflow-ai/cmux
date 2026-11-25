@@ -1373,16 +1373,21 @@ class SwiftCanaryFleetCoverage(unittest.TestCase):
                     if s.get("id") == "check")
         listed = set(re.search(r"^\s*([A-Za-z|]+)\)\n\s*echo \"::notice", step["run"], re.M).group(1).split("|"))
         self.assertEqual(listed, outside, "update the swift-canary-fleet target list to the production targets CmuxNextApp does not reach")
-        self.assertIn("compile-check --ref \"$REF\" --app", step["run"])
+        # It reads the controller's compile; this cmux-linux runner compiles nothing (note-canary-linux-read).
+        self.assertNotIn("compile-check", step["run"])
+        self.assertIn("fleet_compile_result.py", step["run"])
 
     def test_a_pull_request_canary_compiles_its_pinned_head_in_debug(self):
         job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["swift-canary-fleet"]
         step = next(s for s in job["steps"] if s.get("id") == "check")
         self.assertEqual(step["env"]["REF"], "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}")
-        self.assertIn('[[ -z "${PR:-}" && -f scripts/ci/fleet_compile_result.py ]]', step["run"])
-        self.assertIn('compile-check --ref "$REF" --app', step["run"])
-        # A pull request reads its head's Debug app check (note-557); only a push compiles from this job.
-        pr = step["run"][step["run"].index('if [[ -n "${PR:-}" ]]; then'):step["run"].index("client=")]
+        self.assertNotIn("compile-check", step["run"])
+        # A pull request reads its head's Debug app check (note-557); a push reads the tip check
+        # (note-canary-linux-read) and its no-verdict case prints the `mac fallback` warning.
+        push = step["run"][step["run"].index("# A push reads"):]
+        self.assertIn('fleet_compile_result.py --sha "$REF" --repo "$GITHUB_REPOSITORY" --wait', push)
+        self.assertIn("::warning title=mac fallback::", push)
+        pr = step["run"][step["run"].index('if [[ -n "${PR:-}" ]]; then'):step["run"].index("# A push reads")]
         self.assertIn('--pr "$PR" --phase app-debug', pr)
         self.assertNotIn("compile-check", pr)
         self.assertIn("exit 0", pr)  # any non-pass leaves the Mac canary to run
@@ -1885,7 +1890,7 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         # (tests/test_ci_label_events_skip_full_ci.py).
         label_guard = (" && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == "
                        "'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') "
-                       "&& github.event.label.name != 'full-ci') }}")
+                       "&& !contains(fromJSON('[\"full-ci\",\"ready-to-land\"]'), github.event.label.name)) }}")
         self.assertTrue(mac["if"].endswith(label_guard), mac["if"])
         # The Mac half runs a pull request's fast tier in pr-pipeline.yml's `mac` job (note-556); the cargo half
         # stays here on both events.
@@ -3682,11 +3687,13 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
     # and 0fa148c5 to the Mac Release queue for over two hours while cmux-next/compile had passed both). Their
     # Mac fallback runs only when that read gives no verdict.
     # app-compile-fleet reads the controller's verdict on cmux-linux (note-557), so it runs on a busy gateway too
-    # (note-371): skipping it sent about 950 Mac minutes a day to the Mac Release compile.
-    LINUX_ROUTE = {"release-compile-fast": ("cmux-linux",), "app-compile-fleet": ("cmux-linux",)}
+    # (note-371): skipping it sent about 950 Mac minutes a day to the Mac Release compile. A push's canary reads
+    # the controller's tip check on cmux-linux (note-canary-linux-read).
+    LINUX_ROUTE = {"release-compile-fast": ("cmux-linux",), "app-compile-fleet": ("cmux-linux",),
+                   "swift-canary-fleet": ("cmux-linux",)}
     # Gateway-guarded jobs that, on this event, run on cmux-linux and only read the compile the controller submits
     # for them (note-557): the guard and fallback stay, the runner no longer waits on the gateway.
-    READS_ELSEWHERE = {"app-compile-fleet": "pull_request", "swift-canary-fleet": "pull_request"}
+    READS_ELSEWHERE = {"app-compile-fleet": "pull_request", "swift-canary-fleet": "push"}
 
     def jobs(self) -> dict:
         return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -3811,34 +3818,17 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
         # It only reads the result the controller posts back, so no gateway runner waits (note-557).
         self.assertEqual(route_of(job, context), "cmux-linux")
 
-    def test_it_takes_only_an_idle_gateway_placement_saw(self):
-        """2026-10-26 06:00Z: 44 jobs queued on the light side gateway, oldest 58 minutes; PR #24155's
-        compile queued there three times. Its placement (app-compile-placement for the app compile,
-        macos-placement for the canary) names an idle gateway runner or none."""
-        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
-        # A pull request's canary is pr-pipeline.yml's `mac` job (note-556): its build-fleet copy runs on a push.
-        # The pull request's app compile only reads the controller's verdict on cmux-linux (note-557), so it runs
-        # whatever the gateway reading says (note-371): test_it_reads_the_verdict_with_any_gateway_reading.
-        for name, placement, event in (("swift-canary-fleet", "macos-placement", "push"),):
-            job = jobs[name]
-            with self.subTest(job=name):
-                self.assertIn(placement, job["needs"])
-                context = {**self.context(event), "needs.path_route.outputs.swift_canary": "true",
-                           "github.run_attempt": 1}
-                idle = {**context, f"needs.{placement}.outputs.gateway_attempt": "1",
-                        f"needs.{placement}.outputs.gateway_runner": "glaeda-side-std-xcode-26.6"}
-                self.assertTrue(evaluate(job["if"], idle))
-                # On a push the canary's client takes the idle gateway runner the reading named.
-                self.assertEqual(route_of(job, idle), "glaeda-side-std-xcode-26.6")
-                none_idle = {**idle, f"needs.{placement}.outputs.gateway_runner": ""}
-                self.assertFalse(evaluate(job["if"], none_idle))
-                # Placement skipped, failed, or ran an older base script: no reading, no gateway queue.
-                self.assertFalse(evaluate(job["if"], context))
-                # A re-run trusts only its own attempt's reading: an earlier attempt's idle runner may be busy now.
-                self.assertFalse(evaluate(job["if"], {**idle, "github.run_attempt": 2}))
-                self.assertFalse(evaluate(job["if"], {**context, "github.run_attempt": 2}))
-                self.assertTrue(evaluate(job["if"], {**idle, "github.run_attempt": 2,
-                                                     f"needs.{placement}.outputs.gateway_attempt": "2"}))
+    def test_a_push_canary_reads_the_tip_check_on_linux_whatever_the_placement(self):
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["swift-canary-fleet"]
+        context = {**self.context("push"), "needs.path_route.outputs.swift_canary": "true"}
+        for reading in ({}, {"needs.macos-placement.outputs.gateway_attempt": "1",
+                             "needs.macos-placement.outputs.gateway_runner": ""},
+                        {"needs.macos-placement.outputs.gateway_attempt": "1",
+                         "needs.macos-placement.outputs.gateway_runner": "glaeda-side-std-xcode-26.6"}):
+            with self.subTest(reading=reading):
+                self.assertTrue(evaluate(job["if"], {**context, **reading}))
+                self.assertEqual(route_of(job, {**context, **reading}), "cmux-linux")
+        self.assertFalse(evaluate(job["if"], self.context("pull_request")))
 
     def test_it_reads_the_verdict_with_any_gateway_reading(self):
         """In the 24 h before 2026-11-25 ~02:00Z, 50 of 114 pull request Release compiles ran on a Mac only because
