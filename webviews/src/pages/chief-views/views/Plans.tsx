@@ -16,7 +16,7 @@ export function PlansView({ data, strings, placement, onOpenAgent }: ChiefViewPr
   const compact = placement === "sidebar";
   return (
     <Loaded status={data.agents.status} strings={strings}>
-      <div className="cv-plans">
+      <div className="cv-plans" data-placement={placement}>
         {board.planned.length === 0 ? (
           <p className="cv-note">{strings.t("chiefViews.plans.empty")}</p>
         ) : (

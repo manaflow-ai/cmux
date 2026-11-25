@@ -930,6 +930,17 @@
   flex: 1 1 auto;
 }
 
+/* A sidebar is too narrow for the title and the meta on one line: the title takes its own line
+   and the machine, source, count and age wrap under it, so nothing clips at the edge. */
+.cv-plans[data-placement="sidebar"] .cv-plan-head {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+
+.cv-plans[data-placement="sidebar"] .cv-plan-head > .cv-row-title {
+  flex-basis: calc(100% - 2em);
+}
+
 .cv-plan-progress {
   display: inline-flex;
   align-items: center;
