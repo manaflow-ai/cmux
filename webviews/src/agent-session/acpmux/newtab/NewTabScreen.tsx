@@ -2798,7 +2798,7 @@ export function NewTabScreen(props: Props) {
             <ComposerListAnchor box={box} inert={props.cloudStarting === true}>
               <ComposerListLayer>
                 <HelpSheet
-                  commands={snapshot.commands}
+                  commands={slashCommands}
                   onInsert={(picked) => {
                     setHelpOpen(false);
                     setText(applyCommand("", 0, picked).text);

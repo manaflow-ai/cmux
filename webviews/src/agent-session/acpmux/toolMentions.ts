@@ -99,10 +99,14 @@ export function toolSlashCommands(t: Translate): SlashCommand[] {
   }));
 }
 
-/// True: `command` is one of `toolSlashCommands`' rows. The New Tab lists the tools only after `@`,
-/// never in its `/` menu (Lucas 2026-11-24: "those should only show when the user types @").
+/// True: `command` is one of `toolSlashCommands`' rows, not an extension's command of the same name
+/// (an extension's row names its extension). The New Tab lists the tools only after `@`, never in its
+/// `/` menu or `/help` (Lucas 2026-11-24: "those should only show when the user types @").
 export function isToolCommand(command: SlashCommand): boolean {
-  return TOOL_MENTIONS.some((tool) => command.name === tool.id && command.insert === `@${tool.id} `);
+  return (
+    command.extension === undefined &&
+    TOOL_MENTIONS.some((tool) => command.name === tool.id && command.insert === `@${tool.id} `)
+  );
 }
 
 /// The tools `text` names as `@computer-use` / `@browser-use` (or `$computer-use`) outside code (a
