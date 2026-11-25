@@ -681,8 +681,13 @@ impl TurnCarrier {
         // gets one more round trip (`CONNECT`) and the proxy's own connection.
         let hops = async {
             let (host, port) = split_host_port(&first.address, 443).unwrap_or_default();
-            crate::egress::proxy::hops(&host, port, first.transport == TurnTransport::Tls, &options.egress.proxy)
-                .await
+            crate::egress::proxy::hops(
+                &host,
+                port,
+                first.transport == TurnTransport::Tls,
+                &options.egress.proxy,
+            )
+            .await
         };
         let wait = async {
             tokio::select! {
