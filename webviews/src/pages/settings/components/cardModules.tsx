@@ -86,6 +86,8 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
     import("./CloudEnvironmentsCard").then(({ CloudEnvironmentsCard }) => () => <CloudEnvironmentsCard />),
   cloudModels: () =>
     import("./CloudModelsCard").then(({ CloudModelsCard }) => (focus) => <CloudModelsCard focus={focus} />),
+  cloudCredentials: () =>
+    import("./CloudCredentialsCard").then(({ CloudCredentialsCard }) => () => <CloudCredentialsCard />),
   sharedLinks: () =>
     import("./SharedLinksCard").then(({ SharedLinksCard }) => (_focus, _workspace, reveal) => (
       <SharedLinksCard reveal={reveal} />

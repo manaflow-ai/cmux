@@ -94,6 +94,8 @@ pub mod pressure;
 #[cfg(test)]
 mod pressure_tests;
 #[cfg(target_os = "linux")]
+pub mod oidc_token;
+#[cfg(target_os = "linux")]
 pub mod role;
 pub mod sender;
 pub mod session;

@@ -59,6 +59,7 @@ import {
   type CloudEnvironmentsState,
   type LibraryListing,
   type LibraryRun,
+  type CloudCredentialsState,
   type SharesState,
   type TailnetState,
   type DevicesRun,
@@ -1012,6 +1013,12 @@ export class SettingsStore {
   async environments(): Promise<CloudEnvironmentsState | null> {
     const reply = await this.request("cmux.settings.environments.state", {});
     return reply.ok ? reply.value : null;
+  }
+
+  /** Settings > Cloud > Cloud Credentials: the team's issuer; a host without the op reads as an error. */
+  async cloudCredentials(): Promise<CloudCredentialsState> {
+    const reply = await this.request("cmux.settings.cloudCredentials.state", {});
+    return reply.ok ? (reply.value ?? { available: false }) : { available: true, error: "unavailable" };
   }
 
   /** Settings > Agents > Worktree Setup: the session host's projects with their saved recipes,

@@ -47,6 +47,7 @@
     {"id": "customizeChecklist", "note": "Settings > Customize: every customization one click away (Leo 2026-11-22: \"it should just be as easy as a click toggle\"): the experiments.* and labs.* switches, the Customization Library's entries (`cmux customize library`), the verified looks (examples/looks, `cmux setup install`), then every other switch the page shows, collapsed; one search over all of them. Rows come from the schema export, so a new toggle row shows with no edit. Deep link: #/settings/customize."},
     {"id": "integrationsHub", "note": "Settings > Integrations: the integrations hub (cmux platform /v1/hub): linked Stripe and GitHub accounts with Remove, Link Stripe (a pasted restricted key) and Link GitHub, the approvals waiting for the person with Allow, Deny and Don't ask again, the rules with Add and Remove, the pause switch and recent audit rows; `cmux.settings.hub.*`, from the bundled `cmux hub overview --json` (cmux-tui cli/hub.rs shapes every string). An approval is answered only here, never by the CLI. Deep link: #/settings/integrations."},
     {"id": "automationsCloud", "note": "Settings > Automations: cloud automations (cmux platform /v1/automations): the list with each trigger, last run and on/off switch, the form (a GitHub event on a repository, a webhook whose URL and secret show once, or a schedule; condition rows; the agent's repository, branch template, harness and prompt template with a preview against a sample event; limits), the run log and the template gallery; `cmux.settings.autocloud.*`, from the bundled `cmux autocloud overview --json` (cmux-tui cli/autocloud.rs shapes every string and checks every spec). Deep link: #/settings/automations."},
+    {"id": "cloudCredentials", "note": "Settings > Cloud > Cloud Credentials (https://github.com/manaflow-ai/cmux/issues/48427, exploratory, development only): the team's cmux OIDC issuer, discovery and JWKS URLs and subject format (cmux-platform GET /v1/cloud/oidc/info, `cmux.settings.cloudCredentials.state`), and per cloud (AWS, Google Cloud, Azure, HashiCorp Vault, any OIDC verifier) the steps that make it trust the team's machines, which then read a short-lived token at /run/cmux-oidc/token (cmux-host oidc_token.rs). Never a token."},
     {"id": "models", "note": "Settings > Models: the person's connections (Mac logins, ChatGPT plan, API keys) in the order a thread uses them, Spread usage, the organization's shared keys, and the members policy (cmux-tui/docs/model-connections.md); `cmux.settings.models.*`."},
     {"id": "extensions", "note": "Settings > Extensions: each installed extension's own settings from its manifest's `settings` schema, one group per extension; `cmux.settings.extensions.list` and `.set` (ExtensionSettingsPageRoute) send the daemon's `apps.settings.list` and `apps.settings.set` on the app's own connection."}
   ],
@@ -542,7 +543,7 @@
           "groups": [
             {"group": "settings.group.cloudWorkspaces"}
           ],
-          "lead": ["cloudModels", "cloudEnvironments"]
+          "lead": ["cloudModels", "cloudEnvironments", "cloudCredentials"]
         },
         {
           "id": "keys",

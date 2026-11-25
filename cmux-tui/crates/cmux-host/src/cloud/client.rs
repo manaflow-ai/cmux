@@ -11,6 +11,9 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::sender::{Answer, OpRequest};
+
+/// The machine OIDC token route (keyless cloud credentials; cmux-platform serves it through the API origin).
+pub const OIDC_TOKEN_PATH: &str = "/v1/cloud/oidc/token";
 use super::wire::{
     BIND_FILE, BIND_UNANSWERED_FILE, BOUND_FILE, Bound, DaemonInfo, INSTALL_KEY_FILE, VM_KIND_FILE,
     WG_KEY_FILE, parse_bind_file,
@@ -692,6 +695,13 @@ impl<H: Http> CloudClient<H> {
             (status, body) = again;
         }
         Answer::Http { status, body }
+    }
+
+    /// This machine's OIDC token for `audience` from its team's cmux issuer (`POST /v1/cloud/oidc/token` as its
+    /// `vm` install; keyless cloud credentials, `oidc_token.rs`). The machine and team are the install's own.
+    pub fn oidc_token(&mut self, audience: &str, ttl_seconds: u64, now_wall_ms: u64) -> Answer {
+        let body = json!({ "audience": audience, "ttl_seconds": ttl_seconds });
+        self.post_as_install(OIDC_TOKEN_PATH, &body, now_wall_ms)
     }
 
     /// One GET on this machine's API origin as its `vm` install. As
