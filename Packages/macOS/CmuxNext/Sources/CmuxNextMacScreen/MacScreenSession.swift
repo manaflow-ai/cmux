@@ -117,6 +117,10 @@ public final class MacScreenSession {
     @ObservationIgnored var timings = MacScreenConnectTimings()
     /// The current transport's frame counter (the pane's decoder sets it), for its frame timings.
     @ObservationIgnored var frameCounter: MacScreenFrameCounter?
+    /// Whether this session offers clipboard text sync (cap `clipboard.text`): the setting and the
+    /// own-device rule, decided where the pane is made (`RemoteClipboardPolicy`). The host still
+    /// lists the cap only when its person turned clipboard sync on.
+    @ObservationIgnored public var offersClipboard = false
     /// The pane attaches its decoder to each new transport.
     @ObservationIgnored public var onTransport: ((RemoteRdStreamTransport) -> Void)?
     /// The host's displays (pixel sizes) and the one streamed, from its answer.
@@ -373,10 +377,12 @@ public final class MacScreenSession {
         // `cursor`: the host leaves its cursor out of the pictures and the pane draws one cursor.
         // `video.scaled`: the pane draws a smaller picture into the stream's rect and its input
         // stays in stream pixels (`streamSize`), so the host may shrink it on a slow link.
+        // `clock` and `ledger`: every frame's stage times, on the host's clock.
         let hello = RemoteRdHello(user: "viewer", install: "mac-screen", maxDatagram: 1126, token: nil,
-                                  caps: [RemoteRdHello.cursorCap, RemoteRdHello.videoScaledCap])
+                                  caps: [RemoteRdHello.cursorCap, RemoteRdHello.videoScaledCap,
+                                         RemoteRdHello.clockCap, RemoteRdHello.ledgerCap])
         guard let transport = RemoteRdStreamTransport(carrier: carrier, hello: hello, startKey: UUID().uuidString,
-                                                      control: true) else {
+                                                      control: true, clipboard: offersClipboard) else {
             fail(L.t("macScreen.rd.viewerStopped", "The screen viewer stopped."))
             return
         }

@@ -207,7 +207,7 @@ pub(super) async fn handle(
         tokio::task::spawn_blocking(move || crate::hub::outbox::keep_attachments(&path, &request))
             .await
             .map_err(|e| RpcError::internal(e.to_string()))?
-            .map_err(|e| RpcError::internal(format!("cannot keep the attachments: {e:#}")))?;
+            .map_err(|e| crate::recovery::write_error("cannot keep the attachments", e, None))?;
     }
     // The send's one durable write (its line in outbox.journal, a group commit with other
     // changes): on the blocking pool at the on-screen CPU tier (`qos.rs`), so a loaded machine or
@@ -226,8 +226,11 @@ pub(super) async fn handle(
             if let Some(path) = kept {
                 forget_attachments(path).await;
             }
-            return Err(RpcError::internal(format!("cannot keep the message: {e:#}"))
-                .with_data(json!({"reason": "outbox.not_saved", "retryable": true})));
+            return Err(crate::recovery::write_error(
+                "cannot keep the message",
+                e,
+                Some("outbox.not_saved"),
+            ));
         }
     };
     // The same prompt id again: the first delivery, already on its way.
@@ -333,7 +336,7 @@ pub(super) async fn remember_forward(
     hub.outbox
         .remember_forward(intent)
         .map(|delivery| delivery.id)
-        .map_err(|e| RpcError::internal(format!("cannot persist peer message intent: {e:#}")))
+        .map_err(|e| crate::recovery::write_error("cannot persist peer message intent", e, None))
 }
 
 /// Find a receiver projection across every page, including messages still queued
@@ -676,11 +679,17 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         let ready = hub.outbox.peer_ready.notified();
         tokio::pin!(ready);
         ready.as_mut().enable();
+        // `peer_ready` is one signal for every peer: this delivery's own peer's count, read
+        // with it armed, tells whether a ready was this peer's (`Outbox::note_peer_ready`). A
+        // target that names no peer (no `/`) never wakes on one.
+        let ready_seen = own_ready_count(&hub.outbox, &delivery.target);
         // The same for the hub's gate opening (`mesh_gate.rs` `Gate::opened`): a delivery the
         // hub carries is tried the moment the hub takes a post again (RFD 0086 item 2).
         let opened = hub.mesh.gate().opened.notified();
         tokio::pin!(opened);
         opened.as_mut().enable();
+        // This attempt asked the team hub (or its gate kept it from asking).
+        let mut relayed = false;
         let attempt = delivery.attempts + 1;
         // Saved as maybe sent, and with its pin, before the attempt may reach the peer
         // (below): an attempt whose state is not on disk does not go (review of #37284 at
@@ -735,6 +744,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         } else if delivery.relay_post.is_some() {
             // The hub may hold it already: only the relay tries it again. With the relay off here
             // it may still deliver it (the target's daemon reads it), so it is never sent twice.
+            relayed = true;
             relay_attempt(hub, &delivery).await.unwrap_or_else(|| {
                 let key = delivery.relay_post.as_ref().map_or("", |m| m.idempotency_key.as_str());
                 let why = format!(
@@ -773,6 +783,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             match outcome {
                 // Nothing has reached the target: the mesh relay carries it when it can.
                 Err((error, Next::Unsent)) if delivery.never_sent => {
+                    relayed = true;
                     match relay_attempt(hub, &delivery).await {
                         Some(Ok(accepted)) => Ok(accepted),
                         Some(Err((why, next))) => Err((format!("{error}; {why}"), next)),
@@ -925,31 +936,67 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 // keeps its bounded schedule: another peer's reconnects must not use it up. A
                 // message's wait never runs past its day; an intent's delays are never cut, so an
                 // intent older than a day after a restart does not spend its retries at once.
-                let sleep =
-                    tokio::time::sleep(retry_sleep(&delivery, secs, crate::store::now_ms()));
+                //
                 // A delivery the hub carries (its post is kept) ends its wait when the hub's gate
                 // opens: the outbox drains as soon as the hub is back, not on each send's own
-                // schedule. Its key makes the post again the same message.
+                // schedule. Its key makes the post again the same message. One the hub's shut gate
+                // held waits for the gate, not its own schedule: until the gate lets its next probe
+                // go (with a little jitter, so the queue does not race for it) or the hub takes any
+                // post, whichever comes first. Twenty sends refused in one window go together once
+                // it opens, in their order (`waits_behind`), rather than one per window as each own
+                // back-off ran out (RFD 0049 R1).
+                let own = retry_sleep(&delivery, secs, crate::store::now_ms());
                 let by_hub = hub.outbox.get(id).is_some_and(|d| d.relay_post.is_some());
-                match (delivery.projection_only(), wake_on_ready, by_hub) {
-                    (true, _, _) | (false, false, false) => sleep.await,
-                    (false, true, false) => tokio::select! {
-                        () = sleep => {}
-                        () = ready => {}
-                    },
-                    (false, false, true) => tokio::select! {
-                        () = sleep => {}
-                        () = opened => {}
-                    },
-                    (false, true, true) => tokio::select! {
-                        () = sleep => {}
-                        () = ready => {}
-                        () = opened => {}
-                    },
+                let behind_gate = !delivery.projection_only() && relayed && hub.mesh.gate().shut();
+                let wait = match hub.mesh.gate().reopens_at().filter(|_| behind_gate) {
+                    Some(at) => own.min(gate_wait(at, crate::peer_link::jitter())),
+                    None => own,
+                };
+                let sleep = tokio::time::sleep(wait);
+                tokio::pin!(sleep);
+                let on_ready = !delivery.projection_only() && wake_on_ready;
+                let on_open = !delivery.projection_only() && (by_hub || behind_gate);
+                loop {
+                    tokio::select! {
+                        () = &mut sleep => break,
+                        () = &mut opened, if on_open => break,
+                        () = &mut ready, if on_ready => {
+                            // `peer_ready` is one signal for every peer. Another peer's link
+                            // coming back leaves this one's as it was: waking for it retried
+                            // (and ssh-carried, and journaled) every queued delivery at once on
+                            // each link flap anywhere. Only this target's own peer, ready or
+                            // listed since the wait was armed and up now, ends it; a target
+                            // naming an unknown peer or none, or one whose peer was up all along
+                            // (`Next::Unsent` without an outage), waits its own delay (review of
+                            // #53719, F1). Re-armed before the look, so a ready in between is not
+                            // missed.
+                            ready.set(hub.outbox.peer_ready.notified());
+                            ready.as_mut().enable();
+                            if own_ready_since(&hub.outbox, ready_seen.as_ref())
+                                && hub.peer_down_for(&delivery.target).is_none()
+                            {
+                                break;
+                            }
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+/// `target`'s own peer and how many times its link was ready or listed so far
+/// (`Outbox::note_peer_ready`), read as a delivery arms its `peer_ready` wait. None for a target
+/// that names no peer (no `/`): no peer's ready is its own.
+fn own_ready_count(outbox: &crate::hub::outbox::Outbox, target: &str) -> Option<(String, u64)> {
+    let (peer, rest) = target.split_once('/')?;
+    (!peer.is_empty() && !rest.is_empty()).then(|| (peer.to_owned(), outbox.peer_ready_count(peer)))
+}
+
+/// Whether the peer [`own_ready_count`] read was ready or listed again since: a `peer_ready`
+/// that was another peer's leaves it false.
+fn own_ready_since(outbox: &crate::hub::outbox::Outbox, seen: Option<&(String, u64)>) -> bool {
+    seen.is_some_and(|(peer, count)| outbox.peer_ready_count(peer) != *count)
 }
 
 /// Peer `peer`'s link `link` is ready, and its journals took back what this daemon kept of them
@@ -1143,6 +1190,16 @@ fn retry_sleep(delivery: &Delivery, secs: u64, now: u64) -> Duration {
     }
     let left = delivery.created_at.saturating_add(RETRY_FOR_MS).saturating_sub(now);
     delay.min(Duration::from_millis(left))
+}
+
+/// The most a send behind the hub's gate adds to the gate's reopening, spread by `jitter`
+/// (0..1) so the queue's wakes do not all land on the same instant.
+const GATE_JITTER: Duration = Duration::from_millis(250);
+
+/// How long a send behind the hub's shut gate sleeps: until `reopens_at`, plus its jitter.
+fn gate_wait(reopens_at: tokio::time::Instant, jitter: f64) -> Duration {
+    let left = reopens_at.saturating_duration_since(tokio::time::Instant::now());
+    left + GATE_JITTER.mul_f64(jitter.clamp(0.0, 1.0))
 }
 
 /// Whether `delivery`, a message (not a projection intent, which keeps its own schedule), is
