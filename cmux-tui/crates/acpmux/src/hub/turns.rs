@@ -888,6 +888,21 @@ impl Hub {
         // What its queue entry holds now (`queue_edit.rs` may edit a prompt that waited).
         let (mut blocks, control, trust_gate, cloud_mobile) =
             (run.blocks.clone(), run.control, run.trust_gate, run.cloud_mobile);
+        // What a turn the store refuses on a full disk goes on under (`auto_resume/disk_wait.rs`).
+        let refused_prompt_text = super::session::prompt_text(&run.blocks);
+        let rules = RefusedRules {
+            control,
+            trust_gate,
+            from: run
+                .provenance
+                .as_ref()
+                .filter(|p| super::subsession_guard::is_family(Some(p)))
+                .and_then(|p| p["from"].as_str()),
+            slash: super::auto_resume::resent_command(&refused_prompt_text),
+            goes_on: !crate::prompt_provenance::is_trigger(run.provenance.as_ref())
+                && !super::idle::cache_compact::is_own(run.provenance.as_ref())
+                && !super::cold_wake::is_own(run.provenance.as_ref()),
+        };
         // A queued prompt restored from the log may still name its uploads (`prompt_uploads.rs`).
         let web = control == Control::Web;
         let read = crate::prompt_uploads::resolve_off_runtime(&session.id, web, &mut blocks).await;
@@ -1248,8 +1263,14 @@ impl Hub {
             Ok(started) => started,
             Err(mut e) => {
                 // A turn the shutdown settles writes no end of its own (`start_retry.rs`).
-                let failed =
-                    self.fail_unless_shutdown_settles(session, &prompt_id, &turn_id, &e, joined);
+                let failed = self.fail_unless_shutdown_settles(
+                    session,
+                    &prompt_id,
+                    &turn_id,
+                    &e,
+                    joined,
+                    Some(&rules),
+                );
                 if !failed && self.hands_off(session) {
                     super::digest::forget_joined(Some(joined));
                 }
@@ -1293,7 +1314,14 @@ impl Hub {
             // ended does: the next daemon queues the prompt again (`unstarted_prompt.rs`).
             // Decided and written under the shutdown's lock (`fail_unless_shutdown_settles`), not
             // after a read of its flag a shutdown could begin behind.
-            if self.fail_unless_shutdown_settles(session, &prompt_id, &turn_id, &e, joined) {
+            if self.fail_unless_shutdown_settles(
+                session,
+                &prompt_id,
+                &turn_id,
+                &e,
+                joined,
+                Some(&rules),
+            ) {
                 if session.status() == SessionStatus::Disconnected {
                     self.set_status(session, NotWaiting::Ready);
                 }
