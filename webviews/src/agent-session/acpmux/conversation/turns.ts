@@ -1599,8 +1599,8 @@ const isWork = (row: AcpmuxRow) =>
   (row.items ?? []).some((item) => item.tool && !isEditTool(item.tool) && !renderCall(item.tool));
 
 /// Explicit phases select the final answer and footer; older, unphased turns fall back to their
-/// last takeaway or nonempty reply after the final tool call. Earlier substantive replies stay
-/// visible independently, even when the provider labels them commentary.
+/// last takeaway or nonempty reply after the final tool call. A closed fold keeps only this answer
+/// in sight under the default `answer` arm (turnFoldReplies.experiment.ts).
 /// A turn the agent ran on its own can start before the prompt's turn's result is written (acpmux
 /// clears the turn, then waits before it writes `turn_result`), so its rows sit among the prompt's
 /// turn's. Its reply is never that turn's answer, nor its calls work after the answer: the turn's
@@ -1667,7 +1667,7 @@ const isOwnSteer = (row: AcpmuxRow) => !row.incoming && !row.received;
 /// agent's message does only after a reply that stays in sight beside the closed fold: with none, the
 /// fold above it would close onto the next one with nothing between them, so it folds in place, the
 /// nearest fold's entry. The default `answer` arm keeps one work disclosure across received
-/// messages, with the person's replies beside it; only a personal steer splits that disclosure.
+/// messages, with only the turn's answer beside it; only a personal steer splits that disclosure.
 const startsFold = (row: AcpmuxRow, replied: boolean) =>
   splitsFold(row) && (isOwnSteer(row) || (replied && experimentArm(turnFoldReplies) !== "answer"));
 /// A reply that lets another agent's message start a fold (`startsFold`), read the same way off the
@@ -1776,7 +1776,7 @@ const isUnsent = (row: AcpmuxRow) => Boolean(row.pending || row.failed);
 /// The tagged ask (nextStepAsk.ts) of the reply right before a message that was not the person's
 /// (another agent's, a notice) steered into the turn, with the reply that asked it: the newest such,
 /// so long as the person said nothing in the turn after it. Each steer's reply is the last words
-/// before it (`repliesIn`), which stay in sight.
+/// before it (`repliesIn`); a cut-off reply stays in sight under every arm (`keptOut`).
 function steeredAsk(body: readonly AcpmuxRow[]): { reply: AcpmuxRow; ask: NextStepAsk } | undefined {
   let steered = false;
   for (let at = body.length - 1; at >= 0; at -= 1) {
@@ -2072,29 +2072,26 @@ function shapeTurn(
   const edits: AcpmuxRow[] = [];
   const replies = repliesIn(body);
   // How the closed fold treats the earlier replies (turnFoldReplies.experiment.ts). The `answer` arm,
-  // Codex's: short narration folds with the work, while substantive replies stay in sight; `replies`
-  // still marks them, so each keeps its action row once the fold opens. A reply whose question another
-  // agent's message cut off stays out: its card waits on the person, under it (`cutOff`).
+  // the default, keeps only the final answer beside the closed fold: every earlier message folds
+  // with the work, however long, and reads in order once the fold opens, where `replies` still marks
+  // each so it keeps its action row (Lawrence, 2026-11-19: "in collapsed, literally everything but
+  // final assistant message should be collapsed"). A reply whose question another agent's message
+  // cut off stays out: its card waits on the person, under it (`cutOff`). A turn with no answer (a
+  // Codex turn that failed before its `final_answer`) keeps its last reply out instead, so the closed
+  // fold never hides everything the agent said.
   const repliesArm = experimentArm(turnFoldReplies);
-  // A turn whose harness marks its final answer (Codex's `final_answer` phase) folds every
-  // `commentary` message before it with the work, however short the answer, as the Codex app does:
-  // the harness has said which message answers. Lucas, 2026-11-14, on ten build updates drawn
-  // under a closed Worked for over a two-sentence answer: "why did it yap so much in the response?
-  // shouldnt that stuff have been in the Worked for".
-  const commentary =
-    lastFinalAnswer(body) === undefined
-      ? undefined
-      : new Set(body.filter((row) => row.assistantPhase === "commentary").map((row) => row.id));
-  const foldsUnderAnswer = (id: string) => commentary?.has(id) ?? false;
+  const lastWords = answer
+    ? undefined
+    : [...body].reverse().find((row) => replies.has(row.id) && row.inBackground === undefined);
   const keptOut: ReadonlySet<string> =
     repliesArm === "answer"
-      ? new Set([...[...replies].filter((id) => !foldsUnderAnswer(id)), ...(cutOff ? [cutOff.reply.id] : [])])
+      ? new Set([...(cutOff ? [cutOff.reply.id] : []), ...(lastWords ? [lastWords.id] : [])])
       : replies;
   const steerDialogue = steerDialogueIn(body);
   // A turn the person steered still has one fold (Leo, 2026-11-07, on a closed "Worked for 5m 15s"
   // with "Finished 2 background tasks and ran 8 commands" beside it: "this could have been, like,
-  // tucked inside the worked for"). The reply before the steer and the steer stay in sight, as every
-  // reply does, but the work around them stays under Worked for rather than drawing as run lines
+  // tucked inside the worked for"). The reply before the steer and the steer stay in sight
+  // (`steerDialogue`), but the work around them stays under Worked for rather than drawing as run lines
   // beside it; opened, those run lines draw open, "as if you just expanded the whole worked for
   // entirely" (turnFoldSteered.experiment.ts).
   const steeredArm = !inOrder && style.conclusion && steerDialogue.size ? experimentArm(turnFoldSteered) : undefined;
@@ -2139,12 +2136,15 @@ function shapeTurn(
         ));
     // A call still waiting for its permission stays in sight: beside the closed fold, and in its
     // folded run once the fold opens (TurnRows.tsx `staysInSight`).
-    // A reply to the person is never folded (Leo, 2026-11-06: "your intermediate message got lost. that
-    // can never happen", then "those intermediate messages should be counted differently than other
-    // tool calls like it's a special never-fold type"): wherever it sits in the turn it draws beside
-    // the closed line, in its place among the lines of the work around it (`aroundReplies`).
+    // The final answer always draws beside the closed line. Under the default `answer` arm every
+    // earlier reply folds with the work (`keptOut`, Lawrence, 2026-11-19); the other arms keep each
+    // reply in its place among the lines of the work around it (`aroundReplies`; Leo, 2026-11-06:
+    // "your intermediate message got lost. that can never happen").
+    // A `final_answer` before another agent's message is an earlier message too: under the `answer`
+    // arm only the turn's answer (`said`, drawn below) stays beside the closed fold. A turn that only
+    // replied to another agent's message (`promptOnly`) draws its replies as they ran, each final one too.
     const out = (row: AcpmuxRow) =>
-      isFinalAnswer(row) ||
+      ((repliesArm !== "answer" || promptOnly) && isFinalAnswer(row)) ||
       staysOut(row) ||
       (!open && taskLook === "card" && startsTask(row)) ||
       (!open &&
@@ -2178,7 +2178,7 @@ function shapeTurn(
       : undefined;
     // Its label counts the fold's messages (`previous`), which can change while the summary's and
     // the answer's versions do not: the count is part of the version, so the memoized row redraws.
-    // A reply is never folded, so it is never one of the fold's messages, open or closed.
+    // A reply kept beside the fold (`keptOut`) is never one of the fold's messages, open or closed.
     // Other agents' messages that started the turn fold in too, as its first entries (`foldsPrompt`).
     const hidden = promptOnly
       ? [user]
@@ -2327,10 +2327,10 @@ function shapeTurn(
                 ? withoutDrafts(row).filter((part) => !isEdit(part) && !onlySpawnsShownAgents(part, shown))
                 : renderRows([row], version),
       );
-    // Closed over a turn that said something before its answer, the replies read in order and the
-    // work around them stays under Worked for, as chatgpt.com draws it: no tool call shows beside a
-    // closed fold. The experiment's other arms fold that work into lines before and after each reply
-    // (turnFoldReplies.experiment.ts).
+    // Closed over a turn that said something before its answer, the default `answer` arm folds those
+    // replies with the work; the `replies` arm keeps them in order with the work under Worked for, as
+    // chatgpt.com draws it: no tool call shows beside a closed fold. The other arms fold that work
+    // into lines before and after each reply (turnFoldReplies.experiment.ts).
     // A steered turn's one fold keeps every run under Worked for (`nested`): its replies alone draw.
     const around = open || repliesArm === "answer" ? undefined : nested ? "replies" : repliesArm;
     const between =
@@ -4138,12 +4138,6 @@ export function isTakeaway(row: AcpmuxRow): boolean {
     /\?|```|~~~|\n\s*\n|^\s*(?:[-*+]|\d+[.)])\s|\]\(|https?:\/\//m.test(text) ||
     !isWorkNarration(text)
   );
-}
-
-/// The turn's last reply the provider marked final (`isFinalAnswer`), the one `answerAt` picks.
-function lastFinalAnswer(rows: readonly AcpmuxRow[]): AcpmuxRow | undefined {
-  for (let at = rows.length - 1; at >= 0; at -= 1) if (isFinalAnswer(rows[at]!)) return rows[at];
-  return undefined;
 }
 
 /// Only recognizable short progress narration belongs to the work. Unknown prose can be a brief
