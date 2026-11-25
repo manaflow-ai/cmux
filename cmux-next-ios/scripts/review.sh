@@ -346,13 +346,45 @@ fleet_submit_mac() {
   # Macs, and failed there when its headers changed (job cb3e5fa3159ea9806ae980fe); with FFI commits
   # every half hour the pin is behind nearly always. cmux-next needs no shared dev backend (AGENTS.md):
   # the tag's own local mode.
-  out="$(cmux_ci build cmux --ref "$SHA" --tag "$SLUG" --workspace "$WORKSPACE" --backend-mode local)" ||
+  local ref reuse=()
+  ref="$(mac_build_ref)"
+  # The base's build: any tag's equal build answers at once (--any-tag), and swap-first never stands in for it.
+  [[ "$ref" == "$SHA" ]] || reuse=(--any-tag --build)
+  # ${reuse[@]+...}: macOS's /bin/bash 3.2 (what `env bash` finds) calls an empty array unbound under set -u.
+  out="$(cmux_ci build cmux --ref "$ref" ${reuse[@]+"${reuse[@]}"} --tag "$SLUG" --workspace "$WORKSPACE" --backend-mode local)" ||
     { REPORT_MAC="BLOCKED: cmux-ci build cmux was refused"; return 1; }
   MAC_JOB="$(printf '%s' "$out" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')" ||
     { REPORT_MAC="BLOCKED: cmux-ci build cmux printed no job id"; return 1; }
   printf '%s\n' "$MAC_JOB" >"$STATE/cmux-job"
   echo "==> Mac build: fleet job $MAC_JOB"
   mac_promote
+}
+
+# The commit the Mac build is made from: this head, or its feat-cmux-next merge base when
+# scripts/cmux-next/build_select.py says the head changes nothing the Mac app builds or bundles (an
+# iPhone-only change, review.sh's own scripts): the base's Mac app is this head's, and a build of it the fleet
+# already made (build-ahead, another tag) answers with no Mac minutes. Before 2026-11-24 every hand-off built
+# the head, so an iPhone-only PR queued a full Mac build (#53007: 3+ h queued for 7 CmuxMobileKit files).
+# CNX_REVIEW_MAC_BUILD=head builds the head anyway. Saved per head in $STATE/mac-ref, so a rerun resumes it.
+mac_build_ref() {
+  if [[ -s "$STATE/mac-ref" ]]; then
+    cat "$STATE/mac-ref"
+    return 0
+  fi
+  local ref="$SHA" base="" mac=""
+  if [[ "${CNX_REVIEW_MAC_BUILD:-auto}" != head ]]; then
+    base="$(git -C "$REPO_ROOT" merge-base "$SHA" origin/feat-cmux-next 2>/dev/null || true)"
+    if [[ -n "$base" && "$base" != "$SHA" ]]; then
+      mac="$(python3 "${CNX_REVIEW_BUILD_SELECT:-$REPO_ROOT/scripts/cmux-next/build_select.py}" --repo "$REPO_ROOT" --json "$base" "$SHA" 2>/dev/null |
+        python3 -c 'import json,sys; print(json.load(sys.stdin)["mac"])' 2>/dev/null || true)"
+    fi
+  fi
+  if [[ "$mac" == none ]]; then
+    ref="$base"
+    echo "==> Mac build: this head changes nothing in the Mac app (build_select.py); the tag gets the build of its base ${base:0:12}" >&2
+  fi
+  printf '%s\n' "$ref" >"$STATE/mac-ref"
+  printf '%s\n' "$ref"
 }
 
 # --urgent: the Mac build moves up the Mac queue (cmux-ci promote; a build has no --urgent). A refusal
@@ -421,6 +453,9 @@ fleet_finish_mac() {
     return 1
   fi
   REPORT_MAC="fleet job $MAC_JOB, published to HQ"
+  local ref
+  ref="$(cat "$STATE/mac-ref" 2>/dev/null || true)"
+  [[ -z "$ref" || "$ref" == "$SHA" ]] || REPORT_MAC="$REPORT_MAC (built from the base ${ref:0:12}: this head changes nothing in the Mac app)"
 }
 
 fleet_finish_sim() {
