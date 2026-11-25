@@ -1279,6 +1279,13 @@ public final class WorkspaceTabsSource: TabsDataSource {
         return snapshots.key(macID: macID, tabID: tabID).map { snapshots.entry($0) }
     }
 
+    /// Reads one tab's last-known picture from disk if it is not in memory (a card appearing).
+    func warmSnapshot(_ tabID: String) {
+        guard let macID = (workspaceSnapshot ?? listedWorkspace)?.macID,
+              let key = snapshots.key(macID: macID, tabID: tabID) else { return }
+        snapshots.warm(key)
+    }
+
     /// Reads the tabs' last-known pictures from disk, nearest the active tab
     /// first, once per tab list: when the workspace is first listed, long
     /// before the grid opens, so its first frame has them.
@@ -2639,7 +2646,8 @@ struct WorkspaceTabPage: View {
                                   isInteractive: context.isInteractive,
                                   isZoomGestureActive: context.isZoomGestureActive,
                                   reportScroll: { context.reportScroll(fingerDelta: $0) },
-                                  openLink: { [weak source] url in Task { await source?.openLink(url, fromTab: tabID) } })
+                                  openLink: { [weak source] url in Task { await source?.openLink(url, fromTab: tabID) } },
+                                  isOnPage: context.isOnPage)
     }
 }
 
@@ -2709,8 +2717,16 @@ struct WorkspaceTabCard: View {
     @Environment(\.tabsKitCardPageSize) private var kitPageSize
     let tabID: String
     let insets: EdgeInsets
+    @AppStorage(CmuxMobilePreferences.Key.tabCardMonograms) private var monograms = CmuxMobilePreferences.defaultTabCardMonograms
 
     var body: some View {
+        // Its last-known picture read from disk as it appears: a tab past the list's first warm,
+        // or one evicted from memory since, still shows its picture (not a stand-in).
+        face.onAppear { source.warmSnapshot(tabID) }
+    }
+
+    @ViewBuilder
+    private var face: some View {
         // Its own tab's entry (one card re-runs when its tab changes), and
         // values only: no host or store is made here.
         if tabID == WorkspaceTabsSource.screenSharingTabID {
@@ -2771,24 +2787,31 @@ struct WorkspaceTabCard: View {
                 // A page not shown in this launch has no snapshot of its own: its last-known picture stands in.
                 let lastKnown = source.snapshotEntry(tab.id)?.image
                 if let model = source.nativeBrowser(tab) {
-                    BrowserCard(model: model, insets: insets, lastKnown: lastKnown, tabID: tab.id)
+                    BrowserCard(model: model, insets: insets, lastKnown: lastKnown, tabID: tab.id, host: (model.url ?? tab.url)?.host())
                 } else if let model = source.streamedBrowser(tab) {
-                    // Laid out as its page is: the card covers an opening page (`isContentReady`).
-                    StreamedBrowserCard(model: model, insets: insets, lastKnown: lastKnown?.cgImage)
+                    // Site monograms (off by default) stand in for the globe until the first frame.
+                    if model.snapshot == nil, lastKnown == nil,
+                       monograms, SiteMonogram.letter(tab.url?.host()) != nil {
+                        SiteMonogramFace(host: tab.url?.host())
+                    } else {
+                        // Laid out as its page is: the card covers an opening page (`isContentReady`).
+                        StreamedBrowserCard(model: model, insets: insets, lastKnown: lastKnown?.cgImage)
+                    }
                 } else {
                     // The tab's model only if its page was shown: a card never makes a web view.
-                    BrowserCard(model: source.existingBrowser(tab.id), insets: insets, lastKnown: lastKnown, tabID: tab.id)
+                    let model = source.existingBrowser(tab.id)
+                    BrowserCard(model: model, insets: insets, lastKnown: lastKnown, tabID: tab.id, host: (model?.url ?? tab.url)?.host())
                 }
             case .simulator:
                 if let model = source.simulator(tab) {
-                    StreamedBrowserCard(model: model, placeholder: "iphone", fit: true,
+                    StreamedBrowserCard(model: model, fit: true,
                                         lastKnown: source.snapshotEntry(tab.id)?.image?.cgImage)
                 } else if let image = source.snapshotEntry(tab.id)?.image {
                     ZStack { Color.black; Image(uiImage: image).resizable().interpolation(.medium).scaledToFit() }
                         .accessibilityHidden(true)
                 } else {
-                    Image(systemName: "iphone").font(.system(size: 72, weight: .light)).foregroundStyle(.tertiary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    // No picture yet: the card's background, never a stand-in glyph.
+                    Color.cmuxMobileBackground
                 }
             }
     }

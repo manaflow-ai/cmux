@@ -30,9 +30,17 @@ fn spawn_echo_mac_with(mac: SignalingClient, mac_options: DialOptions) -> tokio:
             let mac = mac.clone();
             let mac_options = mac_options.clone();
             tokio::spawn(async move {
-                let connected = dial::answer(&mac, first, events, &mac_options, LinkConfig::default())
-                    .await
-                    .expect("answer");
+                // A carrier can drop before its hello (the phone then
+                // reopens its link over the next one): that answer is over.
+                let Ok(connected) =
+                    dial::answer(&mac, first, events, &mac_options, LinkConfig::default()).await
+                else {
+                    return;
+                };
+                if connected.resumed {
+                    // A new carrier under a link already served.
+                    return;
+                }
                 while let Some(mut incoming) = connected.link.accept().await {
                     tokio::spawn(async move {
                         if incoming.service != "echo" {
@@ -802,4 +810,85 @@ async fn webrtc_dial_gives_up_on_an_unanswered_offer_at_its_answer_deadline() {
     let waited = started.elapsed();
     assert!(matches!(result, Err(dial::DialError::Timeout)), "expected a timeout, got {:?}", result.err());
     assert!(waited < Duration::from_secs(4), "gave up after {waited:?}");
+}
+
+/// The reliable link over a real dial: with both sides on, a dropped carrier
+/// resumes over a new transport and the channel sees every byte once, in
+/// order; the Mac serves the link once.
+async fn reliable_resume(kind: TransportKind) {
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let phone_id = uuid::Uuid::new_v4().to_string();
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+    let registry = std::sync::Arc::new(cmux_mobile_link::ResumeRegistry::default());
+    let mac_options = DialOptions { reliable: true, resume_registry: Some(registry.clone()), ..options() };
+    let _mac_task = spawn_echo_mac_with(mac, mac_options);
+    let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
+    let phone_options = DialOptions { reliable: true, ..options() };
+    let connected =
+        dial::connect(&phone, &mac_id, kind, &phone_options, LinkConfig::default()).await.expect("dial");
+    assert!(connected.link.reliable_stats().is_some(), "{kind:?}: both sides offered the reliable link");
+    let link = connected.link.clone();
+    let mut channel = link.open("echo", serde_json::json!({})).await.unwrap();
+    let payload: Vec<u8> = (0..400_000u32).map(|i| (i % 251) as u8).collect();
+    let (first, second) = payload.split_at(200_000);
+    channel.send(Bytes::copy_from_slice(first)).await.unwrap();
+    link.drop_carrier("test cut");
+    let resumed = dial::resume(&phone, &mac_id, kind, &phone_options, &link).await.expect("resume");
+    assert!(resumed.resumed);
+    channel.send(Bytes::copy_from_slice(second)).await.unwrap();
+    let mut echoed = Vec::new();
+    while echoed.len() < payload.len() {
+        match tokio::time::timeout(Duration::from_secs(20), channel.recv()).await.expect("echo in time") {
+            Some(ChannelEvent::Data(bytes)) => echoed.extend_from_slice(&bytes),
+            other => panic!("{kind:?}: unexpected {other:?}"),
+        }
+    }
+    assert_eq!(echoed, payload, "{kind:?}: every byte once, in order");
+    assert_eq!(registry.len(), 1, "one link of this phone waits in its registry");
+    link.close("done");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn webrtc_reliable_link_resumes_over_a_new_transport() {
+    reliable_resume(TransportKind::WebRtc).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_reliable_link_resumes_over_a_new_transport() {
+    reliable_resume(TransportKind::WireGuard).await;
+}
+
+/// The reliable link stays off when only one side offers it: today's link.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_reliable_link_needs_both_sides() {
+    for (phone_on, mac_on) in [(true, false), (false, true)] {
+        let server = FakeSignaling::start(FakeOptions::default()).await;
+        let phone_id = uuid::Uuid::new_v4().to_string();
+        let mac_id = uuid::Uuid::new_v4().to_string();
+        let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+        let _mac_task = spawn_echo_mac_with(mac, DialOptions { reliable: mac_on, ..options() });
+        let phone =
+            SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
+        let phone_options = DialOptions { reliable: phone_on, ..options() };
+        let connected =
+            dial::connect(&phone, &mac_id, TransportKind::WireGuard, &phone_options, LinkConfig::default())
+                .await
+                .expect("dial");
+        assert!(connected.link.reliable_stats().is_none(), "phone {phone_on}, Mac {mac_on}");
+        let mut channel = connected.link.open("echo", serde_json::json!({})).await.unwrap();
+        channel.send(Bytes::from_static(b"today")).await.unwrap();
+        match tokio::time::timeout(Duration::from_secs(10), channel.recv()).await.expect("echo") {
+            Some(ChannelEvent::Data(bytes)) => assert_eq!(&bytes[..], b"today"),
+            other => panic!("unexpected {other:?}"),
+        }
+        if phone_on {
+            assert!(
+                dial::resume(&phone, &mac_id, TransportKind::WireGuard, &phone_options, &connected.link)
+                    .await
+                    .is_err()
+            );
+        }
+        connected.link.close("done");
+    }
 }
