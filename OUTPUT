@@ -1,4 +1,4 @@
-ci-step cvr-swift-stale-settings-f712f76: scripts/cmux-next/regenerate-settings-exports.sh settings-exports.patch at f712f76ca2e70c67ea3e94d63f8fe9c0e5fc5f03: exit 1
+ci-step cvr-swift-regen-8777099a: scripts/cmux-next/regenerate-settings-exports.sh settings-exports.patch at 8777099ab8ecbede12fbdbe306dcc8d33943c782: exit 1
 446 |     private func recordFailure(_ key: WorkspaceKey, _ error: Error) {
 456 |     private func finishPopulating(_ key: WorkspaceKey, succeeded: Bool, error: Error? = nil) {
 446 |     private func recordFailure(_ key: WorkspaceKey, _ error: Error) {
@@ -29,20 +29,55 @@ ci-step cvr-swift-stale-settings-f712f76: scripts/cmux-next/regenerate-settings-
 145 |     static func interrupted(_ error: Error) -> Bool {
 145 |     static func interrupted(_ error: Error) -> Bool {
 145 |     static func interrupted(_ error: Error) -> Bool {
-/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextWorkspaceNamingTests/CloudChatNamesTests.swift:74:83: error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
-    |                                                                                   `- error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
-/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextWorkspaceNamingTests/CloudChatNamesTests.swift:74:83: error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
-    |                                                                                   `- error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
-/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextWorkspaceNamingTests/CloudChatNamesTests.swift:74:83: error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
-    |                                                                                   `- error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
-/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextWorkspaceNamingTests/CloudChatNamesTests.swift:74:83: error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
-    |                                                                                   `- error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
-/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextWorkspaceNamingTests/CloudChatNamesTests.swift:74:83: error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
-    |                                                                                   `- error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
-/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextWorkspaceNamingTests/CloudChatNamesTests.swift:74:83: error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
-    |                                                                                   `- error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
-/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextWorkspaceNamingTests/CloudChatNamesTests.swift:74:83: error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
-    |                                                                                   `- error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
-/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextWorkspaceNamingTests/CloudChatNamesTests.swift:74:83: error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
-    |                                                                                   `- error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
-ci-step cvr-swift-stale-settings-f712f76 exited 1
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/RemoteAcpmuxChatNamesTests.swift:39:16: error: cannot consume noncopyable stored property 'self.notes' of a class
+    |                `- error: cannot consume noncopyable stored property 'self.notes' of a class
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/RemoteAcpmuxChatNamesTests.swift:39:16: error: cannot consume noncopyable stored property 'self.notes' of a class
+    |                `- error: cannot consume noncopyable stored property 'self.notes' of a class
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/RemoteAcpmuxChatNamesTests.swift:39:16: error: cannot consume noncopyable stored property 'self.notes' of a class
+    |                `- error: cannot consume noncopyable stored property 'self.notes' of a class
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/RemoteAcpmuxChatNamesTests.swift:39:16: error: cannot consume noncopyable stored property 'self.notes' of a class
+    |                `- error: cannot consume noncopyable stored property 'self.notes' of a class
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/RemoteAcpmuxChatNamesTests.swift:39:16: error: cannot consume noncopyable stored property 'self.notes' of a class
+    |                `- error: cannot consume noncopyable stored property 'self.notes' of a class
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/RemoteAcpmuxChatNamesTests.swift:39:16: error: cannot consume noncopyable stored property 'self.notes' of a class
+    |                `- error: cannot consume noncopyable stored property 'self.notes' of a class
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/RemoteAcpmuxChatNamesTests.swift:39:16: error: cannot consume noncopyable stored property 'self.notes' of a class
+    |                `- error: cannot consume noncopyable stored property 'self.notes' of a class
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/RemoteAcpmuxChatNamesTests.swift:39:16: error: cannot consume noncopyable stored property 'self.notes' of a class
+    |                `- error: cannot consume noncopyable stored property 'self.notes' of a class
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/RemoteAcpmuxChatNamesTests.swift:39:16: error: cannot consume noncopyable stored property 'self.notes' of a class
+    |                `- error: cannot consume noncopyable stored property 'self.notes' of a class
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/RemoteAcpmuxChatNamesTests.swift:39:16: error: cannot consume noncopyable stored property 'self.notes' of a class
+    |                `- error: cannot consume noncopyable stored property 'self.notes' of a class
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/RemoteAcpmuxChatNamesTests.swift:39:16: error: cannot consume noncopyable stored property 'self.notes' of a class
+    |                `- error: cannot consume noncopyable stored property 'self.notes' of a class
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/RemoteAcpmuxChatNamesTests.swift:39:16: error: cannot consume noncopyable stored property 'self.notes' of a class
+    |                `- error: cannot consume noncopyable stored property 'self.notes' of a class
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/RemoteAcpmuxChatNamesTests.swift:39:16: error: cannot consume noncopyable stored property 'self.notes' of a class
+    |                `- error: cannot consume noncopyable stored property 'self.notes' of a class
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/RemoteAcpmuxChatNamesTests.swift:39:16: error: cannot consume noncopyable stored property 'self.notes' of a class
+    |                `- error: cannot consume noncopyable stored property 'self.notes' of a class
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/RemoteAcpmuxChatNamesTests.swift:39:16: error: cannot consume noncopyable stored property 'self.notes' of a class
+    |                `- error: cannot consume noncopyable stored property 'self.notes' of a class
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/RemoteAcpmuxChatNamesTests.swift:39:16: error: cannot consume noncopyable stored property 'self.notes' of a class
+    |                `- error: cannot consume noncopyable stored property 'self.notes' of a class
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/RemoteAcpmuxChatNamesTests.swift:39:16: error: cannot consume noncopyable stored property 'self.notes' of a class
+    |                `- error: cannot consume noncopyable stored property 'self.notes' of a class
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/RemoteAcpmuxChatNamesTests.swift:39:16: error: cannot consume noncopyable stored property 'self.notes' of a class
+    |                `- error: cannot consume noncopyable stored property 'self.notes' of a class
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/RemoteAcpmuxChatNamesTests.swift:39:16: error: cannot consume noncopyable stored property 'self.notes' of a class
+    |                `- error: cannot consume noncopyable stored property 'self.notes' of a class
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/RemoteAcpmuxChatNamesTests.swift:39:16: error: cannot consume noncopyable stored property 'self.notes' of a class
+    |                `- error: cannot consume noncopyable stored property 'self.notes' of a class
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/RemoteAcpmuxChatNamesTests.swift:39:16: error: cannot consume noncopyable stored property 'self.notes' of a class
+    |                `- error: cannot consume noncopyable stored property 'self.notes' of a class
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/RemoteAcpmuxChatNamesTests.swift:39:16: error: cannot consume noncopyable stored property 'self.notes' of a class
+    |                `- error: cannot consume noncopyable stored property 'self.notes' of a class
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/RemoteAcpmuxChatNamesTests.swift:39:16: error: cannot consume noncopyable stored property 'self.notes' of a class
+    |                `- error: cannot consume noncopyable stored property 'self.notes' of a class
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/RemoteAcpmuxChatNamesTests.swift:39:16: error: cannot consume noncopyable stored property 'self.notes' of a class
+    |                `- error: cannot consume noncopyable stored property 'self.notes' of a class
+ci-step cvr-swift-regen-8777099a exited 1
