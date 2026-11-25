@@ -418,22 +418,37 @@ extension AgentPaneRequest {
             // The start's key only (`AgentPaneCloudStart`'s): the start itself goes after, as `cloud.startChat`.
             if let key = params?["key"] as? String, UUID(uuidString: key) != nil { self = .cloudSignIn(key: key) } else { self = .unsupported(method) }
         case "cloud.setUp":
+            let environment = params?["environment"] as? String
+            guard params?["environment"] == nil || environment.map(CloudSetup.isConnectionID) == true else {
+                self = .unsupported(method)
+                return
+            }
             // The start's key, one of the card's ways in and the family it waits for (CloudSetup).
             let machine = params?["machine"] as? String
             if let key = params?["key"] as? String, UUID(uuidString: key) != nil, let action = params?["action"] as? String,
                CloudSetup.Action(rawValue: action) != nil, let family = params?["family"] as? String, CloudSetup.isSetupFamily(family),
                params?["machine"] == nil || machine.map(CloudSetup.isConnectionID) == true {
-                self = .cloudSetUp(key: key, action: action, family: family, machine: machine)
+                self = .cloudSetUp(key: key, action: action, family: family, machine: machine, environment: environment)
             } else { self = .unsupported(method) }
         case "cloud.setup.state":
+            let environment = params?["environment"] as? String
+            guard params?["environment"] == nil || environment.map(CloudSetup.isConnectionID) == true else {
+                self = .unsupported(method)
+                return
+            }
             let machine = (params?["machine"] as? String).flatMap { CloudSetup.isConnectionID($0) ? $0 : nil }
-            self = .cloudSetupState(machine: machine)
+            self = .cloudSetupState(machine: machine, environment: environment)
         case "cloud.connect":
+            let environment = params?["environment"] as? String
+            guard params?["environment"] == nil || environment.map(CloudSetup.isConnectionID) == true else {
+                self = .unsupported(method)
+                return
+            }
             // The picker lists catalog families even when the Cloud gateway cannot run them yet.
             if let family = params?["family"] as? String, CloudSetup.isConnectionID(family) {
                 let machine = params?["machine"] as? String
                 if params?["machine"] == nil || machine.map(CloudSetup.isConnectionID) == true {
-                    self = .cloudConnect(family: family, machine: machine)
+                    self = .cloudConnect(family: family, machine: machine, environment: environment)
                 } else {
                     self = .unsupported(method)
                 }

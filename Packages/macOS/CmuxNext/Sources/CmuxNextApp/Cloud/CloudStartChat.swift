@@ -60,9 +60,13 @@ struct CloudStartChat {
             let folder = start.home || start.repository != nil ? nil : (start.cwd ?? tab.cwd).flatMap(CloudMoveFolder.init(chat:)).flatMap { $0.isTooBroad ? nil : $0 }
             let preflight = folder.flatMap { folder in services.cloud.move.cli.map { CloudStartPreflight(root: folder.root, cli: CloudMoveCLI(binary: $0, timeout: services.cloud.move.timeout)) } }
             defer { preflight?.cancel() } // unused when the start ends before it, or takes another folder
-            let choice: CloudSetup.Choice = if start.usesMachineLogin { .fallback } else { await services.cloud.setup.choose(harness: start.harness, model: start.model, account: start.account) }
-            if let refusal = await start.connectionSetupReply(for: choice, setup: services.cloud.setup) { return refusal }
-            let account = services.cloud.account
+            let account = services.cloud.account, setup = services.cloud.setup
+            let choice = await setup.choose(harness: start.harness, model: start.model, account: start.account)
+            let ready = await setup.readyClaudeMachines(for: start)
+            if let machine = start.machine, let environment = start.environment,
+               !setup.machineMatchesEnvironment(machine, environment: environment) { throw CloudStartSessionStrings.environmentMismatch }
+            if let refusal = start.connectionSetupReply(for: choice, readyClaude: !ready.isEmpty) { return refusal }
+            try Self.checkAccount(account, now: services.cloud.account, listCurrent: true)
             let origin = Origin(tab: tab, chat: start.repository == nil ? start.cwd ?? tab.cwd : nil, workspace: services.workspaceID(ofTab: tab.id), account: account, connection: choice.connectionID, preflight: preflight) { [services] in
                 // This Mac's tab, which never started a chat: the chat is the machine's now.
                 do {
@@ -384,12 +388,14 @@ extension CloudStartChat {
             return changes
         }
         services.cloud.setup.accountScope = { [weak services] in services?.cloud.account ?? [] }
-        services.cloud.setup.canSignInToClaudeOnMachine = { [weak services] id in
-            guard let services else { return false }
-            guard let id else { return services.accounts.agentKeys.isPersonal }
-            guard services.cloud.listedMachineIDs.contains(id), let machine = services.machines.session(id),
-                  machine.daemon.supports(DaemonCapability.agentSessionLoginMachine.rawValue) else { return false }
-            return await machine.appLink.ownerLink != nil
+        services.cloud.setup.loadCloudMachines = { [weak cloud = services.cloud] in if let cloud, !cloud.hasLoadedCurrentMachines { _ = await cloud.refresh() } }
+        services.cloud.setup.claudeMachines = { [weak services] in
+            services.map { app in app.machines.cloud.filter { app.cloud.listedMachineIDs.contains($0.machineID) }.map(\.machine) } ?? []
+        }
+        services.cloud.setup.readClaudeMachineLogin = { [weak services] id in
+            guard let machine = services?.machines.session(id), machine.effectiveStatus == .running, machine.daemon.liveIdentity != nil else { return false }
+            return await AgentSessionAttachClient.isClaudeSignedIn(endpoint: AgentTabRemoteHost.endpoint(on: machine.daemon),
+                                                                  ownerLink: CloudMachineLinks(appLink: machine.appLink).ownerLink)
         }
         services.cloud.setup.machineHarnesses = { [weak services] id in
             guard let services, services.cloud.listedMachineIDs.contains(id) else { return nil }
@@ -403,10 +409,10 @@ extension CloudStartChat {
             guard let services, services.cloud.listedMachineIDs.contains(id), let machine = services.machines.session(id) else { return false }
             return CloudTransferRules.isOwner(machine.machine, user: services.cloud.auth.platformUserID)
         }
-        services.cloud.setup.openConnectionSettings = { [weak services] family, machine, fromSend in
-            try? services?.settingsWindow.show(section: nil, route: DeepLink.cloudModelConnectionsRoute(family: family, fromSend: fromSend, machine: machine))
+        services.cloud.setup.openConnectionSettings = { [weak services] family, machine, fromSend, environment, recovery in
+            try? services?.settingsWindow.show(section: nil, route: DeepLink.cloudModelConnectionsRoute(family: family, fromSend: fromSend, machine: machine, environment: environment, recovery: recovery))
         }
-        services.cloud.startSessionRuns.began = { [weak services] key in if key.machine.hasPrefix("name:"), let services { warmSpare(services) } } // `cmux chat --on vm:new` and `cloud start-session --name`: a create, which claims the spare, comes next
+        services.cloud.startSessionRuns.began = { [weak services] key in if key.machine.hasPrefix("name:"), key.machine != "name:", let services { warmSpare(services) } } // `cmux chat --on vm:new` and `cloud start-session --name`: a create, which claims the spare, comes next
     }
 
     /// Warms the person's spare (``CloudSpareWarm``, no login copied), never awaited by the caller; the spare it names is keyed and linked ahead of its claim.

@@ -3,6 +3,7 @@
 import type { AllChatsPage } from "./allChatsListModel";
 import type { NewTabOpenHow, NewTabScreenActions } from "./NewTabScreen";
 import { savedEnvironmentHost } from "../environments";
+import { currentCloudMachine } from "../cloudMachines";
 import { rememberStartedProject } from "./startedProject";
 import { rememberPick } from "../lastPick";
 import { translate } from "../i18n";
@@ -52,12 +53,25 @@ export function newTabScreenActions(deps: {
   const remember = (agent: string, model: string | undefined, folder: string | undefined) =>
     rememberPick({ harness: agent, ...(model ? { model } : {}) }, folder, callNative);
   return {
-    onAsk(harness, text, picked, model, noProject, attachments, saved) {
+    async onAsk(harness, text, picked, model, noProject, attachments, saved) {
       const peer = saved?.peer;
       // Held for Computer Use (decided at once): the page keeps the prompt, nothing starts.
       if (deps.holdsSend?.(text, !peer && deps.startsHere?.() !== false)) return Promise.reject(startCancelled());
       const queuedStart = !!harness && !peer && !noProject;
       const current = deps.startScope?.(queuedStart) ?? (() => true);
+      if (peer && saved?.cloudEnvironment) {
+        const machine = currentCloudMachine(peer);
+        const readiness =
+          machine &&
+          (await callNative("cloud.setup.state", {
+            machine: machine.id,
+            environment: saved.cloudEnvironment,
+          }).catch(() => undefined));
+        if ((readiness as { environmentMatches?: boolean } | undefined)?.environmentMatches !== true) {
+          throw new Error(translate("composer.envNotConnected"));
+        }
+        if (!current()) throw startCancelled();
+      }
       // The prompt goes in the same turn as the switch: the switch queues it, and a folder trust
       // refusal then holds it with the send's gesture (holdPrompt), so Trust sends it. Sending
       // after `chat.new` settled lost it: the switch had stopped on the refusal with nothing

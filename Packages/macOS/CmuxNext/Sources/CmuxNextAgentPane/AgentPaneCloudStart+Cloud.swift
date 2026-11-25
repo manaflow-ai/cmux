@@ -95,10 +95,10 @@ extension AgentPaneCloudStart {
 }
 
 extension AgentPaneCloudStart {
-    /// First-send setup is required unless the selected Cloud machine can offer its own Claude login.
-    @MainActor public func connectionSetupReply(for choice: CloudSetup.Choice, setup: CloudSetup) async -> [String: Any]? {
+    /// First-send setup is required unless a destination has a live Claude login.
+    @MainActor public func connectionSetupReply(for choice: CloudSetup.Choice, readyClaude: Bool) -> [String: Any]? {
         guard case .setup(let family, let model) = choice else { return nil }
-        if family == "claude", await setup.canSignInToClaudeOnMachine?(machine) == true { return nil }
+        if family == "claude", readyClaude { return nil }
         return Self.cloudSetupReply(family: family, model: model)
     }
 
@@ -123,5 +123,12 @@ extension AgentPaneCloudStart {
             return AgentPaneReply.failure(code: "cloud_start_failed", message: message, details: nil, retryable: true, origin: "native")
         }
         return Self.cloudSetupReply(family: family, model: model)
+    }
+}
+
+extension CloudSetup {
+    public func readyClaudeMachines(for start: AgentPaneCloudStart) async -> [String] {
+        guard Self.family(of: start.harness) == "claude" else { return [] }
+        return await readyClaudeMachines(machine: start.machine, environment: start.environment)
     }
 }

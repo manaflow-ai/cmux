@@ -127,10 +127,12 @@ export function useCloudServed(
     watchKey = watchPageKey,
     isKey = pageIsKey,
     readMachine,
+    environment,
   }: {
     watchKey?: typeof watchPageKey;
     isKey?: typeof pageIsKey;
     readMachine?(): string | undefined;
+    environment?: string;
   } = {},
 ) {
   const [served, setServed] = useState<CloudServed>();
@@ -144,23 +146,28 @@ export function useCloudServed(
   const read = useCallback(() => {
     const id = ++reads.current;
     const machine = readMachine?.();
-    void callRef.current("cloud.setup.state", machine ? { machine } : {}).then(
-      (reply) => {
-        if (id !== reads.current) return;
-        const next = readCloudServed(reply);
-        setServed(next);
-        const wanted = returned.current;
-        returned.current = undefined;
-        const state = wanted && cloudPickerState(next, wanted.family);
-        if (wanted && (state === "ready" || state === "pending")) wanted.onReady();
-      },
-      () => {
-        if (id !== reads.current) return;
-        returned.current = undefined;
-        setServed(undefined);
-      },
-    );
-  }, [readMachine]);
+    void callRef
+      .current("cloud.setup.state", {
+        ...(machine ? { machine } : {}),
+        ...(environment ? { environment } : {}),
+      })
+      .then(
+        (reply) => {
+          if (id !== reads.current) return;
+          const next = readCloudServed(reply);
+          setServed(next);
+          const wanted = returned.current;
+          returned.current = undefined;
+          const state = wanted && cloudPickerState(next, wanted.family);
+          if (wanted && (state === "ready" || state === "pending")) wanted.onReady();
+        },
+        () => {
+          if (id !== reads.current) return;
+          returned.current = undefined;
+          setServed(undefined);
+        },
+      );
+  }, [environment, readMachine]);
   const disarm = useCallback(() => {
     pendingReturn.current?.unwatch();
     pendingReturn.current = undefined;
@@ -198,11 +205,17 @@ export function useCloudServed(
       };
       pendingReturn.current = wanted;
       const machine = readMachine?.();
-      void callRef.current("cloud.connect", { family, ...(machine ? { machine } : {}) }).catch(() => {
-        if (pendingReturn.current === wanted) disarm();
-      });
+      void callRef
+        .current("cloud.connect", {
+          family,
+          ...(machine ? { machine } : {}),
+          ...(environment ? { environment } : {}),
+        })
+        .catch(() => {
+          if (pendingReturn.current === wanted) disarm();
+        });
     },
-    [active, disarm, isKey, read, readMachine, watchKey],
+    [active, disarm, environment, isKey, read, readMachine, watchKey],
   );
   return useMemo(
     () => ({ ...(active && served ? { served } : {}), refresh, openSettings }),

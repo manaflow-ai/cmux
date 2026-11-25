@@ -11,6 +11,7 @@
 use super::*;
 
 use crate::agent_credentials::{AgentCredential, Family};
+use crate::store::ClaudeTokenRecovery;
 
 impl Hub {
     /// After a daemon restart, the credential the adopted agent `harness_pid` of `session` was
@@ -24,6 +25,9 @@ impl Hub {
         identity: Option<(u32, u64)>,
     ) -> bool {
         let Some((pid, start)) = identity else { return false };
+        if session.read_meta(claude_token_recovery).is_some() {
+            return false;
+        }
         let mut held = session.credential.lock().unwrap_or_else(|e| e.into_inner());
         if held.is_some() {
             return false;
@@ -55,20 +59,54 @@ impl Hub {
 
     /// Named connections remain assigned even while their token awaits redelivery.
     pub(crate) fn has_delivered_credential(&self, session: &Session) -> bool {
-        session.meta().credential_connection.is_some()
+        self.rejected_claude_token(session)
+            || session.read_meta(|meta| meta.credential_connection.is_some())
             || session.credential.lock().unwrap_or_else(|e| e.into_inner()).is_some()
     }
 
-    /// A chat-scoped sign-in can move off a temporary unnamed Claude token.
-    pub(crate) async fn retire_unnamed_claude_credential(&self, session: &Session) {
+    /// A rejected token cannot run a new turn, including on an already-live child.
+    pub(super) fn require_usable_claude_token(&self, session: &Session) -> Result<(), RpcError> {
+        if self.rejected_claude_token(session) {
+            return Err(rejected_claude_token());
+        }
+        Ok(())
+    }
+
+    pub(crate) fn rejected_claude_token(&self, session: &Session) -> bool {
+        session.read_meta(claude_token_recovery) == Some(ClaudeTokenRecovery::Rejected)
+    }
+
+    pub(crate) fn mark_claude_token_rejected(&self, session: &Session) {
+        let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        if meta.claude_token_recovery.is_none() {
+            meta.claude_token_recovery = Some(ClaudeTokenRecovery::Rejected);
+        }
+    }
+
+    /// The account on this machine has signed in. Retire only this chat's rejected token.
+    pub(crate) async fn move_rejected_claude_to_machine_login(
+        &self,
+        session: &Arc<Session>,
+    ) -> Result<bool, RpcError> {
         let _spawn = session.spawn_lock.lock().await;
-        if session.meta().credential_connection.is_some() {
-            return;
+        if !self.rejected_claude_token(session) {
+            return Ok(false);
         }
-        let mut held = session.credential.lock().unwrap_or_else(|e| e.into_inner());
-        if held.as_ref().is_some_and(AgentCredential::uses_claude_subscription_token) {
-            *held = None;
+        self.detach_child(session).await;
+        let (connection, model) = {
+            let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            meta.claude_token_recovery = Some(ClaudeTokenRecovery::MachineLogin);
+            (meta.credential_connection.take(), meta.credential_model.take())
+        };
+        if let Err(error) = self.save_meta_answered(session) {
+            let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            meta.credential_connection = connection;
+            meta.credential_model = model;
+            meta.claude_token_recovery = Some(ClaudeTokenRecovery::Rejected);
+            return Err(error);
         }
+        session.credential.lock().unwrap_or_else(|e| e.into_inner()).take();
+        Ok(true)
     }
 
     /// Sets `credential` on session `id` (its exact id, a session of this daemon) and restarts its
@@ -85,10 +123,14 @@ impl Hub {
             )
             .with_data(json!({"reason": "credentials.family"})));
         }
-        let connection = session.meta().credential_connection;
-        credential.keep_connection(connection.as_deref());
         let changed = {
             let _spawn = session.spawn_lock.lock().await;
+            let meta = session.meta();
+            if claude_token_recovery(&meta).is_some() && credential.uses_claude_subscription_token()
+            {
+                return Err(rejected_claude_token());
+            }
+            credential.keep_connection(meta.credential_connection.as_deref());
             let mut held = session.credential.lock().unwrap_or_else(|e| e.into_inner());
             let changed = held.as_ref() != Some(&credential);
             #[cfg(unix)]
@@ -125,15 +167,33 @@ impl Hub {
         let model =
             meta.credential_model.clone().or_else(|| super::model_options::current_model(&meta));
         Ok(json!({"connection": meta.credential_connection, "held": held,
-            "model": model, "harness": meta.harness}))
+            "model": model, "harness": meta.harness, "claudeTokenRecovery": claude_token_recovery(&meta)}))
     }
 
     /// The Cloud owner withdrew a delivered model credential.
     pub(crate) async fn revoke_credential(self: &Arc<Self>, id: &str) -> Result<Value, RpcError> {
         let (session, _family) = self.credential_session(id).await?;
         let _spawn = session.spawn_lock.lock().await;
+        let meta = session.meta();
+        let holds_token = session
+            .credential
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .is_some_and(AgentCredential::uses_claude_subscription_token);
+        if self.config.read().await.cloud_host
+            && (holds_token
+                || meta.credential_connection.as_deref().is_some_and(is_saved_claude_token))
+        {
+            self.mark_claude_token_rejected(&session);
+            if let Err(error) = self.save_meta_answered(&session) {
+                session.meta.lock().unwrap_or_else(|e| e.into_inner()).claude_token_recovery =
+                    meta.claude_token_recovery;
+                return Err(error);
+            }
+        }
         let removed = session.credential.lock().unwrap_or_else(|e| e.into_inner()).take();
-        if removed.is_none() && session.meta().credential_connection.is_none() {
+        if removed.is_none() && meta.credential_connection.is_none() {
             return Ok(json!({"sessionId": session.id, "restart": "none"}));
         }
         #[cfg(unix)]
@@ -163,6 +223,33 @@ impl Hub {
         };
         Ok((session, family))
     }
+}
+
+fn is_saved_claude_token(id: &str) -> bool {
+    id == "claude-token"
+        || id.strip_prefix("claude-token-").is_some_and(|suffix| suffix.parse::<u64>().is_ok())
+}
+
+fn claude_token_recovery(meta: &SessionMeta) -> Option<ClaudeTokenRecovery> {
+    meta.claude_token_recovery.or_else(|| {
+        if !meta.credential_connection.as_deref().is_some_and(is_saved_claude_token) {
+            return None;
+        }
+        let turn = meta.last_turn.as_ref()?;
+        let error = turn.get("errorText")?.as_str()?;
+        let auth_failure = crate::claude_auth::is_sign_in_failure(error)
+            || crate::turn_errors::has_status(error, "401")
+            || crate::claude_auth::is_revoked_token(error)
+            || crate::claude_auth::is_expired_credential(error);
+        (turn["errorCode"] == "claude_cloud_token_rejected"
+            || (auth_failure && !crate::turn_errors::says_unreachable(error)))
+        .then_some(ClaudeTokenRecovery::Rejected)
+    })
+}
+
+pub(super) fn rejected_claude_token() -> RpcError {
+    RpcError::invalid_params("The Claude setup token was rejected. Sign in to Claude on this Cloud machine.")
+        .with_data(json!({"reason": "credentials.claude_token_rejected", "errorCode": "claude_cloud_token_rejected"}))
 }
 
 #[cfg(test)]
@@ -230,6 +317,73 @@ mod tests {
         hub.child_for(&other).await.unwrap();
         assert!(!launched(&other).contains_key(CLAUDE_OAUTH));
         assert!(!written(&hub, &session.id).contains(FIRST), "no meta or log record holds it");
+    }
+
+    #[tokio::test]
+    async fn rejected_claude_cannot_be_redelivered_before_or_after_machine_login() {
+        let hub = hub();
+        let delivered = AgentCredential::parse(&json!({
+            "connection": "claude-token",
+            "env": {CLAUDE_OAUTH: FIRST}
+        }))
+        .unwrap();
+        let session = hub
+            .new_session(NewRequest {
+                cwd: Some(std::env::temp_dir()),
+                credential: Some(delivered.clone()),
+                ..NewRequest::default()
+            })
+            .await
+            .unwrap();
+        hub.mark_claude_token_rejected(&session);
+        assert_eq!(
+            hub.credential_status(&session.id).await.unwrap()["claudeTokenRecovery"],
+            "rejected"
+        );
+        assert!(hub.require_usable_claude_token(&session).is_err());
+        assert!(hub.update_credential(&session.id, delivered.clone()).await.is_err());
+        assert!(hub.move_rejected_claude_to_machine_login(&session).await.unwrap());
+        let persisted: crate::store::SessionMeta =
+            serde_json::from_value(serde_json::to_value(session.meta()).unwrap()).unwrap();
+        assert_eq!(
+            super::claude_token_recovery(&persisted),
+            Some(crate::store::ClaudeTokenRecovery::MachineLogin)
+        );
+        let status = hub.credential_status(&session.id).await.unwrap();
+        assert_eq!(status["claudeTokenRecovery"], "machineLogin");
+        assert!(status["connection"].is_null());
+        assert_eq!(status["held"], false);
+        assert!(hub.require_usable_claude_token(&session).is_ok());
+        assert!(hub.update_credential(&session.id, delivered).await.is_err());
+        assert!(!written(&hub, &session.id).contains(FIRST));
+    }
+
+    #[tokio::test]
+    async fn a_revoked_or_preexisting_rejected_claude_token_can_recover() {
+        let hub = hub();
+        hub.config.write().await.cloud_host = true;
+        let delivered = AgentCredential::parse(&json!({
+            "connection": "claude-token-2",
+            "env": {CLAUDE_OAUTH: FIRST}
+        }))
+        .unwrap();
+        let session = hub
+            .new_session(NewRequest {
+                cwd: Some(std::env::temp_dir()),
+                credential: Some(delivered),
+                ..NewRequest::default()
+            })
+            .await
+            .unwrap();
+        session.meta.lock().unwrap().last_turn =
+            Some(json!({"status": "error", "errorText": "Claude said: OAuth token has expired"}));
+        assert!(hub.rejected_claude_token(&session));
+        hub.revoke_credential(&session.id).await.unwrap();
+        let status = hub.credential_status(&session.id).await.unwrap();
+        assert_eq!(status["claudeTokenRecovery"], "rejected");
+        assert_eq!(status["held"], false);
+        assert!(hub.move_rejected_claude_to_machine_login(&session).await.unwrap());
+        assert!(!hub.rejected_claude_token(&session));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

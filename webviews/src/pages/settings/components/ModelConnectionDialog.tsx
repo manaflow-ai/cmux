@@ -33,6 +33,7 @@ import { useSettingsSignIn, terminalSignIn } from "./useSettingsSignIn";
 export function ModelConnectionDialog({
   visit,
   cloud,
+  recoverClaude,
   provider,
   models,
   busy,
@@ -49,6 +50,7 @@ export function ModelConnectionDialog({
 }: {
   visit: string;
   cloud: boolean;
+  recoverClaude?: boolean;
   provider?: CatalogProvider;
   models?: ModelsState;
   busy: boolean;
@@ -230,6 +232,7 @@ export function ModelConnectionDialog({
               onClose={onClose}
               onCancel={onDismiss}
               replace={target}
+              recover={recoverClaude}
               error={error}
             />
           )}

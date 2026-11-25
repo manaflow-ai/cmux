@@ -689,6 +689,7 @@ impl Hub {
         let reason = reason.and_then(RetryReason::from_cause);
         // A first send a revoked token failed: sent again once, its wait this mark's.
         if let (Some(cut), None, Some(true)) = (cut.as_ref(), reason, ending)
+            && !self.rejected_claude_token(session)
             && first_send::retries(session, cut)
         {
             let wake = Arc::new(Notify::new());

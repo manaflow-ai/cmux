@@ -8,6 +8,8 @@ extension CloudAgentCredentials.Failure {
             return String(localized: "cloud.modelConnection.unavailable", defaultValue: "The connection is temporarily unavailable.", bundle: bundle)
         }
         switch reason {
+        case "credentials.claude_token_rejected":
+            return String(localized: "cloud.modelConnection.claudeTokenRejected", defaultValue: "The Claude setup token was rejected. Sign in to Claude on this Cloud machine.", table: "CloudSessions", bundle: .localizedModule)
         case "connections.disabled", "connections.not_cloud":
             return String(localized: "cloud.modelConnection.disabled", defaultValue: "This connection is turned off for Cloud chats.", bundle: bundle)
         case "connections.model_unavailable":

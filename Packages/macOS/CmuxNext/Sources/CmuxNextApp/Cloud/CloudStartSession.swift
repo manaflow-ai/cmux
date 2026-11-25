@@ -31,31 +31,7 @@ struct CloudStartSession {
     static let action: ActionID = "cloudStartSession"
     let services: AppServices
 
-    /// What the run asks for, checked before anything starts.
-    struct Request: Equatable {
-        var machineID: String?
-        /// Without a machine id: the machine with this name, created when none has it.
-        var name: String?
-        var agent: String
-        /// A folder on the machine; nil starts in the workspace's folder there.
-        var cwd: String?
-        /// A folder on this Mac (`--from-folder`) the session starts in a copy of, never with ``cwd``; and `--model`, the agent's model there (nil: its harness default).
-        var fromFolder: String?, model: String? // nil unless given: a struct's optional var defaults to nil in its memberwise init (lint forbids `= nil`)
-
-        /// The command that asks for this again, every word as the shell reads it back.
-        var command: String {
-            var words = ["cmux cloud start-session"]
-            if let machineID { words.append("--target machine:" + CloudStartCore.shellQuoted(machineID)) } else { words.append("--name " + CloudStartCore.shellQuoted(name ?? "")) }
-            words.append("--agent " + agent + (model.map { " --model " + CloudStartCore.shellQuoted($0) } ?? ""))
-            if let cwd { words.append("--cwd " + CloudStartCore.shellQuoted(cwd)) }
-            if let fromFolder { words.append("--from-folder " + CloudStartCore.shellQuoted(fromFolder)) }
-            return words.joined(separator: " ")
-        }
-
-        func asked(machine: String) -> CloudStartSessionStrings.Asked {
-            CloudStartSessionStrings.Asked(machine: machine, agent: agent, command: command)
-        }
-    }
+    typealias Request = CloudStartSessionRequest
 
     static func bind(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
         let services = context.services
@@ -71,7 +47,7 @@ struct CloudStartSession {
             if request.machineID == nil, request.name == nil, CloudHandlers.origin(of: invocation) == .user {
                 request.machineID = try CloudHandlers.machine(invocation, context).machineID
             }
-            if request.machineID == nil, request.name == nil { throw ActionFailure(message: CloudStartSessionStrings.needsMachine(agent: request.agent)) }
+            if request.machineID == nil, request.name == nil, request.agent != "claude" { throw ActionFailure(message: CloudStartSessionStrings.needsMachine(agent: request.agent)) }
             let key = CloudStartSessionRuns.Key(request, caller: nil, account: services.cloud.account)
             CloudHandlers.result("start cloud session", context) {
                 try await runs.answer(key, within: Self.answerWithin, pending: Self.pending(request, services), forgotten: Self.forgotten(request, services)) {
@@ -93,10 +69,10 @@ struct CloudStartSession {
     /// An agent's run: a card in its own chat, and only the person's Start starts anything.
     private static func agentAsk(_ request: Request, _ invocation: ActionInvocation, _ context: AppActionContext) throws {
         let services = context.services, start = CloudStartSession(services: services), runs = services.cloud.startSessionRuns
-        guard request.machineID != nil || request.name != nil else { throw ActionFailure(message: CloudStartSessionStrings.needsMachine(agent: request.agent)) }
+        guard request.machineID != nil || request.name != nil || request.agent == "claude" else { throw ActionFailure(message: CloudStartSessionStrings.needsMachine(agent: request.agent)) }
         let shown = request.machineID.flatMap { services.machines.session($0)?.machine.title }
         if let id = request.machineID, shown == nil { throw ActionFailure(message: CloudStartSessionStrings.noSuchMachine(id: id, agent: request.agent)) }
-        let named = shown ?? request.name ?? ""
+        let named = shown ?? request.name ?? "Cloud"
         let asked = request.asked(machine: named)
         // As the person's Start would: the person delegated agents' starts (only they set it).
         var asPerson = ActionInvocation(target: invocation.target, arguments: invocation.arguments, origin: .user)
@@ -113,7 +89,7 @@ struct CloudStartSession {
         guard let caller = invocation.callerAgentSession, let tab = Self.chat(caller, services: services) else {
             throw ActionFailure(message: CloudStartSessionStrings.notInChat(asked))
         }
-        let exists = shown != nil || services.machines.cloud.contains { $0.machine.title == named }
+        let exists = shown != nil || request.name == nil || services.machines.cloud.contains { $0.machine.title == named }
         let asks = services.cloud.startSessionAsks
         let text = exists ? CloudStartSessionStrings.ask(agent: request.agent, machine: named) : CloudStartSessionStrings.askNew(agent: request.agent, machine: named)
         // The person's Start is the gesture: the machine is created as theirs, at the agent's ask.
@@ -190,21 +166,9 @@ struct CloudStartSession {
         return nil
     }
 
-    /// The run's arguments, checked: `--agent` is a harness id, `--cwd` an absolute folder, `--from-folder` one on this Mac.
     static func request(_ invocation: ActionInvocation) throws -> Request {
-        let agent = invocation["agent"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
-        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789._-")
-        guard !agent.isEmpty, agent.utf8.count <= 64, agent.unicodeScalars.allSatisfy(allowed.contains), let first = agent.first, first.isLetter || first.isNumber else {
-            throw ActionFailure(message: CloudStartSessionStrings.agentInvalid)
-        }
-        var cwd = invocation["cwd"]?.stringValue?.trimmingCharacters(in: .whitespaces)
-        if cwd?.isEmpty == true { cwd = nil }
-        if let cwd, !cwd.hasPrefix("/") || cwd.utf8.count > 4096 || cwd.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }) {
-            throw ActionFailure(message: CloudStartSessionStrings.cwdInvalid)
-        }
-        let machineID = invocation.target.flatMap { $0.kind == .machine ? $0.id : nil }
-        let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespaces)
-        return Request(machineID: machineID, name: name?.isEmpty == false ? name : nil, agent: agent, cwd: cwd, fromFolder: try Self.fromFolder(invocation, cwd: cwd), model: invocation["model"]?.stringValue.map { $0.trimmingCharacters(in: .whitespaces) }.flatMap { $0.isEmpty ? nil : $0 }) // the machine checks the model
+        do { return try Request.parse(invocation) { try Self.fromFolder($0, cwd: $1) } }
+        catch let refusal as Request.Refusal { throw ActionFailure(message: refusal.message) }
     }
 
     /// Takes or creates the machine, connects, opens the chat's tab there and starts the session.
@@ -225,7 +189,14 @@ struct CloudStartSession {
     private func recorded(_ request: Request, _ invocation: ActionInvocation, _ context: AppActionContext, account: [String?], byPerson: Bool, capCard: Bool, askedBy: String?,
                           revealing: Bool) async throws -> [String: ActionResultValue] {
         let still = { [services] (machine: String) throws in try Self.checked(account, now: services.cloud.account, request.asked(machine: machine)) }
-        try still(request.name ?? request.machineID ?? ""); if let refused = await services.cloud.setup.refusal(harness: request.agent, model: request.model) { throw ActionFailure(message: CloudStartSessionStrings.setupRequired(agent: request.agent, family: refused.family, localLogin: refused.localLogin, link: "\(services.linkScheme)://settings/cloud/\(refused.settingsRow)", command: request.command)) } // Cloud first use, as the composer's start (CloudStartChat.reply): nothing on this Mac or the team serving the agent takes or creates no machine (its first turn could only fail)
+        let cloud = services.cloud, setup = cloud.setup
+        try still(request.name ?? request.machineID ?? "")
+        let resolved: Request
+        do { resolved = try await request.preflight(setup: setup, scheme: services.linkScheme) }
+        catch let refusal as Request.Refusal { throw ActionFailure(message: refusal.message) }
+        let request = resolved
+        try still(request.name ?? request.machineID ?? "")
+        if let target = request.machineID, let refusal = cloud.computerControl.heldRefusal(invocation, machine: target) { throw ActionFailure(message: refusal) }
         if let local = request.fromFolder, let refused = await services.cloud.move.refusedSource(local, home: NSHomeDirectory(), acpmuxHome: QuitAgents.environment(services)?.home.path, message: { Self.message($0, folder: local) }) { throw ActionFailure(message: refused) } // before any machine
         if let local = request.fromFolder, let cli = services.cloud.move.cli { do { _ = try await CloudMoveCLI(binary: cli).startChatSize(local: local) } catch let refusal as CloudMoveCLI.StartChatPreflightRefusal { throw ActionFailure(message: refusal.message) } } // past the copy's limits, or past the largest machine
         let steps = CloudStartSteps(logger: services.cloud.logger)
@@ -249,6 +220,12 @@ struct CloudStartSession {
         defer { services.cloud.startGate.leave(id) }
         try await connected(session, request, account: account, byPerson: byPerson)
         steps.done("connect"); try still(name)
+        let setup = services.cloud.setup
+        let ready = agent == "claude" ? await setup.readyClaudeMachines(machine: id).contains(id) : false
+        if let refused = await setup.refusal(harness: agent, model: request.model, readyClaude: ready) {
+            throw ActionFailure(message: request.setupRequired(refused, scheme: services.linkScheme, machine: id))
+        }
+        try still(name)
         // Remote approvals run beside the copy, as the composer's (awaited on every exit, cancelled on an error one); a machine this run made runs nobody's agent, so its status is not read. Their Cloud API execs need the machine running, which a new one is once connected.
         let copy: (chat: String, trusted: Bool)? = try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(session, made ? .daemonSaidSafe : .checkStatus) { account == services.cloud.account } }) {
             let folder = try await copiedIfAsked(request, to: session, account: account); steps.done("copy"); return folder // before the session starts in it
@@ -288,7 +265,7 @@ struct CloudStartSession {
         try still(name)
         let started: AgentTabRemoteStart.Started, tabKey = opened.key
         do {
-            let tabs = services.agentTabs; services.cloud.agentCredentials.use(connection: choice.connectionID, chat: tabKey, machine: id, harness: agent)
+            let tabs = services.agentTabs; services.cloud.agentCredentials.use(connection: choice.connectionID, chat: tabKey, machine: id, harness: agent, useMachineLogin: ready && choice.connectionID == nil)
             await Self.trust(copy, surface: opened.surface.rawValue, on: session) // before the start, as the composer's: it refuses an untrusted folder
             let listed = await CloudWait.holds(within: .seconds(60)) { [services] in services.locateTab(tabKey, onMachine: id) != nil }
             try Self.check(account, now: services.cloud.account, request.asked(machine: name))
@@ -415,21 +392,21 @@ struct CloudStartSession {
             if !cloud.hasLoadedCurrentMachines { await cloud.refresh() }
             try Self.checked(account, now: cloud.account, request.asked(machine: id))
             guard cloud.hasLoadedCurrentMachines else { throw ActionFailure(message: CloudStartSessionStrings.targetUnread(request.asked(machine: id))) }
-            guard let session = machines.session(id) else { throw ActionFailure(message: CloudStartSessionStrings.noSuchMachine(id: id, agent: request.agent)) }
+            guard cloud.listedMachineIDs.contains(id), let session = machines.session(id) else { throw ActionFailure(message: CloudStartSessionStrings.noSuchMachine(id: id, agent: request.agent)) }
             return (session, false)
         }
-        let name = request.name ?? ""
+        let name = request.name ?? "cloud-chats"
         // A list the server answered just now for this account: a machine by this name made
         // elsewhere is taken, never made again. A failed or superseded read refuses.
         let still = { try Self.check(account, now: cloud.account, request.asked(machine: name)) }
         if !cloud.hasCurrentList(within: Self.listFresh) { await cloud.refresh() }
         try Self.checked(account, now: cloud.account, request.asked(machine: name))
         guard cloud.hasCurrentList(within: Self.listFresh) else { throw ActionFailure(message: CloudStartSessionStrings.listUnread(request.asked(machine: name))) }
-        if let named = machines.cloud.first(where: { $0.machine.title == name }) { return (named, false) }
+        if let named = machines.cloud.first(where: { cloud.listedMachineIDs.contains($0.machineID) && $0.machine.title == name }) { return (named, false) }
         do {
             return try await cloud.startSessionRuns.creatingOwn(name, account: account) { [machines] in
                 // Another ask's creation may have ended first.
-                if let named = machines.cloud.first(where: { $0.machine.title == name }) { return (named, false) }
+                if let named = machines.cloud.first(where: { cloud.listedMachineIDs.contains($0.machineID) && $0.machine.title == name }) { return (named, false) }
                 try still()
                 // The answer of a create asked in another account never joins this one's list.
                 return (try await cloud.createMachine(name: name, startedByPerson: byPerson, ownCreate: capCard && invocation.isPersonsOwnRun && ActionRunScope.isPersonsAction(), capCard: capCard, askedBy: askedBy ?? invocation.callerAgentSession, proceed: still), true)

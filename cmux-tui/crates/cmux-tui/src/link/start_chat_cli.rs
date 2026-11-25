@@ -422,10 +422,19 @@ fn plan_with_calls(
     if request.reservation_key.as_deref().is_some_and(|key| !valid_key(key)) {
         return refused("bad_request", "the reservation key is not a UUID");
     }
+    if request.environment.is_some() {
+        request.reservation_key = None;
+    }
     let selected = request.machine.as_ref();
     if selected.is_some_and(|id| !request.loaded || !request.machines.iter().any(|vm| &vm.id == id))
     {
         return refused("not_found", "the selected machine is no longer listed");
+    }
+    let environment = request.environment.as_deref();
+    if selected.is_some_and(|id| {
+        !request.machines.iter().any(|vm| &vm.id == id && vm.matches_environment(environment))
+    }) {
+        return environment_mismatch();
     }
     let mut keys = Keys::of(&request.key);
     let send = Send::new(&request.key, &request.account);
@@ -446,11 +455,28 @@ fn plan_with_calls(
         Ok(None) => {}
         Err(error) => return refused("ledger_failed", format!("{error:#}")),
     }
+    for vm in &mut request.machines {
+        if vm.claude_ready {
+            vm.claude_ready = preflight::too_small(
+                request.size.as_deref(),
+                request.bytes,
+                &vm.preflight_machine(),
+            )
+            .is_none();
+        }
+    }
     let planned = Ledger::update(ledger, |pins| {
         let destination = if let Some(id) = selected {
             Destination::Machine(id.clone())
         } else {
-            pick::destination(&send, pins, &request.machines, &request.stored, request.loaded)
+            pick::destination(
+                &send,
+                pins,
+                &request.machines,
+                &request.stored,
+                request.loaded,
+                environment,
+            )
         };
         if let Destination::Machine(id) = &destination {
             pins.record(id, &send);
@@ -462,6 +488,9 @@ fn plan_with_calls(
         }
         destination
     });
+    if matches!(&planned, Ok(Destination::EnvironmentMismatch)) {
+        return environment_mismatch();
+    }
     let repo = request.local.as_deref().and_then(folder_repo);
     let project_key = if matches!(&planned, Ok(Destination::New)) {
         match request.local.as_deref().map(|local| project::folder_key(ledger, local)).transpose() {
@@ -481,6 +510,7 @@ fn plan_with_calls(
     let credential = (credential.trim(), install.as_str()); // the bind's team: the install token's
     let mut line = keys.json();
     let fields = match planned {
+        Ok(Destination::EnvironmentMismatch) => return environment_mismatch(),
         Ok(Destination::Machine(id)) => {
             let (pane, made) = match Ledger::update(ledger, |pins| pins.retry_facts(&send, &id)) {
                 Ok(facts) => facts,
@@ -545,6 +575,16 @@ fn plan_with_calls(
                     let line = ensure_answer(Ok(body));
                     let Some(id) = line.get("machine").and_then(Value::as_str) else { return line };
                     let made = line.get("created") == Some(&json!(true)); // pinned before the App opens anything there
+                    if let Some(selected) = environment
+                        && !ensured_in_environment(&line, selected)
+                        && !(can_use_environment_cache(&line, selected)
+                            && request
+                                .machines
+                                .iter()
+                                .any(|vm| vm.id == id && vm.matches_environment(environment)))
+                    {
+                        return environment_mismatch();
+                    }
                     if let Err(error) = Ledger::update(ledger, |pins| {
                         pins.record_made(id, &send, made);
                         if let Some(workspace) = workspace {
@@ -585,6 +625,7 @@ fn plan_with_calls(
                         "created": line.get("created"), "snapshot": line.get("snapshot"),
                         "environment": line.get("environment"),
                         "environment_id": line.get("environment_id"), "setup": line.get("setup"),
+                        "selected_environment": environment,
                     }})
                 }
                 // The platform made no machine: the App makes it, as before.
@@ -704,6 +745,25 @@ pub(super) fn made_no_machine(error: &crate::cli::PlatformCallError) -> bool {
         } => true,
         _ => false,
     }
+}
+
+fn ensured_in_environment(line: &Value, selected: &str) -> bool {
+    let Some(actual) = line["environment_id"].as_str() else { return false };
+    actual == selected
+        || (selected.starts_with("env_") && actual.starts_with("denv_") && line["created"] == true)
+}
+
+fn can_use_environment_cache(line: &Value, selected: &str) -> bool {
+    line["environment_id"]
+        .as_str()
+        .is_none_or(|actual| selected.starts_with("env_") && actual.starts_with("denv_"))
+}
+
+fn environment_mismatch() -> Value {
+    refused(
+        "environment_mismatch",
+        "The chosen machine cannot serve the selected Cloud environment.",
+    )
 }
 
 /// A cloud environment's id, as the cmux platform makes them: `env_` and 24 hex digits.
@@ -911,7 +971,16 @@ impl Ensure {
         if stdin.read_line(&mut credential).is_err() || credential.trim().is_empty() {
             return refused("unauthorized", "no cmux credential on stdin");
         }
-        ensure_answer(self.post(credential.trim()))
+        let mut line = ensure_answer(self.post(credential.trim()));
+        if let Some(environment) = &self.environment
+            && line["ok"] == true
+        {
+            if !ensured_in_environment(&line, environment) {
+                return environment_mismatch();
+            }
+            line["selected_environment"] = json!(environment);
+        }
+        line
     }
 
     /// `POST /v1/workspaces/{W}/machine` as `credential`. A platform this cannot reach (a bad `--platform`) is

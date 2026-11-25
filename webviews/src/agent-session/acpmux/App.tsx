@@ -66,6 +66,7 @@ import { reportToastAvoidance } from "./toastAvoidance";
 import { OpenAppCard, afterLatestFooter } from "./OpenAppCard";
 import { setCloudPreviewContext, useCloudPreviewPorts } from "./cloudPreviewPorts";
 import { useChatCloudEnvironment } from "./CloudEnvironmentChip";
+import { cloudStartEnvironment } from "./cloudEnvironmentChoice";
 import { NativeError } from "./nativeError";
 import { errorMessage, isStartCancelled, knownRefusalText, startErrorMessage } from "./transportErrors";
 import { pageHostClient } from "./pageHost";
@@ -4472,9 +4473,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const cloudSignInWait = useRef<CloudSignInWait | undefined>(undefined);
   /// Set up Cloud's button (cloudSetup.ts): the next sign-in resend waits on that way in instead of the
   /// account sign-in, then the start goes again on the click the host kept.
-  const cloudSetUpPick = useRef<{ action: CloudSetupAction; need: CloudSetupNeed; machine?: string } | undefined>(
-    undefined,
-  );
+  const cloudSetUpPick = useRef<{ action: CloudSetupAction; need: CloudSetupNeed } | undefined>(undefined);
   const cancelCloudSignIn = () => {
     const wait = cloudSignInWait.current;
     cloudSignInWait.current = undefined;
@@ -4596,8 +4595,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (!need) return;
     // The resend takes the pick at once (`beginCloudSend`); a retry that sent nothing (one already out
     // or resumed, an edited prompt, a reset) leaves none, so a later Sign in signs in.
-    const machine = cloudDraftMachineID.current ?? undefined;
-    void retryWithSetUpPick(cloudSetUpPick, { action, need, machine }, cloudSignInRetry);
+    void retryWithSetUpPick(cloudSetUpPick, { action, need }, cloudSignInRetry);
   };
   /// The model picker's Connect row (claudeConnect.ts `setupConnect`) while this chat's Cloud start
   /// waits for a connection: shown only for the family the host's Set up Cloud need names, so a local
@@ -4609,7 +4607,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const cloudSetupNeed = heldCloudSetup(cloudStart);
   const cloudSetupWaiting = cloudStart?.signingIn === true;
   const cloudPickerMachine = useCallback(() => cloudDraftMachineID.current ?? undefined, []);
-  const cloudServed = useCloudServed(callNative, cloudPicked, { readMachine: cloudPickerMachine });
+  const pickerEnvironment = cloudStartEnvironment(undefined, cloudEnvironment.pick.current);
+  const cloudServed = useCloudServed(callNative, cloudPicked, {
+    readMachine: cloudPickerMachine,
+    environment: pickerEnvironment,
+  });
   const { openSettings: connectCloudPicker, refresh: refreshCloudPicker } = cloudServed;
   const openCloudPickerSettings = useCallback(
     (family: string) => {
@@ -4628,6 +4630,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             sessionIdRef.current,
             lastCloudAttempt.current,
             cloudDraftMachineID.current,
+            pickerEnvironment,
             summary?.configOptions?.map((option) => option.currentValue).join("\u0000"),
             JSON.stringify(intent?.config.options ?? {}),
             intent?.id,
@@ -4641,7 +4644,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       });
       connectCloudPicker(family, select);
     },
-    [connectCloudPicker, cloudSetupNeed, cloudSetupWaiting, cloudStartShown, harnessSwitch],
+    [connectCloudPicker, cloudSetupNeed, cloudSetupWaiting, cloudStartShown, harnessSwitch, pickerEnvironment],
   );
   const cloudPickerSetup = useMemo(
     () => ({ ...cloudServed, openSettings: openCloudPickerSettings }),
@@ -4750,6 +4753,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cloudPlanHeldTurn,
     sendHeldForPlan,
     cloudEnvironment,
+    cloudDraftMachineID,
     cloudSwitchTeam,
     emptyLocalChat,
     snapshot,

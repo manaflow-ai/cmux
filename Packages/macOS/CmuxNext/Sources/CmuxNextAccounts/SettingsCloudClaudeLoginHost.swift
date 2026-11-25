@@ -12,13 +12,13 @@ package struct SettingsCloudClaudeLoginHost {
     let machineIDs: @MainActor () -> Set<String>
     let machine: @MainActor (String) -> Machine?
     let refreshMachines: @MainActor () async -> Bool
-    let createMachine: @MainActor (Machine.Check) async throws -> Machine?
+    let createMachine: @MainActor (String?, String?, Machine.Check) async throws -> Machine?
 
     package init(account: @escaping @MainActor () -> [String?]?, caller: @escaping @MainActor () -> String?,
                  personal: @escaping @MainActor () -> Bool, hasLoadedMachines: @escaping @MainActor () -> Bool,
                  machineIDs: @escaping @MainActor () -> Set<String>, machine: @escaping @MainActor (String) -> SettingsCloudClaudeMachineLink?,
                  refreshMachines: @escaping @MainActor () async -> Bool,
-                 createMachine: @escaping @MainActor (SettingsCloudClaudeMachineLink.Check) async throws -> SettingsCloudClaudeMachineLink?) {
+                 createMachine: @escaping @MainActor (String?, String?, SettingsCloudClaudeMachineLink.Check) async throws -> SettingsCloudClaudeMachineLink?) {
         self.account = account
         self.caller = caller
         self.personal = personal

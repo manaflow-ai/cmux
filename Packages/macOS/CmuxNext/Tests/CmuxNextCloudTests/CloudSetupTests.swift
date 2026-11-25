@@ -28,12 +28,33 @@ struct CloudSetupTests {
         })
     }
 
-    @Test func allowsNativeClaudeSignInBeforeTheFirstCloudChat() async {
+    @Test func onlyLiveOwnerLoginsInTheSelectedEnvironmentAreReady() async {
         let setup = CloudSetup(read: { .init(personal: [], organization: []) })
-        setup.canSignInToClaudeOnMachine = { $0 == nil || $0 == "owner" }
-        #expect(await setup.served().families["claude"] == nil)
-        #expect(await setup.served(machine: "owner").families["claude"] == nil)
-        #expect(await setup.served(machine: "team").families["claude"] == false)
+        var wrong = CloudMachine(id: "wrong")
+        wrong.environmentId = "env_a"
+        var right = CloudMachine(id: "right", displayName: "chosen")
+        right.environmentId = "env_b"
+        var signedOut = CloudMachine(id: "signed-out")
+        signedOut.environmentId = "env_b"
+        var oldGuest = CloudMachine(id: "old-guest")
+        oldGuest.environmentId = "env_b"
+        var paused = CloudMachine(id: "paused", status: .paused)
+        paused.environmentId = "env_b"
+        let machines = [wrong, right, signedOut, oldGuest, paused]
+        setup.claudeMachines = { machines }
+        setup.readClaudeMachineLogin = { ["wrong", "right", "paused"].contains($0) }
+        #expect(await setup.readyClaudeMachines(environment: "env_b") == ["right"])
+        #expect(await setup.readyClaudeMachines(machine: "wrong", environment: "env_b").isEmpty)
+        #expect(await setup.readyClaudeMachines(name: "chosen") == ["right"])
+        #expect(await setup.served(machine: "right", environment: "env_b").families["claude"] == true)
+        #expect(await setup.served(machine: "wrong", environment: "env_b").environmentMatches == false)
+        #expect(await setup.served(machine: "right", environment: "env_b").environmentMatches == true)
+        #expect(await setup.served(machine: "old-guest").families["claude"] == false)
+        #expect(await setup.refusal(harness: "claude", model: nil, readyClaude: true) == nil)
+        #expect(await setup.refusal(harness: "claude", model: nil, readyClaude: false)?.family == "claude")
+        setup.openConnectionSettings = { _, _, _, _, _ in Issue.record("an existing login must skip Settings") }
+        #expect(await setup.setUp(.setUpClaude, family: "claude", environment: "env_b")
+                == .init(machine: "right", usesMachineLogin: true, environment: "env_b", bindsEnvironment: true))
     }
 
     @Test func aSavedClaudeTokenFromTheCLIServesACloudStart() async throws {
@@ -52,13 +73,13 @@ struct CloudSetupTests {
             #expect(machine == "vm_b")
             rule?.claudeSignInCompleted(machine: "vm_a")
         }
-        #expect(await rule.setUp(.setUpClaude, family: "claude", machine: "vm_b") == CloudSetup.SetupCompletion(machine: "vm_b"))
+        #expect(await rule.setUp(.setUpClaude, family: "claude", machine: "vm_b") == CloudSetup.SetupCompletion(machine: "vm_b", bindsEnvironment: true))
         #expect(connections.reads == 1)
 
         rule.run = { [weak rule] _, _, machine in
             if let machine { rule?.claudeSignInCompleted(machine: machine) }
         }
-        #expect(await rule.setUp(.setUpClaude, family: "claude", machine: "vm_b") == CloudSetup.SetupCompletion(machine: "vm_b", usesMachineLogin: true))
+        #expect(await rule.setUp(.setUpClaude, family: "claude", machine: "vm_b") == CloudSetup.SetupCompletion(machine: "vm_b", usesMachineLogin: true, bindsEnvironment: true))
         #expect(connections.reads == 1)
         rule.run = nil
     }
@@ -283,7 +304,7 @@ struct CloudSetupTests {
         let connections = Connections(.init(personal: [], organization: []))
         let setup = setup(connections)
         var opened: [String] = []
-        setup.openConnectionSettings = { family, machine, _ in opened.append(machine.map { "\(family):\($0)" } ?? family) }
+        setup.openConnectionSettings = { family, machine, _, _, _ in opened.append(machine.map { "\(family):\($0)" } ?? family) }
         setup.connect(family: "codex")
         setup.connect(family: "gemini")
         setup.connect(family: "claude", machine: "vm_b")
@@ -353,7 +374,7 @@ struct CloudSetupTests {
         #expect(connections.opened == ["codex"])
         connections.snapshot.personal = [.init(id: "chatgpt-plan:1", families: ["codex"])]
         rule.connectionsChanged()
-        #expect(await ready.value == CloudSetup.SetupCompletion())
+        #expect(await ready.value == CloudSetup.SetupCompletion(bindsEnvironment: true))
     }
 
     /// The page withdrew (it left Cloud, or Not now): the wait ends with no connection.

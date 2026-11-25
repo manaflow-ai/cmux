@@ -79,7 +79,6 @@ struct AgentPaneCloudSetUpTests {
         var retried: AgentPaneCloudStart?
         model.onCloudStartChat = { retried = $0; return AgentPaneReply.success() }
         let setup = CloudSetup(read: { .init(personal: [], organization: []) })
-        setup.canSignInToClaudeOnMachine = { $0 == "vm_b" }
         setup.run = { [weak setup] _, _, machine in
             #expect(machine == nil)
             setup?.claudeSignInCompleted(machine: "vm_b")
@@ -88,7 +87,7 @@ struct AgentPaneCloudSetUpTests {
         let key = UUID().uuidString
         let original = AgentPaneCloudStart(task: "held prompt", cwd: nil, key: key)
         let choice = CloudSetup.Choice.setup(family: "claude", model: nil)
-        let refusal = try #require(await original.connectionSetupReply(for: choice, setup: setup))
+        let refusal = try #require(original.connectionSetupReply(for: choice, readyClaude: false))
         #expect(Self.code(refusal) == "cloud_setup_required")
         model.transport.gestures.record()
         let ready = await model.respond(to: AgentPaneRequest(body: ["method": "cloud.setUp", "params": ["key": key, "action": "setUpClaude", "family": "claude"]]))
@@ -97,7 +96,7 @@ struct AgentPaneCloudSetUpTests {
         #expect(await model.respond(to: again)["ok"] as? Bool == true)
         let start = try #require(retried)
         #expect(start.machine == "vm_b" && start.usesMachineLogin)
-        #expect(await start.connectionSetupReply(for: choice, setup: setup) == nil)
+        #expect(start.connectionSetupReply(for: choice, readyClaude: true) == nil)
         let opened = AgentPaneCloudStarted(start: start, chat: nil, workspace: nil, account: [], machineID: "vm_b")
         #expect(opened.start.machine == nil && !opened.start.usesMachineLogin, "the later Repick must use its own machine")
         #expect(opened.start.key == key)
@@ -106,7 +105,7 @@ struct AgentPaneCloudSetUpTests {
     @Test func aSetUpThatEndsWithNoConnectionKeepsNoClick() async {
         let model = AgentPaneModel(host: NoHost(), sessionId: nil)
         model.onCloudStartChat = { _ in AgentPaneReply.success() }
-        model.onCloudSetUp = { _, _, _ in nil }
+        model.onCloudSetUp = { _, _, _, _ in nil }
         let key = UUID().uuidString
         model.transport.gestures.record()
         let reply = await model.respond(to: AgentPaneRequest(body: ["method": "cloud.setUp", "params": ["key": key, "action": "openSettings", "family": "claude"]]))
@@ -122,7 +121,7 @@ struct AgentPaneCloudSetUpTests {
         if case .cloudSetupState = request {} else { Issue.record("the read is taken") }
         #expect(Self.code(await model.respond(to: request)) == "unsupported")
         model.onCloudStartChat = { _ in AgentPaneReply.success() }
-        model.onCloudServed = { _ in .init(families: ["claude": false, "codex": true], reasons: ["claude": .off]) }
+        model.onCloudServed = { _, _ in .init(families: ["claude": false, "codex": true], reasons: ["claude": .off]) }
         let reply = await model.respond(to: request)
         #expect(reply["ok"] as? Bool == true)
         let families = try #require((reply["value"] as? [String: Any])?["families"] as? [String: Bool])
@@ -144,7 +143,7 @@ struct AgentPaneCloudSetUpTests {
         let model = AgentPaneModel(host: NoHost(), sessionId: "local-empty")
         model.onCloudStartChat = { _ in AgentPaneReply.success() }
         var opened: [String] = []
-        model.onCloudConnect = { family, _ in opened.append(family) }
+        model.onCloudConnect = { family, _, _, _ in opened.append(family) }
         let connect = AgentPaneRequest(body: ["method": "cloud.connect", "params": ["family": "codex"]])
         #expect(Self.code(await model.respond(to: connect)) == "transport.gesture_required")
         #expect(opened.isEmpty)
@@ -164,7 +163,7 @@ struct AgentPaneCloudSetUpTests {
         model.onCloudStartChat = { _ in AgentPaneReply.success() }
         let setup = CloudSetup()
         var opened: [String] = []
-        setup.openConnectionSettings = { family, _, _ in opened.append(family) }
+        setup.openConnectionSettings = { family, _, _, _, _ in opened.append(family) }
         model.useCloudSetup(setup)
         let request = { (family: String) in AgentPaneRequest(body: ["method": "cloud.connect", "params": ["family": family]]) }
         #expect(Self.code(await model.respond(to: request("google"))) == "transport.gesture_required")
@@ -182,7 +181,7 @@ struct AgentPaneCloudSetUpTests {
         let setup = CloudSetup(read: { .init(personal: [.init(id: "claude-token", families: ["claude"])], organization: []) })
         setup.ownsMachine = { ["vm_a", "vm_b"].contains($0) }
         var opened: [(String, String?, Bool)] = []
-        setup.openConnectionSettings = { opened.append(($0, $1, $2)) }
+        setup.openConnectionSettings = { family, machine, held, _, _ in opened.append((family, machine, held)) }
         model.useCloudSetup(setup)
         let connect = { (machine: String) in AgentPaneRequest(body: ["method": "cloud.connect", "params": ["family": "claude", "machine": machine]]) }
         let key = UUID().uuidString
@@ -207,7 +206,9 @@ struct AgentPaneCloudSetUpTests {
         model.tabKey = { "cloud-tab" }
         var opened: [String] = []
         var authorized = false
-        model.onCloudConnect = { family, machine in opened.append("\(family):\(machine ?? "")") }
+        model.onCloudConnect = { family, machine, _, recovery in
+            #expect(recovery)
+            opened.append("\(family):\(machine ?? "")") }
         model.mayRecoverCloudConnection = { $0 == "cloud-tab" && authorized ? "vm_b" : nil }
         let connect = AgentPaneRequest(body: ["method": "cloud.connect", "params": ["family": "claude", "machine": "vm_b"]])
         #expect(Self.code(await model.respond(to: connect)) == "transport.gesture_required")
@@ -224,13 +225,59 @@ struct AgentPaneCloudSetUpTests {
         #expect(opened == ["claude:vm_b"])
     }
 
+    @Test func aSetupGrantKeepsTheEnvironmentAndTheSelectedMachine() async {
+        let model = AgentPaneModel(host: NoHost(), sessionId: nil)
+        let key = UUID().uuidString
+        let environment = "env_0123456789abcdef01234567"
+        model.onCloudStartChat = { start in
+            #expect(start.machine == "vm_b")
+            #expect(start.environment == environment)
+            return AgentPaneReply.success()
+        }
+        model.ownsCloudConnectionMachine = { $0 == "vm_b" }
+        model.onCloudSetUp = { _, _, machine, scope in
+            #expect(machine == "vm_b" && scope == environment)
+            return .init(machine: machine, usesMachineLogin: true, environment: scope, bindsEnvironment: true)
+        }
+        model.transport.gestures.record()
+        let setup = AgentPaneRequest(body: ["method": "cloud.setUp", "params": [
+            "key": key, "action": "setUpClaude", "family": "claude", "machine": "vm_b", "environment": environment
+        ]])
+        #expect(await model.respond(to: setup)["ok"] as? Bool == true)
+        let changed = AgentPaneRequest(body: ["method": "cloud.startChat", "params": [
+            "key": key, "task": "original prompt", "home": true, "signedIn": true
+        ]])
+        #expect(Self.code(await model.respond(to: changed)) == "cloud_sign_in_cancelled")
+        model.transport.gestures.record()
+        #expect(await model.respond(to: setup)["ok"] as? Bool == true)
+        let retry = AgentPaneRequest(body: ["method": "cloud.startChat", "params": [
+            "key": key, "task": "original prompt", "home": true, "signedIn": true, "environment": environment
+        ]])
+        #expect(await model.respond(to: retry)["ok"] as? Bool == true)
+    }
+
+    @Test func accountSignInLeavesTheSendInItsExplicitEnvironment() async {
+        let model = AgentPaneModel(host: NoHost(), sessionId: nil)
+        let key = UUID().uuidString
+        let environment = "env_0123456789abcdef01234567"
+        model.onCloudStartChat = { start in
+            #expect(start.environment == environment)
+            return AgentPaneReply.success()
+        }
+        model.keepCloudSignInGrant(key, generation: model.cloudSignInGeneration)
+        let request = AgentPaneRequest(body: ["method": "cloud.startChat", "params": [
+            "key": key, "task": "original prompt", "home": true, "signedIn": true, "environment": environment
+        ]])
+        #expect(await model.respond(to: request)["ok"] as? Bool == true)
+    }
+
     @Test func setupRequiresAnActionAndAValidFamily() {
         let request = { (params: [String: Any]) in AgentPaneRequest(body: ["method": "cloud.setUp", "params": params]) }
         let key = UUID().uuidString
-        if case .cloudSetUp(key, "setUpClaude", "claude", nil) = request(["key": key, "action": "setUpClaude", "family": "claude"]) {} else { Issue.record("the card's set up is taken") }
+        if case .cloudSetUp(key, "setUpClaude", "claude", nil, nil) = request(["key": key, "action": "setUpClaude", "family": "claude"]) {} else { Issue.record("the card's set up is taken") }
         if case .unsupported = request(["action": "addKey", "family": "claude"]) {} else { Issue.record("a set up with no start key is refused") }
         if case .unsupported = request(["key": key, "action": "rm -rf", "family": "claude"]) {} else { Issue.record("an unknown action is refused") }
-        if case .cloudSetUp(key, "openSettings", "providers/custom", nil) = request(["key": key, "action": "openSettings", "family": "providers/custom"]) {} else { Issue.record("a named harness profile can open settings") }
+        if case .cloudSetUp(key, "openSettings", "providers/custom", nil, nil) = request(["key": key, "action": "openSettings", "family": "providers/custom"]) {} else { Issue.record("a named harness profile can open settings") }
         if case .unsupported = request(["key": key, "action": "addKey", "family": "providers//custom"]) {} else { Issue.record("a malformed family is refused") }
         if case .unsupported = request(["key": "nope", "action": "addKey", "family": "codex"]) {} else { Issue.record("a key that is not a start key is refused") }
     }

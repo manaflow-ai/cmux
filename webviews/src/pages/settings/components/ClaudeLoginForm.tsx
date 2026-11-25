@@ -35,6 +35,7 @@ export function ClaudeLoginForm({
   onClose,
   onCancel,
   replace,
+  recover,
   error,
 }: {
   models: ModelsState;
@@ -44,6 +45,7 @@ export function ClaudeLoginForm({
   onClose(): void;
   onCancel(): void;
   replace?: string;
+  recover?: boolean;
   error: string | null;
 }) {
   const login = cloud ? models.cloudClaudeLogin : models.claudeLogin;
@@ -67,7 +69,7 @@ export function ClaudeLoginForm({
   }, [active, completion, phase]);
 
   const fallback = phase === "code";
-  const disabled = phase === "disabled" || (phase === "connected" && !replace);
+  const disabled = phase === "disabled" || (phase === "connected" && !replace && !recover);
   const preparing = phase === "preparing";
   const waiting = preparing || phase === "approving" || phase === "cancelling";
   const valid = /^[!-~]{1,4096}$/.test(code.trim());

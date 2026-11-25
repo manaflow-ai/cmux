@@ -21,6 +21,10 @@ pub(crate) struct Candidate {
     /// The machine's disk in MB as the App's list knows it (`disk_mb`); None for a list that names none.
     #[serde(default)]
     pub(crate) disk_mb: Option<i64>,
+    #[serde(default)]
+    pub(crate) environment: Option<String>,
+    #[serde(default)]
+    pub(crate) claude_ready: bool,
 }
 
 /// The name a machine made for chats gets.
@@ -44,6 +48,7 @@ pub(crate) fn new_machine_name<'a>(taken: impl IntoIterator<Item = &'a str>) -> 
 pub(crate) enum Destination {
     Machine(String),
     New,
+    EnvironmentMismatch,
 }
 
 /// Where `send` goes: the machine its first try took while that machine
@@ -59,17 +64,46 @@ pub(crate) fn destination(
     candidates: &[Candidate],
     stored: &[String],
     loaded: bool,
+    environment: Option<&str>,
 ) -> Destination {
     if let Some(pinned) = pins.machine(send) {
         if !loaded
             || candidates.iter().any(|machine| machine.id == pinned)
             || stored.contains(&pinned)
         {
+            if environment.is_some()
+                && !candidates
+                    .iter()
+                    .any(|vm| vm.id == pinned && vm.matches_environment(environment))
+            {
+                return Destination::EnvironmentMismatch;
+            }
             return Destination::Machine(pinned);
         }
         pins.forget(send);
     }
-    Destination::New
+    candidates
+        .iter()
+        .filter(|vm| vm.claude_ready && vm.matches_environment(environment))
+        .min_by(|left, right| left.id.cmp(&right.id))
+        .map_or(Destination::New, |vm| Destination::Machine(vm.id.clone()))
+}
+
+impl Candidate {
+    pub(super) fn preflight_machine(&self) -> super::preflight::Machine<'_> {
+        super::preflight::Machine {
+            id: &self.id,
+            title: &self.title,
+            disk_bytes: self
+                .disk_mb
+                .and_then(|mb| u64::try_from(mb).ok())
+                .map(|mb| mb.saturating_mul(1024 * 1024)),
+        }
+    }
+
+    pub(crate) fn matches_environment(&self, selected: Option<&str>) -> bool {
+        selected.is_none_or(|id| self.environment.as_deref() == Some(id))
+    }
 }
 
 /// Makes `machine` the workspace `workspace`'s own in `account` when the

@@ -255,6 +255,9 @@ impl Hub {
         defaults_env: &std::collections::BTreeMap<String, String>,
         credential: Option<&crate::agent_credentials::AgentCredential>,
     ) -> Result<(HarnessProfile, Option<String>, Option<std::path::PathBuf>), RpcError> {
+        if meta.claude_token_recovery == Some(crate::store::ClaudeTokenRecovery::Rejected) {
+            return Err(super::credentials::rejected_claude_token());
+        }
         if meta.credential_connection.is_some() && credential.is_none() {
             return Err(RpcError::invalid_params(
                 "This chat needs its model connection from your Mac.",

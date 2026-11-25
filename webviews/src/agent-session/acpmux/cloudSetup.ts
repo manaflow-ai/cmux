@@ -88,6 +88,7 @@ export function waitForCloudSetUp(
     return () => clearTimeout(deadline);
   },
   machine?: string,
+  environment?: string,
 ): CloudSignInWait {
   let finish!: (end: "signedIn" | CloudStartAnswer) => void;
   const ended = new Promise<"signedIn" | CloudStartAnswer>((resolve) => {
@@ -106,7 +107,13 @@ export function waitForCloudSetUp(
     finish(value);
   };
   const cancelDeadline = schedule(() => end({ ...notReady, details: { ...details, timedOut: true } }, true));
-  call("cloud.setUp", { key, action, family: need.family, ...(machine ? { machine } : {}) }).then(
+  call("cloud.setUp", {
+    key,
+    action,
+    family: need.family,
+    ...(machine ? { machine } : {}),
+    ...(environment ? { environment } : {}),
+  }).then(
     () => end("signedIn"),
     (error: unknown) => {
       const code = (error as { code?: unknown } | null)?.code;

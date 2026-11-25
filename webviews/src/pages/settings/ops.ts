@@ -759,6 +759,7 @@ export type ModelConnection = {
 };
 
 export type ClaudeLogin = {
+  environment?: string | null;
   phase: "idle" | "preparing" | "approving" | "code" | "cancelling" | "connected" | "disabled" | "failed";
   error: string | null;
   apiKey?: boolean;
@@ -826,10 +827,17 @@ export type ModelsRun =
     }
   | { action: "openChatGPTDevice" }
   | { action: "closeKeyPage"; url: string }
-  | { action: "checkClaudeLogin"; cloud: boolean; machine?: string }
+  | { action: "checkClaudeLogin"; cloud: boolean; machine?: string; environment?: string; machineName?: string }
   | { action: "cancelClaudeLogin"; cloud: boolean }
   | { action: "signOutClaude"; cloud: boolean; machine?: string }
-  | { action: "connectClaude"; cloud?: boolean; replace?: string; machine?: string }
+  | {
+      action: "connectClaude";
+      cloud?: boolean;
+      replace?: string;
+      machine?: string;
+      environment?: string;
+      machineName?: string;
+    }
   | { action: "finishClaudeLogin"; cloud: boolean; code: string }
   | { action: "cancelChatGPTDevice" }
   | { action: "setCloud"; id: string; on: boolean }

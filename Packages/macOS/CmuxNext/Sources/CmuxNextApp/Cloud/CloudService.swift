@@ -575,7 +575,7 @@ final class CloudService {
     func reconcile(_ list: [CloudMachine], read: Int, connectsAtRead: [String: Int] = [:]) {
         // A list that arrives after Cloud was turned off connects nothing.
         guard !policyDisabled else { return }
-        let visible = list.filter { $0.status != .destroyed }
+        let visible = list.filter { $0.status != .destroyed }.map { setup.machineEnvironment($0, account: account, defaults: move.ledger) }
         for machine in visible {
             if let session = machines.session(machine.id) {
                 apply(machine, to: session, read: read, connectsAtRead: connectsAtRead[machine.id])
@@ -740,7 +740,7 @@ final class CloudService {
             return try await appServerCreate(name: name, startedByPerson: startedByPerson, ownCreate: ownCreate && startedByPerson, asksFirst: asksFirst, askedBy: askedBy, environment: request.environment, creation: creation, request: request, onSent: onSent, persistSent: onAppServerSent)
         }
         let answeredAt = ContinuousClock.now; logger.info("created machine \(machine.id, privacy: .public)")
-        try proceed()
+        try proceed(); machine = setup.machineEnvironment(machine, account: account, defaults: move.ledger)
         // The machine exists either way: a failed write leaves its idle pause as the server says,
         // and the answer's `persistent` reads false, so the caller can run `cloud set-idle-pause`.
         if let idlePause, machine.idlePauseMinutes != idlePause {
@@ -757,7 +757,7 @@ final class CloudService {
             // The write waited: the account is checked again before the machine joins the list.
             try proceed()
         }
-        if let existing = machines.session(machine.id) { existing.sizePick = machine.sizePick ?? existing.sizePick; return existing }
+        if let existing = machines.session(machine.id) { existing.sizePick = machine.sizePick ?? existing.sizePick; existing.machine.environmentId = machine.environmentId ?? existing.machine.environmentId; return existing }
         guard let session = addSession(machine) else { throw ActionFailure(message: CloudStrings.noClient) }
         listedMachineIDs.insert(machine.id); session.answeredAt = answeredAt // the record the create's (or spare claim's) answer just gave
         // A list in flight was asked before this machine existed.

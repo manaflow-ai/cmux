@@ -749,6 +749,7 @@ impl Hub {
             spawn_argv: None,
             credential_connection: None,
             credential_model: None,
+            claude_token_recovery: None,
             launch_digest: None,
             family: parent_meta.family.clone(),
             preset: parent_meta.preset.clone(),

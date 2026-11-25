@@ -170,9 +170,9 @@ struct CloudStartSessionTests {
 
     @Test func aScriptRunWithoutAMachineSaysHowToNameOne() throws {
         let services = Self.fixture().services
-        let refusal = try Self.refusal(services, Self.invocation(["agent": .string("claude")]))
-        #expect(refusal == CloudStartSessionStrings.needsMachine(agent: "claude"))
-        #expect(refusal?.contains("cmux cloud start-session --target machine:<id> --agent claude") == true)
+        let refusal = try Self.refusal(services, Self.invocation(["agent": .string("codex")]))
+        #expect(refusal == CloudStartSessionStrings.needsMachine(agent: "codex"))
+        #expect(refusal?.contains("cmux cloud start-session --target machine:<id> --agent codex") == true)
     }
 
     @Test func anAgentOutsideAChatIsRefusedBeforeAnyCard() async throws {
@@ -195,6 +195,31 @@ struct CloudStartSessionTests {
         ActionRunScope.$current.withValue(ActionRunScope(origin: .mcp, allowsViewChange: false)) {
             #expect(CloudStartSession.isAgent(inner))
         }
+    }
+
+    @Test func claudePreflightUsesTheSameReadyMachineForExplicitAndAutomaticStarts() async throws {
+        let setup = CloudSetup(read: { .init(personal: [], organization: []) })
+        setup.claudeMachines = { [CloudMachine(id: "vm_a"), CloudMachine(id: "vm_b", displayName: "B")] }
+        setup.readClaudeMachineLogin = { $0 == "vm_b" }
+        let first = CloudStartSession.Request(agent: "claude")
+        let automatic = try await first.preflight(setup: setup, scheme: "cmux")
+        #expect(automatic.machineID == "vm_b")
+        var targeted = first
+        targeted.machineID = "vm_b"
+        #expect(try await targeted.preflight(setup: setup, scheme: "cmux") == targeted)
+        targeted.machineID = "vm_a"
+        #expect(try await targeted.preflight(setup: setup, scheme: "cmux") == targeted)
+        var named = first
+        named.name = "B"
+        #expect(try await named.preflight(setup: setup, scheme: "cmux").machineID == "vm_b")
+        var refused = try #require(await setup.refusal(harness: "claude", model: nil))
+        refused.localLogin = true
+        #expect(targeted.setupRequired(refused, scheme: "cmux", machine: "vm_a").contains("cmux://settings/cloud/claude?machine=vm_a"))
+        named.name = "new Claude"
+        let namedSetup = named.setupRequired(refused, scheme: "cmux", machine: nil)
+        #expect(namedSetup.contains("machineName=new%20Claude"))
+        #expect(namedSetup.contains("--name 'new Claude'"))
+        #expect(!namedSetup.contains("Cloud needs a Claude setup token"))
     }
 
     @Test func theCommandToRunAgainKeepsEveryArgument() {

@@ -231,6 +231,45 @@ test("Connect on the held-send card opens the Cloud models form and waits for th
   }
 });
 
+test("ordinary Connect confirms an already signed-in target without showing its form", async () => {
+  const rendered = await render(
+    { ...mockModels.empty, cloudClaudeLogin: { phase: "connected", error: null, machine: "vm_b" } },
+    "/settings/models?provider=claude&machine=vm_b&fromSend=1&open=held",
+  );
+  expect(panel()).toBeNull();
+  expect(card(rendered).querySelector("[data-cloud-connected]")?.textContent).toBe("Connected. Your chat is starting.");
+});
+
+test("the CLI can open Claude setup for its exact new machine name", async () => {
+  const rendered = await render(
+    { ...mockModels.empty, cloudClaudeLogin: { phase: "connected", error: null, machine: "vm_a", machineName: "A" } },
+    "/settings/models?provider=claude&machineName=New%20Claude&open=cli",
+  );
+  const submit = panel()?.querySelector<HTMLButtonElement>('button[type="submit"]');
+  expect(submit?.disabled).toBe(false);
+  await click(submit!);
+  expect(rendered.provider.modelRuns).toContainEqual({
+    action: "connectClaude",
+    cloud: true,
+    machineName: "New Claude",
+  });
+});
+
+test("a rejected Claude token can recover on an already signed-in target", async () => {
+  const rendered = await render(
+    { ...mockModels.empty, cloudClaudeLogin: { phase: "connected", error: null, machine: "vm_b" } },
+    "/settings/models?provider=claude&machine=vm_b&recovery=1&open=recovery",
+  );
+  const submit = panel()?.querySelector<HTMLButtonElement>('button[type="submit"]');
+  expect(submit?.disabled).toBe(false);
+  await click(submit!);
+  expect(rendered.provider.modelRuns).toContainEqual({
+    action: "connectClaude",
+    cloud: true,
+    machine: "vm_b",
+  });
+});
+
 test("Cloud models can enable and disable a key added in Models without removing the local row", async () => {
   const rendered = await render(mockModels.empty, "/settings/models?focus=models.add.openai");
   await changeValue(panel()!.querySelector('input[type="password"]')!, "fixture-api-key");

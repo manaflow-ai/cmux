@@ -51,13 +51,13 @@ public final class SettingsModels {
     var claudeLogins: [ClaudeLoginTarget: ClaudeLoginState] = [:]
     @ObservationIgnored var claudeLoginTasks: [ClaudeLoginTarget: Task<Void, Never>] = [:]
     @ObservationIgnored var claudeLoginTimers: [ClaudeLoginTarget: DemandTimer] = [:]
-    @ObservationIgnored var onCloudClaudeSignIn: (@MainActor (String) -> Void)?
+    @ObservationIgnored var onCloudClaudeSignIn: (@MainActor (String, Bool) async -> Void)?
     @ObservationIgnored var presentClaudeCallback: CloudClaudeMachine.CallbackOpener?
     @ObservationIgnored var claudeLoginAttempts: [ClaudeLoginTarget: ClaudeLoginAttempt] = [:]
     /// The current owner machine, keeping the machine this dialog used while it is still ready.
-    @ObservationIgnored public var cloudClaudeLogin: (@MainActor (_ preferredMachine: String?) -> CloudClaudeLogin)?
+    @ObservationIgnored public var cloudClaudeLogin: (@MainActor (String?, String?, String?) -> CloudClaudeLogin)?
     /// Prepares an owned machine for Connect. Nil means the Cloud create card handled the request.
-    @ObservationIgnored public var prepareCloudClaudeLogin: (@MainActor (String?) async throws -> CloudClaudeMachine?)?
+    @ObservationIgnored public var prepareCloudClaudeLogin: (@MainActor (String?, String?, String?) async throws -> CloudClaudeMachine?)?
     @ObservationIgnored var cloudClaudeAccount: (@MainActor @Sendable () -> [String?]?)?
     @ObservationIgnored var cloudClaudeAccountWatch: Task<Void, Never>?
     @ObservationIgnored var cloudClaudeStateAccount: [String?]?
@@ -338,7 +338,8 @@ public final class SettingsModels {
             return .object([:])
         }
         if action == "checkClaudeLogin" {
-            await checkClaudeLogin(params["cloud"]?.boolValue == true ? .cloud : .mac, machine: params["machine"]?.stringValue)
+            await checkClaudeLogin(params["cloud"]?.boolValue == true ? .cloud : .mac,
+                                   machine: params["machine"]?.stringValue, environment: params["environment"]?.stringValue, name: params["machineName"]?.stringValue)
             return .object([:])
         }
         if action == "closeKeyPage", let url = params["url"]?.stringValue {
@@ -410,7 +411,8 @@ public final class SettingsModels {
             let target: ClaudeLoginTarget = params["cloud"]?.boolValue == true ? .cloud : .mac
             switch action {
             case "connectClaude":
-                try beginClaudeLogin(target, replacing: claudeReplacement(params, target: target), machine: params["machine"]?.stringValue)
+                try beginClaudeLogin(target, replacing: claudeReplacement(params, target: target),
+                                     machine: params["machine"]?.stringValue, environment: params["environment"]?.stringValue, name: params["machineName"]?.stringValue)
             case "finishClaudeLogin":
                 finishClaudeLogin(target, code: params["code"]?.stringValue ?? "")
             case "cancelClaudeLogin":

@@ -53,7 +53,10 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   const fromSend = cloud && search.fromSend;
   const family = cloud ? search.provider?.trim().toLowerCase() : undefined;
   const machine = family === "claude" ? search.machine : undefined;
-  const request = JSON.stringify([focus, family, open, fromSend, machine]);
+  const environment = family === "claude" ? search.environment : undefined;
+  const machineName = family === "claude" && !machine ? search.machineName : undefined;
+  const recovery = family === "claude" && !!machine && search.recovery === true;
+  const request = JSON.stringify([focus, family, open, fromSend, machine, environment, recovery, machineName]);
   const add = cloud ? CLOUD_MODELS_ADD_FOCUS : MODELS_ADD_FOCUS;
   const addFocus = focus?.startsWith(add + ".") ? focus.slice(add.length + 1).split(".", 1)[0] : undefined;
 
@@ -85,7 +88,9 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   const routeRows = cloud ? cloudRows : localRows.filter((c) => c.kind !== "native-login");
   const cloudClaude = models?.cloudClaudeLogin;
   const claudeLogin = cloud
-    ? !machine || !cloudClaude?.machine || cloudClaude.machine === machine
+    ? (!machine || !cloudClaude?.machine || cloudClaude.machine === machine) &&
+      (!environment || !cloudClaude?.machine || cloudClaude.environment === environment) &&
+      (!machineName || !cloudClaude?.machine || cloudClaude.machineName === machineName)
       ? cloudClaude
       : undefined
     : models?.claudeLogin;
@@ -114,9 +119,25 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   const cloudClaudeMachine = cloud && claudeLogin?.machineName;
   useEffect(() => {
     if (available && (cloud ? !cloudUnavailable : claudeAvailable !== false)) {
-      void store.runModels({ action: "checkClaudeLogin", cloud, ...(machine ? { machine } : {}) });
+      void store.runModels({
+        action: "checkClaudeLogin",
+        cloud,
+        ...(machine ? { machine } : {}),
+        ...(environment ? { environment } : {}),
+        ...(machineName ? { machineName } : {}),
+      });
     }
-  }, [available, cloud, claudeAvailable, cloudUnavailable, cloudClaudeMachine, machine, store]);
+  }, [
+    available,
+    cloud,
+    claudeAvailable,
+    cloudUnavailable,
+    cloudClaudeMachine,
+    machine,
+    environment,
+    machineName,
+    store,
+  ]);
   const now = Date.now();
   const cloudRunnerStatus = (connection: ModelConnection): "updating" | "offline" | "notReady" | undefined => {
     const runner = connection.launchHarness;
@@ -131,7 +152,7 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   const canToggleCloud = (c: ModelConnection) =>
     (c.canServeCloud ?? c.servesCloud) && (c.kind === "api-key" || (c.kind === "endpoint" && !!c.endpoint));
   const cloudOff =
-    family && !machine && !ready.some((c) => servesFamily(c, family))
+    family && !machine && !machineName && !environment && !ready.some((c) => servesFamily(c, family))
       ? cloudRows.find((c) => canToggleCloud(c) && !c.servesCloud && usable(c) && servesFamily(c, family))
       : undefined;
   const targetFor = (id: string) => {
@@ -181,7 +202,11 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
       id
         ? {
             id,
-            target: resumingDevice ? (models?.deviceTarget ?? undefined) : family ? targetFor(id) : undefined,
+            target: resumingDevice
+              ? (models?.deviceTarget ?? undefined)
+              : family && family !== "claude"
+                ? targetFor(id)
+                : undefined,
             machine,
           }
         : null,
@@ -194,7 +219,8 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
     !currentVisit.connected &&
     available &&
     family &&
-    ready.some((c) => servesFamily(c, family) && !currentVisit.ids.has(c.id))
+    ((family === "claude" && nativeCloud && !recovery) ||
+      ready.some((c) => servesFamily(c, family) && !currentVisit.ids.has(c.id)))
   ) {
     setSetupVisit({ ...currentVisit, connected: true });
   }
@@ -211,7 +237,8 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   const setup = selection && "id" in selection ? selection : undefined;
   const rowAction = selection && "kind" in selection ? selection : undefined;
   const editingConnection = setup?.edit ? connections.find((c) => c.id === setup.target) : undefined;
-  const active = setup && (!setup.edit || editingConnection) ? providerById(setup.id) : undefined;
+  const existingClaude = family === "claude" && nativeCloud && !recovery && !setup?.target;
+  const active = setup && !existingClaude && (!setup.edit || editingConnection) ? providerById(setup.id) : undefined;
   const awaitingSignIn =
     active?.id === devicePreset
       ? devicePending || locked
@@ -264,7 +291,14 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   const panelRun: Run = (gesture) => {
     setFormError(true);
     const target = setup?.machine ?? machine;
-    if (gesture.action === "connectClaude" && target) return run({ ...gesture, machine: target });
+    if (gesture.action === "connectClaude") {
+      return run({
+        ...gesture,
+        ...(target ? { machine: target } : {}),
+        ...(environment ? { environment } : {}),
+        ...(machineName ? { machineName } : {}),
+      });
+    }
     if (gesture.action !== "connectChatGPTDevice") return run(gesture);
     startingDevice.current = true;
     return run(gesture).finally(() => {
@@ -375,6 +409,7 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
       <ModelConnectionDialog
         visit={request}
         cloud={cloud}
+        recoverClaude={recovery && setup?.machine === machine}
         provider={available ? active : undefined}
         models={models && cloud ? { ...models, cloudClaudeLogin: claudeLogin } : (models ?? undefined)}
         busy={locked}

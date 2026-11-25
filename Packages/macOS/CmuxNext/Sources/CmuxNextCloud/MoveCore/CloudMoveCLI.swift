@@ -106,6 +106,7 @@ public nonisolated struct CloudMoveCLI: Sendable {
         public var createTeam: String?
         public var createSent: Bool = false
         public var environmentId: String?
+        public var ensuredEnvironment: String?
         public var setup: CloudStartSetup?
         /// `machine` was made for this send by this plan (the platform's workspace machine it created now): a start
         /// that can't go on deletes it, as one the App made for it. A machine it found or a reservation it bound is never deleted.
@@ -135,7 +136,7 @@ public nonisolated struct CloudMoveCLI: Sendable {
         /// The route to record with a send on `route`: nil for a ledger that keeps none (it takes no `--route`).
         public func recorded(_ route: CloudCreateRoute) -> CloudCreateRoute? { keepsCreateRoute ? route : nil }
 
-        enum CodingKeys: String, CodingKey { case machine, newName, createKey, tabKey, targetPane, createTeam, createSent, environmentId, setup, madeForSend, createRoute, keepsCreateRoute }
+        enum CodingKeys: String, CodingKey { case machine, newName, createKey, tabKey, targetPane, createTeam, createSent, environmentId, ensuredEnvironment, setup, madeForSend, createRoute, keepsCreateRoute }
 
         public init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -147,6 +148,7 @@ public nonisolated struct CloudMoveCLI: Sendable {
             createTeam = try container.decodeIfPresent(String.self, forKey: .createTeam)
             createSent = try container.decodeIfPresent(Bool.self, forKey: .createSent) ?? false
             environmentId = try container.decodeIfPresent(String.self, forKey: .environmentId)
+            ensuredEnvironment = try container.decodeIfPresent(String.self, forKey: .ensuredEnvironment)
             setup = try container.decodeIfPresent(CloudStartSetup.self, forKey: .setup)
             madeForSend = try container.decodeIfPresent(Bool.self, forKey: .madeForSend) ?? false
             // A route this app does not know is none: with the create sent, that is the relay (``CloudMachineRequest/createRoute(personsOwnCreate:team:)``).
@@ -496,6 +498,9 @@ public nonisolated struct CloudMoveCLI: Sendable {
         let object = read.object.flatMap { try? JSONDecoder().decode(JSONValue.self, from: $0) }
         guard read.answer.ok, let id = object?["machine"]?.stringValue else {
             throw CloudAppOpFailure(code: read.answer.errorCode ?? "cmux.cloud.bad_response", message: read.answer.error ?? "the workspace ensure answered no machine")
+        }
+        guard object?["selected_environment"]?.stringValue == environment else {
+            throw CloudAppOpFailure(code: "environment_mismatch", message: "The chosen machine cannot serve the selected Cloud environment.")
         }
         return id
     }

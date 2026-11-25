@@ -388,6 +388,10 @@ export async function readUntilMoved(
   }
 }
 
+export function currentCloudMachine(name: string): CloudMachine | undefined {
+  return machines.find((machine) => machine.id === name) ?? uniqueCloudMachine(machines, name);
+}
+
 export function useCloudMachines(): readonly CloudMachine[] {
   return useSyncExternalStore(subscribe, snapshot, snapshot);
 }

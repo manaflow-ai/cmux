@@ -491,6 +491,7 @@ public actor AgentSessionAttachClient {
         public let held: Bool
         public let model: String?
         public let harness: String
+        public let claudeTokenRecovery: String?
     }
 
     public func credentialStatus(ownerLink: OwnerLink?) async throws -> CredentialStatus? {
@@ -846,6 +847,14 @@ public actor AgentSessionAttachClient {
             throw AgentSessionAttachError(code: "agent_session.closed", message: "the connection ended before the sign-in step was sent")
         }
         return try await call("agent-session-login", params, timeout: Self.loginTimeout(op) ?? requestTimeout, on: transport)
+    }
+
+    public static func isClaudeSignedIn(endpoint: @escaping EndpointProvider, ownerLink: @escaping OwnerLink) async -> Bool {
+        let client = AgentSessionAttachClient(surface: 0, endpoint: endpoint)
+        let data = try? await client.settingsClaudeLogin("status", ["agent": "claude"], ownerLink: ownerLink)
+        await client.close()
+        guard let data, let reply = try? JSONDecoder().decode(JSONValue.self, from: data) else { return false }
+        return reply["signedIn"]?.boolValue == true
     }
 
     /// A Claude Code sign-in step on the owner machine selected by Settings.

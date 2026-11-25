@@ -37,8 +37,11 @@ extension CloudStartChat {
         let listed = services.cloud.listedMachineIDs
         let machines = services.machines.cloud.filter { listed.contains($0.machineID) }
             .map { (id: $0.machineID, title: $0.machine.title, slug: $0.machine.slug) }
-        guard let target = repick.machineID(in: machines) else {
+        guard let target = repick.machineID(in: machines), let record = services.machines.session(target)?.machine else {
             return AgentPaneReply.failure(code: "not_a_cloud_start", message: "not_a_cloud_start")
+        }
+        guard CloudStartCore().matchesEnvironment(started.start.environment, machine: record) else {
+            return AgentPaneReply.failure(code: "environment_mismatch", message: CloudStartSessionStrings.environmentMismatch.message)
         }
         // The machine it is on already: nothing moves.
         guard target != started.machineID else { return AgentPaneReply.success(["machine": services.machines.session(target)?.machine.title ?? ""]) }
@@ -52,6 +55,7 @@ extension CloudStartChat {
             // The pick wins over the send's first machine: the plan now names the picked one.
             _ = try Self.checked(await cli.startChatPin(key: started.start.key, account: CloudStartCore().accountText(started.account),
                                                         machine: target, workspace: started.workspace))
+            let start = started.start.onMachine(target)
             let old = services.machines.daemon(forTab: tab)
             let origin = Origin(tab: tab, chat: started.chat, workspace: started.workspace, account: started.account,
                                 connection: services.cloud.agentCredentials.connection(chat: key, machine: machine)) { [services] in
@@ -64,7 +68,7 @@ extension CloudStartChat {
                     services.cloud.logger.error("cloud start chat: closing the chat's old tab failed: \(String(describing: error), privacy: .public)")
                 }
             }
-            let machine = try await run(started.start, from: origin) { _ in }
+            let machine = try await run(start, from: origin) { _ in }
             CloudMove.toast(services, toastID, CloudMoveStrings.moved(machine), duration: .seconds(6))
             return AgentPaneReply.success(["machine": machine])
         } catch {

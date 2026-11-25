@@ -17,6 +17,7 @@ extension SettingsModels {
     public struct CloudClaudeMachine {
         public let id: String
         let name: String?
+        let environment: String?
         let request: @MainActor (String, [String: String]) async throws -> Data
         /// True while this approval remains the current sign-in attempt.
         public typealias CallbackScope = @MainActor @Sendable () -> Bool
@@ -25,10 +26,11 @@ extension SettingsModels {
         let openCallback: CallbackOpener
 
         /// Bind requests and browser approval to the same machine.
-        public init(id: String, name: String? = nil, request: @escaping @MainActor (String, [String: String]) async throws -> Data,
+        public init(id: String, name: String? = nil, environment: String? = nil, request: @escaping @MainActor (String, [String: String]) async throws -> Data,
                     openCallback: @escaping CallbackOpener) {
             self.id = id
             self.name = name
+            self.environment = environment
             self.request = request
             self.openCallback = openCallback
         }
@@ -45,6 +47,7 @@ extension SettingsModels {
         var signedIn: Bool?
         var machine: String?
         var machineName: String?
+        var environment: String?
         var completion: String?
 
         var pageState: JSONValue {
@@ -52,6 +55,7 @@ extension SettingsModels {
              "signedIn": signedIn.map(JSONValue.bool) ?? .null,
              "machineName": machineName.map(JSONValue.string) ?? .null,
              "machine": machine.map(JSONValue.string) ?? .null,
+             "environment": environment.map(JSONValue.string) ?? .null,
              "completion": completion.map(JSONValue.string) ?? .null]
         }
     }
@@ -90,13 +94,13 @@ extension SettingsModels {
         if let state, ["preparing", "approving", "code", "cancelling"].contains(state.phase) {
             return state
         }
-        switch cloudClaudeLogin?(state?.machine) ?? .connectable {
+        switch cloudClaudeLogin?(state?.machine, state?.environment, nil) ?? .connectable {
         case .sharedMachine: return .init(phase: "disabled", error: "shared_machine")
         case .connectable:
             return state?.machine == nil ? state ?? .init() : .init()
         case .ready(let machine):
             guard let state, state.machine == machine.id || (state.machine == nil && state.phase == "failed") else {
-                return .init(machine: machine.id, machineName: machine.name)
+                return .init(machine: machine.id, machineName: machine.name, environment: machine.environment)
             }
             return state
         }
@@ -106,50 +110,55 @@ extension SettingsModels {
         cloudClaudeStateAccount == cloudClaudeAccount?() ? claudeLogins[.cloud] : nil
     }
 
-    private func claudeMachine(_ target: ClaudeLoginTarget, preferred: String? = nil) throws -> CloudClaudeMachine? {
+    private func claudeMachine(_ target: ClaudeLoginTarget, preferred: String? = nil, environment: String? = nil, name: String? = nil) throws -> CloudClaudeMachine? {
         guard target == .cloud else { return nil }
-        let id = preferred ?? currentCloudClaudeState?.machine
-        guard case .ready(let machine) = cloudClaudeLogin?(id), id == nil || machine.id == id else {
+        let id = preferred ?? (environment == nil && name == nil ? currentCloudClaudeState?.machine : nil)
+        guard case .ready(let machine) = cloudClaudeLogin?(id, environment, name), id == nil || machine.id == id else {
             throw PageError.unavailable("Claude Code is unavailable on this Cloud machine")
         }
         return machine
     }
 
-    func checkClaudeLogin(_ target: ClaudeLoginTarget, machine preferred: String?) async {
-        let phase = target == .cloud && preferred != nil && currentCloudClaudeState?.machine != preferred
+    func checkClaudeLogin(_ target: ClaudeLoginTarget, machine preferred: String?, environment: String? = nil, name: String? = nil) async {
+        let phase = target == .cloud && ((preferred != nil && currentCloudClaudeState?.machine != preferred)
+            || (environment != nil && currentCloudClaudeState?.environment != environment)
+            || (name != nil && currentCloudClaudeState?.machineName != name))
             ? "idle" : claudeLoginState(target).phase
         guard claudeLoginTasks[target] == nil, claudeLoginAttempts[target] == nil,
               phase != "disabled", target == .mac || phase != "failed" else { return }
         let account = cloudClaudeAccount?()
-        let machine = try? claudeMachine(target, preferred: preferred)
+        let machine = try? claudeMachine(target, preferred: preferred, environment: environment, name: name)
         guard target == .mac || machine != nil else { return }
         let previous = claudeLogins[target]
         let stillChecking = {
             self.claudeLoginTasks[target] == nil && self.claudeLoginAttempts[target] == nil &&
                 (target == .mac || (self.cloudClaudeAccount?() == account &&
                     self.claudeLogins[target] == previous &&
-                    (try? self.claudeMachine(target, preferred: preferred))?.id == machine?.id))
+                    (try? self.claudeMachine(target, preferred: preferred, environment: environment, name: name))?.id == machine?.id))
         }
         do {
             let reply = try await claudeCall(.claudeLoginStatus, "status", ["agent": "claude"], machine: machine)
             guard stillChecking() else { return }
             setClaudeLogin(target, machine, reply["signedIn"]?.boolValue == true ? "connected" : "idle",
                            apiKey: reply["apiKey"]?.boolValue == true, signedIn: reply["signedIn"]?.boolValue == true)
+            if let machine, reply["signedIn"]?.boolValue == true { await onCloudClaudeSignIn?(machine.id, false) }
         } catch {
             guard stillChecking(), !(error is CancellationError) else { return }
             setClaudeFailure(target, machine, error)
         }
     }
 
-    func beginClaudeLogin(_ target: ClaudeLoginTarget, replacing: String?, machine requestedMachine: String?) throws {
+    func beginClaudeLogin(_ target: ClaudeLoginTarget, replacing: String?, machine requestedMachine: String?, environment: String? = nil, name: String? = nil) throws {
         guard claudeLoginTasks[target] == nil, claudeLoginAttempts[target] == nil else { return }
         let preferred = requestedMachine ?? (replacing == "claude-cloud-login" ? currentCloudClaudeState?.machine : nil)
         let prepare = target == .cloud ? prepareCloudClaudeLogin : nil
-        let initial = prepare == nil ? try claudeMachine(target, preferred: preferred) : nil
+        let initial = prepare == nil ? try claudeMachine(target, preferred: preferred, environment: environment, name: name) : nil
         let account = cloudClaudeAccount?()
         if target == .cloud {
             guard cloudClaudeAccount == nil || account != nil else { return }
             if (preferred == nil || currentCloudClaudeState?.machine == preferred),
+               (environment == nil || currentCloudClaudeState?.environment == environment),
+               (name == nil || currentCloudClaudeState?.machineName == name),
                claudeLoginState(target).phase == "disabled" { return }
         }
         setClaudeLogin(target, initial, prepare == nil ? "approving" : "preparing")
@@ -161,7 +170,7 @@ extension SettingsModels {
             do {
                 if let prepare {
                     try checkClaudeAccount(target, account)
-                    machine = try await prepare(preferred)
+                    machine = try await prepare(preferred, environment, name)
                     try checkClaudeAccount(target, account)
                     guard let machine else { return setClaudeLogin(target, nil, "idle") }
                     guard preferred == nil || preferred == machine.id else { throw SettingsCloudClaudeLogin.startFailure }
@@ -299,7 +308,7 @@ extension SettingsModels {
         await refresh()
         try checkClaudeAccount(target, account)
         setClaudeLogin(target, machine, "connected", signedIn: true, completion: UUID().uuidString)
-        if let machine { onCloudClaudeSignIn?(machine.id) }
+        if let machine { await onCloudClaudeSignIn?(machine.id, true) }
     }
 
     private func checkClaudeAccount(_ target: ClaudeLoginTarget, _ account: [String?]?) throws {
@@ -352,6 +361,6 @@ extension SettingsModels {
         if target == .cloud { cloudClaudeStateAccount = account }
         claudeLogins[target] = .init(phase: phase, error: error, apiKey: apiKey ?? previous?.apiKey ?? false,
                                     signedIn: signedIn ?? previous?.signedIn, machine: machine?.id, machineName: machine?.name,
-                                    completion: completion ?? previous?.completion)
+                                    environment: machine?.environment, completion: completion ?? previous?.completion)
     }
 }

@@ -305,6 +305,13 @@ pub struct AwayRecap {
     pub dismissed: bool,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum ClaudeTokenRecovery {
+    Rejected,
+    MachineLogin,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMeta {
@@ -343,6 +350,8 @@ pub struct SessionMeta {
     /// Model selected at launch with the delivered connection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credential_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) claude_token_recovery: Option<ClaudeTokenRecovery>,
     /// `HarnessProfile::launch_digest` of the profile its agent last started from: a profile
     /// reload that changes it respawns the agent at its turn end, on the same conversation
     /// (`hub/profile_respawn.rs`). Kept on disk, so an agent host the next daemon adopts is

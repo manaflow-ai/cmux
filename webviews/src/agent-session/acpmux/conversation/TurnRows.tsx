@@ -525,7 +525,10 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // ran; it shares the footer Retry's one-at-a-time state and refusal note. A sign-in failure's comes
   // only after its Sign in again, so only the card offers it (signInRetry), never the native command.
   const goOnRecovery = failed ? errorRecovery(row, route, { resume, retry, retryFailed }) : undefined;
-  const recovery = goOnRecovery ?? (failed ? signInRetry(row, route, { retryFailed, reauthenticate }) : undefined);
+  const recoverToken = cloudClaudeTokenRejected(row.error, route, row.errorCode) ? openClaudeCloudSettings : undefined;
+  const recovery =
+    goOnRecovery ??
+    (failed ? signInRetry(row, route, { retryFailed, reauthenticate: recoverToken ?? reauthenticate }) : undefined);
   const goOn =
     recovery &&
     (() => {
@@ -759,7 +762,7 @@ function TurnFailure({
   const teamAccountKey = kind === "no-team-account" && route?.hostKind === "cloud" ? cloudSignIn : undefined;
   // Continue or Retry is the way out, or the second one after Switch model for a key or proxy
   // failure, or after Sign in again; never for trust (errorRecovery.ts).
-  const offersRetry = goOn !== undefined && (recovery !== "sign-in" || signInFirst);
+  const offersRetry = goOn !== undefined && (recovery !== "sign-in" || signInFirst || !!renewClaude);
   // A chat that outgrew its context window fails the same way on Retry until it is compacted, so
   // Compact leads and Retry follows it; a harness without /compact keeps Retry alone.
   const compactFirst = recovery === "compact" && compact !== undefined;
@@ -775,6 +778,7 @@ function TurnFailure({
     offersSwitch &&
     !connectionFailure &&
     !signInFirst &&
+    !renewClaude &&
     !cloudSignInLeads &&
     (recovery === "switch-model" || !offersRetry);
   // cmux's own route for a key, sign-in or capacity failure (CodeRouterOffer.tsx), placed by the
@@ -784,7 +788,8 @@ function TurnFailure({
   const offerArm = experimentArm(codeRouterOffer);
   // Never ahead of Sign in again: moving the chat (and retrying it there) before the person has signed
   // in is not the way out the card leads with; in that case it follows the others, outlined.
-  const offerLeads = codeRouter !== undefined && offerArm === "primary" && !signInFirst && !cloudSignInLeads;
+  const offerLeads =
+    codeRouter !== undefined && offerArm === "primary" && !signInFirst && !renewClaude && !cloudSignInLeads;
   const offerTrails =
     codeRouter !== undefined &&
     (offerArm === "button" || (offerArm === "primary" && (signInFirst || cloudSignInLeads)));
@@ -797,6 +802,7 @@ function TurnFailure({
       !offersSwitch &&
       !offersRetry &&
       !signInFirst &&
+      !renewClaude &&
       !cloudSignInLeads &&
       !compactFirst);
   const switchButton = offersSwitch && (
@@ -879,7 +885,7 @@ function TurnFailure({
         {offersRetry && (
           <button
             type="button"
-            className={`cv-turn-auth-action${switchFirst || offerLeads || accessLeads || compactFirst || signInFirst ? "" : " cv-turn-error__primary"}`}
+            className={`cv-turn-auth-action${switchFirst || offerLeads || accessLeads || compactFirst || signInFirst || renewClaude ? "" : " cv-turn-error__primary"}`}
             // The card's first stop in the tab order, so Return on the focused card goes on.
             aria-keyshortcuts="Enter"
             disabled={retrying}

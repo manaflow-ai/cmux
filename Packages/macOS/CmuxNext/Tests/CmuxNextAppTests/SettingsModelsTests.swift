@@ -232,11 +232,11 @@ import Testing
         let other = SettingsModels.CloudClaudeMachine(id: "other", request: { _, _ in throw NoAnswer() },
                                                       openCallback: { _, _, _ in false })
         var ready = false
-        models.cloudClaudeLogin = { preferred in
+        models.cloudClaudeLogin = { preferred, _, _ in
             guard ready else { return .connectable }
             return .ready(preferred == machine.id ? machine : other)
         }
-        models.prepareCloudClaudeLogin = { preferred in
+        models.prepareCloudClaudeLogin = { preferred, _, _ in
             #expect(preferred == "owner")
             ready = true
             return machine
@@ -258,15 +258,15 @@ import Testing
         let models = make(daemon: Daemon())
         var requests: [String] = []
         let first = SettingsModels.CloudClaudeMachine(id: "vm_a", request: { op, _ in
-            requests.append("vm_a:(op)")
+            requests.append("vm_a:\(op)")
             return Data(#"{"signedIn":true}"#.utf8)
         }, openCallback: { _, _, _ in false })
         let other = SettingsModels.CloudClaudeMachine(id: "vm_b", request: { op, _ in
-            requests.append("vm_b:(op)")
+            requests.append("vm_b:\(op)")
             return Data(#"{"signedIn":true}"#.utf8)
         }, openCallback: { _, _, _ in false })
         var dropped = false
-        models.cloudClaudeLogin = { id in .ready(id == first.id && !dropped ? first : other) }
+        models.cloudClaudeLogin = { id, _, _ in .ready(id == first.id && !dropped ? first : other) }
         await models.checkClaudeLogin(.cloud, machine: first.id)
         dropped = true
         await #expect(throws: PageError.self) {
@@ -289,8 +289,8 @@ import Testing
             }
             return Data(#"{"signedIn":true}"#.utf8)
         }, openCallback: { _, _, _ in true })
-        models.cloudClaudeLogin = { _ in .ready(machine) }
-        models.prepareCloudClaudeLogin = { preferred in preferred == machine.id ? machine : nil }
+        models.cloudClaudeLogin = { _, _, _ in .ready(machine) }
+        models.prepareCloudClaudeLogin = { preferred, _, _ in preferred == machine.id ? machine : nil }
         await models.checkClaudeLogin(.cloud, machine: machine.id)
         _ = try await models.run(["action": "connectClaude", "cloud": true, "replace": "claude-cloud-login"], context: click)
         await models.claudeLoginTasks[.cloud]?.value
@@ -314,8 +314,8 @@ import Testing
             }
             return Data(#"{"signedIn":\#(signedIn)}"#.utf8)
         }, openCallback: { _, _, _ in false })
-        models.cloudClaudeLogin = { $0 == machine.id ? .ready(machine) : .connectable }
-        models.prepareCloudClaudeLogin = { $0 == machine.id ? machine : nil }
+        models.cloudClaudeLogin = { preferred, _, _ in preferred == machine.id ? .ready(machine) : .connectable }
+        models.prepareCloudClaudeLogin = { preferred, _, _ in preferred == machine.id ? machine : nil }
         _ = try await models.run(["action": "connectClaude", "cloud": true, "machine": "vm_b", "replace": "claude-token-1"], context: click)
         await models.claudeLoginTasks[.cloud]?.value
         #expect(models.state["cloudClaudeLogin"]?["phase"] == "code")
@@ -334,9 +334,10 @@ import Testing
         typealias Candidate = SettingsCloudClaudeLogin.Candidate
         let owner = "user_owner"
         func candidate(_ id: String, status: CloudMachine.Status = .running, creator: String = "user_owner",
-                       linked: Bool, supportsLogin: Bool = false) -> Candidate {
+                       linked: Bool, supportsLogin: Bool = false, environment: String? = nil) -> Candidate {
             var record = CloudMachine(id: id, status: status)
             record.createdBy = creator
+            record.environmentId = environment
             record.team = "team-1"
             return Candidate(record: record, status: status, linked: linked, supportsLogin: supportsLogin)
         }
@@ -358,6 +359,12 @@ import Testing
         #expect(SettingsCloudClaudeLogin.pickMachine([shared, unnamed], owner: owner, personal: false) == .ready(unnamed.record.id))
         #expect(SettingsCloudClaudeLogin.pickMachine([], owner: owner, personal: true) == .create)
         #expect(SettingsCloudClaudeLogin.pickMachine([shared], owner: owner, personal: false) == .create)
+        let inside = candidate("inside", linked: true, supportsLogin: true, environment: "env_b")
+        #expect(SettingsCloudClaudeLogin.pickMachine([ready, inside], owner: owner, personal: false, environment: "env_b") == .ready(inside.record.id))
+        #expect(SettingsCloudClaudeLogin.pickMachine([ready, inside], owner: owner, personal: false, preferred: ready.record.id, requirePreferred: true, environment: "env_b") == .unavailable)
+        #expect(SettingsCloudClaudeLogin.pickMachine([ready], owner: owner, personal: false, name: "new Claude") == .create)
+        #expect(SettingsCloudClaudeLogin.pickMachine([ready, inside], owner: owner, personal: false, name: "inside") == .ready(inside.record.id))
+        #expect(SettingsCloudClaudeLogin.pickMachine([shared, inside], owner: owner, personal: false, name: shared.record.id) == .unavailable)
     }
 
     @Observable private final class CloudAccount {
@@ -371,8 +378,8 @@ import Testing
         let (started, reportStarted) = AsyncStream<Void>.makeStream()
         let (waiting, releaseWait) = AsyncStream<Void>.makeStream()
         models.observeCloudClaudeAccount { account.scope }
-        models.cloudClaudeLogin = { _ in .connectable }
-        models.prepareCloudClaudeLogin = { _ in
+        models.cloudClaudeLogin = { _, _, _ in .connectable }
+        models.prepareCloudClaudeLogin = { _, _, _ in
             reportStarted.finish()
             for await _ in waiting {}
             try Task.checkCancellation()

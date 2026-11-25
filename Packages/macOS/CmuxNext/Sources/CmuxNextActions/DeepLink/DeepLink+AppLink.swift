@@ -156,6 +156,8 @@ extension DeepLink {
               url.host?.lowercased() == "settings" else { return nil }
         let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         let provider = query.first { $0.name == "provider" }?.value
+        let machine = query.first { $0.name == "machine" }?.value
+        let machineName = query.first { $0.name == "machineName" }?.value
         let focus = query.first { $0.name == "focus" }?.value
         let fromSend = query.first { $0.name == "fromSend" }?.value == "1"
         let path = url.path.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -175,7 +177,7 @@ extension DeepLink {
             case "cloud/models": return modelSettingsRoute(focus: "card.cloudModels")
             default: return modelSettingsRoute(focus: "cloudModels.add")
             }
-        case "cloud/claude": return cloudModelConnectionsRoute(family: "claude", fromSend: fromSend)
+        case "cloud/claude": return cloudModelConnectionsRoute(family: "claude", fromSend: fromSend, machine: machine, machineName: machineName)
         case "cloud/chatgpt": return cloudModelConnectionsRoute(family: "chatgpt", fromSend: fromSend)
         default: return nil
         }
@@ -202,12 +204,16 @@ extension DeepLink {
     }
 
     /// Cloud models opens the form on every click. A held send gets its own confirmation.
-    public static func cloudModelConnectionsRoute(family: String, fromSend: Bool = false, machine: String? = nil) -> String {
+    public static func cloudModelConnectionsRoute(family: String, fromSend: Bool = false, machine: String? = nil, environment: String? = nil, recovery: Bool = false, machineName: String? = nil) -> String {
         let provider = family.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
         let route = "#/settings/cloud?focus=card.cloudModels&provider=\(provider)&open=\(UUID().uuidString)"
         let machineQuery = machine.flatMap { $0.addingPercentEncoding(withAllowedCharacters: .alphanumerics) }
             .map { "&machine=\($0)" } ?? ""
-        return route + machineQuery + (fromSend ? "&fromSend=1" : "")
+        let envQuery = environment.flatMap { $0.addingPercentEncoding(withAllowedCharacters: .alphanumerics) }
+            .map { "&environment=\($0)" } ?? ""
+        let nameQuery = machineName.flatMap { $0.addingPercentEncoding(withAllowedCharacters: .alphanumerics) }
+            .map { "&machineName=\($0)" } ?? ""
+        return route + machineQuery + envQuery + nameQuery + (fromSend ? "&fromSend=1" : "") + (recovery ? "&recovery=1" : "")
     }
 
     /// The settings link path that turns Start Agent from Any App on.

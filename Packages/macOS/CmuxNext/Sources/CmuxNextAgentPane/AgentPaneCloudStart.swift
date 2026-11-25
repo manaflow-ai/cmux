@@ -35,7 +35,7 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     /// The selected Cloud environment id; nil lets workspace ensure resolve personal Default.
     public var environment: String?
     /// The machine pinned by this send's native setup retry grant.
-    public internal(set) var machine: String?
+    public var machine: String?
     public internal(set) var usesMachineLogin = false
     /// The warm machine reserved by this compose; Send binds it using ``key``.
     public var reservationKey: String?
@@ -97,7 +97,8 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
               let key = params?["key"] as? String, UUID(uuidString: key) != nil,
               let harness = name("harness"), let model = name("model"), let environment = name("environment"),
               let team = name("team"), let mode = name("mode"), let effort = name("effort"), let account = name("account"),
-              let replacesChat = name("replacesChat") else { return nil }
+              let replacesChat = name("replacesChat"), let machine = name("machine"),
+              machine.map(CloudSetup.isConnectionID) != false else { return nil }
         // A connection id only (``CloudSetup/isConnectionID(_:)``).
         if let account, !CloudSetup.isConnectionID(account) { return nil }
         let reservationKey = params?["reservationKey"]
@@ -110,6 +111,7 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         let home = params?["home"]
         if let home, !(home is Bool) || cwd != nil { return nil }
         self.init(task: task, cwd: repository == nil ? cwd as? String : nil, harness: harness, model: model, key: key, environment: environment, reservationKey: reservationKey as? String, gestureTicket: gestureTicket as? String)
+        self.machine = machine
         (self.home, self.repository) = (home as? Bool ?? false, repository)
         self.team = team
         self.replacesChat = replacesChat
@@ -120,6 +122,12 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         if let signedIn, !(signedIn is Bool) { return nil }
         self.signedIn = signedIn as? Bool ?? false
         self.planMax = (params?["planMax"] as? String).flatMap(CloudChatSize.init(rawValue:)) // a size this app does not know: none
+    }
+
+    public func onMachine(_ id: String) -> Self {
+        var copy = self
+        copy.machine = id
+        return copy
     }
 
     // The send's machine, its create, tab and copy keys and its pin are cmux-tui's
@@ -305,7 +313,12 @@ struct AgentPaneHandOff {
         return await held("cloud.startChat", replacing: start.replacesChat, gestureTicket: start.gestureTicket, gestureParams: ["key": start.key],
                           signInGrant: grantKey, needsGesture: picksFolder) { [start] replacements, completion in
             var start = start
-            start.machine = completion?.machine
+            if let completion, completion.bindsEnvironment, completion.environment != start.environment
+                || (start.machine != nil && completion.machine != nil && start.machine != completion.machine) {
+                replacements.endSandbox()
+                return AgentPaneReply.failure(code: "cloud_sign_in_cancelled", message: "cloud_sign_in_cancelled")
+            }
+            start.machine = completion?.machine ?? start.machine
             start.usesMachineLogin = completion?.usesMachineLogin == true
             let reply = await run(start)
             // A chat that started on the machine keeps the hold: this pane never starts one too,
@@ -446,7 +459,7 @@ extension AgentPaneModel {
     /// the page's one send again of start `key` (`cloud.startChat {..., signedIn: true}`), as
     /// `cloud.signIn` does: the chat starts with no retyping once one appears. `cloud.signInCancel`
     /// withdraws it (the page left Cloud, or gave up).
-    func setUpCloud(key: String, action: String, family: String, machine: String?) async -> [String: Any] {
+    func setUpCloud(key: String, action: String, family: String, machine: String?, environment: String? = nil) async -> [String: Any] {
         guard let onCloudSetUp, let way = CloudSetup.Action(rawValue: action),
               onCloudStartChat != nil, !chatIsElsewhere, sessionId == nil || sessionId == cloudStartReplaces,
               machine.map({ ownsCloudConnectionMachine?($0) == true }) != false else {
@@ -455,7 +468,7 @@ extension AgentPaneModel {
         guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
         let generation = cloudSignInGeneration
         cloudSetUpWait?.cancel() // one wait per pane: a newer click replaces it
-        let wait = Task { await onCloudSetUp(way, family, machine) } // the model's own actor: it only awaits the App's wait
+        let wait = Task { await onCloudSetUp(way, family, machine, environment) } // the model's own actor: it only awaits the App's wait
         cloudSetUpWait = wait
         let completion = await wait.value
         let current = cloudSetUpWait == wait
@@ -477,13 +490,13 @@ extension AgentPaneModel {
             return
         }
         ownsCloudConnectionMachine = { setup.ownsMachine?($0) == true }
-        onCloudSetUp = { await setup.setUp($0, family: $1, machine: $2) }
-        onCloudServed = { await setup.served(machine: $0) }
-        onCloudConnect = { @MainActor family, machine in setup.connect(family: family, machine: machine) }
+        onCloudSetUp = { await setup.setUp($0, family: $1, machine: $2, environment: $3) }
+        onCloudServed = { await setup.served(machine: $0, environment: $1) }
+        onCloudConnect = { setup.connect(family: $0, machine: $1, environment: $2, recovery: $3) }
     }
 
     /// Opens Settings > Cloud > Cloud models for the named family. The picker reads `cloud.setup.state` again when reopened.
-    func connectCloud(family: String, machine: String?) async -> [String: Any] {
+    func connectCloud(family: String, machine: String?, environment: String? = nil) async -> [String: Any] {
         guard let onCloudConnect else { return Self.unsupported("cloud.connect") }
         let recoveryMachine: String?
         if chatIsElsewhere {
@@ -500,24 +513,26 @@ extension AgentPaneModel {
             guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
             recoveryMachine = machine
         }
-        onCloudConnect(family, recoveryMachine)
+        onCloudConnect(family, recoveryMachine, chatIsElsewhere ? nil : environment, chatIsElsewhere)
         return AgentPaneReply.success()
     }
 
     /// Cloud launch support and credential readiness are independent. Only readiness can be unknown
     /// for an individual supported family.
     /// Only a new chat's page asks for this state.
-    func cloudSetupState(machine: String?) async -> [String: Any] {
+    func cloudSetupState(machine: String?, environment: String? = nil) async -> [String: Any] {
         guard let onCloudServed, onCloudStartChat != nil, !chatIsElsewhere else { return Self.unsupported("cloud.setup.state") }
-        let state = await onCloudServed(machine)
-        return AgentPaneReply.success([
+        let state = await onCloudServed(machine, environment)
+        var fields: [String: Any] = [
             "families": state.families,
             "runnableFamilies": Array(Set(CloudSetup.families).union(state.families.keys)).sorted(),
             "servedHarnesses": state.servedHarnesses,
             "pendingHarnesses": state.pendingHarnesses,
             "unavailableEndpointHarnesses": state.unavailableEndpointHarnesses,
             "reasons": state.reasons.mapValues(\.rawValue),
-        ])
+        ]
+        if let matches = state.environmentMatches { fields["environmentMatches"] = matches }
+        return AgentPaneReply.success(fields)
     }
 
     /// `cloud.signInCancel {expired?}`: the page stopped waiting on a `cloud.signIn` (it left Cloud, or

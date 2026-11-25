@@ -149,7 +149,7 @@ test("Connect targets the selected machine and drops a superseded return", async
   };
   let seen!: ReturnType<typeof useCloudServed>;
   function Probe() {
-    seen = useCloudServed(call, true, { watchKey, isKey, readMachine });
+    seen = useCloudServed(call, true, { watchKey, isKey, readMachine, environment: "env_a" });
     return null;
   }
   root = createRoot(container);
@@ -162,7 +162,7 @@ test("Connect targets the selected machine and drops a superseded return", async
       selected = "claude";
     }),
   );
-  expect(connected).toEqual([{ family: "claude", machine: "vm_b" }]);
+  expect(connected).toEqual([{ family: "claude", machine: "vm_b", environment: "env_a" }]);
   key = false;
   watcher?.();
   expect(reads).toHaveLength(1);
@@ -176,7 +176,7 @@ test("Connect targets the selected machine and drops a superseded return", async
       selected = "codex";
     }),
   );
-  expect(connected[1]).toEqual({ family: "codex", machine: "vm_c" });
+  expect(connected[1]).toEqual({ family: "codex", machine: "vm_c", environment: "env_a" });
   await act(async () => reads[1]!.resolve(reply({ claude: true })));
   expect(selected).toBe("");
   watcher?.();

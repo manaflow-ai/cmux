@@ -290,7 +290,7 @@ struct CloudAgentCredentialRefresherTests {
     @Test func machineSignInAndRecoveryStayOnTheChatMachine() async throws {
         let setup = CloudSetup(read: { .init(personal: [.init(id: "saved-claude", families: ["claude"])], organization: []) })
         var opened: String?
-        setup.openConnectionSettings = { family, machine, _ in
+        setup.openConnectionSettings = { family, machine, _, _, _ in
             #expect(family == "claude")
             opened = machine
         }

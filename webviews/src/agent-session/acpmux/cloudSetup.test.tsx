@@ -115,6 +115,7 @@ test("the picker resumes the failed send on its selected machine", async () => {
       need,
       undefined,
       "vm_b",
+      "env_0123456789abcdef01234567",
     );
     return startAfterSignIn(
       wait,
@@ -144,6 +145,7 @@ test("the picker resumes the failed send on its selected machine", async () => {
         family: "claude",
         action: "setUpClaude",
         machine: "vm_b",
+        environment: "env_0123456789abcdef01234567",
       },
     },
   ]);

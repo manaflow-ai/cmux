@@ -264,9 +264,9 @@ extension AppServices {
                 return settingsClaudeLink(session, beside: anchor, onOpened: onOpened)
             },
             refreshMachines: { [weak self] in await self?.cloud.refresh() ?? false },
-            createMachine: { [weak self] check in
+            createMachine: { [weak self] environment, name, check in
                 guard let self else { throw CancellationError() }
-                return try await createSettingsClaudeMachine(beside: anchor, checking: check, onOpened: onOpened)
+                return try await createSettingsClaudeMachine(beside: anchor, environment: environment, name: name, checking: check, onOpened: onOpened)
             })
         return SettingsCloudClaudeLogin(host: host)
     }
@@ -293,11 +293,13 @@ extension AppServices {
         )
     }
 
-    private func createSettingsClaudeMachine(beside anchor: @escaping @MainActor () -> NSView?,
+    private func createSettingsClaudeMachine(beside anchor: @escaping @MainActor () -> NSView?, environment: String?, name: String?,
                                             checking check: @MainActor () throws -> Void,
                                             onOpened: @escaping ModelSignInOpened) async throws -> SettingsCloudClaudeMachineLink? {
         do {
-            let session = try await cloud.createMachine(name: nil, startedByPerson: true, ownCreate: true, proceed: check)
+            var request = CloudMachineRequest()
+            request.environment = environment
+            let session = try await cloud.createMachine(name: name, startedByPerson: true, ownCreate: true, request: request, proceed: check)
             return settingsClaudeLink(session, beside: anchor, onOpened: onOpened)
         } catch CloudMachineCreateFlow.Failure.declined, CloudMachineCreateFlow.Failure.upgradeRequired(_), is CloudMachineCap.RunHere {
             return nil

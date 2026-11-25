@@ -19,12 +19,14 @@ extension CloudStartChat {
     /// reads them), the store's others (`stored`: kept for a pin, never picked), and the chat's folder, environment and token flag (`access`).
     static func planRequest(key: String, account: [String?], workspace: String?, user: String?, machines: [CloudMachineSession],
                             local: String? = nil, stored: [String], environment: String? = nil, access: Bool = false, reservationKey: String? = nil, machine: String? = nil,
-                            platform: String? = nil, ensureProject: Bool? = nil, size: CloudChatSize? = nil, bytes: Int64? = nil, planMax: CloudChatSize? = nil) -> String {
+                            readyClaude: Set<String> = [], platform: String? = nil, ensureProject: Bool? = nil, size: CloudChatSize? = nil, bytes: Int64? = nil, planMax: CloudChatSize? = nil) -> String {
         let listed: [[String: Any]] = machines.map { session in
             let connected = session.daemon.connection != nil
             let chats = connected ? session.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
                 .filter { $0.agentSession != nil }.count : nil
-            return session.machine.startChatPlanEntry(connected: connected, chats: chats)
+            var entry = session.machine.startChatPlanEntry(connected: connected, chats: chats)
+            entry["claude_ready"] = readyClaude.contains(session.machineID)
+            return entry
         }
         var request: [String: Any] = ["key": key, "account": CloudStartCore().accountText(account), "loaded": true, "machines": listed,
                                       "stored": stored, "credential_on_stdin": access, "reservation_key": reservationKey, "platform": platform, "ensure_project": ensureProject, "size": size?.requested, "bytes": bytes, "plan_max": planMax?.rawValue]
@@ -60,14 +62,16 @@ extension CloudStartChat {
         try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
         let listed = cloud.listedMachineIDs
         let ensureProject = CloudStartCore().ensuresProject(account: account, platform: cloud.configuration.artifactsAPIBaseURL(), production: cloud.auth.configuration.isProductionAuth)
-        let reserved = start.machine == nil && start.reservationKey != nil
+        let reserved = start.machine == nil && start.environment == nil && start.reservationKey != nil
         async let installRead = { @MainActor in reserved ? try await cloud.installIdentity.installToken() : nil }()
         async let accessRead = { @MainActor in ensureProject || reserved ? try await cloud.auth.tokens().access : nil }()
         let access = try? await accessRead, install = try await installRead
+        let ready = await cloud.setup.readyClaudeMachines(for: start)
         let request = Self.planRequest(key: start.key, account: account, workspace: workspace, user: cloud.auth.user?.id,
                                        machines: machines.cloud.filter { listed.contains($0.machineID) }, local: start.home ? nil : start.uploadRoot ?? start.cwd,
                                        stored: machines.cloud.map(\.machine).keptForPin(listed: listed), environment: start.environment, access: access != nil,
-                                       reservationKey: reserved ? start.reservationKey : nil, machine: start.machine, platform: cloud.configuration.artifactsAPIBaseURL()?.absoluteString, ensureProject: ensureProject, size: start.size, bytes: start.folderBytes, planMax: start.planMax)
+                                       reservationKey: reserved ? start.reservationKey : nil, machine: start.machine, readyClaude: Set(ready), platform: cloud.configuration.artifactsAPIBaseURL()?.absoluteString, ensureProject: ensureProject, size: start.size, bytes: start.folderBytes, planMax: start.planMax)
+        try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
         var plan = try Self.checked(await cli.startChatPlan(request: request, access: access, install: install))
         if let id = start.machine, plan.machine != id || !listed.contains(id) { throw CloudMove.Failure(message: CloudMoveStrings.noSuchMachine(id)) }
         timeline?.mark("machine.plan") // the list, the tokens and the plan (a reservation's claim)
@@ -116,7 +120,9 @@ extension CloudStartChat {
             do { session = try await CloudMove(services: services).machine(invocation, pick: pick) } catch { _ = try? await pinned; throw error }
             try await pinned
             timeline?.mark("machine.connect")
-            let machineID = session.machineID
+            let machineID = session.machineID; try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
+            guard CloudStartCore().matchesEnvironment(start.environment, machine: session.machine, ensured: plan.ensuredEnvironment) else { throw CloudStartSessionStrings.environmentMismatch }
+            session.machine = cloud.setup.machineEnvironment(session.machine, ensured: plan.ensuredEnvironment, account: account, defaults: cloud.move.ledger)
             // The chat's agent reaches a model: the machine's edge, its own sign-in there, or the chat's own connection with its launch.
             let launchConnection = await cloud.setup.launchConnection(connection)
             let endpoint = launchConnection?.endpointCredentials == true
@@ -132,8 +138,9 @@ extension CloudStartChat {
                 )
             }
             try Self.requireEndpointHarness(start.harness == "openrouter" && connection != nil ? "opencode" : launchConnection?.launchHarness, on: session, subscription: subscription)
-            let nativeClaude = start.usesMachineLogin || (connection == nil && CloudSetup.family(of: start.harness) == "claude"
-                && session.daemon.supports(DaemonCapability.agentSessionLoginMachine.rawValue))
+            let nativeClaude = if connection == nil { await cloud.setup.readyClaudeMachines(for: start.onMachine(machineID)).contains(machineID) } else { false }
+            if !nativeClaude, connection == nil, CloudSetup.family(of: start.harness) == "claude",
+               await cloud.setup.refusal(harness: start.harness, model: start.model) != nil { throw CloudMachineRoute.NeedsConnection() }
             if start.machine != nil || nativeClaude {
                 let owned = await CloudMachineLinks(appLink: session.appLink).ownerLink() != nil
                 if owned && nativeClaude { return (session, plan) }

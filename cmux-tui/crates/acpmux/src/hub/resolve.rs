@@ -351,6 +351,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         spawn_argv: None,
         credential_connection: None,
         credential_model: None,
+        claude_token_recovery: None,
         launch_digest: None,
         family: Some(d.family.to_owned()),
         preset: d.preset,

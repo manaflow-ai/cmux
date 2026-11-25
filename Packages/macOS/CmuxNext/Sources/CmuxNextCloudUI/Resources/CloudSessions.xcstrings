@@ -1,6 +1,268 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cloud.start.environmentMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The chosen machine cannot serve the selected Cloud environment."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したマシンでは指定の Cloud 環境を使用できません。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die gewählte Maschine kann die ausgewählte Cloud-Umgebung nicht verwenden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La machine choisie ne peut pas utiliser cet environnement Cloud."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La máquina elegida no puede usar el entorno de Cloud seleccionado."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن للجهاز المختار استخدام بيئة Cloud المحددة."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 머신에서 지정된 Cloud 환경을 사용할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所选机器无法使用指定的 Cloud 环境。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所選機器無法使用指定的 Cloud 環境。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odabrana mašina ne može koristiti izabrano Cloud okruženje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den valgte maskine kan ikke bruge det valgte Cloud-miljø."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La macchina scelta non può usare l’ambiente Cloud selezionato."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីនដែលបានជ្រើសមិនអាចប្រើបរិស្ថាន Cloud ដែលបានកំណត់ទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den valgte maskinen kan ikke bruke det valgte Cloud-miljøet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wybrana maszyna nie może użyć wskazanego środowiska Cloud."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A máquina escolhida não pode usar o ambiente Cloud selecionado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выбранная машина не поддерживает указанную среду Cloud."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องที่เลือกไม่สามารถใช้สภาพแวดล้อม Cloud ที่ระบุได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seçilen makine belirtilen Cloud ortamını kullanamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вибрана машина не може використовувати вказане середовище Cloud."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy đã chọn không thể sử dụng môi trường Cloud được chỉ định."
+          }
+        }
+      }
+    },
+    "cloud.modelConnection.claudeTokenRejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Claude setup token was rejected. Sign in to Claude on this Cloud machine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude のセットアップトークンが拒否されました。この Cloud マシンで Claude にサインインしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Claude-Setup-Token wurde abgelehnt. Melde dich auf dieser Cloud-Maschine bei Claude an."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le jeton de configuration Claude a été refusé. Connectez-vous à Claude sur cette machine Cloud."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se rechazó el token de configuración de Claude. Inicia sesión en Claude en esta máquina de Cloud."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رُفض رمز إعداد Claude. سجّل الدخول إلى Claude على جهاز Cloud هذا."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 설정 토큰이 거부되었습니다. 이 Cloud 머신에서 Claude에 로그인하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 设置令牌被拒绝。请在此 Cloud 机器上登录 Claude。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 設定權杖遭到拒絕。請在此 Cloud 機器上登入 Claude。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude token za postavljanje je odbijen. Prijavite se u Claude na ovoj Cloud mašini."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claudes opsætningstoken blev afvist. Log ind på Claude på denne Cloud-maskine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il token di configurazione di Claude è stato rifiutato. Accedi a Claude su questa macchina Cloud."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថូខឹនដំឡើង Claude ត្រូវបានបដិសេធ។ សូមចូល Claude នៅលើម៉ាស៊ីន Cloud នេះ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-oppsettstokenet ble avvist. Logg på Claude på denne Cloud-maskinen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Token konfiguracji Claude został odrzucony. Zaloguj się do Claude na tej maszynie Cloud."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O token de configuração do Claude foi rejeitado. Entre no Claude nesta máquina Cloud."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Токен настройки Claude отклонён. Войдите в Claude на этой машине Cloud."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โทเค็นการตั้งค่า Claude ถูกปฏิเสธ โปรดลงชื่อเข้าใช้ Claude บนเครื่อง Cloud นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude kurulum belirteci reddedildi. Bu Cloud makinesinde Claude oturumu açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Токен налаштування Claude відхилено. Увійдіть у Claude на цій машині Cloud."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mã thiết lập Claude đã bị từ chối. Hãy đăng nhập Claude trên máy Cloud này."
+          }
+        }
+      }
+    },
     "cloud.startSession.start": {
       "comment": "Button on the card: start the agent session.",
       "extractionState": "manual",

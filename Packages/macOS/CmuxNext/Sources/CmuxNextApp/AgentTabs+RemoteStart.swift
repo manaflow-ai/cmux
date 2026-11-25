@@ -164,8 +164,8 @@ extension AgentTabStore {
                                 reconnect: AgentSessionAttachClient.Reconnect?,
                                 endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async {
         await cloudCredentials?.restoreModelConnection(chat: tab, machine: machine, surface: surface, ownerLink: ownerLink,
-                                                       reconnect: reconnect, endpoint: endpoint, onDelivered: {
-            existingView(tab, machine: machine)?.clearModelConnectionNotice()
+                                                       reconnect: reconnect, endpoint: endpoint, onDelivered: { [weak self] in
+            self?.existingView(tab, machine: machine)?.clearModelConnectionNotice()
         }, onRefusal: { [weak self] failure, harness in
             guard let self else { return }
             showCredentialNotice(credentialRefusal(failure, harness: harness), tab: tab, machine: machine, harness: harness)

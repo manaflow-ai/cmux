@@ -18,6 +18,11 @@ public struct CloudStartSessionStrings {
         }
     }
 
+    public static var environmentMismatch: CloudMoveFailure {
+        CloudMoveFailure(message: String(localized: "cloud.start.environmentMismatch", defaultValue: "The chosen machine cannot serve the selected Cloud environment.", table: "CloudSessions", bundle: .localizedModule),
+                         code: "environment_mismatch")
+    }
+
     public static var start: String { String(localized: "cloud.startSession.start", defaultValue: "Start", table: "CloudSessions", bundle: .localizedModule) }
     public static var openChat: String { String(localized: "cloud.startSession.openChat", defaultValue: "Open Chat", table: "CloudSessions", bundle: .localizedModule) }
 

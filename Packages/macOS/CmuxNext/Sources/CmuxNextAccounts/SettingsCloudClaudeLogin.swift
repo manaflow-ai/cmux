@@ -32,13 +32,18 @@ package struct SettingsCloudClaudeLogin {
     }
 
     package static func pickMachine(_ candidates: [Candidate], owner: String?, personal: Bool,
-                            preferred: String? = nil, requirePreferred: Bool = false) -> MachineChoice {
+                            preferred: String? = nil, requirePreferred: Bool = false, environment: String? = nil, name: String? = nil) -> MachineChoice {
         let owned = candidates.filter { candidate in
             let record = candidate.record
+            guard environment == nil || record.environmentId == environment else { return false }
+            guard name == nil || record.title == name else { return false }
             if personal { return CloudTransferRules.isOwner(record, user: owner) }
             // A record with no creator id may be the person's own: the link's owner answer decides after it connects.
             return CloudCallerOwnership(creator: record.createdBy, caller: owner) != .team
         }.sorted { $0.record.id < $1.record.id }
+        if let name, !requirePreferred, candidates.contains(where: { $0.record.title == name }), owned.count != 1 {
+            return .unavailable
+        }
         let candidates = requirePreferred ? owned.filter { $0.record.id == preferred } : owned
         let linked = candidates.filter { $0.status == .running && $0.linked && $0.supportsLogin }
         if let ready = linked.first(where: { $0.record.id == preferred }) ?? linked.first {
@@ -51,31 +56,34 @@ package struct SettingsCloudClaudeLogin {
             return .link(offline.record.id)
         }
         // Only teammates' machines (or none): the person gets their own.
-        return requirePreferred ? .unavailable : .create
+        return requirePreferred || (name != nil && !candidates.isEmpty) ? .unavailable : .create
     }
 
     package func install(on models: SettingsModels, setup: CloudSetup) {
-        models.cloudClaudeLogin = { preferred in state(preferred: preferred) }
-        models.prepareCloudClaudeLogin = { try await prepare(preferred: $0) }
+        models.cloudClaudeLogin = { state(preferred: $0, environment: $1, name: $2) }
+        models.prepareCloudClaudeLogin = { try await prepare(preferred: $0, environment: $1, name: $2) }
         models.observeCloudClaudeAccount { host.account() }
-        models.onCloudClaudeSignIn = { setup.claudeSignInCompleted(machine: $0) }
+        models.onCloudClaudeSignIn = { machine, changed in
+            setup.claudeSignInCompleted(machine: machine)
+            if changed { await setup.refreshRecoveredClaudeChats?(machine) }
+        }
     }
 
-    private func state(preferred: String?) -> SettingsModels.CloudClaudeLogin {
+    private func state(preferred: String?, environment: String?, name: String?) -> SettingsModels.CloudClaudeLogin {
         guard let account = host.account(), host.hasLoadedMachines(),
-              case .ready(let id) = choice(preferred: preferred, requirePreferred: preferred != nil), let session = host.machine(id) else {
+              case .ready(let id) = choice(preferred: preferred, requirePreferred: preferred != nil, environment: environment, name: name), let session = host.machine(id) else {
             return .connectable
         }
         return .ready(machine(session, account: account))
     }
 
-    private func prepare(preferred: String?) async throws -> SettingsModels.CloudClaudeMachine? {
+    private func prepare(preferred: String?, environment: String?, name: String?) async throws -> SettingsModels.CloudClaudeMachine? {
         guard let account = host.account() else { throw CancellationError() }
         let check: @MainActor () throws -> Void = {
             try Task.checkCancellation()
             guard host.account() == account else { throw CancellationError() }
         }
-        let choose = { choice(preferred: preferred, requirePreferred: preferred != nil) }
+        let choose = { choice(preferred: preferred, requirePreferred: preferred != nil, environment: environment, name: name) }
         do {
             try check()
             if !host.hasLoadedMachines() || [.create, .unavailable].contains(choose()) {
@@ -92,10 +100,11 @@ package struct SettingsCloudClaudeLogin {
             case .unavailable:
                 throw Self.startFailure
             case .create:
-                guard let created = try await host.createMachine(check) else { return nil }
+                guard let created = try await host.createMachine(environment, name, check) else { return nil }
                 session = created
             }
 
+            guard name == nil || session.candidate.record.title == name else { throw Self.startFailure }
             try await session.connect(check)
             let owner = await session.ownerLink()
             try check()
@@ -119,9 +128,9 @@ package struct SettingsCloudClaudeLogin {
         PageError(code: "cmux.models.machine_start_failed", message: "Cloud machine start failed")
     }
 
-    private func choice(preferred: String? = nil, requirePreferred: Bool = false) -> MachineChoice {
+    private func choice(preferred: String? = nil, requirePreferred: Bool = false, environment: String? = nil, name: String? = nil) -> MachineChoice {
         Self.pickMachine(host.machineIDs().compactMap { host.machine($0)?.candidate },
-                         owner: host.caller(), personal: host.personal(), preferred: preferred, requirePreferred: requirePreferred)
+                         owner: host.caller(), personal: host.personal(), preferred: preferred, requirePreferred: requirePreferred, environment: environment, name: name)
     }
 
     private func machine(_ session: SettingsCloudClaudeMachineLink, account: [String?]) -> SettingsModels.CloudClaudeMachine {
@@ -135,7 +144,7 @@ package struct SettingsCloudClaudeLogin {
             guard !Task.isCancelled, let link = await liveOwner(), await scope() else { return nil }
             return link
         }
-        return .init(id: id, name: session.candidate.record.title, request: { op, fields in
+        return .init(id: id, name: session.candidate.record.title, environment: session.candidate.record.environmentId, request: { op, fields in
             try Task.checkCancellation()
             guard scope() else { throw CancellationError() }
             let link = await owner()

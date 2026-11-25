@@ -32,6 +32,7 @@ export type CloudStart = {
    *  agent names it to the edge as `x-cmux-connection` (cmux-tui/docs/model-connections.md). */
   account?: string;
   environment?: string;
+  machine?: string;
   reservationKey?: string;
   /** A native gesture ticket reserved before waiting for a Cloud machine lease. */
   gestureTicket?: string;
@@ -347,6 +348,7 @@ export async function startCloudChat(
   if (start.effort) params.effort = start.effort;
   if (start.account) params.account = start.account;
   if (start.environment) params.environment = start.environment;
+  if (start.machine) params.machine = start.machine;
   if (start.reservationKey) params.reservationKey = start.reservationKey;
   if (start.gestureTicket) params.gestureTicket = start.gestureTicket;
   if (start.signedIn) params.signedIn = true;
@@ -417,6 +419,7 @@ export function cloudStartFingerprint(start: CloudStart): string {
     start.harness ?? null,
     start.model ?? null,
     start.environment ?? null,
+    ...(start.machine ? [`machine:${start.machine}`] : []),
     // Only a send that switches team names it, so every other start keeps the key it had.
     ...(start.team ? [start.team] : []),
     // A start in another mode is another start; one with no pick keeps the key it had.

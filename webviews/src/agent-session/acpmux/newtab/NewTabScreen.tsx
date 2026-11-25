@@ -22,6 +22,7 @@ import { githubFolder, githubFolderRepo } from "../githubRepos";
 import { useSendAfterCheckout } from "../sendAfterCheckout";
 import { cloudRepositoryPick } from "../sourcePickerModel";
 import type { CloudMachine } from "../cloudMachines";
+import { cloudStartEnvironment } from "../cloudEnvironmentChoice";
 import { CloudChatHint } from "../CloudChatHint";
 import { isActive, type Dictation, type DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../newTabModel";
@@ -194,7 +195,7 @@ export type NewTabScreenActions = NewTabCommandActions & {
     model?: string,
     noProject?: boolean,
     attachments?: ComposerAttachment[],
-    saved?: { peer?: string },
+    saved?: { peer?: string; cloudEnvironment?: string },
   ): unknown;
   /// A lone GitHub issue URL starts the core fix-from-link flow in a new worktree. `cwd` is the
   /// project the person picked on this page, when there is one; it must win over the tab's
@@ -1040,6 +1041,11 @@ export function NewTabScreen(props: Props) {
         sentAttachments.length ? sentAttachments : undefined,
         {
           peer: machine.peer,
+          ...(cloudMode
+            ? {
+                cloudEnvironment: cloudStartEnvironment(undefined, props.runMode?.environment?.current),
+              }
+            : {}),
         },
       );
     if (sentAttachments.length > 0)
