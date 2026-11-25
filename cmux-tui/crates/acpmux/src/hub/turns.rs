@@ -170,12 +170,27 @@ pub(super) const KEPT_ACCEPTS: usize = 512;
 
 /// Keeps the acceptance `v` of client prompt id `prompt_id`'s first run, for a resend of it.
 fn keep_acceptance(session: &Session, prompt_id: &str, v: &Value) {
+    // A prompt whose outcome is still pending must remain discoverable even when a burst
+    // exceeds the ordinary receipt cache. A resend of an inbox-taken prompt has no turn to
+    // identify it by, so evicting its acceptance makes every retry wait for the answer instead
+    // of hearing the receipt (the 513-admission regression).
+    let pending: std::collections::HashSet<String> = session
+        .prompts
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .filter(|(_, outcome)| outcome.borrow().is_none())
+        .map(|(id, _)| id.clone())
+        .collect();
     {
         let mut kept = session.accepted_prompts.lock().unwrap_or_else(|e| e.into_inner());
         kept.retain(|(id, _)| id != prompt_id);
         kept.push_back((prompt_id.to_owned(), v.clone()));
         while kept.len() > KEPT_ACCEPTS {
-            kept.pop_front();
+            let Some(i) = kept.iter().position(|(id, _)| !pending.contains(id)) else {
+                break;
+            };
+            kept.remove(i);
         }
     }
     session.accepted_seq.send_modify(|n| *n = n.wrapping_add(1));
