@@ -10,7 +10,14 @@ import { componentEntry } from "../../../gallery/format";
 import { ComposerFoot } from "../ComposerFoot";
 import { CloudToggle } from "./CloudToggle";
 import { CloudTriToggle } from "./CloudTriToggle";
-import { clicked, type HybridLook, type HybridPin, type HybridView } from "./hybridModel";
+import {
+  clicked,
+  type HybridBlockedWhy,
+  type HybridLook,
+  type HybridPin,
+  type HybridView,
+  type SlotHolder,
+} from "./hybridModel";
 
 type Props = {
   /// A chat (composer at the pane's bottom) or the New Tab page (composer under the hero).
@@ -24,7 +31,19 @@ type Props = {
   /// The three-state control instead of the on/off cloud: its form and the mode it opens on.
   tri?: "segments" | "cycle";
   pin?: HybridPin;
+  /// A first run's blocked state: the name says it, a click goes to `onBlockedClick`.
+  blocked?: HybridBlockedWhy;
+  /// Every slot taken: the chats holding them, in the name's menu (drawn open).
+  holders?: SlotHolder[];
+  /// Where the chat runs now, after the name (the app's place state in the real mount).
+  where?: string;
 };
+
+const HOLDERS: SlotHolder[] = [
+  { session: "s-1", title: "Fix flaky login test" },
+  { session: "s-2", title: "Migrate billing to v2 API" },
+  { session: "s-3", title: "Nightly crash triage" },
+];
 
 const VIEWS: Record<Props["state"], HybridView> = {
   off: { lit: false, pin: "auto", at: "local", used: 1, total: 3 },
@@ -32,9 +51,10 @@ const VIEWS: Record<Props["state"], HybridView> = {
   waiting: { lit: false, waiting: true, pin: "auto", at: "local", used: 3, total: 3 },
 };
 
-function Stage({ page, spot, look, state, form, tri, pin = "auto" }: Props) {
+function Stage({ page, spot, look, state, form, tri, pin = "auto", blocked, holders, where }: Props) {
   const [view, setView] = useState(VIEWS[state]);
   const [mode, setMode] = useState(pin);
+  const [held, setHeld] = useState(holders);
   const toggle = tri ? (
     <CloudTriToggle
       pin={mode}
@@ -43,6 +63,15 @@ function Stage({ page, spot, look, state, form, tri, pin = "auto" }: Props) {
       named={spot === "above" || tri === "cycle"}
       lit={view.lit}
       waiting={view.waiting}
+      where={where}
+      blocked={blocked ? { why: blocked } : undefined}
+      onBlockedClick={() => undefined}
+      holders={held}
+      onTrade={() => {
+        setHeld(undefined);
+        setView((now) => ({ ...now, waiting: false, lit: true }));
+      }}
+      holdersOpen={holders !== undefined}
       onChange={setMode}
       onLitChange={(lit) => setView((now) => ({ ...now, lit }))}
     />
@@ -153,6 +182,58 @@ for (const page of ["chat", "newtab"] as const) {
   }
 }
 
+// The first-run review (2026-11-23): what a brand-new user meets. Each `why` named on the control,
+// and the full-slots menu. The app decides which applies; these draw each one.
+const BLOCKED_NOTES: Record<HybridBlockedWhy, string> = {
+  "signed-out": "Not signed in: the name asks to sign in, the cloud is dull; a click opens sign-in.",
+  "no-plan": "Signed in, no plan: the name offers the free trial; a click opens Cloud setup.",
+  "no-cloud": "A plan but no Cloud machine yet: a click opens Cloud setup.",
+  "hours-spent": "The plan's Cloud hours are used up: a click opens the plan.",
+  "trial-ended": "The free trial is over: a click opens the plan.",
+  offline: "This Mac cannot reach Cloud: the warning dot on the cloud; a click tries again.",
+  "move-failed": "The last move failed: the warning dot on the cloud; a click shows why and offers Retry.",
+  slept: "Reopened after this Mac slept and the chat paused: the name says so; a click turns on Keep Running.",
+  "trial-full": "Cloud's free trials are full for today: the tooltip says try tomorrow or start a plan.",
+};
+const firstRun: Record<string, { note: string; props: Props; height?: number }> = {};
+for (const why of Object.keys(BLOCKED_NOTES) as HybridBlockedWhy[]) {
+  firstRun[`chat-above-three-state-blocked-${why}`] = {
+    note: `${SPOT_NOTES["chat-above"]} ${BLOCKED_NOTES[why]}`,
+    props: { page: "chat", spot: "above", look: "rainbow", state: "off", tri: "segments", blocked: why },
+  };
+}
+for (const why of ["signed-out", "no-plan"] as const) {
+  firstRun[`newtab-above-three-state-blocked-${why}`] = {
+    note: `${SPOT_NOTES["newtab-above"]} Where a new user meets it first. ${BLOCKED_NOTES[why]}`,
+    props: { page: "newtab", spot: "above", look: "rainbow", state: "off", tri: "segments", blocked: why },
+  };
+}
+for (const [id, where, pin, note] of [
+  ["mac", "This Mac", "auto", "Hybrid, running on this Mac"],
+  ["cloud", "atlas-web-cloud", "auto", "Hybrid, running on its Cloud machine"],
+  ["moving", "Moving to atlas-web-cloud", "auto", "Hybrid while the chat moves"],
+  ["pinned", "atlas-web-cloud", "cloud", "Only in Cloud, naming the machine"],
+] as const) {
+  firstRun[`chat-above-three-state-where-${id}`] = {
+    note: `${SPOT_NOTES["chat-above"]} ${note}: the place after the name is the one the app reports, so the choice shows what it did.`,
+    props: {
+      page: "chat",
+      spot: "above",
+      look: "rainbow",
+      state: id === "mac" ? "off" : "on",
+      tri: "segments",
+      pin,
+      where,
+    },
+  };
+}
+firstRun["chat-above-three-state-full-holders"] = {
+  note: `${SPOT_NOTES["chat-above"]} Keep Running asked for and every slot taken: the name opens the chats holding the slots, each with Give This Chat Its Slot.`,
+  props: { page: "chat", spot: "above", look: "rainbow", state: "waiting", tri: "segments", holders: HOLDERS },
+  // Tall enough for the open menu above the strip.
+  height: 400,
+};
+
 export default componentEntry<Props>({
   id: "agent-pane.hybrid-cloud-toggle",
   title: "Hybrid chats: the cloud button",
@@ -167,5 +248,5 @@ export default componentEntry<Props>({
     "agent-session/acpmux/hybrid/hybridModel.ts",
   ],
   load: async () => Stage,
-  variants: { ...lead, ...variants },
+  variants: { ...lead, ...firstRun, ...variants },
 });

@@ -104,8 +104,12 @@ up=$(( $(date +%s) - start ))
 
 only_args=()
 for id in "${onlys[@]}"; do only_args+=(--only-testing "$id"); done
+# A UI test target (Target ending UITests, e.g. CmuxMobileAppUITests) needs agent-sim's UI runner mode.
+ui_args=()
+for id in "${onlys[@]}"; do [[ "${id%%/*}" == *UITests ]] && ui_args=(--ui); done
 rc=0
-agent-sim test --xctestrun "$run" --platform "$work/plat" "${only_args[@]}" \
+# pool up 1 makes the phone pool1 and agent-sim's default device is p, so the run names pool1.
+agent-sim -d pool1 test --xctestrun "$run" --platform "$work/plat" "${ui_args[@]}" "${only_args[@]}" \
   --junit "$out/junit.xml" --timeout "$timeout" 2>&1 | tee -a "$log" || rc=${PIPESTATUS[0]}
 total=$(( $(date +%s) - start ))
 

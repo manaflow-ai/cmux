@@ -19,6 +19,26 @@ export type HybridView = {
   total: number;
 };
 
+/// Why the control cannot change the chat's place now (a first run's cases). The app decides which
+/// applies (cmux-cloud-start-core: the account, the plan, `Admit::NoCloud`, the connection, the
+/// last move); the control only names it and hands a click back.
+export type HybridBlockedWhy =
+  | "signed-out"
+  | "no-plan"
+  | "no-cloud"
+  | "hours-spent"
+  | "trial-ended"
+  | "offline"
+  | "move-failed"
+  /// The chat paused because this Mac slept; a click turns on Keep Running instead.
+  | "slept"
+  /// Cloud's free trials are full for today.
+  | "trial-full";
+export type HybridBlocked = { why: HybridBlockedWhy };
+
+/// A chat that holds one of the plan's slots (priority.rs `Holder`, from `Admit::Full { holders }`).
+export type SlotHolder = { session: string; title: string };
+
 /// The toggle's "on" look. `rainbow`: Leo's rainbow cloud. `sky`: one accent fill. `aurora`: a quiet
 /// cloud over a soft rainbow halo.
 export type HybridLook = "rainbow" | "sky" | "aurora";

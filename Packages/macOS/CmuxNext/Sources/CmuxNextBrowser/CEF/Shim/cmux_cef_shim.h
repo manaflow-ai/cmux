@@ -196,6 +196,12 @@ typedef enum {
   // shim turns Chrome's own status bubble off (chrome_status_bubble), so the
   // host draws this inside the tab's pane.
   CMUX_SHIM_STATUS_MESSAGE = 51,
+  // A server answered 401 and Chromium asks for a user name and password
+  // (CefRequestHandler::GetAuthCredentials; a proxy's challenge keeps
+  // Chromium's default). request = the token, a = 1 when the page is https,
+  // s1 = the host (host:port when not the default port), s2 = the realm.
+  // Chromium waits for cmux_shim_auth_continue.
+  CMUX_SHIM_AUTH_PROMPT = 52,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -686,6 +692,9 @@ CMUX_SHIM_EXPORT int cmux_shim_download_control(int download_id, int command);
 // it unanswered (no dismissal is recorded; Chromium ends it with the page).
 // Returns 0 when the prompt is not waiting.
 CMUX_SHIM_EXPORT int cmux_shim_permission_continue(int prompt_token, int result);
+// Answers AUTH_PROMPT (token): a non-NULL user continues with user and password;
+// NULL cancels (the server's 401 page loads). Returns 0 when it is not waiting.
+CMUX_SHIM_EXPORT int cmux_shim_auth_continue(int token, const char* user, const char* password);
 
 // Shutdown ordering (fork API v2).
 CMUX_SHIM_EXPORT void cmux_shim_close_all(void);

@@ -117,6 +117,7 @@
         "sidebar.side",
         "sidebar.look",
         "sidebar.style",
+        "appearance.metrics.spaceButtonSpacing",
         "sidebar.drawnMenus",
         "sidebar.spacesPosition",
         "sidebar.spacesVisibility",
@@ -301,6 +302,7 @@
         "appearance.backgroundBlur",
         "appearance.inactiveWindowDim",
         "appearance.wallpaperTint",
+        "appearance.wallpaperLighting",
         "appearance.liveWallpaperFrameRate",
         "appearance.terminalCellBackgrounds",
         "appearance.background",
@@ -330,6 +332,8 @@
         "ui.reducedBackgrounds",
         "appearance.agentGlow",
         "appearance.experimentalControls",
+        "appearance.glassControls",
+        "appearance.settingsBetaChips",
         "app.uiScale",
         "appearance.glassTransparency",
         "appearance.hue",
@@ -527,7 +531,9 @@
       "agent": "settable",
       "keys": [
         "labs.previewFeatures",
-        "labs.appStore"
+        "labs.appStore",
+        "labs.commentThreads",
+        "labs.previousBuild"
       ]
     },
     {
@@ -545,6 +551,8 @@
         "experiments.appFontChrome",
         "experiments.composerButtonsVisible",
         "experiments.composerV2",
+        "experiments.paletteV2",
+        "experiments.palettePreview",
         "experiments.hoverLook",
         "experiments.seeThroughDock",
         "experiments.attachmentTypeIcons",
@@ -554,13 +562,18 @@
         "experiments.terminalAgentMark",
         "experiments.menuStyleV2",
         "experiments.menuRowStates",
+        "experiments.composerHatGroups",
         "experiments.toastsV2",
+        "experiments.toastGlass",
         "experiments.foldSummaryCounts",
+        "experiments.cloudDiskBar",
         "experiments.terminalHistoryFind",
+        "experiments.themedPrompts",
         "experiments.terminalHistory",
         "experiments.quietConnect",
         "experiments.threadMinimapRestReveal",
-        "experiments.forum"
+        "experiments.forum",
+        "experiments.browserProfileCard"
       ]
     },
     {
@@ -725,6 +738,7 @@
         "notifications.sounds.events.bell",
         "notifications.sounds.events.message",
         "notifications.sounds.volume",
+        "notifications.sounds.maxSeconds",
         "notifications.sounds.when",
         "notifications.sounds.cooldownSeconds",
         "notifications.sounds.workspaces",
@@ -863,6 +877,7 @@
         "agentPane.display.width",
         "agentPane.display.fullWidth",
         "agentPane.display.vscodeMinimap",
+        "agentPane.display.chatListStatusPills",
         "agentPane.display.headerBreadcrumb",
         "agentPane.display.pinnedPlan",
         "agentPane.display.environmentCard",
@@ -1008,7 +1023,8 @@
         "agentPane.spellChecking",
         "agentPane.composerVimKeys",
         "agentPane.attachmentView",
-        "agentPane.showMachineLoadWarnings"
+        "agentPane.showMachineLoadWarnings",
+        "developerTools.overloadNotice"
       ]
     },
     {
@@ -1021,6 +1037,29 @@
         "home.bubbleColors.sentText",
         "home.bubbleColors.received",
         "home.bubbleColors.receivedText"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Menu and popover look (theme files and look packs set them); looks only, ends no work.",
+      "keys": [
+        "appearance.menu.cornerRadius",
+        "appearance.menu.borderOpacity",
+        "appearance.menu.shadow",
+        "appearance.menu.fill",
+        "appearance.menu.padding",
+        "appearance.menu.highlightRadius",
+        "appearance.menu.rowHeight",
+        "appearance.menu.shortcuts",
+        "appearance.menu.sectionLabel",
+        "appearance.menu.separator",
+        "appearance.menu.destructiveInk",
+        "appearance.menu.submenu",
+        "appearance.menu.subtitle",
+        "appearance.popover.padding",
+        "appearance.popover.header",
+        "appearance.popover.progressHeight",
+        "appearance.popover.progressFill"
       ]
     },
     {
