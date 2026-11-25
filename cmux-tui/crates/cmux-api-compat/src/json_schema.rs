@@ -119,11 +119,12 @@ pub fn surface_from_json_schema_ir(ir: &Value) -> Surface {
         let result = method.get("result").map(root);
         match kind {
             "request" => {
-                let mut command = json!({ "request": params });
+                let mut command = Map::new();
+                command.insert("request".to_owned(), params);
                 if let Some(result) = result {
-                    command["result"] = result;
+                    command.insert("result".to_owned(), result);
                 }
-                commands.insert(name.to_owned(), command);
+                commands.insert(name.to_owned(), Value::Object(command));
             }
             "client_notification" => {
                 commands.insert(name.to_owned(), json!({ "request": params }));
