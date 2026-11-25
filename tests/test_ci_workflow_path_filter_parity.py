@@ -21,6 +21,10 @@ WORKFLOWS = ROOT / ".github/workflows"
 # a maintainer has chosen the divergence; an entry that is no longer needed is an
 # error, so a synced workflow cannot keep a stale exemption.
 EXEMPTIONS: dict[str, str] = {
+    "cloud-journey-pr.yml": "push runs only the `seed` job, keyed on Cargo.lock and the toolchain (its R2 "
+    "dependency cache); pull requests run the journey on the CLI and journey paths",
+    "gallery-advisory.yml": "push records the base gallery receipt for every web change; pull requests run only "
+    "for the kit, ui and shared-density paths the advisory pictures (#48517)",
     "web-complexity.yml": "pull requests must not self-queue the contributor-side candidate job",
     # Pushes run only on codex/vm-api-cloud-* work branches and take backend/**
     # whole, which contains each backend path the pull_request list names.
