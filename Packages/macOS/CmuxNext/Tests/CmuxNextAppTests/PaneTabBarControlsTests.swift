@@ -13,7 +13,7 @@ import Testing
 
 /// Leo 2026-10-28: "WHY WAS THIS NEW TAB BUTTON CHANGED TO BE A DROPDOWN????????????????" Every
 /// tab-strip + is a plain one-click action; the chooser remains on hold/right-click. The pane top bar
-/// keeps only "⋮", whose menu holds the creation rows.
+/// has no creation buttons and no "⋮" (https://github.com/manaflow-ai/cmux/issues/53356).
 /// Leo's "+ (v)" adds a separate pane-type chooser beside the pane's + without changing that plain-plus action.
 @MainActor @Suite(.closesItsWindows, .serialized) struct PaneTabBarControlsTests {
     private static func tree(_ surfaces: [UInt64]) -> DaemonTree {
@@ -27,18 +27,19 @@ import Testing
         return try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
     }
 
-    @Test func theTopBarOffersNoCreationButtonsOnlyItsMoreMenu() {
+    @Test func theTopBarOffersNoCreationButtonsAndNoMoreMenu() {
         let registry = ActionRegistry.standard()
-        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { nil }, paneTarget: ActionTargetRef(kind: .pane, id: "sample-pane"))
+        let toolbar = PaneToolbar(registry: { registry }, paneTarget: ActionTargetRef(kind: .pane, id: "sample-pane"))
         toolbar.update(target: "sample-terminal", kind: .terminal)
-        #expect(toolbar.view.items.isEmpty, "the terminal and browser buttons repeat the + menu, which the ⋮ menu holds")
+        #expect(toolbar.view.items.isEmpty, "the terminal and browser buttons repeat the + menu")
         #expect(toolbar.view.buttons.isEmpty)
-        #expect(toolbar.view.hasMore, "the ⋮ stays for the pane's actions")
+        #expect(!toolbar.view.subviews.contains { $0 is OverflowButton }, "no ⋮ (#53356)")
     }
 
     /// Relaunch (Leo 2026-11-04: "too many layout shifts/flicker renderings"): a restored pane's toolbar was empty at its
     /// first layout (its items came on the observation's first turn), so the first frame gave the tab strip the whole
-    /// row and the next one took 27 pt back. The toolbar has its items, and its width, before any run-loop turn.
+    /// row and the next one took 27 pt back. The toolbar has its items, and its width, before any run-loop turn. With
+    /// nothing pinned that width is none: the bar has no ⋮ to keep room for (#53356), so no gap stays at the row's end.
     @Test func thePaneToolbarHasItsWidthBeforeTheFirstLayout() throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
@@ -50,7 +51,8 @@ import Testing
         let pane = PaneController(pane: model, daemon: services.daemon, layoutPaneID: LayoutPaneID(model.id), services: services, state: WindowState(record: record))
         defer { pane.teardown() }
         let toolbar = PaneToolbar(pane: pane) // no await: what the pane's first layout sees
-        #expect(toolbar.view.intrinsicContentSize.width > 0, "the toolbar reserves its slot before the first layout")
+        #expect(toolbar.view.intrinsicContentSize.width == 0, "nothing pinned: no ⋮ and no room kept for one")
+        #expect(!toolbar.view.subviews.contains { $0 is OverflowButton })
     }
 
     @Test func thePaneStripPlusIsAPlainButtonWithoutATypeMenuOnPress() throws {
@@ -187,16 +189,24 @@ import Testing
         #expect(bar.newTabToolTip == nil, "the + makes a screen, not a tab: no tab tooltip")
     }
 
-    @Test func pressingThePlainPlusChangesItsGlyphEvenWhenHovered() throws {
+    @Test(arguments: [false, true])
+    func theNewTabGlyphKeepsItsWeightDuringInteraction(showsChevron: Bool) throws {
         let plus = NewTabButtonView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
-        plus.isHovered = true
+        plus.showsChevron = showsChevron
+        plus.layoutSubtreeIfNeeded()
         let glyph = try #require(plus.layer?.sublayers?.compactMap { $0 as? CAShapeLayer }.first)
-        let hoverWidth = glyph.lineWidth
-        plus.isPressed = true
-        #expect(glyph.lineWidth > hoverWidth, "a press is visible even after hover brightens the glyph")
-        #expect(plus.layer?.sublayers?.first?.backgroundColor == nil, "a press adds no plate")
-        plus.isPressed = false
-        #expect(glyph.lineWidth == hoverWidth, "release restores the hover glyph")
+        let restingWidth = glyph.lineWidth
+        for hovered in [false, true] {
+            plus.isHovered = hovered
+            #expect(glyph.lineWidth == restingWidth, "hovering keeps the glyph weight")
+            plus.isPressed = true
+            #expect(glyph.lineWidth == restingWidth, "pressing keeps the glyph weight")
+            plus.isMenuOpen = true
+            plus.isPressed = false
+            #expect(glyph.lineWidth == restingWidth, "an open menu keeps the glyph weight after release")
+            plus.isMenuOpen = false
+            #expect(glyph.lineWidth == restingWidth, "closing the menu keeps the glyph weight")
+        }
     }
 
     @Test func theSidebarWorkspacePlusIsPlainAndItsNeighborOwnsTheChooser() {

@@ -11,7 +11,8 @@
 #             checkout's scripts/cmux-next/cef-manifest.json pins (this Mac's arch)
 #   SOURCES   sha256:<hex> of the test-source archive (below)
 #   FORK_REF  the 40-hex fork commit the archive was made from (its REF file)
-#   CASE      default: all 12
+#   CASE      default: all 12; preload157-omnibox and preload157-net (fork API 33) and
+#             passkey157-profile-ui (UI-thread gap while a profile is created, hq#11649) run only when named
 #
 # Both archives come from the controller store by sha256 and are checked
 # before use; the host holds no credential. The fork is private, so the
@@ -47,10 +48,13 @@ usage() { sed -n '2,42p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
 (( $# >= 3 )) || usage
 PACKAGE="$1" SOURCES="$2" FORK_REF="$3"; shift 3
 ALL=(signals slow-teardown duplicate zoom-bubble bookmark-bubble window-close move-parent transparent pref-control opaque-webauthn passkeys password-core)
+# Named only (fork API 33, omnibox preloading; preload157-net loads real sites; passkey157-profile-ui
+# is a measurement whose source exists only in forks with it): not in the default run.
+NAMED_ONLY=(preload157-omnibox preload157-net passkey157-profile-ui)
 cases=("$@")
 die() { echo "cmux-embedder: error: $*" >&2; exit 2; }
 (( ${#cases[@]} )) || cases=("${ALL[@]}")
-for c in "${cases[@]}"; do [[ " ${ALL[*]} " == *" $c "* ]] || die "unknown case $c"; done
+for c in "${cases[@]}"; do [[ " ${ALL[*]} ${NAMED_ONLY[*]} " == *" $c "* ]] || die "unknown case $c"; done
 [[ "$SOURCES" =~ ^sha256:[0-9a-f]{64}$ ]] || die "SOURCES must be sha256:<64 hex>"
 [[ "$FORK_REF" =~ ^[0-9a-f]{40}$ ]] || die "FORK_REF must be a 40-hex commit"
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -68,7 +72,9 @@ PY
 fi
 [[ "$PACKAGE" =~ ^sha256:[0-9a-f]{64}$ ]] || die "PACKAGE must be sha256:<64 hex> or a pinned cef release tag"
 
-WORK="${CMUX_EMBEDDER_WORK:-${CI_JOB_DIR:-${TMPDIR:-/tmp}}/cef-embedder}"
+# TMPDIR first: on a lent worker steps/<id> (CI_JOB_DIR) stays root's 0711 and only
+# its subdirectories, TMPDIR among them, are the build user's, which a gui-session-v1 step runs as.
+WORK="${CMUX_EMBEDDER_WORK:-${TMPDIR:-${CI_JOB_DIR:-/tmp}}/cef-embedder}"
 rm -rf "$WORK"; mkdir -p "$WORK/in" "$WORK/cef" "$WORK/run"
 CONTROLLER="${CMUX_CI_CONTROLLER:-http://100.89.225.106:18765}"
 
@@ -87,7 +93,7 @@ fetch() { # fetch <sha256:hex> <dest>: from the controller store (or a local tes
 }
 fetch "$PACKAGE" "$WORK/in/package.tar.xz"
 fetch "$SOURCES" "$WORK/in/sources.tar.gz"
-tar -C "$WORK/cef" -xJf "$WORK/in/package.tar.xz"
+tar -C "$WORK/cef" -xf "$WORK/in/package.tar.xz"  # a release .tar.xz or a fleet build's plain cef.tar
 tar -C "$WORK" -xzf "$WORK/in/sources.tar.gz"
 [[ "$(tr -d '[:space:]' <"$WORK/src/REF" 2>/dev/null)" == "$FORK_REF" ]] ||
   die "the test-source archive's REF is $(tr -d '[:space:]' <"$WORK/src/REF" 2>/dev/null || echo missing), not $FORK_REF"

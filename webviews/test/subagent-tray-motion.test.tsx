@@ -8,6 +8,7 @@
 // - with no motion (no Web Animations, Reduce Motion) every change applies at once.
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { MOTION_SETTLE_MS } from "../src/motion/scale.generated";
 import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=host><div id=root></div></div>", {
@@ -84,7 +85,7 @@ Object.defineProperty(proto, "clientHeight", { configurable: true, get: () => 30
 const computed = dom.window.getComputedStyle.bind(dom.window);
 dom.window.getComputedStyle = ((node: Element) =>
   node.classList.contains("acpmux-running-tray--ghost")
-    ? ({ animationName: "acpmux-tray-leave", animationDuration: "0.18s" } as CSSStyleDeclaration)
+    ? ({ animationName: "acpmux-tray-leave", animationDuration: `${MOTION_SETTLE_MS / 1000}s` } as CSSStyleDeclaration)
     : computed(node)) as typeof dom.window.getComputedStyle;
 
 const { act, createElement } = await import("react");
@@ -515,19 +516,22 @@ describe("subagent tray motion edges", () => {
     motion(true);
     const shown = { current: "chat-a" as string | undefined };
     const { root } = mount();
+    // The page's motion tokens keep one listener of their own (ui/motion/motionTokens.ts), once a
+    // label has asked how it may move.
+    const page = reduceListeners.size;
     await draw(root, shown, [item("A")], true);
-    expect(reduceListeners.size).toBe(1);
+    expect(reduceListeners.size).toBe(page + 1);
     setReduce(true);
     expect(card()!.hasAttribute(TRAY_ENTER_ATTR)).toBe(false);
     setReduce(false);
     await draw(root, shown, [], false);
-    expect(reduceListeners.size).toBe(0);
+    expect(reduceListeners.size).toBe(page);
     expect(ghosts()).toBe(1);
     // A card coming back drops the copy at once.
     await draw(root, shown, [item("B")], false);
     expect(ghosts()).toBe(0);
     await act(async () => root.unmount());
-    expect(reduceListeners.size).toBe(0);
+    expect(reduceListeners.size).toBe(page);
   });
 });
 

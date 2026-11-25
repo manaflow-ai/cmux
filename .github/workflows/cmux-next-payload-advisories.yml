@@ -1,0 +1,97 @@
+name: cmux-next payload advisories
+
+# Fails (a red run, an error annotation and one issue) when a pinned third-party payload that
+# cmux-next ships sits inside a published upstream security advisory
+# (scripts/cmux-next/payload_advisories.py; today the built-in uBlock Origin). A pin moves only when
+# someone moves it, so a security release upstream never reaches cmux by itself: uBlock Origin
+# 1.75.0 stayed pinned after GHSA-cmqw-9r2w-6wv2 (element picker universal XSS, fixed in 1.75.4).
+# No secrets beyond the job token, no builds.
+#
+# On feat-cmux-next it keeps ONE open issue with the label payload-advisory up to date (the body is
+# replaced) and closes it on the first run that finds every pin clear again. The fix is a new pin in
+# the file the report names, never a change here. A run that cannot read an advisory list is no
+# verdict: a notice, no issue change.
+
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - scripts/cmux-next/fetch-ublock.sh
+      - scripts/cmux-next/ext-store/extensions.json
+      - scripts/cmux-next/payload_advisories.py
+      - .github/workflows/cmux-next-payload-advisories.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-next-payload-advisories-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  advisories:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Compare pinned payloads with upstream security advisories
+        id: advisories
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -o pipefail
+          set +e
+          python3 -I scripts/cmux-next/payload_advisories.py | tee "$RUNNER_TEMP/payload-advisories.txt"
+          code=$?
+          set -e
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          report=$(tr '\n' ' ' < "$RUNNER_TEMP/payload-advisories.txt")
+          case "$code" in
+            0) ;;
+            1) echo "::error title=Pinned payload behind a security fix::$report" ;;
+            *) echo "::notice title=Payload advisories: no verdict::$report" ;;
+          esac
+      - name: Open, update, or close the payload-advisory issue
+        if: github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' && steps.advisories.outputs.code != '3'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          CODE: ${{ steps.advisories.outputs.code }}
+          HEAD_SHA: ${{ github.sha }}
+          REPORT: ${{ runner.temp }}/payload-advisories.txt
+        with:
+          script: |
+            const fs = require('fs');
+            const { owner, repo } = context.repo;
+            const label = 'payload-advisory';
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const report = fs.existsSync(process.env.REPORT) ? fs.readFileSync(process.env.REPORT, 'utf8').trim() : '(no report)';
+            const open = await github.rest.issues.listForRepo({ owner, repo, labels: label, state: 'open', per_page: 1 });
+            if (process.env.CODE === '0') {
+              if (open.data.length > 0) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: open.data[0].number, body: `Every pinned payload is outside every published advisory again at ${process.env.HEAD_SHA} (${runUrl}):\n\n${report}` });
+                await github.rest.issues.update({ owner, repo, issue_number: open.data[0].number, state: 'closed' });
+              }
+              return;
+            }
+            const body = `${report}\n\nSeen at ${process.env.HEAD_SHA} (${runUrl}).\n\nFix: move the pin in the file the report names to the newest upstream release that carries the fix, with its new digests and the notices that name the version (for uBlock Origin: scripts/cmux-next/fetch-ublock.sh, CEFBuiltInExtensions.swift's manifest pin, THIRD_PARTY_LICENSES.md and scripts/cmux-next/notices/hand-written.md; scripts/cmux-next/tests/ublock-pin.test.sh checks they agree). This issue is updated in place and closes itself on the first run that finds every pin clear.`;
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: label });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.issues.createLabel({ owner, repo, name: label, color: 'b60205', description: 'cmux-next pins a third-party payload inside a published security advisory' });
+            }
+            if (open.data.length > 0) await github.rest.issues.update({ owner, repo, issue_number: open.data[0].number, body });
+            else await github.rest.issues.create({ owner, repo, title: 'cmux-next pins a third-party payload behind a security fix', labels: [label], body });
+      - name: Fail when a pin is behind a security fix
+        if: steps.advisories.outputs.code == '1'
+        run: exit 1

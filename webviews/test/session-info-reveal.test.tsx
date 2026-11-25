@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture commands and chat titles, not shipped UI.
-// The running line's counts, and a tray command with no terminal, open Session Info at the section
-// that lists what they count (App.tsx `openCommands` and `openTrayCommand`, through processes.ts
+// A tray command with no terminal opens Session Info at the section that lists it (App.tsx
+// `openTrayCommand`, through processes.ts
 // `backgroundSection`): Background tasks while any command runs, a dev server included (its rows head
 // that section), and Subagents when only subagents or started chats run. The section is always one
 // Session Info draws. A reveal scrolls to its section once: reopening Session Info
@@ -9,24 +9,29 @@ import { afterEach, expect, test } from "bun:test";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
-import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTools";
-import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
-import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
-import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
-import { resetSessionInfoState, setSessionInfoOpen } from "../src/agent-session/acpmux/session-info/sessionInfoState";
-import {
-  backgroundCommands,
-  backgroundSection,
-  processesOf,
-  type SessionInfoProcess,
-} from "../src/agent-session/acpmux/session-info/processes";
+import type { SessionInfoProcess } from "../src/agent-session/acpmux/session-info/processes";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
-import { openPicker } from "../src/agent-session/acpmux/pickerOpeners";
 import type { StartedSession } from "../src/agent-session/acpmux/started/startedSessions";
 import type { SummaryBackgroundTask } from "../src/agent-session/acpmux/summary/sessionSummary";
-import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { setChatDisplay } = await importWithDom(() => import("../src/agent-session/acpmux/chatDisplay"));
+const { ChatHeaderTools } = await importWithDom(() => import("../src/agent-session/acpmux/header/ChatHeaderTools"));
+const { setHeaderState } = await importWithDom(() => import("../src/agent-session/acpmux/header/headerState"));
+const { SessionInfo } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/SessionInfo"));
+const { useSessionInfo } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/useSessionInfo"));
+const { resetSessionInfoState, setSessionInfoOpen } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/sessionInfoState"),
+);
+const { backgroundCommands, backgroundSection, processesOf } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/processes"),
+);
+const { openPicker } = await importWithDom(() => import("../src/agent-session/acpmux/pickerOpeners"));
+const { activity, assistant, chat, tool } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const { SESSION_INFO } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/sessionInfoSelectors"),
+);
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -217,9 +222,9 @@ test("a reveal scrolls to its section once; the palette or another pane reopenin
   expect(scrolled).toEqual(["outputs"]);
   // Closed (another pane's toggle), then opened from the palette: Session Info mounts again.
   await act(async () => setSessionInfoOpen(false));
-  expect(container.querySelector("aside.acpmux-session-info")).toBeNull();
+  expect(container.querySelector(SESSION_INFO)).toBeNull();
   await act(async () => void openPicker("Session Info"));
-  expect(container.querySelector("aside.acpmux-session-info")).not.toBeNull();
+  expect(container.querySelector(SESSION_INFO)).not.toBeNull();
   // Opened again by another pane's change.
   await act(async () => setSessionInfoOpen(false));
   await act(async () => setSessionInfoOpen(true));

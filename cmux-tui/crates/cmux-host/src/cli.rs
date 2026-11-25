@@ -12,6 +12,8 @@
 //!   (`updater`); the `updater` role runs it by itself.
 //! - `cloud daemon-info | probe-activity`: bake and smoke evidence for the
 //!   Cloud agent role (the daemon block bind sends; the activity stream).
+//! - `cloud drop-page-cache [--deadline-ms N]`: sync, then drop the clean page
+//!   cache by a deadline; the platform runs it right before a pause.
 //!
 //! Exit codes follow `cmux server`: 0 ok, 1 internal, 2 usage, 3 not
 //! found, 4 rejected (unsupported platform).
@@ -27,7 +29,7 @@ use crate::config::{Config, Paths, STATUS_FILE};
 use crate::proc_roles::RolePaths;
 use crate::status;
 
-const USAGE: &str = "usage: cmux host run [--roles-only] [--mode user|system] | status [--json] [--root DIR] | roles [--json] | logs <role> [--bytes N] | cloud daemon-info|probe-activity|clone-mark [--root DIR] | cloud identity | cloud carrier-ticket | update status|check [--skip-resume-hold]|guard --to N | team-ssh apply|accounts-apply|principals <user>|session-open|reap|sync [--root DIR] | team restricted-shell|whoami | team-enroll --team T --epoch E --nonce N | --commit …";
+const USAGE: &str = "usage: cmux host run [--roles-only] [--mode user|system] | status [--json] [--root DIR] | roles [--json] | logs <role> [--bytes N] | cloud daemon-info|probe-activity|clone-mark [--root DIR] | cloud identity | cloud carrier-ticket | cloud drop-page-cache [--deadline-ms N] | update status|check [--skip-resume-hold]|guard --to N | team-ssh apply|accounts-apply|principals <user>|session-open|reap|sync [--root DIR] | team restricted-shell|whoami | team-enroll --team T --epoch E --nonce N | git-cache serve|credential | --commit …";
 
 fn code(n: u8) -> u8 {
     n
@@ -150,6 +152,7 @@ pub fn run(args: &[String], self_argv: Vec<String>) -> u8 {
         "team-ssh" => crate::team_ssh::cli::run(rest),
         "team" => crate::team_ssh::team_cli::run(rest),
         "team-enroll" => crate::team_ssh::enroll::run(rest),
+        "git-cache" => cmux_git_cache::cli::run(rest),
         "--help" | "-h" | "help" => {
             println!("{USAGE}");
             code(0)
@@ -314,6 +317,18 @@ fn logs_verb(args: &[String]) -> u8 {
 #[cfg(target_os = "linux")]
 fn run_agent(mut cfg: Config) -> u8 {
     use crate::agent::{ActionLog, Agent};
+    // A machine an image made takes the channel's build first, within a bound, so
+    // its first Cloud report (ready) and its session host come from that build: before
+    // anything starts. After a flip this execs the unit's command and never returns.
+    if !crate::updater::first_ready::run(&cfg.paths) {
+        return code(1);
+    }
+    // A machine whose image predates git and gh with the cmux GitHub App, updated in place,
+    // gets that wiring now (github_wiring.rs); never fatal.
+    // SAFETY: geteuid has no preconditions.
+    if cfg.paths.is_system_root() && unsafe { libc::geteuid() } == 0 {
+        crate::github_wiring::ensure(&cfg.paths);
+    }
     // Without a layout the agent still binds and supervises; roles only
     // report the error.
     let install = install_layout(cfg.server_mode);
@@ -337,6 +352,12 @@ fn run_agent(mut cfg: Config) -> u8 {
             home: u.home,
         }
     });
+    // The machine's git cache: an agent's plain `git clone https://github.com/...` is served
+    // from this machine's mirror (git_cache.rs); never fatal, and git goes direct without it.
+    // SAFETY: geteuid has no preconditions.
+    if cfg.paths.is_system_root() && unsafe { libc::geteuid() } == 0 {
+        crate::git_cache::start(&cfg.self_argv, None, work_user.clone());
+    }
     // The Cloud agent role binds a cmux Cloud machine; it does nothing until
     // the driver writes bind.json (or bound.json exists from a past bind).
     // Creating the channel opens descriptors only. LinuxPlatform must block
@@ -357,11 +378,19 @@ fn run_agent(mut cfg: Config) -> u8 {
     // operator's `cmux host update check` or the guard queued is done, so the
     // Cloud role's binds may go out again (updater/gate.rs). Before any role
     // starts, so before the first bind.
-    if cfg.paths.is_system_root() {
-        crate::updater::gate::Gate::new(&cfg.paths).service_started();
-    }
+    // When this start is that queued restart, the Cloud role reports the machine degraded
+    // until the restarted session host answers (cloud/session.rs `Session::after_restart`).
+    // A gate that fails here leaves binds waiting for it (they retry).
+    let restarted = cfg.paths.is_system_root()
+        && crate::updater::gate::Gate::new(&cfg.paths)
+            .service_started_at(crate::cloud::role::wall_ms())
+            .unwrap_or_else(|e| {
+                eprintln!("cmux host: the restart gate failed at start ({e}); binds wait for it");
+                false
+            });
     let cloud = crate::cloud::role::CloudRole::new(cfg.paths.clone())
-        .with_root_bootstrap(bootstrap.clone());
+        .with_root_bootstrap(bootstrap.clone())
+        .after_queued_restart(restarted);
     // The updater is last: it starts once every other role runs, and it
     // stops first.
     let updater = crate::updater::role::UpdaterRole::new(cfg.paths.clone());
@@ -434,6 +463,22 @@ fn cloud_verb(args: &[String]) -> u8 {
     if args == ["carrier-ticket"] {
         return carrier_ticket();
     }
+    // The platform's pre-pause step (`cloud/page_cache.rs`): sync and drop the clean page cache, by a deadline.
+    if let Some(("drop-page-cache", rest)) = args.split_first().map(|(v, r)| (v.as_str(), r)) {
+        return match crate::cloud::page_cache::parse_deadline(rest) {
+            Ok(deadline) => {
+                let proc = crate::cloud::page_cache::Proc::system();
+                let answer = crate::cloud::page_cache::drop_page_cache(
+                    &proc,
+                    crate::cloud::page_cache::sync_all,
+                    deadline,
+                );
+                println!("{answer}");
+                code(0)
+            }
+            Err(e) => usage(&e),
+        };
+    }
     let (paths, rest) = match root_arg(args) {
         Ok(v) => v,
         Err(e) => return usage(&e),
@@ -445,7 +490,7 @@ fn cloud_verb(args: &[String]) -> u8 {
         [verb] if verb == "clone-mark" => clone_mark(&paths),
         _ => {
             return usage(
-                "cloud takes daemon-info, probe-activity, clone-mark, or identity or carrier-ticket (both without --root)",
+                "cloud takes daemon-info, probe-activity, clone-mark, or identity, carrier-ticket or drop-page-cache [--deadline-ms N] (without --root)",
             );
         }
     };

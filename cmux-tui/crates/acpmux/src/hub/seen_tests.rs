@@ -121,6 +121,33 @@ async fn coming_back_while_background_work_runs_tells_every_client_the_count_cle
     assert_eq!(s.meta().unread_turns, 0);
 }
 
+/// `_acpmux/markRead` (cmux's `chat.mark_read`): clears the dot and the count and tells every
+/// client, but moves no "where they left off" mark, since nobody looked.
+#[tokio::test]
+async fn marking_read_clears_the_dot_and_count_without_moving_the_mark() {
+    let (hub, s) = chat().await;
+    hub.attach_count(&s, 1, true);
+    let left_at = s.seq.load(Ordering::SeqCst);
+    hub.attach_count(&s, -1, true);
+    hub.mark_unread_unless_work_below(&s);
+    hub.mark_unread_unless_work_below(&s);
+    assert!(s.meta().unread);
+
+    hub.mark_read_answered(&s).expect("marked read");
+    let meta = s.meta();
+    assert!(!meta.unread);
+    assert_eq!(meta.unread_turns, 0);
+    assert_eq!(meta.seen_seq, Some(left_at), "nobody looked: the mark stays");
+    assert_eq!(meta.last_return, None);
+    let read = last_read(&hub, &s).expect("every client hears it");
+    assert_eq!((read["since"].clone(), read["turns"].clone()), (Value::Null, json!(2)));
+
+    // Read already: no new record.
+    let before = s.seq.load(Ordering::SeqCst);
+    hub.mark_read_answered(&s).expect("still fine");
+    assert_eq!(s.seq.load(Ordering::SeqCst), before);
+}
+
 // Showing is not seeing (Leo, 2026-11-11): a chat left on screen while the person is away keeps
 // its turns unread, and their return says where they stopped attending.
 
@@ -210,7 +237,7 @@ async fn coming_back_from_idle_mid_turn_counts_what_the_running_turn_wrote() {
     hub.attach_count(&s, 1, true);
     let last_input = s.seq.load(Ordering::SeqCst);
     hub.look_changed(&s, Look::Attending, Look::Idle, Some(last_input));
-    hub.set_status(&s, SessionStatus::Running);
+    hub.set_status(&s, NotWaiting::Running);
     hub.append(&s, "mux", "note", json!({"seen": false}));
     let back = hub.look_changed(&s, Look::Idle, Look::Attending, None);
     assert_eq!(back.map(|b| b.since), Some(last_input), "the output written while away is new");
@@ -332,4 +359,29 @@ async fn the_cursor_survives_a_restart_of_the_daemon() {
     assert_eq!(restarted.read_through(&s, OWNER_READER), Some(seen));
     assert_eq!(restarted.read_through(&s, ALICE), Some(seen - 1));
     restarted.shutdown_all().await;
+}
+
+/// An idle daemon writes nothing (idle-gpu-disk): a seen cursor set to where it is, read state
+/// set to what it is, saves nothing (each metadata commit bumps the chat's `summary_gen`).
+#[tokio::test]
+async fn seen_state_set_to_what_it_is_saves_once() {
+    let (hub, s) = chat().await;
+    let end = notes(&hub, &s, 3);
+    let saves = || s.summary_gen.load(Ordering::SeqCst);
+    let before = saves();
+    assert_eq!(hub.mark_read_through(&s, OWNER_READER, end), end);
+    assert!(saves() > before, "the first move saves");
+    let before = saves();
+    assert_eq!(hub.mark_read_through(&s, OWNER_READER, end), end);
+    assert_eq!(hub.mark_read_back(&s, OWNER_READER, end), end);
+    assert_eq!(saves(), before, "the cursor set where it is saved");
+
+    hub.mark_unread_answered(&s).expect("marked unread");
+    let (before, seq) = (saves(), s.seq.load(Ordering::SeqCst));
+    hub.mark_unread_answered(&s).expect("still unread");
+    assert_eq!((saves(), s.seq.load(Ordering::SeqCst)), (before, seq), "unread again wrote");
+    hub.mark_read_answered(&s).expect("marked read");
+    let (before, seq) = (saves(), s.seq.load(Ordering::SeqCst));
+    hub.mark_read_answered(&s).expect("still read");
+    assert_eq!((saves(), s.seq.load(Ordering::SeqCst)), (before, seq), "read again wrote");
 }

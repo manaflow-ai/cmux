@@ -15,6 +15,13 @@ public nonisolated enum ActionCatalog {
     /// keep working.
     public static let legacyAliases: [ActionID: ActionID] = RustActionCatalog.shared.legacyAliases
 
+    /// Each catalog request row's daemon request, by id: the App sends it with no handler of its
+    /// own (`CatalogRequestHandlers`).
+    public static let requests: [ActionID: ActionCatalogRequest] = RustActionCatalog.shared.requests
+
+    /// The `op:` suggestion sources the catalog's arguments name, by source name.
+    public static let listSources: [String: ActionCatalogListSource] = RustActionCatalog.shared.listSources
+
     /// The descriptors one catalog group declares (`AppStoreActionCatalog`, ...), in catalog order.
     static func descriptors(inGroup group: String) -> [ActionDescriptor] {
         let groupOf = RustActionCatalog.shared.groupOf
@@ -36,6 +43,7 @@ nonisolated extension [ActionDescriptor] {
     }
 }
 
+#if canImport(AppKit)
 extension ActionRegistry {
     /// A registry seeded with the full cmux catalog and legacy aliases whose runs are not timed.
     ///
@@ -52,3 +60,4 @@ extension ActionRegistry {
         ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases, runTiming: runTiming)
     }
 }
+#endif

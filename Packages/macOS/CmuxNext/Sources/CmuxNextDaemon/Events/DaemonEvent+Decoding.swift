@@ -26,6 +26,7 @@ extension DaemonEvent {
                 return .unknown(name: name, payload: AgentInventoryProviderDemand.payload(line: line))
             case "agent-inventory-changed", "agent-inventory-watch-ended":
                 return .unknown(name: name, payload: AgentInventoryWatchEvent.decode(name: name, line: line)?.payload ?? .null)
+            case "screen-device-changed": return .screenDeviceChanged(try d(EventPayload.ScreenDeviceChanged.self).id)
             case "workspace-added": return .workspaceAdded(try d(WorkspaceDelta.self))
             case "workspace-closed": return .workspaceClosed(try d(WorkspaceDelta.self))
             case "workspace-renamed": return .workspaceRenamed(try d(WorkspaceDelta.self))
@@ -80,6 +81,8 @@ extension DaemonEvent {
                 return .historyChanged(revision: e.revision, kinds: e.kinds ?? [])
             case "keybindings-changed":
                 return .keybindingsChanged(revision: try d(EventPayload.KeybindingsChanged.self).revision)
+            case "agent-session-share-changed":
+                return .agentSessionShareChanged(session: try d(EventPayload.SessionField.self).session)
             case "conversation-changed": return .conversationChanged(try d(ConversationEvent.self))
             case "conversation-typing": return .conversationTyping(try d(ConversationTyping.self))
             case "conversation-draft": return .conversationDraft(try d(ConversationDraft.self))
@@ -117,6 +120,19 @@ extension DaemonEvent {
 
 /// Minimal payload shapes for events whose fields map onto enum cases.
 private enum EventPayload {
+    struct ScreenDeviceChanged: Decodable {
+        var id: String?
+        enum CodingKeys: String, CodingKey { case id = "screen_device_id" }
+        init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            let raw = try c.decode(String?.self, forKey: .id)
+            id = DaemonIdentity.normalizedScreenDeviceID(raw)
+            if raw != nil && id == nil {
+                throw DecodingError.dataCorruptedError(forKey: .id, in: c, debugDescription: "Screen device identity must be a UUID")
+            }
+        }
+    }
+
     struct HistoryChanged: Decodable {
         var revision: UInt64
         var kinds: [String]?
@@ -128,6 +144,10 @@ private enum EventPayload {
 
     struct KeybindingsChanged: Decodable {
         var revision: UInt64
+    }
+
+    struct SessionField: Decodable {
+        var session: String
     }
 
     struct BookmarksChanged: Decodable {

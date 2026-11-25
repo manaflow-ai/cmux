@@ -102,8 +102,6 @@ PAID_OVERFLOW_GATE_PREFIX = re.compile(
 GATE_EXEMPT_REPORTING_READS = {
     ("ci-health-report.yml", "CMUX_CI_RUNNER_VARIABLES"):
         "reports each runner variable's value; gating would report empty",
-    ("ci-repo-variables.yml", "CMUX_CI_RUNNER_VARIABLES"):
-        "validates each runner variable's value; gating would validate empty",
     ("ci-cloud-overflow-probe.yml", "CMUX_CI_RUNNER_VARIABLES"):
         "the overflow switch records each value to put back; gating would record empty",
 }
@@ -275,8 +273,14 @@ FORK_WRAP = re.compile(
     r" != github\.repository && ('[^']+') \|\| fromJSON\(vars\.RUNNER_POOLS\)\.[a-z0-9_]+\)")
 
 
+# The side lane's capability array read (tests/test_ci_side_lane_capability_labels.py). With its array unset it is
+# vars.CI_SIDE_LANE_RUNNER, so for an unset variable it falls back exactly as that one read does.
+SIDE_LANE_LABELS_READ = ("(vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || "
+                         "vars.CI_SIDE_LANE_RUNNER)")
+
+
 def fork_view(text: str) -> str:
-    return FORK_WRAP.sub(r"\1", text)
+    return FORK_WRAP.sub(r"\1", text.replace(SIDE_LANE_LABELS_READ, "vars.CI_SIDE_LANE_RUNNER"))
 
 
 def check_runs_on(path: Path, errors: list[str]) -> None:

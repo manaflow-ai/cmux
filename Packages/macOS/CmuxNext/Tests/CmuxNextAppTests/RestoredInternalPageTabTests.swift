@@ -58,22 +58,24 @@ struct RestoredInternalPageTabTests {
         #expect(TabTitleResolver(pages: pages).title(tab) == ChangelogPageStrings.title)
     }
 
-    /// Only the App Store is a Labs preview page; What's New is not (next test).
-    @Test func restoredPreviewPagesWaitForThePreviewSetting() throws {
-        let page = InternalPageID.appStore
+    /// The App Store is no Labs preview (Leo 2026-11-14): a restored App Store tab restores with
+    /// Labs off, like What's New (next test).
+    @Test func aRestoredAppStoreTabRestoresWithLabsOff() throws {
         let pages = InternalPageTabStore()
-        let provider = Page(page)
+        let provider = Page(.appStore)
         pages.register(provider)
-        let (store, tab) = try Self.restoredTab(page, route: "saved-route")
-        #expect(pages.view(forStoreTab: tab, in: store, local: true, window: nil) == nil)
-        let key = pages.open(page, in: "preview-pane", of: store)
-        #expect(pages.view(for: key) == nil)
-        #expect(provider.made == 0)
-        #expect(provider.restored.isEmpty)
+        let (store, tab) = try Self.restoredTab(.appStore, route: "saved-route")
+        // No window: no settings, so Labs reads off.
+        let view = try #require(pages.view(forStoreTab: tab, in: store, local: true, window: nil))
+        #expect(view.page == .appStore)
+        #expect(provider.restored.first?.route == "saved-route")
+        let key = pages.open(.appStore, in: "preview-pane", of: store)
+        #expect(pages.view(for: key) != nil)
+        #expect(provider.made == 2)
     }
 
     /// A restored What's New tab restores with Labs off: an update's See What's New opens it
-    /// (user 13935, Leo 2026-10-29), so the page is not held back like the App Store.
+    /// (user 13935, Leo 2026-10-29), so the page is not held back.
     @Test func aRestoredWhatsNewTabRestoresWithLabsOff() throws {
         let pages = InternalPageTabStore()
         let provider = Page(.changelog)

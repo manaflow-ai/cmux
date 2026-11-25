@@ -1,3 +1,4 @@
+import { StartRecovery } from "../StartRecovery";
 import { useT } from "../i18n";
 import { ErrorDetails } from "../conversation/ErrorDetails";
 import { startFailureView } from "../startFailure";
@@ -8,6 +9,8 @@ export type NewTabStartFailure = {
   harness?: string;
   error: string;
   code?: string;
+  /// What actually failed, for Details (startFailure.ts `startFailureCause`).
+  cause?: string;
   local: boolean;
   retry?: () => void;
 };
@@ -37,12 +40,22 @@ export function StartFailure({
         name,
         error: failure.error,
         ...(failure.code ? { code: failure.code } : {}),
+        ...(failure.cause ? { cause: failure.cause } : {}),
       })
     : { sentence: failure.error };
   const install = view.notInstalled && failure.local && onInstall;
   // One line, as every notice over the box is (BrowseFailure): the box below never moves for it.
   return (
     <output className="acpmux-switch-notice acpmux-folder-choice acpmux-start-failure" aria-live="polite">
+      {install && (
+        <StartRecovery
+          key={`${failure.harness ?? ""}:${failure.code ?? ""}:${failure.error}`}
+          kind="install"
+          sentence={view.sentence}
+          label={t("switch.action.install")}
+          onAction={install}
+        />
+      )}
       <span role="alert">{view.sentence}</span>{" "}
       {install && (
         <>
@@ -64,7 +77,7 @@ export function StartFailure({
       {view.detail && (
         <>
           {" "}
-          <ErrorDetails text={view.detail} className="acpmux-start-failure-details" />
+          <ErrorDetails text={view.detail} className="acpmux-start-failure-details" chipChevron />
         </>
       )}
     </output>

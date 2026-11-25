@@ -36,8 +36,22 @@ const TOOLS: &[AutomationTool] = &[
     AutomationTool {
         name: "automation_create",
         verb: "create",
-        description: "Make an automation: name, one body (prompt: an agent runs it; command: a shell runs it, this Mac only) and one schedule (hourly, daily HH:MM, weekdays HH:MM, weekly \"fri 17:00\", every 30m, at, in, cron, manual, or watch: a command whose every output line is an event, with debounce; webhook on Cloud only). if: a shell condition run before each run with the event on stdin (exit 0 runs it and its output joins the prompt, 1 skips it); cooldown and max_runs (per 24 h) bound how often it runs. Check it with automation_test before you say it works. target cloud runs a prompt in the Cloud Chief with this Mac asleep; private and editors set team sharing there.",
+        description: "Make an automation: name, one body (prompt: an agent runs it; command: a shell runs it, this Mac only) and one trigger. when: an event, the short form for \"when X happens, do Y\": agent-idle (an agent finishes its turn), agent-needs-input (an agent asks a question or a permission), pr-opened (you or an agent open a pull request; read from GitHub every 5 minutes, so up to 5 minutes late); automation_events lists them. Or a schedule (hourly, daily HH:MM, weekdays HH:MM, weekly \"fri 17:00\", every 30m, at, in, cron, manual, or watch: a command whose every output line is an event, with debounce; webhook on Cloud only). if: a shell condition run before each run with the event on stdin (exit 0 runs it and its output joins the prompt, 1 skips it); cooldown and max_runs (per 24 h) bound how often it runs. Check it with automation_test before you say it works. target cloud runs a prompt in the Cloud Chief with this Mac asleep; private and editors set team sharing there.",
         mutation: true,
+        destructive: false,
+    },
+    AutomationTool {
+        name: "automation_edit",
+        verb: "edit",
+        description: "Change an automation: any automation_create option (a new trigger such as when pr-opened replaces the old one; name renames it). Only the options given change.",
+        mutation: true,
+        destructive: false,
+    },
+    AutomationTool {
+        name: "automation_events",
+        verb: "events",
+        description: "List the events automation_create's when takes (agent-idle, agent-needs-input, pr-opened): each one's label, where it comes from and how late it can be, its default guardrails, and a sample event (the JSON line a run gets, and automation_test uses when given no event).",
+        mutation: false,
         destructive: false,
     },
     AutomationTool {
@@ -85,7 +99,7 @@ const TOOLS: &[AutomationTool] = &[
     AutomationTool {
         name: "automation_teleport",
         verb: "teleport",
-        description: "Move an automation to another place: to cloud (cmux Cloud), home (this Mac, from Cloud) or ssh:HOST[:DIR] (another machine). Exactly one place runs it at any time; a move that did not finish resumes when called again, abort cancels it. A shell command cannot move to Cloud.",
+        description: "Move an automation to another place: to cloud (cmux Cloud), home (this Mac, from Cloud), ssh:HOST[:DIR] (another machine) or exec:PROGRAM (a program on this machine that imports it elsewhere: the spec on its stdin, exit 0 with an id on stdout moves it, exit 2 refuses). Exactly one place runs it at any time; a move that did not finish resumes when called again, abort cancels it. A shell command cannot move to Cloud.",
         mutation: true,
         destructive: false,
     },
@@ -118,6 +132,7 @@ const CREATE_OPTIONS: &[(&str, &str, u8)] = &[
     ("in", "in", STRING),
     ("cron", "cron", STRING),
     ("manual", "manual", BOOL),
+    ("when", "when", STRING),
     ("watch", "watch", STRING),
     ("debounce", "debounce", STRING),
     ("webhook", "webhook", BOOL),
@@ -134,9 +149,38 @@ const CREATE_OPTIONS: &[(&str, &str, u8)] = &[
     ("editors", "editor", LIST),
 ];
 
+/// `edit` takes what `create` does (but a Cloud webhook), and `name` renames.
+const EDIT_OPTIONS: &[(&str, &str, u8)] = &[
+    ("name", "name", STRING),
+    ("prompt", "prompt", STRING),
+    ("command", "command", STRING),
+    ("hourly", "hourly", BOOL),
+    ("daily", "daily", STRING),
+    ("weekdays", "weekdays", STRING),
+    ("weekly", "weekly", STRING),
+    ("every", "every", STRING),
+    ("at", "at", STRING),
+    ("in", "in", STRING),
+    ("cron", "cron", STRING),
+    ("manual", "manual", BOOL),
+    ("when", "when", STRING),
+    ("watch", "watch", STRING),
+    ("debounce", "debounce", STRING),
+    ("tz", "tz", STRING),
+    ("folder", "folder", STRING),
+    ("model", "model", STRING),
+    ("timeout", "timeout", STRING),
+    ("catch_up", "catch-up", STRING),
+    ("paused", "paused", BOOL),
+    ("if", "if", STRING),
+    ("cooldown", "cooldown", STRING),
+    ("max_runs", "max-runs", COUNT),
+];
+
 fn options(verb: &str) -> &'static [(&'static str, &'static str, u8)] {
     match verb {
         "create" => CREATE_OPTIONS,
+        "edit" => EDIT_OPTIONS,
         "run" => &[("wait", "wait", BOOL), ("event", "event", STRING)],
         "test" => &[("event", "event", STRING)],
         "history" => &[("limit", "limit", INT), ("state", "state", STRING)],
@@ -149,7 +193,7 @@ fn options(verb: &str) -> &'static [(&'static str, &'static str, u8)] {
 /// The positional argument a verb takes, and whether it is required.
 fn positional(verb: &str) -> Option<(&'static str, bool)> {
     match verb {
-        "list" => None,
+        "list" | "events" => None,
         "create" => Some(("name", true)),
         "history" | "audit" => Some(("automation", false)),
         _ => Some(("automation", true)),
@@ -163,11 +207,13 @@ pub(super) fn descriptors() -> Vec<Value> {
 fn descriptor(tool: &AutomationTool) -> Value {
     let mut properties = Map::new();
     let target = if tool.verb == "audit" { "cloud" } else { "local" };
-    properties.insert(
-        "target".into(),
-        json!({"type": "string", "enum": ["local", "cloud"], "default": target,
+    if tool.verb != "events" {
+        properties.insert(
+            "target".into(),
+            json!({"type": "string", "enum": ["local", "cloud"], "default": target,
                "description": "local: this Mac's automations; cloud: cmux Cloud's."}),
-    );
+        );
+    }
     let mut required = Vec::new();
     if let Some((name, needed)) = positional(tool.verb) {
         let what = if name == "name" {
@@ -191,10 +237,18 @@ fn descriptor(tool: &AutomationTool) -> Value {
         };
         properties.insert((*arg).into(), schema);
     }
+    if properties.contains_key("when") {
+        let names: Vec<&str> = cmux_automations::EVENTS.iter().map(|e| e.name).collect();
+        properties.insert(
+            "when".into(),
+            json!({"type": "string", "enum": names,
+                   "description": "Run when this happens (automation_events describes each)."}),
+        );
+    }
     if tool.verb == "teleport" {
         properties.insert(
             "to".into(),
-            json!({"type": "string", "minLength": 1, "description": "cloud, home or ssh:HOST[:DIR]."}),
+            json!({"type": "string", "minLength": 1, "description": "cloud, home, ssh:HOST[:DIR] or exec:PROGRAM."}),
         );
     }
     if tool.mutation {
@@ -319,100 +373,5 @@ pub(super) fn call(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn w(name: &str, args: Value) -> Result<(Vec<String>, Option<String>), String> {
-        let tool = TOOLS.iter().find(|t| t.name == name).unwrap();
-        words(tool, args.as_object().unwrap())
-    }
-
-    #[test]
-    fn teleport_mcp_tool_arguments_become_the_cli_words() {
-        let (create, key) = w(
-            "automation_create",
-            json!({"name": "Brief", "target": "cloud", "prompt": "--sum up", "weekdays": "09:00",
-                   "private": true, "editors": ["user_a", "user_b"], "catch_up": "none",
-                   "idempotency_key": "k-1"}),
-        )
-        .unwrap();
-        assert_eq!(
-            create,
-            [
-                "create",
-                "--target",
-                "cloud",
-                "Brief",
-                "--prompt=--sum up",
-                "--weekdays=09:00",
-                "--catch-up=none",
-                "--private",
-                "--editor=user_a",
-                "--editor=user_b"
-            ]
-        );
-        assert_eq!(key.as_deref(), Some("k-1"));
-        let (run, key) = w("automation_run", json!({"automation": "Brief"})).unwrap();
-        let key = key.unwrap();
-        assert!(key.starts_with("mcp-automation-run-"));
-        assert_eq!(run, ["run".to_string(), "Brief".into(), format!("--key={key}")]);
-        assert_eq!(
-            w("automation_teleport", json!({"automation": "Brief", "to": "ssh:mini"})).unwrap().0,
-            ["teleport", "Brief", "--to=ssh:mini"]
-        );
-        assert_eq!(w("automation_audit", json!({})).unwrap().0, ["audit", "--target", "cloud"]);
-        assert_eq!(
-            w("automation_test", json!({"automation": "Crash", "event": "FATAL x"})).unwrap(),
-            (vec!["test".to_string(), "Crash".into(), "--event=FATAL x".into()], None)
-        );
-        assert_eq!(
-            w(
-                "automation_create",
-                json!({"name": "Crash", "command": "true", "watch": "tail -F a.log",
-                       "debounce": "2s", "if": "grep -q FATAL", "cooldown": "1h", "max_runs": 3,
-                       "idempotency_key": "k-2"}),
-            )
-            .unwrap()
-            .0,
-            [
-                "create",
-                "Crash",
-                "--command=true",
-                "--watch=tail -F a.log",
-                "--debounce=2s",
-                "--if=grep -q FATAL",
-                "--cooldown=1h",
-                "--max-runs=3"
-            ]
-        );
-        // 0 turns the default watch cap off, as on the CLI.
-        assert_eq!(
-            w(
-                "automation_create",
-                json!({"name": "C", "command": "true", "watch": "w", "max_runs": 0})
-            )
-            .unwrap()
-            .0
-            .last()
-            .map(String::as_str),
-            Some("--max-runs=0")
-        );
-        assert_eq!(w("automation_list", json!({})).unwrap(), (vec!["list".to_string()], None));
-        assert_eq!(
-            w("automation_runs", json!({"automation": "Brief", "limit": 5})).unwrap().0,
-            ["history", "Brief", "--limit=5"]
-        );
-        for bad in [
-            json!({"automation": "--all"}),
-            json!({"automation": "x", "target": "mars"}),
-            json!({"automation": "x", "extra": 1}),
-        ] {
-            assert!(w("automation_pause", bad.clone()).is_err(), "{bad}");
-        }
-        assert!(w("automation_get", json!({})).is_err(), "automation is required");
-        let names: Vec<_> =
-            descriptors().iter().map(|d| d["name"].as_str().unwrap().to_string()).collect();
-        assert_eq!(names.len(), 11);
-        assert!(names.iter().all(|n| n.starts_with("automation_")));
-    }
-}
+#[path = "automation_tools_tests.rs"]
+mod tests;

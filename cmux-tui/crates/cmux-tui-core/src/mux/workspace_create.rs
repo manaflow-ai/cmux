@@ -13,9 +13,19 @@ impl Mux {
         expected_revision: Option<u64>,
     ) -> anyhow::Result<WorkspacePlacement> {
         let mutation = WorkspaceMutation::daemon_local("cmux-tui");
-        self.create_empty_workspace_with_mutation(name, key, None, expected_revision, &mutation)
+        self.create_empty_workspace_with_mutation(
+            name,
+            key,
+            None,
+            expected_revision,
+            &mutation,
+            false,
+        )
     }
 
+    /// `explicit_name`: `name` is exactly what the caller asked for
+    /// (`create-workspace {name_source: "user"}`), so it is pinned
+    /// ([`crate::resource_name::NameSource::for_created_workspace`]).
     pub fn create_empty_workspace_with_mutation(
         &self,
         name: Option<String>,
@@ -23,6 +33,7 @@ impl Mux {
         expected_generation: Option<&str>,
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
+        explicit_name: bool,
     ) -> anyhow::Result<WorkspacePlacement> {
         self.create_empty_workspace_with_mutation_inner(
             name,
@@ -34,6 +45,7 @@ impl Mux {
             true,
             crate::state::home_store::EmptyWorkspaceMark::None,
             true,
+            explicit_name,
         )
     }
 
@@ -56,13 +68,16 @@ impl Mux {
             mutation,
             mark,
             true,
+            false,
         )
     }
 
     /// [`Self::create_empty_workspace_for_resource_effect`]; with `focus`
     /// false the focused workspace stays the one it was (a programmatic
     /// `workspace.create` without `focus: true`). The first workspace of a
-    /// session is focused either way.
+    /// session is focused either way. `explicit_name`: `name` is the
+    /// caller's own (`workspace.create {name}`), pinned.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn create_empty_workspace_for_resource_effect_focus(
         &self,
         name: Option<String>,
@@ -71,6 +86,7 @@ impl Mux {
         mutation: &WorkspaceMutation,
         mark: crate::state::home_store::EmptyWorkspaceMark,
         focus: bool,
+        explicit_name: bool,
     ) -> anyhow::Result<WorkspacePlacement> {
         self.create_empty_workspace_with_mutation_inner(
             name,
@@ -82,6 +98,7 @@ impl Mux {
             false,
             mark,
             focus,
+            explicit_name,
         )
     }
 
@@ -97,6 +114,7 @@ impl Mux {
         project_resource: bool,
         mark: crate::state::home_store::EmptyWorkspaceMark,
         focus: bool,
+        explicit_name: bool,
     ) -> anyhow::Result<WorkspacePlacement> {
         if let Some(name) = name.as_deref() {
             Self::validate_workspace_name(name)?;
@@ -112,7 +130,8 @@ impl Mux {
         Self::validate_workspace_key(&key)?;
         let requested_name = name.clone();
         let ws_id = self.next_id();
-        let mut notifications = self.tree_decorations();
+        // The delta serializes the new empty workspace only: no surface of the session.
+        let mut notifications = self.tree_decorations_of_new_empty_workspace();
         let reloads_presentation = mark.shows_in_tree();
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut fingerprint = serde_json::json!({
@@ -147,14 +166,14 @@ impl Mux {
             requested_public_id.map(Ok).unwrap_or_else(WorkspacePublicId::random)?;
         let (placement, delta, selection_resync) = {
             let mut state = self.lock_state_pinned(&registry).unwrap();
-            if state.workspaces.len() >= WORKSPACE_REGISTRY_LIMIT {
-                anyhow::bail!("workspace limit reached ({WORKSPACE_REGISTRY_LIMIT})");
-            }
             if state.workspace_by_key(&key).is_some() {
                 anyhow::bail!("workspace key already exists: {key}");
             }
-            let name_source =
-                crate::resource_name::NameSource::for_requested_workspace_name(name.as_deref());
+            let (name_source, name_revision) =
+                crate::resource_name::NameSource::for_created_workspace(
+                    name.as_deref(),
+                    explicit_name,
+                );
             let name = name.unwrap_or_else(|| self.default_workspace_name(&state));
             let index = state.workspaces.len();
             let selection_resync = !state.workspaces.is_empty();
@@ -167,54 +186,95 @@ impl Mux {
                 .as_ref()
                 .map_or(&workspace_public_id, |(_, public_id)| public_id)
                 .clone();
-            let mut desired = self.registry_projection(&state);
-            desired.push(RegistryWorkspace {
+            // An append: the commit is told so, and its work follows this one workspace, not
+            // the count of workspaces (no copy of the list, no order change naming each one).
+            let created = RegistryWorkspace {
                 id: ws_id,
                 public_id: workspace_public_id.clone(),
                 key: key.clone(),
                 name: name.clone(),
                 name_source,
-                name_revision: 0,
+                name_revision,
                 group_key: self.session.clone(),
-            });
+            };
+            let insert =
+                crate::workspace_registry::WorkspaceInsert { workspace: &created, position: index };
             let result = serde_json::json!({
                 "workspace": ws_id,
                 "workspace_id": workspace_public_id.as_str(),
                 "key": key,
                 "index": index,
             });
-            let commit = if project_resource {
-                registry.commit_with_active_workspace(
+            // A row the store kept past the in-memory end (a staged create whose rollback the
+            // store refused) makes the lists differ: the full commit restates the order and
+            // drops it. Otherwise the append's work follows this one workspace.
+            let stale_rows = registry.stored_order_reaches(index)?;
+            let desired = stale_rows.then(|| {
+                let mut desired = self.registry_projection(&state);
+                desired.push(created.clone());
+                desired
+            });
+            let commit = match (project_resource, desired.as_deref()) {
+                (true, None) => registry.commit_workspace_insert(
+                    mutation,
+                    &fingerprint,
+                    expected_generation,
+                    expected_revision,
+                    "workspace-added",
+                    insert,
+                    Some(&active_public_id),
+                    &result,
+                    true,
+                    None,
+                )?,
+                (true, Some(desired)) => registry.commit_with_active_workspace(
                     mutation,
                     &fingerprint,
                     expected_generation,
                     expected_revision,
                     "workspace-added",
                     &key,
-                    &desired,
+                    desired,
                     Some(&active_public_id),
                     &result,
-                )?
-            } else {
-                let marked = workspace_public_id.as_str().to_string();
-                let marked_key = key.clone();
-                let writes = mark.writes();
-                let write_mark =
-                    move |tx: &rusqlite::Transaction<'_>| mark.write(tx, &marked, &marked_key);
-                registry.commit_for_resource_effect_with(
-                    mutation,
-                    &fingerprint,
-                    expected_generation,
-                    expected_revision,
-                    "workspace-added",
-                    &key,
-                    &desired,
-                    Some(&active_public_id),
-                    &result,
-                    writes.then_some(
+                )?,
+                (false, desired) => {
+                    let marked = workspace_public_id.as_str().to_string();
+                    let marked_key = key.clone();
+                    let writes = mark.writes();
+                    let write_mark =
+                        move |tx: &rusqlite::Transaction<'_>| mark.write(tx, &marked, &marked_key);
+                    let extra = writes.then_some(
                         &write_mark as crate::workspace_registry::RegistryTransactionWrite<'_>,
-                    ),
-                )?
+                    );
+                    match desired {
+                        // Staged for the resource effect, as `commit_for_resource_effect_with`.
+                        None => registry.commit_workspace_insert(
+                            mutation,
+                            &fingerprint,
+                            expected_generation,
+                            expected_revision,
+                            "workspace-added",
+                            insert,
+                            Some(&active_public_id),
+                            &result,
+                            false,
+                            extra,
+                        )?,
+                        Some(desired) => registry.commit_for_resource_effect_with(
+                            mutation,
+                            &fingerprint,
+                            expected_generation,
+                            expected_revision,
+                            "workspace-added",
+                            &key,
+                            desired,
+                            Some(&active_public_id),
+                            &result,
+                            extra,
+                        )?,
+                    }
+                }
             };
             let committed_workspace = commit.result["workspace"]
                 .as_u64()
@@ -248,7 +308,7 @@ impl Mux {
                 key: key.clone(),
                 name,
                 name_source,
-                name_revision: 0,
+                name_revision,
                 screens: Vec::new(),
                 active_screen: 0,
             });

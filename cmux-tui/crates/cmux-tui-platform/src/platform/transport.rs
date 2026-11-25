@@ -40,9 +40,30 @@ pub trait Stream: Read + Write + Send + Sync {
     /// waiting. The socket's read timeout still bounds the wait, which then
     /// fails as the read would (`WouldBlock`). The default does not wait.
     /// The daemon's line reader calls it before every read (server
-    /// line_connection.rs, `LineSocket`).
-    fn wait_readable(&self) -> io::Result<()> {
+    /// line_connection.rs, `LineSocket`), with the one `waiter` it owns.
+    fn wait_readable(&self, waiter: &mut ReadWaiter) -> io::Result<()> {
+        let _ = waiter;
         Ok(())
+    }
+}
+
+/// What one reader keeps between its waits in [`Stream::wait_readable`]. On
+/// macOS: a kqueue that holds the socket's read filter, made at the first
+/// wait and closed when the waiter drops (a kqueue is not inherited by a
+/// forked child). With 10 clients at once a wait in kevent() cost about
+/// 18 us less than one in poll() for each request and reply (opt-tools
+/// probes/read_fill_cost.rs); both saw every half-close
+/// (probes/shutdown_wake.rs). Elsewhere it holds nothing and the wait polls.
+#[derive(Default)]
+pub struct ReadWaiter {
+    /// The kqueue and the descriptor whose read filter it holds.
+    #[cfg(target_os = "macos")]
+    queue: Option<(std::os::fd::OwnedFd, std::os::fd::RawFd)>,
+}
+
+impl ReadWaiter {
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
@@ -56,6 +77,41 @@ pub fn listen(path: &Path) -> io::Result<Listener> {
 
 pub fn connect(path: &Path) -> io::Result<Box<dyn Stream>> {
     imp::connect(path)
+}
+
+/// The kernel send buffer of each client the daemon accepts, on macOS
+/// (CMUX-571). A macOS Unix stream socket's send buffer defaults to 8 KiB,
+/// and there the sender's buffer alone bounds what one write may queue (a
+/// larger receive buffer at the client changes nothing). Every attach
+/// `output` line (up to 1 MiB at a flood) then left in 8 KiB writes, each
+/// waiting for the app's reader to wake and drain it: the daemon sat blocked
+/// in `writev` with no process near one core, and a 200 MB burst ran at
+/// 65-73 MB/s. 256 KiB is the app reader's read size (LineTransport) and the
+/// terminal host's own send buffer (`CLIENT_SEND_BUFFER_BYTES`); the kernel
+/// holds it only while a client lags. Linux keeps its default (about 208 KiB).
+pub const CLIENT_SEND_BUFFER_BYTES: i32 = 256 * 1024;
+
+/// Overrides [`CLIENT_SEND_BUFFER_BYTES`]: bytes, `0` for the OS default (the
+/// old behavior, a bench's base arm). The app passes it on from
+/// `CMUX_NEXT_TUI_CLIENT_SEND_BUFFER` (DaemonDiagnosticKnobs).
+pub const CLIENT_SEND_BUFFER_ENV: &str = "CMUX_TUI_CLIENT_SEND_BUFFER";
+
+/// The send buffer for `value` of [`CLIENT_SEND_BUFFER_ENV`]: the default when
+/// it is unset or not a number of bytes, else that size (`0`: the OS default),
+/// at most 8 MiB (macOS `kern.ipc.maxsockbuf`).
+pub fn client_send_buffer_from(value: Option<&str>) -> i32 {
+    match value.map(str::trim).and_then(|v| v.parse::<i32>().ok()) {
+        Some(bytes) if (0..=8 << 20).contains(&bytes) => bytes,
+        _ => CLIENT_SEND_BUFFER_BYTES,
+    }
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn client_send_buffer_bytes() -> i32 {
+    static BYTES: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
+    *BYTES.get_or_init(|| {
+        client_send_buffer_from(std::env::var(CLIENT_SEND_BUFFER_ENV).ok().as_deref())
+    })
 }
 
 /// Connect and refuse a listener that runs as another user before the
@@ -86,19 +142,96 @@ mod imp {
     use std::path::Path;
     use std::time::{Duration, Instant};
 
-    use super::Stream;
+    use super::{ReadWaiter, Stream};
 
-    /// Waits in poll() until a read of `stream` will not block, for at most
-    /// its read timeout (then `WouldBlock`, as the read would fail). On macOS
-    /// 26 and 27 a thread blocked in recv() can miss the wake of the peer's
-    /// shutdown (the daemon line reader with 8 clients at once: 1 in 7,000 to
-    /// 1 in 17,000); one waiting in poll() saw every one (opt-tools
+    /// When a read of `stream` with its read timeout must give up.
+    fn read_deadline(stream: &UnixStream) -> io::Result<Option<Instant>> {
+        Ok(stream.read_timeout()?.map(|timeout| Instant::now() + timeout))
+    }
+
+    /// Waits until a read of `stream` will not block, for at most its read
+    /// timeout (then `WouldBlock`, as the read would fail). On macOS 26 and
+    /// 27 a thread blocked in recv() can miss the wake of the peer's shutdown
+    /// (the daemon line reader with 8 clients at once: 1 in 7,000 to 1 in
+    /// 17,000); one waiting in kevent() or poll() saw every one (opt-tools
     /// probes/shutdown_wake.rs).
-    /// Every event returns (POLLIN, POLLHUP, POLLERR, POLLNVAL): the read then
-    /// takes the waiting bytes, the end or the error, so bytes sent before a
-    /// hang-up are still read. EINTR waits again for the time left.
-    fn wait_readable(stream: &UnixStream) -> io::Result<()> {
-        let deadline = stream.read_timeout()?.map(|timeout| Instant::now() + timeout);
+    /// Every event returns (data, the end, an error): the read then takes the
+    /// waiting bytes, the end or the error, so bytes sent before a hang-up
+    /// are still read. EINTR waits again for the time left.
+    #[cfg(target_os = "macos")]
+    fn wait_readable(stream: &UnixStream, waiter: &mut ReadWaiter) -> io::Result<()> {
+        let deadline = read_deadline(stream)?;
+        let queue = waiter.queue_for(std::os::fd::AsRawFd::as_raw_fd(stream))?;
+        loop {
+            let left = deadline.map(|deadline| {
+                let left = deadline.saturating_duration_since(Instant::now());
+                libc::timespec {
+                    tv_sec: libc::time_t::try_from(left.as_secs()).unwrap_or(libc::time_t::MAX),
+                    tv_nsec: libc::c_long::from(left.subsec_nanos()),
+                }
+            });
+            let timeout = left.as_ref().map_or(std::ptr::null(), |left| left as *const _);
+            // SAFETY: an all-zero kevent is a valid value of this plain C
+            // struct; it is only written by the call below.
+            let mut event: libc::kevent = unsafe { std::mem::zeroed() };
+            // SAFETY: `queue` is the waiter's open kqueue; one event slot
+            // owned by this frame; `timeout` is null or points at `left`,
+            // which lives across the call.
+            let ready = unsafe { libc::kevent(queue, std::ptr::null(), 0, &mut event, 1, timeout) };
+            if ready > 0 {
+                return Ok(());
+            }
+            if ready == 0 {
+                return Err(io::ErrorKind::WouldBlock.into());
+            }
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    impl ReadWaiter {
+        /// The kqueue that holds `fd`'s read filter (level-triggered: it
+        /// reports while bytes, the end or an error wait). Made at the first
+        /// wait; a waiter moved to another descriptor gets a new one.
+        fn queue_for(&mut self, fd: std::os::fd::RawFd) -> io::Result<std::os::fd::RawFd> {
+            use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+            if let Some((queue, watched)) = &self.queue
+                && *watched == fd
+            {
+                return Ok(queue.as_raw_fd());
+            }
+            self.queue = None;
+            // SAFETY: kqueue() has no preconditions.
+            let raw = unsafe { libc::kqueue() };
+            if raw < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            // SAFETY: `raw` is a new descriptor nothing else owns.
+            let queue = unsafe { OwnedFd::from_raw_fd(raw) };
+            // SAFETY: an all-zero kevent is a valid value of this plain C
+            // struct; the fields that matter are set next.
+            let mut change: libc::kevent = unsafe { std::mem::zeroed() };
+            change.ident = fd as libc::uintptr_t;
+            change.filter = libc::EVFILT_READ;
+            change.flags = libc::EV_ADD;
+            // SAFETY: one change for an open descriptor, no event list.
+            let added =
+                unsafe { libc::kevent(raw, &change, 1, std::ptr::null_mut(), 0, std::ptr::null()) };
+            if added < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            self.queue = Some((queue, fd));
+            Ok(raw)
+        }
+    }
+
+    /// The same wait in poll() where there is no kqueue.
+    #[cfg(not(target_os = "macos"))]
+    fn wait_readable(stream: &UnixStream, _waiter: &mut ReadWaiter) -> io::Result<()> {
+        let deadline = read_deadline(stream)?;
         let mut poll = libc::pollfd {
             fd: std::os::fd::AsRawFd::as_raw_fd(stream),
             events: libc::POLLIN,
@@ -159,7 +292,30 @@ mod imp {
                     format!("refused a socket client running as uid {peer_uid}"),
                 ));
             }
+            #[cfg(target_os = "macos")]
+            size_send_buffer(&stream, super::client_send_buffer_bytes());
             Ok(Box::new(stream))
+        }
+    }
+
+    /// Sizes an accepted client's kernel send buffer. Best effort: a socket
+    /// that refuses keeps its default, which only costs more writes. `0`
+    /// leaves the default.
+    #[cfg(target_os = "macos")]
+    fn size_send_buffer(stream: &UnixStream, bytes: libc::c_int) {
+        if bytes <= 0 {
+            return;
+        }
+        // SAFETY: the descriptor is `stream`'s open socket for this call, and
+        // setsockopt reads one c_int from a live local of the given length.
+        unsafe {
+            libc::setsockopt(
+                std::os::fd::AsRawFd::as_raw_fd(stream),
+                libc::SOL_SOCKET,
+                libc::SO_SNDBUF,
+                (&raw const bytes).cast(),
+                size_of::<libc::c_int>() as libc::socklen_t,
+            );
         }
     }
 
@@ -196,8 +352,8 @@ mod imp {
             hung_up(self, libc::POLLOUT)
         }
 
-        fn wait_readable(&self) -> io::Result<()> {
-            wait_readable(self)
+        fn wait_readable(&self, waiter: &mut ReadWaiter) -> io::Result<()> {
+            wait_readable(self, waiter)
         }
     }
 
@@ -265,5 +421,108 @@ mod imp {
         fn shutdown(&self, how: std::net::Shutdown) -> io::Result<()> {
             UnixStream::shutdown(self, how)
         }
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod read_waiter_tests {
+    use std::io::{Read, Write};
+    use std::os::fd::AsRawFd;
+    use std::os::unix::net::UnixStream;
+    use std::time::{Duration, Instant};
+
+    use super::{ReadWaiter, Stream};
+
+    fn queue(waiter: &ReadWaiter) -> Option<(i32, i32)> {
+        waiter.queue.as_ref().map(|(queue, watched)| (queue.as_raw_fd(), *watched))
+    }
+
+    /// A reader keeps one kqueue for all its waits: no descriptor is made or
+    /// added for each read.
+    #[test]
+    fn one_kqueue_serves_every_wait_of_a_reader() {
+        let (ours, theirs) = UnixStream::pair().unwrap();
+        let mut waiter = ReadWaiter::new();
+        assert_eq!(queue(&waiter), None);
+        let mut first = None;
+        for round in 0..100u8 {
+            (&theirs).write_all(&[round]).unwrap();
+            Stream::wait_readable(&ours, &mut waiter).unwrap();
+            let mut byte = [0];
+            (&ours).read_exact(&mut byte).unwrap();
+            assert_eq!(byte, [round]);
+            let now = queue(&waiter).unwrap();
+            assert_eq!(now.1, ours.as_raw_fd());
+            assert_eq!(*first.get_or_insert(now), now);
+        }
+    }
+
+    /// A waiter given another socket waits for that socket only: bytes on
+    /// the first one do not end its wait.
+    #[test]
+    fn a_waiter_moved_to_another_socket_waits_for_that_socket() {
+        let (first, first_peer) = UnixStream::pair().unwrap();
+        let (second, second_peer) = UnixStream::pair().unwrap();
+        let mut waiter = ReadWaiter::new();
+        (&first_peer).write_all(b"x").unwrap();
+        Stream::wait_readable(&first, &mut waiter).unwrap();
+
+        second.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+        let started = Instant::now();
+        let error = Stream::wait_readable(&second, &mut waiter).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
+        assert!(started.elapsed() >= Duration::from_millis(100), "{:?}", started.elapsed());
+        assert_eq!(queue(&waiter).unwrap().1, second.as_raw_fd());
+
+        (&second_peer).write_all(b"y").unwrap();
+        Stream::wait_readable(&second, &mut waiter).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod client_send_buffer_tests {
+    use super::{CLIENT_SEND_BUFFER_BYTES, client_send_buffer_from};
+
+    #[test]
+    fn the_override_is_bytes_and_zero_keeps_the_os_default() {
+        assert_eq!(client_send_buffer_from(None), CLIENT_SEND_BUFFER_BYTES);
+        assert_eq!(client_send_buffer_from(Some("0")), 0);
+        assert_eq!(client_send_buffer_from(Some(" 1048576 ")), 1 << 20);
+        for bad in ["", "big", "-1", "99999999999", "16777216"] {
+            assert_eq!(client_send_buffer_from(Some(bad)), CLIENT_SEND_BUFFER_BYTES, "{bad:?}");
+        }
+    }
+}
+
+/// CMUX-571: an accepted client's socket queues a whole attach batch without
+/// waiting for the client to read. With macOS's 8 KiB default a write blocked
+/// after about 8 KiB.
+#[cfg(all(test, target_os = "macos"))]
+mod accepted_send_buffer_tests {
+    use std::io::Write;
+    use std::path::PathBuf;
+    use std::time::Duration;
+
+    #[test]
+    fn an_accepted_client_takes_more_than_128_kib_before_a_write_blocks() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.subsec_nanos());
+        let path = PathBuf::from(format!("/tmp/cmux-sndbuf-{}-{nanos}.sock", std::process::id()));
+        let listener = super::listen(&path).expect("listen");
+        let _client = super::connect(&path).expect("connect");
+        let mut accepted = listener.accept().expect("accept");
+        accepted.set_write_timeout(Some(Duration::from_millis(50))).expect("timeout");
+        let chunk = [b'x'; 16 * 1024];
+        let mut queued = 0usize;
+        // The client never reads: each write lands in the kernel buffers until one times out.
+        while queued < 1 << 20 {
+            match accepted.write(&chunk) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => queued += n,
+            }
+        }
+        let _ = std::fs::remove_file(&path);
+        assert!(queued > 128 * 1024, "queued {queued} bytes before a write blocked");
     }
 }

@@ -182,6 +182,7 @@ final class ConversationHeaderView: UIView {
 
     func setConnectionStatus(_ text: String?) {
         statusLabel.text = text
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.25) { self.statusLabel.alpha = text == nil ? 0 : 1 }
     }
 
@@ -204,15 +205,18 @@ final class ConversationHeaderView: UIView {
         }
         guard animated else { apply(); return }
         guard delay > 0 else {
+            // motion: allow crossfade, the Reduce Motion form
             UIView.transition(with: trailingButton, duration: duration, options: .transitionCrossDissolve, animations: apply)
             return
         }
         // A delayed change fades the old glyph out and the new one in.
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.05, delay: delay, options: [.beginFromCurrentState]) {
             self.trailingButton.alpha = 0
         } completion: { _ in
             guard self.trailingMode == mode else { return }
             apply()
+            // motion: allow crossfade, the Reduce Motion form
             UIView.animate(withDuration: duration) { self.trailingButton.alpha = 1 }
         }
     }
@@ -368,6 +372,7 @@ final class ConversationHeaderView: UIView {
         backGlass.isUserInteractionEnabled = !hidden
         backGlass.accessibilityElementsHidden = hidden
         guard animated else { apply(); return }
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: duration, delay: delay, options: [.beginFromCurrentState], animations: apply)
     }
 

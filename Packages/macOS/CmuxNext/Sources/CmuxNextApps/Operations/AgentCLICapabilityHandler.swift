@@ -55,7 +55,7 @@ public nonisolated struct AgentCLICapabilityHandler: AppHostCapabilityHandler {
                let code, ["agent_inventory.not_trusted", "agent_inventory.bad_request", "agent_inventory.owner_mismatch",
                           "agent_inventory.unavailable", "agent_inventory.unsupported", "agent_inventory.busy",
                           "agent_inventory.invalid_response"].contains(code) {
-                throw AppHostCapabilityError(code: code, message: String(localized: "apps.agentCLI.inventory.unavailable", defaultValue: "The machine's cached agent inventory is unavailable", bundle: .module), retryable: code == "agent_inventory.busy")
+                throw AppHostCapabilityError(code: code, message: String(localized: "apps.agentCLI.inventory.unavailable", defaultValue: "The machine's cached agent inventory is unavailable", bundle: .localizedModule), retryable: code == "agent_inventory.busy")
             }
             throw unavailable(retryable: error.isLostConnection)
         } catch {
@@ -74,7 +74,7 @@ public nonisolated struct AgentCLICapabilityHandler: AppHostCapabilityHandler {
             machine.map { candidate.machineID?.rawValue == $0 } ?? candidate.isDefault
         }
         guard matches.count <= 1 else {
-            throw AppHostCapabilityError(code: "machine.ambiguous", message: String(localized: "apps.agentCLI.machine.ambiguous", defaultValue: "The selected machine has more than one route", bundle: .module))
+            throw AppHostCapabilityError(code: "machine.ambiguous", message: String(localized: "apps.agentCLI.machine.ambiguous", defaultValue: "The selected machine has more than one route", bundle: .localizedModule))
         }
         guard let route = matches.first, route.allowed, route.reader != nil,
               let id = route.machineID, !id.rawValue.isEmpty else { throw unavailable() }
@@ -86,14 +86,14 @@ public nonisolated struct AgentCLICapabilityHandler: AppHostCapabilityHandler {
     }
 
     private func invalid() -> AppHostCapabilityError {
-        AppHostCapabilityError(code: "validation.invalid", message: String(localized: "apps.agentCLI.validation.invalid", defaultValue: "Expected only machine and check_latest inventory parameters", bundle: .module))
+        AppHostCapabilityError(code: "validation.invalid", message: String(localized: "apps.agentCLI.validation.invalid", defaultValue: "Expected only machine and check_latest inventory parameters", bundle: .localizedModule))
     }
 
     private func unavailable(retryable: Bool = false) -> AppHostCapabilityError {
-        AppHostCapabilityError(code: "machine.unavailable", message: String(localized: "apps.agentCLI.machine.unavailable", defaultValue: "The selected machine is unavailable", bundle: .module), retryable: retryable)
+        AppHostCapabilityError(code: "machine.unavailable", message: String(localized: "apps.agentCLI.machine.unavailable", defaultValue: "The selected machine is unavailable", bundle: .localizedModule), retryable: retryable)
     }
 
     private func cancelled() -> AppHostCapabilityError {
-        AppHostCapabilityError(code: "operation.cancelled", message: String(localized: "apps.agentCLI.operation.cancelled", defaultValue: "The inventory read was cancelled", bundle: .module))
+        AppHostCapabilityError(code: "operation.cancelled", message: String(localized: "apps.agentCLI.operation.cancelled", defaultValue: "The inventory read was cancelled", bundle: .localizedModule))
     }
 }

@@ -23,7 +23,7 @@ public struct DaemonLanePolicy: Sendable {
     /// phone in the sizing order (`host-size-policy-v1`).
     let deviceID: String
 
-    /// `PhoneAccessGate.allowsStartingSessions`, read per request.
+    /// Whether a phone may start workspaces and terminals here, read per request.
     let allowsStartingSessions: @Sendable () -> Bool
 
     public init(deviceID: String, allowsStartingSessions: @escaping @Sendable () -> Bool = { true }) {
@@ -36,6 +36,9 @@ public struct DaemonLanePolicy: Sendable {
     /// person turned off starting new workspaces from a phone.
     public static let startsSessions: Set<String> = Set(creationFields.keys)
         .union(["new-browser-tab", "reopen-saved-tab-group", "move-tab-to-new-workspace", "move-tab-group-to-new-workspace"])
+
+    /// The refusal of a `startsSessions` command while starting is off.
+    static let startRefusal = "starting new workspaces from a phone is turned off on this Mac"
 
     /// URL schemes a phone may open in a browser tab (`new-browser-tab`, `browser-navigate`, a split's
     /// `url`): web pages only, never `file:` or another local scheme.
@@ -51,7 +54,7 @@ public struct DaemonLanePolicy: Sendable {
         "list-personal", "list-agents", "list-terminals", "resolve-terminal", "process-info", "machine-usage",
         "machine-listening-tcp", "ids", "export-layout", "subscribe", "terminal-events", "wait-for",
         // Terminal streams and input.
-        "attach-surface", "vt-state", "read-screen", "read-scrollback", "scroll-surface", "send", "send-key",
+        "attach-surface", "vt-state", "read-screen", "read-scrollback", "terminal-find", "scroll-surface", "send", "send-key",
         "copy", "clear-history", "set-terminal-idle-policy", "get-cell-pixels", "set-cell-pixels",
         // Geometry: per-client leases, released when the phone goes away.
         "set-client-sizing", "resize-surface", "release-surface-size", "resize-attached-view",
@@ -83,7 +86,7 @@ public struct DaemonLanePolicy: Sendable {
         // Agent chat tabs: cmux-mobile-host sets this Mac's own agent tab host on
         // them (cmux-next-ios/rust/crates/cmux-mobile-host/src/policy.rs); this lane has
         // no such host, so it refuses them below.
-        "new-conversation-tab",
+        "new-conversation-tab", "bind-conversation-tab-session",
         // Frontend projections: guarded per subject below.
         "get-frontend-projection", "put-frontend-projection",
     ]
@@ -189,7 +192,7 @@ public struct DaemonLanePolicy: Sendable {
             return .refuse(Self.errorLine(id: id, code: "forbidden", message: "phones open only http and https pages"))
         }
         if Self.startsSessions.contains(command), !allowsStartingSessions() {
-            return .refuse(Self.errorLine(id: id, code: "forbidden", message: PhoneAccessGate.startRefusal))
+            return .refuse(Self.errorLine(id: id, code: "forbidden", message: Self.startRefusal))
         }
         if command == "reopen-saved-tab-group" || command == "delete-saved-tab-group",
            let why = Self.savedGroupRefusal(object, reopen: command == "reopen-saved-tab-group") {
@@ -204,7 +207,7 @@ public struct DaemonLanePolicy: Sendable {
         if command == "get-frontend-projection" || command == "put-frontend-projection" {
             return projectionVerdict(object, id: id, write: command == "put-frontend-projection")
         }
-        if command == "new-conversation-tab" {
+        if command == "new-conversation-tab" || command == "bind-conversation-tab-session" {
             return .refuse(Self.errorLine(id: id, code: "unavailable",
                                           message: "this Mac's cmux does not let a phone start agent chats"))
         }

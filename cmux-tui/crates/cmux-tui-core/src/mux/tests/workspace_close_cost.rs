@@ -1,7 +1,7 @@
 //! One `close-workspace` with `end_terminals` (what the app and the benches send) must not cost
 //! more in a bigger session.
 //!
-//! Lawrence's session (2026-11-10): 826 workspaces, 858 panes, 1600 tabs, 798 terminals. One close
+//! A large session (2026-11-10): 826 workspaces, 858 panes, 1600 tabs, 798 terminals. One close
 //! took 132 ms there against 14 ms in an empty session (33 ms at 60 workspaces), all of it under the
 //! registry and state locks, so every other request waited. The close ran the full projection: one
 //! read of the whole stored topology, one row check and one public value for each workspace, a
@@ -189,8 +189,8 @@ pub(super) fn session_in(mux: Arc<Mux>, workspaces: usize) -> Arc<Mux> {
     mux.commit_full_resource_effect_projection(key, operation, &fingerprint, serde_json::json!({}))
         .unwrap();
     assert!(
-        mux.workspace_registry.lock().unwrap().public_fold_seeded(),
-        "the full projection did not seed the fold"
+        mux.workspace_registry.lock().unwrap().public_fold_complete_for_test(),
+        "the full projection did not make the fold complete"
     );
     mux
 }

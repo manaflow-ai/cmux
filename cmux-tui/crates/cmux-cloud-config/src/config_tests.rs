@@ -99,6 +99,18 @@ fn only_known_untouched_defaults_keep_their_old_locations() {
     let legacy = production.namespaced_legacy_store.expect("legacy store");
     assert_eq!(legacy.keychain_service, "com.cmuxterm.app.nightly.cmux-next.auth.backend-0");
     assert_eq!(legacy.credentials_subpath.last().map(String::as_str), Some("backend-0"));
+    // Scoped stores are NEXT's own, under `cmux-next`; the unscoped one above is shared with
+    // classic cmux of the same bundle id and stays in classic's folder.
+    assert_eq!(
+        legacy.credentials_subpath,
+        [
+            "Library",
+            "Application Support",
+            "cmux-next",
+            "com.cmuxterm.app.nightly.cmux-next",
+            "backend-0"
+        ]
+    );
 
     let signed_dev = configure(
         selection(
@@ -120,6 +132,7 @@ fn only_known_untouched_defaults_keep_their_old_locations() {
         Some("development-project-fixture")
     );
     assert_eq!(signed_dev.namespaced_legacy_store, None);
+    assert_eq!(signed_dev.storage.credentials_subpath[2], "cmux-next");
     let switched =
         configure(selection("dev", NEXT_DEV_BUNDLE_ID, "backend-1", false, Some("x")), &[], false);
     assert_eq!(switched.storage.keychain_service, "com.cmuxterm.app.debug.next.auth.backend-1");
@@ -170,24 +183,29 @@ fn the_callback_scheme_follows_the_build() {
     );
 }
 
+/// No build takes a running NIGHTLY's session: signed NEXT DEV (`com.cmuxterm.app.debug.next`) is a DEV build
+/// with a build space of its own and signs in on its own (its file store, seeded by
+/// `scripts/cmux-next/dev-signin-token.py`), on staging and on production alike.
 #[test]
-fn only_signed_dev_on_production_adopts_nightlys_session() {
-    assert!(
-        configure(selection("prod", NEXT_DEV_BUNDLE_ID, "n", true, None), &[], false)
-            .adopts_nightly_session
-    );
-    assert!(
-        !configure(selection("dev", NEXT_DEV_BUNDLE_ID, "n", true, None), &[], false)
-            .adopts_nightly_session
-    );
-    assert!(
-        !configure(selection("prod", NEXT_DEV_BUNDLE_ID, "n", true, None), &[], true)
-            .adopts_nightly_session
-    );
-    assert!(
-        !configure(selection("prod", NIGHTLY_BUNDLE_ID, "n", true, None), &[], false)
-            .adopts_nightly_session
-    );
+fn no_build_adopts_nightlys_session() {
+    for (name, bundle_id, debug) in [
+        ("prod", NEXT_DEV_BUNDLE_ID, false),
+        ("dev", NEXT_DEV_BUNDLE_ID, false),
+        ("prod", NEXT_DEV_BUNDLE_ID, true),
+        ("prod", NIGHTLY_BUNDLE_ID, false),
+    ] {
+        let made = serde_json::to_value(configure(
+            selection(name, bundle_id, "n", true, None),
+            &[],
+            debug,
+        ))
+        .expect("a configuration serializes");
+        assert_ne!(
+            made.get("adoptsNightlySession"),
+            Some(&serde_json::Value::Bool(true)),
+            "{bundle_id} on {name} (debug {debug}) adopts NIGHTLY's session"
+        );
+    }
 }
 
 #[test]
@@ -206,4 +224,17 @@ fn the_sign_in_url_nests_the_callback_with_its_state() {
 fn the_vm_api_follows_the_backend() {
     assert_eq!(vm_api_base_url(&Backend::Production), PRODUCTION_VM_API);
     assert_eq!(vm_api_base_url(&Backend::Development("https://x".to_owned())), STAGING_VM_API);
+}
+
+/// The app pinned before cmux#43648 decodes `adoptsNightlySession` as a required `Bool`, so the key stays (false)
+/// until no pinned app reads it (docs/ci/app-ffi-release.md, step A).
+#[test]
+fn the_configuration_still_carries_adopts_nightly_session_for_the_pinned_app() {
+    let made = serde_json::to_value(configure(
+        selection("prod", NEXT_DEV_BUNDLE_ID, "n", true, None),
+        &[],
+        false,
+    ))
+    .expect("a configuration serializes");
+    assert_eq!(made.get("adoptsNightlySession"), Some(&serde_json::Value::Bool(false)));
 }

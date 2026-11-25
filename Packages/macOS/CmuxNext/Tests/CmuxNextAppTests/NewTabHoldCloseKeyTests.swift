@@ -6,6 +6,7 @@ import CmuxNextCompat
 @testable import CmuxNextDaemon
 import CmuxNextFocus
 import CmuxNextFocusUI
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -27,7 +28,7 @@ import Testing
 /// a replaced hold wait for the newer page.
 ///
 /// The view that has the keyboard here is a probe that stands for that terminal. It must get no key.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct NewTabHoldCloseKeyTests {
     private actor NoHost: AgentPaneHostProviding {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
@@ -40,10 +41,10 @@ struct NewTabHoldCloseKeyTests {
         override func keyDown(with event: NSEvent) { typed += event.characters ?? "" }
     }
 
-    /// One workspace with one pane, or with two side by side; each pane has one tab. `secondWorkspace`: one more
-    /// workspace with one pane, for a second window.
+    /// One workspace with one pane, or with two side by side; each pane has 2 tabs and shows the first (the second is
+    /// for the page of an opening: `NewTabHoldByHandOpening`). `secondWorkspace`: one more workspace with one pane, for a second window.
     private static func tree(panes: Int, secondWorkspace: Bool = false) -> DaemonTree {
-        let all = (1...panes).map { PaneSnapshot(id: PaneID(rawValue: UInt64($0)), tabs: [TabSnapshot(surface: SurfaceID(rawValue: UInt64($0)), title: "~")]) }
+        let all = (1...panes).map { pane in PaneSnapshot(id: PaneID(rawValue: UInt64(pane)), tabs: [UInt64(pane), UInt64(pane) + 100].map { TabSnapshot(surface: SurfaceID(rawValue: $0), title: "~") }) }
         let layout: LayoutNode = panes == 1 ? .leaf(all[0].id)
             : .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(all[0].id), b: .leaf(all[1].id))
         let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: layout, panes: all)
@@ -176,10 +177,10 @@ struct NewTabHoldCloseKeyTests {
         let pane = try #require(content.paneController(key: models[count - 1].id))
         for _ in 0..<100 where pane.currentTabKey == nil { try await Task.sleep(for: .milliseconds(10)) }
         if pane.currentTabKey == nil { pane.showSelected() }
-        let tab = try #require(pane.currentTabKey, "the pane shows no tab")
+        let tab = try NewTabHoldByHandOpening.pagesTab(of: pane, shownTab: incoming || newWindowHold)
         pageKey = tab
 
-        // The pane's tab is a New Tab page whose field has not reported ready.
+        // The page of the tab `tab` is a New Tab page whose field has not reported ready. An opening in this pane: the pane shows that tab after its hold began (below).
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let file = directory.appending(path: "index.html")
         try Data("<html><body><input></body></html>".utf8).write(to: file)
@@ -204,9 +205,9 @@ struct NewTabHoldCloseKeyTests {
             secondContent.contentView.layoutSubtreeIfNeeded()
             let secondWindow = try #require(second.window)
             try #require(secondWindow !== window, "the second workspace opened in the first window")
-            // The hold table's key is the window number. A host with no window session gives a window no number: the 2
-            // windows then have ONE key, and a test of which window has the hold proves nothing.
-            try #require(secondWindow.windowNumber != window.windowNumber, "the 2 windows have the same window number (\(window.windowNumber)): this host gives a window no number, and this fixture proves nothing")
+            // The hold table tells the 2 windows apart by the window itself, not its number: a host with no window session
+            // gives every window the number 0 (fleet step fede158918751ba1954eff3b), and a key by number made them ONE window.
+            // The hold below checks that the table keeps them apart.
             let firstPanes = store.workspaces.compactMap { $0.screens.first?.panes.first }
             let secondPane = try #require(firstPanes.compactMap { secondContent.paneController(key: $0.id) }.first, "the second window has no pane controller")
             try #require(secondPane !== focused && secondPane !== pane && secondPane.view.window === secondWindow, "the second window's pane is not its own")
@@ -242,13 +243,15 @@ struct NewTabHoldCloseKeyTests {
         input.scheduleDeadline = { _, _ in Task {} }
         // `byScript`: the opening is a run of the CLI that may not change the view, as `ActionRegistry` binds it.
         var token = try #require(ActionRunScope.$current.withValue(byScript ? scriptRun : nil) { newWindowHold ? input.beginIncoming(in: window, followsNewWindow: true) : incoming ? input.beginIncoming(in: window) : input.begin(for: pane) })
-        if !incoming, !newWindowHold { input.didShow(in: window) }
+        if !incoming, !newWindowHold { try await NewTabHoldByHandOpening.showsItsPage(in: tab, of: pane, hold: input, controller: controller, focused: focused, keyboard: probe) }
         // `thenAScriptOpens`: a script's opening in the same window replaces the hold before the first key.
         if thenAScriptOpens { token = try #require(ActionRunScope.$current.withValue(scriptRun) { input.begin(for: pane) }, "the script's opening began no hold") }
         let line = [try keyDown("l", keyCode: 37, in: window), try keyDown("s", keyCode: 1, in: window), try keyDown("\r", keyCode: 36, in: window)]
         for event in line { try #require(router.interceptKeyDown(event, in: window), "the hold did not take a key of the line: \(input.log)") }
         try #require(input.isHolding(in: window) && probe.typed.isEmpty, "the line is not held: probe \"\(probe.typed)\", \(input.log)")
         try #require(window.firstResponder === probe, "the keyboard left the probe before the hold ended (first responder \(String(describing: window.firstResponder)))")
+        // The hold is the first window's: the table does not give it to the second (one key for 2 windows proves nothing below).
+        if let other { try #require(!input.isHolding(in: other.window), "the second window has the first window's hold (window numbers \(window.windowNumber), \(other.window.windowNumber)): the hold table does not tell the 2 windows apart (\(input.log))") }
 
         let held = Held(services: services, window: window, pane: pane, tab: tab, probe: probe, token: token, other: other)
         let end = Result { try body(held) }

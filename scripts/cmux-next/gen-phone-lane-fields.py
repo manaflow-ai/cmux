@@ -31,6 +31,21 @@ REVIEWED_TYPES = {
     # harness session. One optional string; it names no program, directory or environment.
     "SendExpectAgent": ("an agent's harness session id that a send must still match; it only narrows the write",
                         "201877f6931063f5"),
+    # `list-workspaces` `known` (list-workspaces-known-v1): the ids and revisions of the tree the phone
+    # holds, five plain strings and numbers; the daemon only compares them to its own.
+    "ListWorkspacesKnown": ("the registry ids and revisions of the tree the client holds; the daemon only "
+                            "compares them", "addc7ffa128980b5"),
+    # `list-workspaces` `since` (workspace-list-delta-v1): the cursor of the last reply the phone
+    # applied, one string and one number; the daemon only compares them to its own ring.
+    "ListWorkspacesSince": ("the epoch and seq of the last list the client applied; the daemon only "
+                            "compares them", "d45f59e95fcb70ca"),
+    # `place` of a create request (tab-create-place-v1): where the new tab goes in the strip of its
+    # pane. Two tab ids, the `transaction` of an earlier create request of the same connection and two
+    # booleans; it names no program, directory or environment. On this lane `new-tab` keeps its own
+    # shorter list (`creationFields`) and `new-conversation-tab` is refused, so no phone sends it yet.
+    "TabPlace": ("the place of a new tab in its pane's strip: a tab id (after, before), the name of an "
+                 "earlier creation of the connection (after_creation), start and joins; the daemon resolves "
+                 "it in its own strip", "5ef1786df79791a6"),
 }
 REVIEWED_FIELDS = {
     # The same browser tab new-frontend-browser-tab makes (a URL, an engine name and display strings),

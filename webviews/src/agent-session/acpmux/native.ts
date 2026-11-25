@@ -2,8 +2,9 @@
 // (pageHost.ts); otherwise Swift's `agentSession` message handler
 // (CmuxNextAgentPane AgentPaneRequest), which answers `{ok: true, value}` or `{ok: false, error}`.
 import { NativeError, type NativeErrorReply } from "./nativeError";
-import { callPageHost, pageHostClient } from "./pageHost";
+import { callPageHost, pageHostClient } from "./pageHostClient";
 import { translate } from "./i18n";
+import { takeEarlyReady } from "./chatSnapshot/earlyOpen";
 
 type Reply<T> = { ok: true; value: T } | { ok: false; error?: NativeErrorReply };
 
@@ -15,6 +16,19 @@ export function setNativeHost(next: NativeHost | undefined): void {
   nativeHost = next;
 }
 
+/// Requests posted to the native host by method, since the last `takeNativePosts` (the benches: what a
+/// keystroke asks of the app).
+const nativePosts = new Map<string, number>();
+/// The same counts without clearing them (idleProbe.ts: what an idle window asks of the app).
+export function peekNativePosts(): Record<string, number> {
+  return Object.fromEntries(nativePosts);
+}
+export function takeNativePosts(): Record<string, number> {
+  const out = Object.fromEntries(nativePosts);
+  nativePosts.clear();
+  return out;
+}
+
 /// Whether this page can reach the app, including an injected host in tests.
 export function hasNativeHost(): boolean {
   return !!(nativeHost || pageHostClient() || globalThis.window?.webkit?.messageHandlers?.agentSession);
@@ -23,7 +37,12 @@ export function hasNativeHost(): boolean {
 /// Posts `method` to the native host. Rejects with a `NativeError` carrying the host's message and
 /// error fields when it refuses, and when the page runs outside the app.
 export function postNative<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+  nativePosts.set(method, (nativePosts.get(method) ?? 0) + 1);
   if (nativeHost) return nativeHost(method, params) as Promise<T>;
+  // The page's first handshake, asked already by its boot script (chatSnapshot/earlyOpen.ts): its
+  // answer, when the host took it; a refusal is asked again here, as a retry is.
+  const early = method === "ready" && Object.keys(params).length === 0 ? takeEarlyReady() : undefined;
+  if (early) return early.then((reply) => (reply.ok ? (reply.value as T) : postNative<T>(method, params)));
   const page = pageHostClient();
   if (page) return callPageHost<T>(page, method, params);
   const handler = window.webkit?.messageHandlers?.agentSession;

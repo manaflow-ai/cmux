@@ -48,6 +48,35 @@ def lines_of(log: str) -> list[str]:
 # <script's first line>` for a run: step, `Run owner/action@ref` for a uses: step (and a job hook's `Run '/setup.sh'`),
 # `Post job cleanup.` for a post step. "Complete job" opens with no such line.
 STEP_START = re.compile(r"^(?:##\[group\]Run |Post job cleanup\.$)")
+# What the runner prints, outside any step's group, right before the header of a step that uses an action it had not
+# downloaded at "Set up job" (a local composite's own `uses:`; cmux-next swift test, feat-cmux-next run 43082766736, job
+# 130740086032: `Prepare all required actions`, `Getting action download info` and `Download action repository
+# 'WarpBuilds/cache@...' (SHA:...)` at 19:01:08-10, then `##[group]Run ./.github/actions/cache-restore`). They are
+# stamped in that step's times, never the step before's. A run of them right before a STEP_START line belongs to the
+# step that line opens (_lead), on both readings: _aligned_starts times them with that segment, and step_owners puts
+# them in that step's section, so they are never a passing step's past its end or an earlier failed step's (#41545's
+# review F1: the timing moved, the ownership did not). Only these exact lines, only a run that ends at a STEP_START
+# line, never before the first header ("Set up job" downloads its own), and in step_owners only lines stamped in the
+# opened step's own times.
+RUNNER_PREAMBLE = re.compile(r"^(?:Prepare all required actions|Getting action download info"
+                             r"|Download action repository '[^']+' \(SHA:[0-9a-f]{40}\)"
+                             r"|Download immutable action package '[^']+')$")
+
+
+def _lead(texts: list[str], lines: list[str], header: int, floor: int, window=None) -> int:
+    """The first line of the section the STEP_START line HEADER opens: HEADER, less the run of RUNNER_PREAMBLE lines
+    right before it, none at or before FLOOR (the previous header). With WINDOW, a step's [started_at, completed_at +
+    1s), a line stamped outside it ends the run: the opened step did not print it."""
+    n = header
+    while n > floor and RUNNER_PREAMBLE.match(texts[n - 1]):
+        if window is not None:
+            at = _line_time(lines[n - 1])
+            if at is None or not window[0] <= at < window[1]:
+                break
+        n -= 1
+    return n
+
+
 # The line a self-hosted runner prints, outside any step's group, right before a job hook's own header (`Run
 # '/setup.sh'`, `Run '/job_completed.sh'`): the CI runners' "Set up runner" and "Complete runner" steps.
 # GitHub's own log view puts it in the hook's step, but it sits before that step's header, so _aligned_starts read it
@@ -151,9 +180,14 @@ def step_owners(job: dict, log: str, *, step_names) -> list[tuple[str, int | Non
     starts = _one_to_one_starts(steps, lines, texts, windows, step_names)
     if starts is None:
         starts = _aligned_starts(steps, lines, texts, windows, step_names)
-    if starts is None:
+    if not starts:  # None, or [] (a job of only "Set up job" and "Complete job": no header to place a section by)
         return unknown
-    bounds = [0, *starts, len(lines)]
+    # Each section opens at its header's lead (_lead): the runner's download lines before a header are the opened step's,
+    # in its times, on both readings. The first header leads nothing ("Set up job" prints its own downloads).
+    leads = [starts[0]] + [_lead(texts, lines, n, starts[i - 1] + 1, windows[i + 1])
+                           for i, n in enumerate(starts) if i]
+    bounds = [0, *leads, len(lines)]
+    heads = [0, *starts]  # where each section's own text starts: its header (a lead line is never SECTION_RED)
     found = []
     for k in range(len(bounds) - 1):
         section = range(bounds[k], bounds[k + 1])
@@ -162,7 +196,7 @@ def step_owners(job: dict, log: str, *, step_names) -> list[tuple[str, int | Non
         elif k == len(bounds) - 2 and steps[-1].get("conclusion") != "success":
             status = AMBIGUOUS
         else:
-            status = ERRORED if _live_red(texts, bounds[k], bounds[k + 1], opened=k > 0) else PASSED
+            status = ERRORED if _live_red(texts, heads[k], bounds[k + 1], opened=k > 0) else PASSED
         found += [(lines[n], k, status) for n in section]
     return found
 
@@ -197,7 +231,7 @@ def _one_to_one_starts(steps: list[dict], lines: list[str], texts: list[str], wi
     one per step, each in its own step's times alone and fitting its name; else None."""
     proven = {} if step_names is STEP_NAMES_UNKNOWN else step_names
     starts = [n for n, text in enumerate(texts) if STEP_START.match(text)]
-    if len(starts) != len(steps) - 2:
+    if not starts or len(starts) != len(steps) - 2:  # no printing step (2 steps, 0 headers) proves nothing: not []
         return None
     opened, closed = sorted(start for start, _ in windows[1:-1]), sorted(end for _, end in windows[1:-1])
     for k, n in enumerate(starts, 1):
@@ -250,13 +284,18 @@ def _aligned_starts(steps: list[dict], lines: list[str], texts: list[str], windo
         if not (isinstance(want, tuple) and len(want) == 3 and isinstance(want[0], str) and want[0]):
             return None
         expected.append(want)
-    # Each segment: a STEP_START line and the lines after it up to the next one, as the earliest and latest stamp.
-    bounds = [*starts, len(lines)]
+    # Each segment: a STEP_START line and the lines after it up to the next one, as the earliest and latest stamp. The
+    # runner's action download lines right before a STEP_START line (RUNNER_PREAMBLE) are timed with the segment they
+    # open, not the one before it; they stay that one's lines (no test, error or `##[group]` is ever one of them).
+    # "Set up job" prints its own downloads before the first header: that one leads nothing.
+    leads = [n if not k else _lead(texts, lines, n, starts[k - 1] + 1) for k, n in enumerate(starts)]
+    bounds = [*leads[1:], len(lines)]
     low: list[datetime | None] = []
     high: list[datetime | None] = []
     for s in range(len(starts)):
-        found = [at for n in range(bounds[s], bounds[s + 1])
+        found = [at for n in range(starts[s], bounds[s])
                  if (at := _line_time(lines[n])) is not None and not RUNNER_HOOK_NOTICE.match(texts[n])]
+        found += [at for n in range(leads[s], starts[s]) if (at := _line_time(lines[n])) is not None]
         low.append(min(found) if found else None)
         high.append(max(found) if found else None)
     if low[0] is None:

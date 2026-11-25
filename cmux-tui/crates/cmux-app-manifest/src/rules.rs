@@ -1,8 +1,9 @@
 //! Rules the schema cannot express.
 
+use crate::capabilities::scope_info;
 use crate::interfaces::{KNOWN_HOST_CAPABILITIES, KNOWN_INTERFACES, option_errors};
 use crate::issue::{Issue, escape};
-use crate::scopes::{ScopeClass, scope_info};
+use crate::scopes::ScopeClass;
 use serde_json::Value;
 
 /// Publishers reserved for first-party apps.
@@ -81,6 +82,29 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
                     ));
                 }
             }
+            if name == "cmux.widget/1" {
+                widget_rules(&at, imp, &mut out);
+            }
+            for (list, key) in [
+                ("commands", "name"),
+                ("items", "id"),
+                ("buttons", "action"),
+                ("actions", "id"),
+                ("chips", "id"),
+            ] {
+                let mut seen = std::collections::HashSet::new();
+                let entries = imp.pointer(&format!("/options/{list}")).and_then(Value::as_array);
+                for (i, entry) in entries.into_iter().flatten().enumerate() {
+                    let Some(name) = entry.get(key).and_then(Value::as_str) else { continue };
+                    if !seen.insert(name) {
+                        out.push(Issue::error(
+                            format!("{at}/options/{list}/{i}/{key}"),
+                            "interface.options.duplicate",
+                            format!("{name} is listed twice"),
+                        ));
+                    }
+                }
+            }
             if imp.get("server").is_some() && m.get("server").is_none() {
                 out.push(Issue::error(
                     format!("{at}/server"),
@@ -143,6 +167,9 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
     crate::presentation::check(m, first_party, &mut out);
     crate::deploy::check(m, first_party, &mut out);
     crate::toolbar::check(m, &mut out);
+    crate::menus::check(m, &mut out);
+    crate::keybindings::check(m, &mut out);
+    crate::web_pane::check(m, &mut out);
     if !m["icon"].is_string() {
         out.push(Issue::warning(
             "/icon",
@@ -189,6 +216,37 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
         }
     }
     out
+}
+
+/// `cmux.widget/1`'s rules across its options: `defaultSize` is one of `sizes`, and a widget
+/// offered in the sidebar (which takes small and medium at its width) draws one of those.
+fn widget_rules(at: &str, imp: &Value, out: &mut Vec<Issue>) {
+    let sizes: Vec<&str> = imp
+        .pointer("/options/sizes")
+        .and_then(Value::as_array)
+        .map(|list| list.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_else(|| vec!["small"]);
+    if let Some(default) = imp.pointer("/options/defaultSize").and_then(Value::as_str)
+        && !sizes.contains(&default)
+    {
+        out.push(Issue::error(
+            format!("{at}/options/defaultSize"),
+            "interface.options",
+            format!("defaultSize {default} is not one of sizes {sizes:?}"),
+        ));
+    }
+    // Places left out mean both: a large-only widget then shows on New Tab only (`widgets.rs`).
+    let sidebar_named = imp
+        .pointer("/options/places")
+        .and_then(Value::as_array)
+        .is_some_and(|places| places.iter().any(|p| p == "sidebar"));
+    if sidebar_named && !sizes.iter().any(|s| *s == "small" || *s == "medium") {
+        out.push(Issue::error(
+            format!("{at}/options/places"),
+            "interface.options",
+            "the sidebar takes small and medium widgets: add one of them to sizes, or leave the sidebar out of places",
+        ));
+    }
 }
 
 /// Scope classes: server-only scopes belong in `server.scopes`; restricted

@@ -144,6 +144,69 @@ fn a_client_without_snapshot_gets_the_replay_stream() {
     mux.shutdown();
 }
 
+/// cmux#53022: a terminal reopened (or projected) into a new tab keeps its runtime's first
+/// surface id, and its first tab closed. An identity-only attach (generation and terminal, no
+/// surface) must stream under the tab's surface: the app reads only events named for its tab
+/// and dropped every one, so a reopened terminal stayed on "Restoring" with no replay.
+#[test]
+fn an_identity_attach_to_a_reopened_terminal_streams_under_its_tab_surface() {
+    let mux = Mux::new_for_test("identity-attach-view", SurfaceOptions::default());
+    let first = mux.new_workspace(None, None).unwrap().id;
+    let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
+    let terminal_id = mux.surface(first).unwrap().terminal_public_id().unwrap().clone();
+    mux.resource_project_terminal_selected(
+        crate::ResourceSelectors {
+            terminal: Some(terminal_id.to_string()),
+            ..Mux::ordinary_resource_selectors()
+        },
+        mux.resource_selectors_for_pane(Some(pane)).unwrap(),
+        1,
+        None,
+        None,
+        &crate::WorkspaceMutation::daemon_local("identity-attach-view-test"),
+    )
+    .unwrap();
+    let view = mux.with_state(|state| state.panes[&pane].tabs[1]);
+    assert!(mux.close_surface(first).unwrap());
+    // The precondition: the runtime's surface is not the tab's.
+    assert_ne!(mux.resource_surface_for_terminal(&terminal_id), Some(view));
+
+    let (writer, outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    handle_command(
+        &mux,
+        client,
+        command(json!({
+            "cmd": "attach-surface",
+            "expected_generation": mux.registry_identity().1,
+            "expected_terminal_id": terminal_id.as_str(),
+        })),
+        &writer,
+    )
+    .unwrap();
+    let first_event = next_event(&outbound, Duration::from_secs(5)).expect("vt-state");
+    assert_eq!(first_event["event"], "vt-state", "{first_event}");
+    assert_eq!(
+        first_event["surface"],
+        json!(view),
+        "the replay names the tab's surface: {first_event}"
+    );
+    mux.surface(view).unwrap().inject_output_for_test(b"after reopen\r\n");
+    loop {
+        let event = next_event(&outbound, Duration::from_secs(5)).expect("output");
+        if event["event"] == "output" {
+            assert_eq!(
+                event["surface"],
+                json!(view),
+                "live output names the tab's surface: {event}"
+            );
+            break;
+        }
+    }
+    disconnect_client(&mux, client, false);
+    mux.shutdown();
+}
+
 // ---- terminal-snapshot-history-v1 -------------------------------------
 
 /// A surface running `cat` (it prints nothing on its own) whose primary
@@ -988,6 +1051,7 @@ fn dogfood_png_snapshot_events_match_the_golden_fixture() {
 
     let actual = lines.join("\n") + "\n";
     let path =
+        // affected-reads: cmux-tui/spec/fixtures/terminal-snapshot-dogfood-png.jsonl
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").join(DOGFOOD_PNG_FIXTURE);
     if std::env::var_os("CMUX_UPDATE_SNAPSHOT_FIXTURE").is_some() {
         std::fs::write(&path, &actual).expect("write the fixture");
@@ -1416,3 +1480,6 @@ fn latest_screen_first_bench() {
         .unwrap();
     }
 }
+
+#[path = "history_window_socket_tests.rs"]
+mod history_window;

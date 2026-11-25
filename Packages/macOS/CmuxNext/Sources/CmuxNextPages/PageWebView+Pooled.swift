@@ -46,6 +46,11 @@ extension PageWebView {
         // The spare's document is parked until a claim binds routes (PageWebView+Claim.swift).
         host.configuration.userContentController.addUserScript(
             WKUserScript(source: parkedScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
+        if PageSpareVariant.current == .unmounted {
+            host.configuration.userContentController.addUserScript(
+                WKUserScript(source: PageSpareVariant.deferMountScript, injectionTime: .atDocumentStart,
+                             forMainFrameOnly: true, in: .page))
+        }
         return PooledHostRecipe(served: served, configuration: host.configuration,
                                 inputReadiness: host.inputReadiness, options: options, owner: owner)
     }
@@ -96,7 +101,7 @@ extension PageWebView {
         Self.installPageScripts(controller, documentAttributes: documentAttributes)
         controller.addUserScript(WKUserScript(source: PagePaintProbe.script, injectionTime: .atDocumentEnd,
                                                forMainFrameOnly: true, in: .page))
-        controller.addUserScript(PageTitleRowPress.userScript)
+        if descriptor.servesHostOps { controller.addUserScript(PageTitleRowPress.userScript) }
         controller.addUserScript(PageAccessibilityPress.userScript)
         // The handler stays installed; only the script was removed with the others.
         controller.addUserScript(WKUserScript(source: ConsoleErrorCapture.script, injectionTime: .atDocumentStart,

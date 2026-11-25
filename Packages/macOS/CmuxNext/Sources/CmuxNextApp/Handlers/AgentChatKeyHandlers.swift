@@ -10,9 +10,9 @@ import WebKit
 enum AgentChatKeyHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         AgentChatCopyHandlers.bind(into: registry, context: context)
-        context.services.chiefPetMini.bind(into: registry) { chatView(context, $0, refusal: nil)?.model }
+        context.services.chiefPetMini.bind(into: registry) { chatView(context, $0, refusing: nil)?.model }
         registry.bind("agentPane.copyLastCodeBlock", run: { invocation in
-            guard let view = chatView(context, invocation, refusal: MiscHandlerStrings.copyCodeNeedsAgentChat) else { return }
+            guard let view = chatView(context, invocation, refusing: "agentPane.copyLastCodeBlock") else { return }
             let registry = context.registry
             let interactive = !registry.isCapturingRefusal
             let services = context.services
@@ -39,16 +39,17 @@ enum AgentChatKeyHandlers {
         })
         // A Priority row's chat (`agent-chat:`) archives from the row, while the Priority view is on;
         // else the focused chat's Archive, whatever the view's setting.
-        SidebarPriorityRowActions(chats: .app, unavailable: SidebarPriorityRowActions.viewOff(context))
+        SidebarPriorityRowActions(chats: .app, unavailable: SidebarPriorityRowActions.viewOff(context),
+                                  toastWindow: { [weak services = context.services] in services?.windows.active?.window })
             .bindArchive(into: registry) { invocation in
-                chatView(context, invocation, refusal: MiscHandlerStrings.archiveChatNeedsAgentChat)?.archiveChat()
+                chatView(context, invocation, refusing: SidebarPriorityRowActions.archive)?.archiveChat()
             }
     }
 
-    private static func chatView(_ context: AppActionContext, _ invocation: ActionInvocation, refusal: String?) -> AgentPaneView? {
+    private static func chatView(_ context: AppActionContext, _ invocation: ActionInvocation, refusing id: ActionID?) -> AgentPaneView? {
         guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
               let view = context.services.agentTabs.existingView(key) else {
-            if let refusal { context.refuse(refusal) }
+            if let id { context.registry.refuse(.noChat, id) }
             return nil
         }
         return view

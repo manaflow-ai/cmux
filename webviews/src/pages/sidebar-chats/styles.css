@@ -74,6 +74,11 @@ body {
   font-size: var(--sc-title-size);
 }
 
+/* The place of the rows a slice leaves unmounted (SidebarChats' Spacer sets the height). */
+.sc-spacer {
+  flex: none;
+}
+
 .sc-row:hover {
   background: var(--cmux-hover);
 }

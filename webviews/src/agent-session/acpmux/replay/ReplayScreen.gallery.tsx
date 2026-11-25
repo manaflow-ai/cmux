@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (a recorded chat), not shipped UI.
 import { componentEntry } from "../../../gallery/format";
-import type { EventRecord } from "../direct";
+import type { EventRecord } from "../eventRecord";
 import type { ReplayScreen } from "./ReplayScreen";
 import { REPLAY_SESSION, replayFixtureEvents } from "./replayFixture";
 
@@ -22,15 +22,15 @@ export default componentEntry<Props>({
   pane: true,
   // The pane draws the replayed rows with its own transcript.
   load: () =>
-    Promise.all([import("./ReplayScreen"), import("../App")]).then(
-      ([{ ReplayScreen }, { VirtualTranscript }]) =>
+    Promise.all([import("./ReplayScreen"), import("../App"), import("../conversation/turns")]).then(
+      ([{ ReplayScreen }, { VirtualTranscript }, { turnView }]) =>
         function GalleryReplay(props: Props) {
           return (
             <ReplayScreen
               {...props}
-              transcript={(rows) => (
+              transcript={(replayed) => (
                 <VirtualTranscript
-                  rows={rows}
+                  rows={turnView(replayed.rows, new Set(), { working: replayed.isWorking })}
                   sessionId="replay"
                   expanded={new Set()}
                   onToggleActivity={() => undefined}

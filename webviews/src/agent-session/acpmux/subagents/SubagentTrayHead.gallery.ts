@@ -12,6 +12,7 @@ import { minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
 import { trayHeadLook } from "./trayHead.experiment";
+import { RUNNING_TRAY_LIST_LINE } from "./subagentSelectors";
 
 const running = (name: string, minutes: number, action: string): Subagent => ({
   id: `agent-${name.toLowerCase().replaceAll(" ", "-")}`,
@@ -57,7 +58,7 @@ const head = (ctx: PlayContext) => ctx.document.querySelector<HTMLElement>(".acp
 const open = async (ctx: PlayContext) => {
   await ctx.waitFor(() => head(ctx));
   if (head(ctx)!.getAttribute("aria-expanded") !== "true") await ctx.click({ selector: ".acpmux-running-tray__head" });
-  await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray__list .acpmux-agent-line").length >= 3);
+  await ctx.waitFor(() => ctx.document.querySelectorAll(RUNNING_TRAY_LIST_LINE).length >= 3);
 };
 
 export default agentPaneEntry({

@@ -94,11 +94,8 @@ cp "$NIGHTLY_PROFILE_PATH" "$app/Contents/embedded.provisionprofile"
 # Whole bundle, inside out, as for every channel: launchd plists re-stamped from
 # the new bundle id, CLI and helpers, SSH payloads (re-pinned), plugins, the
 # Chromium engine, frameworks, then the app with cmux.nightly.entitlements.
-# The Computer Use helper (com.cmuxterm.cua, own ticket stapled) is kept as
-# notarized: its identity does not depend on the host's.
-CMUX_SIGN_MODE=all-except-computer-use "$ROOT_DIR/scripts/sign-cmux-bundle.sh" \
+CMUX_SIGN_MODE=all "$ROOT_DIR/scripts/sign-cmux-bundle.sh" \
   "$app" "$LEGACY_ENTITLEMENTS" "$APPLE_SIGNING_IDENTITY"
-"$ROOT_DIR/scripts/ci/verify-computer-use-helper.sh" signed "$app"
 
 # The keychain sign-in survives only with the same App ID and keychain group.
 signed="$(mktemp)"

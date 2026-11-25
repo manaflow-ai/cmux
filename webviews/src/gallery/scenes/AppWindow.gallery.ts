@@ -22,6 +22,7 @@ import {
   tool,
   user,
 } from "../fixtures/acpmux";
+import { MODEL_PICKER } from "../../agent-session/acpmux/composerSelectors";
 
 /// The New Tab page as the app opens it: the host's `ready` answer names the tab a New Tab page,
 /// with no template stored yet (the app's unset key, Minimal), and the person's recent chats.
@@ -130,7 +131,7 @@ const transcriptWithContext = {
 /// The app offers Session Info (Debug Settings `agent.sessionInfo`, on by default).
 const native = { "pane.tabState": { inspector: true } };
 
-const MODEL_BUTTON = { selector: ".acpmux-model .acpmux-picker-button" };
+const MODEL_BUTTON = { selector: MODEL_PICKER };
 
 /// Clicks the composer's one model button (model and effort) and waits for its menu's models.
 async function openModelMenu(ctx: PlayContext) {

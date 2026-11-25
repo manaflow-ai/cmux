@@ -9,9 +9,7 @@ import Testing
 @Suite(.serialized) struct HomeTableCornerTests {
     init() {
         HomeMarkdownPolicy.install()
-        CustomRows.unregister(HomeTableRowProvider.kind)
-        CustomRows.unregister(HomePlanRowProvider.kind)
-        HomeTableRowProvider.install()
+        HomeTableRowProvider.reinstall()
     }
 
     /// A text-only matrix with an empty corner: the grid layout, which draws the header rule.

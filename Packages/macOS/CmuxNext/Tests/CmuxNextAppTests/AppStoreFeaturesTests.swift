@@ -22,7 +22,7 @@ import Testing
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         let url = home.appending(path: "cmux-next.json")
         try Data(json.utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences(recommended: recommended)), managedWatchFiles: [])
         await settings.reload()
         return (settings, home)
@@ -75,7 +75,7 @@ import Testing
             "appearance.brailleStatus": .appearance, "appearance.runningCommands": .appearance,
             "chief.suggestedTasks": .chief, "chief.githubFeed": .chief, "chat.needsYou": .chief,
             "editor.splitDiff": .editor, "editor.minimap": .editor,
-            "devices.phoneAccess": .devices, "devices.globalHotKey": .devices,
+            "devices.globalHotKey": .devices,
         ]
         let bridge = SettingsAppFeatures(settings: { nil })
         for (id, category) in expected {

@@ -1,0 +1,29 @@
+[package]
+name = "cmux-vm-pool"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "`cmux vm pool`: bring paused CI runner machines up on Freestyle and GCP in parallel, watch them come online in GitHub, and pause idle ones. Never deletes a machine."
+
+[lib]
+path = "src/lib.rs"
+
+# The same verbs as `cmux vm pool`, as a small binary CI builds in about a minute
+# (the bench workflow and the scheduler's host do not need all of cmux).
+[[bin]]
+name = "cmux-vm-pool"
+path = "src/main.rs"
+
+[dependencies]
+cmux-egress.workspace = true
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+rustls = { workspace = true }
+tokio = { workspace = true }
+futures-util = { workspace = true }
+url = { workspace = true }
+
+[lints]
+workspace = true

@@ -16,7 +16,7 @@
 //! machine never starts here. The client names only an agent kind
 //! (`harness`, resolved by acpmux from its own config), an optional model (`model`), and a folder (`cwd`,
 //! absolute; acpmux checks it), and on the caller's own Cloud VM a mode (`mode`, below). No command, env, policy, peer, preset,
-//! workspace or MCP server param exists (unknown fields are a bad request).
+//! workspace or MCP server param exists (an unknown field is dropped unread).
 //! The daemon itself names the tab's workspace to acpmux on `session/new`
 //! (`_meta.acpmux.workspaceId`, which picks the session's display), from the
 //! tab's place in this store; a tab with no workspace, or whose workspace key
@@ -38,8 +38,10 @@
 //! [`AgentStartHost::UnknownCloud`] with the caller's `vm_kind: "owner"`,
 //! the Cloud API's answer for it): that machine is a disposable sandbox the
 //! person owns, so any agent starts there, Codex and opencode included, in
-//! its own default mode (still with policy `ask`). A Mac, an SSH host and a
-//! team VM keep the rule above ([`AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY`]).
+//! the person's own start mode (`permission_mode`, [`start_policy`]: policy `ask` only when
+//! that is `ask`). Under full access a Claude chat with no pick then moves to Claude Code's Auto,
+//! keeping Bypass permissions where Claude Code refuses it ([`cloud_default_mode`]). A Mac, an SSH
+//! host and a team VM keep the rule above ([`AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY`]).
 //!
 //! There, and only there, the person's own mode pick (`mode`,
 //! [`AGENT_SESSION_START_MODE_CAPABILITY`]) is what the chat starts in (Leo, 2026-11-10: "but
@@ -66,6 +68,12 @@
 //! Durations only: no folder, harness or session value is in it.
 
 use crate::panic_free::JsonFields;
+
+#[path = "agent_session_prewarm.rs"]
+mod prewarm;
+pub(crate) use prewarm::chat_folder_prewarm_on;
+pub(super) use prewarm::prewarm;
+pub use prewarm::{AGENT_SESSION_PREWARM_CAPABILITY, AGENT_SESSION_PREWARM_CHAT_FOLDER_CAPABILITY};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -103,6 +111,68 @@ pub const AGENT_SESSION_START_MODE_CAPABILITY: &str = "agent-session-start-mode-
 /// the person's own disposable VM is the boundary (Leo, 2026-10-30, on
 /// ChatGPT's "Where should this chat run?": "we should just have it").
 pub const AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY: &str = "agent-session-start-owner-cloud-v1";
+/// `permission_mode` on `agent-session-start` (`fullAccess`, `standard` or `ask`): the person's
+/// `agents.defaultPermissionMode` on the caller's app, which a start on the caller's own Cloud VM
+/// takes as a new chat on that app takes it ([`start_policy`]). Advertised wherever the start is
+/// served; a start anywhere but the caller's own Cloud VM reads the field and keeps policy `ask`.
+pub const AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY: &str =
+    "agent-session-start-permission-mode-v1";
+
+/// `credentials: {env: {NAME: value}}` on `agent-session-start`, and the `agent-session-credentials
+/// {surface, env, vm_kind}` refresh: the owner's model credential for the chat's agent, from the
+/// owner's own app on the owner's own Cloud VM only ([`credentials_admitted`]), relayed to acpmux
+/// (`_meta.acpmux.credentials`, `agent/credentials.update`), which holds it in memory for that agent
+/// alone (acpmux `agent_credentials.rs`). Advertised only where the owner-Cloud start is.
+pub const AGENT_SESSION_START_CREDENTIALS_CAPABILITY: &str = "agent-session-start-credentials-v1";
+/// A Codex credential (an OpenAI key or a ChatGPT sign-in's token) on `agent-session-start` reaches
+/// Codex: acpmux puts its provider override after `app-server`, where codex keeps it (an older
+/// acpmux put it before, codex dropped it, and the chat ran on no key). The app updates a machine
+/// that lacks this before a Codex start carries a credential (cmux#45774). Advertised beside
+/// [`AGENT_SESSION_START_CREDENTIALS_CAPABILITY`].
+pub const AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY: &str =
+    "agent-session-start-codex-credentials-v1";
+
+/// The names a credential may set (acpmux `agent_credentials::NAMES`).
+const CREDENTIAL_NAMES: [&str; 4] =
+    ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CMUX_CHATGPT_ACCESS_TOKEN"];
+const MAX_CREDENTIAL_BYTES: usize = 16 * 1024;
+
+/// A launch credential as the caller sends it. Never printed: no `Debug`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(in crate::server) struct StartCredentials {
+    pub(in crate::server) env: std::collections::BTreeMap<String, String>,
+}
+
+impl StartCredentials {
+    /// One known name, a token-shaped value (acpmux checks the same again).
+    pub(in crate::server) fn valid(&self) -> bool {
+        self.env.len() == 1
+            && self.env.iter().all(|(name, value)| {
+                CREDENTIAL_NAMES.contains(&name.as_str())
+                    && (1..=MAX_CREDENTIAL_BYTES).contains(&value.len())
+                    && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._~+/=:".contains(&b))
+            })
+    }
+
+    pub(in crate::server) fn wire(&self) -> Value {
+        json!({"env": self.env})
+    }
+}
+
+/// Whether a credential may be set by `client`: only on the caller's own Cloud VM (its `vm_kind:
+/// "owner"`, the Cloud API's answer for the machine's creator alone, on a VM that is not a team
+/// VM, where every member's agents run as one Unix user and could read it), never from a phone's
+/// channel, and never through a teammate's or guest's proxied link (the caller checks `author`).
+pub(in crate::server) fn credentials_admitted(
+    mux: &Mux,
+    client: u64,
+    vm_kind: &Option<Option<String>>,
+) -> bool {
+    mux.agent_host_gate(client, vm_word(vm_kind)).is_ok()
+        && mux.control_clients.agent_sessions.starts.owner_cloud(vm_word(vm_kind) == Some("owner"))
+        && !mux.control_clients.supports_capability(client, super::CLOUD_MOBILE_CHAT_CAPABILITY)
+}
 
 /// Starts the binary's acpmux daemon (blocking; acpmux bounds its own start).
 pub type AcpmuxStarter = Arc<dyn Fn() -> Result<(), String> + Send + Sync>;
@@ -305,7 +375,6 @@ impl Drop for StartSlot {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(super) struct StartParams {
     surface: SurfaceId,
     #[serde(default)]
@@ -338,10 +407,23 @@ pub(super) struct StartParams {
     /// outer `None` is an absent field (a caller from before the param).
     #[serde(default, deserialize_with = "crate::server::command_args::present_nullable")]
     vm_kind: Option<Option<String>>,
+    /// The caller's `agents.defaultPermissionMode` (`fullAccess`, `standard`, `ask`): read only on
+    /// the caller's own Cloud VM ([`start_policy`]).
+    #[serde(default)]
+    permission_mode: Option<String>,
+    /// The owner's model credential for the agent ([`AGENT_SESSION_START_CREDENTIALS_CAPABILITY`]).
+    #[serde(default)]
+    credentials: Option<StartCredentials>,
 }
 
 impl StartParams {
+    #[cfg(test)]
     fn valid(&self) -> bool {
+        self.invalid_field().is_none()
+    }
+
+    /// The first param out of bounds, by name (the bad request's `data.field`); none when all hold.
+    pub(super) fn invalid_field(&self) -> Option<&'static str> {
         let harness_ok = self.harness.as_deref().is_none_or(|harness| {
             (1..=64).contains(&harness.len())
                 && harness.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
@@ -361,11 +443,24 @@ impl StartParams {
                 && !model.chars().any(|c| c.is_whitespace() || c.is_control())
                 && !model.contains(['{', '}', '$', '"', '\\', '\''])
         });
+        let permission_mode_ok =
+            self.permission_mode.as_deref().is_none_or(|mode| PERMISSION_MODES.contains(&mode));
         let mode_ok = self.mode.as_deref().is_none_or(|mode| {
             (1..=64).contains(&mode.len())
                 && mode.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
         });
-        harness_ok && cwd_ok && instance_ok && model_ok && mode_ok
+        let credentials_ok = self.credentials.as_ref().is_none_or(StartCredentials::valid);
+        [
+            ("harness", harness_ok),
+            ("cwd", cwd_ok),
+            ("person_instance", instance_ok),
+            ("model", model_ok),
+            ("permission_mode", permission_mode_ok),
+            ("mode", mode_ok),
+            ("credentials", credentials_ok),
+        ]
+        .into_iter()
+        .find_map(|(field, ok)| (!ok).then_some(field))
     }
 }
 
@@ -384,14 +479,18 @@ pub(super) fn start(
     mut params: StartParams,
     writer: &MessageWriter,
 ) -> bool {
-    if !params.valid() {
-        return refuse(writer, id, Refusal::BadRequest);
+    if let Some(field) = params.invalid_field() {
+        return super::bad_field::refuse_field(writer, id, Some(field));
     }
     if let Err(refusal) = mux.agent_host_gate(client, vm_word(&params.vm_kind)) {
         return refuse(writer, id, refusal);
     }
     if let Err(refusal) = startable(mux, params.surface) {
         return refuse(writer, id, refusal);
+    }
+    // A credential only from the owner's own app on the owner's own Cloud VM.
+    if params.credentials.is_some() && !credentials_admitted(mux, client, &params.vm_kind) {
+        return refuse(writer, id, Refusal::OwnerOnly);
     }
     // On the caller's own Cloud VM a new chat with no folder gets a fresh
     // per-chat folder. Non-Cloud hosts retain the required-folder behavior.
@@ -412,12 +511,12 @@ pub(super) fn start(
             .map(|path| path.to_string_lossy().into_owned());
     }
     if params.cwd.is_none() {
-        return refuse(writer, id, Refusal::BadRequest);
+        return super::bad_field::refuse_field(writer, id, Some("cwd"));
     }
     // A chat never starts in `/`, above the home folder, or in the home folder
     // unless the person chose it (cx-1bhjj), as on the Mac.
     let Some(cwd) = params.cwd.as_deref() else {
-        return refuse(writer, id, Refusal::BadRequest);
+        return super::bad_field::refuse_field(writer, id, Some("cwd"));
     };
     if let Err(refusal) = super::agent_session_trust::home_rule(cwd, params.home_confirmed) {
         return refuse(writer, id, refusal);
@@ -556,7 +655,7 @@ pub(crate) fn keyed_restart_reason(status: Option<&Value>) -> Value {
 }
 
 /// Ok when `surface` is an unbound agent tab whose record names this store.
-fn startable(mux: &Mux, surface: SurfaceId) -> Result<(), Refusal> {
+pub(super) fn startable(mux: &Mux, surface: SurfaceId) -> Result<(), Refusal> {
     let runtime = mux.surface(surface).ok_or(Refusal::UnknownTab)?;
     match mux.conversation_tab_of(&runtime) {
         Some(ConversationTabRecord::AgentSession { host, session, .. })
@@ -586,10 +685,11 @@ fn run(
     let checks = Instant::now();
     let until = checks + START_PATIENCE.ceiling;
     let cwd = params.cwd.as_deref().ok_or((Refusal::BadRequest, None))?;
-    let (link, catalog) = ready_catalog(&socket, link, cwd, until).map_err(|r| (r, None))?;
+    let (link, catalog) = ready_catalog(&socket, link, cwd, params.harness.as_deref(), until)
+        .map_err(|r| (r, None))?;
     let result = still_keyed(&link, &params).and_then(|()| {
         start_and_bind(mux, client, &link, &catalog, &params, phone, checks, until, timings)
-            .map_err(|r| (r, None))
+            .map_err(|StartRefused(refusal, data)| (refusal, data))
     });
     link.close();
     result
@@ -606,10 +706,15 @@ fn ready_catalog(
     socket: &std::path::Path,
     mut link: Arc<AcpmuxLink>,
     cwd: &str,
+    harness: Option<&str>,
     until: Instant,
 ) -> Result<(Arc<AcpmuxLink>, Value), Refusal> {
+    // `forStart` with the start's harness: acpmux resolves it as `session/new` would before it
+    // answers (acpmux `hub/rediscover.rs`), so a harness its startup PATH missed is in this
+    // catalog and the start is not refused `harness_missing` (`start_family`) for it.
+    let params = json!({"cwd": cwd, "forStart": true, "harness": harness});
     loop {
-        match ask(&link, until, "_acpmux/harnesses", json!({"cwd": cwd})) {
+        match ask(&link, until, "_acpmux/harnesses", params.clone()) {
             Ok(catalog) => return Ok((link, catalog)),
             Err(LinkError::Closed) if Instant::now() < until => link.close(),
             Err(error) => {
@@ -674,6 +779,109 @@ pub(in crate::server) fn restart_with(
     AcpmuxLink::connect(socket, |_| {}).ok()
 }
 
+/// A start's refusal with its typed facts for `data`, when it has any.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct StartRefused(Refusal, Option<Value>);
+
+/// acpmux's `data.reason` for a route that cannot serve a spawn (`routes::RouteError::reason`).
+const ROUTE_REASONS: [&str; 3] = ["route.unavailable", "route.not_found", "route.invalid"];
+
+/// acpmux's `data.reason` when it is a short code (letters, digits, `._-`, at most 64): the only
+/// part of an acpmux error a start's refusal passes on (as `Refused::of_prompt` does).
+fn acpmux_reason(data: &Value) -> Option<String> {
+    data.get("reason")
+        .and_then(Value::as_str)
+        .filter(|code| {
+            (1..=64).contains(&code.len())
+                && code.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+        })
+        .map(str::to_owned)
+}
+
+impl From<Refusal> for StartRefused {
+    fn from(refusal: Refusal) -> Self {
+        Self(refusal, None)
+    }
+}
+
+impl StartRefused {
+    /// acpmux's answer to `session/new`. An agent that said it is not signed in (acpmux's
+    /// `agent.sign_in_required`) is `sign_in_required` with the harness and the kind of sign-in
+    /// failure, so the app names the agent and offers its sign-in (hq#11225); never the agent's
+    /// own message text. Anything else is [`Refusal::of`].
+    pub(super) fn of_session_new(error: LinkError) -> Self {
+        if let LinkError::Rpc(_, data) = &error
+            && data.get("reason").and_then(Value::as_str) == Some("agent.sign_in_required")
+        {
+            // A profile such as `providers/deepseek` by its last part, as the tab's brand mark.
+            let harness = data
+                .pointer("/details/harness")
+                .and_then(Value::as_str)
+                .and_then(|harness| harness.rsplit('/').next())
+                .filter(|harness| validate_harness(harness).is_ok());
+            let kind = data
+                .get("errorKind")
+                .and_then(Value::as_str)
+                .filter(|kind| matches!(*kind, "auth.signed_out" | "auth.expired"));
+            let mut facts = json!({"reason": "agent.sign_in_required"});
+            if let Some(harness) = harness {
+                facts.insert("harness", json!(harness));
+            }
+            if let Some(kind) = kind {
+                facts.insert("errorKind", json!(kind));
+            }
+            return Self(Refusal::SignInRequired, Some(facts));
+        }
+        // A route the agent's profile binds that cannot serve it here (acpmux `route.*` from
+        // `apply_route`): the cmux router harness on a Cloud machine, which runs no signed-in
+        // local router. The route's reason only, never acpmux's message (hq#11225).
+        if let LinkError::Rpc(_, data) = &error
+            && let Some(reason) = data
+                .get("reason")
+                .and_then(Value::as_str)
+                .filter(|reason| ROUTE_REASONS.contains(reason))
+        {
+            return Self(Refusal::RouteUnavailable, Some(json!({"reason": reason})));
+        }
+        // A permission policy the agent cannot keep (acpmux `policy_unenforceable`: a remote
+        // start asks for `ask`, and an ACP agent with no mode that asks cannot hold it) is
+        // `not_asking`, the refusal the app names, with the harness acpmux named.
+        if let LinkError::Rpc(_, data) = &error
+            && data.get("reason").and_then(Value::as_str) == Some("policy_unenforceable")
+        {
+            let mut facts = json!({"reason": "policy_unenforceable"});
+            if let Some(harness) = data
+                .get("harness")
+                .and_then(Value::as_str)
+                .filter(|harness| validate_harness(harness).is_ok())
+            {
+                facts.insert("harness", json!(harness));
+            }
+            return Self(Refusal::NotAsking, Some(facts));
+        }
+        // Any other refusal keeps acpmux's reason code (`data.reason`, never its message text),
+        // so the app and the CLI can say why: a bare `agent_session.refused` named no cause
+        // (the carrier drill, cmuxterm-hq run 43973035740).
+        let reason = match &error {
+            LinkError::Rpc(_, data) => acpmux_reason(data),
+            _ => None,
+        };
+        Self(Refusal::of(error), reason.map(|reason| json!({"reason": reason})))
+    }
+
+    /// The start's refusal with `harness`, the agent the start asked for, named in its facts:
+    /// a route refusal, whose acpmux error does not name it. A valid harness id only.
+    pub(super) fn naming(mut self, harness: Option<&str>) -> Self {
+        if let (Refusal::RouteUnavailable, Some(facts), Some(harness)) =
+            (self.0, self.1.as_mut(), harness.filter(|h| validate_harness(h).is_ok()))
+            && facts.get("harness").is_none()
+        {
+            facts.insert("harness", json!(harness));
+        }
+        self
+    }
+}
+
 /// `phone`: the caller declared `cloud-mobile-chat-v1` (read before the start's worker).
 /// `timings`: each phase reached, on this machine's clock.
 /// `catalog`: acpmux's catalog for the start's folder ([`ready_catalog`]); `checks`: when the
@@ -689,7 +897,7 @@ fn start_and_bind(
     checks: Instant,
     until: Instant,
     timings: &mut StartTimings,
-) -> Result<Value, Refusal> {
+) -> Result<Value, StartRefused> {
     let cwd = params.cwd.as_deref().ok_or(Refusal::BadRequest)?;
     let owner_cloud = mux
         .control_clients
@@ -701,20 +909,20 @@ fn start_and_bind(
     // the start answers.
     let table = ask(link, until, "_acpmux/web_modes", json!({})).map_err(Refusal::of)?;
     if phone && table.get("cloudMobileStrictFloor").and_then(Value::as_u64) != Some(1) {
-        return Err(Refusal::NotAsking);
+        return Err(Refusal::NotAsking.into());
     }
     // The family the start resolves to, from acpmux's own catalog, before
     // any agent process exists: a Codex alias or a default harness of a
     // refused family never starts (but on the caller's own Cloud VM).
-    let family = catalog_family(catalog, params.harness.as_deref()).ok_or(Refusal::NotAsking)?;
+    let family = start_family(catalog, params.harness.as_deref())?;
     // A phone's family is held to its own floor instead: acpmux refuses Codex as a Web family,
     // but a Codex bridge session holds to the phone floor in `ask`, which only the session's
     // `cloudMobileAsks` can tell from Codex's adapter (`settle_phone_mode`).
     if !owner_cloud && !phone && refused_family(&table, &family) {
-        return Err(Refusal::NotAsking);
+        return Err(Refusal::NotAsking.into());
     }
     if phone && phone_modes(&family).is_empty() {
-        return Err(Refusal::NotAsking);
+        return Err(Refusal::NotAsking.into());
     }
     // The folder must be trusted before an agent starts there (an agent can
     // run the folder's own hooks and settings at start); this daemon reaches
@@ -727,21 +935,30 @@ fn start_and_bind(
         trust,
     );
     if !folder_trusted(&trust, params.harness.as_deref()) {
-        return Err(Refusal::UntrustedFolder);
+        return Err(Refusal::UntrustedFolder.into());
     }
     // The person's own pick on their own Cloud VM (module docs); never a phone's start, never
-    // another host's.
+    // another host's. With no pick, the person's `agents.defaultPermissionMode`
+    // (`permission_mode`, [`start_policy`]) decides the policy there.
+    let permission_mode = params.permission_mode.as_deref();
     let picked = params.mode.as_deref().filter(|_| owner_cloud && !phone);
     let mut meta = match picked {
         Some(mode) if !mode_asks(&table, &family, mode) => json!({"mode": mode}),
         Some(mode) => json!({"policy": "ask", "mode": mode}),
-        None => json!({"policy": "ask"}),
+        None => match start_policy(owner_cloud, phone, permission_mode) {
+            Some(policy) => json!({"policy": policy}),
+            None => json!({}),
+        },
     };
     if let Some(harness) = &params.harness {
         meta.insert("harness", json!(harness));
     }
     if let Some(model) = &params.model {
         meta.insert("model", json!(model));
+    }
+    // Admitted in `start` (the owner's own Cloud VM); acpmux keeps it for this agent in memory.
+    if let Some(credentials) = &params.credentials {
+        meta.insert("credentials", credentials.wire());
     }
     // The workspace of the tab, read here and never taken from the client:
     // acpmux gives the session that workspace's display (none without it).
@@ -770,7 +987,7 @@ fn start_and_bind(
                 }
             },
         )
-        .map_err(Refusal::of);
+        .map_err(|error| StartRefused::of_session_new(error).naming(params.harness.as_deref()));
     timings.session_new = Some(ms_since(spawn));
     let created = created?;
     let settle = Instant::now();
@@ -788,13 +1005,20 @@ fn start_and_bind(
     let family = if phone {
         settle_phone_mode(link, until, &session).map_err(end)?
     } else if owner_cloud {
-        session_family(link, until, &session).map_err(end)?
+        if picked.is_none() && permission_mode == Some("standard") {
+            settle_standard_mode(link, &session);
+        }
+        let family = session_family(link, until, &session).map_err(end)?;
+        if let Some(mode) = cloud_default_mode(picked, permission_mode, &family) {
+            settle_cloud_default_mode(link, &session, mode);
+        }
+        family
     } else {
         settle_asking_mode(link, until, &session).map_err(end)?
     };
     // The trust answer for the family the session actually runs.
     if !folder_trusted(&trust, Some(&family)) {
-        return Err(end(Refusal::UntrustedFolder));
+        return Err(end(Refusal::UntrustedFolder).into());
     }
     // The agent the session runs, as acpmux answered it (`_meta.acpmux.harness`
     // of `session/new`; a profile such as `providers/deepseek` by its last
@@ -816,6 +1040,78 @@ fn start_and_bind(
     timings.bind = Some(ms_since(bind));
     let (record, _) = bound?;
     Ok(json!({"surface": params.surface, "session": session, "conversation": record.wire()}))
+}
+
+/// The values `permission_mode` takes (acpmux `start_mode.rs` `DefaultMode`).
+const PERMISSION_MODES: [&str; 3] = ["fullAccess", "standard", "ask"];
+
+/// The policy a start gives its new session. Anywhere but the caller's own Cloud VM, and for a phone
+/// there, `ask`, whatever the caller says: the session then runs in a mode that asks. On the caller's
+/// own Cloud VM (a disposable machine the person owns, where they can already run any command in a
+/// terminal) the chat starts as a new chat on the caller's app starts, from the person's
+/// `agents.defaultPermissionMode` (`permission_mode`): `ask` keeps policy `ask`; `fullAccess` and
+/// `standard` give no policy, so acpmux's start level there applies (`hub/start_mode.rs`), and a mode
+/// the person picks later is not held to an asking one (`hub/policy_mode.rs`). An app that sends no
+/// `permission_mode` (before the param) keeps `ask`.
+fn start_policy(
+    owner_cloud: bool,
+    phone: bool,
+    permission_mode: Option<&str>,
+) -> Option<&'static str> {
+    match (owner_cloud && !phone, permission_mode) {
+        (true, Some("fullAccess" | "standard")) => None,
+        _ => Some("ask"),
+    }
+}
+
+/// Claude Code's own mode, Auto (acpmux `claude_stdio::OWN_MODE`).
+const CLAUDE_AUTO: &str = "auto";
+
+/// The mode a start on the caller's own Cloud VM moves its new chat to after it started, when the
+/// person picked none and their start level is full access: Claude Code's Auto for a Claude chat
+/// (Lawrence 2026-11-20: "we need to support auto mode for cloud mode for claude harness"; the
+/// default is Auto where Claude Code takes it, else Bypass permissions). The chat starts at the
+/// machine's full-access level (Bypass permissions) and acpmux takes the move without the person
+/// (`hub/start_mode.rs` `may_move_without_person`); a Claude Code that refuses Auto keeps Bypass
+/// permissions ([`settle_cloud_default_mode`]). Any other family, a pick, and any other level: none.
+fn cloud_default_mode(
+    picked: Option<&str>,
+    permission_mode: Option<&str>,
+    family: &str,
+) -> Option<&'static str> {
+    let claude = family == "claude" || family.starts_with("claude-");
+    (picked.is_none() && permission_mode == Some("fullAccess") && claude).then_some(CLAUDE_AUTO)
+}
+
+/// Moves a new chat on the caller's own Cloud VM to `mode` ([`cloud_default_mode`]). Soft, as
+/// acpmux's start level is: a harness that does not offer it, or refuses it, keeps the mode it
+/// started in.
+fn settle_cloud_default_mode(link: &AcpmuxLink, session: &str, mode: &str) {
+    let params = json!({"sessionId": session, "modeId": mode});
+    let _ = link.call("session/set_mode", params, CALL_TIMEOUT);
+}
+
+/// `standard` on the caller's own Cloud VM: the harness's own start mode, which for a session that
+/// started in a mode that does not ask (the machine's start level) is its family's asking default.
+/// Soft, as acpmux's start level is: a refusal leaves the session as it started.
+fn settle_standard_mode(link: &AcpmuxLink, session: &str) {
+    let Ok(table) = link.call("_acpmux/web_modes", json!({"sessionId": session}), CALL_TIMEOUT)
+    else {
+        return;
+    };
+    let family = table.pointer("/session/family").and_then(Value::as_str).unwrap_or_default();
+    let modes: Vec<&str> = table
+        .pointer(&format!("/families/{}", family.replace('~', "~0").replace('/', "~1")))
+        .and_then(Value::as_array)
+        .map(|modes| modes.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    let current = table.pointer("/session/mode").and_then(Value::as_str);
+    if let (Some(current), Some(default)) = (current, modes.first())
+        && !modes.contains(&current)
+    {
+        let params = json!({"sessionId": session, "modeId": default});
+        let _ = link.call("session/set_mode", params, CALL_TIMEOUT);
+    }
 }
 
 /// acpmux `trust::session_level` is `trusted`: its own decision for the
@@ -854,6 +1150,20 @@ fn catalog_family(catalog: &Value, harness: Option<&str>) -> Option<String> {
         .and_then(Value::as_str)
         .filter(|family| !family.is_empty())
         .map(str::to_owned)
+}
+
+/// The family a start resolves to ([`catalog_family`]). An agent the catalog does not have is
+/// not installed on this machine: `harness_missing` naming it (a valid harness id only), never
+/// `not_asking`, which says the agent has no mode that asks first (hq#11225: pi on a Cloud
+/// machine, whose image ships `pi` but not the `pi-acp` adapter acpmux runs it through).
+fn start_family(catalog: &Value, harness: Option<&str>) -> Result<String, StartRefused> {
+    catalog_family(catalog, harness).ok_or_else(|| {
+        let mut facts = json!({"reason": "agent.not_installed"});
+        if let Some(harness) = harness.filter(|harness| validate_harness(harness).is_ok()) {
+            facts.insert("harness", json!(harness));
+        }
+        StartRefused(Refusal::HarnessMissing, Some(facts))
+    })
 }
 
 fn refused_family(table: &Value, family: &str) -> bool {
@@ -1009,101 +1319,5 @@ impl Mux {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A call on a Cloud VM (a start, a chat move in, folder trust) runs only
-    /// on the caller's `vm_kind: "owner"`; the VM's own `owner` record never
-    /// allows it. On a team VM that word (the creator's, from the Cloud API)
-    /// lets the call in too; without it a team VM still says so.
-    #[test]
-    fn a_call_on_a_cloud_vm_needs_the_callers_owner_word() {
-        use AgentStartHost::{Allowed, OwnerCloud, TeamVm, UnknownCloud};
-        let starts = AgentSessionStarts::default();
-        assert_eq!(starts.host_gate(true), Err(Refusal::HostUnverified));
-        let unverified = Err(Refusal::HostUnverified);
-        let team = Err(Refusal::TeamVmBlocked);
-        let cases = [
-            (Allowed, Ok(()), Ok(())),
-            (OwnerCloud, Ok(()), unverified),
-            (UnknownCloud, Ok(()), unverified),
-            (TeamVm, Ok(()), team),
-        ];
-        for (host, owner_word, no_word) in cases {
-            starts.set_host(Arc::new(move || host));
-            assert_eq!(starts.host_gate(true), owner_word, "{host:?}");
-            assert_eq!(starts.host_gate(false), no_word, "{host:?}");
-        }
-    }
-
-    /// The answer's `timings_ms` names each phase the start reached, in ms,
-    /// and whether it started acpmux; a phase it never reached is left out.
-    #[test]
-    fn timings_name_each_phase_reached() {
-        let none = StartTimings::default().wire();
-        assert_eq!(none, json!({"acpmux_started": false}));
-        let all = StartTimings {
-            keyed_gate: Some(1),
-            acpmux_connect: Some(2),
-            acpmux_started: true,
-            checks: Some(3),
-            session_new: Some(1800),
-            settle: Some(4),
-            bind: Some(5),
-            total: Some(1815),
-        };
-        assert_eq!(
-            all.wire(),
-            json!({"keyed_gate": 1, "acpmux_connect": 2, "acpmux_started": true, "checks": 3,
-                   "session_new": 1800, "settle": 4, "bind": 5, "total": 1815})
-        );
-        let gated = StartTimings { keyed_gate: Some(7), total: Some(7), ..Default::default() };
-        assert_eq!(gated.wire(), json!({"keyed_gate": 7, "total": 7, "acpmux_started": false}));
-    }
-
-    /// A pick that asks keeps policy `ask` on the owner's VM; Bypass permissions and Codex full
-    /// access do not ask, so the start names no policy for them (module docs).
-    #[test]
-    fn a_pick_asks_only_when_the_table_or_the_bridge_says_so() {
-        let table = json!({"families": {"claude": ["default", "plan"]}});
-        assert!(mode_asks(&table, "claude", "default"));
-        assert!(mode_asks(&table, "claude", "plan"));
-        assert!(!mode_asks(&table, "claude", "bypassPermissions"));
-        assert!(!mode_asks(&table, "claude", "acceptEdits"));
-        assert!(mode_asks(&table, "codex", "ask"));
-        assert!(mode_asks(&table, "codex", "read-only"));
-        assert!(!mode_asks(&table, "codex", "agent-full-access"));
-        assert!(!mode_asks(&table, "codex", "agent"));
-        assert!(!mode_asks(&table, "opencode", "ask"));
-    }
-
-    /// `mode` is a plain mode id: anything else makes the whole start a bad request.
-    #[test]
-    fn a_start_mode_is_a_plain_mode_id() {
-        let params = |mode: &str| -> StartParams {
-            serde_json::from_value(json!({"surface": 1, "cwd": "/home/u/work", "mode": mode}))
-                .expect("params parse")
-        };
-        assert!(params("bypassPermissions").valid());
-        assert!(params("agent-full-access").valid());
-        assert!(!params("").valid());
-        assert!(!params("bypass permissions").valid());
-        assert!(!params(&"x".repeat(65)).valid());
-    }
-
-    /// Only a Cloud VM with no team evidence, and only on the caller's owner
-    /// word, lifts the asking-mode rule; a Mac or SSH host and a team VM never.
-    #[test]
-    fn only_the_callers_own_cloud_vm_starts_any_agent() {
-        use AgentStartHost::{Allowed, OwnerCloud, TeamVm, UnknownCloud};
-        let starts = AgentSessionStarts::default();
-        assert!(!starts.owner_cloud(true));
-        for (host, any_agent) in
-            [(Allowed, false), (OwnerCloud, true), (UnknownCloud, true), (TeamVm, false)]
-        {
-            starts.set_host(Arc::new(move || host));
-            assert_eq!(starts.owner_cloud(true), any_agent, "{host:?}");
-            assert!(!starts.owner_cloud(false), "{host:?}");
-        }
-    }
-}
+#[path = "agent_session_start_tests.rs"]
+mod tests;

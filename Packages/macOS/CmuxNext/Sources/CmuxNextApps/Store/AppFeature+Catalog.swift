@@ -125,11 +125,6 @@ extension AppFeature {
                        name: t("store.feature.minimap.name", "Editor Minimap"),
                        summary: t("store.feature.minimap.summary", "A small map of the whole file beside the editor."),
                        keywords: ["editor", "overview", "scroll", "code"]),
-            AppFeature(id: "devices.phoneAccess", setting: "phone.allowConnections", on: .toggle,
-                       category: .devices, preview: .window(.pane, .mobilePair),
-                       name: t("store.feature.phoneAccess.name", "Phone Access"),
-                       summary: t("store.feature.phoneAccess.summary", "Your phone can open this Mac's workspaces and agent chats."),
-                       keywords: ["phone", "iphone", "mobile", "pairing", "remote"]),
             AppFeature(id: "devices.globalHotKey", setting: "app.globalHotKey", on: .toggle,
                        category: .devices, preview: .window(.background, .keyboardHotkey),
                        name: t("store.feature.globalHotKey.name", "Global Hot Key"),
@@ -227,8 +222,8 @@ extension AppFeature {
             AppFeature(id: "sidebar.minimal", setting: "sidebar.minimal", on: .toggle,
                        category: .sidebar, preview: .window(.sidebar, .tunableSidebar),
                        name: t("store.feature.minimalSidebar.name", "Minimal Sidebar"),
-                       summary: t("store.feature.minimalSidebar.summary", "Workspace rows show only their icon, name and unread mark."),
-                       keywords: ["compact", "dense", "simple", "rows"]),
+                       summary: t("store.feature.minimalSidebar.summary", "Buttons show only while the pointer is over the sidebar or a tab bar."),
+                       keywords: ["minimal", "hover", "buttons", "simple"]),
             AppFeature(id: "sidebar.sessionTree", setting: "sidebar.sessionTree", on: .toggle,
                        category: .sidebar, preview: .window(.sidebar, .agentFork),
                        name: t("store.feature.sessionTree.name", "Session Tree"),
@@ -273,6 +268,6 @@ extension AppFeature {
     }
 
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 }

@@ -18,7 +18,7 @@ pub static ACTIONS: &[Action] = &[
         category: "workspace",
         symbol: "folder.badge.plus",
         surfaces: KEYBOARD | MENU | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "create", 5)], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarNew", "create", 4)], ..SurfacePlan::DEFAULT },
         arguments: &[args::NAME.optional()],
         targets: &["workspace"],
         cli_name: "workspace-group create",
@@ -207,7 +207,7 @@ pub static ACTIONS: &[Action] = &[
         category: "workspace",
         symbol: "arrow.up",
         surfaces: PALETTE | KEYBOARD,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("workspaceGroup", "move", 301).folder("move").label(t("Localizable", "menu.object.moveUp", "Move Up"))], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("dragGesture"), ..SurfacePlan::DEFAULT },
         targets: &["workspace-group"],
         cli_name: "workspace-group move-up",
         ..Action::DEFAULT
@@ -220,7 +220,7 @@ pub static ACTIONS: &[Action] = &[
         category: "workspace",
         symbol: "arrow.down",
         surfaces: PALETTE | KEYBOARD,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("workspaceGroup", "move", 302).folder("move").label(t("Localizable", "menu.object.moveDown", "Move Down"))], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("dragGesture"), ..SurfacePlan::DEFAULT },
         targets: &["workspace-group"],
         cli_name: "workspace-group move-down",
         ..Action::DEFAULT
@@ -233,7 +233,7 @@ pub static ACTIONS: &[Action] = &[
         category: "workspace",
         symbol: "arrow.up.to.line",
         surfaces: PALETTE | KEYBOARD,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("workspaceGroup", "move", 300).label(t("Localizable", "menu.object.moveToTop", "Move to Top"))], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("dragGesture"), ..SurfacePlan::DEFAULT },
         targets: &["workspace-group"],
         cli_name: "workspace-group move-to-top",
         ..Action::DEFAULT
@@ -246,7 +246,7 @@ pub static ACTIONS: &[Action] = &[
         category: "workspace",
         symbol: "arrow.down.to.line",
         surfaces: PALETTE | KEYBOARD,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("workspaceGroup", "move", 303).folder("move").label(t("Localizable", "menu.object.moveToBottom", "Move to Bottom"))], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("dragGesture"), ..SurfacePlan::DEFAULT },
         targets: &["workspace-group"],
         cli_name: "workspace-group move-to-bottom",
         ..Action::DEFAULT

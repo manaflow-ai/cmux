@@ -4,9 +4,14 @@ On PYTHONPATH only while env.sh is active. Wraps http.client (which urllib, urll
 all use) so each response from api.github.com or uploads.github.com writes one `gh-call` line
 (the format scripts/ci/gh_call_log.py reads). The line goes to the step shell's stderr, never this
 process's own. It holds the method, the path with ids folded and no query string, the
-X-RateLimit-Resource/Used/Remaining/Reset headers, and the script's file name. It never holds
-another header, a body or a token. It makes no request, and nothing it does can raise into the
+X-RateLimit-Resource/Used/Remaining/Reset headers, the script's file name, and `tok=`: the first
+8 hex digits of the SHA-256 of the credential in the request's Authorization header, so calls on
+one App token group together and the Reset names its installation pool. It never holds another
+header, a body or a token. It makes no request, and nothing it does can raise into the
 caller. A sitecustomize this one shadows (Ubuntu's apport hook) still runs.
+
+`python3 -I` and `-E` ignore PYTHONPATH, so env.sh's python3 function runs this file itself first
+(isolated.py), with `_api_call_log_no_chain` set: Python already ran the real sitecustomize then.
 """
 import os
 import sys
@@ -15,9 +20,13 @@ _HOSTS = {"api.github.com", "uploads.github.com"}
 
 
 def _install() -> None:
+    import hashlib
     import http.client
     import re
     import time
+
+    if getattr(http.client, "_api_call_log_installed", False):
+        return
 
     sink = os.environ.get("API_CALL_LOG_SINK", "")
     if not sink:
@@ -69,12 +78,30 @@ def _install() -> None:
                 continue
 
     orig_putrequest = http.client.HTTPConnection.putrequest
+    orig_putheader = http.client.HTTPConnection.putheader
     orig_getresponse = http.client.HTTPConnection.getresponse
+
+    def fingerprint(value) -> str:
+        # "token X", "Bearer X" or "Basic base64(x-access-token:X)": a hash of the credential, never it.
+        raw = value.decode("latin-1") if isinstance(value, bytes) else str(value)
+        parts = raw.split(None, 1)
+        cred = parts[-1].strip() if parts else ""
+        return hashlib.sha256(cred.encode("utf-8")).hexdigest()[:8] if cred else "none"
+
+    def putheader(self, header, *values):
+        try:
+            name = header.decode("latin-1") if isinstance(header, bytes) else str(header)
+            if getattr(self, "_api_call_log", None) and name.lower() == "authorization" and values:
+                self._api_call_log_tok = fingerprint(values[0])
+        except Exception:  # noqa: BLE001 - logging only
+            pass
+        return orig_putheader(self, header, *values)
 
     def putrequest(self, method, url, *args, **kwargs):
         try:
             host = getattr(self, "_tunnel_host", None) or getattr(self, "host", "")
             self._api_call_log = (str(method), str(url)) if host in _HOSTS else None
+            self._api_call_log_tok = "none"
         except Exception:  # noqa: BLE001 - logging only
             pass
         return orig_putrequest(self, method, url, *args, **kwargs)
@@ -95,7 +122,7 @@ def _install() -> None:
                     os.environ.get("GITHUB_WORKFLOW", ""), os.environ.get("GITHUB_JOB", ""),
                     get("X-RateLimit-Resource"), get("X-RateLimit-Used"), get("X-RateLimit-Remaining"),
                     get("X-RateLimit-Reset"),
-                    f"{method.upper()} {path} {response.status} [py:{script}]",
+                    f"{method.upper()} {path} {response.status} [py:{script} tok={getattr(self, '_api_call_log_tok', '?')}]",
                 )
                 write("\t".join(["gh-call", *(clean(f) for f in fields)]) + "\n")
         except Exception:  # noqa: BLE001 - logging only
@@ -103,7 +130,9 @@ def _install() -> None:
         return response
 
     http.client.HTTPConnection.putrequest = putrequest
+    http.client.HTTPConnection.putheader = putheader
     http.client.HTTPConnection.getresponse = getresponse
+    http.client._api_call_log_installed = True
 
 
 def _chain() -> None:
@@ -125,6 +154,7 @@ try:
 except Exception:  # noqa: BLE001 - logging only
     pass
 try:
-    _chain()
+    if not globals().get("_api_call_log_no_chain"):
+        _chain()
 except Exception:  # noqa: BLE001 - the shadowed hook's own failure stays as quiet as Python keeps it
     pass

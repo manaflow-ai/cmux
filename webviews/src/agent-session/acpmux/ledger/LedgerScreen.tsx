@@ -50,6 +50,8 @@ import {
 import { isOlderDaemon } from "../queue/queueModel";
 import { UNKNOWN } from "../usageStats";
 import "./ledger.css";
+import { intl } from "../../../ui/intl";
+import { WithFacts } from "../chips/FactsHoverCard";
 
 /// How rows read (gallery `agent-pane.costs`): `bars` a label over a share bar with the cost at the
 /// end (shipped), `table` a column per measure, `stacked` the bar beneath a two-line label.
@@ -298,7 +300,7 @@ export function LedgerScreen({
         {fromCache !== undefined && fromCache > 0 && (
           <span>
             {t("ledger.cacheShare", {
-              share: new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 }).format(fromCache),
+              share: intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 }).format(fromCache),
             })}
           </span>
         )}
@@ -327,8 +329,8 @@ export function LedgerScreen({
             {/* Whole numbers: a compact 5K of 6K would hide how many are missing. */}
             {saved?.shortfall && saveNotice !== "failed"
               ? ` · ${t("ledger.export.partial", {
-                  shown: new Intl.NumberFormat(locale).format(saved.shortfall.shown),
-                  total: new Intl.NumberFormat(locale).format(saved.shortfall.total),
+                  shown: intl.NumberFormat(locale).format(saved.shortfall.shown),
+                  total: intl.NumberFormat(locale).format(saved.shortfall.total),
                 })}`
               : null}
           </output>
@@ -413,7 +415,7 @@ function fromCacheText(totals: LedgerTotals, locale: string): string {
   const share = cacheShare(totals);
   return share === undefined
     ? UNKNOWN
-    : new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 }).format(share);
+    : intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 }).format(share);
 }
 
 const SOURCE_KEY: Record<
@@ -464,16 +466,23 @@ const Line = memo(function Line({
     look === "table" ? (
       <>
         {/* The tooltip keeps the cache counts where a narrow page drops their columns. */}
-        <span
-          className="cst-label"
-          title={`${label}\n${t("ledger.row.cache", {
-            read: formatCount(totals.cacheReadTokens, locale),
-            write: formatCount(totals.cacheWriteTokens, locale),
-          })} · ${fromCache}`}
+        <WithFacts
+          facts={[
+            {
+              value: `${label}\n${t("ledger.row.cache", {
+                read: formatCount(totals.cacheReadTokens, locale),
+                write: formatCount(totals.cacheWriteTokens, locale),
+              })} · ${fromCache}`,
+            },
+          ]}
         >
-          {label}
-        </span>
-        <span className="cst-num" title={source}>
+          {(facts) => (
+            <span {...facts} className="cst-label">
+              {label}
+            </span>
+          )}
+        </WithFacts>
+        <span className="cst-num">
           {cost}
           <SourceMark source={line.source} />
         </span>
@@ -499,7 +508,7 @@ const Line = memo(function Line({
           <span className="cst-label">{label}</span>
           <span className="cst-detail">{line.detail ? `${line.detail} · ${meta}` : meta}</span>
         </span>
-        <span className="cst-cost" title={source}>
+        <span className="cst-cost">
           {cost}
           <SourceMark source={line.source} />
         </span>

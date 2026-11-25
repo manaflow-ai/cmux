@@ -41,7 +41,7 @@ struct MacThemeGallery: View {
             bytes = data
         }
         CmuxMobileMacTheme.shared.matchesMac = true
-        CmuxMobileMacTheme.shared.apply(appearance, wallpaper: bytes)
+        CmuxMobileMacTheme.shared.apply(appearance, chatWallpaper: bytes)
     }
 
     var body: some View {

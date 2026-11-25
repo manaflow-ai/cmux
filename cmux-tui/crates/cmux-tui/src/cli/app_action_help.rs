@@ -1,0 +1,160 @@
+//! The APP ACTIONS section of `cmux <scope> --help`: every app action the
+//! catalog (plans/cmux-next/action-surfaces.json) offers to the CLI as
+//! `cmux <scope> <verb…>`, one line each with its title. Generated from the
+//! catalog, so a hand-written scope help (cli/topology_help.rs) never drifts
+//! from what the CLI runs: `cmux tab --help` once omitted all 57 `tab` app
+//! verbs, `new-mac-screen` and `new-browser` among them. `cloud` keeps its own
+//! grouped help (cli/cloud_help.rs), synced by its own test.
+
+use std::collections::BTreeMap;
+use std::sync::OnceLock;
+
+use cmux_tui_core::packed_catalogs::ACTION_SURFACES;
+use serde_json::Value;
+
+/// Scopes whose help lists their app verbs another way.
+const OWN_HELP: &[&str] = &["cloud"];
+
+/// The widest verb column; a longer verb gets its title after two spaces.
+const VERB_COLUMN: usize = 30;
+
+/// The offered app verbs by scope (the CLI name's first word): verb (the rest
+/// of the CLI name) and title, sorted by verb.
+fn offered() -> &'static BTreeMap<String, Vec<(String, String)>> {
+    static OFFERED: OnceLock<BTreeMap<String, Vec<(String, String)>>> = OnceLock::new();
+    OFFERED.get_or_init(|| {
+        let doc: Value = serde_json::from_str(&ACTION_SURFACES.inflate()).unwrap_or(Value::Null);
+        let mut scopes: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
+        for action in doc.get("actions").and_then(Value::as_array).into_iter().flatten() {
+            if action.get("cli").and_then(Value::as_str) != Some("offered") {
+                continue;
+            }
+            let Some((scope, verb)) = action
+                .get("cli_name")
+                .and_then(Value::as_str)
+                .and_then(|name| name.split_once(' '))
+            else {
+                continue;
+            };
+            let title = action.get("title").and_then(Value::as_str).unwrap_or_default().to_owned();
+            scopes.entry(scope.to_owned()).or_default().push((verb.to_owned(), title));
+        }
+        for verbs in scopes.values_mut() {
+            verbs.sort();
+            verbs.dedup_by(|a, b| a.0 == b.0);
+        }
+        scopes
+    })
+}
+
+#[cfg(test)]
+/// The offered app verbs of `scope`, sorted (empty for a scope with none).
+pub(super) fn verbs(scope: &str) -> impl Iterator<Item = &'static str> {
+    offered().get(scope).into_iter().flatten().map(|(verb, _)| verb.as_str())
+}
+
+#[cfg(test)]
+/// Every scope with offered app verbs, `cloud` included.
+pub(super) fn scopes() -> impl Iterator<Item = &'static str> {
+    offered().keys().map(String::as_str)
+}
+
+/// Whether `scope` has app verbs this section lists: `cmux <scope> --help`
+/// then prints them, never the root help.
+pub(super) fn has_section(scope: &str) -> bool {
+    !OWN_HELP.contains(&scope) && offered().contains_key(scope)
+}
+
+/// The APP ACTIONS section for `scope`, `None` when it has no offered verbs.
+pub(super) fn section(scope: &str) -> Option<String> {
+    if !has_section(scope) {
+        return None;
+    }
+    let verbs = offered().get(scope)?;
+    let width = verbs.iter().map(|(verb, _)| verb.len()).filter(|len| *len <= VERB_COLUMN).max();
+    let width = width.unwrap_or(VERB_COLUMN);
+    let mut text = format!(
+        "APP ACTIONS\n  The cmux app runs these: cmux {scope} <verb> [--<argument> <value>]...\n  \
+         `cmux action describe \"{scope} <verb>\"` lists a verb's arguments.\n"
+    );
+    for (verb, title) in verbs {
+        if title.is_empty() {
+            text.push_str(&format!("  {verb}\n"));
+        } else if verb.len() <= width {
+            text.push_str(&format!("  {verb:<width$}  {title}\n"));
+        } else {
+            text.push_str(&format!("  {verb}  {title}\n"));
+        }
+    }
+    Some(text)
+}
+
+/// `cmux <scope> <verb> --help` for an app-offered verb (`cmux remote disconnect --help`): its
+/// usage from the catalog's arguments, its title, and where every argument is described, in
+/// cloud_help.rs's per-verb shape. Before, such a verb printed its whole scope's help. `None`
+/// for a verb the catalog does not offer, and for `cloud` (cloud_help.rs has its own).
+pub(crate) fn verb_help(scope: &str, verb: &str) -> Option<String> {
+    if OWN_HELP.contains(&scope) {
+        return None;
+    }
+    let name = format!("{scope} {verb}");
+    let doc: Value = serde_json::from_str(&ACTION_SURFACES.inflate()).ok()?;
+    let action = doc.get("actions")?.as_array()?.iter().find(|action| {
+        action.get("cli").and_then(Value::as_str) == Some("offered")
+            && action.get("cli_name").and_then(Value::as_str) == Some(name.as_str())
+    })?;
+    let mut usage = format!("cmux {name}");
+    for arg in action.get("args").and_then(Value::as_array).into_iter().flatten() {
+        let Some(arg_name) = arg.get("name").and_then(Value::as_str) else { continue };
+        let value = match arg.get("kind").and_then(Value::as_str).unwrap_or("string") {
+            "bool" => None,
+            "enum" => Some(
+                arg.get("values")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join("|"),
+            ),
+            "target" => Some(format!(
+                "<{}>",
+                arg.get("target_kind").and_then(Value::as_str).unwrap_or("target")
+            )),
+            _ => Some("<value>".to_owned()),
+        };
+        let flag = match value {
+            Some(value) => format!("--{arg_name} {value}"),
+            None => format!("--{arg_name}"),
+        };
+        if arg.get("required").and_then(Value::as_bool) == Some(true) {
+            usage.push_str(&format!(" {flag}"));
+        } else {
+            usage.push_str(&format!(" [{flag}]"));
+        }
+    }
+    let title = action.get("title").and_then(Value::as_str).unwrap_or_default();
+    let title = title.trim_end_matches(['…', '.']);
+    let about = if title.is_empty() { String::new() } else { format!("{title}.\n\n") };
+    Some(format!(
+        "usage: {usage}\n\n{about}The cmux app runs this. Every argument: `cmux action describe \"{name}\" --json` (with the app running)\n"
+    ))
+}
+
+/// `text` with the APP ACTIONS section of `scope` after it, when it has one.
+pub(crate) fn append(scope: &str, text: &str) -> Option<String> {
+    let section = section(scope)?;
+    let separator = if text.ends_with('\n') { "\n" } else { "\n\n" };
+    Some(format!("{text}{separator}{section}"))
+}
+
+/// The usage line of a scope that only app actions answer (`remote`, `chief`,
+/// `phone`, …), which [`append`] follows with the section: before it,
+/// `cmux <scope> --help` printed the root help.
+pub(super) fn scope_only_usage(scope: &str) -> Option<String> {
+    has_section(scope).then(|| format!("USAGE\n  cmux {scope} <verb> [--<argument> <value>]...\n"))
+}
+
+#[cfg(test)]
+#[path = "app_action_help_tests.rs"]
+mod tests;

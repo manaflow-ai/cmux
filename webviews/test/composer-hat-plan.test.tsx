@@ -2,6 +2,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { teardownDom } from "./support/domTeardown";
+import { RUNNING_TRAY_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -59,6 +60,12 @@ afterAll(async () => {
   await teardownDom(saved, { window: dom.window, scope });
 });
 setPaneLanguage("en");
+// The hat names the longest-running command (trayFoldHead.experiment.ts `two`; its default is now `kinds`).
+globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "subagent-tray-fold-head": "two" };
+afterAll(() => {
+  if (globalThis.cmuxExperiments)
+    delete (globalThis.cmuxExperiments as Record<string, string>)["subagent-tray-fold-head"];
+});
 
 const now = Date.now();
 const plan: AcpmuxPlanEntry[] = [
@@ -128,7 +135,7 @@ describe("the composer hat shows the running turn's plan", () => {
       expect(bar.title()?.startsWith("2 of 5 · Run the tray tests · Start the dev server")).toBe(true);
       await act(async () => bar.button()!.click());
       expect(bar.host.querySelectorAll(".acpmux-running-tray .cv-plan__item").length).toBe(5);
-      expect(bar.host.querySelectorAll(".acpmux-running-tray .acpmux-agent-line").length).toBe(3);
+      expect(bar.host.querySelectorAll(RUNNING_TRAY_LINE).length).toBe(3);
     } finally {
       await bar.done();
     }

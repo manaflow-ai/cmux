@@ -114,19 +114,39 @@ extension AgentPaneTransport {
             return .status(pageID: pageID, relayID: relayID, path: path)
         }
         if !snapshot.isFirst, let method { snapshot.sessions.sent(method: method, id: pageID) }
-        let error = sendNow(box, relayID: relayID, socket: socket)
+        let error = sendNow(box, relayID: relayID, socket: socket, ids: ids)
         if error != nil { socket.pageFrameNotSent(method: method) }
         if error != nil, let relayID { ids.cancel(relayID) }
         if error == .outboundOverflow { socket.close(code: 1008, reason: "outbound overflow", error: error) }
         return .sent(error)
     }
 
+    /// Names the keys P0 dropped. Debug level: a newer page drops the same keys on every frame.
+    nonisolated private static func logDropped(method: String?, _ dropped: [String]) {
+        logger.debug("agent pane dropped params this app does not know method=\(method ?? "-", privacy: .public) keys=\(dropped.joined(separator: ","), privacy: .public)")
+    }
+
     /// The off-main rules on one frame, in order (see ``Checked``).
     nonisolated static func checkOne(_ text: String, _ snapshot: Snapshot) -> Checked {
-        let object: [String: Any]
+        var object: [String: Any]
         switch AcpmuxPaneMethods.decideFrame(text, isFirst: snapshot.isFirst) {
         case .failure(let refusal): return .refuse(refusal.decision, spend: nil)
         case .success(let decided): object = decided
+        }
+        // The handshake fails safe: an initialize's unknown `_meta.acpmux` opt-ins are removed
+        // before every rule, so they never reach the daemon and never fail the connect (cmux#46563).
+        if let stripped = AcpmuxPaneMethods.strippingInitializeOptIns(object, modeFields: snapshot.modeFields) {
+            object = stripped.object
+            // Once per connection (an initialize is its first frame): the names only, each cut
+            // to 64 characters and at most 8 of them, never a value.
+            let names = stripped.keys.prefix(8).map { String($0.prefix(64)) }.joined(separator: ",")
+            Self.logger.notice("agent pane initialize stripped unknown _meta.acpmux keys=\(names, privacy: .public) count=\(stripped.keys.count, privacy: .public)")
+        }
+        // P0: any other key this app's lists do not name is dropped, not refused, so a page newer than the
+        // app keeps its chats (``AcpmuxPaneMethods/strippingUnknownParams(_:modeFields:)``).
+        if let strip = AcpmuxPaneMethods.strippingUnknownParams(object, modeFields: snapshot.modeFields) {
+            object = strip.object
+            logDropped(method: object["method"] as? String, strip.dropped)
         }
         let method = object["method"] as? String
         let pageID = object["id"].flatMap(AcpmuxPaneMethods.rawID)
@@ -136,12 +156,16 @@ extension AgentPaneTransport {
             return .refuse(refusal, spend: carried)
         }
         // P1: the method's known params, and no daemon mode field outside set_mode and set_config_option.
-        if AcpmuxPaneMethods.breaksParamsRule(object, modeFields: snapshot.modeFields) {
-            return .refuse(.refuse(.intentInvalid, method: method, requestID: pageID), spend: carried)
+        if let violation = AcpmuxPaneMethods.paramsRuleViolation(object, modeFields: snapshot.modeFields) {
+            // The rule it broke and the chat it was for, so a refusal that fails every chat's start
+            // or open (cmux#42185, #42460) names its cause in the app's log (cmux#44964).
+            return .refuse(intentInvalid(.paramsRule, method: method, requestID: pageID, session: params["sessionId"] as? String,
+                                         cause: violation, detail: violation), spend: carried)
         }
         // Answers go only to a pending question, keyed by its items and bounded (the answers rule).
-        if AcpmuxPaneMethods.breaksAnswersRule(object, options: snapshot.options) {
-            return .refuse(.refuse(.intentInvalid, method: method, requestID: pageID), spend: carried)
+        if let violation = AcpmuxPaneMethods.answersRuleViolation(object, options: snapshot.options) {
+            return .refuse(intentInvalid(.answersRule, method: method, requestID: pageID, session: params["sessionId"] as? String,
+                                         cause: violation), spend: carried)
         }
         // A prompt block's own _meta never reaches the harness.
         var frame = AcpmuxPaneMethods.strippingPromptMeta(object) ?? object
@@ -151,6 +175,10 @@ extension AgentPaneTransport {
             frame = stripped
             facts.ticket = ticket
             facts.otherMeta = otherMeta
+            if otherMeta {
+                // Read from the page's own `_meta`, before any strip (the gesture_meta log line).
+                facts.otherMetaKeys = AcpmuxPaneMethods.otherMetaKeys(object)
+            }
             if ticket != nil {
                 facts.pick = AgentPaneGesturePick(method: method, params: params)
                 facts.sessionId = params["sessionId"] as? String
@@ -195,9 +223,10 @@ extension AgentPaneTransport {
         }
     }
 
-    @concurrent nonisolated static func encodeAndSend(_ box: FrameBox, relayID: Int?, socket: AcpmuxPaneSocket) async
+    @concurrent nonisolated static func encodeAndSend(_ box: FrameBox, relayID: Int?, socket: AcpmuxPaneSocket,
+                                                      ids: AcpmuxRequestIds? = nil) async
         -> AgentPaneTransportError? {
-        let error = sendNow(box, relayID: relayID, socket: socket)
+        let error = sendNow(box, relayID: relayID, socket: socket, ids: ids)
         // A large frame is freed here, not on the main thread when its step ends.
         box.free()
         return error
@@ -205,16 +234,23 @@ extension AgentPaneTransport {
 
     /// The fresh serialization of the decided frame, with the relay id, to the socket; never the
     /// page's bytes.
-    nonisolated static func sendNow(_ box: FrameBox, relayID: Int?, socket: AcpmuxPaneSocket) -> AgentPaneTransportError? {
+    /// `ids` marks the request written once the socket took it, and a `_acpmux/request_state`
+    /// question notes, just before it goes, the requests written ahead of it
+    /// (``AcpmuxRequestIds/snapshotWritten(for:)``).
+    nonisolated static func sendNow(_ box: FrameBox, relayID: Int?, socket: AcpmuxPaneSocket,
+                                    ids: AcpmuxRequestIds? = nil) -> AgentPaneTransportError? {
         guard let text = box.encoded(id: relayID) else { return .invalidFrame }
-        return socket.send(text)
+        if let relayID { ids?.snapshotWritten(for: relayID) }
+        let error = socket.send(text)
+        if error == nil, let relayID { ids?.written(relayID) }
+        return error
     }
 
     /// A refused frame: answered when it is a request, the socket closed when it was the first.
     /// `detail`: acpmux's own reason, for the page to show; `reason`: why, as a code the page words.
     nonisolated static func refuse(_ decision: AcpmuxPaneMethods.Decision, socket: AcpmuxPaneSocket, detail: String? = nil,
                                    reason: String? = nil) -> Step {
-        guard case .refuse(let error, let method, let requestID) = decision else { return .stop(.invalidFrame) }
+        guard case .refuse(let error, let method, let requestID, let rule) = decision else { return .stop(.invalidFrame) }
         if error == .requestIdInFlight { return refuseInFlight() }
         Self.logger.error("agent pane transport refused frame error=\(error.rawValue, privacy: .public) method=\(method ?? "-", privacy: .public)")
         if error == .firstFrameNotInitialize {
@@ -222,7 +258,8 @@ extension AgentPaneTransport {
             return .stop(error)
         }
         if let requestID {
-            socket.inject(AcpmuxPaneMethods.refusal(requestID: requestID, error: error, method: method, detail: detail, reason: reason))
+            socket.inject(AcpmuxPaneMethods.refusal(requestID: requestID, error: error, method: method,
+                                                    detail: detail ?? rule, reason: reason))
         }
         return .refused(error)
     }

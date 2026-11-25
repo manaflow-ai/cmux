@@ -44,26 +44,7 @@ extension PageFactory {
         return page
     }
 
-    /// The React Messages page (``PageDescriptor/homeMessages``) and its route: the row and compose menus
-    /// (``HomeConversationMenu``, ``HomePageMenus``) and the unread colour. Not docked yet: the dock hosts it
-    /// in place of `TopHomePageView` and hands the route the traffic lights.
-    func homeMessagesWebPage(dock: HomeDockView? = nil) -> (page: PageWebView, route: HomeMessagesPageRoute)? {
-        let (home, registry, app) = (services.home, services.registry, services)
-        let route = HomeMessagesPageRoute(menu: { id in
-            let entries = id.map { id in home.homeStore.rows.first { $0.id.rawValue == id }.map(home.conversationMenu.entries) ?? [] }
-                ?? HomePageMenus.composeEntries(registry: registry)
-            return entries.map { .init(id: $0.action.rawValue, title: $0.title, action: $0.action.rawValue, arguments: $0.textArguments,
-                                       separatorBefore: $0.separatorBefore, checked: $0.checked) }
-        }, perform: { action, arguments in
-            guard home.conversationMenu.offered.contains(ActionID(rawValue: action)) else { return false }
-            HomeMenuEntry(action: action, textArguments: arguments).perform(in: registry, window: NSApp.keyWindow)
-            return true
-        }, unreadColor: { app.settings?.snapshot.attention.color?.nsColor ?? Palette.notificationBlue },
-           personOnlyMessage: RefusalStrings.personOnlyFromPage)
-        return homeWebPage(.homeMessages, dock: dock, extra: [PageRoute(prefix: HomeMessagesPageRoute.prefix, provider: route)]).map { ($0, route) }
-    }
-
-    /// A Home page on this instance's daemon (Channels, Messages): the credential verb, the Chief's
+    /// A Home page on this instance's daemon (Channels): the credential verb, the Chief's
     /// profile and engine routes, the composers' edits, the docked view switch (in the dock only),
     /// then `extra`, with the selected-text menu of the Channels page.
     func homeWebPage(_ descriptor: PageDescriptor, dock: HomeDockView?, extra: [PageRoute] = []) -> PageWebView? {
@@ -206,17 +187,17 @@ final class DaemonCredentialPageProvider: PageProvider {
     }
 
     static var restarting: String {
-        String(localized: "homeChannels.daemon.restarting", defaultValue: "Restarting the cmux daemon…", table: "Handlers", bundle: .module)
+        String(localized: "homeChannels.daemon.restarting", defaultValue: "Restarting the cmux daemon…", table: "Handlers", bundle: .module.inAppLanguage)
     }
 
     static var chiefStarting: String {
-        String(localized: "homeChannels.chief.starting", defaultValue: "Starting this build's Chief…", table: "Handlers", bundle: .module)
+        String(localized: "homeChannels.chief.starting", defaultValue: "Starting this build's Chief…", table: "Handlers", bundle: .module.inAppLanguage)
     }
 
     static var tooOld: String {
         String(localized: "homeChannels.daemon.tooOld",
                defaultValue: "This page needs a newer cmux background service, and cmux can't restart it. Update cmux, then open this tab again.",
-               table: "Handlers", bundle: .module)
+               table: "Handlers", bundle: .module.inAppLanguage)
     }
 
     /// The listener's credential file (`PageListenerCredentialFile`): this user's, 0600, a live daemon.
@@ -234,7 +215,6 @@ extension HomeService {
         let usage = services.registry.unavailableReason(for: ChiefUsagePageTab.actionID) == nil
         return HomeConversationMenu(registry: services.registry, directory: directory, groupActions: groupActions,
                                     deletableChief: { [weak self] in self?.deletableChief(of: $0)?.id },
-                                    usage: usage ? (ChiefUsagePageTab.actionID, ChiefUsagePageTab.menuTitle) : nil,
-                                    importMemories: ChiefMemoryImportHandlers.actionID)
+                                    usage: usage ? (ChiefUsagePageTab.actionID, ChiefUsagePageTab.menuTitle) : nil)
     }
 }

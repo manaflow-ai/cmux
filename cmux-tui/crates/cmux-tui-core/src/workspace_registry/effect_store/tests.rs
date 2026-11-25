@@ -353,21 +353,23 @@ fn effect_patch_commits_topology_event_and_receipt_together() {
         .unwrap();
     assert_eq!(commit.revision, 1);
     assert_eq!(registry.resource_topology_snapshot().unwrap().revision, 1);
-    // The topology delta, then the new workspace's personal placement.
+    // The topology delta, then the new workspace's sidebar document item,
+    // the document revision (sidebar-doc-v1: the document decides the place)
+    // and the personal placement that follows it.
     let changes = registry.resource_events_after(0).unwrap().batches[0].changes.clone();
     assert_eq!(changes[0], deltas[0]);
-    assert_eq!(
-        (changes[1]["kind"].as_str(), changes[1]["resource"].as_str()),
-        (Some("state_upsert"), Some("workspace_placement"))
-    );
-    // Then the new workspace's sidebar document item and the document
-    // revision (sidebar-doc-v1).
-    let rest = &changes.as_array().unwrap()[2..];
+    let rest = &changes.as_array().unwrap()[1..];
     assert!(
         rest.iter().all(|change| change["kind"] == "state_upsert"
-            && matches!(change["resource"].as_str(), Some("sidebar_item" | "sidebar_doc"))),
+            && matches!(
+                change["resource"].as_str(),
+                Some("sidebar_item" | "sidebar_doc" | "workspace_placement")
+            )),
         "{rest:?}"
     );
+    let placements =
+        rest.iter().filter(|change| change["resource"] == "workspace_placement").count();
+    assert_eq!(placements, 1, "{rest:?}");
     assert_eq!(
         registry
             .lookup_resource_effect("effect-patch-key", "workspace.create", &fingerprint,)

@@ -91,7 +91,7 @@ app=$(ssh "$host" "ls -d $cache/*.app | head -1")
 btag=$(basename "$app" .app); btag=${btag#cmux DEV }
 # The bundle id spells the tag's hyphens as dots (`whatsnew-ff` is `debug.whatsnew.ff`).
 as="/Users/cmux/Library/Application Support" bid=com.cmuxterm.app.debug.${btag//-/.}.capslot$slot
-state="'$as/cmux/$btag-capslot$slot' '$as/cmux/tags/$btag-capslot$slot' '$as/cmux-next/tags/$btag-capslot$slot' '$as/cmux/$bid' '$as/cmux/managed-status.$bid.json' '$as/cmux-next/$bid' '/Users/cmux/Library/Caches/$bid' '/Users/cmux/.acpmux/tags/$btag-capslot$slot'"
+state="'$as/cmux/$btag-capslot$slot' '$as/cmux/tags/$btag-capslot$slot' '$as/cmux-next/tags/$btag-capslot$slot' '$as/cmux-next/$btag-capslot$slot' '$as/cmux/$bid' '$as/cmux/managed-status.$bid.json' '$as/cmux-next/managed-status.$bid.json' '$as/cmux-next/$bid' '/Users/cmux/Library/Caches/$bid' '/Users/cmux/.acpmux/tags/$btag-capslot$slot'"
 # Since per-build isolation a slot clone keeps its state under its build key, `<bundle id>--<tag slug>`
 # (scripts/cmux-next/build_names.py): without these a run restores the last run's workspaces and tabs.
 key="$bid--$(printf %s "$btag" | tr 'A-Z' 'a-z' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
@@ -120,7 +120,9 @@ done
 [ -n "$found" ] || { echo "no app socket for $bid on $host: switch hosts (CAPTURE_HOST_SLOT_HOSTS)" >&2; exit 3; }
 sock=$found
 echo "perceived-speed: socket $sock"
-sleep 4  # first window, prewarmed New Tab spare
+# The first window, the prewarmed New Tab spare and a still window, read over the socket.
+ssh "$host" "cd $remote && PYTHONDONTWRITEBYTECODE=1 python3 perceived-speed.py ready --socket '$sock'" \
+  || { echo "perceived-speed: the app on $host never showed its first window" >&2; exit 3; }
 
 ssh "$host" "cd $remote && PYTHONDONTWRITEBYTECODE=1 python3 perceived-speed.py run --socket '$sock' --out $remote/out --runs $runs ${surfaces[*]}"
 status=$?

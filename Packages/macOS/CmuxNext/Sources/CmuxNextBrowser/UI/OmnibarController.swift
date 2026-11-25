@@ -22,6 +22,28 @@ import Foundation
     var onStep: (() -> Void)?
     /// Bench marks (`debug.omnibar_bench`): nil outside a bench run.
     var probe: ((String) -> Void)?
+    /// The tab that preloads the default match (`BrowserOmniboxPreloading`, Chrome's omnibox
+    /// preconnect and prerender); nil for a page that does not preload.
+    private(set) weak var preloader: (any BrowserOmniboxPreloading)?
+    /// The last request sent: an unchanged one (a caret move, a hover) is not sent again.
+    private(set) var lastPreload: OmnibarPreloadRequest?
+    /// What the tab answered for `lastPreload` (`debug.omnibar`'s `preload`).
+    private(set) var lastPreloadAction: OmniboxPreloadAction?
+    /// The last end sent: the opened URL and whether the predictor learned from it (`debug.omnibar`).
+    private(set) var lastPreloadEnd: (opened: URL?, learn: Bool)?
+    /// The bound tab's last navigation timing read, as JSON (`debug.omnibar`'s `page_timing`).
+    var debugPageTiming: String?
+    /// A `page_timing` read runs: one at a time, so an older read never lands after a newer one.
+    var debugPageTimingReading = false
+
+    /// The omnibar now belongs to `tab`'s page: the page it leaves forgets an edit in progress unlearned.
+    func setPreloader(_ tab: (any BrowserOmniboxPreloading)?) {
+        guard tab !== preloader else { return }
+        if lastPreload != nil { preloader?.omniboxPreloadEnded(opened: nil, learn: false) }
+        lastPreload = nil
+        preloader = tab
+        debugPageTiming = nil
+    }
 
     /// True while the applier writes: field notifications are its echo.
     private(set) var isApplying = false
@@ -124,6 +146,7 @@ import Foundation
     private func step(_ input: OmnibarInput) -> Bool {
         probe?("step.begin")
         defer { probe?("step.end") }
+        let popupWasOpen = state.isPopupOpen
         let transition = OmnibarReducer.reduce(state, input, resolver: resolver())
         #if DEBUG
         let next = transition.state
@@ -134,9 +157,35 @@ import Foundation
         isApplying = true
         applier.apply(OmnibarPresentation(state))
         isApplying = false
+        // The edit ends before its effects load the page: the predictor learns the opened URL first, and
+        // Enter's navigation then activates a prerender of it.
+        preload(after: input, effects: transition.effects, popupWasOpen: popupWasOpen)
         for effect in transition.effects { run(effect) }
         onStep?()
         return transition.handled
+    }
+
+    /// Chrome's `OnTextChanged` / `OnOmniboxOpenedUrl` for the tab's preloader (`OmnibarPreloadRequest`).
+    private func preload(after input: OmnibarInput, effects: [OmnibarEffect], popupWasOpen: Bool) { // perf-hot: 2ms omnibar-key (every typed key)
+        guard let preloader else { return }
+        if let ending = OmnibarPreloadRequest.ending(effects, input: input, popupWasOpen: popupWasOpen) {
+            if lastPreload != nil || ending.opened != nil {
+                preloader.omniboxPreloadEnded(opened: ending.opened, learn: ending.learn)
+                lastPreloadEnd = ending
+            }
+            lastPreload = nil
+            return
+        }
+        if lastPreload != nil, state.phase != .editing {
+            // The edit ended with no end effect: Escape reverted the typed text (Chrome's OnRevert counts
+            // every match as missed), or the field left editing some other way (forgotten unlearned).
+            preloader.omniboxPreloadEnded(opened: nil, learn: input == .key(.escape))
+            lastPreload = nil
+            return
+        }
+        guard let request = OmnibarPreloadRequest.current(state), request != lastPreload else { return }
+        lastPreload = request
+        lastPreloadAction = preloader.omniboxPreload(text: request.text, matches: request.matches)
     }
 
     private func run(_ effect: OmnibarEffect) {

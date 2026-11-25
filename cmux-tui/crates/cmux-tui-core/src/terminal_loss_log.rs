@@ -311,7 +311,37 @@ pub(crate) fn record_daemon_signal(
     }
 }
 
+/// Next to [`LOSS_LOG_FILE`]: each terminal host `cmux gc --apply` ended or
+/// failed to end, with the proof it was an orphan.
+pub(crate) const GC_LOG_FILE: &str = "terminal-host-gc.jsonl";
+
+/// Append one `cmux gc` line (`line`, which carries its own `event`: the
+/// intent before an end is asked for, then its outcome) to the gc log of the
+/// state root that holds `record_path`'s record directory, rotated as the
+/// loss log is. Returns the log's path once the line is written, else the
+/// error: a caller reports a log it did not write, never one it did.
+pub(crate) fn record_host_gc(
+    record_path: &Path,
+    line: &serde_json::Value,
+) -> std::io::Result<PathBuf> {
+    let log =
+        record_path.parent().and_then(Path::parent).map(|dir| dir.join(GC_LOG_FILE)).ok_or_else(
+            || {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("{} has no state root for a gc log", record_path.display()),
+                )
+            },
+        )?;
+    try_append_rotating(&log, line)?;
+    Ok(log)
+}
+
 fn append_rotating(log: &Path, line: &serde_json::Value) {
+    let _ = try_append_rotating(log, line);
+}
+
+fn try_append_rotating(log: &Path, line: &serde_json::Value) -> std::io::Result<()> {
     if fs::metadata(log).is_ok_and(|metadata| metadata.len() >= MAX_LOG_BYTES) {
         let _ = fs::rename(log, log.with_extension("jsonl.1"));
     }
@@ -326,40 +356,12 @@ fn append_rotating(log: &Path, line: &serde_json::Value) {
     // separately, so a process that exits mid-line leaves a cut line.
     let mut bytes = line.to_string().into_bytes();
     bytes.push(b'\n');
-    if let Ok(mut file) = options.open(log) {
-        let _ = file.write_all(&bytes);
-    }
+    options.open(log)?.write_all(&bytes)
 }
 
 /// Test seam: a hook that runs as a host loss is logged (before its stderr
 /// line and its log append), keyed by terminal id so parallel tests do not
 /// see each other's losses.
 #[cfg(test)]
-pub(crate) mod log_hook {
-    use std::collections::HashMap;
-    use std::sync::{Arc, Mutex, PoisonError};
-
-    type Hook = Arc<dyn Fn() + Send + Sync>;
-
-    static HOOKS: Mutex<Option<HashMap<String, Hook>>> = Mutex::new(None);
-
-    pub(crate) fn set(terminal_id: &str, hook: Option<Hook>) {
-        let mut hooks = HOOKS.lock().unwrap_or_else(PoisonError::into_inner);
-        let hooks = hooks.get_or_insert_with(HashMap::new);
-        match hook {
-            Some(hook) => hooks.insert(terminal_id.to_string(), hook),
-            None => hooks.remove(terminal_id),
-        };
-    }
-
-    pub(super) fn run(terminal_id: &str) {
-        let hook = HOOKS
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .as_ref()
-            .and_then(|hooks| hooks.get(terminal_id).cloned());
-        if let Some(hook) = hook {
-            hook();
-        }
-    }
-}
+#[path = "terminal_loss_log_log_hook_tests.rs"]
+pub(crate) mod log_hook;

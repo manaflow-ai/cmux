@@ -179,6 +179,96 @@ fn a_bound_machine_answers_its_ticket_in_one_request_after_the_bearer_minted_at_
     drop(server);
 }
 
+/// The bind answer's ticket for the session host's first Register.
+fn bind_ticket(ticket: &str, life_s: u64) -> Value {
+    json!({ "ok": true, "relay": "relay+do://relay.example", "slot": "slot_0123456789abcdefghijkl", "ticket": ticket, "expires_at": T0 / 1000 + life_s })
+}
+
+#[test]
+fn a_ticket_from_the_bind_goes_to_the_first_register_with_no_ticket_request() {
+    let dir = tempfile::tempdir().unwrap();
+    let (server, path) = serve(&dir);
+    let fake = Fake::default();
+    server.bound_with_ticket(
+        client(&fake),
+        true,
+        Some((server.bind_generation(), bind_ticket("bind-ticket-0123", 300))),
+    );
+    let reply = ask(&path, r#"{"carrier_ticket": {}}"#);
+    assert_eq!((&reply["ok"], &reply["ticket"]), (&json!(true), &json!("bind-ticket-0123")));
+    wait_for_requests(&fake, 2);
+    // Dropping the server joins its request threads: the bind's request minted
+    // the bearer (for later tickets) and asked for no ticket.
+    drop(server);
+    assert_eq!(fake.urls(), [format!("{DEV}/v1/auth/challenge"), format!("{DEV}/v1/auth/token")]);
+    let logged = LOGGED.lock().unwrap().clone();
+    assert!(logged.iter().any(|l| l == "carrier ticket: kept from the bind"), "{logged:?}");
+    assert!(logged.iter().all(|l| !l.contains("bind-ticket-0123")), "{logged:?}");
+}
+
+#[test]
+fn a_resume_before_the_bind_request_does_not_invalidate_its_answer() {
+    let dir = tempfile::tempdir().unwrap();
+    let (server, path) = serve(&dir);
+    let fake = Fake::default();
+    server.resumes.note();
+    let before = server.bind_generation();
+    server.bound_with_ticket(client(&fake), true, Some((before, bind_ticket("after-resume", 300))));
+    assert_eq!(ask(&path, r#"{"carrier_ticket": {}}"#)["ticket"], "after-resume");
+    wait_for_requests(&fake, 2);
+    drop(server);
+    assert_eq!(fake.urls().len(), 2, "only the bearer was requested");
+}
+
+/// The bind HTTP answer can arrive before the role notes a resume, while
+/// installation of that answer on the ticket threads happens after it.
+#[test]
+fn a_resume_between_the_bind_answer_and_install_drops_the_ticket() {
+    let dir = tempfile::tempdir().unwrap();
+    let (server, path) = serve(&dir);
+    let fake = Fake::default();
+    let before = server.bind_generation();
+    let answer = bind_ticket("before-resume", 300);
+    server.resumes.note();
+    server.bound_with_ticket(client(&fake), true, Some((before, answer)));
+    let state = server.shared.lock();
+    assert!(
+        state.warm.as_ref().is_none_or(|warm| warm.reply["ticket"] != "before-resume"),
+        "a bind answer from before resume was kept"
+    );
+    drop(state);
+    wait_for("a replacement prefetched before Register", || server.shared.lock().warm.is_some());
+    assert_eq!(ask(&path, r#"{"carrier_ticket": {}}"#)["ticket"], TICKET);
+}
+
+#[test]
+fn a_bind_ticket_too_close_to_expiry_or_on_a_machine_without_a_carrier_is_not_kept() {
+    // Too close to its expiry to keep: the bind asks for a ticket as before.
+    let dir = tempfile::tempdir().unwrap();
+    let (server, path) = serve(&dir);
+    let fake = Fake::default();
+    server.bound_with_ticket(
+        client(&fake),
+        true,
+        Some((server.bind_generation(), bind_ticket("short-lived-0123", 30))),
+    );
+    let reply = ask(&path, r#"{"carrier_ticket": {}}"#);
+    assert_eq!(reply["ticket"], TICKET);
+    drop(server);
+    assert!(fake.urls().contains(&format!("{DEV}/v1/cloud/machines/{MACHINE}/carrier")));
+    // No carrier: nothing is kept, and nothing is asked ahead.
+    let dir = tempfile::tempdir().unwrap();
+    let (server, _path) = serve(&dir);
+    let fake = Fake::default();
+    server.bound_with_ticket(
+        client(&fake),
+        false,
+        Some((server.bind_generation(), bind_ticket("no-carrier-0123", 300))),
+    );
+    drop(server);
+    assert!(fake.urls().iter().all(|u| !u.ends_with("/carrier")), "{:?}", fake.urls());
+}
+
 #[test]
 fn an_ask_before_the_bind_is_answered_once_the_bind_lands() {
     let dir = tempfile::tempdir().unwrap();
@@ -202,11 +292,53 @@ fn an_unbound_machine_refuses_within_the_ticket_command_timeout() {
     let reply = ask(&path, r#"{"carrier_ticket": {}}"#);
     assert_eq!(reply["error"]["code"], "vm.unbound");
     assert!(started.elapsed() >= UNBOUND_WAIT);
+    // The refusal's journal line has its own token, its code and its message.
+    let logged = LOGGED.lock().unwrap().clone();
+    assert!(
+        logged.iter().any(|l| l.starts_with("carrier ticket: refused vm.unbound in ") && l.contains(" ms: ")),
+        "{logged:?}"
+    );
     assert!(
         started.elapsed() < Duration::from_secs(10),
         "past the 10 s an older session host waits"
     );
     drop(server);
+}
+
+/// Every success reads `<what> in N ms`, every refusal `refused <code> ...`
+/// with its message on one line: a journal reader tells them apart by the
+/// token alone, and no line carries the ticket.
+#[test]
+fn a_refusal_line_has_its_own_token_and_a_success_line_never_has_it() {
+    let issued = json!({ "ok": true, "ticket": TICKET, "expires_at": T0 + 60_000 });
+    assert_eq!(
+        super::outcome_line(&issued, "prefetched", "", 893),
+        "carrier ticket: prefetched in 893 ms"
+    );
+    assert_eq!(
+        super::outcome_line(&issued, "issued", " (kept)", 776),
+        "carrier ticket: issued (kept) in 776 ms"
+    );
+    let slow = json!({ "ok": false, "error": { "code": "carrier.slow", "message": "the ticket\nis slow" } });
+    assert_eq!(
+        super::outcome_line(&slow, "fetched for an ask", " (kept)", 25_000),
+        "carrier ticket: refused carrier.slow (kept) in 25000 ms: the ticket is slow"
+    );
+    let bare = json!({ "ok": false });
+    assert_eq!(
+        super::outcome_line(&bare, "refreshed", "", 4),
+        "carrier ticket: refused unknown in 4 ms"
+    );
+    let long =
+        json!({ "ok": false, "error": { "code": "auth.refused", "message": "x".repeat(1000) } });
+    let line = super::outcome_line(&long, "issued", "", 1);
+    assert!(line.len() < 300, "{line}");
+    for line in [
+        super::outcome_line(&issued, "prefetched", "", 1),
+        super::outcome_line(&issued, "issued", "", 1),
+    ] {
+        assert!(!line.contains("refused") && !line.contains(TICKET), "{line}");
+    }
 }
 
 #[test]
@@ -293,6 +425,9 @@ fn a_client_dripping_its_line_is_cut_off_at_the_line_wait() {
 #[derive(Default)]
 struct Live {
     life_s: u64,
+    /// Optional identity used by the rebind race harness so request order
+    /// cannot be confused with generation order.
+    ticket_prefix: String,
     tickets: Mutex<u64>,
     resets: Mutex<u64>,
     /// While set, a GitHub token mint is held here (the head-of-line case).
@@ -356,7 +491,7 @@ impl Http for LiveHttp {
         *self.0.answered.lock().unwrap() += 1;
         Ok((
             200,
-            json!({ "ok": true, "value": { "relay": "relay+do://relay.example", "slot": "slot_0123456789abcdefghijkl", "ticket": format!("t-{n}"), "expires_at": wall_now() / 1000 + self.0.life_s } }),
+            json!({ "ok": true, "value": { "relay": "relay+do://relay.example", "slot": "slot_0123456789abcdefghijkl", "ticket": if self.0.ticket_prefix.is_empty() { format!("t-{n}") } else { format!("{}-{n}", self.0.ticket_prefix) }, "expires_at": wall_now() / 1000 + self.0.life_s } }),
         ))
     }
 
@@ -711,15 +846,23 @@ fn an_asker_woken_before_its_request_starts_causes_one_request() {
 #[test]
 fn a_rebind_before_a_wanted_request_starts_drops_that_requests_late_reply() {
     let dir = tempfile::tempdir().unwrap();
-    let (server, path, live, _resumes) = live_server(&dir, 300, Duration::from_secs(10));
-    server.bound(client_with(LiveHttp(Arc::clone(&live))), false);
+    let (server, path, _live, _resumes) = live_server(&dir, 300, Duration::from_secs(10));
+    // Use separate transports with explicit identities. The old and new
+    // request threads may start in either order; ticket numbering must never
+    // stand in for the generation they belong to.
+    let old_live =
+        Arc::new(Live { life_s: 300, ticket_prefix: "old".to_owned(), ..Live::default() });
+    let new_live =
+        Arc::new(Live { life_s: 300, ticket_prefix: "new".to_owned(), ..Live::default() });
+    server.bound(client_with(LiveHttp(Arc::clone(&old_live))), false);
     wait_for("the bind", || {
         let state = server.shared.lock();
         state.bound && !state.fetching
     });
-    // The old client's ticket request (t-1) and the new bind's (t-2) are each held.
-    let (release_old, old_entered) = hold_next_ticket(&live);
-    let (release_new, new_entered) = hold_next_ticket(&live);
+    // Hold each transport independently so the old reply can be released
+    // first while the current generation's request remains in flight.
+    let (release_old, old_entered) = hold_next_ticket(&old_live);
+    let (release_new, new_entered) = hold_next_ticket(&new_live);
     let (at_wanted, reached_wanted) = std::sync::mpsc::channel();
     let (go, gate) = std::sync::mpsc::channel::<()>();
     *server.shared.test_points.before_wanted.lock().unwrap() = Some(Box::new(move || {
@@ -728,7 +871,7 @@ fn a_rebind_before_a_wanted_request_starts_drops_that_requests_late_reply() {
     }));
     let asking = std::thread::spawn(move || ask(&path, r#"{"carrier_ticket": {}}"#));
     reached_wanted.recv_timeout(Duration::from_secs(10)).expect("the ask's want was not taken");
-    server.bound(client_with(LiveHttp(Arc::clone(&live))), false);
+    server.bound(client_with(LiveHttp(Arc::clone(&new_live))), false);
     go.send(()).unwrap();
     old_entered.recv_timeout(Duration::from_secs(10)).expect("the old request did not start");
     new_entered.recv_timeout(Duration::from_secs(10)).expect("the new bind did not ask");
@@ -738,8 +881,7 @@ fn a_rebind_before_a_wanted_request_starts_drops_that_requests_late_reply() {
     release_new.send(()).unwrap();
     let reply = asking.join().unwrap();
     assert_eq!(reply["ok"], true, "{reply}");
-    assert_ne!(reply["ticket"], "t-1", "the old binding's ticket was handed out");
-    assert_eq!(reply["ticket"], "t-2", "{reply}");
+    assert_eq!(reply["ticket"], "new-1", "the old binding's ticket was handed out: {reply}");
     drop(server);
 }
 
@@ -796,6 +938,60 @@ fn a_register_right_after_a_resume_is_noted_does_not_get_the_old_ticket() {
     drop(server);
 }
 
+/// A resume can be noted while a seeded bind is still waiting for the fetch
+/// thread. The bind's ticket is stale as soon as the resume is noted, so the
+/// fetcher must keep the pending resume and prefetch a fresh ticket before the
+/// Register ask is answered. The wanted-request gate makes the before/after
+/// Register wait visible in this same harness.
+#[test]
+fn a_resume_before_a_seeded_bind_is_handled_prefetches_for_register() {
+    let dir = tempfile::tempdir().unwrap();
+    let ask_wait = Duration::from_secs(5);
+    let (server, path, live, resumes) = live_server(&dir, 300, ask_wait);
+    let (wanted_signal, wanted_started) = std::sync::mpsc::channel();
+    let (_release_wanted, wanted_gate) = std::sync::mpsc::channel::<()>();
+    *server.shared.test_points.before_wanted.lock().unwrap() = Some(Box::new(move || {
+        let _ = wanted_signal.send(());
+        // The old ordering reaches a wanted request here. Keep it slow enough
+        // for the measured before/after Register wait to be visible.
+        let _ = wanted_gate.recv_timeout(Duration::from_secs(1));
+    }));
+
+    let (release_fetcher, fetcher_gate) = std::sync::mpsc::channel();
+    *server.shared.test_points.hold_fetcher.lock().unwrap() = Some(fetcher_gate);
+    server.bound_with_ticket(
+        client_with(LiveHttp(Arc::clone(&live))),
+        true,
+        Some((
+            server.bind_generation(),
+            json!({
+                "ok": true,
+                "relay": "relay+do://relay.example",
+                "slot": "slot_0123456789abcdefghijkl",
+                "ticket": "stale-after-resume",
+                "expires_at": wall_now() / 1000 + 300,
+            }),
+        )),
+    );
+    wait_for("the fetcher held before the seeded bind", || {
+        server.shared.test_points.hold_fetcher.lock().unwrap().is_none()
+    });
+    resumes.note();
+
+    let asking = std::thread::spawn(move || {
+        let started = Instant::now();
+        (ask(&path, r#"{"carrier_ticket": {}}"#), started.elapsed())
+    });
+    release_fetcher.send(()).unwrap();
+    let (reply, took) = asking.join().unwrap();
+    eprintln!("reconnect Register wait: {took:?}");
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_eq!(reply["ticket"], "t-1", "{reply}");
+    assert!(wanted_started.try_recv().is_err(), "Register asked for a ticket after reconnect");
+    assert!(took < Duration::from_secs(1), "Register waited {took:?} behind the seeded bind");
+    drop(server);
+}
+
 /// #38700's review: a model of the ticket threads on their one state.
 /// Each seed drives a random interleaving of Registers (an ask, its
 /// hand-out, an asker leaving), resumes, binds, the fetch thread's jobs,
@@ -817,7 +1013,9 @@ fn a_register_right_after_a_resume_is_noted_does_not_get_the_old_ticket() {
 /// it waits for comes back. A job that acts on a resume (`Job::Resume`, or
 /// a `Job::Done` that a waiting resume takes) is acted on in a later step
 /// than its pick, as the fetch thread acts on it after the lock is
-/// released, so binds and resumes land in between.
+/// released, so binds and resumes land in between. A bind captures its
+/// generation and answer in one step and installs them in a later step;
+/// resumes can invalidate the answer before installation as well.
 mod model {
     use std::time::{Duration, Instant};
 
@@ -843,6 +1041,21 @@ mod model {
         }
     }
 
+    struct Bind {
+        binding: u64,
+        prefetch: bool,
+        /// A ticket was actually supplied, independently of later invalidation.
+        seeded: bool,
+    }
+
+    /// The worker's bind request and answer, not yet installed on the ticket
+    /// threads. The worker makes only one bind at a time.
+    struct Binding {
+        before: u64,
+        prefetch: bool,
+        first: Option<Value>,
+    }
+
     struct Request {
         generation: u64,
         /// The binding whose client the request runs on.
@@ -859,13 +1072,14 @@ mod model {
     }
 
     struct Model {
-        core: Core<(u64, bool), u64>,
+        core: Core<Bind, u64>,
         now_ms: u64,
         /// The fetch thread's clients, the same `Hands` as `Fetcher`'s: each
         /// client is the binding it was made for.
         hands: Hands<u64>,
         /// Binds made so far: the latest is the machine's binding.
         binds: u64,
+        binding: Option<Binding>,
         in_flight: Vec<Request>,
         asker: Option<Instant>,
         pending: Option<Pending>,
@@ -880,10 +1094,17 @@ mod model {
         /// Resumes that found no client and acted once one came back.
         waited_resumes: u64,
         /// A job that acts on a resume, picked and not yet acted on.
-        picked: Option<Job<(u64, bool), u64>>,
+        picked: Option<Job<Bind, u64>>,
         /// Resumes picked with a bind or another resume landing before
         /// they were acted on.
         overtaken_resumes: u64,
+        /// Initial-bind ticket requests, before any resume invalidates the seed.
+        initial_prefetches: u64,
+        seeded_binds: u64,
+        invalidated_seeds: u64,
+        local_binds: u64,
+        /// Fresh bind seeds presented for installation after resume crossed their capture.
+        bind_seeds_crossing_resume: u64,
         trace: Vec<String>,
     }
 
@@ -894,6 +1115,7 @@ mod model {
                 now_ms: START_MS,
                 hands: Hands::default(),
                 binds: 0,
+                binding: None,
                 in_flight: Vec::new(),
                 asker: None,
                 pending: None,
@@ -906,6 +1128,11 @@ mod model {
                 waited_resumes: 0,
                 picked: None,
                 overtaken_resumes: 0,
+                initial_prefetches: 0,
+                seeded_binds: 0,
+                invalidated_seeds: 0,
+                local_binds: 0,
+                bind_seeds_crossing_resume: 0,
                 trace: Vec::new(),
             }
         }
@@ -991,6 +1218,9 @@ mod model {
             {
                 self.fail(seed, "two requests of one generation on their way");
             }
+            if task.mint && task.ticket.is_some() && generation == self.core.bound_at {
+                self.initial_prefetches += 1;
+            }
             self.in_flight.push(Request { generation, binding, task });
         }
 
@@ -1043,7 +1273,7 @@ mod model {
             self.act(seed, rng, job);
         }
 
-        fn act(&mut self, seed: u64, rng: &mut Rng, job: Job<(u64, bool), u64>) {
+        fn act(&mut self, seed: u64, rng: &mut Rng, job: Job<Bind, u64>) {
             if let Job::Resume(generation) | Job::Done(_, Back { resume: true, .. }, generation) =
                 &job
                 && *generation != self.core.generation
@@ -1051,10 +1281,19 @@ mod model {
                 self.overtaken_resumes += 1;
             }
             match job {
-                Job::Bind(bind, generation) => {
-                    let (binding, prefetch) = *bind;
+                Job::Bind(bind, generation, seed_valid) => {
+                    let Bind { binding, prefetch, seeded } = *bind;
                     self.hands.bound(binding, prefetch);
-                    let ticket = prefetch.then_some(("prefetched", false));
+                    // Like Fetcher: validity alone cannot stand in for seed presence.
+                    let keep_seed = seeded && seed_valid && self.core.generation == generation;
+                    if !prefetch {
+                        self.local_binds += 1;
+                    } else if keep_seed {
+                        self.seeded_binds += 1;
+                    } else if seeded {
+                        self.invalidated_seeds += 1;
+                    }
+                    let ticket = (prefetch && !keep_seed).then_some(("prefetched", false));
                     self.start(seed, rng, Task { mint: true, ticket }, generation);
                 }
                 Job::Resume(generation) => {
@@ -1085,6 +1324,41 @@ mod model {
             }
         }
 
+        fn ticket(&mut self, generation: u64, binding: u64) -> Value {
+            self.issued += 1;
+            json!({ "ok": true, "ticket": format!("g{generation}-b{binding}-{}", self.issued), "expires_at": self.now_ms / 1000 + 300 })
+        }
+
+        fn begin_bind(&mut self, rng: &mut Rng) {
+            let before = self.core.generation;
+            let prefetch = rng.below(2) == 0;
+            let first =
+                (prefetch && rng.below(2) == 0).then(|| self.ticket(before + 1, self.binds + 1));
+            // With no intervening resume, installation starts generation
+            // before + 1. Keep that origin on the answer across later steps;
+            // relabeling it at installation would hide the stale-ticket bug.
+            self.binding = Some(Binding { before, prefetch, first });
+        }
+
+        fn finish_bind(&mut self) {
+            let Some(Binding { before, prefetch, first }) = self.binding.take() else {
+                return;
+            };
+            // Count seeds the expiry check alone would accept: this path
+            // requires the generation fence, not just a fresh timestamp.
+            if before != self.core.generation
+                && first.as_ref().is_some_and(|reply| Warm::of(reply, self.now_ms).is_some())
+            {
+                self.bind_seeds_crossing_resume += 1;
+            }
+            // The same production fence, within the bind's one transition.
+            let warm = first
+                .and_then(|reply| self.core.seed_from_bind(before, prefetch, &reply, self.now_ms));
+            self.binds += 1;
+            let seeded = warm.is_some();
+            self.core.bind_with(Bind { binding: self.binds, prefetch, seeded }, warm);
+        }
+
         fn reply(&mut self, rng: &mut Rng) {
             if self.in_flight.is_empty() {
                 return;
@@ -1095,8 +1369,7 @@ mod model {
                 if rng.below(6) == 0 {
                     json!({ "ok": false, "error": { "code": "carrier.unavailable" } })
                 } else {
-                    self.issued += 1;
-                    json!({ "ok": true, "ticket": format!("g{generation}-b{binding}-{}", self.issued), "expires_at": self.now_ms / 1000 + 300 })
+                    self.ticket(generation, binding)
                 }
             });
             self.core.finished(Done {
@@ -1113,20 +1386,24 @@ mod model {
     fn random_interleavings_keep_one_request_per_want_and_no_older_ticket() {
         let (mut handed, mut refused, mut wanted, mut stale, mut waited) = (0, 0, 0, 0, 0);
         let mut overtaken = 0;
+        let mut initial_prefetches = 0;
+        let (mut seeded_binds, mut invalidated_seeds, mut local_binds) = (0, 0, 0);
+        let mut bind_seeds_crossing_resume = 0;
         for seed in 0..SEEDS {
             let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
             let mut model = Model::new();
             for _ in 0..STEPS {
-                let step = rng.below(12);
+                let step = rng.below(13);
                 model.trace.push(format!(
-                    "step {step}: generation {} want {} fetching {} warm {} answered {} in flight {} picked {}",
+                    "step {step}: generation {} want {} fetching {} warm {} answered {} in flight {} picked {} bind captured {:?}",
                     model.core.generation,
                     model.core.want,
                     model.core.fetching,
                     model.core.warm.is_some(),
                     model.core.answered.is_some(),
                     model.in_flight.len(),
-                    model.picked.is_some()
+                    model.picked.is_some(),
+                    model.binding.as_ref().map(|binding| binding.before)
                 ));
                 match step {
                     0 if model.asker.is_none() && model.pending.is_none() => {
@@ -1140,13 +1417,13 @@ mod model {
                     2 => model.hand_out(seed),
                     3 if rng.below(4) == 0 => model.leave(),
                     4 => model.core.note_resume(),
-                    5 if rng.below(3) == 0 => {
-                        model.binds += 1;
-                        model.core.bind((model.binds, rng.below(2) == 0));
+                    5 if model.binding.is_none() && rng.below(3) == 0 => {
+                        model.begin_bind(&mut rng);
                     }
                     6..=8 => model.fetch_step(seed, &mut rng),
                     9 | 10 => model.reply(&mut rng),
                     11 => model.now_ms += rng.below(120_000),
+                    12 => model.finish_bind(),
                     _ => {}
                 }
             }
@@ -1156,9 +1433,22 @@ mod model {
             stale += model.stale_replies;
             waited += model.waited_resumes;
             overtaken += model.overtaken_resumes;
+            initial_prefetches += model.initial_prefetches;
+            seeded_binds += model.seeded_binds;
+            invalidated_seeds += model.invalidated_seeds;
+            local_binds += model.local_binds;
+            bind_seeds_crossing_resume += model.bind_seeds_crossing_resume;
         }
         // Every path the invariants guard was driven, many times over.
         let reached = [
+            (
+                "bind seeds with a resume between capture and installation",
+                bind_seeds_crossing_resume,
+            ),
+            ("initial-bind prefetches", initial_prefetches),
+            ("seeded binds retaining their seed", seeded_binds),
+            ("seeded binds replacing an invalidated seed", invalidated_seeds),
+            ("binds without a carrier", local_binds),
             ("tickets handed out", handed),
             ("replies refused at the hand-out as stale", refused),
             ("ticket requests for asks", wanted),
@@ -1167,6 +1457,7 @@ mod model {
             ("resumes a bind or another resume overtook before they were acted on", overtaken),
         ];
         for (what, count) in reached {
+            println!("model coverage: {what}: {count}");
             assert!(count >= SEEDS / 10, "the model reached {what} only {count} times");
         }
     }

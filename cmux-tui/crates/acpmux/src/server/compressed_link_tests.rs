@@ -58,7 +58,7 @@ async fn listening_fleet(peers: usize, rows: usize) -> u16 {
 }
 
 /// A server on `listener` that serves `pages` pages of `per_page` rows of its own through the
-/// listener's writer (`ws_shutdown::write`): with zlib frames when `compress` and its client
+/// listener's writer (`ws_shutdown::write_link`): with zlib frames when `compress` and its client
 /// asks, else Text only, as a server from before them (which ignores the field) does.
 async fn paging_server(
     listener: tokio::net::TcpListener,
@@ -72,8 +72,14 @@ async fn paging_server(
     let (out, outbound) = mpsc::channel::<String>(64);
     let (_stop, stopped) = tokio::sync::oneshot::channel();
     let wire = Arc::new(crate::frame_compress::Wire::default());
-    let writer =
-        super::ws_shutdown::write(sink, outbound, stopped, Default::default(), wire.clone());
+    let writer = super::ws_shutdown::write_link(
+        sink,
+        outbound,
+        None,
+        stopped,
+        Default::default(),
+        wire.clone(),
+    );
     tokio::spawn(writer);
     let page = |n: usize| {
         let rows: Vec<Value> = (0..per_page).map(|i| row(n, i)).collect();
@@ -121,6 +127,7 @@ async fn a_20k_row_list_reaches_a_peer_every_row_once_compressed_or_plain() {
         let (tx, mut notices) = mpsc::channel(64);
         let url = format!("ws://127.0.0.1:{port}");
         let peer = Peer::new("fleet", &url, Some(TOKEN.into()), None, tx);
+        peer.refuse_early(); // the paging server is a plain tungstenite accept, as before the early request
         let started = std::time::Instant::now();
         let link = tokio::spawn(peer.clone().run());
         let mut listed = None;
@@ -230,6 +237,7 @@ async fn a_compressed_frame_that_is_not_json_rpc_ends_the_link() {
     });
     let (tx, mut notices) = mpsc::channel(64);
     let peer = Peer::new("bad", &format!("ws://127.0.0.1:{port}"), Some(TOKEN.into()), None, tx);
+    peer.refuse_early(); // the server is a plain tungstenite accept, as before the early request
     let link = tokio::spawn(peer.clone().run());
     let why = loop {
         let (_, _, notice) = tokio::time::timeout(Duration::from_secs(10), notices.recv())

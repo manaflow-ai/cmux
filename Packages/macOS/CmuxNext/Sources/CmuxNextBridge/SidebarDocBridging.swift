@@ -58,9 +58,17 @@ public final class DaemonSidebarDocRemote: SidebarDocRemote {
             switch error {
             // No connection yet (between asks, a reconnect): an earlier ask may still have reached the daemon.
             case .timedOut, .connectionClosed, .daemonShutdown, .notConnected, .connectFailed: throw SidebarDocUnsettled()
-            default: throw error
+            default: throw refusal(error) ?? error
             }
         }
+    }
+
+    /// The reducer's refusal a daemon error carries (`validation.invalid`, `details.reason`: `nesting`,
+    /// `cross_machine`, ...), so the person reads its own reason, not a failure; nil for any other error.
+    nonisolated static func refusal(_ error: DaemonError) -> SidebarMirror.Refusal? {
+        guard case let .command(_, message, code, details, _) = error, code == "validation.invalid" else { return nil }
+        let reason = details?["reason"]?.stringValue ?? message
+        return reason.isEmpty ? nil : SidebarMirror.Refusal(code: reason)
     }
 
     private static func reply(_ mutation: SidebarDocMutation) throws -> SidebarDocReply {
@@ -154,6 +162,9 @@ public final class SidebarDocSections {
     public func sections(_ projection: SidebarDocProjection, session: String, workspaces: [WorkspaceModel], room: String? = nil,
                          spaces: Set<String>? = nil,
                          unplacedOrder: ([WorkspaceModel]) -> [WorkspaceModel] = { $0 }) -> [CmuxNextDaemon.SidebarSection] {
+        // Held slots and new-row anchors are per session and space: each space lists its own subset of the
+        // session's workspaces, so rendering one space must not drop another's (review F2 on #37908).
+        let roomKey = room.map { "\(session)\u{1F}\($0)" } ?? session
         let byResource = Dictionary(workspaces.compactMap { w in w.resourceID.map { ($0.rawValue, w) } }, uniquingKeysWith: { first, _ in first })
         var sections: [CmuxNextDaemon.SidebarSection] = []
         var loose: [WorkspaceModel] = []
@@ -215,13 +226,13 @@ public final class SidebarDocSections {
         let placed = Set(projection.items.keys.filter { $0.sessionID == session }.map(\.workspaceID))
         var unplaced = workspaces.filter { w in !listed.contains(w.id) && !(w.resourceID.map { placed.contains($0.rawValue) } ?? false) }
         // One that listed before keeps its slot (its group, under the same row) until the document places it again.
-        let waiting = holdSlots(unplaced, session: session, in: &sections, machineSections: &machineSections)
+        let waiting = holdSlots(unplaced, session: roomKey, in: &sections, machineSections: &machineSections)
         let held = Set(unplaced.map(\.id)).subtracting(waiting.map(\.id))
         unplaced = waiting
         let (place, newestFirst) = newRows(newRowsPlace(), session: session, fresh: Set(unplaced.map(\.id)), lists: { listed.contains($0) })
         // A new row stays where it first listed: the place it took then, not the current workspace now.
         let unplacedIDs = Set(unplaced.map(\.id))
-        var firstPlaces = anchors[session, default: [:]].filter { id, _ in unplacedIDs.contains(id) }
+        var firstPlaces = anchors[roomKey, default: [:]].filter { id, _ in unplacedIDs.contains(id) }
         // As the daemon places them: the store lists a new workspace last, and its personal row comes with its item, so
         // the unplaced ones have none to order them by yet.
         let ordered = unplacedOrder(newestFirst ? Array(unplaced.reversed()) : unplaced)
@@ -239,7 +250,7 @@ public final class SidebarDocSections {
             chainStart[w.id] = start
             chainEnd[start] = w.id
         }
-        anchors[session] = firstPlaces
+        anchors[roomKey] = firstPlaces
         let tail = unplaced.filter { firstPlaces[$0.id] == .last }
         if !tail.isEmpty { loose += unplacedOrder(tail) }
         let rest = ordered.filter { firstPlaces[$0.id] != .last }
@@ -282,13 +293,13 @@ public final class SidebarDocSections {
             }
         }
         flush()
-        noteSlots(sections, session: session, placed: listed, held: held)
+        noteSlots(sections, session: roomKey, placed: listed, held: held)
         if sections.isEmpty { sections.append(CmuxNextDaemon.SidebarSection(group: nil, workspaces: [])) }
         return sections
     }
 
-    /// Puts each of `unplaced` that listed before back in its slot among the machine's rows (the first `machineSections`
-    /// of `sections`): under the row it was under, in the same group (or loose run). Returns the ones with no slot to
+    /// Puts each of `unplaced` that listed before back in its slot: under the row it was under, in the same group (a
+    /// machine group or a band group listed after the machine's rows), or loose run (the first `machineSections`). Returns the ones with no slot to
     /// go back to. Rows go back in a chain (one under another held one), so a run of them keeps its order.
     private func holdSlots(_ unplaced: [WorkspaceModel], session: String, in sections: inout [CmuxNextDaemon.SidebarSection],
                            machineSections: inout Int) -> [WorkspaceModel] {
@@ -316,7 +327,8 @@ public final class SidebarDocSections {
                         continue
                     }
                 } else {
-                    found = machine.first { i in
+                    // A group's slot: a band group (Pinned or a custom section) lists after the machine's rows.
+                    found = sections.indices.first { i in
                         sections[i].group?.id.rawValue == slot.group
                             && (slot.after.map { after in sections[i].workspaces.contains { $0.id == after } } ?? true)
                     }

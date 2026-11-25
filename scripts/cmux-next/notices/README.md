@@ -31,9 +31,11 @@ Rust and Zig standard libraries: `cmux-tui/build-support/notices/toolchains/`
 (shared with cmux-browser) stores rustc's `COPYRIGHT-library.html` per Rust
 release and Zig's `LICENSE`, with sha256 and source in `toolchains.json`. The
 Xcode "Bundle CLI resources" phase installs them under
-`Contents/Resources/toolchain-licenses/`. The bundle-map requirement `rust-std`
-reads each `/rustc/<commit>/` path inside a Mach-O and needs that rustc's
-reviewed text; `zig-std` needs the Zig text. `toolchain_notices.py check-repo`
+`Contents/Resources/toolchain-licenses/`, each Rust text gzip-compressed
+(`rust-<version>/COPYRIGHT-library.html.gz`, 2.6 MB of HTML down to 85 KB; the
+checks compare the decompressed bytes with the reviewed sha256). The bundle-map
+requirement `rust-std` reads each `/rustc/<commit>/` path inside a Mach-O and
+needs that rustc's reviewed text; `zig-std` needs the Zig text. `toolchain_notices.py check-repo`
 (notices CI and `verify-app-bundle-licenses.sh`) fails when a
 `rust-toolchain.toml` channel or a Ghostty `minimum_zig_version` no longer
 matches, so a toolchain bump stops until its text is reviewed.
@@ -48,7 +50,7 @@ The gzip module's zlib copy and ft-hb.c are not compiled (system zlib, no HarfBu
 their terms do not ship; the note in MANIFEST.json gives the symbol evidence.
 
 musl: GhosttyNextKit's Termio inlines Zig's `std.math.cbrt` (ported from musl), so the
-app binary (`Contents/MacOS/cmux`) and the iOS pane carry musl's COPYRIGHT (hand-written
+app code (`Contents/Frameworks/CmuxNextApp.framework`) and the iOS pane carry musl's COPYRIGHT (hand-written
 section, checked by `ios_notices.py check-repo`; the pane takes the reviewed file of
 `cmux-tui/dist/notices/package-notices.json`). The cmux-tui Darwin packages link no
 musl-derived code (`package-notices.json` `darwin.review`); `package_notices.py
@@ -73,7 +75,9 @@ only while bundle-map.json maps it, like the browser host. The npm platform pack
 for macOS and Linux carry the same binary as `bin/cmux-agent-screen-detection`; their
 notice (package_notices.py) has its crates and the herdr Apache-2.0 text.
 
-CEF binaries need Chromium's `CREDITS.html` (`install-cef-credits.sh`) and
+CEF binaries need Chromium's `CREDITS.html`, shipped gzip-compressed as
+`CREDITS.html.gz` (`install-cef-credits.sh`; 5.6 MB down to 0.6 MB, every byte
+kept; nothing reads it at runtime, CEF serves chrome://credits from its pak), and
 CEF's own `LICENSE.txt` (`install-cef-license.sh`) in the embedded framework.
 
 Remote browser host: `Contents/Helpers/cmux-remote-browser-host.app` holds a pinned prebuilt
@@ -114,8 +118,8 @@ build.rs change until the graph is regenerated on a Testbox for the new commit;
 its error gives the commands.
 
 The bundle check scans every Mach-O whose entries (and `copy_of` source) need
-no `rust-std` for rustc std paths (Release merges Iroh's Rust code into the app
-binary). A change to that code adds a red test first as its own commit, as the
+no `rust-std` for rustc std paths (a static Rust library can land in a binary
+the map does not expect, as Iroh.framework's code once did in the app binary). A change to that code adds a red test first as its own commit, as the
 `copy_of` change did (sign run 43387981953).
 
 Planned: the Ghostty section of THIRD_PARTY_LICENSES.md from that collector

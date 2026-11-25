@@ -18,8 +18,13 @@
   min-width: 0;
   width: max-content;
   max-width: min(280px, calc(100vw - 16px));
-  padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-3);
-  border-radius: var(--ds-radius-popup, 8px);
+  /* Concentric with its close button (Lawrence 2026-11-15): one padding on every side, the corner the
+     button corner plus it. */
+  --concentric-padding: var(--ds-space-2);
+  /* Where the text starts: the corner in, as ConcentricContainer.textInset is in the app. */
+  --concentric-text-inset: calc(var(--ds-radius-control, 6px) + var(--concentric-padding));
+  padding: var(--concentric-padding) var(--concentric-padding) var(--concentric-padding) var(--concentric-text-inset);
+  border-radius: calc(var(--ds-radius-control, 6px) + var(--concentric-padding));
   color: var(--ui-feature-tip-ink);
   z-index: var(--layer-tooltip, 1000);
 }
@@ -65,6 +70,8 @@
 
 .ui-feature-tip-close {
   flex: none;
+  /* In the tip's top trailing corner, one padding from the top and the side (concentric; Lawrence 2026-11-15). */
+  align-self: start;
   display: grid;
   place-items: center;
   width: 20px;
@@ -113,6 +120,7 @@
   width: 11px;
   aspect-ratio: 1;
   background: var(--glass-tint);
+  /* one-material-allow: the arrow ::before of a .ui-glass tip, drawing the same tokens so it continues the tip's surface */
   -webkit-backdrop-filter: var(--glass-backdrop);
   backdrop-filter: var(--glass-backdrop);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
@@ -124,6 +132,6 @@
     background: var(--glass-opaque);
   }
 }
-:root[data-reduce-transparency] .ui-feature-tip-arrow::before {
+:root:is([data-reduce-transparency], [data-glass="off"]) .ui-feature-tip-arrow::before {
   background: var(--glass-opaque);
 }

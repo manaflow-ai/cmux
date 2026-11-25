@@ -85,8 +85,8 @@ final class LinkOpener {
     /// column order (``LinkOpenPlacement/paneRight(of:columns:takesTabs:recency:)``), not by drawn
     /// frames, which miss a strip column that is scrolled or not laid out yet.
     /// `kind`: what opens, a terminal or a browser, which goes to a right-column pane already holding
-    /// that kind (``RightColumnPlacement``); nil for anything else.
-    func target(from source: PaneController, mainPane: Bool = true, besideChat: Bool = false, kind: RightColumnPlacement.Kind? = nil) -> LinkOpenPlacement<LayoutPaneID>.Target {
+    /// that kind (``RightColumnPlacement``); nil for anything else. `opening`: a link or a new tool (``LinkOpenPlacement/Opening``).
+    func target(from source: PaneController, mainPane: Bool = true, besideChat: Bool = false, kind: RightColumnPlacement.Kind? = nil, opening: LinkOpenPlacement<LayoutPaneID>.Opening = .link) -> LinkOpenPlacement<LayoutPaneID>.Target {
         let content = source.workspace
         let width: (LayoutPaneID) -> CGFloat? = { content?.panes[$0].flatMap(Self.width(of:)) }
         let holds: (LayoutPaneID, RightColumnPlacement.Kind) -> Bool = { id, kind in content?.panes[id].map { Self.holds($0, kind) } ?? false }
@@ -100,7 +100,7 @@ final class LinkOpener {
                 // The strip column right of the docked chat is its right side: the same lower split (ux-owner 2026-10-30).
                 let column = content.map { Self.rightPanes(beside: source.layoutPaneID, in: $0) } ?? []
                 return LinkOpenPlacement<LayoutPaneID>.inColumn(right: pane, column: column, sourceWidth: Self.width(of: source), width: width,
-                                                                kind: kind, holds: holds)
+                                                                kind: kind, holds: holds, opening: opening)
             case .dockChat: return .dockChat(source.layoutPaneID)
             case .here, .besideDock: break
             }
@@ -123,11 +123,11 @@ final class LinkOpener {
             return PaneHandlers.neighbor(of: source.layoutPaneID, direction: .right, in: content).flatMap { takes($0) ? $0 : nil } ?? column.first
         }
         return LinkOpenPlacement(setting: besideChat ? .splitRight : placement()).target(source: source.layoutPaneID, takesTabs: takesTabs, right: right, column: column,
-            sourceWidth: Self.width(of: source), width: width, kind: kind, holds: holds, left: besideChat || source.selectedTab?.showsPage != true ? nil : source.workspace.flatMap { PaneHandlers.neighbor(of: source.layoutPaneID, direction: .left, in: $0) }, holder: holder)
+            sourceWidth: Self.width(of: source), width: width, kind: kind, holds: holds, left: besideChat || source.selectedTab?.showsPage != true ? nil : source.workspace.flatMap { PaneHandlers.neighbor(of: source.layoutPaneID, direction: .left, in: $0) }, holder: holder, opening: opening)
     }
 
     /// Whether the chat header's Terminal from `source` is one Split Right (one `split`, its stand-in pane at the press; ``AgentChatTabActions/run(_:cwd:on:)``), not a tab made in the chat's pane and moved: nothing is on its right, no open beside it is on its way, its pane has room, and its daemon shows a split at the press (`split-client-keys`).
-    func terminalSplitsAtOnce(from source: PaneController) -> Bool { if case .splitRight = target(from: source, besideChat: true, kind: .terminal), !turns.isBusy(beside: source.layoutPaneID), source.daemon.supports(DaemonCapability.splitClientKeys.rawValue), case .split = source.services.toolSplit(from: source.pane, edge: .right, byPerson: true) { true } else { false } }
+    func terminalSplitsAtOnce(from source: PaneController) -> Bool { if case .splitRight = target(from: source, besideChat: true, kind: .terminal, opening: .tool), !turns.isBusy(beside: source.layoutPaneID), source.daemon.supports(DaemonCapability.splitClientKeys.rawValue), case .split = source.services.toolSplit(from: source.pane, edge: .right, byPerson: true) { true } else { false } }
 
     /// Opens through `make` where the rule puts it. `background`: the opened tab takes no focus.
     /// `mainPane` false: main pane layout does not apply (a chat, which belongs in the dock, not
@@ -137,12 +137,12 @@ final class LinkOpener {
     /// one has landed, from the column it made.
     @discardableResult
     func open(from source: PaneController?, background: Bool = false, mainPane: Bool = true, besideChat: Bool = false, kind: RightColumnPlacement.Kind? = nil,
-              focusing focus: FocusState.Target = .content, split: SplitMake? = nil, _ make: @escaping Make) -> Bool {
+              opening: LinkOpenPlacement<LayoutPaneID>.Opening = .link, focusing focus: FocusState.Target = .content, split: SplitMake? = nil, _ make: @escaping Make) -> Bool {
         guard let source = source ?? services?.windows.active?.focusedPane else { return false }
         var opened = true
         let now = turns.serially(beside: source.layoutPaneID) { [weak self, weak source] done in
             guard let self, let source else { return done() }
-            opened = self.place(from: source, background: background, mainPane: mainPane, besideChat: besideChat, kind: kind, focusing: focus,
+            opened = self.place(from: source, background: background, mainPane: mainPane, besideChat: besideChat, kind: kind, opening: opening, focusing: focus,
                                 split: split, make, done: done)
         }
         return now ? opened : true
@@ -150,9 +150,9 @@ final class LinkOpener {
 
     /// ``open(from:background:mainPane:_:)`` in its turn: `done` runs once the open has landed or
     /// failed, so the next open beside `source` reads the column it left.
-    private func place(from source: PaneController, background: Bool, mainPane: Bool, besideChat: Bool, kind: RightColumnPlacement.Kind?, focusing focus: FocusState.Target,
+    private func place(from source: PaneController, background: Bool, mainPane: Bool, besideChat: Bool, kind: RightColumnPlacement.Kind?, opening: LinkOpenPlacement<LayoutPaneID>.Opening, focusing focus: FocusState.Target,
                        split: SplitMake?, _ make: Make, done: @escaping @MainActor () -> Void) -> Bool {
-        switch target(from: source, mainPane: mainPane, besideChat: besideChat, kind: kind) {
+        switch target(from: source, mainPane: mainPane, besideChat: besideChat, kind: kind, opening: opening) {
         case .pane(let id):
             defer { done() }
             return make(id == source.layoutPaneID ? source : source.workspace?.panes[id] ?? source, nil)
@@ -223,9 +223,9 @@ final class LinkOpener {
     /// anywhere else gives the focus back to the source when its close empties its pane (``returnPane(closing:in:emptiesPane:)``).
     /// `reusesTab` (an agent chat's links and cards): a page the pane on the right already shows is
     /// selected there instead of opened again; a terminal's Cmd-click stays a new, fresh tab.
-    /// `revealing` (a terminal program's link, ``LinkRouter/openProgramLink``): a `background` tab still shows where it lands, selected in the pane on the right or made in its new split, and the keyboard stays in `source`.
+    /// `revealing` (a terminal program's link, ``LinkRouter/openProgramLink``): a `background` tab still shows where it lands, selected in the pane on the right or made in its new split, and the keyboard stays in `source`. `shownHere` (a sign-in page, ``openSignInPage(_:beside:)``): a tab that lands in `source`'s own pane is selected and focused there, never hidden, and `shownHere` hears its surface.
     @discardableResult
-    func openWeb(_ url: URL, from source: PaneController?, background: Bool, reusesTab: Bool = false, revealing: Bool = false) -> Bool {
+    func openWeb(_ url: URL, from source: PaneController?, background: Bool, reusesTab: Bool = false, revealing: Bool = false, shownHere: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
         let from = source ?? services?.windows.active?.focusedPane
         // The person's intent: an agent's open in flight (AgentBesidePlacement) yields to it.
         if !background { _ = from?.workspace?.beginFocusIntent() }
@@ -245,13 +245,13 @@ final class LinkOpener {
             return true
         }
         return open(from: from, background: background, kind: .browser, split: background && !revealing ? nil : browserSplit(url, returningTo: from, keepsFocus: background)) { [weak self, weak from] pane, placed in
-            let here = pane === from && placed == nil
+            let here = pane === from && placed == nil, quiet = background && !(here && shownHere != nil)
             // A pane-local tab keeps Chrome's opener relationship. When placement moves the new
             // tab into another pane, the source pane must not claim it as a child; the placement
             // callback owns focus and insertion for that destination.
             let opener = here ? pane.selectedTab?.surface : nil
             let back = background || here ? nil : from
-            var then = placed
+            var then = here ? shownHere : placed
             if revealing, background, placed == nil, !here { then = { @MainActor [weak pane] surface in pane?.selectWhenReportedKeepingFocus(surface: surface) } }
             if back != nil {
                 then = { @MainActor [weak self, weak back] surface in
@@ -259,9 +259,12 @@ final class LinkOpener {
                     placed?(surface)
                 }
             }
-            return pane.newBrowserTab(url: url, background: background || placed != nil, opener: opener, placementOwner: placed != nil, then: then)
+            return pane.newBrowserTab(url: url, background: quiet || placed != nil, opener: opener, placementOwner: placed != nil, then: then)
         }
     }
+
+    /// A provider's sign-in page (Settings > Accounts, onboarding) beside the pane showing `view` and its code (none: the front window's focused pane), as a program's link opens; where nothing beside it takes the page, selected in that pane with the keyboard, so the copied code pastes. The answer, once the sign-in ended, selects the code's tab again while that page is still the one shown there.
+    func openSignInPage(_ url: URL, beside view: NSView?) -> @MainActor () -> Void { let source = view.flatMap { self.source(containing: $0) } ?? services?.windows.active?.focusedPane, shown = source?.selectedTab?.id; var page: SurfaceID?; openWeb(url, from: source, background: true, revealing: true) { page = $0 }; return { [weak source] in if let source, let page, let shown, source.selectedTab?.surface == page { source.select(StripTabID(shown)) } } }
 
     /// A web page at `url` (nil: the New Tab page) made straight in a new split, never in the source first (Leo 2026-11-03); its close gives the focus back to `from`. Nil, so the open makes and moves (which refuses or opens a column), from a chat dock or a pane with no room (#23032 review); Home's dock alone needs no room. `keepsFocus`: the new split's tab takes no focus (a terminal program's background link).
     func browserSplit(_ url: URL?, profile: String? = nil, returningTo from: PaneController? = nil, keepsFocus: Bool = false) -> SplitMake {

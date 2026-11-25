@@ -1,4 +1,4 @@
-//! `git status|diff|branches|files|list|checkpoint|commit|push|worktree create|apply|remove|setup`: the session host's git operations, and `git comments` (the diff page's review comments, `comments.rs`). The repository
+//! `git status|diff|fingerprint|branches|files|list|checkpoint|commit|push|worktree create|apply|remove|setup|review start|comment`: the session host's git operations, and `git comments` (the diff page's review comments, `comments.rs`). The repository
 //! is the one `--path` is in, or the working directory of the terminal a
 //! `--workspace`, `--screen`, `--pane`, `--tab` or `--terminal` selector
 //! names; with none of them, the current directory's.
@@ -12,6 +12,8 @@ use super::{
 };
 
 const SCOPES: &[&str] = &["uncommitted", "unstaged", "staged", "committed", "branch", "commits"];
+/// The scopes of `git diff` that compare a work tree or an index.
+const FINGERPRINT_SCOPES: &[&str] = &["uncommitted", "unstaged", "staged", "branch"];
 const TARGETS: &[(&str, &str)] = &[
     ("workspace", "ws"),
     ("screen", "screen"),
@@ -20,8 +22,8 @@ const TARGETS: &[(&str, &str)] = &[
     ("terminal", "term"),
 ];
 
-/// `git status`, `git diff [<path>...]`, `git branches`, `git files <query>...` and
-/// `git list`.
+/// `git status`, `git diff [<path>...]`, `git fingerprint`, `git branches`,
+/// `git files <query>...` and `git list`.
 pub(super) fn parse_git(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     // Comments are keyed by a worktree root, not a repository target.
     if let ["comments", action @ ..] = words {
@@ -36,6 +38,14 @@ pub(super) fn parse_git(words: &[&str], flags: &mut Flags) -> Result<CommandPlan
         ["worktree", "create"] => return write::worktree_create(flags, &selectors, params),
         ["worktree", "apply"] => return write::worktree_apply(flags, &selectors, params),
         ["worktree", "remove"] => return write::worktree_remove(flags, &selectors, params),
+        ["review", "start", url] => return write::review_start(url, flags, &selectors, params),
+        ["review", "comment"] => return write::review_comment(flags, &selectors, params),
+        ["worktree", "setup", "run"] => {
+            if let Some(value) = flags.take("approve") {
+                params.insert("approve".into(), Value::String(value));
+            }
+            Op::GitWorktreeSetupRun
+        }
         ["worktree", "setup"] => {
             if let Some(value) = flags.take("since") {
                 insert_decimal(&mut params, "since", "--since", value)?;
@@ -74,6 +84,12 @@ pub(super) fn parse_git(words: &[&str], flags: &mut Flags) -> Result<CommandPlan
                 params.insert("paths".into(), Value::Array(paths.collect()));
             }
             Op::GitDiff
+        }
+        ["fingerprint"] => {
+            let scope = flags.take("scope").unwrap_or_else(|| "uncommitted".to_string());
+            validate_one_of("--scope", &scope, FINGERPRINT_SCOPES)?;
+            params.insert("scope".into(), Value::String(scope));
+            Op::GitFingerprint
         }
         ["files", query @ ..] if !query.is_empty() => {
             params.insert("query".into(), Value::String(query.join(" ")));
@@ -152,7 +168,10 @@ fn diff_pages(flags: &mut Flags, params: &mut Map<String, Value>) -> Result<(), 
 }
 
 /// The repository to read: one selector, `--path`, or the current directory.
-fn target(flags: &mut Flags, params: &mut Map<String, Value>) -> Result<Selectors, UsageError> {
+pub(super) fn target(
+    flags: &mut Flags,
+    params: &mut Map<String, Value>,
+) -> Result<Selectors, UsageError> {
     let mut selectors = Selectors::default();
     let mut chosen = 0;
     for &(scope, prefix) in TARGETS {

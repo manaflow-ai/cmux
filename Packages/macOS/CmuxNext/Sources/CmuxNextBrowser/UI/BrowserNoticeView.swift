@@ -1,92 +1,61 @@
 import AppKit
 import CmuxNextDesign
-import CmuxNextIcons
 
-/// A small glass pill at the bottom of the page with one line of text and a
-/// close button: a subtle, dismissible notice (the WebKit fallback when
-/// Chromium cannot start). It never takes focus.
-final class BrowserNoticeView: NSView {
+/// The notice at the bottom of the page (the WebKit fallback when Chromium cannot start, a crashed page,
+/// an added extension): the app's shared toast (``CmuxToastView``) with one line of text, an optional
+/// action and a close button, in the toast style the person picked (Lawrence 2026-11-13: one style, picked
+/// in the Toast Playground, for every toast). It belongs to its tab's page, not the window, so the chrome
+/// places it (`PageFloatingOverlays`); it never takes focus, and it waits until closed.
+final class BrowserNoticeView: NSView, CmuxToastStyleFollowing {
     var onClose: (() -> Void)?
     /// The notice's one action (a button before the close button), if any.
     var action: (title: String, run: () -> Void)? {
-        didSet {
-            actionButton.title = action?.title ?? ""
-            actionButton.isHidden = action == nil
-        }
+        didSet { rebuild() }
     }
-    private lazy var actionButton: ChromeTextButton = {
-        let button = ChromeTextButton(title: "", prominent: false, action: #selector(runAction), target: self)
-        button.isHidden = true
-        return button
-    }()
     /// Set while the close animation runs; a new notice then gets a new view.
     var isDismissing = false
-    private let label = ChromeLabel(labelWithString: "")
-    private let density = DensityBinding()
-    /// The card's material: glass, or opaque under Reduce Transparency.
-    private(set) var glass: OverlaySurfaceView?
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        translatesAutoresizingMaskIntoConstraints = false
-        label.lineBreakMode = .byTruncatingTail
-        // The pill fits its text; only a narrow page truncates it (cx-whr7).
-        label.setContentCompressionResistancePriority(.keepsTextWidth, for: .horizontal)
-        let close = ChromeIconButton(icon: .browserToolbarClose, label: Strings.dismissNotice, action: #selector(close), target: self)
-
-        let stack = NSStackView(views: [label, actionButton, close])
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        let content = OverlayBackingView()
-        content.addSubview(stack)
-        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: BrowserMetrics.overlayCornerRadius)
-        addSubview(glass)
-        self.glass = glass
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            stack.centerYAnchor.constraint(equalTo: content.centerYAnchor),
-            glass.leadingAnchor.constraint(equalTo: leadingAnchor),
-            glass.trailingAnchor.constraint(equalTo: trailingAnchor),
-            glass.topAnchor.constraint(equalTo: topAnchor),
-            glass.bottomAnchor.constraint(equalTo: bottomAnchor),
-            density.bind(heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.findBarHeight },
-            density.bind(widthAnchor.constraint(lessThanOrEqualToConstant: 0)) { BrowserMetrics.promptMaxWidth },
-        ])
-        density.update { [label] in
-            label.font = BrowserMetrics.bodyFont
-            stack.spacing = BrowserMetrics.itemSpacing
-            stack.edgeInsets = NSEdgeInsets(top: 0, left: BrowserMetrics.overlayPadding, bottom: 0, right: BrowserMetrics.buttonSpacing)
-            glass.cornerRadius = BrowserMetrics.overlayCornerRadius
+    var text: String = "" {
+        didSet {
+            guard text != oldValue else { return }
+            setAccessibilityLabel(text)
+            rebuild()
         }
-        density.start()
+    }
+    /// The toast the notice draws, rebuilt when its text, action or the picked style changes.
+    private(set) var toastView: CmuxToastView?
+    private let styles: CmuxToastStyleStore
+
+    /// - Parameter styles: The picked toast style (the shared center's), followed while the notice shows.
+    init(styles: CmuxToastStyleStore = CmuxToastCenter.shared.styles) {
+        self.styles = styles
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        styles.follow(self)
+        rebuild()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        applyColors()
-    }
+    func toastStyleDidChange(_ style: CmuxToastStyle) { rebuild() }
 
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        applyColors()
-    }
-
-    private func applyColors() {
-        performWithTheme {
-            label.textColor = Palette.textSecondary
-            glass?.applyTheme()
-        }
-    }
-
-    var text: String {
-        get { label.stringValue }
-        set {
-            label.stringValue = newValue
-            setAccessibilityLabel(newValue)
-        }
+    private func rebuild() {
+        toastView?.removeFromSuperview()
+        let toast = CmuxToast(id: "browser.notice", message: text, action: action.map { CmuxToast.Action(title: $0.title) },
+                              duration: CmuxToast.untilClosed)
+        let view = CmuxToastView(toast: toast, style: styles.style)
+        // On the page's floating overlay, not the window's toast panel: the glass samples the page.
+        view.surface?.samplesBehindWindow = false
+        view.onAction = { [weak self] in self?.action?.run() }
+        view.onClose = { [weak self] in self?.onClose?() }
+        addSubview(view)
+        NSLayoutConstraint.activate([
+            view.leadingAnchor.constraint(equalTo: leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: trailingAnchor),
+            view.topAnchor.constraint(equalTo: topAnchor),
+            view.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+        toastView = view
     }
 
     /// This view's tree with each frame and any label text (diagnostics:
@@ -101,8 +70,4 @@ final class BrowserNoticeView: NSView {
         visit(self, 0)
         return rows
     }
-
-    @objc private func close() { onClose?() }
-
-    @objc private func runAction() { action?.run() }
 }

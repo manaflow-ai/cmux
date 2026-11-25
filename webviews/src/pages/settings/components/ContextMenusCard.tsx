@@ -12,6 +12,8 @@ import { Input } from "../../../ui/Input";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { nativeMenu, pickedId } from "../../../ui/nativeMenu";
 import { useSettingsRouter, useSettingsState, useStore } from "../context";
+import "../../../ui/motion/motion.css";
+import { revealControls } from "../../../ui/revealCover";
 import { Switch } from "../editors/ToggleEditor";
 import { Icon } from "../icons";
 import { DRAG_THRESHOLD, INDENT, block, dropTarget, rowBoxes, shifts, type DropTarget, type RowBox } from "../menuDrag";
@@ -379,7 +381,7 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
     const dimmed = row.hidden || row.parentHidden;
     const style = { paddingInlineStart: `${2 + depth * INDENT}px`, ...lifted(row, flat) };
     const buttons = (
-      <span className="menu-row-actions">
+      <span className="menu-row-actions" ref={revealControls}>
         <ActionButton
           icon="chevron"
           iconClass="icon-up"
@@ -458,7 +460,7 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
       ) : folder ? (
         <button
           type="button"
-          className="menu-row-title menu-disclosure"
+          className="menu-row-title ui-reveal-text menu-disclosure"
           aria-expanded={expanded}
           onClick={() => toggleOpen(key)}
         >
@@ -466,12 +468,13 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
           {title}
         </button>
       ) : (
-        <span className="menu-row-title">{title}</span>
+        <span className="menu-row-title ui-reveal-text">{title}</span>
       );
     return (
       <li
         key={id}
-        className={node === SEPARATOR ? "menu-row menu-separator" : "menu-row"}
+        className={node === SEPARATOR ? "menu-row menu-separator ui-reveal-host" : "menu-row ui-reveal-host"}
+        data-reveal-overlap=""
         data-flat={flat}
         data-path={id}
         data-depth={depth}
@@ -500,14 +503,16 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
               )}
               {titleView}
               {info?.kind === "submenu" ? (
-                <span className="menu-row-chevron" aria-hidden="true">
+                <span className="menu-row-chevron ui-reveal-under" aria-hidden="true">
                   ›
                 </span>
               ) : null}
               {folder && node.items.length === 0 ? (
-                <span className="menu-row-badge">{t("settingsWindow.menus.emptyFolder")}</span>
+                <span className="menu-row-badge ui-reveal-under">{t("settingsWindow.menus.emptyFolder")}</span>
               ) : null}
-              {row.hidden ? <span className="menu-row-badge">{t("settingsWindow.menus.hidden")}</span> : null}
+              {row.hidden ? (
+                <span className="menu-row-badge ui-reveal-under">{t("settingsWindow.menus.hidden")}</span>
+              ) : null}
             </>
           )}
           {buttons}
@@ -623,7 +628,9 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
             </p>
           ) : null}
           <ol
-            className="menu-preview"
+            className="menu-preview ui-popup ui-menu ui-glass"
+            // A picture of the menu in the page, not a popup that opens (ui/popupSettle.ts).
+            data-popup-settle="own"
             data-menu-preview=""
             data-reordering={dragging?.active ? "" : undefined}
             ref={list}
@@ -631,7 +638,14 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
             {shown.map((row, flat) => drawRow(row, flat))}
           </ol>
           {picker ? (
-            <div className="menus-move-picker" role="menu" aria-label={t("settingsWindow.menus.moveTo")} data-picker="">
+            <div
+              className="menus-move-picker ui-popup ui-menu ui-glass"
+              // In the page's flow beside the preview, not a floating popup (ui/popupSettle.ts).
+              data-popup-settle="own"
+              role="menu"
+              aria-label={t("settingsWindow.menus.moveTo")}
+              data-picker=""
+            >
               {moveChoices(picker.path).map((choice) => (
                 <button
                   key={choice.id}

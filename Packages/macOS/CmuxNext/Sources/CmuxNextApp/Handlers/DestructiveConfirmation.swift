@@ -22,7 +22,7 @@ import os
 /// on; a tab group follows the tab close rule (`TabCloseGuard`); those
 /// questions have "Don't ask again". Forget Machine has an undo toast and
 /// no question. The Cloud deletes, Remove Git Worktree, profile delete, Delete Chief, agent extension access,
-/// remote install and Roll Back (it quits into the kept build) still ask.
+/// and remote install still ask; Roll Back runs on the pick (updating again undoes it).
 /// A target that does not resolve is not asked about: the handler then
 /// refuses it with the usual typed reason.
 enum DestructiveConfirmation {
@@ -66,12 +66,13 @@ enum DestructiveConfirmation {
             return Prompt(title: CloudStrings.deleteSnapshotTitle, body: CloudStrings.deleteSnapshotBody, button: CloudStrings.deleteSnapshot)
         case "cloudFileRemove":
             return Prompt(title: CloudStrings.removeFileTitle, body: CloudStrings.removeFileBody, button: CloudStrings.removeFile)
+        case "cloud.secret.remove": return PaletteVerbActions.secretRemovePrompt(invocation).map { Prompt(title: $0.title, body: $0.body, button: $0.button, returnConfirms: false) }
         case "cloudFirewallDelete":
             return Prompt(title: CloudStrings.deleteFirewallRuleTitle, body: CloudStrings.deleteFirewallRuleBody,
                           button: CloudStrings.deleteFirewallRule)
         case "git.worktree.remove": return invocation[GitRepositoryActions.pinnedPathName] == nil ? nil : Prompt(title: GitRepositoryActions.removeTitle, body: GitRepositoryActions.removeBody(discard: invocation["discard"]?.boolValue == true), button: GitRepositoryActions.removeButton, returnConfirms: false)
         default:
-            return await question(for: id, invocation, context, warn: warn)
+            return await question(for: id, invocation, context, warn: warn) ?? services.registry.descriptor(for: id).flatMap { CatalogRequestHandlers.confirmation(for: $0) }.map { Prompt(title: $0.title, body: $0.body, button: $0.button) } // else a destructive request row's generic question
         }
     }
 
@@ -101,8 +102,6 @@ enum DestructiveConfirmation {
             return await RoomConfirmation.clearDefaultsPrompt(invocation, context)
         case .remoteInstall?:
             return await RemoteConfirmation.prompt(for: id, invocation, context)
-        case .updateRollback?: // palette, menu and the pulled-build banner's Roll Back
-            return Prompt(title: UpdateDropBack.confirmation.title, body: UpdateDropBack.confirmation.body, button: UpdateDropBack.confirmation.button)
         case .tabGroupClose?:
             // The rule of every tab close (TabCloseGuard): the undo toast
             // brings the group back, so only work in progress asks.
@@ -159,10 +158,13 @@ enum DestructiveConfirmation {
     /// A cmux dialog on `window` (Return confirms, Escape cancels). With no
     /// window there is nobody to ask, so the action does not run.
     /// A confirmed answer with "Don't ask again" checked turns the prompt's toggle off.
-    static func present(_ prompt: Prompt, in window: NSWindow?, settings: SettingsController? = nil,
-                        done: @escaping (Bool) -> Void) {
-        guard let window else { return done(false) }
-        CmuxDialogCenter.shared.present(spec(prompt), in: .window(window)) { answer in
+    /// Returns the dialog's id (`CmuxDialogCenter.dismiss`), nil when nothing was shown. `scope`
+    /// replaces the window's own (the quit question when the window already shows one).
+    @discardableResult
+    static func present(_ prompt: Prompt, in window: NSWindow?, settings: SettingsController? = nil, scope: CmuxDialogScope? = nil,
+                        done: @escaping (Bool) -> Void) -> Int? {
+        guard let window else { done(false); return nil }
+        return CmuxDialogCenter.shared.present(spec(prompt), in: scope ?? .window(window)) { answer in
             let confirmed = answer.button == confirmID
             if confirmed, answer.values[suppressID]?.bool == true, let path = prompt.suppresses { turnOff(path, settings) }
             done(confirmed)

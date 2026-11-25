@@ -41,7 +41,7 @@ fn queued_agent_command(session: &Session, prompt_id: &str) -> bool {
             None => return false,
         }
     };
-    lists_command(session.meta().available_commands.as_ref(), &name)
+    lists_command(session.meta().available_commands.as_deref(), &name)
 }
 
 /// Whether an `available_commands_update` lists the command `name` (case aside).
@@ -344,7 +344,9 @@ impl Hub {
                 self.inbox_review(session);
                 json!(resumed)
             }
-            "withdraw" => json!(self.withdraw_steer(session, prompt_id, control, editor).await?),
+            "withdraw" => {
+                json!(self.withdraw_steer(session, prompt_id, control, device, editor).await?)
+            }
             _ => {
                 let e = "op must be update, move, send_now, interrupt, resume or withdraw";
                 return Err(RpcError::invalid_params(e));
@@ -395,8 +397,10 @@ impl Hub {
                 return Err(super::queue::approved_error());
             }
             let (mut blocks, origin) = edit.blocks(&q.run.blocks);
-            // Only `session/prompt` adds a hidden context (prompt_context.rs).
+            // Only `session/prompt` adds a client's hidden context (prompt_context.rs); the tools
+            // note follows the edited words (`tool_mentions.rs`), so it comes or goes with them.
             crate::prompt_context::strip_marks(&mut blocks);
+            crate::tool_mentions::add_note(&mut blocks);
             let text = prompt_text(&blocks);
             // Its images keep their names and their original files (`moved_display_parts`),
             // checked again against the blocks they name now.
@@ -629,6 +633,7 @@ impl Hub {
         session: &Arc<Session>,
         prompt_id: &str,
         control: Control,
+        device: Option<&str>,
         editor: crate::author::Editor<'_>,
     ) -> Result<bool, RpcError> {
         let waiting = session
@@ -643,7 +648,7 @@ impl Hub {
         };
         mine?;
         // Who may steer may take one back; taking it back raises no turn's control.
-        self.web_control_check(session, control)?;
+        self.web_control_check(session, control, device)?;
         let child = session.child.lock().await.clone();
         let (Some(child), Some(sid)) = (child, session.meta().agent_session_id) else {
             return Ok(false);

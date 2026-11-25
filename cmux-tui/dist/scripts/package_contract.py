@@ -87,6 +87,27 @@ PYPI_RUST_TARGETS = {
 # The agent screen-detection plugin of the macOS and Linux packages, under the
 # exact name the daemon runs beside its own executable.
 SCREEN_DETECTION_BINARY = "cmux-agent-screen-detection"
+# The slim terminal host, under the exact name the daemon looks for beside its
+# own executable (cmux-tui-platform host_exe/linux.rs SIBLING_NAME; on Windows
+# cmux-tui-host.exe). The Linux packages and the Windows package ship it; a
+# Linux daemon without it runs every terminal host from its own large binary.
+TERMINAL_HOST_BINARY = "cmux-tui-host"
+
+
+def npm_companion_binaries(os_name: str) -> tuple[str, ...]:
+    """The binaries a cmux-tui platform package ships beside cmux-tui and cmux-tui-hook.
+
+    Windows: the per-terminal host (cx-1vlzr). macOS: the agent screen-detection
+    plugin. Linux: the plugin and the slim terminal host (CMUX-571).
+    """
+
+    if os_name == "win32":
+        return (TERMINAL_HOST_BINARY,)
+    if os_name == "linux":
+        return (SCREEN_DETECTION_BINARY, TERMINAL_HOST_BINARY)
+    return (SCREEN_DETECTION_BINARY,)
+
+
 NPM_PLATFORM_FILES = frozenset(
     {
         "package.json", NPM_LICENSE_FILE, "bin/cmux-tui", "bin/cmux-tui-hook",
@@ -121,8 +142,7 @@ def npm_executable_files(include_windows: bool = False) -> tuple[str, ...]:
             for target in targets
             for path in _target_binary_paths(
                 target,
-                ("cmux-tui", "cmux-tui-hook")
-                + (("cmux-tui-host",) if target.os == "win32" else (SCREEN_DETECTION_BINARY,)),
+                ("cmux-tui", "cmux-tui-hook") + npm_companion_binaries(target.os),
             )
         )
         + tuple(
@@ -159,6 +179,16 @@ PYPI_WHEEL_FILES = frozenset(
         "{dist_info}/RECORD",
     }
 )
+# Linux wheels also ship the slim terminal host beside cmux-tui (CMUX-571).
+PYPI_LINUX_WHEEL_FILES = PYPI_WHEEL_FILES | {"cmux_tui/bin/" + TERMINAL_HOST_BINARY}
+
+
+def pypi_wheel_files(tag: str) -> frozenset[str]:
+    """The files of the wheel with platform tag `tag`, with {dist_info} unexpanded."""
+
+    if PYPI_RUST_TARGETS[tag].endswith("-unknown-linux-musl"):
+        return PYPI_LINUX_WHEEL_FILES
+    return PYPI_WHEEL_FILES
 
 
 def _error(message: str) -> PackageContractError:
@@ -459,11 +489,14 @@ def validate_npm_tree(
         _validate_npm_notice(packages_dir / target.name, target, "cmux-tui", notices_dir)
         # The Windows package also ships cmux-tui-host.exe, the small
         # per-terminal host the daemon spawns instead of re-exec'ing the large
-        # cmux-tui.exe (cx-1vlzr). Windows only; macOS/Linux re-exec cmux-tui.
-        # macOS and Linux packages ship the agent screen-detection plugin
-        # instead, which the daemon runs from beside its own executable.
-        host_binaries = ("cmux-tui-host",) if target.os == "win32" else (SCREEN_DETECTION_BINARY,)
-        host_files = {"bin/cmux-tui-host.exe"} if target.os == "win32" else {f"bin/{SCREEN_DETECTION_BINARY}"}
+        # cmux-tui.exe (cx-1vlzr). macOS and Linux packages ship the agent
+        # screen-detection plugin, which the daemon runs from beside its own
+        # executable; Linux packages also ship bin/cmux-tui-host, the slim
+        # terminal host a Linux daemon runs every terminal host from
+        # (host_exe/linux.rs, CMUX-571).
+        host_binaries = npm_companion_binaries(target.os)
+        extension = ".exe" if target.os == "win32" else ""
+        host_files = {f"bin/{name}{extension}" for name in host_binaries}
         _validate_package_files(
             packages_dir / target.name,
             target,
@@ -507,9 +540,9 @@ def validate_npm_tree(
     return package_version
 
 
-def _wheel_expected_files(version: str) -> set[str]:
+def _wheel_expected_files(version: str, tag: str) -> set[str]:
     dist_info = f"cmux-{version}.dist-info"
-    return {path.format(dist_info=dist_info) for path in PYPI_WHEEL_FILES}
+    return {path.format(dist_info=dist_info) for path in pypi_wheel_files(tag)}
 
 
 def _record_digest(data: bytes) -> str:
@@ -537,7 +570,7 @@ def validate_wheel(path: Path, version: str, notices_dir: Path | None = None) ->
     if tag not in PYPI_WHEEL_TAGS:
         raise _error(f"unsupported wheel platform tag: {path.name}")
     dist_info = f"cmux-{version}.dist-info"
-    expected_files = _wheel_expected_files(version)
+    expected_files = _wheel_expected_files(version, tag)
 
     try:
         wheel = zipfile.ZipFile(path)
@@ -578,6 +611,7 @@ def validate_wheel(path: Path, version: str, notices_dir: Path | None = None) ->
             "cmux_tui/bin/cmux-tui",
             "cmux_tui/bin/cmux-tui-hook",
             "cmux_tui/bin/" + SCREEN_DETECTION_BINARY,
+            "cmux_tui/bin/" + TERMINAL_HOST_BINARY,
         }
         for name in names:
             mode = _wheel_mode(wheel.getinfo(name))

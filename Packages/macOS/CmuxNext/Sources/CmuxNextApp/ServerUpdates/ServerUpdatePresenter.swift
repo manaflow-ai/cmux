@@ -7,8 +7,8 @@ import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextUpdater
 
-/// Shows "Update ready for cmux-tui" (Restart) as a toast on the active window, asks the confirm
-/// on its button, runs the restart and reports the result (plans/cmux-next/server-updates-DESIGN.md).
+/// Shows "Update ready for cmux-tui" (Restart) as a toast on the active window; its button restarts, asking first
+/// only when something would be lost (ServerRestartAsk), and reports the result (plans/cmux-next/server-updates-DESIGN.md).
 /// It never restarts on its own: skew only shows the toast, never for a daemon the launch hands off.
 @MainActor
 final class ServerUpdatePresenter {
@@ -36,7 +36,7 @@ final class ServerUpdatePresenter {
     /// Restart cmux-tui… (palette, `cmux settings restart-server`, MCP) to the same confirm.
     func start(registry: ActionRegistry) {
         guard observers.isEmpty else { return }
-        registry.bind("palette.restartServer", run: { [weak self] _ in self?.confirmRestart() })
+        registry.bind("palette.restartServer", run: { [weak self] run in self?.confirmRestart(byPerson: run.origin == .user && !run.viaControlSocket) })
         let daemon = daemon
         let servers = servers
         observers.append(Task { [weak self] in
@@ -90,7 +90,7 @@ final class ServerUpdatePresenter {
 
     /// Restart cmux-tui… from the palette, CLI or MCP: the same confirm as the toast's button,
     /// for the current notice or, with none, a plain restart.
-    func confirmRestart() {
+    func confirmRestart(byPerson: Bool = false) {
         guard let window = activeWindow() else { return }
         let notice = servers.notices.first { $0.kind == .cmuxTUI && $0.host == .local }
             ?? ServerUpdateNotice(kind: .cmuxTUI, host: .local,
@@ -98,7 +98,7 @@ final class ServerUpdatePresenter {
                                   missingCapabilities: [], gainedFeatures: [],
                                   impact: ServerRestartImpact(kind: .cmuxTUI, keepsWork: true))
         shown[notice.id]?.dismiss()
-        confirm(notice, in: window)
+        confirm(notice, in: window, byPerson: byPerson)
     }
 
     private func show(_ notice: ServerUpdateNotice, in window: NSWindow) {
@@ -106,7 +106,7 @@ final class ServerUpdatePresenter {
                               action: CmuxToast.Action(title: notice.toastButtonTitle), duration: CmuxToast.untilClosed)
         let handle = CmuxToastCenter.shared.show(toast, in: window)
         shown[notice.id] = handle
-        handle.onAction = { [weak self] in self?.confirm(notice, in: window) }
+        handle.onAction = { [weak self] in self?.confirm(notice, in: window, byPerson: true) }
         handle.onDismiss = { [weak self, weak handle] reason in
             guard let self, let handle, self.shown[notice.id] === handle else { return }
             self.shown[notice.id] = nil
@@ -115,17 +115,12 @@ final class ServerUpdatePresenter {
         }
     }
 
-    private func confirm(_ notice: ServerUpdateNotice, in window: NSWindow) {
+    /// Asks at most once (``ServerRestartAsk``): with nothing to lose the click restarts at once.
+    private func confirm(_ notice: ServerUpdateNotice, in window: NSWindow, byPerson: Bool) {
         busy.insert(notice.id)
-        _ = CmuxDialogCenter.shared.present(notice.confirmSpec, in: .window(window)) { [weak self] answer in
-            guard let self else { return }
-            guard answer.button == "restart" else {
-                self.busy.remove(notice.id)
-                self.sync()
-                return
-            }
-            self.restart(notice)
-        }
+        ServerRestartAsk.run(notice, blockers: daemon.currentRelaunchBlockers(), byPerson: byPerson, ask: { spec, answered in
+            _ = CmuxDialogCenter.shared.present(spec, in: .window(window)) { answered($0.button == "restart") }
+        }, restart: { [weak self] in self?.restart(notice) }, declined: { [weak self] in self?.busy.remove(notice.id); self?.sync() })
     }
 
     /// Runs the confirmed restart and says how it went; a failure's Try Again runs it again.

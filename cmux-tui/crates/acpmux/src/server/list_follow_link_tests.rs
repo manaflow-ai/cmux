@@ -34,7 +34,7 @@ fn hub() -> Arc<crate::hub::Hub> {
     crate::hub::Hub::new(config, store)
 }
 
-/// What the link published before the next `Connected`: a whole list, or a follow's rows and
+/// What the link published before its `Listed`: a whole list, or a follow's rows and
 /// gone ids.
 #[derive(Debug)]
 enum Listed {
@@ -43,8 +43,9 @@ enum Listed {
 }
 
 async fn linked(notices: &mut mpsc::Receiver<(String, u64, PeerNotice)>) -> Listed {
-    let mut listed = None;
-    loop {
+    // A link after a far restart reads its list after it is ready: both, in either order.
+    let (mut listed, mut connected, mut whole) = (None, false, false);
+    while !connected || !whole {
         let (_, _, notice) = tokio::time::timeout(Duration::from_secs(60), notices.recv())
             .await
             .expect("the link connects")
@@ -56,10 +57,12 @@ async fn linked(notices: &mut mpsc::Receiver<(String, u64, PeerNotice)>) -> List
             PeerNotice::SessionsPatch { rows, gone } => {
                 listed = Some(Listed::Patch(crate::peer::parse_rows(&rows), gone))
             }
-            PeerNotice::Connected => return listed.expect("a list before Connected"),
+            PeerNotice::Listed => whole = true,
+            PeerNotice::Connected => connected = true,
             _ => {}
         }
     }
+    listed.expect("a list before Listed")
 }
 
 fn whole(listed: Listed) -> Vec<serde_json::Value> {
@@ -125,6 +128,18 @@ async fn a_reconnecting_peer_link_follows_from_its_cursor_and_reads_only_what_ch
     let _ = std::fs::remove_dir_all(&home);
 }
 
+/// `read`, failing the test when the stand-in server's task ends first (a panic in it, such as
+/// a refused upgrade): the link only redials then, and its notices keep `linked` waiting.
+async fn while_serving<T>(
+    server: &mut tokio::task::JoinHandle<()>,
+    read: impl std::future::Future<Output = T>,
+) -> T {
+    tokio::select! {
+        out = read => out,
+        ended = server => panic!("the stand-in server ended: {ended:?}"),
+    }
+}
+
 fn ids(rows: &[serde_json::Value]) -> Vec<String> {
     let mut ids: Vec<String> =
         rows.iter().filter_map(|r| r["sessionId"].as_str()).map(str::to_owned).collect();
@@ -149,7 +164,7 @@ async fn a_link_that_read_row_pages_follows_from_its_cursor_when_it_links_again(
     let address = listener.local_addr().unwrap();
     let (asked_tx, mut asked) = mpsc::unbounded_channel::<serde_json::Value>();
     let (close_tx, close_rx) = tokio::sync::oneshot::channel::<()>();
-    let server = tokio::spawn(async move {
+    let mut server = tokio::spawn(async move {
         let mut close = Some(close_rx);
         loop {
             let (stream, _) = listener.accept().await.unwrap();
@@ -209,8 +224,9 @@ async fn a_link_that_read_row_pages_follows_from_its_cursor_when_it_links_again(
     });
     let (tx, mut notices) = mpsc::channel(64);
     let peer = Peer::new("big", &format!("ws://{address}"), Some(TOKEN.into()), None, tx);
+    peer.refuse_early(); // the stand-in server is a plain tungstenite accept, as before the early request
     let link = tokio::spawn(peer.clone().run());
-    assert_eq!(once(&whole(linked(&mut notices).await)), 50);
+    assert_eq!(once(&whole(while_serving(&mut server, linked(&mut notices)).await)), 50);
     // The first link: the list without tools, then pages of rows.
     let mut first = Vec::new();
     while let Ok(params) = asked.try_recv() {
@@ -220,7 +236,10 @@ async fn a_link_that_read_row_pages_follows_from_its_cursor_when_it_links_again(
     assert!(first[1].get("limit").is_some(), "{first:?}");
 
     close_tx.send(()).unwrap();
-    let Listed::Patch(changed, gone) = linked(&mut notices).await else { panic!("a follow") };
+    let Listed::Patch(changed, gone) = while_serving(&mut server, linked(&mut notices)).await
+    else {
+        panic!("a follow")
+    };
     assert_eq!(ids(&changed), ["big-03"]);
     assert_eq!(gone, ["big-04"]);
     let again = asked.recv().await.unwrap();
