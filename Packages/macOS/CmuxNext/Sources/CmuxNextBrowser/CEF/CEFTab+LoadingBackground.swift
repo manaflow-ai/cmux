@@ -48,11 +48,15 @@ extension CEFTab {
     }
 
     /// The page shows the pane's own ground where its document draws nothing:
-    /// a see-through cmux page, or a committed document that has not painted
-    /// on a fork with the see-through switch (an older fork keeps the page
-    /// opaque on ``loadingBaseARGB``, so its host and gaps take that color).
+    /// a see-through cmux page, or, on a fork with the see-through switch, any
+    /// tab whose document has not painted yet, from the browser's creation on
+    /// (``PageBackground/showsPaneGround(pageSeeThrough:pastFirstRealPage:documentSettled:seeThroughFork:)``).
+    /// An older fork keeps the page opaque on ``loadingBaseARGB``, so its host
+    /// and gaps take that color.
     var showsPaneGround: Bool {
-        pageSeeThrough || (loadingBaseARGB != nil && runtime.forkAPIVersion >= Self.seeThroughForkAPI)
+        PageBackground.showsPaneGround(pageSeeThrough: pageSeeThrough, pastFirstRealPage: pastFirstRealPage,
+                                       documentSettled: documentSettled,
+                                       seeThroughFork: runtime.forkAPIVersion >= Self.seeThroughForkAPI)
     }
 
     /// The fork API with the see-through switch (`cmux_shim_tab_set_transparent_background`).

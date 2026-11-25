@@ -27,8 +27,10 @@ per replay. A red the first replay passed that another one fails by name is a wa
 change's: the base both passed and failed it. cmux#41254 (run 43006460063) was charged with the webkit stream-row
 overlap test because attempt 2's one base replay passed it (overlapFrames 0); attempt 3's failed it (overlapFrames 1).
 A file red without naming the test (a timeout) says nothing about it; a missing or unreadable file names nothing.
-Only a first replay that passed the test (by name, or its whole file) makes a later failure a flake: with no first
-result, or a first replay that timed out, the red stays the change's.
+Only a first replay that passed the test (by name, or its whole file) makes a later failure a flake. With no named
+first result (a first replay whose file timed out or failed without naming it), later replays that name the test
+red, every one that names it, make it red on the base too (kind `base`), as a first replay's named red does
+(cmux#50088); one that passes it, or names nothing, leaves it the change's.
 ci-web.yml replays the files of the reds a compare would still charge, at most two more times (its base_again).
 
 --new-files prints, one a line, the file of each red this compare would charge to the change (the part of a
@@ -289,6 +291,18 @@ def main(argv: list[str]) -> int:
         return base[step] is True if step in base else base.get(test_file(step)) is True
 
     flapped = {step for step in comparable if first_passed(step) and any(found.get(step) is False for found in again)}
+    # A red the first replay gave no verdict on (its file timed out or failed without naming it) that the later
+    # replays name red, every one that names it, is red on the base too: the base failed it by name, as a first
+    # replay's named red says (cmux#50088, job 137410904472: feel-plan-tray.test.ts timed out on the first base
+    # replay, then both base replays failed "five drags in a row" with the head's own numbers, 8 px and 12 jumps,
+    # and the compare called it new). A replay that passes it, or names nothing for it, leaves it as it was.
+    def red_on_every_replay(step: str) -> bool:
+        named = [found[step] for found in again if step in found]
+        return bool(named) and not any(named)
+
+    red_again = {step for step in comparable
+                 if step not in base and not first_passed(step) and step not in flapped and red_on_every_replay(step)}
+    comparable = [step for step in comparable if step not in red_again]
     new = [step for step in comparable if step not in flaky and step not in flapped]
     flaked = [step for step in comparable if step in flaky or step in flapped]
     if new_files:
@@ -308,7 +322,8 @@ def main(argv: list[str]) -> int:
     passed_again = [step for step in new if passed_in_rerun(step)]
     new = [step for step in new if step not in passed_again]
     flaked = sorted(flaked + passed_again)
-    old = sorted(step for step, ok in head.items() if not ok and (base.get(step) is False or step in explained))
+    old = sorted(step for step, ok in head.items()
+                 if not ok and (base.get(step) is False or step in explained or step in red_again))
     # A step red on both sides is the base's only when its head failure names nothing the base's does not
     # (cmux#41458). With the runner's failure output on the head, a step either side has none for cannot be told
     # apart, and is the change's. Results with no failure output (webview tests, named one test a line) keep the name.

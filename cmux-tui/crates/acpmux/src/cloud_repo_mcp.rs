@@ -15,6 +15,8 @@ use std::time::Duration;
 
 pub const SERVER_NAME: &str = "cmux-cloud-repos";
 pub const SESSION_ENV: &str = "ACPMUX_CLOUD_REPO_SESSION";
+/// Its acpmux command word: its own stdio process, where the daemon's gateway does not serve it.
+pub const COMMAND: &str = "repo-mcp";
 /// The daemon action names are deliberately shared with `cmux mcp` and the
 /// webview action bridge (rather than a second agent-only protocol).
 pub const REPO_LIST_ACTION: &str = "cloud.repo.list";
@@ -63,6 +65,20 @@ fn tools() -> Value {
             }
         }
     ])
+}
+
+/// The server for the session in the env, as one of acpmux's own
+/// ([`crate::tools_mcp::SERVERS`]): the daemon's gateway, or the chat's one `acpmux tools-mcp`,
+/// answers it, so a chat runs no `acpmux repo-mcp` process of its own.
+pub(crate) fn served(daemon: &Arc<crate::tools_mcp::Daemon>) -> Result<crate::tools_mcp::Served> {
+    crate::tools_mcp::served(
+        SERVER_NAME,
+        SESSION_ENV,
+        tools(),
+        Some(INSTRUCTIONS.to_owned()),
+        daemon,
+        |daemon, session, params| async move { call(&daemon, &session, &params).await },
+    )
 }
 
 pub async fn run() -> Result<()> {
@@ -131,8 +147,11 @@ fn result_text(result: &Value) -> String {
 /// (never interpolated into a command string), and makes this bridge work with
 /// the same socket as `cmux cloud repo`.
 async fn run_cli(action: &'static str, request: Value) -> Result<Value, String> {
-    let binary = std::env::var_os("CMUX_BIN").unwrap_or_else(|| "cmux".into());
-    run_cli_with(&binary, std::env::var_os("CMUX_SOCKET_PATH").as_deref(), action, request).await
+    // The chat's env where the daemon's gateway serves it, else this process's.
+    let binary: std::ffi::OsString =
+        crate::tool_env::var("CMUX_BIN").unwrap_or_else(|| "cmux".into()).into();
+    let socket = crate::tool_env::var("CMUX_SOCKET_PATH").map(std::ffi::OsString::from);
+    run_cli_with(&binary, socket.as_deref(), action, request).await
 }
 
 async fn run_cli_with(

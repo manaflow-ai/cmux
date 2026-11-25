@@ -160,6 +160,25 @@ pub static ACTIONS: &[Action] = &[
         cli_name: "machine reconnect",
         ..Action::DEFAULT
     },
+    // Switch Host…: the palette lists every host the sidebar's Hosts section and Settings > Machines
+    // list (`palette_target_source` `hosts`: the app's `MachineSectionRow.rows`, this Mac, linked, Cloud,
+    // SSH and joined machines, connected or not) and opens the chosen one: its newest workspace when one
+    // is open, else a new workspace on it, else its connect or sign-in path. Rex parity (Host > Session).
+    Action {
+        id: "machine.switch",
+        group: GROUP,
+        title: t("RemoteActions", "action.machine.switch", "Switch Host…"),
+        keywords: &["host", "machine", "switch", "go to", "remote", "ssh", "cloud", "server", "mac", "session"],
+        category: "remote",
+        symbol: "server.rack",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        palette_target: Some("machine"),
+        palette_target_source: Some("hosts"),
+        targets: &["machine"],
+        cli_name: "machine switch",
+        ..Action::DEFAULT
+    },
     Action {
         id: "remote.newWorkspace",
         group: GROUP,

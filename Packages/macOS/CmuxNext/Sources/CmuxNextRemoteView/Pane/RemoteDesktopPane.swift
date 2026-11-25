@@ -15,6 +15,10 @@ public struct RemoteDesktopPaneHandlers {
     /// A quality preset picked in the toolbar menu (`remoteDesktop.quality`
     /// for this session; the App sends it to the host).
     public var selectQuality: (RemoteQualityPreset) -> Void = { _ in }
+    /// A row of the toolbar's Quality menu: the App runs it as the palette's Set Screen Sharing
+    /// Quality… (`remote.setQuality`, which calls ``RemoteDesktopPane/selectQuality(_:)``). Nil: the
+    /// pane applies the row itself.
+    public var pickQuality: ((RemoteQualityPreset) -> Void)?
     /// A display picked (phase 2: the host's display list).
     public var selectDisplay: (Int) -> Void = { _ in }
     /// The mode the toolbar asked for (the toggle, or Take over / Hand back), after the pane
@@ -107,12 +111,16 @@ public final class RemoteDesktopPane {
             self?.view.video.setFramePixels(size)
         }
         wireChrome()
+        // The connect starts now: its card stays away for the short coming-up time.
+        state = RemotePaneReducer().reduce(state, .connectNoticeCheck)
+        armConnectNotice()
         view.render(state: state, settings: settings)
     }
 
     /// Starts decoding and following status. Idempotent.
     public func start() {
         guard tasks.isEmpty else { return }
+        armConnectNotice() // a pane shown again mid-connect gets its deadline back (stop() cancels it)
         let presenter = self.presenter
         let firstFrame = self.firstFrame
         let deliver: @Sendable (RemoteDecodedFrame) -> Void = { [weak self] frame in
@@ -154,6 +162,9 @@ public final class RemoteDesktopPane {
         latencyCheckDue = nil
         autoReconnectTask?.cancel()
         autoReconnectTask = nil
+        connectNotice?.cancel()
+        connectNotice = nil
+        connectNoticeSince = nil
         pipeline = nil
         view.capture.controller.releaseAll()
     }
@@ -189,6 +200,7 @@ public final class RemoteDesktopPane {
         state = next
         armLatencyCheck()
         armReconnectNotice()
+        armConnectNotice()
         view.render(state: state, settings: settings)
         onStateChange?()
     }
@@ -236,6 +248,27 @@ public final class RemoteDesktopPane {
         }
     }
 
+    /// The first connect's notice deadline (``RemotePaneState/connectNoticeDelay``), re-checked when it comes due.
+    private var connectNotice: Task<Void, Never>?
+    private var connectNoticeSince: ContinuousClock.Instant?
+
+    private func armConnectNotice() {
+        let since = state.connectNoticeDue ? nil : state.connectingSince
+        guard since != connectNoticeSince else { return }
+        connectNotice?.cancel()
+        connectNoticeSince = since
+        guard let since else { return connectNotice = nil }
+        connectNotice = Task { [weak self] in
+            // wakeup-allow: one-shot notice deadline per first connect; a frame, an end or Stop cancels it.
+            do { try await ContinuousClock().sleep(until: since + RemotePaneState.connectNoticeDelay, tolerance: .milliseconds(50)) } catch {
+                return
+            }
+            guard let self, !Task.isCancelled else { return }
+            connectNoticeSince = nil
+            apply(.connectNoticeCheck)
+        }
+    }
+
     /// The latency hold's flip, re-checked when it comes due if no sample comes first.
     private var latencyCheck: Task<Void, Never>?
     private var latencyCheckDue: ContinuousClock.Instant?
@@ -260,9 +293,8 @@ public final class RemoteDesktopPane {
         view.toolbar.onSelectMode = { [weak self] mode in self?.selectMode(mode) }
         view.toolbar.onSelectQuality = { [weak self] preset in
             guard let self else { return }
-            settings.quality = preset
-            view.render(state: state, settings: settings)
-            handlers.selectQuality(preset)
+            if let pick = handlers.pickQuality { return pick(preset) }
+            selectQuality(preset)
         }
         view.toolbar.onSelectDisplay = { [weak self] in self?.handlers.selectDisplay($0) }
         view.toolbar.onStop = { [weak self] in self?.stopPressed() }
@@ -278,6 +310,17 @@ public final class RemoteDesktopPane {
         view.card.onClose = { [weak self] in self?.handlers.close() }
         view.banner.onControlAnyway = { [weak self] in self?.apply(.controlAnyway) }
     }
+
+    /// A quality preset for this session (the Quality menu's row, `remote.setQuality`): the toolbar
+    /// shows it, then the owner is told.
+    public func selectQuality(_ preset: RemoteQualityPreset) {
+        settings.quality = preset
+        view.render(state: state, settings: settings)
+        handlers.selectQuality(preset)
+    }
+
+    /// Why Set Screen Sharing Quality… cannot run: no remote desktop session is shown.
+    public static var noSessionReason: String { RemoteViewStrings.unavailableTitle }
 
     /// The toolbar's mode choice: applied, then told to the owner (a press of the mode already
     /// in force does nothing).
@@ -332,6 +375,7 @@ public final class RemoteDesktopPane {
 
 /// A flag one thread arms and another consumes once.
 nonisolated final class OneShotSignal: Sendable {
+    // carve-out: `consume()` answers synchronously on the capture thread; an actor would make it async.
     private let armed = Mutex(true)
 
     func arm() { armed.withLock { $0 = true } }

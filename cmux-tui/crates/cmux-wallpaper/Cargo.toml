@@ -27,3 +27,5 @@ serde_json.workspace = true
 [build-dependencies]
 # build.rs checks and translates every first-party program (src/program.rs, the same code).
 naga = { version = "30.0.2", default-features = false, features = ["wgsl-in", "msl-out", "glsl-out"] }
+# build.rs reads each manifest's `scene`/`lottie` to embed scene wallpapers.
+serde_json.workspace = true

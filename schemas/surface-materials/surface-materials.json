@@ -86,6 +86,7 @@
     "CmuxNextApp/Notifications/Panel/NotificationsPanelView.swift": "native-overlay",
     "CmuxNextApps/NativeRender/AppSceneNodeNSView+Decorations.swift": "scene-renderer",
     "CmuxNextApps/NativeRender/AppScenePanelNSView.swift": "scene-renderer",
+    "CmuxNextApps/Overlay/AppOverlayPresenter.swift": "scene-renderer",
     "CmuxNextApps/Widgets/AppWidgetGallery.swift": "scene-renderer",
     "CmuxNextBookmarks/UI/BookmarkEditBubble.swift": "native-overlay",
     "CmuxNextBridge/TabDrag/TabDragGhostPanel.swift": "native-overlay",
@@ -164,6 +165,7 @@
     "CmuxNextTabs/TabStripView.swift": "window-chrome",
     "CmuxNextTerminal/TerminalDictationPreview.swift": "native-overlay",
     "CmuxNextTerminal/TerminalFindBarView.swift": "native-overlay",
+    "CmuxNextTerminalComments/TerminalCommentsPopup.swift": "native-overlay",
     "CmuxNextUpdater/Share/ShareCmuxView.swift": "native-overlay",
     "CmuxNextUpdater/UpdateSheetController.swift": "native-overlay"
   },

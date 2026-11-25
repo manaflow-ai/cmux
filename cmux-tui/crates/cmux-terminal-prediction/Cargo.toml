@@ -9,3 +9,7 @@ description = "Predictive local echo for a terminal whose shell runs on another 
 
 [lints]
 workspace = true
+
+[dependencies]
+# Each echo's latency goes into the felt-latency histogram (`felt.snapshot`).
+cmux-felt.workspace = true

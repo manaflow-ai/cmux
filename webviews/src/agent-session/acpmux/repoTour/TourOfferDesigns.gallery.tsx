@@ -2,7 +2,7 @@
 import { componentEntry } from "../../../gallery/format";
 import type { TourOfferDesign } from "./TourOfferDesigns";
 
-type Props = { design: TourOfferDesign; project?: string };
+type Props = { design: TourOfferDesign };
 
 export default componentEntry<Props>({
   id: "agent-pane.repo-tour-offer-designs",
@@ -16,7 +16,7 @@ export default componentEntry<Props>({
   height: 440,
   variants: {
     line: {
-      note: "Picked, and the one that ships: one quiet line under the question. It never moves the question and reads as part of the hero, not a nag.",
+      note: "Picked, and the one that ships: one quiet line, centered in the plain new chat. It reads as part of the empty chat, not a nag.",
       props: { design: "line" },
     },
     row: {

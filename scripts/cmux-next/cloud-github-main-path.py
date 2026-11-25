@@ -49,6 +49,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import claude_login_cache  # noqa: E402
+from app_launch_env import launch_env  # noqa: E402
 
 parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
 parser.add_argument("--app", required=True, help="the tagged app bundle (build=tagged)")
@@ -382,7 +383,7 @@ def main() -> None:
               "--env", f"CMUX_AUTH_CREDENTIALS_FILE={os.path.realpath(args.credentials_file)}",
               "--env", "CMUX_DEV_AUTH_PROFILE=agent", "--env", "CMUX_DEV_AUTH_REPLACE_SESSION=1",
               str(Path(args.app).resolve()), "--args", "--cloud-backend", "staging"]
-    app_launcher = subprocess.Popen(launch, env=ENV, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    app_launcher = subprocess.Popen(launch, env=launch_env(ENV), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     auth = poll(240, lambda: (lambda v: v if v.get("signed_in") is True and v.get("cloud_environment") == "staging"
                               else None)(app_call("auth.status", {}, timeout=30)), step=5)
     if not auth:

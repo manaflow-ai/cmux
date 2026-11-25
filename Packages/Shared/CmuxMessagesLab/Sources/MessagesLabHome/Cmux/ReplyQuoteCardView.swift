@@ -54,7 +54,7 @@ final class ReplyQuoteCardView: NSView {
         HomeContentMenu().textItems(excerpt.stringValue, selection: nil).forEach(menu.addItem)
         menu.addItem(.separator())
         menu.addItem(MenuAction(title: CmuxStrings.replyQuoteRemove, symbol: "xmark.circle") { [weak self] in self?.onRemove() })
-        return menu
+        return NSMenu.systemFree(menu)
     }
 
     override func viewDidChangeEffectiveAppearance() {

@@ -1,0 +1,93 @@
+/* One failure card (ui/FailureCard.tsx). Quiet: the danger colour is the small mark only, never a red
+   slab or a tinted border (design/notifications.md, Leo 2026-10-29). Sizes read the design scale. */
+.ui-failure {
+  --ui-failure-ink: var(--agent-text, var(--cmux-text, CanvasText));
+  --ui-failure-ink-2: var(--agent-muted, var(--cmux-text-secondary, GrayText));
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: var(--ds-space-2);
+  box-sizing: border-box;
+  min-width: 0;
+  color: var(--ui-failure-ink);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+.ui-failure__mark {
+  margin-top: var(--grid-half-step);
+  color: var(--ds-color-danger);
+}
+.ui-failure__text {
+  min-width: 0;
+}
+.ui-failure :is(.ui-failure__title, .ui-failure__cause, .ui-failure__raw) {
+  margin: 0;
+}
+.ui-failure__title {
+  font-weight: var(--weight-emphasis);
+}
+.ui-failure__cause {
+  color: var(--ui-failure-ink-2);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ui-failure__raw {
+  margin-top: var(--ds-space-1);
+  color: var(--ui-failure-ink-2);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-detail);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.ui-failure__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+
+/* card and disclosed: a card on the grid, the actions under the text. */
+.ui-failure:is([data-layout="card"], [data-layout="disclosed"]) {
+  --concentric-padding: var(--grid-cards-padding, var(--ds-space-3));
+  padding: var(--concentric-padding);
+  border-radius: calc(var(--ds-radius-control) + var(--concentric-padding));
+  border: 1px solid color-mix(in srgb, var(--ui-failure-ink) 14%, transparent);
+  background: color-mix(in srgb, var(--ui-failure-ink) 4%, transparent);
+  grid-template-columns: auto minmax(0, 1fr);
+  row-gap: var(--ds-space-2);
+}
+.ui-failure:is([data-layout="card"], [data-layout="disclosed"]) .ui-failure__actions {
+  grid-column: 2;
+}
+
+/* row: no card, a quiet fill, one line; the cause trails the title. */
+.ui-failure[data-layout="row"] {
+  align-items: center;
+  padding: var(--ds-space-1) var(--ds-space-1) var(--ds-space-1) var(--ds-space-2);
+  border-radius: var(--ds-radius-control);
+  background: color-mix(in srgb, var(--ui-failure-ink) 5%, transparent);
+  font-size: var(--text-detail);
+}
+.ui-failure[data-layout="row"] .ui-failure__mark {
+  margin-top: 0;
+  width: var(--ds-icon-14);
+  height: var(--ds-icon-14);
+}
+.ui-failure[data-layout="row"] .ui-failure__text {
+  display: flex;
+  gap: var(--ds-space-1);
+  overflow: hidden;
+}
+.ui-failure[data-layout="row"] .ui-failure__title {
+  flex: none;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ui-failure[data-layout="row"] .ui-failure__cause {
+  min-width: 0;
+}

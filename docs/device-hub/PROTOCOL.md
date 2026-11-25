@@ -265,6 +265,11 @@ that held the answer is gone is back to `ask`.
    device may send `{type:'path', path:'direct'|'relay'}` once the media path
    is known; it is not relayed and is stored as `sessions.path` (NULL until
    reported).
+   A host that serves only `cmux.rd/1` viewers (the Mac's background daemon,
+   a Linux desktop) answers a WebRTC offer with
+   `{type:'transport', transport:'cmux.rd/1'}` instead of `bye`, then waits
+   up to 15 s for an rd offer; a viewer that knows the frame reattaches and
+   offers rd/1, and an older one gets the old failed end after the wait.
    `fpSig` = base64 raw ECDSA over `"<sid>|<role>|<fingerprint>"`, where
    `fingerprint` is the value of the SDP's `a=fingerprint:` line (all of them,
    joined with `,`, in order) and `role` is the sender's. The receiver
@@ -299,8 +304,9 @@ that held the answer is gone is back to `ask`.
    requests are ended the same way.
 8. Offline devices: when a device's last User DO socket closes, errors or
    goes silent (75 s with no frame) while it has open sessions, the server
-   waits 30 s from when it was last heard (so a silent device's sessions end
-   when it is found silent). If it has not reconnected by
+   waits 120 s from when it was last heard: a drop can start up to one ping
+   (30 s) after the last frame, and a screen share comes back by itself after
+   a 60 s drop with time to reconnect. If it has not reconnected by
    then, every session where it is viewer or host ends: audit `ended` with
    reason `peer_offline`, push `session.ended` (reason `peer_offline`) to both
    devices, and the Session DO closes its sockets. A socket replaced by a new
@@ -322,7 +328,7 @@ authoritative end does not replace its reason. The same string is pushed in `ses
 | `viewer_disconnected` | the viewer called `/end` without a reason | `session.revoked` |
 | any other string | the `reason` given to `/end` (≤100 chars) | `session.revoked` |
 | `expired` | a pending request was not decided within 5 min | `session.revoked` |
-| `peer_offline` | a device stayed disconnected for 30 s, or was silent for 75 s | `session.ended` |
+| `peer_offline` | a device went offline (socket closed, or silent for 75 s) and was not back 120 s after it was last heard | `session.ended` |
 | `bye` | a device sent `bye` and no authoritative reason followed within 3 s | `session.ended` |
 | `approve_failed` | the server could not set up the approved session | `session.revoked` |
 

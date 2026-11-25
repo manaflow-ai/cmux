@@ -13,6 +13,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { layoutConversation, type AcpmuxActivity, type AcpmuxRow } from "./model";
+import { TRANSCRIPT_LINE_ROW as LINE } from "./transcriptGrid";
 import { TranscriptDisclosureProvider } from "./conversation/transcriptDisclosure";
 import {
   resetTranscriptDisclosure,
@@ -91,14 +92,14 @@ const keyOf = (row: AcpmuxRow) => {
 
 test("a folded run line the reader opened is estimated at its open height, and closed again at its line", async () => {
   const row = run("mixed", [read("r1", "a.ts"), read("r2", "b.ts"), command("c1", "bun test")]);
-  expect(estimate(row, "opened-run")).toBe(22);
+  expect(estimate(row, "opened-run")).toBe(LINE);
   await setLine("opened-run", keyOf(row), true);
-  // "Read 2 files and ran a command" opened: its line, the fold's 4px and three 22px steps.
-  expect(estimate(row, "opened-run")).toBe(22 + 4 + 3 * 22);
+  // "Read 2 files and ran a command" opened: its line, the fold's 4px and three one-line steps (TRANSCRIPT_LINE_ROW).
+  expect(estimate(row, "opened-run")).toBe(LINE + 4 + 3 * LINE);
   await setLine("opened-run", keyOf(row), false);
-  expect(estimate(row, "opened-run")).toBe(22);
+  expect(estimate(row, "opened-run")).toBe(LINE);
   // Another chat's choice is not this one's.
-  expect(estimate(row, "another-chat")).toBe(22);
+  expect(estimate(row, "another-chat")).toBe(LINE);
 });
 
 test("an opened group is estimated at its line over its steps, kept to the 224px scroll box", async () => {
@@ -111,8 +112,8 @@ test("an opened group is estimated at its line over its steps, kept to the 224px
   const thirty = commands("thirty", 30);
   await setLine("opened-group", keyOf(six), true);
   await setLine("opened-group", keyOf(thirty), true);
-  // "Ran 6 commands" opened: drawn 158px. "Ran 30 commands" opened: drawn 250px, its steps scrolling
-  // in the box, never 22 + 4 + 660.
-  expect(estimate(six, "opened-group")).toBe(22 + 4 + 6 * 22);
-  expect(estimate(thirty, "opened-group")).toBe(22 + 4 + 224);
+  // "Ran 6 commands" opened: drawn LINE + 4 + 6 lines. "Ran 30 commands" opened: drawn LINE + 4 + 224, its steps scrolling
+  // in the box, never LINE + 4 + 30 lines.
+  expect(estimate(six, "opened-group")).toBe(LINE + 4 + 6 * LINE);
+  expect(estimate(thirty, "opened-group")).toBe(LINE + 4 + 224);
 });

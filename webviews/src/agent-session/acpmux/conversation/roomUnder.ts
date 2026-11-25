@@ -11,8 +11,8 @@
 // - `heldRoom`: the room held while the reader is scrolled up, or kept for one they came back to;
 // - `floor`: the end a followed view keeps for a sent prompt whose queue card left;
 // - `foldRoom`: the end a collapse near the end keeps, so the offset never clamps;
-// - `newerRoom`: the room the newer history a reader scrolled far up let go of (newerReserve.ts);
-// - `sendTop`: the end that keeps a prompt sent from the latest row at the view's top (SendTopHold).
+// - `newerRoom`: the room the newer history a reader scrolled far up let go of (newerReserve.ts).
+// No room is held for a sent prompt: a send keeps the earlier chat in view above it (issue 51841).
 //
 // One release rule for the stack's holds (`rowsMoved`): a card, the tray or a notice that changed
 // gives its room back, or takes it, in the pass whose rows move anyway (they grew: a reply streaming
@@ -85,9 +85,6 @@ export type RoomUnderInput = {
   foldRoom: number;
   /// The room under the rows for newer history let go of (conversation/newerReserve.ts), 0 for none.
   newerRoom?: number;
-  /// The end that holds a sent prompt at the view's top (VirtualTranscript `SendTopHold.update`), given
-  /// this pass's `rowsHeight` (past its end the hold is outgrown and lets go); 0 for none.
-  sendTop?: (rowsHeight: number) => number;
   /// A scrollbar drag's held height, which wins while it holds.
   dragged?: number;
   bases: RoomBases;
@@ -225,10 +222,19 @@ export function roomUnder(input: RoomUnderInput): RoomUnder {
     prompt: input.prompt,
   });
   const rowsHeight = input.rowsHeight + input.over + room + (input.newerRoom ?? 0);
-  const rowsEnd = Math.max(input.floor - lifted, rowsHeight, input.sendTop?.(rowsHeight) ?? 0);
+  const rowsEnd = Math.max(input.floor - lifted, rowsHeight);
   const keptEnd = sessionSwitched ? 0 : input.foldRoom;
   const total = input.dragged ?? Math.max(rowsEnd, keptEnd);
-  const lift = lifted ? Math.round(Math.max(0, total - input.height) - Math.max(0, atDock - input.height)) : 0;
+  // Where the rows draw against where they lay out: the followed offset of this layout against the
+  // one the unlifted layout would hold. Negative draws them up, positive down. A lift only ever moves
+  // the rows with the card's change (up for a card that grew, down for one that shrank): any other
+  // height in this layout, as the room a send keeps under its prompt (`sendTop`), is not the card's.
+  // The send from a raised composer (a six-line draft) read that room as lift in the commit before the
+  // card's emptied height was measured, and drew every row 12 px low for one frame before they jumped
+  // up (Leo, 2026-11-11: "when there's a composer thing raised then it gets sent ... if you look at the
+  // tnimation for when things get sent: it's not good"; agent-pane-send-raised).
+  const offsetLift = lifted ? Math.round(Math.max(0, total - input.height) - Math.max(0, atDock - input.height)) : 0;
+  const lift = lifted > 0 ? Math.min(0, offsetLift) : Math.max(0, offsetLift);
   return {
     room,
     total,

@@ -273,7 +273,13 @@ fn describe(accepted: &Accepted) -> Option<String> {
             format!("one of {}, or {shape}", choices.join(", "))
         }
         Accepted::Shape(shape) => (*shape).to_owned(),
+        Accepted::Document { schema, reason } => format!("a {schema} document ({reason})"),
         Accepted::Domain { name, .. } => format!("a {name} name"),
+        // A nested value: where it went wrong; `cmux settings schema` has the whole shape.
+        Accepted::Json { .. } => match accepted.first_problem() {
+            Some(problem) => format!("a value of its shape (cmux settings schema); {problem}"),
+            None => "a value of its shape (cmux settings schema)".to_owned(),
+        },
     })
 }
 

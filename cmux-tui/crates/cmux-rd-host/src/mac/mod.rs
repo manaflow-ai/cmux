@@ -1,4 +1,4 @@
-//! The macOS desktop: one display through ScreenCaptureKit, encoded by VideoToolbox from the
+//! The macOS desktop: one display (or one window, `window.rs`) through ScreenCaptureKit, encoded by VideoToolbox from the
 //! captured IOSurface with no CPU copy, and viewer input posted as CGEvents. Design:
 //! plans/cmux-next/remote-desktop-mac-host.md. Needs Screen Recording and Accessibility for
 //! the host process or the app that launched it.
@@ -20,6 +20,7 @@ pub(crate) mod pasteboard;
 #[cfg(feature = "bench")]
 pub(crate) mod synthetic;
 mod sys;
+pub(crate) mod window;
 
 use crate::desktop::{Desktop, FrameSource, Halves};
 use crate::stream::SessionCfg;
@@ -86,21 +87,51 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
     let cursor_metadata = cursor_metadata && cursor::available();
     // The cursor is in the pictures unless the viewer draws it or asked for none at all.
     let in_pictures = !cursor_metadata && cfg.show_cursor;
-    let capture =
-        Capture::start_for_session(&cfg.display, cfg.max_fps, cfg.max_width, in_pictures)?;
-    capture.wait_first_frame(FIRST_FRAME_TIMEOUT_NS)?;
+    let make_encoder = move |(width, height): (u32, u32)| -> Res<VideoToolbox> {
+        let mut encoder = VideoToolbox::new(
+            width,
+            height,
+            encoder_fps(width, height, cfg.max_fps),
+            cfg.start_kbps,
+            cfg.profile == "baseline",
+        )?;
+        // The session's profile and the encoder's resources now, not on the first frame: an
+        // ultra session would otherwise rebuild the encoder inside the session's first keyframe.
+        encoder.set_ultra(cfg.encode_profile.is_ultra());
+        encoder.prepare()?;
+        Ok(encoder)
+    };
+    // The encoder session (about 100 ms on a fleet Mac) needs only the size, which CoreGraphics
+    // knows before ScreenCaptureKit answers, so it is made beside the shareable-content request,
+    // the stream start and the first frame, not after them.
+    let window = window::session_window(cfg.window, &cfg.display)?;
+    let (capture, early) = std::thread::scope(|scope| {
+        // A display's size is known before ScreenCaptureKit answers; one window's is not, so a
+        // window session makes its encoder once the stream reports its size.
+        let early = match window {
+            Some(_) => None,
+            None => capture::expected_size(&cfg.display, cfg.max_width)
+                .map(|size| (size, scope.spawn(move || make_encoder(size)))),
+        };
+        let capture = match window {
+            // One window, captured alone; a close or resize ends the session (`drain`).
+            Some(id) => Capture::start_window(id, cfg.max_fps, cfg.max_width, in_pictures),
+            None => {
+                Capture::start_for_session(&cfg.display, cfg.max_fps, cfg.max_width, in_pictures)
+            }
+        }
+        .and_then(|mut capture| capture.ready(FIRST_FRAME_TIMEOUT_NS).map(|()| capture));
+        let early = early.map(|(size, thread)| (size, thread.join()));
+        (capture, early)
+    });
+    let capture = capture?;
     let (width, height) = capture.size();
-    let mut encoder = VideoToolbox::new(
-        width,
-        height,
-        encoder_fps(width, height, cfg.max_fps),
-        cfg.start_kbps,
-        cfg.profile == "baseline",
-    )?;
-    // The session's profile and the encoder's resources now, not on the first frame: an ultra
-    // session would otherwise rebuild the encoder inside the session's first keyframe.
-    encoder.set_ultra(cfg.encode_profile.is_ultra());
-    encoder.prepare()?;
+    let encoder = match early {
+        Some((size, Ok(encoder))) if size == (width, height) => encoder?,
+        // A guess that missed (a display change between the two reads) or a panicked thread:
+        // make it again at the stream's size.
+        _ => make_encoder((width, height))?,
+    };
     let name =
         format!("{} from screencapturekit iosurface", cmux_encode::H264Encoder::name(&encoder));
     let injector = Injector::new(capture.bounds(), (width, height))?;
@@ -130,8 +161,22 @@ impl Desktop for MacDesktop {
     }
 
     fn drain(&mut self, out: &mut Vec<Rect>) -> Res<()> {
+        // A closed or resized window ends the session with that reason, before a restart of
+        // the stream ScreenCaptureKit stopped for it is tried.
+        let news = self.capture.window_news();
+        if let Some(reason) = news.ended {
+            return Err(reason.into());
+        }
         self.capture.recover()?;
         self.capture.drain(out);
+        // The shared window moved: the picture is the same, the pointer maps through its new
+        // frame.
+        if let Some(bounds) = news.moved {
+            self.injector.move_to(bounds);
+            if let Some(cursor) = self.cursor.as_mut() {
+                cursor.move_to(bounds);
+            }
+        }
         Ok(())
     }
 
@@ -143,6 +188,10 @@ impl Desktop for MacDesktop {
     fn release_all(&mut self) -> Res<()> {
         self.injector.release_all();
         Ok(())
+    }
+
+    fn ready_for_start(&mut self) -> Res<()> {
+        self.capture.ready(FIRST_FRAME_TIMEOUT_NS)
     }
 
     fn cursor(&mut self) -> Option<crate::cursor::CursorSample> {

@@ -48,6 +48,8 @@ pub mod wire;
 #[cfg(feature = "desktop")]
 pub mod platform;
 #[cfg(feature = "server")]
+pub mod replaced;
+#[cfg(feature = "server")]
 pub mod server;
 #[cfg(feature = "server")]
 pub mod worker;

@@ -75,6 +75,7 @@ import {
 } from "../../services/vms/drivers/cmuxTuiDaemon";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER, devboxWorkUserSetupCommand } from "../../services/vms/images/workUser";
 import { npmCachePrefillCommand, npmCacheSizeCommand } from "./dep-cache";
+import { graduatedInstallCommand, readGraduated } from "./graduate";
 import {
   cmuxTuiWebsocketSmokeCommand,
   DEVBOX_INSTANCE_ID_COMMAND,
@@ -98,6 +99,7 @@ import {
   DEV_TREE_SCRIPT,
   FIRST_BUILD,
 } from "./dev-tree";
+import { gitDefaultsCommand } from "./git-defaults";
 import { GITHUB_SHIM_DIR, githubAuthFiles, githubAuthLinkCommand } from "./github-auth";
 import {
   AGENT_TOOLS_BAKED_ROLES,
@@ -105,6 +107,8 @@ import {
   agentToolsDaemonEnv,
   agentToolsFiles,
   agentToolsLinkCommand,
+  browserChromiumPath,
+  imageToolsSmokeCommand,
   browserRoleBakePhases,
   daemonEnvLines,
   RD_SOCKET,
@@ -114,6 +118,7 @@ import {
 } from "./agent-tools";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
+import { DISK_RECORD_COMMAND, parseDiskOutput } from "./disk-record";
 import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
 import { chiefBinary, chiefHostFiles, chiefHostInstallCommand } from "./chief-host";
 import { growToShape, LARGE_IMAGE_SHAPE, type LargeImageRecord, largeImageName, MEMORY_GUARD_REFRESH_COMMAND, memoryGuardProblems, ROOT_DEVICE_COMMAND } from "./large-image";
@@ -814,6 +819,8 @@ async function installStore(ctx: Ctx): Promise<void> {
   // git and gh with repo-scoped GitHub App tokens and no secret at rest (github-auth.ts).
   for (const file of githubAuthFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
   await L.step(vm, "github-auth", githubAuthLinkCommand(STORE_PATH));
+  // Parallel checkout, untracked cache, index v4 for every machine (RFD 0065 piece 3; git-defaults.ts).
+  await L.step(vm, "git-defaults", gitDefaultsCommand());
 }
 
 /** The supervisor runs `$HOME/.cmux/bin/cmux-tui`: link it (and the hook helper beside it) into the store. */
@@ -1000,8 +1007,19 @@ async function installAgentTools(ctx: Ctx): Promise<void> {
   const files = agentToolsFiles(lock);
   for (const phase of browserRoleBakePhases(lock)) await L.step(vm, phase.name, phase.command);
   for (const file of files) await writeGuestFile(vm, file.path, file.text, file.mode);
-  ctx.result.agentTools = (await L.step(vm, "agent-tools-link", `sh -n ${AGENT_TOOLS_PROFILE} && ${agentToolsLinkCommand()}`)).trim().split("\n").at(-2);
+  ctx.result.agentTools = (await L.step(vm, "agent-tools-link", `sh -n ${AGENT_TOOLS_PROFILE} && ${agentToolsLinkCommand(browserChromiumPath(lock))}`)).trim().split("\n").at(-2);
+  await L.step(vm, "image-tools-smoke", imageToolsSmokeCommand());
   await L.step(vm, "agent-tools-desktop", rdSetupCommand());
+}
+
+/**
+ * The names many people added on their own machines (graduate.ts), installed in the agents layer so one shared
+ * copy replaces the many personal ones. Both bakes run it before the finalize records the image's packages.
+ */
+async function installGraduated(ctx: Ctx): Promise<void> {
+  const g = readGraduated();
+  if (g.apt.length + g.npm.length === 0) return;
+  ctx.result.graduated = (await ctx.L.step(ctx.vm, "graduated", graduatedInstallCommand(g, APT_UPDATE_COMMAND), 290_000)).trim().split("\n").at(-1);
 }
 
 /** The npm cache a first `npm install` finds (dep-cache.ts); the image record's size is read after clean. */
@@ -1119,6 +1137,21 @@ export function acpmuxHarnessChecksDoneCommand(limitSeconds = 180): string {
   ].join(" && ");
 }
 
+/**
+ * The fresh image's df, inodes and depth-2 du (disk-record.ts), after clean and before the snapshot: in the image
+ * record as `disk` and alone as disk-<name>.json. Information only: a failure is recorded, never fails the bake.
+ */
+async function recordDisk(ctx: Ctx): Promise<void> {
+  const { vm, L, options, result, name } = ctx;
+  try {
+    const disk = parseDiskOutput(await L.step(vm, "disk-record", DISK_RECORD_COMMAND), { image: name, measured_at: new Date().toISOString(), source: "bake" });
+    result.disk = disk;
+    writeFileSync(path.join(options.outDir, `disk-${name}.json`), `${JSON.stringify(disk, null, 2)}\n`);
+  } catch (error) {
+    result.diskError = error instanceof Error ? error.message : String(error);
+  }
+}
+
 async function finalizeAndCollect(ctx: Ctx): Promise<void> {
   const { vm, L, options, result, name, lock } = ctx;
   await L.step(vm, "identity-final", devboxIdentityCheckCommand());
@@ -1135,6 +1168,7 @@ async function finalizeAndCollect(ctx: Ctx): Promise<void> {
   if (!options.deferInventory) await collectInventory(vm, L, options, lock, result, name);
   await L.step(vm, "tmp-empty", `rm -rf /tmp/cmux-out /tmp/cmux-out-syft /root/.cache && ${TMP_LEFTOVERS} | head -5; test -z "$(${TMP_LEFTOVERS})"`);
   result.dfAfterClean = (await L.step(vm, "df-after-clean", "df -B1 --output=used,iused / | tail -1")).trim();
+  await recordDisk(ctx);
   result.fstrim = (await L.step(vm, "fstrim", "fstrim -v / 2>&1 || true")).trim();
   result.pageCache = (await L.step(vm, "drop-cache-warm-bind-path", warmBindPathCommand())).trim();
   await L.step(vm, "tmp-no-writer", tmpWritersCommand());
@@ -1226,6 +1260,7 @@ async function baseSteps(ctx: Ctx): Promise<void> {
   await configureRoles(ctx);
   if (options.agentTools) await installAgentTools(ctx);
   // A layered bake fills it in the agents layer (overlaySteps), not twice.
+  if (!options.layered) await installGraduated(ctx);
   if (!options.layered) await prefillDepCaches(ctx);
   if (options.devTree) await installDevTree(ctx);
   await installMachineHealth(ctx);
@@ -1252,6 +1287,7 @@ async function overlaySteps(ctx: Ctx, layer: "agents" | "app"): Promise<void> {
   if (layer === "agents") {
     await configureRoles(ctx);
     if (ctx.options.agentTools) await installAgentTools(ctx);
+    await installGraduated(ctx);
     await prefillDepCaches(ctx);
     await L.step(vm, "agents-done", "rm -rf /tmp/cmux-dl && echo agents-layer-ok");
     return;

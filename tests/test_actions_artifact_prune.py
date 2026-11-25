@@ -236,7 +236,7 @@ class DropJob(unittest.TestCase):
         self.assertTrue(readers <= set(drop["needs"]))
         condition = drop["if"]
         # notify-unpublished-tree hands the key on and must stay the run's last job (cx-urd.26).
-        for clause in ("always()", "!contains(needs.*.result, 'failure')", "!contains(needs.*.result, 'cancelled')",
+        for clause in ("!cancelled()", "!contains(needs.*.result, 'failure')", "!contains(needs.*.result, 'cancelled')",
                        "needs.notify-unpublished-tree.result == 'skipped'"):
             self.assertIn(clause, condition)
         self.assertTrue(drop.get("continue-on-error"))
@@ -252,14 +252,16 @@ class DropJob(unittest.TestCase):
         self.assertIn("--delete", step["run"])
         self.assertEqual(step["env"]["GITHUB_TOKEN"], "${{ steps.cmux-bot-token.outputs.token }}")
 
-    def test_no_job_reads_a_machine_channel_artifact(self):
-        # MUSL_BUILT_ONCE: build-linux, which uploaded machine-channel-* (about 230 MB a target), is gone, and
-        # point-machine-channel-early reads build's artifacts.
+    def test_only_the_early_channel_points_read_a_machine_channel_artifact(self):
+        # MACHINE_CHANNEL_THIN: build-machine-channel-x86_64 and build-machine-channel upload machine-channel-*
+        # (about 230 MB a target) for the early channel points alone (LINUX_X86_64_FIRST); no shipped download
+        # reads them.
         jobs = artifacts_jobs()
-        self.assertNotIn("build-linux", jobs)
-        others = [name for name, job in jobs.items() if any("machine-channel-cmux-tui" in str((s.get("with") or {}).get("pattern", ""))
-                          + str((s.get("with") or {}).get("name", "")) for s in job.get("steps", []))]
-        self.assertEqual(others, [])
+        self.assertIn("build-machine-channel-x86_64", jobs)
+        self.assertIn("build-machine-channel", jobs)
+        readers = [name for name, job in jobs.items() if any("machine-channel-cmux-tui" in str((s.get("with") or {}).get("pattern", ""))
+                           + str((s.get("with") or {}).get("name", "")) for s in job.get("steps", []))]
+        self.assertEqual(readers, ["point-machine-channel-early", "point-machine-channel-early-linux"])
 
 
 class Workflow(unittest.TestCase):

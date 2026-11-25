@@ -1,6 +1,7 @@
-import CoreGraphics
-import CoreVideo
 import Foundation
+#if canImport(CoreVideo) && canImport(CoreGraphics)
+import CoreVideo
+#endif
 
 /// Finds the physical displays inside a framebuffer when the server does not
 /// say (macOS Screen Sharing sends one image for all displays and no
@@ -18,12 +19,19 @@ public struct VNCScreenLayout: Sendable {
 
     /// The displays in `frame`, left to right; empty for a single display.
     public func screens(in frame: VNCFrame) -> [CGRect] {
+        #if canImport(CoreVideo) && canImport(CoreGraphics)
         let buffer = frame.pixelBuffer
         CVPixelBufferLockBaseAddress(buffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
         guard let base = CVPixelBufferGetBaseAddress(buffer) else { return [] }
         return screens(pixels: base.assumingMemoryBound(to: UInt32.self), width: frame.width, height: frame.height,
                        rowPixels: CVPixelBufferGetBytesPerRow(buffer) / 4)
+        #else
+        return frame.pixels.withUnsafeBufferPointer { pixels in
+            guard let base = pixels.baseAddress else { return [] }
+            return screens(pixels: base, width: frame.width, height: frame.height, rowPixels: frame.width)
+        }
+        #endif
     }
 
     /// BGRA words, `rowPixels` per row.

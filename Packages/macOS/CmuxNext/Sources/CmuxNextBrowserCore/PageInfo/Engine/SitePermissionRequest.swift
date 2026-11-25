@@ -60,7 +60,7 @@ extension BrowserPermissionKind {
         case .cameraAndMicrophone: [.camera, .microphone]
         case .location: [.location]
         case .notifications: [.notifications]
-        case .automaticDownloads: []
+        case .automaticDownloads, .screenShare: []
         }
     }
 }

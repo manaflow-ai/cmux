@@ -4,8 +4,11 @@
 //! throwaway tag bundles without stopping them. In a DEV build only (the
 //! bundle around this executable is `com.cmuxterm.app.debug.<tag>`) such an
 //! OWNER stops itself when no client has been connected for
-//! [`ORPHAN_EXIT_DELAY`] AND either its own executable is gone or it has no
-//! live terminal. The owner's own journal plugin (the bundled screen
+//! [`ORPHAN_EXIT_DELAY`] AND either its own executable is gone, it has no
+//! live terminal, or its tag's app is closed ([`app_closed`]: the app's
+//! control socket answered once, or the app's frontend connected, and the
+//! socket has refused connects for the delay since; 43 owners with live
+//! terminals of 28 closed tags held one Mac at load 300, 2026-11-23). The owner's own journal plugin (the bundled screen
 //! detector, which connects back at start and stays) is not a client here:
 //! counting it kept every DEV owner alive for days (cmux issue 23086). With
 //! its executable present and a live terminal an owner never stops. It
@@ -106,6 +109,11 @@ pub(crate) trait OrphanFacts: Send + Sync {
     /// Live terminals; `None` when the registry could not be read (the owner
     /// then keeps its terminals).
     fn live_terminals(&self) -> Option<usize>;
+    /// Whether this tag's app is provably closed ([`app_closed`]). Probes the
+    /// app's control socket; false when the owner has no socket to probe.
+    fn app_closed(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -144,10 +152,84 @@ pub(crate) fn decide_with(
     if orphaned(facts) { Decision::Exit } else { Decision::Wait(timing.recheck) }
 }
 
-/// The executable is gone, or no terminal lives (an unreadable registry
-/// keeps the owner).
+/// The executable is gone, no terminal lives (an unreadable registry keeps
+/// the owner), or the tag's app is closed. A closed app leaves the terminal
+/// hosts running (stopping the owner never ends a host), so a relaunch of
+/// the tag adopts them.
 pub(crate) fn orphaned(facts: &dyn OrphanFacts) -> bool {
-    !facts.executable_present() || facts.live_terminals() == Some(0)
+    !facts.executable_present() || facts.live_terminals() == Some(0) || facts.app_closed()
+}
+
+/// Whether a tag's app is provably closed. `answered_ever`: the app's control
+/// socket accepted a connect, or its frontend connected to this owner, at some
+/// point (a socket that never answered is an app with socket control off, or
+/// one that never started: kept). `refusing_since`: the first try of the
+/// current unbroken run of refused connects (`None` while it answers). Closed
+/// once that run is [`ORPHAN_EXIT_DELAY`] long (`delay`). Pure.
+pub(crate) fn app_closed(
+    answered_ever: bool,
+    refusing_since: Option<Instant>,
+    now: Instant,
+    delay: Duration,
+) -> bool {
+    answered_ever
+        && refusing_since.is_some_and(|since| now.saturating_duration_since(since) >= delay)
+}
+
+/// What one probe of the app's control socket did to the tracked state:
+/// returns the new `(answered_ever, refusing_since)`. Pure.
+pub(crate) fn observe_app(
+    answered_ever: bool,
+    refusing_since: Option<Instant>,
+    reachable: bool,
+    now: Instant,
+) -> (bool, Option<Instant>) {
+    if reachable { (true, None) } else { (answered_ever, refusing_since.or(Some(now))) }
+}
+
+/// The tag's app control socket, followed from this owner's start.
+pub(crate) struct AppProbe {
+    socket: PathBuf,
+    delay: Duration,
+    state: Mutex<(bool, Option<Instant>)>,
+}
+
+impl AppProbe {
+    /// The probe for the DEV app of `executable`'s tag (or the `CMUX_SOCKET_PATH`
+    /// this owner was started with); `None` without a tag or a home.
+    pub(crate) fn for_owner(executable: &Path, delay: Duration) -> Option<Self> {
+        let identity = crate::app_identity::AppIdentity::detect(
+            |key| std::env::var(key).ok(),
+            Some(executable),
+        )?;
+        identity.tag.as_ref()?;
+        let home = std::env::var_os("HOME").map(PathBuf::from)?;
+        let probe = Self {
+            socket: identity.control_socket(&home),
+            delay,
+            state: Mutex::new((false, None)),
+        };
+        // The app is normally listening when its owner starts: that answer is the proof.
+        probe.probe();
+        Some(probe)
+    }
+
+    fn probe(&self) -> (bool, Option<Instant>) {
+        #[cfg(unix)]
+        let reachable = std::os::unix::net::UnixStream::connect(&self.socket).is_ok();
+        #[cfg(not(unix))]
+        let reachable = true;
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        *state = observe_app(state.0, state.1, reachable, Instant::now());
+        *state
+    }
+
+    /// Probes now; `frontend_seen` (the app's frontend connected to this owner) counts as an
+    /// answer once.
+    fn closed(&self, frontend_seen: bool) -> bool {
+        let (answered, since) = self.probe();
+        app_closed(answered || frontend_seen, since, Instant::now(), self.delay)
+    }
 }
 
 /// The watcher's time source. Tests inject a fake.
@@ -275,6 +357,8 @@ impl OrphanWatch {
 pub(crate) struct OwnerFacts {
     pub(crate) mux: std::sync::Weak<cmux_tui_core::Mux>,
     pub(crate) executable: PathBuf,
+    /// The tag's app socket; `None` for an owner with no tag.
+    pub(crate) app: Option<AppProbe>,
 }
 
 impl OrphanFacts for OwnerFacts {
@@ -288,6 +372,12 @@ impl OrphanFacts for OwnerFacts {
 
     fn live_terminals(&self) -> Option<usize> {
         self.mux.upgrade()?.live_terminal_count().ok()
+    }
+
+    fn app_closed(&self) -> bool {
+        let frontend_seen =
+            self.mux.upgrade().is_some_and(|mux| mux.control_clients_frontend_seen());
+        self.app.as_ref().is_some_and(|app| app.closed(frontend_seen))
     }
 }
 
@@ -344,8 +434,10 @@ pub(crate) fn start(
     {
         return None;
     }
-    let facts = Arc::new(OwnerFacts { mux: Arc::downgrade(mux), executable });
-    let watch = OrphanWatch::with_timing(Arc::new(SystemClock), facts, Timing::for_owner());
+    let timing = Timing::for_owner();
+    let app = AppProbe::for_owner(&executable, timing.delay);
+    let facts = Arc::new(OwnerFacts { mux: Arc::downgrade(mux), executable, app });
+    let watch = OrphanWatch::with_timing(Arc::new(SystemClock), facts, timing);
     Some(spawn(watch, mux, stop_owner))
 }
 

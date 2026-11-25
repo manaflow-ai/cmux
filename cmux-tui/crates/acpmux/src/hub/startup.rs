@@ -70,7 +70,12 @@ impl Hub {
         }
         // Startup's work is done here (`loading.startupDone`); the sync after it is not startup.
         self.end_startup_work();
-        crate::artifacts_sync::run_background(self.clone()).await;
+        let config = self.config.read().await.clone();
+        // The fleet memory mount (`memory_mount.rs`) runs beside it; each returns when off.
+        tokio::join!(
+            crate::artifacts_sync::run_background(config.clone(), &self.shutdown),
+            crate::memory_mount::run_background(config, &self.shutdown),
+        );
     }
 
     /// What an agent start needs, run beside the chats' logs and adoption (`daemon.rs`): the
@@ -161,6 +166,8 @@ impl Hub {
         }
         self.startup_ready.send_replace(true);
         self.care_worker();
+        // Keeps a locked Mac from idle sleep while a turn runs (`lock_bridge.rs`): opt-in.
+        self.lock_bridge_worker();
         // A spare for each harness this machine used (`pool/spare.rs`).
         {
             let hub = self.clone();
