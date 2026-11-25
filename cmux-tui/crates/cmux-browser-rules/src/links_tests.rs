@@ -330,7 +330,7 @@ fn webkit_link_clicks() {
     let mapping = ClickMapping { cmd_click: LinkAction::LinkPlacement, ..ClickMapping::CHROME };
     assert_eq!(
         webkit_link_click(mods(false, false, false), 0, &mapping),
-        WebKitLinkClick::PageDefault
+        WebKitLinkClick::PageDefault {}
     );
     assert_eq!(
         webkit_link_click(mods(true, false, false), 0, &mapping),
@@ -343,7 +343,7 @@ fn webkit_link_clicks() {
     let navigate = ClickMapping { shift_click: LinkAction::CurrentTab, ..ClickMapping::CHROME };
     assert_eq!(
         webkit_link_click(mods(false, true, false), 0, &navigate),
-        WebKitLinkClick::Navigate
+        WebKitLinkClick::Navigate {}
     );
 }
 
