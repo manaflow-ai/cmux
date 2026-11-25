@@ -1056,6 +1056,16 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
 .acpmux-queued > .acpmux-queued-menu > .acpmux-queued-actions {
   align-self: end;
 }
+/* A queued row's last action (its menu) centres on the mic below it: the composer's inset plus half
+   of what the control box is wider than the action (cmux#56151: a literal 6 px put it 5 px right of
+   the mic). test/composer-stack-columns.test.ts measures it. */
+.acpmux-queued {
+  /* The actions' box (styles.css .acpmux-queued-action). */
+  --acpmux-queued-action-size: 22px;
+  padding-right: calc(
+    var(--acpmux-composer-inset) + (var(--acpmux-composer-control) - var(--acpmux-queued-action-size)) / 2
+  );
+}
 /* The fold's line continues the list's tray and side edges, down to the strip. */
 .acpmux-queue-foldbar {
   display: flex;

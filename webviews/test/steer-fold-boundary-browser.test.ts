@@ -4,8 +4,10 @@
 // 2026-11-22 (ask-6cbe3d05b7): the fold animation swept rows up past his steer; (ask-22fd5d45f2):
 // "crazy situation for the folding and whatever the steer and you think and messages and situations
 // come in and subagents come in and out". Every painted frame of each scene is read in a real
-// browser: a frame fails if any other row's box overlaps a steer's box, or a row that was drawn on one
-// side of a steer is drawn on the other side in a later frame.
+// browser: a frame fails if any other row draws ink inside a steer's box (its box overlaps the steer's
+// at an opacity above zero), or a row that was drawn on one side of a steer is drawn on the other side
+// in a later frame. A row the fold adds is laid out at its place from the swap's frame and holds at no
+// ink there while the steer slides out of that box (turnEndFold.ts), so only its ink is a crossing.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -15,7 +17,7 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 import { playTurn, randomTurn, type GapEvent } from "./support/thinkingGapScenes";
 
-type Box = { id: string; top: number; bottom: number; steer: boolean };
+type Box = { id: string; top: number; bottom: number; steer: boolean; opacity: number; ink: string };
 type Frame = { step: string; boxes: Box[] };
 
 await requireBrowserLane("steer-fold-boundary-browser.test.ts", async () => {
@@ -23,7 +25,8 @@ await requireBrowserLane("steer-fold-boundary-browser.test.ts", async () => {
   setDefaultTimeout(300_000);
   try {
     await (await chromium.launch({ headless: true })).close();
-  } catch {
+  } catch (e) {
+    console.log("LAUNCHFAIL", String(e).slice(0, 800));
     describe.skip("steer fold boundary", () => test("chromium", () => {}));
     return;
   }
@@ -49,17 +52,25 @@ await requireBrowserLane("steer-fold-boundary-browser.test.ts", async () => {
 
   /// Plays the scene a step every `framesPerStep` painted frames, then 90 frames at rest (the
   /// turn-end fold's whole motion), and returns every frame's row boxes from the turn's prompt down.
-  async function play(events: GapEvent[], framesPerStep = 12): Promise<Frame[]> {
+  /// `playbackRate` below 1 slows every Web Animation (the CDP Animation domain), so the painted
+  /// frames sample the fold as a faster display would: at 60 Hz the first moving frame of the turn
+  /// end jumped past the band where a row fading in drew over the steer sliding out of it.
+  async function play(events: GapEvent[], framesPerStep = 12, playbackRate = 1): Promise<Frame[]> {
     const steps = playTurn(events);
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: 900, height: 900 } });
     try {
       await installPaintedFrames(page);
+      if (playbackRate !== 1) {
+        const cdp = await page.context().newCDPSession(page);
+        await cdp.send("Animation.enable");
+        await cdp.send("Animation.setPlaybackRate", { playbackRate });
+      }
       await page.goto(`http://127.0.0.1:${port}${PAGE}`);
       await page.waitForFunction(() => "__gap" in window);
       await page.evaluate(() => (window as unknown as { __gap: { loadStrings(): Promise<void> } }).__gap.loadStrings());
       return await page.evaluate(
-        ({ steps, framesPerStep, ROW }) =>
+        ({ steps, framesPerStep, playbackRate, ROW }) =>
           new Promise<Frame[]>((done) => {
             type Gap = { show(rows: unknown[], options?: { working?: boolean }): void };
             const gap = (window as unknown as { __gap: Gap }).__gap;
@@ -82,11 +93,16 @@ await requireBrowserLane("steer-fold-boundary-browser.test.ts", async () => {
                       top: box.top,
                       bottom: box.bottom,
                       steer: (row.dataset.rowId ?? "").startsWith("steer-"),
+                      opacity: Number(getComputedStyle(row).opacity),
+                      ink: (() => {
+                        const style = getComputedStyle(row);
+                        return `op=${style.opacity} translate=${style.translate} clip=${style.clipPath} anims=${row.getAnimations().length}`;
+                      })(),
                     })),
                   });
                 }
                 frame += 1;
-                if (frame >= steps.length * framesPerStep + 90) {
+                if (frame >= steps.length * framesPerStep + Math.ceil(90 / playbackRate)) {
                   done(out);
                   return false;
                 }
@@ -98,14 +114,14 @@ await requireBrowserLane("steer-fold-boundary-browser.test.ts", async () => {
               },
             );
           }),
-        { steps, framesPerStep, ROW: TRANSCRIPT_ROW },
+        { steps, framesPerStep, playbackRate, ROW: TRANSCRIPT_ROW },
       );
     } finally {
       await page.close();
     }
   }
 
-  /// Every frame where a row's box overlaps a steer's, or a row changed sides of a steer since the
+  /// Every frame where a row draws ink inside a steer's box, or a row changed sides of a steer since the
   /// last frame both were drawn in.
   function crossings(frames: Frame[]): string[] {
     const found: string[] = [];
@@ -115,8 +131,12 @@ await requireBrowserLane("steer-fold-boundary-browser.test.ts", async () => {
         for (const box of frame.boxes) {
           if (box.steer || box.id === steer.id) continue;
           const overlap = Math.min(box.bottom, steer.bottom) - Math.max(box.top, steer.top);
-          if (overlap > 1)
-            found.push(`frame ${index} ${frame.step}: ${box.id} overlaps ${steer.id} by ${overlap.toFixed(1)}px`);
+          if (overlap > 1 && box.opacity > 0.01)
+            found.push(
+              `frame ${index} ${frame.step}: ${box.id} overlaps ${steer.id} by ${overlap.toFixed(1)}px` +
+                ` [${box.id} ${box.top.toFixed(1)}-${box.bottom.toFixed(1)} ${box.ink}]` +
+                ` [${steer.id} ${steer.top.toFixed(1)}-${steer.bottom.toFixed(1)} ${steer.ink}]`,
+            );
           const now = (box.top + box.bottom) / 2 < (steer.top + steer.bottom) / 2 ? "above" : "below";
           const key = `${steer.id}|${box.id}`;
           const was = side.get(key);
@@ -206,6 +226,17 @@ await requireBrowserLane("steer-fold-boundary-browser.test.ts", async () => {
       expect(frames.some((frame) => frame.boxes.some((box) => box.steer))).toBe(true);
       const bad = crossings(frames);
       console.log(`steer-fold-boundary ${name}: frames=${frames.length} crossings=${bad.length}`);
+      expect(bad.slice(0, 6)).toEqual([]);
+    });
+  // The turn end at a quarter speed: the frames a 240 Hz display paints. The "Worked for" of the work
+  // after the steer is laid out under the steer, which slides up out of its box as the fold closes;
+  // faded in from the move's start it drew inside the steer's box (turnEndFold.ts holds it).
+  for (const name of ["work, a steer, more work, the turn ends", "subagents come and go on both sides of two steers"])
+    test(`${name}, at a quarter speed: no row draws over a steer`, async () => {
+      const frames = await play(SCENES[name]!, 12, 0.25);
+      expect(frames.some((frame) => frame.boxes.some((box) => box.id.startsWith("worked-steer-")))).toBe(true);
+      const bad = crossings(frames);
+      console.log(`steer-fold-boundary ${name} (quarter speed): frames=${frames.length} crossings=${bad.length}`);
       expect(bad.slice(0, 6)).toEqual([]);
     });
 });
