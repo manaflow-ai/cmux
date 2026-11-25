@@ -1179,6 +1179,10 @@ pub mod method {
     /// To local watchers when a new chat's start mode may have changed (a
     /// mode pick, a config reload): ask `_acpmux/start_mode` again. `{}`.
     pub const MUX_START_MODE_CHANGED: &str = "_acpmux/start_mode_changed";
+    /// To a connection whose `_acpmux/attach` said `fill: true` (capability `autocloud-fill-v1`) for a chat whose folder is still
+    /// filling (a Cloud seed's head-first checkout): `{sessionId, fill, _meta: {acpmux: {fill}}}`,
+    /// 0..=100, on each change and a last 100 when it is whole (`server/fill.rs`, RFD 0139).
+    pub const MUX_FILL: &str = "_acpmux/fill";
     /// To watchers on each change of a peer link's state: `{peer, state, lastSeen, error, at}`
     /// (`protocol/peer_state.rs`).
     pub const MUX_PEER_STATE_CHANGED: &str = "_acpmux/peer_state_changed";

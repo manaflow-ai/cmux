@@ -3019,7 +3019,9 @@ async fn dispatch_request_with_identity(
                     ));
                 }
                 let wait = params.get("wait").and_then(Value::as_bool) == Some(true);
-                return heap(|| hub.reserve_home_warm(wait)).await;
+                // The harnesses and models the person set up (personal spares, ask-30d56720f6).
+                let shapes = crate::hub::parse_home_shapes(params.get("shapes"))?;
+                return heap(|| hub.reserve_home_warm(wait, shapes)).await;
             }
             let s = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_owned);
             // A Cloud chat's coming start (cmux#45953): its owner credential, from this machine's
@@ -3811,6 +3813,13 @@ async fn dispatch_request_with_identity(
         }
         method::MUX_ATTACH => {
             let s = hub.resolve(session_key(&params)?)?;
+            // The machine's fill, to a client that asked for it (`fill.rs`, RFD 0139).
+            super::fill::follow(
+                conn,
+                params.get("fill") == Some(&Value::Bool(true)),
+                &s.id,
+                &s.meta().cwd,
+            );
             let hidden = params.get("visible") == Some(&Value::Bool(false));
             // The app's pane draws nothing of a chat it does not show: no stream while hidden.
             // Never a peer daemon's link, which attaches hidden for the people it carries.
