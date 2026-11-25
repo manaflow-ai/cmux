@@ -407,17 +407,46 @@ struct WorkspaceGridHeader: View {
                 .glassEffect(.regular.interactive(), in: .circle)
                 .accessibilityLabel("Workspaces")
                 Spacer()
+                filterMenu
+                // TabsKit's More sits here, at the same height.
+                Color.clear.frame(width: metrics.overviewTopControl, height: metrics.overviewTopControl)
             }
         }
         .padding(.horizontal, 20)
         .padding(.top, 4)
     }
 
+    /// Which tabs the grid lists: All, Agents, Agents & Terminals, Browsers.
+    /// Filled while a filter hides tabs, so a short grid never looks like lost tabs.
+    private var filterMenu: some View {
+        Menu {
+            Picker("Show", selection: Binding(get: { source.tabFilter }, set: { source.tabFilter = $0 })) {
+                ForEach(WorkspaceTabFilter.allCases, id: \.self) { filter in
+                    Label(filter.title, systemImage: filter.systemImage).tag(filter)
+                }
+            }
+        } label: {
+            Image(systemName: source.tabFilter == .all
+                  ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
+                .font(.system(size: metrics.toolbarGlyph, weight: .medium))
+                .foregroundStyle(source.tabFilter == .all ? theme.colors.label.color : theme.colors.accent.color)
+                .frame(width: metrics.overviewTopControl, height: metrics.overviewTopControl)
+                .contentShape(.circle)
+        }
+        .glassEffect(.regular.interactive(), in: .circle)
+        .padding(.trailing, 8)
+        .accessibilityLabel("Filter Tabs")
+        .accessibilityValue(source.tabFilter.title)
+    }
+
     private var macLine: String {
         guard let workspace = source.workspace else { return "" }
         let mac = source.store.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name ?? ""
         let count = workspace.tabs.count
-        return "\(mac) · \(count == 1 ? "1 tab" : "\(count) tabs")"
+        let hidden = source.filteredOutCount
+        let tabs = count == 1 ? "1 tab" : "\(count) tabs"
+        guard hidden > 0 else { return "\(mac) · \(tabs)" }
+        return "\(mac) · \(count - hidden) of \(tabs)"
     }
 }
 

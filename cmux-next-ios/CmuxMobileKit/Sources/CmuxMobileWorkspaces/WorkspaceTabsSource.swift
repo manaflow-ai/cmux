@@ -30,8 +30,23 @@ public final class WorkspaceTabsSource: TabsDataSource {
     var selectedTabID: String? {
         // Every path that changes the active tab while the grid shows (a tap, the active
         // tab closed there, a Mac publish dropping it): the new one holds its frame too.
-        didSet { if freezesStreams, selectedTabID != oldValue { freezeStreams(true) } }
+        didSet {
+            if freezesStreams, selectedTabID != oldValue { freezeStreams(true) }
+            // A filtered grid always lists the tab on screen: a tab opened from Search or
+            // the palette that the filter hides joins the list on the next read.
+            if tabFilter != .all, selectedTabID != oldValue { listStale = true }
+        }
     }
+    /// Which tabs the grid lists (`WorkspaceTabFilter`): the phone's saved choice.
+    public var tabFilter: WorkspaceTabFilter = .saved() {
+        didSet {
+            guard tabFilter != oldValue else { return }
+            tabFilter.save()
+            refreshTabs(preparingCards: false)
+        }
+    }
+    /// Tabs of this workspace the filter leaves out of the grid (0 with All Tabs).
+    public private(set) var filteredOutCount = 0
     /// From the published tabs (`tabs`), not the workspace: a Mac publish
     /// that changes nothing the kit shows does not re-run the tabs screen.
     public var activeTabID: String? {
@@ -307,12 +322,19 @@ public final class WorkspaceTabsSource: TabsDataSource {
         let key = WorkspaceKey(macID: workspace.macID, title: workspace.title, directory: workspace.directory)
         var next: [TabsKitTab] = []
         next.reserveCapacity(workspace.tabs.count)
+        let kept = Set([selectedTabID, openingTabID].compactMap { $0 })
+        let listed = Set(tabFilter.listed(workspace.tabs, keeping: kept).map(\.id))
+        let hidden = workspace.tabs.count - listed.count
+        if filteredOutCount != hidden { filteredOutCount = hidden }
         for tab in workspace.tabs {
             if let entry = entries[tab.id] {
                 if entry.tab != tab { entry.tab = tab }
             } else {
                 entries[tab.id] = TabEntry(tab)
             }
+            // A tab the filter hides keeps its entry (Search and the palette still open it),
+            // but has no card in the grid.
+            guard listed.contains(tab.id) else { continue }
             if let old = built[tab.id], old.tab == tab, old.key == key {
                 next.append(old.kit)
             } else {
@@ -327,7 +349,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             preparedCards.remove(id)
         }
         // The phone-side Screen Sharing tab (Open as Tab), after the Mac's tabs.
-        if isScreenSharingTabListed { next.append(screenSharingKitTab) }
+        if isScreenSharingTabListed, tabFilter == .all || selectedTabID == Self.screenSharingTabID { next.append(screenSharingKitTab) }
         if next != listedTabs { listedTabs = next }
         if preparingCards { prepareTerminalCards(workspace.tabs) }
     }
