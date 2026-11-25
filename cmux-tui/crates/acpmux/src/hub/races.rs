@@ -287,8 +287,7 @@ impl Hub {
                             RpcError::internal("daemon restarted before this candidate start was recorded; no duplicate was started"))
                         .and_then(|result| result)
                     } else {
-                        self.race_launch(parent, race, &c.id, &c.target, format!(
-                            "{}\n\nWork only in your own worktree. Do not publish or merge a PR. Finish with a concise summary of the changes and checks for an independent reviewer.", race.prompt)).await
+                        self.race_launch(parent, race, &c.id, &c.target, candidate_prompt(race, &c.target)).await
                     };
                     match result {
                         Ok((child, started)) => {
@@ -558,7 +557,7 @@ impl Hub {
     /// it, or it was deleted) or no longer this parent's has nothing of the race's to stop:
     /// cleanup goes on, so it never fails, and retries at every restart, on a child it cannot reach.
     async fn stop_race_child(self: &Arc<Self>, parent: &Session, id: &str) -> Result<(), RpcError> {
-        let child = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        let child = self.session_get(id);
         let Some(child) = child else { return Ok(()) };
         if !child.read_meta(|m| m.subsession.as_ref().is_some_and(|l| l.started_by == parent.id)) {
             return Ok(());
@@ -807,6 +806,16 @@ fn turn_outcome(
         status == "completed" && !closed,
         turn["errorText"].as_str().or_else(|| turn["error"].as_str()).map(crate::secret_scan::mask),
     ))
+}
+
+/// A candidate's prompt: its own plan hint (if any) above the shared task, then the race rules.
+fn candidate_prompt(race: &Race, target: &Target) -> String {
+    let hint = target.hint.as_deref().map(str::trim).filter(|h| !h.is_empty());
+    format!(
+        "{}{}\n\nWork only in your own worktree. Do not publish or merge a PR. Finish with a concise summary of the changes and checks for an independent reviewer.",
+        hint.map(|h| format!("{h}\n\n")).unwrap_or_default(),
+        race.prompt
+    )
 }
 
 fn review_prompt(race: &Race) -> String {
