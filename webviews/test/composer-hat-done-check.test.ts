@@ -143,16 +143,14 @@ await requireBrowserLane("composer-hat-done-check.test.ts", async () => {
     await server?.close();
   });
 
-  const open = async (variant: string, width: number, density: string, theme: string, arm?: string): Promise<Page> => {
+  const open = async (variant: string, width: number, density: string, theme: string): Promise<Page> => {
     const port = (server.httpServer!.address() as { port: number }).port;
     const page = await browser.newPage({
       viewport: { width, height: 420 },
       deviceScaleFactor: 2,
       reducedMotion: "reduce",
     });
-    await page.goto(
-      `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, density, colorScheme: theme, exp: arm && "composer-hat-done-check", arm })}`,
-    );
+    await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, density, colorScheme: theme })}`);
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
     return page;
   };
@@ -242,17 +240,6 @@ await requireBrowserLane("composer-hat-done-check.test.ts", async () => {
             within(cy(head.check.box), cy(head.time), "header check centre vs time centre");
           } finally {
             await page.close();
-          }
-        });
-
-        test(`MEASURE the check-place arms on the folded header (${name})`, async () => {
-          for (const arm of ["grid", "column", "leading"]) {
-            const page = await open("lone", width, density, theme, arm);
-            try {
-              console.log(`MEASURE arm-${arm} ${name} ${JSON.stringify(await page.evaluate(measure))}`);
-            } finally {
-              await page.close();
-            }
           }
         });
       }
