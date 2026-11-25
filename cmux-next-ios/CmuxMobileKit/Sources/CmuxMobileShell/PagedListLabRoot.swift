@@ -129,6 +129,7 @@ public struct PagedListLabRoot: View {
             probe.neighbourShift = { [hud] shift, detail in hud.neighbourSampled(shift, detail) }
             probe.pushShift = { [hud] size, detail in hud.pushSampled(size, detail) }
             probe.dragPush = { [hud] size in hud.dragSampled(size) }
+            probe.boundedFrame = { [hud] in hud.boundedFrames += 1 }
             probe.shiftDetail = { [hud] shift, detail in hud.shifted(shift, detail) }
             probe.slid = { [hud] frames in hud.slid(frames) }
             probe.held = { [hud] rows in hud.hold(rows) }
@@ -471,6 +472,8 @@ final class PagedLabHUD {
 
     /// Pushes under a finger (recorded, not asserted): how many, the largest, and their sizes' p90.
     @ObservationIgnored var dragPushes: [CGFloat] = []
+    /// Frames the newest edge moved exactly with arriving content (not judged as pushes).
+    @ObservationIgnored var boundedFrames = 0
 
     func dragSampled(_ size: CGFloat) {
         dragPushes.append(size)
@@ -549,7 +552,7 @@ final class PagedLabHUD {
         let ratio = seconds > 0 ? hitchMs / seconds : 0
         let samplerMean = samplerCosts.isEmpty ? 0 : samplerCosts.reduce(0, +) / Double(samplerCosts.count)
         let samplerP99 = samplerCosts.isEmpty ? 0 : samplerCosts.sorted()[min(samplerCosts.count - 1, samplerCosts.count * 99 / 100)]
-        return #"{"edge":"\#(edge)","newer":"\#(newer)","rows":\#(rows),"landings":\#(landings),"maxShift":\#(maxShift),"frameShift":\#(frameShift),"samples":\#(samples),"shiftedFrames":\#(shiftedFrames),"frames":\#(frames),"hitches":\#(hitches),"dropped":\#(dropped),"worstMs":\#(worstMs),"hitchMsPerS":\#(ratio),"changes":\#(changes),"flushes":\#(flushes),"inMemory":\#(inMemory),"total":\#(total),"onDisk":\#(onDisk),"diskBytes":\#(diskBytes),"slides":\#(slides),"slideFrames":\#(slideFrames),"held":\#(heldRows),"worstShift":"\#(worstShift)","passFrameShift":\#(passFrameShift),"passShifted":\#(passShifted),"passMidPlacement":\#(passMidPlacement),"passWorstShift":"\#(passWorstShift)","samplerMeanMs":\#(samplerMean),"samplerP99Ms":\#(samplerP99),"samplerFrames":\#(samplerCosts.count),"drawnShift":\#(drawnShift),"drawnShifted":\#(drawnShifted),"drawnWorst":"\#(drawnWorst)","neighbourShift":\#(neighbourShift),"neighbourShifted":\#(neighbourShifted),"neighbourWorst":"\#(neighbourWorst)","pushShift":\#(pushShift),"pushShifted":\#(pushShifted),"pushWorst":"\#(pushWorst)","dragPushes":\#(dragPushes.count),"dragPushMax":\#(dragPushes.max() ?? 0),"dragPushP90":\#(dragPushes.isEmpty ? 0 : dragPushes.sorted()[min(dragPushes.count - 1, dragPushes.count * 9 / 10)])}"#
+        return #"{"edge":"\#(edge)","newer":"\#(newer)","rows":\#(rows),"landings":\#(landings),"maxShift":\#(maxShift),"frameShift":\#(frameShift),"samples":\#(samples),"shiftedFrames":\#(shiftedFrames),"frames":\#(frames),"hitches":\#(hitches),"dropped":\#(dropped),"worstMs":\#(worstMs),"hitchMsPerS":\#(ratio),"changes":\#(changes),"flushes":\#(flushes),"inMemory":\#(inMemory),"total":\#(total),"onDisk":\#(onDisk),"diskBytes":\#(diskBytes),"slides":\#(slides),"slideFrames":\#(slideFrames),"held":\#(heldRows),"worstShift":"\#(worstShift)","passFrameShift":\#(passFrameShift),"passShifted":\#(passShifted),"passMidPlacement":\#(passMidPlacement),"passWorstShift":"\#(passWorstShift)","samplerMeanMs":\#(samplerMean),"samplerP99Ms":\#(samplerP99),"samplerFrames":\#(samplerCosts.count),"drawnShift":\#(drawnShift),"drawnShifted":\#(drawnShifted),"drawnWorst":"\#(drawnWorst)","neighbourShift":\#(neighbourShift),"neighbourShifted":\#(neighbourShifted),"neighbourWorst":"\#(neighbourWorst)","pushShift":\#(pushShift),"pushShifted":\#(pushShifted),"pushWorst":"\#(pushWorst)","bounded":\#(boundedFrames),"dragPushes":\#(dragPushes.count),"dragPushMax":\#(dragPushes.max() ?? 0),"dragPushP90":\#(dragPushes.isEmpty ? 0 : dragPushes.sorted()[min(dragPushes.count - 1, dragPushes.count * 9 / 10)])}"#
     }
 }
 

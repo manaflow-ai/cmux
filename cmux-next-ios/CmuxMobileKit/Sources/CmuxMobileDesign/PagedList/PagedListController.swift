@@ -102,6 +102,9 @@ public final class PagedListProbe {
     /// The same measure on frames with a finger down (DEBUG): recorded, not asserted, until the drag
     /// threshold is set from these records.
     public var dragPush: ((_ size: CGFloat) -> Void)?
+    /// A committed frame in which the newest edge moved exactly with the content arriving there (the
+    /// slide held to its lag bound, following): not judged as a push, counted on its own (DEBUG).
+    public var boundedFrame: (() -> Void)?
     /// A frame that shifted more than half a point, with what the list was doing (the lab keeps the
     /// worst one, so a failing stress case names its cause).
     public var shiftDetail: ((_ shift: CGFloat, _ detail: String) -> Void)?
@@ -1228,7 +1231,9 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             // (the uncapped spring), or the status bar's scroll to top.
             // ... or the newest edge moving with the content arriving there (SH-11: the reader sees that
             // content arrive), when the lag bound held the slide.
-            let asked = deliberateJump || (spring.isRunning && !spring.capped) || scrollingToTop || spring.lastStepBounded
+            let bounded = followsNewest && spring.isRunning && spring.lastStepBounded
+            if bounded { probe?.boundedFrame?() }
+            let asked = deliberateJump || (spring.isRunning && !spring.capped) || scrollingToTop || bounded
             pushMoves.append(.init(move: followed.now - followed.was, tracking: collectionView.isTracking, deliberate: asked))
             deliberateJump = false
             if pushMoves.count > 3 { pushMoves.removeFirst() }

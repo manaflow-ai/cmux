@@ -26,8 +26,11 @@ final class PagedListScrollSpring {
     var pinned: () -> Bool = { false }
     /// The list's visible height, read each frame (the lag bound is a quarter of it).
     var viewport: () -> CGFloat = { 0 }
-    /// The last step was held to the lag bound: the edge moved with arriving content (the probe).
+    /// The last step was held to the lag bound AND moved exactly as far as its goal did that frame
+    /// (within half a point): the edge moved with arriving content, nothing more (the probe).
     private(set) var lastStepBounded = false
+    /// The goal at the last step (the bound's check compares the step with the goal's own move).
+    private var lastGoal: CGFloat?
     /// The person's jump in progress: its distance at the start, and when it started.
     private var landingFrom: (start: CGFloat, at: CFTimeInterval)?
     /// The spring is about to jump straight to its goal (no motion: Reduce Motion, or the list's motion
@@ -96,6 +99,7 @@ final class PagedListScrollSpring {
         link = nil
         landingFrom = nil
         lastStepBounded = false
+        lastGoal = nil
     }
 
     fileprivate func step(_ link: CADisplayLink) {
@@ -131,7 +135,9 @@ final class PagedListScrollSpring {
         let next = Self.step(position: position, velocity: velocity, goal: goal, dt: dt, response: response,
                              maxSpeed: capped ? Self.maxSpeed : nil,
                              maxLag: Self.lagBound(pinned: pinned(), viewport: viewport(), landing: landing))
-        lastStepBounded = next.bounded
+        let goalMove = lastGoal.map { goal - $0 } ?? 0
+        lastStepBounded = next.bounded && lastGoal != nil && abs((next.position - position) - goalMove) <= 0.5
+        lastGoal = goal
         if next.settled {
             finish(at: goal)
             return
