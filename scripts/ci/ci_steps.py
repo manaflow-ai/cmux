@@ -345,6 +345,7 @@ class StepResults:
         url, bearer = self.oidc
         sep = "&" if "?" in url else "?"
         req = urllib.request.Request(f"{url}{sep}audience={OIDC_AUDIENCE}", headers={"Authorization": f"bearer {bearer}"})
+        # user-agent: GitHub's OIDC token URL, no CDN of ours
         with urllib.request.urlopen(req, timeout=self.timeout) as resp:
             token = json.loads(resp.read()).get("value") or ""
         if not token:
