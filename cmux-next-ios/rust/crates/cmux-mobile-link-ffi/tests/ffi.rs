@@ -919,6 +919,8 @@ fn request_to(device_id: &str, mac_id: &str) -> ConnectRequest {
         relay_only: false,
         block_udp: false,
         force_relay: false,
+        proxy_only: false,
+        drop_wireguard: false,
         video_lane: false,
         webrtc_media: false,
         ultra: cmux_mobile_link::UltraSetting::Off,
