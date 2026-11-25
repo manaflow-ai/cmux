@@ -125,6 +125,28 @@ fn a_daemon_superseded_with_a_full_queue_still_hears_superseded_last() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A daemon that connects first and says HELLO last is served however many connections wait
+/// to authenticate beside it (the old cap of 8 closed the oldest waiting one).
+#[test]
+fn a_waiting_connection_is_kept_past_the_old_cap() {
+    let dir = temp_dir();
+    let socket = dir.join("h.sock");
+    let holder = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let first = UnixStream::connect(&socket).unwrap();
+    wire::tune_socket(first.as_raw_fd());
+    std::thread::sleep(Duration::from_millis(50));
+    let idle: Vec<UnixStream> = (0..20).map(|_| UnixStream::connect(&socket).unwrap()).collect();
+    std::thread::sleep(Duration::from_millis(200));
+    let mut link = RawLink { stream: first, reader: Reader::default() };
+    let hello = Out::default().u16(wire::VERSION).bytes(&TOKEN).0;
+    link.send(&wire::encode(Kind::Hello, 0, &hello));
+    let welcome = link.frame().unwrap().expect("the holder closed the first connection");
+    assert_eq!(Kind::from_u16(welcome.kind), Some(Kind::Welcome));
+    drop(idle);
+    kill(holder);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A SPAWN never stalls the loop that serves every other terminal: the
 /// holder neither searches `PATH` itself nor waits for the child to enter
 /// its directory and run its program (a directory on a dead network mount

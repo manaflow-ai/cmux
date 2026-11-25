@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR fec2a53560ff6992b48ee32a81df797ac404a8bc55f1661d1e11f96aaf2032c0. */
+/* cmux-tui mux protocol 12, IR 64273ea2052a4bb812246feadd18ffe06fd3087a25510903ee26fa9bb1c3a6c4. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "fec2a53560ff6992b48ee32a81df797ac404a8bc55f1661d1e11f96aaf2032c0" as const;
+export const SDK_IR_SHA256 = "64273ea2052a4bb812246feadd18ffe06fd3087a25510903ee26fa9bb1c3a6c4" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1812,6 +1812,10 @@ export const COMMAND_METADATA = {
       "limit": {
         "since": 12,
         "capability": "list-workspaces-limit-v1"
+      },
+      "since": {
+        "since": null,
+        "capability": "workspace-list-delta-v1"
       }
     },
     "stream": null,
@@ -2619,6 +2623,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "An absent lease is a successful no-op."
+    ]
+  },
+  "release-workspace-names": {
+    "authority": "control",
+    "since": 12,
+    "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Idempotent: a second call releases nothing."
     ]
   },
   "reload-config": {
@@ -4867,6 +4881,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "live_agents counts agents whose state is working or blocked.",
       "last_user_input_at_ms is the wall-clock time of the newest keyboard, paste or mouse input from an attached client; null until the first.",
       "last_agent_action_at_ms is the wall-clock time of the newest agent hook commit or agent state report; null until the first.",
+      "last_person_attach_at_ms is the wall-clock time a person's client (tui, web, mac or frontend) last attached; absent from daemons without the vm-activity-echo-v1 capability, null until the first.",
+      "echo_input_at_ms and echo_at_ms pair the first person input after that attach with the first terminal output that followed it on the same terminal (input-to-echo timing); null until measured, reset by the next person attach.",
       "Times and counts only: no content and no surface ids."
     ],
     "fields": {
@@ -4878,9 +4894,33 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "uint32"
         }
       },
+      "echo_at_ms": {
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "echo_input_at_ms": {
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
       "last_agent_action_at_ms": {
         "nullable": true,
         "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "last_person_attach_at_ms": {
+        "nullable": true,
+        "presence": "optional",
         "type": {
           "kind": "scalar",
           "name": "uint64"
@@ -8974,6 +9014,34 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ListWorkspacesSince": {
+    "additional_properties": false,
+    "fields": {
+      "epoch": {
+        "constraints": [
+          "Opaque; the epoch of the last reply applied (\"\" when none)."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "seq": {
+        "constraints": [
+          "The seq of the last reply applied (0 when none)."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "LivePane": {
     "additional_properties": false,
     "fields": {
@@ -9923,6 +9991,30 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "SizeState"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ReleaseWorkspaceNamesResult": {
+    "additional_properties": false,
+    "fields": {
+      "released": {
+        "description": "Workspace names this call handed back to the automatic namer.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "still_pinned": {
+        "description": "User-owned names left pinned: a row renamed between the read and its release.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       }
     },
@@ -16005,6 +16097,45 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "Tree": {
     "additional_properties": false,
     "fields": {
+      "changed": {
+        "capability": "workspace-list-delta-v1",
+        "constraints": [
+          "With delta: every workspace entry that changed past the cursor, as the whole tree renders it; replace the entry with the same id, or add it."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "Workspace"
+          },
+          "kind": "array"
+        }
+      },
+      "delta": {
+        "capability": "workspace-list-delta-v1",
+        "constraints": [
+          "True when the reply answers since with only what changed: workspaces is then empty; apply changed and removed to the tree you hold."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "epoch": {
+        "capability": "workspace-list-delta-v1",
+        "constraints": [
+          "Opaque, random per daemon run; only in replies to a request with since. Send it back in since."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "generation": {
         "capability": "workspace-registry-v1",
         "nullable": false,
@@ -16028,6 +16159,21 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "uint64"
         }
       },
+      "order": {
+        "capability": "workspace-list-delta-v1",
+        "constraints": [
+          "With delta, when the order of the workspaces changed: every id, in the tree's order."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "Id"
+          },
+          "kind": "array"
+        }
+      },
       "pane_revision": {
         "nullable": false,
         "presence": "optional",
@@ -16045,6 +16191,33 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "removed": {
+        "capability": "workspace-list-delta-v1",
+        "constraints": [
+          "With delta: the ids of the workspaces no longer in the tree."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "Id"
+          },
+          "kind": "array"
+        }
+      },
+      "seq": {
+        "capability": "workspace-list-delta-v1",
+        "constraints": [
+          "Only in replies to a request with since. Send it back in since."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       },
       "terminal_revision": {
@@ -23661,6 +23834,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "kind": "scalar",
             "name": "uint64"
           }
+        },
+        "stats": {
+          "default": false,
+          "description": "true: the reply also carries agent_notice_stats.",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
         }
       },
       "kind": "object"
@@ -23840,6 +24023,19 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint64"
+          }
+        },
+        "since": {
+          "capability": "workspace-list-delta-v1",
+          "constraints": [
+            "The cursor of the last reply the client applied. When the daemon still holds every change past it, the result is delta: true with only the changed workspace entries (changed, keyed by id) and the ids that went away (removed); otherwise the whole tree. Both carry the epoch and seq to send next. Takes precedence over known, limit and after."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "ListWorkspacesSince"
           }
         }
       },
@@ -27216,6 +27412,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "EmptyResult"
+    }
+  },
+  "release-workspace-names": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "ReleaseWorkspaceNamesResult"
     }
   },
   "reload-config": {
