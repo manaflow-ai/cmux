@@ -67413,6 +67413,268 @@
         }
       }
     },
+    "settings.sidebar.spaceButtonSpacing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Space Button Spacing"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スペースボタンの間隔"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تباعد أزرار المساحات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Razmak između dugmadi prostora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afstand mellem områdeknapper"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abstand zwischen Bereichsschaltflächen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espaciado entre botones de espacios"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espacement des boutons d’espace"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spaziatura dei pulsanti degli spazi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គម្លាតរវាងប៊ូតុងលំហ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "공간 버튼 간격"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avstand mellom områdeknapper"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odstęp między przyciskami przestrzeni"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espaçamento dos botões de espaços"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Интервал между кнопками пространств"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระยะห่างระหว่างปุ่มพื้นที่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alan düğmeleri arasındaki mesafe"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відстань між кнопками просторів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khoảng cách giữa các nút không gian"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空间按钮间距"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空間按鈕間距"
+          }
+        }
+      }
+    },
+    "settings.sidebar.spaceButtonSpacing.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Distance between the centers of neighboring Space buttons. The density default fits them to the sidebar."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隣り合うスペースボタンの中心間の距離です。密度の既定値ではサイドバーの幅に合わせて調整されます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المسافة بين مركزي زري مساحتين متجاورتين. تضبط القيمة الافتراضية للكثافة التباعد ليلائم الشريط الجانبي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udaljenost između središta susjednih dugmadi prostora. Zadana gustoća prilagođava razmak bočnoj traci."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afstanden mellem midtpunkterne af to områdeknapper ved siden af hinanden. Standardværdien for tætheden tilpasser afstanden til sidepanelet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abstand zwischen den Mittelpunkten benachbarter Bereichsschaltflächen. Der Standardwert für die Dichte passt den Abstand an die Seitenleiste an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Distancia entre los centros de dos botones de espacios contiguos. El valor predeterminado de densidad ajusta el espaciado al ancho de la barra lateral."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Distance entre les centres de deux boutons d’espace voisins. La valeur par défaut de la densité adapte l’espacement à la barre latérale."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Distanza tra i centri di due pulsanti degli spazi adiacenti. Il valore predefinito della densità adatta la spaziatura alla barra laterale."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចម្ងាយរវាងចំណុចកណ្ដាលនៃប៊ូតុងលំហពីរដែលនៅជាប់គ្នា។ តម្លៃដង់ស៊ីតេលំនាំដើមកែគម្លាតឱ្យសមនឹងរបារចំហៀង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이웃한 공간 버튼의 중심 사이 거리입니다. 밀도 기본값을 사용하면 사이드바 너비에 맞춰 간격이 조정됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avstanden mellom midtpunktene til to områdeknapper ved siden av hverandre. Standardverdien for tetthet tilpasser avstanden til sidepanelet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odległość między środkami sąsiednich przycisków przestrzeni. Domyślna gęstość dopasowuje odstępy do szerokości paska bocznego."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Distância entre os centros de dois botões de espaços vizinhos. O valor padrão de densidade adapta o espaçamento à barra lateral."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Расстояние между центрами соседних кнопок пространств. При стандартной плотности интервал подстраивается под ширину боковой панели."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระยะระหว่างจุดกึ่งกลางของปุ่มพื้นที่ที่อยู่ติดกัน ค่าเริ่มต้นของความหนาแน่นจะปรับระยะห่างให้พอดีกับแถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komşu alan düğmelerinin merkezleri arasındaki uzaklık. Varsayılan yoğunluk değeri aralığı kenar çubuğuna sığacak şekilde ayarlar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відстань між центрами сусідніх кнопок просторів. За стандартної щільності інтервал підлаштовується під ширину бічної панелі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khoảng cách giữa tâm của hai nút không gian liền kề. Giá trị mật độ mặc định điều chỉnh khoảng cách cho vừa với thanh bên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相邻空间按钮中心之间的距离。使用密度默认值时，间距会随侧边栏宽度调整。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相鄰空間按鈕中心之間的距離。使用密度預設值時，間距會隨側邊欄寬度調整。"
+          }
+        }
+      }
+    },
     "settings.sidebar.spacesPosition": {
       "extractionState": "manual",
       "localizations": {
@@ -205925,7 +206187,7 @@
       }
     },
     "settings.cloud.autoCloud": {
-      "comment": "Settings > Machines: toggle that lets the new-chat Where menu's Auto start a chat on a Cloud machine when this Mac has no room (AutoCloud preview, off by default).",
+      "comment": "Settings > Machines: toggle that lets the new-chat Where menu's Auto place a chat on a Cloud machine when this Mac has no room.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -205933,11 +206195,31 @@
             "state": "translated",
             "value": "Auto Places Chats in Cloud"
           }
-        }
+        },
+        "ar": {"stringUnit": {"state": "needs_review", "value": "التشغيل التلقائي يضع المحادثات في السحابة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Automatski smješta razgovore u oblak"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Auto placerer chats i skyen"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Auto platziert Chats in der Cloud"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Auto coloca los chats en la nube"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Auto place les discussions dans le cloud"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Auto colloca le chat nel cloud"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "自動でチャットをクラウドに配置"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ស្វ័យប្រវត្តិដាក់ការជជែកនៅក្នុង Cloud"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "자동으로 채팅을 클라우드에 배치"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Auto plasserer chatter i skyen"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Auto umieszcza czaty w chmurze"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Auto coloca conversas na nuvem"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Авто размещает чаты в облаке"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "อัตโนมัติวางแชตบนคลาวด์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Otomatik, sohbetleri buluta yerleştirir"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Авто розміщує чати в хмарі"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Tự động đặt cuộc trò chuyện trên đám mây"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "自动将聊天放到云端"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "自動將聊天放到雲端"}}
       }
     },
     "settings.cloud.autoCloud.help": {
-      "comment": "Help for the AutoCloud toggle: where Auto runs a new chat.",
+      "comment": "Help for the Auto Places Chats in Cloud toggle.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -205945,7 +206227,27 @@
             "state": "translated",
             "value": "Auto runs a new chat on this Mac when it has room, else on a Cloud machine."
           }
-        }
+        },
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يشغّل التلقائي محادثة جديدة على هذا الـ Mac عندما يتسع لها، وإلا فعلى جهاز سحابي."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Auto pokreće novi razgovor na ovom Macu kada ima mjesta, inače na Cloud mašini."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Auto kører en ny chat på denne Mac, når der er plads, ellers på en Cloud-maskine."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Auto startet einen neuen Chat auf diesem Mac, wenn Platz ist, sonst auf einer Cloud-Maschine."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Auto ejecuta un chat nuevo en este Mac cuando tiene espacio; si no, en una máquina en la nube."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Auto lance une nouvelle discussion sur ce Mac s'il a de la place, sinon sur une machine cloud."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Auto avvia una nuova chat su questo Mac quando ha spazio, altrimenti su una macchina cloud."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "自動は、この Mac に余裕があれば新しいチャットをここで実行し、なければクラウドマシンで実行します。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ស្វ័យប្រវត្តិដំណើរការការជជែកថ្មីលើ Mac នេះ នៅពេលមានកន្លែង បើមិនដូច្នោះទេ លើម៉ាស៊ីន Cloud។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "자동은 이 Mac에 여유가 있으면 새 채팅을 여기서, 없으면 클라우드 머신에서 실행합니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Auto kjører en ny chat på denne Macen når det er plass, ellers på en Cloud-maskin."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Auto uruchamia nowy czat na tym Macu, gdy jest miejsce, w przeciwnym razie na maszynie w chmurze."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Auto executa uma nova conversa neste Mac quando há espaço; caso contrário, em uma máquina na nuvem."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Авто запускает новый чат на этом Mac, если есть место, иначе на облачной машине."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "อัตโนมัติจะเรียกใช้แชตใหม่บน Mac นี้เมื่อมีที่ว่าง มิฉะนั้นจะใช้เครื่องบนคลาวด์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Otomatik, yer olduğunda yeni sohbeti bu Mac'te, aksi halde bir Bulut makinesinde çalıştırır."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Авто запускає новий чат на цьому Mac, коли є місце, інакше на хмарній машині."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Tự động chạy cuộc trò chuyện mới trên máy Mac này khi còn chỗ, nếu không thì trên máy Đám mây."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "自动会在这台 Mac 有余量时在本机运行新聊天，否则在云端机器上运行。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "自動會在這台 Mac 有餘裕時於本機執行新聊天，否則在雲端機器上執行。"}}
       }
     },
     "settings.cloud.agentMemory.follow": {
