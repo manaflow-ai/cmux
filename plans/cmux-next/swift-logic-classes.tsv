@@ -12394,3 +12394,651 @@ CmuxNextAgentPane	class	AgentPaneActAsMeCard	0	PLATFORM	0	0	Packages/macOS/CmuxN
 CmuxNextApps	class	AppStoreIconView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Store/Native/AppStoreParts.swift	view class: inherits from this repo's own NSView subclass (AppStoreSurfaceView, an NSView), so its header is view-shaped the way NSView is; the script reads only a direct NSView name
 CmuxNextApps	class	AppStoreClickableView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Store/Native/AppStoreParts.swift	view class: inherits from this repo's own NSView subclass (AppStoreSurfaceView, an NSView), so its header is view-shaped the way NSView is; the script reads only a direct NSView name
 CmuxNextApps	class	AppStoreShotView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Store/Native/AppStoreParts.swift	view class: inherits from this repo's own NSView subclass (AppStoreSurfaceView, an NSView), so its header is view-shaped the way NSView is; the script reads only a direct NSView name
+CmuxNextDesign	struct	AgentIdentityTone	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/AgentIdentityTone.swift	maps an agent's identity tone to ANSI ink indices
+CmuxNextDesign	extension	BackdropAdjustOverlay.Choice	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropAdjustOverlay.swift	choice-to-value mapping of the backdrop adjust overlay
+CmuxNextDesign	struct	BackdropAgentGlow	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropAgentGlow.swift	decides the backdrop agent wash from agent states
+CmuxNextDesign	enum	BackdropDynamicMode	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropDynamicFrames.swift	backdrop dynamic-wallpaper setting values
+CmuxNextDesign	struct	BackdropDynamicFrames	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropDynamicFrames.swift	parses and caches a dynamic HEIC's frame schedule and picks frames
+CmuxNextDesign	extension	BackdropImageStore	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropImageStore.swift	caches a phone-sized backdrop copy by digest and prunes old copies
+CmuxNextDesign	struct	BackdropLocation	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropLocation.swift	backdrop location setting: parse, default from time zone
+CmuxNextDesign	class	BackdropPlaybackSignals	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropPlaybackSignals.swift	observes NSWindow/NSWorkspace/power notifications for the backdrop
+CmuxNextDesign	enum	BackdropShader	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropShader.swift	shader choice enum: ids, parse, titles, per-shader parameters
+CmuxNextDesign	struct	BackdropShaderUniforms	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropShaderSource.swift	Metal uniform buffer layout for the backdrop shader
+CmuxNextDesign	class	BackdropClickMonitor	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropShaderView.swift	NSEvent local monitor for click rings
+CmuxNextDesign	struct	BackdropShaderTarget	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropShaderView.swift	carries the CAMetalLayer target to the render queue
+CmuxNextDesign	class	InFlightFrame	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropShaderView.swift	render-queue in-flight frame flag
+CmuxNextDesign	struct	BackdropTimeOfDay	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropTimeOfDay.swift	time-of-day background schedule: picks the image by sun events
+CmuxNextDesign	extension	Bundle	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Bundle+AppLanguage.swift	Bundle localization lookup
+CmuxNextDesign	extension	Typography	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/CardScale.swift	card type scale: Font constants
+CmuxNextDesign	extension	Metrics	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/CardScale.swift	card spacing constants
+CmuxNextDesign	extension	ChromeTunables	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ChromeDivider.swift	chrome divider tunable constants
+CmuxNextDesign	extension	Palette	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ChromeDivider.swift	divider palette colors
+CmuxNextDesign	enum	ChromeHoverStyle	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ChromeHoverStyle.swift	hover style setting enum and its choices
+CmuxNextDesign	class	ClickTrace	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ClickTrace.swift	click trace: records hit windows/responders (AppKit reads) and formats entries
+CmuxNextDesign	extension	EnvironmentValues	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ConnectionChip.swift	SwiftUI EnvironmentValues key
+CmuxNextDesign	enum	CornerFlush	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/CornerFlush.swift	flush corner setting: choice, overrides and per-mode decisions
+CmuxNextDesign	protocol	TabStripCorner	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/CornerFlush.swift	protocol seam: tab strip tells the window root its corner
+CmuxNextDesign	protocol	SidebarSelectionCorner	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/CornerFlush.swift	protocol seam: sidebar selection corner
+CmuxNextDesign	extension	Metrics	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/CornerFlush.swift	corner radius derivation by flush mode
+CmuxNextDesign	extension	NSEvent	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Debug/NSEvent+SyntheticScroll.swift	builds synthetic NSEvent scroll events
+CmuxNextDesign	extension	SyntheticPointer	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Debug/SyntheticPointer+Sweep.swift	debug pointer sweep path planning
+CmuxNextDesign	class	SyntheticPointer	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Debug/SyntheticPointer.swift	debug synthetic pointer over NSTrackingAreas
+CmuxNextDesign	struct	TopAlignmentProbe	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Debug/TopAlignmentProbe.swift	debug probe reading NSView frames
+CmuxNextDesign	extension	DensityTokens	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DensityPreset.swift	density token derivation
+CmuxNextDesign	struct	DensityTokenCatalog	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DensityTokenCatalog.swift	density token catalog: lists, reads and maps every density value
+CmuxNextDesign	extension	Metrics	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DensityTokens+ToolbarButton.swift	toolbar button metric constants
+CmuxNextDesign	struct	DebugWorkspaceSwitch	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Diagnostics/DebugWorkspaceSwitch.swift	workspace switch timing report
+CmuxNextDesign	struct	SwitchKeyChanges	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Diagnostics/SwitchKeyChanges.swift	key-window change log during a switch
+CmuxNextDesign	extension	CmuxDialogPresentation	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogCenter+FrameStrip.swift	dialog presentation helper
+CmuxNextDesign	extension	CmuxDialogHosting	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogHost.swift	protocol default seam
+CmuxNextDesign	protocol	CmuxDialogDrawing	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogHost.swift	protocol seam: dialog drawing
+CmuxNextDesign	extension	CmuxDialogDrawing	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogHost.swift	protocol default seam
+CmuxNextDesign	extension	String	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogKeyHint.swift	keycap label formatting
+CmuxNextDesign	extension	Array	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogKeyHint.swift	keycap label joining
+CmuxNextDesign	enum	CmuxDialogKeycapStyle	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogKeycapStyle.swift	keycap style setting: choice and per-style drawing parameters
+CmuxNextDesign	extension	CmuxDialogKeys	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogKeys+Synthetic.swift	synthetic dialog key names and matching
+CmuxNextDesign	class	CmuxDialogNativeDrawing	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogNativeDrawing.swift	draws dialogs with AppKit
+CmuxNextDesign	class	CmuxDialogPresentation	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogPresentation.swift	shown dialog state: fields, values, validation
+CmuxNextDesign	protocol	CmuxDialogRendering	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogPresentation.swift	protocol seam: dialog rendering
+CmuxNextDesign	extension	CmuxDialogMetrics	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogView+ReadOnlyFields.swift	dialog metric constants
+CmuxNextDesign	extension	CmuxFloatingDialogPanel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxFloatingDialogPanel.swift	AppKit hit test for dialog drag
+CmuxNextDesign	class	CmuxKeycapPlaygroundWindow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/Playground/CmuxKeycapPlaygroundWindow.swift	debug keycap playground NSWindow
+CmuxNextDesign	extension	FloatingGlassStyle	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FindPill/FindPillView.swift	glass style constants
+CmuxNextDesign	struct	FloatingChatFrames	0	MIXED	60	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FloatingChatFrames.swift	floating chat frame per screen: saves/restores and clamps (LOGIC), NSScreen reads (PLATFORM)
+CmuxNextDesign	extension	FloatingGlassStyle	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FloatingGlass/FloatingGlassStyle+CornerRadius.swift	glass corner radius constant
+CmuxNextDesign	extension	FloatingGlassStyle	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FloatingGlass/Glass+Transient.swift	transient glass constants
+CmuxNextDesign	enum	GlassLevel	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FloatingGlass/GlassLevel.swift	native copy of design-scale.json glass levels
+CmuxNextDesign	enum	OverlayGlassVariant	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FloatingGlass/OverlayGlassVariant.swift	glass variant setting enum
+CmuxNextDesign	extension	Palette	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FloatingGlass/Palette+GlassText.swift	glass text ink contrast derivation
+CmuxNextDesign	extension	SurfaceRole	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FloatingGlass/SurfaceRole+CornerRadius.swift	surface corner radius constant
+CmuxNextDesign	extension	SurfaceRole	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FloatingGlass/SurfaceRole+GlassLevel.swift	surface role to glass level mapping
+CmuxNextDesign	enum	FloatingPaneCornerMode	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FloatingPane/FloatingPaneCornerMode.swift	floating pane corner setting
+CmuxNextDesign	enum	FloatingPaneMaterial	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FloatingPane/FloatingPaneMaterial.swift	floating pane material setting and its decisions
+CmuxNextDesign	struct	FloatingPaneTunables	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FloatingPane/FloatingPaneTunables.swift	floating pane tunable constants
+CmuxNextDesign	struct	FloatingPaneLook	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FloatingPane/FloatingPaneTunables.swift	floating pane look values (colors, radii)
+CmuxNextDesign	extension	PaneGroundOwning	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FloatingPane/PaneGroundOwning.swift	protocol default seam
+CmuxNextDesign	struct	FocusRoute	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FocusRoute/FocusRoute.swift	focus route reason record
+CmuxNextDesign	extension	FocusRouting	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FocusRoute/FocusRouting.swift	moves first responder through AppKit
+CmuxNextDesign	class	FrameNoticeReaders	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FrameNoticeHold.swift	registry of NSView frame notice readers
+CmuxNextDesign	class	FrameNoticeHold	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FrameNoticeHold.swift	holds NSView frame notifications until a drag ends
+CmuxNextDesign	class	FullScreenTitlebarPress	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FullScreenTitlebarPress.swift	full-screen titlebar click forwarding in AppKit
+CmuxNextDesign	enum	CmuxPressShape	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/GlassButtonStyle.swift	SwiftUI press shape choice
+CmuxNextDesign	extension	EnvironmentValues	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/GlassButtonStyle.swift	SwiftUI EnvironmentValues key
+CmuxNextDesign	struct	ThemedInksKey	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/GlassButtonStyle.swift	SwiftUI EnvironmentKey
+CmuxNextDesign	struct	ThemedInks	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/GlassButtonStyle.swift	theme ink colors value for hosting views
+CmuxNextDesign	class	ThemedHostingView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/GlassButtonStyle.swift	NSHostingView subclass
+CmuxNextDesign	extension	GlassMenu	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/GlassMenu/GlassMenu+Look.swift	menu look from theme applied to NSMenu (half parse, half AppKit)
+CmuxNextDesign	struct	GlassMenuMaterial	0	MIXED	60	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/GlassMenu/GlassMenuMaterial.swift	menu veil contrast computation (LOGIC) and material constants
+CmuxNextDesign	struct	GlassMenuRow	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/GlassMenu/GlassMenuRow.swift	menu row model and its decisions
+CmuxNextDesign	class	GlassMenuStepperItem	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/GlassMenu/GlassMenuStepperItem.swift	NSMenuItem subclass
+CmuxNextDesign	struct	GlassMenuTypeSelect	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/GlassMenu/GlassMenuTypeSelect.swift	type-to-select matching in menus
+CmuxNextDesign	struct	GroupBackground	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/GroupBackground.swift	group header background and ink derivation
+CmuxNextDesign	extension	GroupColor	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/GroupColor+Distinct.swift	picks the most distinct palette color
+CmuxNextDesign	struct	OKLabPoint	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/GroupColor+Distinct.swift	OKLab color math
+CmuxNextDesign	extension	GroupColor	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/GroupColor+Palette.swift	group palette color mapping
+CmuxNextDesign	struct	GroupChipGlass	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/GroupGlass/GroupChipGlass.swift	tab group chip look derivation
+CmuxNextDesign	struct	GroupGlassPaint	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/GroupGlass/GroupGlassPaint.swift	group glass paint compositing
+CmuxNextDesign	func	over	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/GroupGlass/GroupGlassPaint.swift	source-over color compositing
+CmuxNextDesign	enum	SidebarGroupGlass	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/GroupGlass/SidebarGroupGlass.swift	group glass setting and its decisions
+CmuxNextDesign	extension	GroupGradient	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/GroupGradient+Colors.swift	group gradient colors
+CmuxNextDesign	extension	HoverCardCoordinator	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/HoverCards/HoverCardCoordinator+Pointer.swift	hover card pointer handling: event routing (AppKit) and hit decisions
+CmuxNextDesign	extension	HoverCardCoordinator	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/HoverCards/HoverCardCoordinator+Warm.swift	pre-warms the hover card window
+CmuxNextDesign	struct	WeakWindow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/HoverCards/HoverCardCoordinator.swift	weak NSWindow box
+CmuxNextDesign	struct	HoverCardGroup	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/HoverCards/HoverCardGroup.swift	hover card group identity
+CmuxNextDesign	struct	HoverCardPresentNote	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/HoverCards/HoverCardPanel+Glide.swift	last present decision record
+CmuxNextDesign	protocol	HoverCardFoldingBody	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/HoverCards/HoverCardPanel+Morph.swift	protocol seam
+CmuxNextDesign	class	HoverCardMorph	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/HoverCards/HoverCardPanel+Morph.swift	hover card resize animation of layers
+CmuxNextDesign	class	HoverCardBandTracker	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/HoverCards/HoverCardPanel+PointerPassThrough.swift	NSTrackingArea owner
+CmuxNextDesign	protocol	HoverCardSizeReporting	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/HoverCards/HoverCardSizeReporting.swift	protocol seam
+CmuxNextDesign	struct	HoverCardStyle	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/HoverCards/HoverCardStyle.swift	hover card style constants
+CmuxNextDesign	class	KeyWindowRepaint	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/KeyWindowRepaint.swift	repaints views on NSWindow key changes
+CmuxNextDesign	class	FirstFrameHold	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/FirstFrameGate.swift	first frame hold scheduling
+CmuxNextDesign	struct	LaunchFrameFiles	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LaunchFrameFiles.swift	launch frame file naming
+CmuxNextDesign	class	LaunchPageDeferral	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LaunchPageDeferral.swift	defers page views until first frame
+CmuxNextDesign	class	RunOnce	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LaunchReveal.swift	run-once helper
+CmuxNextDesign	class	LaunchShell	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LaunchShell.swift	launch shell orchestration: state and timers (LOGIC), NSWindow setup (PLATFORM)
+CmuxNextDesign	struct	LaunchShellContent	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LaunchShell.swift	launch content plug of views
+CmuxNextDesign	struct	LaunchShellLook	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LaunchShell.swift	launch colors
+CmuxNextDesign	struct	LaunchShellPaths	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LaunchShell.swift	launch record paths
+CmuxNextDesign	class	Prepared	0	MIXED	40	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LaunchShell.swift	prepared launch plan; image decode on a queue
+CmuxNextDesign	class	DecodedImage	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LaunchShell.swift	decoded image box
+CmuxNextDesign	struct	LaunchShellReplay	0	MIXED	40	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LaunchShell.swift	replays held NSEvents: chooses which, rebuilds events
+CmuxNextDesign	extension	Optional	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LaunchShell.swift	optional string helper
+CmuxNextDesign	struct	LayoutCacheRect	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LayoutCache.swift	mirror of cmux-layout-cache Rect
+CmuxNextDesign	struct	LayoutCacheDisplay	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LayoutCache.swift	mirror of cmux-layout-cache Display
+CmuxNextDesign	enum	LayoutCacheAppearance	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LayoutCache.swift	mirror of cmux-layout-cache Appearance
+CmuxNextDesign	struct	LayoutCacheTheme	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LayoutCache.swift	mirror of cmux-layout-cache Theme
+CmuxNextDesign	struct	LayoutCacheRowHeight	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LayoutCache.swift	mirror of cmux-layout-cache RowHeight
+CmuxNextDesign	struct	LayoutCacheSidebar	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LayoutCache.swift	mirror of cmux-layout-cache Sidebar
+CmuxNextDesign	struct	LayoutCacheTabSlot	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LayoutCache.swift	mirror of cmux-layout-cache TabSlot
+CmuxNextDesign	struct	LayoutCacheScroll	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LayoutCache.swift	mirror of cmux-layout-cache Scroll
+CmuxNextDesign	enum	LayoutCachePaneKind	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LayoutCache.swift	mirror of cmux-layout-cache PaneKind
+CmuxNextDesign	struct	LayoutCacheLeaf	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LayoutCache.swift	mirror of cmux-layout-cache Leaf
+CmuxNextDesign	enum	LayoutCachePaneNode	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LayoutCache.swift	mirror of cmux-layout-cache PaneNode codec
+CmuxNextDesign	struct	LayoutCacheWindow	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LayoutCache.swift	mirror of cmux-layout-cache Window
+CmuxNextDesign	extension	LayoutCacheWindow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LayoutCache.swift	gathers window geometry from NSWindow/NSView
+CmuxNextDesign	struct	LayoutCacheDocument	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LayoutCache.swift	mirror of cmux-layout-cache Document
+CmuxNextDesign	struct	LayoutCacheUsable	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LayoutCache.swift	mirror of cmux-layout-cache Usable
+CmuxNextDesign	struct	LayoutCacheApplied	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LayoutCache.swift	mirror of cmux-layout-cache Applied
+CmuxNextDesign	enum	LayoutCacheLiveNode	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LayoutCache.swift	mirror of cmux-layout-cache LiveTree root
+CmuxNextDesign	struct	LayoutCacheLiveTree	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LayoutCache.swift	mirror of cmux-layout-cache LiveTree
+CmuxNextDesign	struct	LayoutCacheStripApplied	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LayoutCache.swift	mirror of cmux-layout-cache StripApplied
+CmuxNextDesign	struct	LayoutCacheFFI	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LayoutCache.swift	JSON codec over the cmux_layout_cache C ABI
+CmuxNextDesign	struct	LayoutCacheLaunch	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LayoutCache.swift	gates the cached layout by usable windows this launch
+CmuxNextDesign	extension	CGImage	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/PageImageEncoding.swift	CGImage encoding via ImageIO
+CmuxNextDesign	enum	HoldReason	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/LiveWallpaper/BackdropLiveView.swift	mirror of CmuxWallpaperDecision.hold_reason
+CmuxNextDesign	class	LiveLinkTarget	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/LiveWallpaper/BackdropLiveView.swift	CADisplayLink target
+CmuxNextDesign	extension	LiveWallpaper	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/LiveWallpaper/LiveWallpaper+Still.swift	picks a live wallpaper still
+CmuxNextDesign	struct	LiveWallpaper	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/LiveWallpaper/LiveWallpaper.swift	live wallpaper metadata parse and choices
+CmuxNextDesign	struct	LiveWallpaperColors	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/LiveWallpaper/LiveWallpaperFrame.swift	theme colors for a live wallpaper
+CmuxNextDesign	struct	LiveWallpaperFrame	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/LiveWallpaper/LiveWallpaperFrame.swift	live wallpaper frame values and packing
+CmuxNextDesign	class	LiveWallpaperGPU	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/LiveWallpaper/LiveWallpaperPrograms.swift	Metal device holder
+CmuxNextDesign	class	LiveWallpaperPipeline	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/LiveWallpaper/LiveWallpaperPrograms.swift	Metal render pipeline holder
+CmuxNextDesign	actor	LiveWallpaperPrograms	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/LiveWallpaper/LiveWallpaperPrograms.swift	builds and caches wallpaper programs (cache LOGIC, Metal compile PLATFORM)
+CmuxNextDesign	class	LiveWallpaperLibrary	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/LiveWallpaper/LiveWallpaperPrograms.swift	Metal library box
+CmuxNextDesign	enum	LiveWallpaperBuildError	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/LiveWallpaper/LiveWallpaperPrograms.swift	wallpaper build error messages
+CmuxNextDesign	class	LiveWallpaperRenderer	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/LiveWallpaper/LiveWallpaperRenderer.swift	draws live wallpaper frames with Metal
+CmuxNextDesign	class	LiveWallpaperReadback	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/LiveWallpaper/LiveWallpaperRenderer.swift	Metal readback buffer
+CmuxNextDesign	struct	MenuLook	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/MenuLook.swift	parses a theme's menu and popover look
+CmuxNextDesign	class	MenuTextSize	0	MIXED	40	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/MenuTextSize.swift	menu text size: follows the setting, applies to NSMenu
+CmuxNextDesign	extension	Metrics	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Metrics+AddGlyph.swift	add glyph metric constants
+CmuxNextDesign	extension	CGPath	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Metrics+AddGlyph.swift	CGPath glyph drawing
+CmuxNextDesign	extension	Metrics	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Metrics+ButtonContainer.swift	button container metric constants
+CmuxNextDesign	extension	Metrics	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Metrics+ButtonCorner.swift	button corner derivation by density
+CmuxNextDesign	extension	Metrics	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Metrics+ChromeRowCorner.swift	chrome row corner constants
+CmuxNextDesign	extension	Metrics	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Metrics+RowMatch.swift	row-match metric derivation
+CmuxNextDesign	extension	Metrics	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Metrics+TabBarControl.swift	tab bar control metric constants
+CmuxNextDesign	extension	Motion	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+AppScene.swift	motion constant
+CmuxNextDesign	enum	SceneMotion	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+AppScene.swift	parses scene motion props
+CmuxNextDesign	struct	SceneLoop	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+AppScene.swift	parses scene loop props
+CmuxNextDesign	enum	SceneTransition	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+AppScene.swift	scene transition values
+CmuxNextDesign	struct	SceneTransformSpace	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+AppScene.swift	CATransform geometry for scene layers
+CmuxNextDesign	extension	MotionGate	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+AppScene.swift	builds CAAnimations for scene motion
+CmuxNextDesign	extension	MotionGate	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+ContentTransition.swift	MotionGate content-transition: picks transition kind per value change (logic) and drives CATransition/layer animation calls (platform)
+CmuxNextDesign	extension	MotionGate	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+Settle.swift	MotionGate settle: decides when a motion has settled and then applies layer animation APIs
+CmuxNextDesign	struct	MotionPair	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionPairs.swift	MotionPair: pairs an enter motion with its exit and derives the reversed exit; pure motion model
+CmuxNextDesign	extension	MotionPolicy	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionPairs.swift	MotionPolicy extension: maps policy to motion pairs, decision table
+CmuxNextDesign	extension	ScreenRecording	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionScreenRecordMovie.swift	ScreenRecording movie writer: AVFoundation AVAssetWriter glue writing recorded frames to a movie
+CmuxNextDesign	class	TimedProgress	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/TimedProgress.swift	TimedProgress: steps a timed transition on a curve per clock tick, holds progress state and completion decisions
+CmuxNextDesign	extension	NSImage	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/NSImage+SystemSymbol.swift	NSImage extension: wraps NSImage(systemSymbolName:) lookup with configuration, AppKit glue
+CmuxNextDesign	extension	NSMenu	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/NSMenu+SystemItems.swift	NSMenu extension: builds standard AppKit system menu items, AppKit glue
+CmuxNextDesign	struct	OmnibarInk	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OmnibarInk.swift	OmnibarInk: derives omnibar text/icon colors from surface luminance, color decisions
+CmuxNextDesign	extension	AddressBarSurface	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OmnibarInk.swift	AddressBarSurface extension: maps a surface to its ink and contrast choices
+CmuxNextDesign	extension	Palette	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OmnibarInk.swift	Palette extension: picks omnibar ink colors from palette tokens
+CmuxNextDesign	extension	OmnibarInk	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OmnibarInk.swift	OmnibarInk extension: converts ink ThemeRGB to NSColor (platform) after choosing which ink applies (logic)
+CmuxNextDesign	extension	ThemeRGB	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OmnibarInk.swift	ThemeRGB extension: luminance/contrast color math
+CmuxNextDesign	class	OpenPanelMakeHistory	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OpenPanelMakeHistory.swift	OpenPanelMakeHistory: records how long NSOpenPanel() blocked, persists and decides whether to prewarm; state and decisions
+CmuxNextDesign	class	MenuTrackingConfinement	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Overlay/MenuTrackingConfinement.swift	MenuTrackingConfinement: NSMenuDelegate returning the screen rect AppKit confines menu tracking to
+CmuxNextDesign	extension	NSMenu	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Overlay/MenuTrackingConfinement.swift	NSMenu extension: installs the confinement delegate around AppKit popUp calls
+CmuxNextDesign	extension	NativePopupContent	0	MIXED	40	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Overlay/NativePopupContent+Columns.swift	NativePopupContent+Columns: lays out column NSViews and rail tabs (platform) but also decides selection, search filtering and column sizing from the model (logic)
+CmuxNextDesign	extension	Array	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Overlay/NativePopupContent+Columns.swift	Array safe-subscript helper used by column selection logic
+CmuxNextDesign	extension	NativePopupModel	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Overlay/NativePopupModel+Rows.swift	NativePopupModel+Rows: flattens and filters popup rows from the model, data mapping
+CmuxNextDesign	class	PopupPressRelease	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Overlay/PopupPressRelease.swift	PopupPressRelease: press-drag-release gesture state machine deciding activation on release
+CmuxNextDesign	struct	NativePopupColumn	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Overlay/PopupProtocol/NativePopupColumn.swift	NativePopupColumn: Codable re-declaration of a native popup wire column
+CmuxNextDesign	enum	NativePopupRailPlacement	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Overlay/PopupProtocol/NativePopupRailPlacement.swift	NativePopupRailPlacement: Codable enum re-declared from the native popup wire
+CmuxNextDesign	extension	NSMenu	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Overlay/WebContextMenu.swift	NSMenu web context menu: maps web context menu items to NSMenuItems (logic mapping) using AppKit menu APIs
+CmuxNextDesign	protocol	ReduceTransparencyFollower	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OverlayMaterial.swift	ReduceTransparencyFollower: protocol seam with no logic
+CmuxNextDesign	enum	PaneCommitMotionHoldKind	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PaneCommitMotionHolding.swift	PaneCommitMotionHoldKind: enum of hold strategies decided per move
+CmuxNextDesign	struct	PaneCommitMotionLastFrame	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PaneCommitMotionLastFrame.swift	PaneCommitMotionLastFrame: holds a CGImage/IOSurface frame and layer contents info for redisplay, layer glue
+CmuxNextDesign	protocol	PaneCommitMotionPicture	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PaneCommitMotionPicture.swift	PaneCommitMotionPicture: protocol composition seam
+CmuxNextDesign	extension	PaneCommitMotionPicture	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PaneCommitMotionPicture.swift	PaneCommitMotionPicture extension: default protocol witnesses, no decisions
+CmuxNextDesign	extension	PaneCommitSurface	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PaneCommitSurface.swift	PaneCommitSurface extension: one-line default protocol witness
+CmuxNextDesign	protocol	PanePointerRegion	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PanePointer.swift	PanePointerRegion: protocol seam for pointer enter/leave
+CmuxNextDesign	class	PlusButtonLook	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PlusButtonLook.swift	PlusButtonLook: state model for hover/press/menu and derived fill/glyph choices (logic) plus CALayer drawing and NSView hookup (platform)
+CmuxNextDesign	class	ResizeBands	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ResizeBands.swift	ResizeBands: registers window resize handle bands as NSRect regions for scrollers, AppKit geometry glue
+CmuxNextDesign	extension	PaneResizeGestureFollowing	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/RestingPlacement.swift	PaneResizeGestureFollowing extension: default protocol witness
+CmuxNextDesign	struct	ScrollerStylePin	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ScrollerStylePin.swift	ScrollerStylePin: pins NSScroller preferred style via UserDefaults/AppKit, OS API glue
+CmuxNextDesign	struct	SidebarRowGlyph	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/SidebarCustomization.swift	SidebarRowGlyph: value parsed from cmux.sidebar.rows indicator setting
+CmuxNextDesign	protocol	SidebarRowGlyphPlayer	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/SidebarCustomization.swift	SidebarRowGlyphPlayer: protocol seam
+CmuxNextDesign	enum	SidebarToggleGlyph	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/SidebarToggleGlyph.swift	SidebarToggleGlyph: names glyph variants and slide steps (logic) and draws them as NSImage paths (platform drawing)
+CmuxNextDesign	extension	StatusIndicatorLayer	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/StatusIndicator/StatusIndicatorLayer+Settle.swift	StatusIndicatorLayer settle: decides settle timing and applies CALayer animations
+CmuxNextDesign	struct	SunPosition	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Sun.swift	SunPosition: sun altitude/azimuth value with derived day/night predicates
+CmuxNextDesign	struct	SunEvents	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Sun.swift	SunEvents: one day's sunrise/sunset/noon events
+CmuxNextDesign	extension	SunPosition	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Sun.swift	SunPosition extension: derived values from position
+CmuxNextDesign	extension	BackdropLocation	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Sun.swift	BackdropLocation extension: NOAA solar position and events calculation
+CmuxNextDesign	struct	Solar	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Sun.swift	Solar: declination and equation-of-time math
+CmuxNextDesign	extension	Double	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Sun.swift	Double degree/radian conversion helpers for solar math
+CmuxNextDesign	struct	ScrollerPartNames	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/SystemScrollers.swift	ScrollerPartNames: maps scroller subroles to arrow/page part names
+CmuxNextDesign	enum	TabCornerCurve	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/TabCornerCurve.swift	TabCornerCurve: tunable choice of corner curve with radius mapping
+CmuxNextDesign	extension	Metrics	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/TabCornerCurve.swift	Metrics extension: constant corner curve accessor
+CmuxNextDesign	enum	TabShape	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/TabShape.swift	TabShape: appearance.tabShape setting enum mapped to radii
+CmuxNextDesign	struct	TerminalBackgroundImage	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/TerminalBackgroundImage.swift	TerminalBackgroundImage: value parsed from Ghostty background-image config
+CmuxNextDesign	enum	ChromeTextRefresh	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ChromeTextRefresh.swift	ChromeTextRefresh: walks windows/views to redisplay text after font smoothing changes, AppKit glue
+CmuxNextDesign	enum	FontSmoothing	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/FontSmoothing.swift	FontSmoothing: appearance.fontSmoothing setting enum with parsing and mapping
+CmuxNextDesign	struct	ProcessFontSmoothing	0	MIXED	60	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ProcessFontSmoothing.swift	ProcessFontSmoothing: decides the process font smoothing from setting and defaults (logic) and writes AppleFontSmoothing/CG defaults (platform)
+CmuxNextDesign	extension	MotionGate	0	MIXED	40	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/TitleRoll.swift	TitleRoll: splits renamed title words into roll diffs (logic) and animates CATextLayers (platform)
+CmuxNextDesign	struct	TitleRollEnd	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/TitleRoll.swift	TitleRollEnd: removes roll layers and blur filters at transaction end, CoreAnimation glue
+CmuxNextDesign	struct	ThemeDecorations	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemeDecorations.swift	ThemeDecorations: theme decoration slots parsed from theme file
+CmuxNextDesign	class	ThemeFonts	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemeFonts.swift	ThemeFonts: tracks the theme's font files and registers/unregisters them as the theme changes
+CmuxNextDesign	extension	ThemeTokens	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemeTokens+GroupFill.swift	ThemeTokens group fill: derives grouped row fill color
+CmuxNextDesign	class	ThemedPopUpButtonCell	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemedPopUpButtonCell.swift	ThemedPopUpButtonCell: NSPopUpButtonCell subclass drawing the bezel
+CmuxNextDesign	extension	ThemeTokens	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Themes/ThemeTokens+MenuHighlight.swift	ThemeTokens menu highlight: derives menu highlight color from tokens
+CmuxNextDesign	extension	ThemeTokens	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Themes/ThemeTokens+SpinnerInk.swift	ThemeTokens spinner ink: derives spinner color from tokens
+CmuxNextDesign	extension	ThemeTokens	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Themes/ThemeTokens+StatusDotHue.swift	ThemeTokens status dot hue: derives readable status dot colors
+CmuxNextDesign	func	readableDot	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Themes/ThemeTokens+StatusDotHue.swift	readableDot: mixes a color toward a pole until contrast holds over surfaces
+CmuxNextDesign	struct	ThinScrollerTrack	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThinScrollerTrack.swift	ThinScrollerTrack: computes knob slot and knob position along an axis
+CmuxNextDesign	enum	TitleAreaTone	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/TitleAreaTone.swift	TitleAreaTone: appearance.titleAreaTone setting enum
+CmuxNextDesign	extension	CmuxToast	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/CmuxToast.swift	CmuxToast extension: derived toast properties
+CmuxNextDesign	enum	CmuxToastButtonRow	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/CmuxToastButtonRow.swift	CmuxToastButtonRow: tunable choice mapping to button row layout parameters
+CmuxNextDesign	extension	CmuxToastCenter	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/CmuxToastCenter+Notice.swift	CmuxToastCenter notice: posts NotificationCenter notices, OS glue
+CmuxNextDesign	extension	Glass	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/CmuxToastCenter+Surface.swift	Glass extension: maps toast surface to glass parameters
+CmuxNextDesign	extension	CmuxToastCenter	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/CmuxToastCenter.swift	CmuxToastCenter conformance: protocol witness forwarding style
+CmuxNextDesign	enum	CmuxToastEntrance	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/CmuxToastEntrance.swift	CmuxToastEntrance: entrance enum mapping to motion parameters
+CmuxNextDesign	enum	CmuxToastGlass	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/CmuxToastGlass.swift	CmuxToastGlass: tunable glass choice mapping to gallery numbers and parameters
+CmuxNextDesign	struct	CmuxToastShown	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/CmuxToastHost.swift	CmuxToastShown: toast plus person-changed state record
+CmuxNextDesign	class	CmuxToastNoHost	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/CmuxToastHost.swift	CmuxToastNoHost: no-op host
+CmuxNextDesign	struct	CmuxToastLook	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/CmuxToastLook.swift	CmuxToastLook: toast look knobs derived per style
+CmuxNextDesign	class	CmuxToastNeverShowStore	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/CmuxToastNeverShowStore.swift	CmuxToastNeverShowStore: persisted set of hidden toast kinds with add/check
+CmuxNextDesign	enum	CmuxToastPlacement	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/CmuxToastPlacement.swift	CmuxToastPlacement: placement enum
+CmuxNextDesign	extension	CmuxToastReanchoring	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/CmuxToastReanchoring.swift	CmuxToastReanchoring extension: default protocol witness
+CmuxNextDesign	enum	CmuxToastStyle	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/CmuxToastStyle.swift	CmuxToastStyle: style enum mapping each style to its look, large decision table
+CmuxNextDesign	protocol	CmuxToastStyleFollowing	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/CmuxToastStyleFollowing.swift	CmuxToastStyleFollowing: protocol seam
+CmuxNextDesign	class	CmuxToastStyleStore	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/CmuxToastStyleStore.swift	CmuxToastStyleStore: persisted toast style choice with change notification
+CmuxNextDesign	enum	CmuxToastTone	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/CmuxToastTone.swift	CmuxToastTone: tone enum mapping to colors and symbols
+CmuxNextDesign	struct	CmuxToastTunables	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/CmuxToastTunables.swift	CmuxToastTunables: tunable knob definitions with defaults and ranges
+CmuxNextDesign	struct	CmuxToastTuning	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/CmuxToastTuning.swift	CmuxToastTuning: reads all tunables into a snapshot and derives timings
+CmuxNextDesign	struct	PlainErrorText	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/PlainErrorText.swift	PlainErrorText: maps NSError/POSIX/URL errors to plain-language text, classification
+CmuxNextDesign	struct	CmuxToastPlaygroundCard	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/Playground/CmuxToastPlaygroundCard.swift	CmuxToastPlaygroundCard: debug playground card view host
+CmuxNextDesign	struct	CmuxToastPlaygroundFocus	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/Playground/CmuxToastPlaygroundFocus.swift	CmuxToastPlaygroundFocus: tunable choice filtering styles
+CmuxNextDesign	struct	CmuxToastPlaygroundSamples	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/Playground/CmuxToastPlaygroundSamples.swift	CmuxToastPlaygroundSamples: sample toast data per kind
+CmuxNextDesign	struct	CmuxToastPlaygroundThemes	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/Playground/CmuxToastPlaygroundThemes.swift	CmuxToastPlaygroundThemes: picks gallery themes for light/dark
+CmuxNextDesign	class	CmuxToastPlaygroundWindow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/Playground/CmuxToastPlaygroundWindow.swift	CmuxToastPlaygroundWindow: debug window construction, AppKit glue
+CmuxNextDesign	struct	SurfaceZoomIndicator	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/SurfaceZoomIndicator.swift	SurfaceZoomIndicator: formats display zoom level readout
+CmuxNextDesign	class	TokenMemo	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/TokenMemo.swift	TokenMemo: memoizes a composite token until inputs change, cache state
+CmuxNextDesign	class	TokenMemoSignal	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/TokenMemo.swift	TokenMemoSignal: Observation identity marker, no logic
+CmuxNextDesign	class	TokenMemos	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/TokenMemo.swift	TokenMemos: holder of memo instances
+CmuxNextDesign	extension	ToolbarEdgeHosting	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ToolbarEdgeHosting.swift	ToolbarEdgeHosting extension: default protocol witness
+CmuxNextDesign	struct	TooltipGallerySample	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tooltip/Gallery/TooltipGallerySample.swift	TooltipGallerySample: tooltip gallery sample data
+CmuxNextDesign	class	TooltipGalleryWindow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tooltip/Gallery/TooltipGalleryWindow.swift	TooltipGalleryWindow: debug window construction, AppKit glue
+CmuxNextDesign	struct	TooltipMetrics	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tooltip/TooltipMetrics.swift	TooltipMetrics: constant tooltip measurement table
+CmuxNextDesign	enum	BrowserChromeMetric	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/BrowserChromeMetric.swift	BrowserChromeMetric: per-metric defaults, ranges and density mapping, decision table
+CmuxNextDesign	struct	BrowserChromeReferenceFiles	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/BrowserChromeReferenceFiles.swift	BrowserChromeReferenceFiles: locates and reads reference capture files
+CmuxNextDesign	struct	BrowserChromeTuning	0	MIXED	60	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/BrowserChromeTuning.swift	BrowserChromeTuning: resolves browser chrome numbers per density from tunables (logic) and NSFont/CGFloat metrics reads (platform)
+CmuxNextDesign	enum	TwoTone	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/TwoTone.swift	TwoTone: appearance.twoTone setting enum deciding chrome and content tones
+CmuxNextDesign	extension	Typography	0	MIXED	60	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Typography+PageDensity.swift	Typography page density: maps page density to font sizes (logic) and builds NSFonts (platform)
+CmuxNextDesign	enum	UpdatedCardPreviewMode	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/UpdatedCardPreviewMode.swift	UpdatedCardPreviewMode: tunable choice deciding where the updated card shows
+CmuxNextDesign	enum	UpdatedNotesLook	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/UpdatedNotesLook.swift	UpdatedNotesLook: tunable choice mapping to note styling
+CmuxNextDesign	extension	WKNavigationAction	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WKNavigationAction+Frames.swift	WKNavigationAction extension: safe WebKit frame accessors
+CmuxNextDesign	extension	WKFrameInfo	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WKNavigationAction+Frames.swift	WKFrameInfo extension: WebKit accessor glue
+CmuxNextDesign	struct	DesktopShown	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WallpaperTint/DesktopShown.swift	DesktopShown: resolves a screen's desktop to a drawable or playable file
+CmuxNextDesign	struct	DesktopStoreChoice	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WallpaperTint/DesktopStoreChoice.swift	DesktopStoreChoice: parses macOS wallpaper store index plist and picks the choice
+CmuxNextDesign	class	DesktopStoreCache	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WallpaperTint/DesktopStoreChoice.swift	DesktopStoreCache: caches store index and metadata per file version
+CmuxNextDesign	protocol	DesktopWallpaperColorFollower	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WallpaperTint/DesktopWallpaperWatch.swift	DesktopWallpaperColorFollower: protocol seam
+CmuxNextDesign	struct	WallpaperLightField	0	MIXED	60	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WallpaperTint/WallpaperLight.swift	WallpaperLightField: samples a light field from the wallpaper (math, logic) after drawing it into a CGContext (platform)
+CmuxNextDesign	class	WallpaperLight	0	MIXED	60	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WallpaperTint/WallpaperLight.swift	WallpaperLight: holds current light state and decides when to recompute (logic) and reads NSScreen/CGImage (platform)
+CmuxNextDesign	class	WallpaperRimLayer	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WallpaperTint/WallpaperRimLayer.swift	WallpaperRimLayer: CAGradientLayer subclass painting the rim light
+CmuxNextDesign	protocol	WindowBackgroundDragDeciding	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WindowBackgroundDragDeciding.swift	WindowBackgroundDragDeciding: protocol seam
+CmuxNextDesign	struct	WindowListTitle	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WindowListTitle.swift	WindowListTitle: composes window-list title text
+CmuxNextDesign	struct	WindowListTitleObservation	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WindowListTitle.swift	WindowListTitleObservation: observation loop deciding when to update the window list title
+CmuxNextDesign	enum	ArtBlur	0	MIXED	40	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WindowMaterialView+ArtBlur.swift	ArtBlur: decides blur radius and caching per picture (logic) via CoreImage blur (platform)
+CmuxNextDesign	extension	WindowMaterialView	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WindowMaterialView+ArtBlur.swift	WindowMaterialView art blur: decides when to request and swap blurred art
+CmuxNextDesign	extension	WindowMaterialView	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WindowMaterialView+Desktop.swift	WindowMaterialView desktop: computes desktop placement on the window's screen (logic) and sets layer contents (platform)
+CmuxNextDesign	extension	WindowMaterialView	0	MIXED	60	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WindowMaterialView+Placement.swift	WindowMaterialView placement: computes picture placement for appearance.backgroundPlacement (logic) and applies layer frames (platform)
+CmuxNextDesign	struct	AppKeyState	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WindowPressRouter.swift	AppKeyState: snapshot of NSApp key/main window state
+CmuxNextDesign	extension	KeyNeutralPressTarget	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WindowPressRouter.swift	KeyNeutralPressTarget extension: default protocol witness
+CmuxNextDesign	class	WindowPressRouter	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WindowPressRouter.swift	WindowPressRouter: decides press routing and key claims (logic) against NSEvent/NSWindow APIs (platform)
+CmuxNextDesign	struct	FrameStripKeyRepeat	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/FrameStripKeyRepeat.swift	FrameStripKeyRepeat: decides key repeat timing of a frame strip
+CmuxNextDesign	class	GlyphInkMeasure	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/GlyphInkMeasure.swift	GlyphInkMeasure: measures image ink extents (logic) by rendering into CGContext (platform)
+CmuxNextDesign	extension	GlyphInkMeasure	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/GlyphInkMeasure.swift	GlyphInkMeasure extension: computes ink offsets
+CmuxNextDesign	extension	GlyphInkMeasure	1	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/GlyphInkMeasure.swift	GlyphInkMeasure extension: caches and decides glyph spacing
+CmuxNextDesign	extension	TopRowSpacing.Slots	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/GlyphInkMeasure.swift	TopRowSpacing.Slots extension: computes slot spacing from ink measures
+CmuxNextDesign	enum	LaunchDisplay	0	MIXED	60	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/LaunchDisplay.swift	LaunchDisplay: parses and decides the launch display (logic) and matches NSScreens (platform)
+CmuxNextDesign	class	LaunchLayoutSettle	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/LaunchLayoutSettle.swift	LaunchLayoutSettle: tracks frames to decide when launch settled (logic) using CADisplayLink/window snapshots (platform)
+CmuxNextDesign	struct	LaunchLayoutSettleTally	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/LaunchLayoutSettle.swift	LaunchLayoutSettleTally: per-frame tally and stop decision
+CmuxNextDesign	struct	LaunchRecordRequest	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/LaunchRecordRequest.swift	LaunchRecordRequest: parses --record-launch arguments
+CmuxNextDesign	func	compensatedFill	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/SurfaceBackgrounds.swift	compensatedFill: color compensation math for surface fill
+CmuxNextDesign	enum	TopRowLineLook	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/TopRowLine.swift	TopRowLineLook: tunable choice enum mapping to line placement
+CmuxNextDesign	struct	TopRowLine	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/TopRowLine.swift	TopRowLine: computes pill placement on the top row line (logic) from NSWindow metrics (platform)
+CmuxNextDesign	extension	WindowTitlebar	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/TopRowLine.swift	WindowTitlebar top row line: decides top row line per look and pane mode (logic) reading NSWindow/titlebar geometry (platform)
+CmuxNextDesign	struct	TopRowSpacing	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/TopRowSpacing.swift	TopRowSpacing: computes the top row horizontal rhythm (logic) from AppKit button frames (platform)
+CmuxNextDesign	struct	TrafficLightsLine	0	MIXED	40	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/TrafficLightsLine.swift	TrafficLightsLine: computes traffic light placement (logic) and moves NSWindow standard buttons (platform)
+CmuxNextDesign	struct	WindowOverlaysCapturePlan	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WindowOverlaysCapturePlan.swift	WindowOverlaysCapturePlan: capture parameter record
+CmuxNextDesign	struct	WindowOverlaysCapture	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WindowOverlaysCapturePlan.swift	WindowOverlaysCapture: composited window image holder
+CmuxNextDesign	struct	WindowPlacementFallback	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WindowPlacementFallback.swift	WindowPlacementFallback: decides whether a saved frame fits today's displays (logic) via NSScreen (platform)
+CmuxNextDesign	struct	WindowTargeting	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WindowTargeting.swift	WindowTargeting: picks the key/main NSWindow for window actions, AppKit glue
+CmuxNextDesign	class	WindowZoom	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WindowZoom.swift	WindowZoom: zoom toggle state and frame decisions (logic) applying NSWindow frames (platform)
+CmuxNextDesign	struct	WindowedTrafficLights	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WindowedTrafficLights.swift	WindowedTrafficLights: records NSWindow button positions
+CmuxNextLayout	extension	Bundle	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Bundle+AppLanguage.swift	Bundle extension: app language bundle accessor
+CmuxNextLayout	struct	ColumnEqualizer	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/ColumnEqualizer.swift	ColumnEqualizer: computes equalized column widths
+CmuxNextLayout	struct	FloatingPaneCorners	0	MIXED	60	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/FloatingPaneCorners.swift	FloatingPaneCorners: decides each corner radius from neighbors (logic) with CGFloat/CACornerMask glue (platform)
+CmuxNextLayout	struct	UniformEdge	0	MIXED	60	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/UniformEdge.swift	UniformEdge: computes uniform column width on edge resize (logic) with NSEvent/AppKit geometry (platform)
+CmuxNextLayout	struct	ChiefPanel	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/ChiefPanel.swift	ChiefPanel: window Chief panel state and placement decisions
+CmuxNextLayout	struct	ChiefPanelFrame	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/ChiefPanelFrame.swift	ChiefPanelFrame: Chief frame fractions and clamping
+CmuxNextLayout	enum	ChiefPanelStyle	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/ChiefPanelStyle.swift	ChiefPanelStyle: home.chiefPanel.style setting enum mapped to look parameters
+CmuxNextLayout	struct	DividerInsertPlan	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/DividerInsertPlan.swift	DividerInsertPlan: where Insert New at a divider puts its pane, in layout ids
+CmuxNextLayout	extension	SplitNode	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/DividerInsertPlan.swift	SplitNode extension: walks the split tree to plan a divider insert
+CmuxNextLayout	extension	LayoutModel	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/DividerInsertPlan.swift	LayoutModel extension: resolves a divider insert plan against the model
+CmuxNextLayout	struct	EndedValues	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/EndedValues.swift	EndedValues: values a key press or drag release ends with, clamping and rounding decisions
+CmuxNextLayout	struct	LayoutFloatingPane	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/LayoutFloatingPane.swift	LayoutFloatingPane: floating pane frame model with clamping and placement math
+CmuxNextLayout	extension	LayoutModel	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/LayoutModel+AttentionEntry.swift	LayoutModel attention entry: decides when the attention ring's dismiss blink runs from focus changes
+CmuxNextLayout	extension	LayoutModel	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/LayoutModel+Equalize.swift	LayoutModel equalize: computes equalized split ratios and column widths
+CmuxNextLayout	extension	LayoutModel	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/LayoutModel+Floating.swift	LayoutModel floating: floating pane add/remove/frame updates
+CmuxNextLayout	extension	LayoutModel	0	MIXED	40	60	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/LayoutModel+LayoutCache.swift	LayoutModel layout cache: converts the split tree to cmux-layout-cache PaneNode/LiveNode (wire codec, mirror) and decides fallbacks (logic)
+CmuxNextLayout	struct	TransactionReplies	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/TransactionReplies.swift	TransactionReplies: tracks unanswered layout transactions and their ended intents
+CmuxNextLayout	struct	GestureOverride	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/TransactionReplies.swift	GestureOverride: locally set divider/column value shown over the daemon's
+CmuxNextLayout	extension	ColumnFocusSource	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Scroll/ColumnFocusSource.swift	ColumnFocusSource extension: derived focus source predicate
+CmuxNextLayout	protocol	ChiefPanelContent	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/ChiefPanelContent.swift	ChiefPanelContent: protocol seam
+CmuxNextLayout	extension	ChiefPanelContent	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/ChiefPanelContent.swift	ChiefPanelContent extension: default protocol witnesses
+CmuxNextLayout	func	firstKeyView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/ChiefPanelView.swift	firstKeyView: walks NSView tree for acceptsFirstResponder, AppKit glue
+CmuxNextLayout	struct	ClosingPanes	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/ClosingPanes.swift	ClosingPanes: plans closing pane springs and frames
+CmuxNextLayout	extension	DividerDrag	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/DividerDrag+Catch.swift	DividerDrag catch: holds a springing edge where drawn when a drag starts, frame decisions
+CmuxNextLayout	extension	AnimatedFrame	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/DividerDrag+Catch.swift	AnimatedFrame extension: trivial accessor
+CmuxNextLayout	extension	DividerDragValue	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/DividerDrag+Catch.swift	DividerDragValue extension: derives drag value conversions
+CmuxNextLayout	struct	FloatingPaneDrag	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/FloatingPaneDrag.swift	FloatingPaneDrag: pointer move/resize of a floating pane, local frame state until release
+CmuxNextLayout	class	FloatingPaneLookWatch	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/FloatingPaneLookWatch.swift	FloatingPaneLookWatch: armed read of floating pane knobs, invalidation state
+CmuxNextLayout	struct	FloatingPaneReach	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/FloatingPaneReach.swift	FloatingPaneReach: computes edge bands and corner zones a resize reaches, hit decisions
+CmuxNextLayout	struct	FloatingPanesState	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/FloatingPanesState.swift	FloatingPanesState: holds floating panes, cards and look, reconciles model to view state
+CmuxNextLayout	extension	LayoutViewContext	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/LayoutPaneContentProvider.swift	LayoutViewContext extension: picks content provider per pane (logic) and builds NSViews (platform)
+CmuxNextLayout	extension	LayoutRootView	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/LayoutRootView+DeferredScreens.swift	LayoutRootView deferred screens: queues hidden screens to mount at idle
+CmuxNextLayout	extension	PaneCommitMotion	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/PaneCommitMotion+Layers.swift	PaneCommitMotion layers: decides each pane's move, ground and hold (logic) and places CALayers (platform)
+CmuxNextLayout	extension	PaneCommitMotion	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/PaneCommitMotion+Under.swift	PaneCommitMotion under: computes which panes show outside a moving pane
+CmuxNextLayout	extension	PaneCommitMotion	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/PaneCommitMotion+Unzoom.swift	PaneCommitMotion unzoom: plans an unzoom's moves and frames
+CmuxNextLayout	class	PaneCommitMotion	0	MIXED	70	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/PaneCommitMotion.swift	PaneCommitMotion: plans pane moves for a commit (logic, most of it) and drives CoreAnimation transactions (platform)
+CmuxNextLayout	extension	PaneOverlayView.ClipCorners	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/PaneHostView+ClipCorners.swift	PaneOverlayView.ClipCorners extension: applies layer corner masks
+CmuxNextLayout	extension	PaneCommitMotion	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/PaneHostView+MoveHold.swift	PaneCommitMotion move hold: decides hold kind per pane
+CmuxNextLayout	class	PaneZoomDim	0	MIXED	70	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/PaneZoomDim.swift	PaneZoomDim: zoom dim state machine and timing (logic) applied through CALayer opacity (platform)
+CmuxNextLayout	extension	ScreenContentView	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/ScreenContentView+Floating.swift	ScreenContentView floating: orders and reconciles floating pane hosts
+CmuxNextLayout	extension	ScreenContentView	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/ScreenContentView+SnapFrame.swift	ScreenContentView snap frame: plans one-frame structural layout changes, heavy decisions
+CmuxNextLayout	struct	DropAnswerMemo	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/ScreenContentView+TabDrop.swift	DropAnswerMemo: memoizes tab-drop answers by layout, viewport and style
+CmuxNextLayout	extension	ScreenContentView	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/ScreenContentView+WindowLiveResize.swift	ScreenContentView live resize: decides how displayed frames move during window live resize
+CmuxNextLayout	struct	SharedEdgeClamp	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/SharedEdgeClamp.swift	SharedEdgeClamp: clamps a press's drawn line against rest positions
+CmuxNextLayout	extension	SharedEdgeClamp	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/SharedEdgeClamp.swift	SharedEdgeClamp extension: clamp computations
+CmuxNextLayout	enum	SharedEdgeMotion	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/SharedEdgeMotion.swift	SharedEdgeMotion: moves pane and divider edges per gesture
+CmuxNextLayout	extension	SharedEdgeMotion	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/SharedEdgeMotion.swift	SharedEdgeMotion extension: edge motion computations
+CmuxNextLayout	extension	SharedEdgeMotion	1	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/SharedEdgeMotion.swift	SharedEdgeMotion extension: edge motion computations
+CmuxNextLayout	extension	SharedEdgeMotion	2	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/SharedEdgeMotion.swift	SharedEdgeMotion extension: edge decision helpers
+CmuxNextLayout	struct	WindowMembershipWork	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Windows/WindowMembershipWork.swift	WindowMembershipWork: record of what a window membership turn does, with description formatting
+CmuxNextLayout	struct	WorkspaceCloseWork	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Windows/WorkspaceCloseWork.swift	WorkspaceCloseWork: record of what Close Workspace reads, with description formatting
+CmuxNextPages	class	AgentRendererHangRestart	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/AgentRendererHangRestart.swift	AgentRendererHangRestart: detects a hung agent-chat renderer and decides restarts
+CmuxNextPages	class	AppLanguageApplier	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/AppLanguageApplier.swift	AppLanguageApplier: applies app.language, decides and persists language overrides
+CmuxNextPages	extension	AppsPageConfirmations	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/AppsPageConfirmations+Source.swift	AppsPageConfirmations source: maps confirmation sources
+CmuxNextPages	class	BrowserChromeWebHost	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/BrowserChromeWebHost.swift	BrowserChromeWebHost: keeps chrome surface state and routes (logic) hosting a transparent WebKit view (platform)
+CmuxNextPages	class	BrowserChromeWebProvider	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/BrowserChromeWebHost.swift	BrowserChromeWebProvider: page provider keeping last state and answering subscriptions
+CmuxNextPages	extension	Bundle	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/Bundle+AppLanguage.swift	Bundle extension: app language bundle accessor
+CmuxNextPages	class	ChatQuoteOpeners	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/ChatQuoteOpeners.swift	ChatQuoteOpeners: maps files to the chat that opened them
+CmuxNextPages	enum	ChatQuoteTarget	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/ChatQuoteTarget.swift	ChatQuoteTarget: which chat a viewer quote lands in
+CmuxNextPages	extension	ChromiumPageHostBridge	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/ChromiumPageHostBridge+PageScript.swift	ChromiumPageHostBridge page script: builds and routes page script messages
+CmuxNextPages	class	CustomizeDoctorNotice	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/CustomizeDoctorNotice.swift	CustomizeDoctorNotice: decides when a customization change notice shows
+CmuxNextPages	enum	CustomizeDoctorStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/CustomizeDoctorNotice.swift	CustomizeDoctorStrings: string constant table
+CmuxNextPages	struct	DebugFieldEditor	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/DebugFieldEditor.swift	DebugFieldEditor: parses debug.text_field args (logic) and drives NSTextView edits (platform)
+CmuxNextPages	struct	DebugPagePopup	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/DebugPagePopup.swift	DebugPagePopup: reports page popup frames (formatting) from NSWindow/NSScreen geometry (platform)
+CmuxNextPages	class	GalleryStageTabs	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/GalleryStage.swift	GalleryStageTabs: gallery stage tab state and routing
+CmuxNextPages	struct	GlassParityDiff	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/GlassParity/GlassParityDiff.swift	GlassParityDiff: pixel-by-pixel capture diff statistics
+CmuxNextPages	extension	PageDescriptor	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/GlassParity/GlassParityPageDescriptor.swift	PageDescriptor extension: constant descriptor
+CmuxNextPages	extension	GlassParityPlayground	0	MIXED	40	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/GlassParity/GlassParityPlayground+Measure.swift	GlassParityPlayground measure: computes overlay measurements and reports (logic) by capturing and walking NSViews (platform)
+CmuxNextPages	class	GlassParityPlayground	0	MIXED	40	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/GlassParity/GlassParityPlayground.swift	GlassParityPlayground: debug playground state and option enums (logic) building windows and views (platform)
+CmuxNextPages	class	GlassParityProvider	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/GlassParity/GlassParityViews.swift	GlassParityProvider: page provider for layout and paint reports
+CmuxNextPages	func	glassParityTree	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/GlassParity/GlassParityViews.swift	glassParityTree: walks NSView tree (platform) formatting a JSON report (logic)
+CmuxNextPages	func	glassParityTint	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/GlassParity/GlassParityViews.swift	glassParityTint: reads glass tint via typed AppKit glass APIs
+CmuxNextPages	struct	IconPickerSymbolCatalog	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/IconPickerSymbolCatalog.swift	IconPickerSymbolCatalog: parses and indexes the SF Symbols catalog for search
+CmuxNextPages	struct	InternalPageID	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/InternalPageID.swift	InternalPageID: internal page id value
+CmuxNextPages	struct	LocalPageTab	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/InternalPageID.swift	LocalPageTab: internal page tab ids and parsing
+CmuxNextPages	struct	MarkdownGitOutput	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/MarkdownGitRunning.swift	MarkdownGitOutput: git run output record
+CmuxNextPages	protocol	MarkdownGitRunning	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/MarkdownGitRunning.swift	MarkdownGitRunning: protocol seam
+CmuxNextPages	struct	ProcessMarkdownGitRunner	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/MarkdownGitRunning.swift	ProcessMarkdownGitRunner: runs git with no prompts or locks and collects output
+CmuxNextPages	enum	MarkdownLiveShareRoute	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/MarkdownLiveShareRoute.swift	MarkdownLiveShareRoute: parses live server request paths into routes
+CmuxNextPages	enum	PageAccessibilityPress	0	MIXED	30	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageAccessibilityPress.swift	PageAccessibilityPress: counts a VoiceOver press as gesture (logic) via WKContentWorld script and message handler (WebKit glue)
+CmuxNextPages	class	PageCardDrag	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageCardDrag.swift	PageCardDrag: page card drag state between native places
+CmuxNextPages	extension	PageChromiumPage	2	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageChromiumHosting.swift	PageChromiumPage extension: default protocol witness
+CmuxNextPages	extension	PageDescriptor	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor+Onboarding.swift	PageDescriptor onboarding: constant descriptor
+CmuxNextPages	extension	PageCallContext	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift	PageCallContext extension: derived call context predicate
+CmuxNextPages	extension	PageDescriptor	1	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift	PageDescriptor table: per-page op, action and confirmation policy (which ops need confirmation or a click)
+CmuxNextPages	extension	Data	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDevServer.swift	Data extension: trivial helper
+CmuxNextPages	struct	PageDeveloperTools	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDeveloperTools.swift	PageDeveloperTools: decides inspect availability per page (logic) and opens WebKit/Chromium inspectors (platform)
+CmuxNextPages	enum	PageDocumentChange	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDocumentChange.swift	PageDocumentChange: reason enum for document change
+CmuxNextPages	protocol	PageReadyResourceSource	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDynamicResource.swift	PageReadyResourceSource: protocol seam
+CmuxNextPages	class	PageFlagStream	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageFlagStream.swift	PageFlagStream: streams a boolean to page subscriptions
+CmuxNextPages	class	PageGestureActionProvider	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageGestureActionProvider.swift	PageGestureActionProvider: runs page gesture actions as the person's own
+CmuxNextPages	class	PageGracefulReload	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageGracefulReload.swift	PageGracefulReload: plans each Chromium page's reload at its safe point
+CmuxNextPages	protocol	PageHistory	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageHistory.swift	PageHistory: protocol seam
+CmuxNextPages	extension	PageInputReadiness	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageInputReadiness.swift	PageInputReadiness extension: derived readiness predicate
+CmuxNextPages	class	PagePrintEnded	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageOpenPanel.swift	PagePrintEnded: NSObject print panel callback target
+CmuxNextPages	class	PageOverlayProcess	0	MIXED	30	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageOverlayProcess.swift	PageOverlayProcess: counts members per process (logic) sharing a WKProcessPool/data store (WebKit glue)
+CmuxNextPages	enum	PagePackedFile	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PagePackedFile.swift	PagePackedFile: inflates raw-deflated packed pages
+CmuxNextPages	extension	PageCallContext	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PagePersonGate.swift	PageCallContext person gate: decides whether a call came from the person
+CmuxNextPages	class	PageRelayUse	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageRelayUse.swift	PageRelayUse: refcounts relay use and closes after idle
+CmuxNextPages	struct	PageRelayPage	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageRelayUse.swift	PageRelayPage: relay page record
+CmuxNextPages	class	PageRevealGate	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageRevealGate.swift	PageRevealGate: holds an overlay reveal until the page is ready
+CmuxNextPages	extension	PageNativeOp	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageRouter+Swipe.swift	PageNativeOp swipe: swipe op definitions
+CmuxNextPages	extension	PageRouter	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageRouter+Swipe.swift	PageRouter swipe: routes swipe back/forward messages
+CmuxNextPages	enum	PageSpareVariant	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageSpareVariant.swift	PageSpareVariant: parses CMUX_NEXT_SETTINGS_SPARE into spare variants
+CmuxNextPages	struct	PageSurfaceReport	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageSurfaceSize.swift	PageSurfaceReport: parses a surface size report
+CmuxNextPages	struct	PageSurfaceSize	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageSurfaceSize.swift	PageSurfaceSize: clamps and rounds reported page surface size
+CmuxNextPages	struct	PageSwipeEvent	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageSwipeForwarder.swift	PageSwipeEvent: encodes a trackpad scroll event for the page stream
+CmuxNextPages	class	PageSwipeForwarder	0	MIXED	60	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageSwipeForwarder.swift	PageSwipeForwarder: phase state and forwarding decisions (logic) from NSEvent scroll events (platform)
+CmuxNextPages	struct	PageSwipeCommitGate	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageSwipeForwarder.swift	PageSwipeCommitGate: pure gate deciding which gesture may run back/forward
+CmuxNextPages	class	PageTabViews	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageTabViews.swift	PageTabViews: per-tab views, capabilities and routes registry
+CmuxNextPages	enum	PageTitleRowPress	0	MIXED	70	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageTitleRowPress.swift	PageTitleRowPress: decides what a title row press does (logic) with NSEvent/NSWindow calls (platform)
+CmuxNextPages	extension	PageWebView	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageTitleRowPress.swift	PageWebView title row: hit-tests title row (logic) and performs window drag/zoom (platform)
+CmuxNextPages	class	PageAwayDrawing	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageWebView+AwayDrawing.swift	PageAwayDrawing: decides when an out-of-sight page stops drawing
+CmuxNextPages	extension	PageWebView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageWebView+AwayDrawing.swift	PageWebView ParkingObserver conformance: trivial forwarding
+CmuxNextPages	extension	PageWebView	1	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageWebView+AwayDrawing.swift	PageWebView away drawing: away drawing decisions
+CmuxNextPages	struct	PageDebugQuery	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageWebView+DebugProbe.swift	PageDebugQuery: builds and parses DOM query results
+CmuxNextPages	protocol	PageHealthFeed	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageWebView+Health.swift	PageHealthFeed: protocol seam
+CmuxNextPages	extension	PageWebView	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageWebView+Health.swift	PageWebView health: page health reports and waits
+CmuxNextPages	class	PageHealthOnce	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageWebView+Health.swift	PageHealthOnce: resume-once latch
+CmuxNextPages	extension	PageWebView	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageWebView+LiveOverride.swift	PageWebView live override: decides how live web override applies to Chromium pages
+CmuxNextPages	struct	OverlayStartCheck	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageWebView+OverlayStart.swift	OverlayStartCheck: decides whether an overlay document started
+CmuxNextPages	extension	PageWebView	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageWebView+OverlayStart.swift	PageWebView overlay start: checks and falls back on overlay start
+CmuxNextPages	extension	PageWebView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageWebView+OwnWindow.swift	PageWebView PaneContentOwnWindow conformance: trivial witness
+CmuxNextPages	struct	PastedImagePNG	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PastedImagePNG.swift	PastedImagePNG: decides when a PNG is needed (logic) and converts TIFF via NSBitmapImageRep/pasteboard (platform)
+CmuxNextPages	class	PastedImagePNGHold	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/PastedImagePNG.swift	PastedImagePNGHold: holds a paste until the PNG is added, then releases
+CmuxNextPages	class	ReportedEdits	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/ReportedEdits.swift	ReportedEdits: tracks unsaved reported edits and coverage
+CmuxNextPages	struct	RunbookRun	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/RunbookRun.swift	RunbookRun: parses and validates a runbook run request
+CmuxNextPages	class	SettingsAgentConfig	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/SettingsAgentConfig.swift	SettingsAgentConfig: reads, merges and writes agent settings files
+CmuxNextPages	class	SettingsCustomizeLibrary	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/SettingsCustomizeLibrary.swift	SettingsCustomizeLibrary: customization library listing, install and apply
+CmuxNextPages	struct	SettingsHostSection	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/SettingsHostSection.swift	SettingsHostSection: host list sections and key mapping
+CmuxNextPages	struct	SettingsThemeFileOpener	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/SettingsThemeFileOpener.swift	SettingsThemeFileOpener: locates or creates the active theme file and opens it
+CmuxNextPages	class	ViewWindow	0	MIXED	40	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/ViewWindow.swift	ViewWindow: parses view window args and reads look (logic) and builds NSWindow/web view (platform)
+CmuxNextPages	class	WebBundleGracefulReload	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/WebBundleGracefulReload.swift	WebBundleGracefulReload: plans web layer change reloads at safe points
+CmuxNextPages	struct	WebBundlePins	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/WebBundleOverlay.swift	WebBundlePins: tracks which update each page loaded from
+CmuxNextPages	protocol	WebReloadCovering	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/WebBundleOverlay.swift	WebReloadCovering: protocol seam
+CmuxNextPages	class	WebProjection	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextPages/WebProjection.swift	WebProjection: projection window routing and state (logic) and NSWindow construction (platform)
+CmuxNextSidebar	extension	AutoArchiveDocument	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/AutoArchive/AutoArchiveDocument.swift	AutoArchiveDocument extension: trivial witness
+CmuxNextSidebar	extension	Bundle	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Bundle+AppLanguage.swift	Bundle extension: app language bundle accessor
+CmuxNextSidebar	class	FloatingSidebarReveal	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Float/FloatingSidebarReveal.swift	FloatingSidebarReveal: decides when the hidden sidebar floats from pointer position and timing
+CmuxNextSidebar	class	SidebarFloat	0	MIXED	60	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Float/SidebarFloat.swift	SidebarFloat: floating sidebar state machine (logic) with NSWindow/NSView hosting (platform)
+CmuxNextSidebar	class	SidebarFloatEvents	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Float/SidebarFloatEvents.swift	SidebarFloatEvents: decides how presses and keys end a float
+CmuxNextSidebar	struct	GroupJoinHold	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/GroupJoinHold.swift	GroupJoinHold: holds new group workspaces until joined
+CmuxNextSidebar	class	GroupJoinRows	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/GroupJoinHold.swift	GroupJoinRows: applies join holds to sidebar passes
+CmuxNextSidebar	struct	RustSidebarEdits	0	MIXED	50	50	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/RustSidebarEdits.swift	RustSidebarEdits: Swift codec for cmux-layout-reducer sidebar_edits (mirror) plus mapping results onto the sidebar (logic)
+CmuxNextSidebar	struct	RustEditSection	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/RustSidebarEdits.swift	RustEditSection: Codable re-declaration of sidebar_edits section
+CmuxNextSidebar	struct	RustEditWorkspace	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/RustSidebarEdits.swift	RustEditWorkspace: Codable re-declaration of sidebar_edits workspace
+CmuxNextSidebar	struct	RustEditGroup	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/RustSidebarEdits.swift	RustEditGroup: Codable re-declaration of sidebar_edits group
+CmuxNextSidebar	enum	RustEditMember	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/RustSidebarEdits.swift	RustEditMember: Codable re-declaration of sidebar_edits member enum
+CmuxNextSidebar	enum	RustEditNode	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/RustSidebarEdits.swift	RustEditNode: Codable re-declaration of sidebar_edits node enum
+CmuxNextSidebar	struct	RustEditPosition	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/RustSidebarEdits.swift	RustEditPosition: Codable re-declaration of sidebar_edits position
+CmuxNextSidebar	struct	RustEditIntent	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/RustSidebarEdits.swift	RustEditIntent: Encodable re-declaration of sidebar_edits::Intent
+CmuxNextSidebar	struct	RustEditRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/RustSidebarEdits.swift	RustEditRequest: Encodable re-declaration of sidebar_edits::Request
+CmuxNextSidebar	struct	RustEditReply	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/RustSidebarEdits.swift	RustEditReply: Decodable sidebar_edits reply
+CmuxNextSidebar	struct	RustNamedGroup	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/RustSidebarEdits.swift	RustNamedGroup: Encodable sidebar_edits named group
+CmuxNextSidebar	struct	RustNamedRow	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/RustSidebarEdits.swift	RustNamedRow: Encodable sidebar_edits named row
+CmuxNextSidebar	struct	RustPersonalPlacement	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/RustSidebarEdits.swift	RustPersonalPlacement: Decodable sidebar_edits placement
+CmuxNextSidebar	enum	SidebarAnswerKey	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarAnswerKey.swift	SidebarAnswerKey: one-letter answer keys for pending tool permissions
+CmuxNextSidebar	struct	SidebarArchivedEntry	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarArchivedList.swift	SidebarArchivedEntry: archived workspace row record
+CmuxNextSidebar	struct	SidebarArchivedList	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarArchivedList.swift	SidebarArchivedList: sorts and filters archived workspaces
+CmuxNextSidebar	struct	SidebarAutomaticPlanner	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarAutomaticPlanner.swift	SidebarAutomaticPlanner: decides which automatic sessions show
+CmuxNextSidebar	struct	SidebarBridgeRules	0	MIXED	30	70	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarBridgeRules.swift	SidebarBridgeRules: encodes rule requests to cmux-layout-reducer and decodes replies (mirror codec) with fallback decisions (logic)
+CmuxNextSidebar	enum	RuleJSON	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarBridgeRules.swift	RuleJSON: JSON value encoder for rule requests
+CmuxNextSidebar	struct	Tagged	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarBridgeRules.swift	Tagged: Decodable reply tag
+CmuxNextSidebar	struct	PinReply	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarBridgeRules.swift	PinReply: Decodable rule reply
+CmuxNextSidebar	struct	NewGroupReply	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarBridgeRules.swift	NewGroupReply: Decodable rule reply
+CmuxNextSidebar	struct	EditorReply	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarBridgeRules.swift	EditorReply: Decodable rule reply
+CmuxNextSidebar	struct	PlacementReply	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarBridgeRules.swift	PlacementReply: Decodable rule reply
+CmuxNextSidebar	struct	HeaderReply	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarBridgeRules.swift	HeaderReply: Decodable rule reply
+CmuxNextSidebar	struct	AppReply	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarBridgeRules.swift	AppReply: Decodable rule reply
+CmuxNextSidebar	struct	LinkReply	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarBridgeRules.swift	LinkReply: Decodable rule reply
+CmuxNextSidebar	struct	SidebarCustomizationPlanner	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarCustomizationPlanner.swift	SidebarCustomizationPlanner: applies the Rust customization plan to native rows, row decisions
+CmuxNextSidebar	struct	SidebarDragBaseKey	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarDragBaseKey.swift	SidebarDragBaseKey: key of what a drag base is made from
+CmuxNextSidebar	struct	SidebarDragLook	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarDragLook.swift	SidebarDragLook: computes the retargeted list for a workspace drag
+CmuxNextSidebar	enum	SidebarDriveIndicatorVariant	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarDriveIndicatorVariant.swift	SidebarDriveIndicatorVariant: tunable indicator choice
+CmuxNextSidebar	enum	SidebarFoldPersist	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarFoldPersist.swift	SidebarFoldPersist: decides how a failed fold save continues
+CmuxNextSidebar	extension	SidebarFoldPersist	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarFoldPersist.swift	SidebarFoldPersist extension: fold persist transitions
+CmuxNextSidebar	extension	SidebarGroup	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarGroup+GradientTint.swift	SidebarGroup gradient tint: computes a group's gradient tint colors
+CmuxNextSidebar	extension	SidebarGroup	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarGroup+NewTint.swift	SidebarGroup new tint: picks a new group's tint
+CmuxNextSidebar	enum	SidebarNoColorGroupLook	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarGroupHeaderLook.swift	SidebarNoColorGroupLook: tunable look for groups with no color
+CmuxNextSidebar	extension	SidebarLayoutOptions	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarLayout+DoneFold.swift	SidebarLayoutOptions done fold: derived fold options
+CmuxNextSidebar	extension	SidebarLayout	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarLayout+GroupRows.swift	SidebarLayout group rows: lays out a group's header and member rows
+CmuxNextSidebar	extension	SidebarLayout	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarLayout+Insert.swift	SidebarLayout insert: incremental row insert layout
+CmuxNextSidebar	extension	SidebarLayout	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarLayout+Recents.swift	SidebarLayout recents: projects and recents grouping layout
+CmuxNextSidebar	extension	SidebarLayout	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarLayout+RevealInSidebar.swift	SidebarLayout reveal: computes the least scroll to reveal a row
+CmuxNextSidebar	extension	SidebarLayout	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarLayout+StuckHeader.swift	SidebarLayout stuck header: decides which project header sticks
+CmuxNextSidebar	struct	SidebarLayoutViewportRows	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarLayout+Viewport.swift	SidebarLayoutViewportRows: layout rows as scroll rules read them
+CmuxNextSidebar	struct	SidebarOpticalGlyph	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarOpticalGlyph.swift	SidebarOpticalGlyph: computes one optical size for row leading glyphs
+CmuxNextSidebar	enum	SidebarPinnedRowLeading	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarPinnedRowLeading.swift	SidebarPinnedRowLeading: tunable choice for pinned row leading
+CmuxNextSidebar	extension	SidebarRowTuning	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarRowTuning+DensityPlayground.swift	SidebarRowTuning density playground: density presets
+CmuxNextSidebar	struct	SidebarRowTuning	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarRowTuning.swift	SidebarRowTuning: hand-tuned row values per density with defaults and ranges
+CmuxNextSidebar	enum	SidebarTunedWeight	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarRowTuning.swift	SidebarTunedWeight: tunable text weight mapping
+CmuxNextSidebar	class	SidebarSelectionHold	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarSelectionHold.swift	SidebarSelectionHold: holds the selection until rows that show it apply
+CmuxNextSidebar	struct	SidebarSettlePlanner	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarSettlePlanner.swift	SidebarSettlePlanner: decides which finished chats settle into the fold
+CmuxNextSidebar	enum	SidebarSubagentLook	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarSubagentStrip.swift	SidebarSubagentLook: tunable subagent look
+CmuxNextSidebar	struct	SidebarSubagentStrip	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarSubagentStrip.swift	SidebarSubagentStrip: computes what a row draws of its chats' subagents
+CmuxNextSidebar	enum	SpaceWindowChoice	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SpaceSwitcherLogic.swift	SpaceWindowChoice: switcher choice enum
+CmuxNextSidebar	enum	SpaceClick	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SpaceSwitcherLogic.swift	SpaceClick: what a space mark click does
+CmuxNextSidebar	struct	SpaceSwitcherLogic	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SpaceSwitcherLogic.swift	SpaceSwitcherLogic: pure rules for which spaces other windows show and click results
+CmuxNextSidebar	enum	SpaceSwitcherStyle	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SpaceSwitcherStyle.swift	SpaceSwitcherStyle: tunable switcher style mapping
+CmuxNextSidebar	struct	SpaceWindowShowing	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SpaceSwitcherStyle.swift	SpaceWindowShowing: window/space pairing record
+CmuxNextSidebar	enum	WorkspaceHoverCardOrigin	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/WorkspaceHoverCardOrigin.swift	WorkspaceHoverCardOrigin: formats who made a workspace and why
+CmuxNextSidebar	struct	WorkspacePortLinks	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/WorkspacePortLinks.swift	WorkspacePortLinks: asks cmux-layout-reducer for port links, request/reply re-declaration
+CmuxNextSidebar	struct	WorkspaceRailLook	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/WorkspaceRailLook.swift	WorkspaceRailLook: computes rail color drawing parameters
+CmuxNextSidebar	extension	WorkspaceRowContent	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/WorkspaceRowContent+Layout.swift	WorkspaceRowContent layout: lays out row content
+CmuxNextSidebar	extension	WorkspaceRowContent	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/WorkspaceRowContent.swift	WorkspaceRowContent extension: derived content predicate
+CmuxNextSidebar	enum	SidebarDriveCommand	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarDriveCommand.swift	SidebarDriveCommand: drive indicator menu command enum
+CmuxNextSidebar	enum	SidebarDriveKind	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarDriveKind.swift	SidebarDriveKind: drive kind enum with labels
+CmuxNextSidebar	enum	SidebarGroupSort	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarGroupSort.swift	SidebarGroupSort: group sort enum with comparators
+CmuxNextSidebar	extension	SidebarIntent	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarIntent+GroupTarget.swift	SidebarIntent group target: resolves an intent's group target
+CmuxNextSidebar	enum	SidebarListHeader	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarListHeader.swift	SidebarListHeader: list header enum
+CmuxNextSidebar	struct	SidebarLiveState	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarLive.swift	SidebarLiveState: Live button state and menu list
+CmuxNextSidebar	extension	SidebarModel	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarModel+Automatic.swift	SidebarModel automatic: which rows fold behind automatic sessions
+CmuxNextSidebar	extension	SidebarModel	0	MIXED	70	30	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarModel+LaunchOrder.swift	SidebarModel launch order: launch order hold state and decisions (logic) calling sidebar_launch_order (mirror)
+CmuxNextSidebar	struct	LaunchOrderRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarModel+LaunchOrder.swift	LaunchOrderRequest: Encodable re-declaration of sidebar_launch_order request
+CmuxNextSidebar	struct	LaunchOrderReply	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarModel+LaunchOrder.swift	LaunchOrderReply: Decodable re-declaration of sidebar_launch_order reply
+CmuxNextSidebar	extension	SidebarModel	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarModel+RevealInSidebar.swift	SidebarModel reveal: resolves reveal-in-sidebar target
+CmuxNextSidebar	extension	SidebarModel	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarModel+Settle.swift	SidebarModel settle: which rows fold into Settled and archive choices
+CmuxNextSidebar	extension	SidebarModel	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarModel+WorkspaceRanks.swift	SidebarModel workspace ranks: workspace rank map
+CmuxNextSidebar	extension	SidebarNoticeCard	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarNoticeCard+StarPrompt.swift	SidebarNoticeCard star prompt: star prompt card definition
+CmuxNextSidebar	extension	SidebarNoticeCard	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarNoticeCard.swift	SidebarNoticeCard extension: derived notice decisions
+CmuxNextSidebar	extension	SidebarNoticeCard	1	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarNoticeCard.swift	SidebarNoticeCard extension: derived notice decisions
+CmuxNextSidebar	enum	SidebarPaneShape	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarPaneShape.swift	SidebarPaneShape: builds the split shape tree for the hover card miniature
+CmuxNextSidebar	struct	SidebarArchivedChat	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarPriorityPanel.swift	SidebarArchivedChat: archived chat record
+CmuxNextSidebar	struct	SidebarArchivedChats	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarPriorityPanel.swift	SidebarArchivedChats: archived fold list
+CmuxNextSidebar	struct	SidebarScreenActions	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarScreenActions.swift	SidebarScreenActions: adds screen action metadata to machine sections
+CmuxNextSidebar	struct	SidebarRowInsertion	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarSection+LooseInsertion.swift	SidebarRowInsertion: detects a single loose row insertion
+CmuxNextSidebar	extension	SidebarSection	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarSection+LooseInsertion.swift	SidebarSection loose insertion: computes the insertion diff
+CmuxNextSidebar	struct	SidebarRowRemoval	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarSection+LooseInsertion.swift	SidebarRowRemoval: detects a single loose row removal
+CmuxNextSidebar	extension	SidebarSection	1	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarSection+LooseInsertion.swift	SidebarSection loose removal: computes the removal diff
+CmuxNextSidebar	struct	SidebarLooseEdits	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarSection+LooseInsertion.swift	SidebarLooseEdits: loose row add/remove edit set
+CmuxNextSidebar	extension	SidebarSection	2	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarSection+LooseInsertion.swift	SidebarSection loose edits: computes loose edit diffs
+CmuxNextSidebar	struct	SidebarRowContentChange	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarSection+RowContentChanges.swift	SidebarRowContentChange: row content change record
+CmuxNextSidebar	extension	SidebarSection	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarSection+RowContentChanges.swift	SidebarSection row content changes: diffs row content
+CmuxNextSidebar	struct	SidebarSnapshot	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarSnapshot.swift	SidebarSnapshot: saved sidebar snapshot with Codable persistence and restore decisions
+CmuxNextSidebar	struct	SidebarSnapshotDocument	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarSnapshotDocument.swift	SidebarSnapshotDocument: saved sidebars document load/save and pruning
+CmuxNextSidebar	struct	SidebarSubagent	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarSubagents.swift	SidebarSubagent: subagent row record
+CmuxNextSidebar	struct	SidebarSubagents	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarSubagents.swift	SidebarSubagents: latest subagents list
+CmuxNextSidebar	struct	SidebarTaskProgress	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarTaskProgress.swift	SidebarTaskProgress: task list progress record
+CmuxNextSidebar	enum	SidebarCreator	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarWorkspace.swift	SidebarCreator: workspace creator enum
+CmuxNextSidebar	struct	SidebarWorkspaceOrigin	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarWorkspaceOrigin.swift	SidebarWorkspaceOrigin: who made a workspace and why
+CmuxNextSidebar	struct	SpaceElsewhere	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SpaceWindowMarks.swift	SpaceElsewhere: another window showing a space
+CmuxNextSidebar	enum	SpaceWindowAction	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SpaceWindowMarks.swift	SpaceWindowAction: switcher action enum
+CmuxNextSidebar	class	SpaceWindowMarks	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SpaceWindowMarks.swift	SpaceWindowMarks: observable marks of spaces other windows show
+CmuxNextSidebar	protocol	SpaceWindowSource	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SpaceWindowMarks.swift	SpaceWindowSource: protocol seam
+CmuxNextSidebar	extension	SpaceWindowMarks	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SpaceWindowMarks.swift	SpaceWindowMarks extension: installs sources and recomputes marks
+CmuxNextSidebar	extension	SidebarItemInfo	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Sections/SidebarItemInfo+WorkspaceRow.swift	SidebarItemInfo workspace row: maps a workspace to row info
+CmuxNextSidebar	class	SidebarSectionTargetSource	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Sections/SidebarSectionTargetSource.swift	SidebarSectionTargetSource: palette target lists for section actions
+CmuxNextSidebar	enum	SidebarBandMove	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Store/SidebarBandMove.swift	SidebarBandMove: band move enum
+CmuxNextSidebar	enum	SidebarBandPlacement	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Store/SidebarBandPlacement.swift	SidebarBandPlacement: band placement enum
+CmuxNextSidebar	enum	SidebarDocChangeOrigin	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Store/SidebarDocChangeOrigin.swift	SidebarDocChangeOrigin: change origin enum
+CmuxNextSidebar	enum	SidebarDocSubgroupRefusal	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Store/SidebarDocStore+HostGroup.swift	SidebarDocSubgroupRefusal: refusal reasons
+CmuxNextSidebar	extension	SidebarDocWire	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Store/SidebarDocWire+Projection.swift	SidebarDocWire projection: re-declares sidebar_doc::project reply and its decoding
+CmuxNextSidebar	extension	SidebarDocWire.Projection	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Store/SidebarDocWire+Projection.swift	SidebarDocWire.Projection extension: wire projection accessors
+CmuxNextSidebar	extension	SidebarDocWire.Group	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Store/SidebarDocWire+Projection.swift	SidebarDocWire.Group extension: wire group accessor
+CmuxNextSidebar	extension	SidebarLayoutDocument	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Store/SidebarLayoutDocument+BandMove.swift	SidebarLayoutDocument band move: applies band moves to the document
+CmuxNextSidebar	protocol	SidebarRowBatch	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Store/SidebarRowBatch.swift	SidebarRowBatch: protocol seam
+CmuxNextSidebar	class	SidebarListingFlips	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Store/SidebarRowFeed.swift	SidebarListingFlips: listing flip counter
+CmuxNextSidebar	extension	Strings	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Strings+Answer.swift	Strings answer: localized answer strings with formatting
+CmuxNextSidebar	extension	Strings	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Strings+Live.swift	Strings live: localized live strings
+CmuxNextSidebar	extension	Strings	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Strings+Subagents.swift	Strings subagents: formats subagent counts and VoiceOver text
+CmuxNextSidebar	class	GroupEditorProvider	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/GroupEditor/GroupEditorProvider.swift	GroupEditorProvider: group editor page ops
+CmuxNextSidebar	class	GroupEditorService	0	MIXED	60	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/GroupEditor/GroupEditorService.swift	GroupEditorService: editor session state and edits (logic) hosting a page in a popover (platform)
+CmuxNextSidebar	extension	PageDescriptor	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/GroupEditor/GroupEditorSession.swift	PageDescriptor group editor: constant descriptor
+CmuxNextSidebar	struct	GroupEditorSession	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/GroupEditor/GroupEditorSession.swift	GroupEditorSession: builds the editor session payload
+CmuxNextSidebar	class	GroupEditorIcons	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/GroupEditor/GroupEditorSession.swift	GroupEditorIcons: caches icons (logic) rendered as template PNGs via NSImage (platform)
+CmuxNextSidebar	enum	GroupEditorStrings	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/GroupEditor/GroupEditorStrings.swift	GroupEditorStrings: localized strings with formatting
+CmuxNextSidebar	protocol	SidebarGroupEditorSurface	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/GroupEditor/SidebarGroupEditor.swift	SidebarGroupEditorSurface: protocol seam
+CmuxNextSidebar	struct	SidebarGroupEditorEvents	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/GroupEditor/SidebarGroupEditor.swift	SidebarGroupEditorEvents: editor events record
+CmuxNextSidebar	extension	ProfileBarView	0	MIXED	60	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/ProfileBarView+Windows.swift	ProfileBarView windows: decides window marks per space (logic) building NSMenu and views (platform)
+CmuxNextSidebar	struct	WindowMarkInputs	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/ProfileBarView+Windows.swift	WindowMarkInputs: inputs value
+CmuxNextSidebar	class	SwitcherMenuItem	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/ProfileBarView+Windows.swift	SwitcherMenuItem: NSMenuItem subclass running a handler
+CmuxNextSidebar	class	RowControlSlot	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/RowControlSlot.swift	RowControlSlot: lazily creates an NSView control
+CmuxNextSidebar	enum	SidebarEmptyZones	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarEmptyZones.swift	SidebarEmptyZones: decides where empty-section drop zones open
+CmuxNextSidebar	class	SidebarFooterCollapseMotion	0	MIXED	60	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarFooterCollapseMotion.swift	SidebarFooterCollapseMotion: collapse progress state (logic) applied to views (platform)
+CmuxNextSidebar	enum	SidebarHiddenState	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarHiddenState.swift	SidebarHiddenState: sets isHidden only on change, AppKit glue
+CmuxNextSidebar	extension	NSRect	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+Drag.swift	NSRect extension: geometry helper
+CmuxNextSidebar	extension	SidebarListView	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+GooeySelection.swift	SidebarListView gooey selection: decides flush corners (logic) applied to layers (platform)
+CmuxNextSidebar	extension	GroupTint	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+GroupLines.swift	GroupTint extension: derived tint
+CmuxNextSidebar	extension	SidebarListViewComponents	1	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+InPlaceReorder.swift	SidebarListViewComponents in-place reorder: reorder decisions
+CmuxNextSidebar	extension	SidebarListViewComponents	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+InsertSplice.swift	SidebarListViewComponents insert splice: single row insert splice
+CmuxNextSidebar	extension	SidebarListViewComponents	1	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+InsertSplice.swift	SidebarListViewComponents insert splice: visibility-aware splice decisions
+CmuxNextSidebar	struct	SidebarListSplice	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+InsertSplice.swift	SidebarListSplice: splice added/removed/moved rows
+CmuxNextSidebar	struct	SidebarRowGap	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+RowGap.swift	SidebarRowGap: drag gap position math
+CmuxNextSidebar	extension	SidebarListViewComponents	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+RowGap.swift	SidebarListViewComponents row gap: gap computations
+CmuxNextSidebar	struct	SidebarSpacePage	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+SpacePage.swift	SidebarSpacePage: kept layout of a space the person left
+CmuxNextSidebar	struct	SidebarSpacePages	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+SpacePage.swift	SidebarSpacePages: pages per space with pruning
+CmuxNextSidebar	extension	SidebarListViewComponents	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+SpacePage.swift	SidebarListViewComponents space page: restores space pages
+CmuxNextSidebar	struct	SidebarStuckHeader	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+StickyHeader.swift	SidebarStuckHeader: stuck header record
+CmuxNextSidebar	extension	SidebarListViewComponents	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+StickyHeader.swift	SidebarListViewComponents sticky header: computes sticky header placement
+CmuxNextSidebar	extension	SidebarListView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+VisibleRows.swift	SidebarListView VisibleRowsList conformance: trivial witness
+CmuxNextSidebar	enum	SidebarWorkspacePress	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+WorkspacePress.swift	SidebarWorkspacePress: press outcome enum
+CmuxNextSidebar	extension	SidebarListViewComponents	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarListView+WorkspacePress.swift	SidebarListViewComponents workspace press: decides press outcome
+CmuxNextSidebar	extension	SidebarStyle	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarStyle+RowSymbols.swift	SidebarStyle row symbols: row symbol size computation
+CmuxNextSidebar	extension	SidebarStyle	1	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarStyle+RowSymbols.swift	SidebarStyle extension: symbol metrics derivation
+CmuxNextSidebar	extension	SidebarIconButton	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarStyle+RowSymbols.swift	SidebarIconButton extension: constant
+CmuxNextSidebar	extension	OverflowButton	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarStyle+RowSymbols.swift	OverflowButton extension: constant
+CmuxNextSidebar	enum	SidebarCardAnchor	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarSurfaceIsland.swift	SidebarCardAnchor: card anchor enum
+CmuxNextSidebar	struct	SidebarCardDrag	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarSurfaceIsland.swift	SidebarCardDrag: card drag report
+CmuxNextSidebar	struct	SidebarCardPlace	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarSurfaceIsland.swift	SidebarCardPlace: card rest place
+CmuxNextSidebar	class	SidebarTabThumbnails	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarTabThumbnails.swift	SidebarTabThumbnails: thumbnail cache and staleness (logic) capturing NSImages (platform)
+CmuxNextSidebar	enum	SidebarUpdateCardLayout	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarUpdateCardControls.swift	SidebarUpdateCardLayout: tunable card layout
+CmuxNextSidebar	enum	SidebarUpdateToggleSize	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarUpdateCardTunables.swift	SidebarUpdateToggleSize: tunable toggle size mapping
+CmuxNextSidebar	extension	SidebarUpdatedCardHost	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarUpdatedCardHost+Drag.swift	SidebarUpdatedCardHost drag: card drag snapping decisions
+CmuxNextSidebar	class	SidebarUpdatedNotesPopover	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarUpdatedNotesPopover.swift	SidebarUpdatedNotesPopover: notes popover state and placement (logic) with NSPanel hosting (platform)
+CmuxNextSidebar	extension	SidebarViewComponents	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarView+DebugTopAlignment.swift	SidebarViewComponents top alignment: reports alignment (formatting) from view frames (platform)
+CmuxNextSidebar	extension	SidebarViewComponents	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarView+ItemDrag.swift	SidebarViewComponents item drag: item drag decisions
+CmuxNextSidebar	extension	SidebarView	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarView+Live.swift	SidebarView live: Live button state and menu items
+CmuxNextSidebar	class	SidebarLiveMenuTarget	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarView+Live.swift	SidebarLiveMenuTarget: NSObject menu target
+CmuxNextSidebar	extension	SidebarView	1	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarView+Live.swift	SidebarView live extension: live menu decisions
+CmuxNextSidebar	struct	SidebarSelectionTreeReveal	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarView+Observation.swift	SidebarSelectionTreeReveal: remembers selected rows' ancestry
+CmuxNextSidebar	extension	SidebarViewComponents	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarView+TitlebarAccessory.swift	SidebarViewComponents titlebar accessory: titlebar accessory glue
+CmuxNextSidebar	extension	SidebarViewComponents	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarView+TitlebarFloor.swift	SidebarViewComponents titlebar floor: computes floor offset (logic) applied to titlebar views (platform)
+CmuxNextSidebar	struct	GroupBackgroundPlaygroundSection	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/StatesPlayground/GroupBackgroundPlaygroundSection.swift	GroupBackgroundPlaygroundSection: debug playground view section
+CmuxNextSidebar	struct	WorkspaceColorPlaygroundSection	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/StatesPlayground/WorkspaceColorPlaygroundSection.swift	WorkspaceColorPlaygroundSection: debug playground view section
+CmuxNextSidebar	class	DetailsPressFrame	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceHoverCard.swift	DetailsPressFrame: frame timestamp holder
+CmuxNextSidebar	enum	WorkspaceHoverCardTitle	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceHoverCardTunables.swift	WorkspaceHoverCardTitle: tunable title choice
+CmuxNextSidebar	enum	WorkspaceHoverCardLeaveStyle	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceHoverCardTunables.swift	WorkspaceHoverCardLeaveStyle: tunable leave style
+CmuxNextSidebar	extension	SidebarTunables	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceHoverCardTunables.swift	SidebarTunables extension: tunable definitions
+CmuxNextSidebar	enum	SidebarAgentPill	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceRowView+AgentPill.swift	SidebarAgentPill: agent badge enum mapping to labels and colors
+CmuxNextSidebar	extension	WorkspaceRowView	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceRowView+TrailingCloud.swift	WorkspaceRowView trailing cloud: decides trailing cloud indicator
+CmuxNextWindowRules	protocol	TogglePlaceTerminal	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextWindowRules/TerminalChatPlacing.swift	TogglePlaceTerminal: protocol seam
+CmuxNextWindowRules	protocol	TogglePlaceChat	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextWindowRules/TerminalChatPlacing.swift	TogglePlaceChat: protocol seam
+CmuxNextWindowRules	struct	TerminalChatPlacing	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextWindowRules/TerminalChatPlacing.swift	TerminalChatPlacing: moves the face about to show to the other's turn
+CmuxNextWindowRules	struct	TogglePlaceRules	0	MIXED	40	60	Packages/macOS/CmuxNext/Sources/CmuxNextWindowRules/TogglePlaceRules.swift	TogglePlaceRules: re-declares cmux-window-rules toggle requests (mirror) plus Swift turn mapping (logic)
+CmuxNextWindowRules	extension	WindowRules	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextWindowRules/WindowRules+Browser.swift	WindowRules browser: re-declares cmux-window-rules browser/remote request and reply types and calls
+CmuxNextWindowRules	extension	WindowRules	0	MIXED	25	75	Packages/macOS/CmuxNext/Sources/CmuxNextWindowRules/WindowRules+Chat.swift	WindowRules chat: re-declares cmux-window-rules chat types and codecs (mirror) plus fact gathering (logic)
+CmuxNextWindowRules	extension	WindowRules	1	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextWindowRules/WindowRules+Chat.swift	WindowRules column actions: re-declares cmux-window-rules column action types and calls
+CmuxNextWindowRules	extension	WindowRules	0	MIXED	25	75	Packages/macOS/CmuxNext/Sources/CmuxNextWindowRules/WindowRules+ChatAgent.swift	WindowRules chat agent: re-declares chat::agent types and codecs (mirror) plus editor URL building (logic)
+CmuxNextWindowRules	extension	WindowRules	0	MIXED	25	75	Packages/macOS/CmuxNext/Sources/CmuxNextWindowRules/WindowRules+Close.swift	WindowRules close: re-declares close types (mirror) plus failing-closed fallbacks (logic)
+CmuxNextWindowRules	extension	WindowRules	0	MIXED	25	75	Packages/macOS/CmuxNext/Sources/CmuxNextWindowRules/WindowRules+ClosedHistory.swift	WindowRules closed history: re-declares closed history types (mirror) plus undo state assembly (logic)
+CmuxNextWindowRules	extension	WindowRules	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextWindowRules/WindowRules+Editors.swift	WindowRules editors: re-declares editors table types and calls
+CmuxNextWindowRules	extension	WindowRules	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextWindowRules/WindowRules+Files.swift	WindowRules files: re-declares files/appearance types and calls
+CmuxNextWindowRules	extension	WindowRules	0	MIXED	30	70	Packages/macOS/CmuxNext/Sources/CmuxNextWindowRules/WindowRules+Launch.swift	WindowRules launch: re-declares launch types (mirror) plus landing fact assembly from the window record (logic)
+CmuxNextWindowRules	extension	WindowRules	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextWindowRules/WindowRules+Notifications.swift	WindowRules notifications: re-declares notifications/history types and calls
+CmuxNextWindowRules	extension	WindowRules	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextWindowRules/WindowRules+Panes.swift	WindowRules panes: re-declares tabs::panes types and calls
+CmuxNextWindowRules	extension	WindowRules	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextWindowRules/WindowRules+Restore.swift	WindowRules restore: re-declares restore types and call
+CmuxNextWindowRules	class	DeferredWindows	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextWindowRules/WindowRules+Restore.swift	DeferredWindows: queue of saved windows to make later, runs them one by one
+CmuxNextWindowRules	extension	WindowRules	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextWindowRules/WindowRules+ScreenShare.swift	WindowRules screen share: re-declares screen share types and call
+CmuxNextWindowRules	extension	WindowRules	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextWindowRules/WindowRules+Spaces.swift	WindowRules spaces: re-declares workspaces space verb types and codecs
+CmuxNextWindowRules	extension	WindowRules	0	MIXED	20	80	Packages/macOS/CmuxNext/Sources/CmuxNextWindowRules/WindowRules+Tabs.swift	WindowRules tabs: re-declares tabs types and codecs (mirror) plus fact assembly (logic)
+CmuxNextWindowRules	extension	WindowRules	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextWindowRules/WindowRules+Targets.swift	WindowRules targets: re-declares targets types and calls
+CmuxNextWindowRules	extension	WindowRules	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextWindowRules/WindowRules+UpdateIdle.swift	WindowRules update idle: re-declares update idle types and calls
+CmuxNextWindowRules	extension	WindowRules	0	MIXED	25	75	Packages/macOS/CmuxNext/Sources/CmuxNextWindowRules/WindowRules+Workspaces.swift	WindowRules workspaces: re-declares workspaces types and codecs (mirror) plus fact assembly (logic)
+CmuxNextWindowRules	struct	WindowRules	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextWindowRules/WindowRules.swift	WindowRules: JSON FFI codec calling cmux-window-rules through the layout reducer
