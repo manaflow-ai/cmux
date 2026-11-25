@@ -509,7 +509,12 @@ fn export(
     let deadline = Instant::now() + EXPORT_DEADLINE;
     let mut wait = crate::link::spans::PollWait::up_to(EXPORT_POLL);
     let status = loop {
-        let status = remote.call("git.seed.status", json!({ "job": job })).map_err(refused)?;
+        let status = remote
+            .call(
+                "git.seed.status",
+                json!({ "job": job, "wait_ms": crate::link::seed_cli::STATUS_HOLD_MS }),
+            )
+            .map_err(refused)?;
         if status.get("state").and_then(Value::as_str) != Some("running") {
             crate::link::spans::remote("git.seed.export", &status);
             break status;
@@ -517,7 +522,10 @@ fn export(
         if Instant::now() > deadline {
             bail!("the machine's export did not finish");
         }
-        wait.sleep("seed.export poll");
+        // A machine that held the answer while the export ran is asked again at once.
+        if status.get("waited").and_then(Value::as_bool) != Some(true) {
+            wait.sleep("seed.export poll");
+        }
     };
     let text = |name: &str| status.get(name).and_then(Value::as_str);
     if text("state") != Some("done") {
