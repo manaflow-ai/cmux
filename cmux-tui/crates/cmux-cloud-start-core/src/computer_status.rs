@@ -21,7 +21,13 @@
 //! 5. a hybrid start preparing the cloud computer while the model answers here;
 //! 6. a create the server refused for slots (`cloud.quota.exceeded`): staying on this Mac;
 //! 7. a cloud computer paused while idle: sleeping, memory and processes kept;
-//! 8. else running.
+//! 8. a cloud computer paused for a reason this build does not know: paused, with no promise
+//!    about its memory or processes;
+//! 9. else running.
+//!
+//! The chat's home is the caller's `home`, except that a hybrid start's live Show moves a chat
+//! on this Mac to the cloud; a move that stopped keeps the home where it was. The spend and idle
+//! pauses read that home, so a live hybrid chat pauses as any cloud chat does.
 
 use serde::{Deserialize, Serialize};
 
@@ -52,6 +58,9 @@ pub enum Phase {
     Reconnecting,
     /// Paused in the cloud while idle; memory and processes kept.
     Sleeping,
+    /// Paused in the cloud for a reason this build does not know (a `paused_by` word newer than
+    /// it): no claim that memory and processes were kept.
+    Paused,
     /// Paused at the person's overage limit (`paused_by: spend_cap`).
     PausedSpendCap,
     /// Paused: this week's cloud time is used.
@@ -179,12 +188,14 @@ pub struct MoveFacts {
     pub failure: Option<MoveFailure>,
 }
 
-/// The hybrid start's newest Show, as `cloud_hybrid_start` answers it (`crate::hybrid_show`).
+/// The hybrid start's newest Show (`crate::hybrid_show`). Keys are snake_case as every other
+/// key here; `sinceMs`, as `cloud_hybrid_start` spells it, is read too.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(default)]
 pub struct HybridFacts {
     pub cloud: Cloud,
     pub reason: Option<String>,
+    #[serde(alias = "sinceMs")]
     pub since_ms: Option<u64>,
 }
 
@@ -195,9 +206,12 @@ pub enum PausedBy {
     SpendCap,
     /// The plan's weekly cloud time is used.
     PoolSpent,
-    /// Idle auto-pause, or any other pause that keeps memory and processes.
-    #[serde(other)]
+    /// Idle auto-pause: memory and processes kept.
     Idle,
+    /// A word this build does not know. It reads as [`Phase::Paused`], never as an idle sleep:
+    /// nothing says its memory and processes were kept.
+    #[serde(other)]
+    Unknown,
 }
 
 /// The agent's cloud computer, when it has one.
@@ -220,23 +234,43 @@ pub struct Refusal {
     pub at_ms: Option<u64>,
 }
 
-/// What the caller already knows of one session.
+/// What the caller already knows of one session. `session_id` is required and not empty; every
+/// other key may be left out.
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
-#[serde(default)]
 pub struct Facts {
+    #[serde(deserialize_with = "non_empty")]
     pub session_id: String,
+    #[serde(default)]
     pub home: Home,
+    #[serde(default)]
     pub hybrid: Option<HybridFacts>,
-    #[serde(rename = "move")]
+    #[serde(default, rename = "move")]
     pub move_: Option<MoveFacts>,
     /// Since when the link to the chat's computer is down and being reconnected.
+    #[serde(default)]
     pub reconnecting_since_ms: Option<u64>,
+    #[serde(default)]
     pub machine: Option<MachineFacts>,
+    #[serde(default)]
     pub refusal: Option<Refusal>,
+    #[serde(default)]
     pub size: Size,
+    #[serde(default)]
     pub sleep: Sleep,
     /// The last placement or growth reason.
+    #[serde(default)]
     pub why: Option<Why>,
+}
+
+fn non_empty<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    let value = String::deserialize(deserializer)?;
+    if value.is_empty() {
+        return Err(serde::de::Error::invalid_value(
+            serde::de::Unexpected::Str(""),
+            &"a session id",
+        ));
+    }
+    Ok(value)
 }
 
 /// Whether a server error code is the slots-full refusal (`cloud.quota.exceeded`).
@@ -249,17 +283,21 @@ pub fn is_spend_cap(code: &str) -> bool {
     code.ends_with("spend_cap.reached") || code.ends_with("spend_cap_reached")
 }
 
-/// A hybrid start's failure reason as the move's failure.
+/// A hybrid start's failure reason as the move's failure. The driver's reason is free text (an
+/// error message, or a server code), with no typed kind, so only a known code reads as a kind: a
+/// refusal code (`cloud.quota.exceeded`, `cloud.spend_cap.reached`) or a [`MoveFailure`] word
+/// itself (`network_dropped`, `mac_slept`, `refused`). Anything else, a stray "network" or
+/// "sleep" in a message included, is [`MoveFailure::Other`].
 fn failure_of(reason: Option<&str>) -> MoveFailure {
-    let reason = reason.unwrap_or_default();
+    let reason = reason.unwrap_or_default().trim();
     if is_slots_full(reason) || is_spend_cap(reason) {
-        MoveFailure::Refused
-    } else if reason.contains("network") || reason.contains("connection") {
-        MoveFailure::NetworkDropped
-    } else if reason.contains("sleep") || reason.contains("slept") {
-        MoveFailure::MacSlept
-    } else {
-        MoveFailure::Other
+        return MoveFailure::Refused;
+    }
+    match reason {
+        "network_dropped" => MoveFailure::NetworkDropped,
+        "mac_slept" => MoveFailure::MacSlept,
+        "refused" => MoveFailure::Refused,
+        _ => MoveFailure::Other,
     }
 }
 
@@ -270,10 +308,10 @@ fn why_at(reason: Reason, at_ms: Option<u64>) -> Option<Why> {
     at_ms.map(|at_ms| Why { at_ms, reason, command: None })
 }
 
-fn derive(facts: &Facts) -> Derived {
+fn derive(facts: &Facts, home: Home) -> Derived {
     let machine = facts.machine.as_ref();
     let paused = machine.and_then(|machine| Some((machine.paused_by?, machine.paused_since_ms)));
-    let in_cloud = facts.home == Home::Cloud;
+    let in_cloud = home == Home::Cloud;
     match paused {
         Some((PausedBy::SpendCap, since)) if in_cloud => {
             return (Phase::PausedSpendCap, since, None, why_at(Reason::SpendCap, since));
@@ -323,22 +361,26 @@ fn derive(facts: &Facts) -> Derived {
         return (Phase::StayingLocalSlotsFull, refusal.at_ms, None, why);
     }
     match paused {
+        Some((PausedBy::Unknown, since)) if in_cloud => (Phase::Paused, since, None, None),
         Some((_, since)) if in_cloud => (Phase::Sleeping, since, None, None),
         _ => (Phase::Running, None, None, None),
     }
 }
 
-/// The home a hybrid start that committed its move left the chat in.
+/// The chat's home: a hybrid start that committed its move left a chat on this Mac in the cloud;
+/// a move that stopped keeps it where it was, whatever the Show says.
 fn home_of(facts: &Facts) -> Home {
+    let move_failed = facts.move_.as_ref().is_some_and(|moving| moving.failure.is_some());
     match facts.hybrid.as_ref().map(|hybrid| hybrid.cloud) {
-        Some(Cloud::Live) if facts.home == Home::ThisMac => Home::Cloud,
+        Some(Cloud::Live) if facts.home == Home::ThisMac && !move_failed => Home::Cloud,
         _ => facts.home,
     }
 }
 
 /// The one status of `facts`' session.
 pub fn status(facts: &Facts) -> ComputerStatus {
-    let (phase, phase_since_ms, move_, phase_why) = derive(facts);
+    let home = home_of(facts);
+    let (phase, phase_since_ms, move_, phase_why) = derive(facts, home);
     // The phase's own reason wins over an older placement reason; a newer one stays.
     let why = match (phase_why, facts.why.clone()) {
         (Some(own), Some(last)) if last.at_ms > own.at_ms => Some(last),
@@ -348,7 +390,7 @@ pub fn status(facts: &Facts) -> ComputerStatus {
     let shape = facts.machine.as_ref().and_then(|machine| machine.shape);
     ComputerStatus {
         session_id: facts.session_id.clone(),
-        home: home_of(facts),
+        home,
         phase,
         phase_since_ms,
         move_,
