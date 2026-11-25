@@ -72,7 +72,19 @@ fn a_laptops_first_give_answered_after_the_move_was_asked_again_loses_the_chat_a
 
 #[test]
 fn a_laptop_whose_tree_is_stopped_loses_the_chat_to_a_give_answered_late() {
-    let (chat, now) = give_laptop::give_until(GiveStep::Asking);
+    // A give asked, taken back, and the laptop woke: its tree is stopped until the store
+    // answers the renewal.
+    let (holding, now) = taken_back_on_a_laptop();
+    let (stopped, effects) = step(holding, Event::Wake, now + 1);
+    assert_eq!(stopped.state, State::Stopped { epoch: 1, why: Stop::Wake });
+    assert_eq!(acts(&effects), ["stop_tree", "renew"]);
+    let (after, effects) = step(stopped, Event::Gave { epoch: 2 }, now + 2);
+    assert_eq!(after.state, State::Standby { epoch: 2 });
+    assert_eq!(acts(&effects), ["kill_tree", "write_leftover_patch", "renew"]);
+    assert!(!has(&effects, "continue_tree"));
+
+    // The same for a chat that woke before its give asked the store.
+    let (chat, now) = give_laptop::give_until(GiveStep::Copying);
     let (stopped, effects) = step(chat, Event::Wake, now + 1);
     assert_eq!(stopped.state, State::Stopped { epoch: 1, why: Stop::Wake });
     assert_eq!(acts(&effects), ["stop_tree", "stay", "renew"]);

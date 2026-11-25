@@ -229,8 +229,13 @@ pub(super) fn giving(
     match event {
         Event::AutoOff => out.push(Effect::Close),
         Event::Tick => give::tick(out, epoch, step, to, now),
-        // Stop first, then ask, as a laptop that holds does. The give is over: the answer
-        // says whether the chat is still here, and a wish in it starts another.
+        // The store was asked to take the chat and may have: the give is not over until it
+        // or the renewal answers, so nothing of the chat starts here meanwhile. A turn that
+        // went on here now would run beside the same turn on the machine that got the chat.
+        Event::Wake if step == GiveStep::Asking => out.renew(now),
+        // Stop first, then ask, as a laptop that holds does. Nothing was asked of the store
+        // yet, so the give is over: the answer says whether the chat is still here, and a
+        // wish in it starts another.
         Event::Wake => {
             out.push(Effect::StopTree);
             out.push(Effect::Stay);
