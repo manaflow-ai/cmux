@@ -983,6 +983,9 @@ impl Hub {
                     // The link takes requests again: messages waiting for a peer go now, not
                     // after the rest of their retry delay (`server/outbox.rs` `deliver`).
                     self.outbox.note_peer_ready(&peer);
+                    // Chat state edited on either side while the link was down crosses now
+                    // (`synced.rs`).
+                    self.synced_on_connect(&peer, generation);
                     // Sessions can be saved before the handshake marks the link ready.
                     // Persist its cleared outage once, without rewriting an already-clear cache.
                     if self.peer(&peer).is_some_and(|p| {

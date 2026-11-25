@@ -22,6 +22,9 @@ test("the allowlisted looks are exactly the Claude and Tandem golden looks, and 
 test("a look is honored on its own looks.golden stage and nowhere else", () => {
   for (const id of ["claude", "tandem-addon"]) {
     expect(allowed({ entry: GOLDEN_LOOKS_ENTRY, variant: id, theme: undefined })).toBe(true);
+    // The golden Settings page draws the same look on its own stages.
+    expect(allowed({ entry: "looks.golden.settings.appearance", variant: id, theme: undefined })).toBe(true);
+    expect(allowed({ entry: "looks.golden.settings.chat", variant: id, theme: "Dracula" })).toBe(false);
     // Another entry with a variant of the same name, or the same stage under another theme, is not admitted.
     expect(allowed({ entry: "agent-pane.composer", variant: id, theme: undefined })).toBe(false);
     expect(allowed({ entry: "looks.golden.extra", variant: id, theme: undefined })).toBe(false);

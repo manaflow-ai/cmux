@@ -205,7 +205,7 @@ public final class RemoteMachinesSidebar {
         let connected = state == "connected"
         guard list[i].connected != connected else { return .same }
         let old = list[i]
-        list[i] = AcpmuxPeerList.Peer(name: old.name, connected: connected, resources: old.resources, url: old.url, symbol: old.symbol)
+        list[i] = AcpmuxPeerList.Peer(name: old.name, connected: connected, resources: old.resources, url: old.url, symbol: old.symbol, autoCloud: old.autoCloud)
         return .list(list)
     }
 
