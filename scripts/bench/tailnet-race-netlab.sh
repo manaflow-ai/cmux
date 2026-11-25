@@ -32,8 +32,8 @@ asyncio.run(main())
 sleep 1
 run() { # label tailnet-port other-port
   TAILNET_BENCH_TAILNET=127.0.0.1:$2 TAILNET_BENCH_OTHER=127.0.0.1:$3 TAILNET_BENCH_N=$N \
-  TAILNET_BENCH_LABEL="$1" "$BIN" tailnet_race_netlab_bench --ignored --exact --nocapture \
-    --test-threads 1 2>&1 | grep '^BENCH'
+  TAILNET_BENCH_LABEL="$1" "$BIN" peer::carriers::tests::tailnet_race_netlab_bench --ignored --exact --nocapture \
+    --test-threads 1 2>&1 | grep -E "^BENCH|panicked|running 0"
 }
 echo "netlab: tailnet RTT ${TAILNET_RTT}ms, other paths RTT ${OTHER_RTT}ms, n=$N, nproc=$(nproc)"
 run steady 7811 7812
