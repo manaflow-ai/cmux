@@ -514,6 +514,7 @@ version = "0.1.0"
 name = "cmux-braid-path"
 version = "0.1.0"
 dependencies = [
+ "cmux-transport",
  "futures-util",
  "tokio",
 ]
@@ -848,6 +849,7 @@ dependencies = [
  "base64",
  "boringtun",
  "bytes",
+ "cmux-braid-path",
  "cmux-transport",
  "getrandom 0.3.4",
  "ip_network",
