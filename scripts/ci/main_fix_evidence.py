@@ -64,6 +64,27 @@ class Unread(Refused):
     reads as "not judged, a retry" instead of red_not_excused)."""
 
 
+def read_name(args: list[str]) -> str:
+    """The read, short enough to print in a refusal. `gh api <route>` is that route; anything else is its words,
+    capped at 200 characters -- `run view <run> --repo R --job <job> --log`, which is the read most likely to be
+    the slow one. A GraphQL body is compressed to its operation name: `-f query=...` is thousands of characters and
+    every caller sends the same handful of queries, so the name alone identifies it.
+    Without this a timeout said only "GitHub evidence request exceeded 90 seconds", so which of the ~60 reads
+    base_red_excuse makes had spent the 90 s was a guess (leo-workspace#9276, #9153, #8643, 2026-11-24)."""
+    if len(args) >= 2 and args[0] == "api" and args[1] != "graphql" and not args[1].startswith("-"):
+        return f"gh api {args[1][:200]}"
+    kept = []
+    for word in args:
+        if word in ("-f", "--field", "-F", "--raw-field"):
+            continue  # the flag itself says nothing; its value is kept below
+        if word.startswith("query="):
+            found = re.search(r"\b(?:query|mutation)\s+(\w+)", word)
+            kept.append(f"query={found.group(1)}" if found else "query=...")
+            continue
+        kept.append(word)
+    return ("gh " + " ".join(kept))[:200]
+
+
 class GitHub:
     def run(self, args: list[str], *, repo: str | None = None) -> str:
         # Disk and memory are bounded per command; neither logs nor receipts are
@@ -76,13 +97,15 @@ class GitHub:
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait()
-                raise Unread("GitHub evidence request exceeded 90 seconds") from None
+                raise Unread(f"GitHub evidence request exceeded 90 seconds: {read_name(args)}") from None
             if output.tell() > MAX_OUTPUT or errors.tell() > MAX_OUTPUT:
-                raise Unread(f"GitHub evidence exceeds the {MAX_OUTPUT // (1024 * 1024)} MiB limit")
+                raise Unread(f"GitHub evidence exceeds the {MAX_OUTPUT // (1024 * 1024)} MiB limit: "
+                             f"{read_name(args)}")
             output.seek(0)
             errors.seek(0)
             if process.returncode:
-                raise Unread("GitHub evidence request failed: " + errors.read(2000).decode(errors="replace"))
+                raise Unread(f"GitHub evidence request failed: {read_name(args)}: "
+                             + errors.read(2000).decode(errors="replace"))
             return output.read().decode(errors="replace")
 
     def json(self, route: str, *, paginate: bool = False, per_page: int = gh_pages.PER_PAGE):
