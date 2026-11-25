@@ -135,6 +135,8 @@ public struct TerminalConnectingView: View {
 /// cannot be reached, why in plain words, and Retry. Replaces the skeleton of fake `$` rows
 /// (Leo, 2026-11-25: "the placeholder's also bad").
 public struct TerminalUnreachable: Equatable, Sendable {
+    /// Never shown before the shared quiet bound: a blip draws the page's own background only.
+    public static let shownAfter: Duration = QuietStatusGate.threshold
     public var title: String
     public var reason: String
     public init(title: String, reason: String) {
