@@ -29,10 +29,12 @@ with a deadline; nothing sleeps to synchronize.
 """
 import argparse, json, os, plistlib, select, shutil, signal, socket, subprocess, sys, time
 import re
+import threading
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-from sessions import Agent, Owned, Terminal, bundle_commit, patch_build_stamp, wait_path  # noqa: E402
+from sessions import (Agent, Owned, Terminal, UnplacedTerminal, bundle_commit, patch_build_stamp,  # noqa: E402
+                      unplaced_survived, wait_path)
 from tag_teardown import TagTeardown  # noqa: E402
 from state_wait import wait_stable  # noqa: E402
 
@@ -544,6 +546,20 @@ def main():
                     help="run a terminal counter and an agent turn across the update and check they survive")
     ap.add_argument("--agent-count", type=int, default=1, help="active FIFO-gated turns with --sessions (default: 1)")
     ap.add_argument("--terminal-count", type=int, default=1, help="running counters with --sessions (default: 1)")
+    ap.add_argument("--v2-app", help="update to this build instead of a copy of --app (an old build to a new one); "
+                                     "the two builds' daemons differ, so the update takes the real daemon handoff")
+    ap.add_argument("--unplaced-count", type=int, default=0,
+                    help="with --sessions: terminals with no tab, each kept by an attach stream, unplaced for longer "
+                         "than the reap grace before the click (0 to 32, default 0)")
+    ap.add_argument("--unplaced-return", type=int, default=-1,
+                    help="how many of them get their attach stream again after the update (default: all); the rest "
+                         "are abandoned and must end")
+    ap.add_argument("--unplaced-age", type=float, default=40,
+                    help="seconds the terminals stay without a tab before the click (default 40; the grace is 30)")
+    ap.add_argument("--unplaced-return-delay", type=float, default=8,
+                    help="seconds from the new daemon to the returning attach (default 8)")
+    ap.add_argument("--unplaced-settle", type=float, default=90,
+                    help="seconds from the new daemon to the survival check (default 90)")
     ap.add_argument("--required-update", action="store_true",
                     help="turn automatic downloads off (cmux.json) and require v2 (managed MinimumVersion): "
                          "the update must still download and stage with no click")
@@ -600,8 +616,21 @@ def main():
     a = ap.parse_args()
     if not 1 <= a.agent_count <= 32 or not 1 <= a.terminal_count <= 32:
         ap.error("session counts must be between 1 and 32")
-    if not a.sessions and (a.agent_count != 1 or a.terminal_count != 1):
+    if not a.sessions and (a.agent_count != 1 or a.terminal_count != 1 or a.unplaced_count):
         ap.error("session counts need --sessions")
+    if not 0 <= a.unplaced_count <= 32:
+        ap.error("--unplaced-count takes 0 to 32")
+    if a.unplaced_return < 0:
+        a.unplaced_return = a.unplaced_count
+    if a.unplaced_return > a.unplaced_count:
+        ap.error("--unplaced-return cannot be more than --unplaced-count")
+    if a.v2_app:
+        if not os.path.isdir(a.v2_app):
+            ap.error(f"--v2-app {a.v2_app} is not an app")
+        if os.path.basename(a.v2_app.rstrip("/")) != os.path.basename(a.app.rstrip("/")):
+            ap.error("--v2-app must have the name of --app (one tag, one bundle id)")
+    # Another build's daemons: the handoff is the builds' own, no stamp to patch.
+    stamp_handoff, a.handoff = a.handoff and not a.v2_app, a.handoff or bool(a.v2_app)
     if a.island_lifecycle and not (a.surface_shots and a.notes):
         ap.error("--island-lifecycle needs --surface-shots and --notes")
     if a.changelog_shots and not (a.surface_shots and a.notes):
@@ -640,7 +669,7 @@ def main():
     result = {"tag": a.tag, "app": name}
     slug = "-".join(filter(None, "".join(c if c.isalnum() else " " for c in a.tag.lower()).split()))
     acp_home = os.path.join(os.environ["HOME"], ".acpmux/builds", "com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", slug.lower()).strip("."))
-    terminals, agents = [], []
+    terminals, agents, unplaced = [], [], []
     teardowns = [TagTeardown(copy, acpmux_home=acp_home, acpmux_socket=os.path.join(acp_home, "acpmux.sock"), log=log)
                  for copy in (v1, v2)]
     try:
@@ -649,8 +678,13 @@ def main():
         teardowns[0].install()
         public_key = run(["swift", os.path.join(HERE, "keys.swift"), "generate", keys])
         run(["/usr/bin/ditto", a.app, v1])
-        run(["/usr/bin/ditto", a.app, v2])
-        if a.handoff:
+        run(["/usr/bin/ditto", a.v2_app or a.app, v2])
+        if a.v2_app:
+            result["v1_commit"], result["v2_commit"] = bundle_commit(v1), bundle_commit(v2)
+            log("builds", result["v1_commit"], "->", result["v2_commit"])
+            if result["v1_commit"] == result["v2_commit"]:
+                raise SystemExit("--v2-app is the same build as --app")
+        if stamp_handoff:
             commit = bundle_commit(v2)
             bin2 = os.path.join(v2, "Contents/Resources/bin")
             result["handoff_patch"] = {name: patch_build_stamp(os.path.join(bin2, name), commit) for name in ("cmux-tui", "acpmux")}
@@ -665,6 +699,10 @@ def main():
                 directory = os.path.join(work, f"terminal-{i + 1}")
                 os.makedirs(directory)
                 terminals.append(Terminal(v1, directory, log, f"cmux-app-{slug}"))
+            for i in range(a.unplaced_count):
+                directory = os.path.join(work, f"unplaced-{i + 1}")
+                os.makedirs(directory)
+                unplaced.append(UnplacedTerminal(v1, directory, log, f"cmux-app-{slug}", returns=i < a.unplaced_return))
         harness = {"feed": feed_url, "marks": marks_path}
         base = int(time.time())
         v1_harness = dict(harness)
@@ -864,6 +902,9 @@ def main():
             for terminal in terminals:
                 terminal.start(v1)
                 owned.add(terminal.pid)
+            for terminal in unplaced:
+                terminal.start(v1)
+                owned.add(terminal.pid)
             remember_tag()  # the tag's cmux-tui daemon runs the counters' terminals
             for agent in agents:
                 agent.start()
@@ -882,6 +923,15 @@ def main():
                 raise SystemExit("an agent turn is not running before the install")
             if any(not terminal.pid or not sessions_alive(terminal.pid) for terminal in terminals):
                 raise SystemExit("a terminal counter is not running before the install")
+            if unplaced:
+                # Past the reap grace with no tab: only the attach stream keeps each one, as the app keeps an agent's.
+                time.sleep(a.unplaced_age)
+                gone = [terminal.term for terminal in unplaced if not terminal.running_unplaced()]
+                result["unplaced_before_install"] = {"count": len(unplaced), "returning": a.unplaced_return,
+                                                     "age_s": a.unplaced_age, "ended_before_install": gone}
+                log("unplaced before install", json.dumps(result["unplaced_before_install"]))
+                if gone:
+                    raise SystemExit(f"{len(gone)} unplaced terminals ended before the install: the attach did not keep them")
             result["busy_snapshot"] = rpc(sock, "debug.window_snapshot", {"path": os.path.join(out, "busy-before-install.png")})
             log("busy before install", json.dumps(result["busy_before_install"]))
         if a.readonly_install:
@@ -906,6 +956,8 @@ def main():
             # The answer to the ready step: the Update Ready card's Restart to Update.
             install_action = "debug.updater press restart"
         result["install_action"] = install_action
+        for terminal in unplaced:
+            threading.Thread(target=terminal.follow_update, args=(v1, a.unplaced_return_delay), daemon=True).start()
         t_send = time.time()
         if install_action == "debug.updater press restart":
             reply = rpc(sock, "debug.updater", {"action": "press", "button": "restart"})
@@ -980,6 +1032,21 @@ def main():
             result["terminal_survival"] = result["terminal_survivals"][0]
             result["agent_survival"] = result["agent_survivals"][0]
             terminal_ok = all(terminal_survived(r, a.handoff) for r in result["terminal_survivals"])
+            if unplaced:
+                rows_unplaced = [terminal.check_unplaced(a.unplaced_settle) for terminal in unplaced]
+                returning = [r for r in rows_unplaced if r["returns"]]
+                abandoned = [r for r in rows_unplaced if not r["returns"]]
+                result["unplaced_survivals"] = rows_unplaced
+                result["unplaced_summary"] = {
+                    "returning": len(returning), "returning_kept": sum(unplaced_survived(r) for r in returning),
+                    "abandoned": len(abandoned), "abandoned_ended": sum(unplaced_survived(r) for r in abandoned),
+                    "returning_ended_after_s": sorted(r["ended_after_s"] for r in returning if r["ended_after_s"] is not None),
+                    "abandoned_ended_after_s": sorted(r["ended_after_s"] for r in abandoned if r["ended_after_s"] is not None),
+                    "return_delay_s": a.unplaced_return_delay, "settle_s": a.unplaced_settle,
+                }
+                # One line a fleet step's log keeps, whatever the run's status.
+                print("UNPLACED " + json.dumps(result["unplaced_summary"]), flush=True)
+                terminal_ok = terminal_ok and all(unplaced_survived(r) for r in rows_unplaced)
             agent_ok = all(r["harness_alive_after_swap"] and r["same_host"] and r["transcript_prefix_preserved"]
                            and r["gate_released"] and r["turn_results"] == 1 and r["turn_status"] == "completed"
                            and not r["outcome_unknown"]
@@ -1062,6 +1129,8 @@ def main():
             os.chmod(os.path.dirname(v1), 0o755)
         with open(os.path.join(out, "timeline.json"), "w") as f:
             json.dump(result, f, indent=1)
+        for terminal in unplaced:
+            terminal.stop_streams()
         for pid, identity in owned_apps.items():
             current = TagTeardown._table().get(pid)
             if current and current[1:] == identity:

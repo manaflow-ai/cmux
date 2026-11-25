@@ -52,14 +52,18 @@ env:
 jobs:
   swift-linux-packages:
     name: Swift packages on Linux (${{ matrix.group }})
-    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
-    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: ${{ (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+    # Runs on every pull request the router starts it for: these suites run here instead of on a Mac, so a
+    # red here is the only place a pull request learns it broke one.
     # 32 vCPU: swift build compiles a package's modules in parallel (tests/test_ci_linux_compile_runners.py);
     # 16 vCPU while the Blacksmith outage switch is on (tests/test_ci_blacksmith_linux_failover.py).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 30
     container: public.ecr.aws/docker/library/swift:6.2-noble@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
+    env:
+      # Mac fallback (Leo, 2026-11-25: "having our mac fleet be able to like... exist as fallbacks if we fucked
+      # up logic for linux and whatnot is still fine"): on our own runs a package that fails here is handed to
+      # the mac-fallback job instead of failing this one; a fork's run has no Mac of ours, so it fails here.
+      MAC_FALLBACK: ${{ github.repository_owner == 'manaflow-ai' && !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && '1' || '' }}
     defaults:
       run:
         shell: bash
@@ -82,15 +86,43 @@ jobs:
           # shape); cmux-next-ios-kit.yml skips their test targets on the Mac.
           - group: ios-kit
             packages: cmux-next-ios/CmuxMobileKit
+          # Whole packages that pass on Linux; CmuxIrohTransport's Apple-gated tests still run on the Mac lane.
+          - group: CmuxChiefList
+            packages: Packages/Shared/CmuxChiefList
+          - group: CmuxConnectivityTelemetry
+            packages: Packages/Shared/CmuxConnectivityTelemetry
+          - group: CmuxDeviceHub
+            packages: Packages/Shared/CmuxDeviceHub
+          - group: CmuxEgress
+            packages: Packages/Shared/CmuxEgress
+          - group: CmuxIrohTransport
+            packages: Packages/Shared/CmuxIrohTransport
+          - group: CmuxVisibleRows
+            packages: Packages/Shared/CmuxVisibleRows
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # A reused pool workspace can hold a repository the container cannot read (an alternate on the VM's git
+      # mirror, a broken index: "index cache-tree records empty sub-tree"); drop it and check out fresh.
+      - name: Checkout
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
-      # python3 for the lane's watchdog; CmuxMobilePairedMac links the system SQLite, and the image
-      # ships only its runtime.
-      - name: Install python3 and SQLite headers
-        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 libsqlite3-dev
+      - name: Discard the workspace repository after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+
+      - name: Retry checkout in a fresh repository
+        if: steps.checkout.outcome == 'failure'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # python3 for the lane's watchdog; CmuxMobilePairedMac links the system SQLite and CmuxVNC the system
+      # zlib, and the image ships only their runtimes.
+      - name: Install python3, SQLite and zlib headers
+        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 libsqlite3-dev zlib1g-dev
 
       - name: Cache key
         id: key
@@ -126,10 +158,13 @@ jobs:
           while read -r dir targets _; do
             case "$dir" in ''|'#'*) continue ;; esac
             echo "::group::$dir ($targets)"
-            bash scripts/ci/package-test-lane.sh suite "$dir" "$targets" || { echo "::error::$dir failed on Linux"; status=1; }
+            if ! bash scripts/ci/package-test-lane.sh suite "$dir" "$targets"; then
+              echo "::error::$dir failed on Linux"; status=1
+              printf 'suite\t%s\t%s\n' "$dir" "$targets" >> "$RUNNER_TEMP/linux-failed.tsv"
+            fi
             echo "::endgroup::"
           done < scripts/ci/swift-linux-packages.txt
-          exit "$status"
+          [ -n "$MAC_FALLBACK" ] || exit "$status"
 
       - name: Build and test
         if: matrix.group != 'listed'
@@ -158,15 +193,43 @@ jobs:
             if [ "$result" != pass ]; then
               echo "::error title=$package::$result"
               failed="$failed $package"
+              printf 'whole\t%s\t%s\n' "$package" "${TEST_FILTER:-}" >> "$RUNNER_TEMP/linux-failed.tsv"
             fi
           done
           if [ -n "$failed" ]; then
             echo "Failed:$failed"
-            exit 1
+            [ -n "$MAC_FALLBACK" ] || exit 1
           fi
 
+      # Every fallback is logged: a warning on this run, the table in its summary, and the artifact the
+      # mac-fallback job reads, so the Linux logic gets fixed rather than living on the Mac.
+      - name: Hand Linux failures to the Mac fallback
+        id: handoff
+        if: always() && env.MAC_FALLBACK == '1' && hashFiles(format('{0}/linux-failed.tsv', runner.temp)) != ''
+        run: |
+          set -euo pipefail
+          echo "handed=1" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Linux failures handed to the Mac fallback (${{ matrix.group }})"
+            echo "| Kind | Package | Targets or filter |"
+            echo "| --- | --- | --- |"
+            awk -F'\t' '{ printf "| %s | `%s` | %s |\n", $1, $2, $3 }' "$RUNNER_TEMP/linux-failed.tsv"
+          } >> "$GITHUB_STEP_SUMMARY"
+          while IFS=$'\t' read -r _ package _; do
+            echo "::warning title=linux-fallback::$package failed on Linux; the mac-fallback job reruns it on a Mac"
+          done < "$RUNNER_TEMP/linux-failed.tsv"
+          cp "$RUNNER_TEMP/linux-failed.tsv" "linux-failed-${{ matrix.group }}.tsv"
+
+      - name: Upload the handed failures
+        if: always() && steps.handoff.outputs.handed == '1'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-fallback-${{ matrix.group }}
+          path: linux-failed-${{ matrix.group }}.tsv
+          retention-days: 7
+
       - name: Save .build
-        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.build_cache.outputs.cache-hit != 'true'
+        if: success() && steps.handoff.outputs.handed != '1' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.build_cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: |
@@ -174,3 +237,82 @@ jobs:
             vendor/stack-auth-swift-sdk-prerelease/.build
             cmux-next-ios/CmuxMobileKit/.build
           key: swift-linux-packages-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ runner.arch }}-${{ matrix.group }}-${{ steps.key.outputs.inputs }}
+
+  # One small Linux job decides whether any group handed a package to the Mac, so a green run never
+  # takes a Mac from the queue.
+  fallback-plan:
+    name: Mac fallback plan
+    needs: swift-linux-packages
+    if: always() && !cancelled() && github.repository_owner == 'manaflow-ai'
+    runs-on: cmux-linux
+    timeout-minutes: 5
+    outputs:
+      needed: ${{ steps.plan.outputs.needed }}
+    steps:
+      - name: Read the handed failures
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        continue-on-error: true
+        with:
+          pattern: linux-fallback-*
+          path: handed
+          merge-multiple: true
+      - name: Plan
+        id: plan
+        shell: bash
+        run: |
+          if compgen -G "handed/*.tsv" > /dev/null; then
+            echo "needed=1" >> "$GITHUB_OUTPUT"
+            cat handed/*.tsv
+          else
+            echo "needed=0" >> "$GITHUB_OUTPUT"
+          fi
+
+  # The Mac fallback: reruns, on a Mac of the owned pool, exactly the packages that failed on Linux. A
+  # package green here and red on Linux is a Linux-specific failure: logged, and the run stays green. Red
+  # here too is a real failure, and this job fails the run.
+  mac-fallback:
+    name: Swift packages Mac fallback
+    needs: fallback-plan
+    if: ${{ !cancelled() && needs.fallback-plan.outputs.needed == '1' }}
+    runs-on: ${{ vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || fromJSON(vars.RUNNER_POOLS).macos_15 }}
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: linux-fallback-*
+          path: handed
+          merge-multiple: true
+      - name: Rerun the Linux failures on the Mac
+        run: |
+          set -uo pipefail
+          status=0
+          echo "| Package | Linux | Mac |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+          while IFS=$'\t' read -r kind package extra; do
+            echo "::group::$package ($kind)"
+            if [ "$kind" = suite ]; then
+              bash scripts/ci/package-test-lane.sh suite "$package" "$extra"
+            else
+              filter=()
+              [ -z "$extra" ] || filter=(--filter "$extra")
+              swift build --package-path "$package" --build-tests &&
+                { [ ! -d "$package/Tests" ] || swift test --package-path "$package" --skip-build --parallel "${filter[@]}"; }
+            fi
+            rc=$?
+            echo "::endgroup::"
+            if [ "$rc" = 0 ]; then
+              echo "::warning title=linux-fallback::$package passed on the Mac after failing on Linux: a Linux-specific failure to fix"
+              echo "| \`$package\` | failed | passed (Linux-specific) |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::error title=$package::failed on Linux and on the Mac"
+              echo "| \`$package\` | failed | failed |" >> "$GITHUB_STEP_SUMMARY"
+              status=1
+            fi
+          done < <(cat handed/*.tsv)
+          exit "$status"
