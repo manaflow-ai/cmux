@@ -510,7 +510,6 @@ scripts/cmux-next/update-harness/run.py	/tmp/cmux-debug-{a.tag}.sock	1	keep	dev 
 scripts/cmux-next/visual-gate/capture_states.py	.config/cmux/	1	move	lane A: harness assumes the shared state root; changes with the roots (lane/next-own-state-roots)
 scripts/cmux-next/vm-hassle.ts	.config/cmux"	1	move	lane A: harness assumes the shared state root; changes with the roots (lane/next-own-state-roots)
 scripts/cmux-next/vm-hassle.ts	.config/cmux/	1	move	lane A: harness assumes the shared state root; changes with the roots (lane/next-own-state-roots)
-scripts/cmux-next/web-overlay.sh	.config/cmux/	3	move	lane A: harness assumes the shared state root; changes with the roots (lane/next-own-state-roots)
 scripts/cmux-next/webauthn-opaque-e2e.py	/tmp/cmux-debug-{opts.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 scripts/cmux-next/workspace-card-fold-record.py	/tmp/cmux-debug-{opts.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 webviews/dev-server/diffLanguages.ts	join(home, ".config", "cmux",	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
