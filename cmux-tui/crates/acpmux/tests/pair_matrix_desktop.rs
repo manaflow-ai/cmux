@@ -856,6 +856,15 @@ const ROW_CONDITIONS: &[&str] = &["loss", "latency", "handoff", "sleep", "failov
 #[ignore = "bench: run with --ignored --nocapture (pm/DESIGN.md)"]
 async fn pair_matrix_desktop_row() {
     let _ = HERMETIC;
+    // Trace-only (bisect): RUST_LOG=... logs both hubs to stderr, tagged by uptime.
+    if let Ok(filter) = std::env::var("RUST_LOG") {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::new(filter))
+            .with_writer(std::io::stderr)
+            .with_ansi(false)
+            .with_timer(tracing_subscriber::fmt::time::uptime())
+            .try_init();
+    }
     let runs = env_u64("PAIRMATRIX_N", 5);
     let seed_base = env_u64("PAIRMATRIX_SEED_BASE", 0);
     let conditions = env_list("PAIRMATRIX_CONDITIONS", ROW_CONDITIONS);
