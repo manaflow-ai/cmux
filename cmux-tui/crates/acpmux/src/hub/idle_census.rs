@@ -60,16 +60,32 @@ impl Hub {
     }
 
     /// The MCP servers `child`, the session's harness, runs: what its configs named as it
-    /// started (`LaunchServers::read`) and the `mcpServers` acpmux gave it. None when its configs
-    /// were not read in time: the harness stays up. For a
+    /// started (`LaunchServers::read`) and the `mcpServers` acpmux gave it. A start that missed
+    /// its budget reads them again now (`LaunchServers::retry`), kept for later passes and, for
+    /// a hosted harness, in `session`'s meta. None when they still cannot be read in time: the
+    /// harness stays up until a later pass reads them. For a
     /// harness another daemon started none are known, so it ends only when nothing at all runs
     /// under it.
-    pub(super) async fn sidecars(&self, child: &ChildAgent) -> Option<Servers> {
-        let state = child.launch.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    pub(super) async fn sidecars(&self, session: &Session, child: &ChildAgent) -> Option<Servers> {
+        let mut state = child.launch.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(unknown @ LaunchServers::Unknown(_)) = &state {
+            let known = unknown.retry().await?;
+            tracing::info!(session = %session.id, "idle census: the MCP configs its start could not read in time are read now");
+            child.record_launch(known.clone());
+            // Only the session's current harness writes the meta: an old one whose retry ended
+            // after a new start must not replace what that start kept for an adopting daemon.
+            let current =
+                session.child.lock().await.as_ref().is_some_and(|c| std::ptr::eq(&**c, child));
+            if current {
+                self.note_launch(session, child);
+                self.save_meta(session);
+            }
+            state = Some(known);
+        }
         let (mut servers, path, cwd) = match state {
             None => return Some(Servers { list: Vec::new(), path: None }),
             Some(LaunchServers::Known { servers, path, cwd }) => (servers, path, cwd),
-            Some(LaunchServers::Unknown) => return None,
+            Some(LaunchServers::Unknown(_)) => return None,
         };
         let given = child.given_servers.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let read = tokio::task::spawn_blocking(move || {

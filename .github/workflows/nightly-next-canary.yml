@@ -356,6 +356,7 @@ jobs:
           name: canary-latency-${{ env.BUILD }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/canary-latency.json
           if-no-files-found: error
+          retention-days: 3  # retention-class: report
 
   verdict:
     # The name carries the static-artifact verdict.

@@ -70,4 +70,4 @@ jobs:
           name: cmux-next-ios-keyboard-motion
           path: ${{ runner.temp }}/ios-keyboard-motion
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3  # retention-class: report

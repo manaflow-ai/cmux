@@ -169,6 +169,9 @@ jobs:
           ref: ${{ inputs.commit }}
           fetch-depth: 1
 
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
       - name: Set up cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
@@ -223,6 +226,9 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
           sparse-checkout: scripts
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
 
       # Before any secret: an owned Mac must be held whole (an ephemeral runner passes).
       - name: Claim the whole Mac for signing
