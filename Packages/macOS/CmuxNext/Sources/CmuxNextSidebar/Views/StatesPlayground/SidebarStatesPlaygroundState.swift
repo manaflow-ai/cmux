@@ -27,7 +27,7 @@ enum SidebarStatesPlaygroundState: String, CaseIterable, Sendable {
     case hovered
     /// The inline rename editor over the title.
     case renaming
-    /// Archived: the dimmed row under the open Archive section.
+    /// Archived: the dimmed row (drawn in place only here; the sidebar lists no archived row).
     case archived
     /// A workspace on an SSH machine, in that machine's section.
     case remote
