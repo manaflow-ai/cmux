@@ -11,8 +11,7 @@
 //! token: `CMUX_CLOUD_ACCESS_TOKEN`, `--cloud-token-file PATH`, else the signed-in app's (`cmux auth token`).
 //! A value comes from a hidden prompt or stdin, never argv, and is never printed: every listing shows `••••••••`.
 //!
-//! This device's key lives in the login Keychain (service `cmux-vault-device`, account the API origin) on a Mac, in
-//! `~/.config/cmux/vault-device/<origin>.json` (0600) elsewhere. Supersedes the Credential Vault of cmux#26487,
+//! This device's key lives in the login Keychain on a Mac and in an owner-only file elsewhere ([`OsDeviceStore`]). Supersedes the Credential Vault of cmux#26487,
 //! whose noun this takes.
 
 use std::io::{BufRead as _, IsTerminal as _, Write as _};
@@ -34,10 +33,6 @@ pub(crate) const USAGE: &str = "usage: cmux vault status | on | devices | approv
        cmux vault sync
   each takes --team team_... (the team vault), --api URL, --cloud-token-file PATH (or CMUX_CLOUD_ACCESS_TOKEN) and --json.
   End to end encrypted: your devices hold the key; Cloud machines get only their values, sealed to them.";
-
-const KEYCHAIN_SERVICE: &str = "cmux-vault-device";
-/// A DEV build's own Keychain service, so its device never reads or replaces nightly's.
-const KEYCHAIN_SERVICE_OVERRIDE: &str = "CMUX_NEXT_VAULT_DEVICE_SERVICE";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Verb {
@@ -303,7 +298,9 @@ impl Http for Transport {
     }
 }
 
-/// This device's key: the login Keychain on a Mac, an owner-only file elsewhere.
+/// This device's key: the login Keychain on a Mac (the build's Cloud secrets service, account
+/// `vault-device:<origin>`), an owner-only file beside the build's Cloud secrets index elsewhere. A DEV build's
+/// launch names both (`CMUX_NEXT_CLOUD_SECRETS_SERVICE`, `CMUX_NEXT_CLOUD_SECRETS_FILE`), so its device is its own.
 pub(crate) struct OsDeviceStore {
     account: String,
 }
@@ -319,18 +316,12 @@ impl OsDeviceStore {
     }
 
     fn file(&self) -> Option<PathBuf> {
-        std::env::var_os("HOME").map(|home| {
-            PathBuf::from(home)
-                .join(".config/cmux/vault-device")
-                .join(format!("{}.json", self.account))
-        })
+        let index = super::cloud_secret::index_path()?;
+        Some(index.parent()?.join("vault-device").join(format!("{}.json", self.account)))
     }
 
-    fn service() -> String {
-        std::env::var(KEYCHAIN_SERVICE_OVERRIDE)
-            .ok()
-            .filter(|s| !s.trim().is_empty())
-            .unwrap_or_else(|| KEYCHAIN_SERVICE.to_owned())
+    fn keychain_account(&self) -> String {
+        format!("vault-device:{}", self.account)
     }
 
     fn keychain() -> bool {
@@ -348,22 +339,36 @@ impl OsDeviceStore {
 }
 
 impl DeviceStore for OsDeviceStore {
-    fn load(&self) -> Result<Option<(String, Zeroizing<Vec<u8>>)>, String> {
+    fn load(&self) -> Result<Option<cmux_vault_e2e::client::DeviceRecord>, String> {
         if Self::keychain() {
-            let mut cmd = std::process::Command::new("/usr/bin/security");
-            cmd.args(["find-generic-password", "-s", &Self::service(), "-a", &self.account, "-g"]);
-            cmd.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::piped());
-            let (status, raw) = acpmux::vault::store::capture(cmd, true).map_err(str::to_owned)?;
-            if !status.success() {
-                return if status.code() == Some(44) {
+            // -g: the password on stderr, never in argv.
+            let output = cmux_process::Command::new("/usr/bin/security")
+                .args([
+                    "find-generic-password",
+                    "-s",
+                    &super::cloud_secret::service(),
+                    "-a",
+                    &self.keychain_account(),
+                    "-g",
+                ])
+                .stdin(cmux_process::Stdio::null())
+                .stdout(cmux_process::Stdio::null())
+                .stderr(cmux_process::Stdio::piped())
+                .output()
+                .map_err(|_| "the Keychain did not answer".to_owned())?;
+            let raw = Zeroizing::new(output.stderr);
+            if !output.status.success() {
+                return if output.status.code() == Some(44) {
                     Ok(None)
                 } else {
                     Err("the Keychain did not answer".to_owned())
                 };
             }
             let text = Zeroizing::new(String::from_utf8_lossy(&raw).into_owned());
-            let password = acpmux::config::profiles::parse_security_password(&text)
-                .ok_or_else(|| "the Keychain item is unreadable".to_owned())?;
+            let password = Zeroizing::new(
+                acpmux::config::profiles::parse_security_password(&text)
+                    .ok_or_else(|| "the Keychain item is unreadable".to_owned())?,
+            );
             return Ok(Self::decode(&password));
         }
         let Some(path) = self.file() else { return Ok(None) };
@@ -381,8 +386,8 @@ impl DeviceStore for OsDeviceStore {
         if Self::keychain() {
             let cmd = acpmux::cli::harness_secret::store_item(
                 "macos",
-                &Self::service(),
-                &self.account,
+                &super::cloud_secret::service(),
+                &self.keychain_account(),
                 "cmux vault device key",
                 &record,
             )
@@ -419,13 +424,19 @@ impl DeviceStore for OsDeviceStore {
 }
 
 fn host_label() -> String {
-    let host = std::process::Command::new("hostname")
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_owned())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "this computer".to_owned());
+    let mut buf = [0_u8; 256];
+    // SAFETY: gethostname writes at most `buf.len()` bytes into `buf`, which outlives the call.
+    #[cfg(unix)]
+    let named = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } == 0;
+    #[cfg(not(unix))]
+    let named = false;
+    let end = buf.iter().position(|b| *b == 0).unwrap_or(buf.len());
+    let host = if named {
+        String::from_utf8_lossy(buf.get(..end).unwrap_or_default()).trim().to_owned()
+    } else {
+        String::new()
+    };
+    let host = if host.is_empty() { "this computer".to_owned() } else { host };
     host.chars().take(120).collect()
 }
 

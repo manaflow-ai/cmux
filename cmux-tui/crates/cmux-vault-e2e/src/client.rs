@@ -25,14 +25,14 @@ pub trait Http {
         path: &str,
         headers: &[(&str, &str)],
         body: Option<&Value>,
-    ) -> std::result::Result<(u16, Value), String>;
+    ) -> Result<(u16, Value), String>;
 }
 
 /// This device's identity, in the OS secret store.
 pub trait DeviceStore {
     /// `(device id, private key)`, if this device has one.
-    fn load(&self) -> std::result::Result<Option<(String, Zeroizing<Vec<u8>>)>, String>;
-    fn save(&self, id: &str, private_key: &[u8]) -> std::result::Result<(), String>;
+    fn load(&self) -> Result<Option<DeviceRecord>, String>;
+    fn save(&self, id: &str, private_key: &[u8]) -> Result<(), String>;
 }
 
 /// A refusal or failure: a stable code and a message free of values.
@@ -60,7 +60,10 @@ impl From<crypto::CryptoError> for Failure {
     }
 }
 
-pub type VaultResult<T> = std::result::Result<T, Failure>;
+pub type VaultResult<T> = Result<T, Failure>;
+
+/// A device's id and its private key.
+pub type DeviceRecord = (String, Zeroizing<Vec<u8>>);
 
 /// `personal` or `team:<team id>`.
 #[derive(Debug, Clone, PartialEq, Eq)]
