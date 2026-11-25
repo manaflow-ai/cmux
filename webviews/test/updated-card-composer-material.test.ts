@@ -82,7 +82,10 @@ test("the Updated card paints the shared material at the composer's height", () 
   expect(surface).toContain("box-shadow: var(--composer-material-ring), var(--composer-material-rim)");
   expect(surface).toContain("border-radius: var(--composer-material-radius)");
   const rest = /\.wn-updated \.wn-card-rest \{([^}]*)\}/.exec(card)?.[1] ?? "";
-  expect(rest).toContain("height: var(--composer-material-height)");
+  // At least the composer's one-line box, and as tall as its lines (u51892: a fixed 48 cut the change
+  // line's descenders): never a fixed height.
+  expect(rest).toContain("min-height: var(--composer-material-height)");
+  expect(rest).not.toMatch(/(^|[^-])height:/);
 });
 
 // Review F3 of #37615: the sidebar no longer draws a native glass under the card's page, so the

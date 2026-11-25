@@ -149,3 +149,55 @@ for (const arm of ["off", "compact"] as const)
       host.remove();
     }
   });
+
+test("the compact rail and full map mark the transcript cutover only when there is news", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const history = chat(12);
+  const sinceKey = "rail-cutover:23";
+  const line: AcpmuxRow = {
+    ...row("sinceDivider", "sinceDivider"),
+    since: { seq: 23, turns: 1, key: sinceKey },
+  };
+  const marks = () => host.querySelectorAll<HTMLElement>(".acpmux-minimap__cutover");
+  const draw = (rows: AcpmuxRow[], key?: string) =>
+    act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={rows}
+          sinceKey={key}
+          sessionId="rail-cutover"
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      ),
+    );
+  try {
+    await act(async () => setChatDisplay({ [MINIMAP_KEY]: "compact" }));
+    await draw(history);
+    expect(marks()).toHaveLength(0);
+    // The fifth prompt was read. Its reply lies below the line, before the sixth tick.
+    const split = 4 * 3 + 1;
+    await draw([...history.slice(0, split), line, ...history.slice(split)], sinceKey);
+    expect(marks()).toHaveLength(1);
+    expect(marks()[0]!.dataset.look).toBe("tick");
+    expect(marks()[0]!.style.top).toBe("50px");
+    await act(async () => setChatDisplay({ [MINIMAP_KEY]: "full" }));
+    expect(marks()).toHaveLength(1);
+    expect(marks()[0]!.closest(".acpmux-scrollmap")).not.toBeNull();
+    const fullTop = parseFloat(marks()[0]!.style.top);
+    expect(fullTop).toBeGreaterThan(0);
+    await draw([line, ...history], sinceKey);
+    expect(marks()).toHaveLength(1);
+    expect(parseFloat(marks()[0]!.style.top)).toBeLessThan(fullTop);
+    await draw([...history, line], sinceKey);
+    expect(marks()).toHaveLength(0);
+    await act(async () => setChatDisplay({ [MINIMAP_KEY]: "compact" }));
+    expect(marks()).toHaveLength(0);
+  } finally {
+    await act(async () => root.unmount());
+    setChatDisplay({});
+    host.remove();
+  }
+});

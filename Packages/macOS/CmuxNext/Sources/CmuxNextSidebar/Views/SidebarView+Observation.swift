@@ -120,7 +120,8 @@ extension SidebarViewComponents {
             rowFlows = CornerFlush.sidebarRowFlows
             titlebarRow = [SidebarStyle.toolbarButtonSize, SidebarStyle.titlebarPlusTrailingInset, TitlebarBandButton.side,
                            Metrics.trafficLightInset, Metrics.space1, Metrics.space2, Metrics.space3]
-            switcherTokens = [Metrics.roomDotSlot, Metrics.roomDotDiameter, Metrics.smallIconSize]
+            switcherTokens = [Metrics.roomDotSlot, Metrics.roomDotDiameter, Metrics.smallIconSize,
+                              DesignSettings.shared.overrides[.spaceButtonSpacing] ?? 0]
             // The line also follows the card's reach (#38054): the gutter, the pane padding, floating panes and the strip's tokens.
             topRow = [TopRowLineLook.tunable.value.rawValue, "\(DesignSettings.shared.titlebar)", "\(DesignSettings.shared.tabBarPosition)",
                       "\(Metrics.mainPaneGutter)", "\(Metrics.panePadding)", "\(Metrics.floatingPanes)", "\(Metrics.tabStripHeight)",
@@ -207,6 +208,11 @@ extension SidebarViewComponents {
             || lastState?.groupLineJoinsBar != state.groupLineJoinsBar || lastState?.noColorBlocks != state.noColorBlocks
         let listChanged = rowsChanged || selectionChanged
         let previous = lastState == nil ? nil : lastSections
+        // A restore's arrival never moves rows on a spring, even right after a click or key (the user-intent window):
+        // the lineage acpmux's lanes bring (rows nest under the sessions that started them) and the order the launch
+        // hold lets go (`SidebarModel.releasedLaunchOrderRevision`). Leo, 2026-11-22, after a relaunch: "the sidebar
+        // re-rendered/re-ordered with some animations".
+        let arrives = Self.isRestoreArrival(from: lastState, to: state, released: model.releasedLaunchOrderRevision)
         model.applyListPreferences(state.preferences)
         model.groupByStatus(state.groupsByStatus)
         // Resolve the selected row's ancestors in its newly drawn lists. A drag or regrouping can
@@ -244,11 +250,11 @@ extension SidebarViewComponents {
                 if list.showModelChange(animates: false) { SidebarNewRowTimer.shared.drew(model.sections, in: window) }
             } else if selectionChanged, rowsChanged || !list.patchSelection(from: lastState?.selected, oldSelection: lastState?.selection ?? []) {
                 // A new selection shows now, wherever the pointer is (it is the user's, or asks to be seen).
-                list.reload(animated: Self.animatesReload(from: previous, to: model.sections) && model.followsUserIntent, fromModel: true)
+                list.reload(animated: !arrives && Self.animatesReload(from: previous, to: model.sections) && model.followsUserIntent, fromModel: true)
                 if rowsChanged { SidebarNewRowTimer.shared.drew(model.sections, in: window) }
             } else if rowsChanged {
                 // Only a change the user asked for moves rows; others show in place, after the pointer leaves (calm-sidebar-movement).
-                if list.showModelChange(animates: Self.animatesReload(from: previous, to: model.sections)) {
+                if list.showModelChange(animates: !arrives && Self.animatesReload(from: previous, to: model.sections)) {
                     SidebarNewRowTimer.shared.drew(model.sections, in: window)
                 }
             }
@@ -269,6 +275,14 @@ extension SidebarViewComponents {
         if chromeChanged || profilesChanged || lastState?.switcherTokens != state.switcherTokens { bandsDirty = true; needsLayout = true }
         lastState = state
     }
+    /// Whether the change from `old` to `new` is a restore's arrival, which shows in one step: the drawn lineage changed
+    /// (only acpmux's lanes and the saved lineage write it, never a gesture here), or `new` shows the structural set
+    /// that ended the launch order hold (`released`).
+    static func isRestoreArrival(from old: RenderState?, to new: RenderState, released: UInt64?) -> Bool {
+        guard let old else { return false }
+        return old.tree?.parents != new.tree?.parents || (released != nil && released == new.sectionsRevision && old.sectionsRevision != new.sectionsRevision)
+    }
+
     /// Whether a sections change animates its rows. Provisional rows swap in place.
     static func animatesReload(from old: [SidebarSection]?, to new: [SidebarSection]) -> Bool {
         !new.contains(where: \.hasProvisionalRows) && !(old ?? []).contains(where: \.hasProvisionalRows)
