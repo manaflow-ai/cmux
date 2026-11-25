@@ -161,6 +161,13 @@ pub enum SignalPayload {
         #[serde(default)]
         reason: String,
     },
+    /// Local only, never on the wire: a phone resumed a dormant WireGuard
+    /// tunnel with a new in-tunnel connection, no signaling involved
+    /// (`dial::wireguard::dormant`). The Mac's own process puts it in its
+    /// session queue, so its answer loop takes the link as it takes any
+    /// other; `ticket` names the waiting stream.
+    #[serde(skip)]
+    WgResumed { ticket: u64 },
 }
 
 /// One `signal` message.
@@ -261,10 +268,17 @@ pub const RELAY_NOW: &str = "now";
 ///   until the peer's relay marker confirms a direct route;
 /// - 2: never sends relay frames; confirms routes with an in-tunnel `reach`
 ///   message, and may offer TURN relayed addresses reached over TCP or TLS.
+/// - 3: takes datagrams from the peer's second socket on another interface
+///   (cell beside Wi-Fi), and its in-tunnel `metered` message naming them.
 ///
 /// A side treats a version-0 peer's authenticated datagrams as the
 /// confirmation, since that peer's marker can no longer arrive.
-pub const WG_VERSION: u32 = 2;
+pub const WG_VERSION: u32 = 3;
+
+/// The version whose peers read `reach` and trickled endpoints (2). A
+/// feature checks the version that brought it, never [`WG_VERSION`]: a bump
+/// would take the feature away from every peer one version behind.
+pub const WG_REACH_VERSION: u32 = 2;
 
 fn is_zero(value: &u32) -> bool {
     *value == 0
@@ -412,6 +426,10 @@ const UNKNOWN_FRAME_TYPE: &str = "unknown frame type";
 pub struct SignalingClient {
     shared: Arc<Shared>,
     incoming: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<IncomingSession>>>,
+    /// This process's own sessions into the queue [`Self::next_session`]
+    /// reads ([`Self::inject_session`]).
+    local: mpsc::UnboundedSender<IncomingSession>,
+    local_rx: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<IncomingSession>>>,
     mailbox: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<Vec<MailboxItem>>>>,
 }
 
@@ -522,6 +540,7 @@ impl SignalingClient {
         let (sink, mut source) = socket.split();
         let out = Arc::new(SendQueue::default());
         let (incoming_tx, incoming_rx) = mpsc::unbounded_channel();
+        let (local_tx, local_rx) = mpsc::unbounded_channel();
         let (mailbox_tx, mailbox_rx) = mpsc::unbounded_channel();
         let shared = Arc::new(Shared {
             device_id: device_id.to_owned(),
@@ -623,6 +642,8 @@ impl SignalingClient {
         }
         Ok(Self {
             shared,
+            local: local_tx,
+            local_rx: Arc::new(tokio::sync::Mutex::new(local_rx)),
             incoming: Arc::new(tokio::sync::Mutex::new(incoming_rx)),
             mailbox: Arc::new(tokio::sync::Mutex::new(mailbox_rx)),
         })
@@ -729,7 +750,20 @@ impl SignalingClient {
     /// subscribed; `None` once the socket is closed. Drop or
     /// [`unsubscribe`](Self::unsubscribe) a session you refuse.
     pub async fn next_session(&self) -> Option<IncomingSession> {
-        self.incoming.lock().await.recv().await
+        let mut incoming = self.incoming.lock().await;
+        let mut local = self.local_rx.lock().await;
+        tokio::select! {
+            biased;
+            // Never `None`: this client holds the sender.
+            Some(session) = local.recv() => Some(session),
+            session = incoming.recv() => session,
+        }
+    }
+
+    /// Queue a session this process started itself (a resumed dormant
+    /// tunnel) for [`Self::next_session`]; `false` once the socket is gone.
+    pub(crate) fn inject_session(&self, session: IncomingSession) -> bool {
+        self.closed_reason().is_none() && self.local.send(session).is_ok()
     }
 
     /// Route every later signal and relay frame of `session_id` to the
