@@ -21,11 +21,11 @@ use super::*;
 static PULL_URL: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[0-9]+$").unwrap() // crash-allow: constant pattern
 });
-static API_PULL_URL: LazyLock<Regex> = LazyLock::new(|| {
+static API_PULL_URL: LazyLock<Option<Regex>> = LazyLock::new(|| {
     Regex::new(
         r"^https://api\.github\.com/repos/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/pulls/([0-9]+)$",
     )
-    .unwrap() // crash-allow: constant pattern
+    .ok()
 });
 
 /// The `"number": N` of a `lane-gh call land|close` call's JSON arguments. `None` only if the
@@ -513,7 +513,7 @@ fn normalize_pull_url(value: &str) -> Option<String> {
     if PULL_URL.is_match(value) {
         return Some(value.to_owned());
     }
-    let captures = API_PULL_URL.captures(value)?;
+    let captures = API_PULL_URL.as_ref()?.captures(value)?;
     Some(format!("https://github.com/{}/{}/pull/{}", &captures[1], &captures[2], &captures[3]))
 }
 
