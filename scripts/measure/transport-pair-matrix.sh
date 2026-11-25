@@ -7,6 +7,7 @@
 #
 #   scripts/measure/transport-pair-matrix.sh [pairs=ios-mac,ios-linux,mac-mac,mac-linux,rtt] [paths=direct,relay]
 #     [conditions=loss,latency,handoff,sleep,failover,long] [loads=idle,duress] [n=5] [seed=0] [long_minutes=60]
+#     (opt-in condition bulk-PROFILE, e.g. bulk-lte,bulk-lossy-3: a 100 MiB phone->Mac upload, ios-mac only)
 #     [out=PATH.md]
 #   cmux-ci test --timeout 3000 -- bash scripts/measure/transport-pair-matrix.sh pairs=ios-mac n=5   # one CI runner per pair
 # All four pairs plus the round-trip bench in one job take more than 55 minutes at n=3 (run 45400745409); submit one
@@ -38,7 +39,7 @@ for kv in "$@"; do
 done
 [[ "$pairs" =~ ^(ios-mac|ios-linux|mac-mac|mac-linux|rtt)(,(ios-mac|ios-linux|mac-mac|mac-linux|rtt))*$ ]] || { echo "transport-pair-matrix.sh: pairs=ios-mac,ios-linux,mac-mac,mac-linux,rtt (rtt: the round-trip audit bench)" >&2; exit 2; }
 [[ "$paths" =~ ^(direct|relay)(,(direct|relay))?$ ]] || { echo "transport-pair-matrix.sh: paths=direct,relay" >&2; exit 2; }
-[[ "$conditions" =~ ^(loss|latency|handoff|sleep|failover|long)(,(loss|latency|handoff|sleep|failover|long))*$ ]] || { echo "transport-pair-matrix.sh: conditions=loss,latency,handoff,sleep,failover,long" >&2; exit 2; }
+[[ "$conditions" =~ ^(loss|latency|handoff|sleep|failover|long|bulk-[a-z0-9-]+)(,(loss|latency|handoff|sleep|failover|long|bulk-[a-z0-9-]+))*$ ]] || { echo "transport-pair-matrix.sh: conditions=loss,latency,handoff,sleep,failover,long (opt-in: bulk-PROFILE, ios-mac only)" >&2; exit 2; }
 [[ "$loads" =~ ^(idle|duress)(,(idle|duress))?$ ]] || { echo "transport-pair-matrix.sh: loads=idle,duress" >&2; exit 2; }
 [[ "$n" =~ ^[1-9][0-9]{0,2}$ ]] || { echo "transport-pair-matrix.sh: n is 1-999" >&2; exit 2; }
 [[ "$seed" =~ ^[0-9]{1,9}$ ]] || { echo "transport-pair-matrix.sh: seed is a number" >&2; exit 2; }

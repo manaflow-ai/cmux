@@ -38,6 +38,14 @@
 //! the app on foreground), `failover` (`lte`; relay: TURN server A dies and stays dead;
 //! direct: the direct path dies and stays dead while a TURN relay is offered), `long` (`lte`,
 //! one session held `PAIRMATRIX_LONG_MINUTES` with a steady chat stream, then a 5 s blackout).
+//! Opt-in (not in the default list): `bulk-<profile>` (`bulk-lte`, `bulk-lossy-3`, any
+//! link-profiles.json row): with the chat open (and streaming, under duress), one file of
+//! `PAIRMATRIX_BULK_BYTES` (100 MiB) sent phone -> Mac on the host's `upload` channel the way
+//! the app sends it (CmuxMobileTransport `LinkUpload.swift`: `{name, size}` as strings, 192 KiB
+//! data frames, then the Mac's one `{path, size}` reply). Metrics: `bulk_ms` (channel open to
+//! the reply), `bulk_bytes_per_s` (file bytes over that), `delta_bytes` (datagram bytes both
+//! tunnels received during it), `fail` (no reply, a refusal, or a wrong size within
+//! `PAIRMATRIX_BULK_BOUND_S`, 1500 s).
 //! Whenever the link closes, the bench redials at once and re-attaches with `afterSeq`, as
 //! the app does (its Swift timers are not in any number).
 //!
@@ -135,6 +143,9 @@ fn reset_network() {
 }
 
 fn profile_for(condition: &str) -> LinkProfile {
+    if let Some(profile) = condition.strip_prefix("bulk-") {
+        return LinkProfile::named(profile);
+    }
     match condition {
         "loss" => LinkProfile::named("lossy-3"),
         "latency" => LinkProfile {
@@ -863,6 +874,84 @@ fn long_minutes() -> u64 {
     std::env::var("PAIRMATRIX_LONG_MINUTES").ok().and_then(|v| v.parse().ok()).unwrap_or(60)
 }
 
+/// The app's upload chunk (CmuxMobileTransport `LinkUpload.swift` `chunkBytes`).
+const UPLOAD_CHUNK: usize = 192 << 10;
+
+/// One upload of `size` bytes on the link's `upload` channel, as `LinkUpload.send` does it:
+/// the Mac's reply, or why there was none.
+async fn upload(connected: &Connected, size: u64, run: u64, deadline: Instant) -> Result<Value, String> {
+    let args = json!({"name": format!("pair-matrix-bulk-{run}.bin"), "size": size.to_string()});
+    let channel = tokio::time::timeout_at(deadline, connected.link.open("upload", args))
+        .await
+        .map_err(|_| "upload channel open timed out".to_owned())?
+        .map_err(|e| format!("upload channel: {e:?}"))?;
+    let (sender, mut receiver) = channel.split();
+    let chunk = Bytes::from(vec![(run % 251) as u8; UPLOAD_CHUNK]);
+    let sending = async {
+        let mut sent = 0u64;
+        while sent < size {
+            let len = UPLOAD_CHUNK.min((size - sent) as usize);
+            // A failed send is not the answer, the reply is (LinkUpload.swift).
+            if sender.send(chunk.slice(..len)).await.is_err() {
+                break;
+            }
+            sent += len as u64;
+        }
+        sent
+    };
+    let sent = match tokio::time::timeout_at(deadline, sending).await {
+        Ok(sent) => sent,
+        Err(_) => return Err("upload: not all bytes sent before the bound".into()),
+    };
+    let mut reply = Vec::new();
+    loop {
+        match tokio::time::timeout_at(deadline, receiver.recv()).await {
+            Err(_) => return Err(format!("upload: no reply before the bound ({sent} of {size} bytes sent)")),
+            Ok(Some(ChannelEvent::Data(bytes))) => {
+                reply.extend_from_slice(&bytes);
+                if let Ok(value) = serde_json::from_slice::<Value>(&reply) {
+                    return Ok(value);
+                }
+            }
+            Ok(_) => {
+                return serde_json::from_slice::<Value>(&reply).map_err(|_| {
+                    format!("upload: channel closed without a reply ({sent} of {size} bytes sent)")
+                });
+            }
+        }
+    }
+}
+
+/// `bulk-<profile>`: one file phone -> Mac with the chat open (and streaming, under duress).
+async fn run_bulk(cell: &Cell<'_>, phone: &Phone, ttfc: f64) {
+    let size = env_u64("PAIRMATRIX_BULK_BYTES", 100 << 20);
+    let bound = Duration::from_secs(env_u64("PAIRMATRIX_BULK_BOUND_S", 1500));
+    let from_bytes = WIRE_BYTES.load(Ordering::Relaxed);
+    let began = Instant::now();
+    let answer = upload(&phone.connected, size, cell.run, began + bound).await;
+    let took = began.elapsed();
+    let delta = WIRE_BYTES.load(Ordering::Relaxed) - from_bytes;
+    let error = match &answer {
+        Err(error) => Some(error.clone()),
+        Ok(reply) if reply["size"].as_u64() == Some(size) => None,
+        Ok(reply) => Some(format!("upload answered {reply}")),
+    };
+    if let Ok(reply) = &answer
+        && let Some(path) = reply["path"].as_str()
+    {
+        let _ = std::fs::remove_file(path);
+    }
+    let ok = error.is_none();
+    cell.emit("ttfc_ms", Some(ttfc), None);
+    cell.emit("bulk_ms", ok.then(|| ms(took)), error.as_deref());
+    cell.emit("bulk_bytes_per_s", ok.then(|| (size as f64 / took.as_secs_f64()).round()), error.as_deref());
+    cell.emit("delta_bytes", Some(delta as f64), None);
+    cell.emit("fail", Some(if ok { 0.0 } else { 1.0 }), error.as_deref());
+    cell.aux(json!({"bytes": size, "elapsed_ms": ms(took), "redials": phone.redials,
+                    "path_at_end": format!("{:?}", *phone.connected.path.borrow()),
+                    "link_closed": phone.connected.link.is_closed()}));
+}
+
 async fn run_cell(cell: &Cell<'_>) {
     reset_network();
     WIRE_BYTES.store(0, Ordering::Relaxed);
@@ -892,6 +981,18 @@ async fn run_cell(cell: &Cell<'_>) {
     let ttfc = ms(attached - began);
     let streaming = (cell.load == "duress" || cell.condition == "long").then(|| stream_into(&rig.acpmux, 0));
     tokio::time::sleep(Duration::from_secs(1)).await;
+    if cell.condition.starts_with("bulk-") {
+        run_bulk(cell, &phone, ttfc).await;
+        if let Some(streaming) = streaming {
+            streaming.abort();
+        }
+        phone.connected.link.close("pair matrix done");
+        drop(phone);
+        drop(rig);
+        reset_network();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        return;
+    }
 
     let mut notes = json!({});
     let mut per_minute = None;
