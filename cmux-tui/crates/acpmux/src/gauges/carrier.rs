@@ -8,12 +8,20 @@
 //! reads which stage holds a slow dial. `keptStream` is a call that opened a stream on a circuit
 //! already open: the cost a second call to the same machine pays, the floor part 4 aims at.
 //!
+//! `calls` counts, per kind of call, how many rode a kept circuit and how many paid a new one
+//! (RFD 0056 part 5, "own ssh": a command on another machine rides the circuit already open, so
+//! it costs no new TCP connection and no new transport handshake). `pipe` is a port pipe on the
+//! bulk lane (ssh, scp, rsync, a forwarded port: `tools/carrier-pipe` as ssh's ProxyCommand);
+//! `cheap` is every other service. The share of pipes that rode a kept circuit is the reading
+//! part 5 is held to.
+//!
 //! Before this the stages were a debug log line only (`RUST_LOG=acpmux::hub_carrier=debug`),
 //! which no daemon on a lane runs with, so the 1.2-1.9 s reading in the RFD was taken by hand.
 
 use super::Latencies;
 use serde_json::{Value, json};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 /// The daemon's carrier dial rings: one per process, as a daemon is.
@@ -48,6 +56,24 @@ pub struct CarrierDials {
     answer: Latencies,
     circuit: Latencies,
     kept_stream: Latencies,
+    pipe: CallCounts,
+    cheap: CallCounts,
+}
+
+/// How many calls of one kind rode a kept circuit and how many opened a new one.
+#[derive(Default)]
+struct CallCounts {
+    kept: AtomicU64,
+    new_circuit: AtomicU64,
+}
+
+impl CallCounts {
+    fn status(&self) -> Value {
+        json!({
+            "kept": self.kept.load(Ordering::Relaxed),
+            "newCircuit": self.new_circuit.load(Ordering::Relaxed),
+        })
+    }
 }
 
 impl CarrierDials {
@@ -68,6 +94,14 @@ impl CarrierDials {
         self.kept_stream.record(took);
     }
 
+    /// A call got its stream: `pipe` (a port pipe on the bulk lane: ssh, scp, a forwarded port)
+    /// or not, on a circuit already open (`kept`) or on one it opened.
+    pub fn call(&self, pipe: bool, kept: bool) {
+        let counts = if pipe { &self.pipe } else { &self.cheap };
+        let n = if kept { &counts.kept } else { &counts.new_circuit };
+        n.fetch_add(1, Ordering::Relaxed);
+    }
+
     /// `{newCircuit: {total, ticket, relay, peerJoin, noise, answer}, keptStream}`, each a
     /// [`Latencies`] reading.
     pub fn status(&self) -> Value {
@@ -81,6 +115,7 @@ impl CarrierDials {
                 "answer": self.answer.status(),
             },
             "keptStream": self.kept_stream.status(),
+            "calls": { "pipe": self.pipe.status(), "cheap": self.cheap.status() },
         })
     }
 }
@@ -116,6 +151,12 @@ pub fn status_line(carrier: &Value) -> Option<String> {
     if count(kept) > 0 {
         parts.push(format!("call on a kept circuit p50 {} over {}", p50(kept)?, count(kept)));
     }
+    let pipe = &carrier["calls"]["pipe"];
+    let (kept, new) =
+        (pipe["kept"].as_u64().unwrap_or(0), pipe["newCircuit"].as_u64().unwrap_or(0));
+    if kept + new > 0 {
+        parts.push(format!("ssh and pipes {kept} of {} on a kept circuit", kept + new));
+    }
     (!parts.is_empty()).then(|| parts.join("; "))
 }
 
@@ -144,6 +185,22 @@ mod tests {
         assert_eq!(new["peerJoin"]["p50Ms"], 300.0, "{status}");
         assert_eq!(new["answer"]["count"], 1, "{status}");
         assert_eq!(status["keptStream"]["count"], 0, "{status}");
+        assert_eq!(status["calls"]["pipe"]["kept"], 0, "{status}");
+    }
+
+    #[test]
+    fn calls_count_pipes_apart_from_cheap_calls() {
+        let dials = CarrierDials::default();
+        dials.call(true, false);
+        dials.call(true, true);
+        dials.call(true, true);
+        dials.call(false, true);
+        let status = dials.status();
+        assert_eq!(status["calls"]["pipe"]["kept"], 2, "{status}");
+        assert_eq!(status["calls"]["pipe"]["newCircuit"], 1, "{status}");
+        assert_eq!(status["calls"]["cheap"]["kept"], 1, "{status}");
+        assert_eq!(status["calls"]["cheap"]["newCircuit"], 0, "{status}");
+        assert_eq!(status_line(&status).unwrap(), "ssh and pipes 2 of 3 on a kept circuit");
     }
 
     #[test]
