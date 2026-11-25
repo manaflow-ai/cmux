@@ -1,7 +1,9 @@
 // l10n-allow-file: test fixture prompts, replies and commands, not shipped UI.
-// The direct client must shape the same substantive answer before a tool whether the turn is live,
-// settled in place, or reconstructed from a cold attach. The table case is Leo's regression shape;
-// the one-sentence case makes sure a useful answer is not mistaken for tool narration.
+// The direct client must shape an answer before a tool the same way whether the turn is settled in
+// place or reconstructed from a cold attach. While live it stays in sight; once the turn ends, a closed
+// fold keeps only the final message in sight and the earlier answer reads in place once it opens
+// (Lawrence, 2026-11-19: "in collapsed, literally everything but final assistant message should be
+// collapsed"). The table case is Leo's regression shape: opened, the answer is never lost.
 import { afterEach, expect, test } from "bun:test";
 import { AcpmuxDirectClient, type EventRecord } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -156,15 +158,14 @@ afterEach(() => {
 });
 
 for (const fixture of cases) {
-  test(`${fixture.name}: live, ended and cold reload keep the answer before the tool`, async () => {
+  test(`${fixture.name}: live shows the answer before the tool; ended and cold reload fold it the same way`, async () => {
     const ended = eventsFor(fixture.answer, true);
     const live = await connected(ended.slice(0, -1));
     expect(texts(view(live.rows()))).toContain(fixture.answer);
     live.daemon.push(ended.slice(-1));
     await new Promise((resolve) => setTimeout(resolve, 0));
     const settled = view(live.rows());
-    expect(texts(settled)).toContain(fixture.answer);
-    expect(texts(settled)).toContain("I sent the question.");
+    expect(texts(settled)).toEqual(["I sent the question."]);
     expect(settled.flatMap((row) => row.items ?? []).some((item) => item.tool?.id === "ask-1")).toBe(false);
     const expanded = view(live.rows(), true);
     expect(texts(expanded).filter((text) => text === fixture.answer)).toHaveLength(1);
@@ -173,9 +174,9 @@ for (const fixture of cases) {
 
     const cold = await connected(ended);
     const reloaded = view(cold.rows());
-    expect(texts(reloaded)).toContain(fixture.answer);
-    expect(texts(reloaded)).toContain("I sent the question.");
+    expect(texts(reloaded)).toEqual(["I sent the question."]);
     expect(reloaded.flatMap((row) => row.items ?? []).some((item) => item.tool?.id === "ask-1")).toBe(false);
+    expect(texts(view(cold.rows(), true))).toEqual([fixture.answer, "I sent the question."]);
     cold.client.close();
   });
 }

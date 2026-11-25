@@ -20,9 +20,9 @@ final class SettingsPageProvider: PageProvider {
     private let settings: SettingsController
     /// Value domains the page offers in menus (`themes`, `font_families`, `sounds`, `recent_fonts`).
     private let domains: @MainActor () -> [String: [String]]
-    /// Live lists Settings shows beside the schema rows (spaces, machines, browser profiles); nil
-    /// in tests without an app.
-    private let hostLists: (@MainActor () -> JSONValue)?
+    /// Live lists Settings shows beside the schema rows (spaces, machines, browser profiles), by
+    /// section (``SettingsHostSection``); nil in tests without an app.
+    private let hostSections: [SettingsHostSection]?
     /// The Accounts part of the page (R82 commit 3): its state, and one gesture; nil in tests
     /// without an app.
     var accountsState: (@MainActor () -> JSONValue)?
@@ -103,10 +103,10 @@ final class SettingsPageProvider: PageProvider {
     private static let overrideRounds = 4
 
     init(settings: SettingsController, domains: @escaping @MainActor () -> [String: [String]] = { [:] },
-         hostLists: (@MainActor () -> JSONValue)? = nil, wideningGate: PageWideningGate = PageWideningGate()) {
+         hostSections: [SettingsHostSection]? = nil, wideningGate: PageWideningGate = PageWideningGate()) {
         self.settings = settings
         self.domains = domains
-        self.hostLists = hostLists
+        self.hostSections = hostSections
         self.wideningGate = wideningGate
     }
 
@@ -176,7 +176,7 @@ final class SettingsPageProvider: PageProvider {
                 await self.settings.reload()
                 return SettingsSchema.all.filter { $0.storedValue(in: before) != $0.storedValue(in: self.settings.snapshot.root) }.map(\.id)
             }
-        case "cmux.settings.host.lists": return try Self.host(hostLists, "host lists")()
+        case "cmux.settings.host.lists": return SettingsHostSection.merged(try Self.host(hostSections, "host lists").map { $0.read() })
         case "cmux.settings.devices.remove":
             guard let id = params["id"]?.stringValue else { throw PageError.invalidParams("id is required") }
             return try await Self.host(removeDevice, "devices")(id).map { ["error": .string($0)] } ?? .object([:])
@@ -367,8 +367,8 @@ final class SettingsPageProvider: PageProvider {
             return Self.watch(harnessesState, onEvent: onEvent)
         }
         if stream == "cmux.settings.models.changed", let models { return try await models.subscribe(stream, filter: filter, context: context, onEvent: onEvent) }
-        if stream == "cmux.settings.host.changed", let hostLists {
-            return Self.watch(hostLists, onEvent: onEvent)
+        if stream == "cmux.settings.host.changed", let hostSections {
+            return SettingsHostSection.watch(hostSections, onEvent: onEvent)
         }
         guard stream == "cmux.settings.changed" else { throw PageError.unknownOp(stream) }
         let settings = settings
