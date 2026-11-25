@@ -247157,6 +247157,60 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "在輸入框上方的通知和「需要你的輸入」列後面，對話依然可見。"}}
       }
     },
+    "settings.experiments.subagentHeader": {
+      "comment": "Settings > Experiments: the Subagent Header taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Subagent Header"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "ترويسة الوكيل الفرعي"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Zaglavlje podagenta"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Underagent-overskrift"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Subagent-Kopfzeile"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Encabezado de subagente"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "En-tête de sous-agent"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Intestazione del subagente"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "サブエージェントのヘッダー"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ក្បាលភ្នាក់ងាររង"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "하위 에이전트 헤더"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Underagent-topptekst"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Nagłówek podagenta"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Cabeçalho do subagente"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Заголовок субагента"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ส่วนหัวของเอเจนต์ย่อย"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Alt ajan başlığı"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Заголовок субагента"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Tiêu đề tác tử con"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "子代理标题栏"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "子代理標題列"}}
+      }
+    },
+    "settings.experiments.subagentHeader.help": {
+      "comment": "Settings > Experiments: the Subagent Header taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "A subagent's view says whose it is at the top, beside its name, instead of a line over its messages."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يعرض الوكيل الفرعي في الأعلى، بجانب اسمه، لمن يتبع، بدلًا من سطر فوق رسائله."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Prikaz podagenta pri vrhu, pored svog imena, kaže čiji je, umjesto reda iznad poruka."}},
+        "da": {"stringUnit": {"state": "translated", "value": "En underagents visning viser øverst, ved siden af navnet, hvis den er, i stedet for en linje over beskederne."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die Ansicht eines Subagenten zeigt oben neben seinem Namen, zu wem er gehört, statt einer Zeile über seinen Nachrichten."}},
+        "es": {"stringUnit": {"state": "translated", "value": "La vista de un subagente indica arriba, junto a su nombre, de quién es, en lugar de una línea sobre sus mensajes."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La vue d'un sous-agent indique en haut, à côté de son nom, à qui il appartient, au lieu d'une ligne au-dessus de ses messages."}},
+        "it": {"stringUnit": {"state": "translated", "value": "La vista di un subagente indica in alto, accanto al nome, di chi è, invece di una riga sopra i messaggi."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "サブエージェントの表示で、メッセージの上の行ではなく、上部の名前の横に親が表示されます。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ទិដ្ឋភាពភ្នាក់ងាររងបង្ហាញនៅខាងលើ ក្បែរឈ្មោះរបស់វា ថាវាជារបស់នរណា ជំនួសឱ្យបន្ទាត់ពីលើសាររបស់វា។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "하위 에이전트 보기에서 메시지 위의 줄 대신 상단의 이름 옆에 누구의 하위 에이전트인지 표시합니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "En underagents visning viser øverst, ved siden av navnet, hvem den tilhører, i stedet for en linje over meldingene."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Widok podagenta pokazuje u góry, obok jego nazwy, do kogo należy, zamiast wiersza nad wiadomościami."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "A visualização de um subagente mostra no topo, ao lado do nome, de quem ele é, em vez de uma linha acima das mensagens."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Вид субагента показывает вверху, рядом с его именем, чей он, вместо строки над сообщениями."}},
+        "th": {"stringUnit": {"state": "translated", "value": "มุมมองของเอเจนต์ย่อยจะบอกว่าเป็นของใครที่ด้านบน ข้างชื่อ แทนบรรทัดเหนือข้อความ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bir alt ajanın görünümü, mesajlarının üstündeki satır yerine en üstte adının yanında kime ait olduğunu gösterir."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Вигляд субагента показує вгорі, поруч з його назвою, чий він, замість рядка над повідомленнями."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Chế độ xem của tác tử con cho biết nó thuộc về ai ở trên cùng, cạnh tên, thay vì một dòng phía trên tin nhắn."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "子代理的视图在顶部名称旁显示它属于谁，而不是在消息上方显示一行。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "子代理的檢視在頂部名稱旁顯示它屬於誰，而不是在訊息上方顯示一行。"}}
+      }
+    },
     "settings.experiments.attachmentTypeIcons": {
       "comment": "Settings > Experiments: the Attachment Type Icons taste prototype row",
       "extractionState": "manual",

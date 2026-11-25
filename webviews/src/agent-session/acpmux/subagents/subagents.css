@@ -198,7 +198,120 @@ button.cv-subagent > :last-child {
 .cv-subagent-stoppable:is(:hover, :focus-within) > .cv-subagent__stop:disabled {
   opacity: 0.5;
 }
-/* A subagent view's top end corner (SubagentViewCorner.tsx; VirtualTranscript `corner`): Resume on a
+/* The child view's first line (model.ts: 44px): a 28px "Subagent of" chip centred on a rule,
+   8px above and below. Its text goes back to the parent's view; its × closes the subagent's view
+   (an icon-only control: the --ds-control-icon box, 12px glyph, its hover on the × alone). */
+/* The pill pinned over the transcript's top in a subagent's view (App.tsx VirtualTranscript): the
+   stage's width, as the scroller's, so the pill sits on the rows' column; the rows under it are masked
+   out (conversation.css --acpmux-view-top). The row in the transcript keeps only its room. */
+.acpmux-pinned-top {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: var(--layer-sticky, 10);
+  pointer-events: none;
+}
+.acpmux-pinned-top > .cv-subagent-of {
+  margin-inline: var(--cv-inset) var(--cv-inset-end, var(--cv-inset));
+  pointer-events: auto;
+}
+.cv-subagent-of,
+.cv-subagent-of-slot {
+  box-sizing: border-box;
+  height: 44px;
+  padding: var(--ds-space-2) 0;
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+.cv-subagent-of::before,
+.cv-subagent-of::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--ds-surface-card-line);
+}
+.cv-subagent-of__frame {
+  box-sizing: border-box;
+  height: 28px;
+  max-width: 70%;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--ds-radius-control);
+  box-shadow: 0 0 0 1px var(--ds-surface-card-line);
+}
+.cv-subagent-of__pill {
+  all: unset;
+  box-sizing: border-box;
+  height: 100%;
+  min-width: 0;
+  flex: 0 1 auto;
+  padding: 0 var(--ds-space-1) 0 var(--ds-space-2);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  border-radius: var(--ds-radius-control);
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  color: var(--cv-text-muted);
+  cursor: default;
+  user-select: none;
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.cv-subagent-of__pill:hover {
+  color: var(--cv-text);
+}
+.cv-subagent-of__pill:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: 2px;
+}
+.cv-subagent-of__close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--ds-control-icon);
+  height: var(--ds-control-icon);
+  margin: 0 var(--ds-space-1) 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-radius-sm);
+  background: none;
+  color: var(--agent-muted);
+  transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
+}
+.cv-subagent-of__close:hover {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  color: var(--agent-text);
+}
+.cv-subagent-of__close:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+.cv-subagent-of__label {
+  flex: none;
+  font-weight: var(--weight-emphasis);
+  color: var(--cv-text);
+}
+.cv-subagent-of__parent,
+.cv-subagent-of__task {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cv-subagent-of__parent {
+  flex: 0 1 auto;
+  color: var(--cv-text);
+}
+.cv-subagent-of__dot {
+  flex: none;
+}
+.cv-subagent-of__task {
+  flex: 1 1 auto;
+}
+/* A subagent view's top end corner, while Subagent Header is on (SubagentViewCorner.tsx; VirtualTranscript
+   `corner`): Resume on a
    stopped helper, then the in-place view's ×, over the rows' end edge at the clear line. It takes no
    row's room, so the view's first row rests where a chat's does. The box spans the stage, as the
    top-start banner's (unread.css .acpmux-over-top), and lets the pointer through but on its buttons;
@@ -2619,6 +2732,10 @@ button.cv-subagent > :last-child {
 .cv-subagent-stoppable:has(.cv-subagent-resume__note) > .cv-subagent > .cv-subagent__time {
   visibility: hidden;
 }
+.cv-subagent-of > .cv-subagent-resume-control {
+  pointer-events: auto;
+}
+
 /* ---------- The hat's step slot (HatStepSlot.tsx, hatStep.experiment.ts; Leo, 2026-11-22) ---------- */
 /* Every word the slot can say sits in one grid cell, the shown one visible, so the slot is as wide as
    the widest word in the pane's language and no change of word moves what follows it. A new word

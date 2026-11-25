@@ -652,6 +652,7 @@ import {
   startedSessions,
 } from "./started/startedSessions";
 import { experimentArm } from "../../experiments/experiment";
+import { useExperimentSwitch } from "../../experiments/switches";
 import { useSessionStatus } from "./sessionStatus";
 import { holdWebSwap } from "../../pages/shared/webSwap";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
@@ -2271,8 +2272,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const freshView = freshChat && chatShellRuns.length === 0 && !hasBtwNotes;
   // Turn shape: work folds under "Worked for" until opened; shell mode's blocks sit where they ran.
   // The chat's name as the chat list says it: never acpmux's generated name (`claude-2`), and
-  // "New chat" before it has a title, never nothing.
+  // "New chat" before it has a title, never nothing. A subagent's "Subagent of" pill names it so.
   const chatName = snapshot.summary ? sessionTitle(snapshot.summary, t) : t("sidebar.newChat");
+  // Settings > Experiments > Subagent Header (off by default): a subagent's view says whose it is in
+  // its pane's header, beside its name, instead of the "Subagent of" pill over its rows (Leo,
+  // 2026-11-22: "it is prob ok to somehow denote the \"subagent of\"... at the top i feel like").
+  const subagentHeader = useExperimentSwitch("subagentHeader");
+  /// The chat's name for the pill over a subagent's rows; none while its header says it.
+  const pillChat = subagentHeader ? undefined : chatName;
+  /// What a subagent's tab says when it has no name of its own (subagentPanes.ts subagentTabTitle).
+  const subagentFallback = subagentHeader ? t("tray.kind.subagent") : `${t("subagents.of")} ${chatName}`;
   // Running subagents sit in the tray above the composer, and one that ended leaves a line where it
   // ended (subagents/runningTray.ts).
   const trayPlacement = useSubagentTrayPlacement();
@@ -2338,11 +2347,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () => [...subagentsIn(snapshot.rows, snapshot.subagentViews).values()],
     [snapshot.rows, snapshot.subagentViews],
   );
-  /// The name a subagent's pane tab shows (subagentPanes.ts subagentTabTitle): its own, else its task, else "Subagent".
+  /// The name a subagent's pane tab shows (subagentPanes.ts subagentTabTitle): its own, else
+  /// "Subagent of" the chat; with Subagent Header on, its own, else its task, else "Subagent".
   const subagentTitle = (id: string) =>
     subagentTabTitle(
       freshAgents.find((agent) => agent.id === id),
-      t("tray.kind.subagent"),
+      subagentFallback,
+      subagentHeader,
     );
   // The mark its row draws, which its pane's tab draws too (subagentPanes.ts `subagentRowMark`).
   const senderBadge = useSenderIconLook().badge;
@@ -2381,6 +2392,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     shownSessionId,
     workflowLabsEnabled,
     selectedWorkflowAgent,
+    pillChat,
     readWorkflowAgent,
     snapshot.connection,
   );
@@ -2435,7 +2447,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (!subagentView) return undefined;
     const chat = { rows: snapshot.rows, views: snapshot.subagentViews };
     const own = { log: ownLogged, loading: ownLoading };
-    const view = subagentPaneView(subagentView, chat, own, NO_EXPANDED);
+    const view = subagentPaneView(subagentView, chat, own, NO_EXPANDED, pillChat);
     return withSubagentLines(view, childDoneLines.current, workflowLabsEnabled) as AcpmuxRow[];
   }, [
     subagentView,
@@ -2443,6 +2455,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     snapshot.subagentViews,
     ownLogged,
     ownLoading,
+    pillChat,
     workflowLabsEnabled,
     workflowTranscript.rows,
   ]);
@@ -5044,19 +5057,22 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       if (!back) setSubagentView(undefined);
     });
   }, []);
-  // Escape closes a subagent's view to the chat's, as its corner's × does (subagents/subagentEscape.ts).
+  // Escape closes a subagent's view to the chat's, as its pill's × does (its corner's, with Subagent
+  // Header on; subagents/subagentEscape.ts).
   useEscapeClosesSubagent(!quick && !!subagentView, () => navigateSubagent(undefined));
   // A pane opened on a subagent shows the chat's other subagents in place: its tab's name follows what
   // it shows (review of #28497 at 995299ff). Not before the subagent it was opened on has shown, or the
   // name the app gave the tab would flash away; and not while this page has no rows for the subagent
-  // yet (they load after the pane opens), which would name it "Subagent" over the name the chat's page
+  // yet (they load after the pane opens), which would name it "Subagent of" over the name the chat's page
   // gave it.
   // A subagent the chat's rows no longer hold is known from its own records (subagentOwnLog.ts).
   const shownAgent = subagentView
     ? (freshAgents.find((agent) => agent.id === subagentView) ?? ownLogged?.agent)
     : undefined;
   const shownSubagentTitle =
-    ownSubagentPane && subagentView && shownAgent ? subagentTabTitle(shownAgent, t("tray.kind.subagent")) : undefined;
+    ownSubagentPane && subagentView && shownAgent
+      ? subagentTabTitle(shownAgent, subagentFallback, subagentHeader)
+      : undefined;
   // A subagent's own pane heads with the subagent and whose it is, in the chat's one line
   // (paneHeading), from the frame it is known to be a subagent's pane (`requestedSubagent`, at the
   // handshake), so the header never changes height when the subagent's rows come in.
@@ -5064,7 +5080,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     ? (freshAgents.find((agent) => agent.id === shownAgent.parent)?.name ?? chatName)
     : chatName;
   const heading = paneHeading(
-    ownSubagentPane && (subagentView ?? requestedSubagent) !== undefined
+    subagentHeader && ownSubagentPane && (subagentView ?? requestedSubagent) !== undefined
       ? { title: shownSubagentTitle ?? t("tray.kind.subagent"), of: `${t("subagents.of")} ${ofName}` }
       : undefined,
     { title: chatName },
@@ -9434,10 +9450,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                   // The Quick Composer has no room for the changes view; its file rows stay plain.
                                                                   onOpenDiff={quick ? undefined : openDiff}
                                                                   onToggleActivity={toggleActivity}
-                                                                  // A subagent's view: no line naming where it came from, its
-                                                                  // close (in place only) and Resume in the corner instead.
+                                                                  // With Subagent Header on, a subagent's view draws no pill: its
+                                                                  // close (in place only) and Resume sit in the corner instead.
                                                                   corner={
-                                                                    childRows ? (
+                                                                    childRows && subagentHeader ? (
                                                                       <SubagentViewCorner
                                                                         view={subagentView}
                                                                         agent={shownAgent}

@@ -3,9 +3,10 @@
 // notice there's differing layouts among it and normal chats. like the metadata about provenance or
 // whatever like subagent of something. we shouldn't have those. we should align things better.").
 // Looks compared, each at a half, third and quarter of a 1440 px window:
-// - `before`: the "Subagent of <chat> · <task>" pill as it was, a 44 px row pinned over the rows,
-//   pushing the first message down (redrawn here from the removed SubagentOfPillRow; not shipped);
-// - `shipped`: no pill; the first message sits where the chat's does, and the in-place view keeps a
+// Settings > Experiments > Subagent Header (off by default) picks between the first two:
+// - `before`: the "Subagent of <chat> · <task>" pill, a 44 px row pinned over the rows, pushing the
+//   first message down (the default; redrawn here, as SubagentOfPillRow draws it);
+// - `shipped`: with the switch on, no pill; the first message sits where the chat's does, and the in-place view keeps a
 //   × in the transcript's top end corner (SubagentViewCorner.tsx), over the rows, taking no room;
 // - `no-close`: no × at all: Escape and back-navigation close the view (not picked: a person who
 //   does not know Escape has no way back, Leo 2026-11-03: "this opened subagent has no close button");
@@ -56,7 +57,7 @@ const AGENT_ROWS = rows(
   "Forty-one files changed. Two need a look: the migration drops a column the importer still reads.",
 );
 
-/// The removed pill, as it drew: centered, in a 44 px row over the first message.
+/// The pill, as SubagentOfPillRow draws it: centered, in a 44 px row over the first message.
 function OldPill() {
   const pill: CSSProperties = {
     display: "inline-flex",
@@ -85,10 +86,10 @@ function OldPill() {
 }
 
 const NOTES: Record<Look, string> = {
-  before: "Before: the pill's 44 px row pushes the subagent's first message below the chat's.",
-  shipped: "Shipped: no pill; both first messages on one line, a × alone in the top end corner.",
+  before: "Default (Subagent Header off): the pill's 44 px row pushes the subagent's first message below the chat's.",
+  shipped: "Subagent Header on: no pill; both first messages on one line, a × alone in the top end corner.",
   "no-close": "Not picked: no × at all; Escape or back-navigation close it, and nothing says so.",
-  stopped: "Shipped, on a stopped helper: Resume beside the ×, still over no row's room.",
+  stopped: "Subagent Header on, a stopped helper: Resume beside the ×, still over no row's room.",
 };
 
 /// The first message's top in each pane: equal unless the old pill draws.
