@@ -638,6 +638,8 @@ public final class TerminalModel {
     #if DEBUG
     /// DEBUG: every page's `ptyResizesSent` added up (the keyboard pin trace's `rz=`).
     public internal(set) static var debugResizesSentTotal = 0
+    /// DEBUG: every terminal surface's presented frames added up (the keyboard pin trace's `tp=`).
+    public internal(set) static var debugPresentsTotal = 0
     /// DEBUG: posted when the terminal surface takes a key from the system keyboard
     /// (the keyboard pin trace's `ev=keyAccepted`, the motion bench's time to interactive).
     public static let debugKeyAccepted = Notification.Name("cmux.debug.terminal.keyAccepted")
