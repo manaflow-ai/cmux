@@ -643,6 +643,9 @@ impl Peer {
         let _open = crate::gauges::Held::on(&crate::gauges::links().links_open);
         self.set_serving(Some(via));
         self.start_probes();
+        // The transport's reads, also after the link ends: how long it heard nothing.
+        #[cfg(feature = "hub-carrier")]
+        let link_heard = opened.heard.clone();
         let heard = Some(opened.heard);
         let end = match opened.ws {
             carriers::OpenedWs::Boxed(ws) => self.serve_heard(*ws, out_rx, heard).await,
@@ -668,6 +671,12 @@ impl Peer {
         match end {
             // The path died while another answers: the link moves there without an outage.
             Err(error) if !self.stop.load(Ordering::SeqCst) => {
+                // A hub link that went silent leaves no dead kept circuit for its redial to
+                // wait `ANSWER_SUSPECT` on (`HubCarrier::close_kept_silent_for`).
+                #[cfg(feature = "hub-carrier")]
+                if via == Via::Hub {
+                    self.hub_link_ended_silent(link_heard.silent()).await;
+                }
                 self.path_failed(via);
                 if self.another_path_alive(via) && self.link().is_ready() {
                     self.went_down(Some(crate::protocol::peer_state::DialFail::PathChanged));
