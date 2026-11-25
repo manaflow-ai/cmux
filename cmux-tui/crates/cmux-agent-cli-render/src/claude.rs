@@ -198,30 +198,13 @@ pub fn render_with_history(
             Item::Done { started, ended } => done(&mut lines, *started, *ended, chrome),
         }
     }
+    if fullscreen(chrome) {
+        // The full-screen look pins the spinner to the input box (`fullscreen_box`).
+        return fullscreen_grid(lines, chrome, running, items.is_empty(), cols, rows);
+    }
     if running {
         lines.push(Line::new());
-        let mut l = Line::new();
-        match &chrome.spinner {
-            Some(cells) => {
-                // An empty cell is a blank, or the trailing half of a wide glyph.
-                let mut after_wide = false;
-                for cell in cells {
-                    let spacer = after_wide && cell.text.is_empty();
-                    after_wide = !spacer && crate::str_width(&cell.text) == 2;
-                    if !spacer {
-                        l.push(if cell.text.is_empty() { " " } else { &cell.text }, cell.style);
-                    }
-                }
-            }
-            None => {
-                l.push("✻", Style::fg(CLAUDE)).push(" ", Style::PLAIN);
-                l.push("Working…", Style::fg(CLAUDE));
-            }
-        }
-        lines.push(l);
-    }
-    if fullscreen(chrome) {
-        return fullscreen_grid(lines, chrome, running, items.is_empty(), cols, rows);
+        lines.push(spinner(chrome));
     }
     input_box(&mut lines, chrome, running, width);
     let skip = lines.len().saturating_sub(usize::from(rows));
@@ -242,6 +225,29 @@ fn fullscreen(chrome: &Chrome) -> bool {
     let Some(version) = chrome.version.as_deref() else { return false };
     let parts: Vec<u32> = version.split('.').filter_map(|p| p.parse().ok()).collect();
     parts.as_slice() >= [2, 1, 320].as_slice()
+}
+
+/// The spinner row: the host's own cells when it sent them, else `✻ Working…`.
+fn spinner(chrome: &Chrome) -> Line {
+    let mut l = Line::new();
+    match &chrome.spinner {
+        Some(cells) => {
+            // An empty cell is a blank, or the trailing half of a wide glyph.
+            let mut after_wide = false;
+            for cell in cells {
+                let spacer = after_wide && cell.text.is_empty();
+                after_wide = !spacer && crate::str_width(&cell.text) == 2;
+                if !spacer {
+                    l.push(if cell.text.is_empty() { " " } else { &cell.text }, cell.style);
+                }
+            }
+        }
+        None => {
+            l.push("✻", Style::fg(CLAUDE)).push(" ", Style::PLAIN);
+            l.push("Working…", Style::fg(CLAUDE));
+        }
+    }
+    l
 }
 
 fn fullscreen_grid(
@@ -321,8 +327,13 @@ fn truecolor(color: crate::Color) -> crate::Color {
 /// then.
 fn fullscreen_box(chrome: &Chrome, running: bool, fresh: bool, width: usize) -> Vec<Line> {
     let mut out = Vec::new();
+    if running {
+        // Claude Code 2.1.332 draws the spinner just above the box, after a blank row.
+        out.push(Line::new());
+        out.push(spinner(chrome));
+    }
     let mut e = Line::new();
-    if let Some(effort) = chrome.effort.as_deref().filter(|_| fresh) {
+    if let Some(effort) = chrome.effort.as_deref().filter(|_| fresh || running) {
         let right = format!("◐ {effort} · /effort");
         e.pad_to(width.saturating_sub(2 + crate::str_width(&right)), Style::PLAIN);
         e.push(&right, Style::fg(GRAY));
@@ -354,7 +365,7 @@ fn fullscreen_box(chrome: &Chrome, running: bool, fresh: bool, width: usize) -> 
     let amber = Style { fg: crate::Color::Rgb(255, 193, 7), ..Style::PLAIN };
     f.push(&format!("⏵⏵ {}", chrome.mode), amber);
     let hint = if running {
-        " · esc to interrupt"
+        " · esc to interrupt · ← for agents"
     } else if fresh {
         " (shift+tab to cycle) · ← for agents"
     } else {
