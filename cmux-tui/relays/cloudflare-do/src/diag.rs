@@ -190,7 +190,8 @@ pub(crate) async fn handle_internal(request: &Request, env: &Env) -> Result<Opti
     let Ok(rounds) = parse_rounds(param("n").unwrap_or("1")) else {
         return Response::error("Invalid n", 400).map(Some);
     };
-    let id = env.durable_object("RELAY_CIRCUITS")?.id_from_string(circuit)?;
+    let circuits = env.durable_object("RELAY_CIRCUITS")?;
+    let id = circuits.id_from_string(circuit)?;
     let stub = match param("hint").and_then(region) {
         Some(hint) => id.get_stub_with_location_hint(hint)?,
         None => id.get_stub()?,
@@ -212,7 +213,8 @@ pub(crate) async fn probe(request: &Request, env: &Env) -> Result<Response> {
     let edge_colo = request.cf().map(|cf| cf.colo());
     let viewer = hint_of(request);
 
-    let slot_id = env.durable_object("RELAY_SLOTS")?.unique_id()?;
+    let slots = env.durable_object("RELAY_SLOTS")?;
+    let slot_id = slots.unique_id()?;
     let slot_key = slot_id.to_string();
     let slot = slot_id.get_stub_with_location_hint(params.daemon)?;
     let (slot_wake_ms, slot_colo) = wake(&slot).await?;
