@@ -287,6 +287,10 @@ public protocol AgentSessionSource: AnyObject {
     /// The bytes of an attachment a recorded prompt names but this phone does not hold (an
     /// image another device or an earlier launch sent), or nil when the source can't read it.
     func attachmentData(_ attachment: AgentAttachment) async -> Data?
+    /// The composer's attachments now, on every change: a source that uploads files at Send may
+    /// start them now, while the message is typed, and stop those taken off. Sources that send
+    /// nothing ahead do nothing.
+    func prestageAttachments(_ attachments: [AgentAttachment])
     /// The whole record of a tool call output the Mac sent cut (``ACPToolOutputCut``), as the
     /// update it made, or nil when the source can't read it (the person opens it again to retry).
     func fullToolOutput(_ cut: ACPToolOutputCut) async -> ACPToolCallUpdate?
@@ -334,6 +338,7 @@ public protocol AgentSessionSource: AnyObject {
 
 extension AgentSessionSource {
     public func attachmentData(_ attachment: AgentAttachment) async -> Data? { nil }
+    public func prestageAttachments(_ attachments: [AgentAttachment]) {}
     public func fullToolOutput(_ cut: ACPToolOutputCut) async -> ACPToolCallUpdate? { nil }
     public func loadEarlierHistory() {}
     public var loadsHistory: Bool { false }
