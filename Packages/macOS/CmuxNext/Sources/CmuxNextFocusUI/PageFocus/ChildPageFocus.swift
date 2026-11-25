@@ -27,10 +27,6 @@ public final class ChildPageFocus {
     public weak var page: AnyObject?
     /// A grant is running (``focus(_:)``).
     private var granting = false
-    /// Grants wait for the end of ``holdingGrants(_:until:)``.
-    private var holdsGrants = false
-    /// The page whose grant waits for the hold's end.
-    private weak var heldGrant: AnyObject?
     private let keys: any KeyWindowSwitching
     /// Gives (true) or takes (false) a page's focus; giving a Chromium page focus makes its window key.
     private let setFocus: (AnyObject, Bool) -> Void
@@ -70,38 +66,9 @@ public final class ChildPageFocus {
         guard page !== next else { return }
         blurPage()
         page = next
-        if holdsGrants { return heldGrant = next }
         granting = true
         defer { granting = false }
         setFocus(next, true)
-    }
-
-    /// Runs `send`, then `layout`: a page ``focus(_:)`` focuses while `send` runs is recorded as focused at once, and
-    /// granted (the key change) after `layout`, if it still has focus then.
-    ///
-    /// For a layout change that goes with the focus in one turn (a pane close shown in its key's turn): a grant before
-    /// it made the page beside the closed pane's window key before the layout gave that page its next size ahead of the
-    /// commit, and the page's frames stopped for about 100 ms in about half of the closes (cmux20-bench films). A hold
-    /// inside another one ends with the outer one.
-    ///
-    /// - Parameters:
-    ///   - send: Sends the focus; ``focus(_:)`` inside it records its page and grants nothing.
-    ///   - layout: The layout change the focus goes with.
-    public func holdingGrants(_ send: () -> Void, until layout: () -> Void) {
-        guard !holdsGrants else {
-            send()
-            return layout()
-        }
-        holdsGrants = true
-        send()
-        holdsGrants = false
-        layout()
-        guard let held = heldGrant else { return }
-        heldGrant = nil
-        guard held === page else { return }
-        granting = true
-        defer { granting = false }
-        setFocus(held, true)
     }
 
     /// `window` (the cmux window) took the keys back while a page has focus, and no click put them

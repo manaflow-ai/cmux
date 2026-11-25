@@ -1,0 +1,19 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/dense-setup",
+  "name": "Dense",
+  "tagline": "Everything small and in view",
+  "description": "Everything small and in view: ultra-compact chrome, a sidebar rail, the tab bar at the bottom. For people on a small laptop screen or who run many workspaces.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/examples/setups/dense",
+  "cmuxProfile": 1,
+  "settings": {
+    "appearance.density": "ultraCompact",
+    "sidebar.style": "rail",
+    "sidebar.density": "compact",
+    "tabs.barPosition": "bottom",
+    "agentPane.display.minimap": "off",
+    "layout.panePadding": 2
+  }
+}

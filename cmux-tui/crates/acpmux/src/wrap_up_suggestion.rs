@@ -40,16 +40,6 @@ pub struct Watch {
     /// The facts the last completed wrap-up offered for the project's instructions file
     /// (`memory_inbox.rs`).
     learned: Vec<String>,
-    /// The last completed wrap-up's recap and question: the chat's rolling summary and next
-    /// action, at no model call (`hub/rolling_summary.rs`).
-    recap: Option<Recap>,
-}
-
-/// A wrap-up's recap and its question, if it asks one.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Recap {
-    pub text: String,
-    pub ask: Option<String>,
 }
 
 impl Watch {
@@ -85,20 +75,13 @@ impl Watch {
         // The last completed wrap-up decides, a recap alone included: it takes back an earlier ask.
         self.pending = args.as_ref().and_then(first_answer);
         self.learned = args.as_ref().map(crate::memory_inbox::learned_facts).unwrap_or_default();
-        self.recap = args.as_ref().and_then(recap_of);
     }
 
     /// The turn ended: its answer, if any, and a clean slate for the next turn.
     pub fn take(&mut self) -> Option<String> {
         self.calls.clear();
         self.learned.clear();
-        self.recap = None;
         self.pending.take()
-    }
-
-    /// The recap the turn's wrap-up showed, taken.
-    pub fn take_recap(&mut self) -> Option<Recap> {
-        self.recap.take()
     }
 
     /// The facts the turn's wrap-up offered, taken.
@@ -181,22 +164,6 @@ fn collect_strings<'a>(value: Option<&'a Value>, out: &mut Vec<&'a str>) {
     }
 }
 
-/// A wrap-up's recap and question, its arguments as an object or a JSON string.
-fn recap_of(args: &Value) -> Option<Recap> {
-    let args = match args {
-        Value::String(s) => serde_json::from_str::<Value>(s).ok()?,
-        other => other.clone(),
-    };
-    let field = |key: &str| {
-        args.get(key)
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|t| !t.is_empty())
-            .map(str::to_owned)
-    };
-    Some(Recap { text: field("recap")?, ask: field("ask") })
-}
-
 /// The agent's pick: the first answer of a wrap-up that asks something.
 fn first_answer(args: &Value) -> Option<String> {
     let args = match args {
@@ -243,11 +210,6 @@ pub fn take_learned(session: &str) -> Vec<String> {
         .get_mut(session)
         .map(Watch::take_learned)
         .unwrap_or_default()
-}
-
-/// [`Watch::take_recap`] for `session`; the turn's end calls it before [`take`].
-pub fn take_recap(session: &str) -> Option<Recap> {
-    WATCHES.lock().unwrap_or_else(|e| e.into_inner()).get_mut(session).and_then(Watch::take_recap)
 }
 
 /// [`Watch::take`] for `session`.

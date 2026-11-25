@@ -51,9 +51,9 @@ import { callOutput, rowFailed, toolFailure } from "./toolFailure";
 import { RepoRecoveryCard } from "./RepoRecoveryCard";
 import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { failureWord, useInStep } from "./toolFailureCauseModel";
-import { ChevronRight } from "./icons";
 import { toolIcon } from "./toolRowModel";
 import { repoRecoveryFor } from "./repoRecoveryCardModel";
+import { DisclosureChevron } from "./DisclosureChevron";
 
 /// One tool call. A call with output opens it below; a
 /// shell call opens to its Shell block, with the command line even before any output, and an
@@ -95,11 +95,12 @@ export const ToolRow = memo(function ToolRow({
   const label = toolLabel(
     tool,
     item.text,
-    // "Running …" until it is done, "Ran …" after; its ⌃B hint is the live line's (Thinking.tsx).
-    (command) => t(foreground ? "tools.runningCommand" : "tools.ranCommand", { command }),
+    // A live command is its own shimmered line, so it needs no "Running" word (Leo, 2026-11-23:
+    // "running" doesn't need text). Finished commands keep the reader's localized "Ran" lead.
+    (command) => (running ? command : t("tools.ranCommand", { command })),
     cwd,
-    t(foreground ? "tools.runningUnnamed" : "tools.ranUnnamed"),
-    !asRun,
+    running || asRun ? undefined : t("tools.ranUnnamed"),
+    !asRun && !running,
   );
   // Failed by its status or a nonzero exit; in the background, by its status (toolFailure.ts rowFailed).
   const recovery = useMemo(() => repoRecoveryFor(tool), [tool]);
@@ -281,7 +282,7 @@ export const ToolRow = memo(function ToolRow({
             onClick={fold.toggle}
           >
             {content}
-            <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
+            <DisclosureChevron open={open} />
           </button>
         ) : (
           <div className={`cv-tool${running ? " is-live" : " is-strong"}`} data-tool-id={tool.id}>
@@ -308,6 +309,7 @@ export const ToolRow = memo(function ToolRow({
               id={detailsId}
               command={tool.command}
               output={failure?.output?.replace(/\n$/, "") ?? body}
+              cut={tool.earlierOutput}
               exitCode={failure?.exitCode ?? tool.exitCode}
               reveal={reveal}
               live={running}
