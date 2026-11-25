@@ -1784,7 +1784,8 @@ function ComposerFrame({
   const typedSlash = slash !== undefined && !facts.slashDismissed && !recalling ? slash : undefined;
   const query = typedSlash?.query;
   // The person's saved prompts lead the list (savedPrompts.ts); the prompt colours only the chat's own.
-  const savedPrompts = useSavedPrompts();
+  const slashOpen = typedSlash !== undefined;
+  const savedPrompts = useSavedPrompts(slashOpen);
   const menuCommands = useMemo(
     () => [...savedPromptCommands(savedPrompts), ...(commands ?? [])],
     [savedPrompts, commands],
@@ -1793,7 +1794,6 @@ function ComposerFrame({
   const open = typedSlash !== undefined && (typedSlash.leading || matches.length > 0);
   const slashNames = useSlashNames(commands);
   // Each opening reads the list again, so a prompt saved in another chat is there.
-  const slashOpen = typedSlash !== undefined;
   useEffect(() => {
     if (slashOpen) void refreshSavedPrompts();
   }, [slashOpen]);

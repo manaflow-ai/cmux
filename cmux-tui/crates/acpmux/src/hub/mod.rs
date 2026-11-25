@@ -722,8 +722,9 @@ pub struct HubEvent {
 }
 
 /// A [`HubEvent`]'s cells its receivers share: its row without its tools, with them, and with
-/// them but no time breakdown (a client that draws none, `omitTimeBreakdown`), and the clock of
-/// its fan-out to the connections (`gauges::FanoutClock`).
+/// them but no time breakdown (a client that draws none: its `initialize`'s `omitTimeBreakdown`,
+/// or an attach's, `SubOpts::omit_time_breakdown`), and the clock of its fan-out to the
+/// connections (`gauges::FanoutClock`).
 #[derive(Debug, Default)]
 pub struct EventRow {
     pub cells: [SharedRow; 3],
@@ -1213,7 +1214,16 @@ pub struct Hub {
     /// The ACP lists kept on disk by earlier probes (`live_models::AcpCache`), read once at
     /// start: by harness, the profile key it was probed under and the list. Each fills
     /// `known_models` for a profile with the same key until its probe answers (`model_probe.rs`).
-    pub(super) acp_cached: StdMutex<HashMap<String, (String, Vec<(String, String)>)>>,
+    /// The probe's choices (`probed_choices`) ride along, so a restart needs no probe for them.
+    pub(super) acp_cached: StdMutex<
+        HashMap<String, (String, Vec<(String, String)>, Option<crate::live_models::AcpChoices>)>,
+    >,
+    /// When each ACP harness's list was last probed (this run, or the kept file's time): a
+    /// models read probes one older than `live_ages::ACP_MAX_AGE` again (`model_probe.rs`).
+    pub(super) acp_ages: StdMutex<live_ages::LiveAges>,
+    /// The program each live list kept on disk was listed by, as loaded at start: an unchanged
+    /// program is not probed at start (`hub/live_models.rs`).
+    pub(super) live_disk_keys: StdMutex<HashMap<String, crate::live_models::CacheKey>>,
     /// The harnesses whose `known_models` entry is that disk copy, not a report of this
     /// daemon's: the probe still runs for them.
     pub(super) acp_from_disk: StdMutex<std::collections::HashSet<String>>,
@@ -1767,6 +1777,8 @@ impl Hub {
             cache_test_save_every_ms: AtomicU64::new(peer_cache::SAVE_EVERY_MS),
             known_models: StdMutex::new(HashMap::new()),
             acp_cached: StdMutex::new(HashMap::new()),
+            acp_ages: StdMutex::new(live_ages::LiveAges::default()),
+            live_disk_keys: StdMutex::new(HashMap::new()),
             acp_from_disk: StdMutex::new(std::collections::HashSet::new()),
             probed_choices: StdMutex::new(HashMap::new()),
             live_models: StdMutex::new(HashMap::new()),
