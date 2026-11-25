@@ -502,6 +502,7 @@ pub(super) fn advertised_capabilities(
         crate::git_ops::WORKTREE_APPLY_CAPABILITY,
         crate::git_ops::WORKTREE_REMOVE_CAPABILITY,
         crate::git_ops::DIFF_COMMENTS_CAPABILITY,
+        crate::git_ops::REVIEW_CAPABILITY,
         crate::git_ops::DIFF_COMMENTS_SEND_CAPABILITY,
         crate::git_ops::WORKTREE_SETUP_CAPABILITY,
         crate::git_ops::WORKTREE_SETUP_RUN_CAPABILITY,

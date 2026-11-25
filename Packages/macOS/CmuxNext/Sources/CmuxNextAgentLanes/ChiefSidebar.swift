@@ -143,6 +143,8 @@ public final class ChiefSidebar {
         // item keeps its own title (cmux#48416).
         let chief = SidebarBuiltIn.chief.defaultInfo
         (info.title, info.symbol, info.icon, info.favicon) = (SidebarBuiltIn.home.title, chief.symbol, chief.icon, picture)
+        // The row draws the title alone, so it reads as the top of the list, not as one more glyph row (Lucas 2026-11-23).
+        info.hidesGlyphBesideTitle = true
         decorate(&info)
         // The top row dots for any of the person's unread chats (the Chief's own among them), not only the Chief's.
         info.unreadDot = homeUnread > 0

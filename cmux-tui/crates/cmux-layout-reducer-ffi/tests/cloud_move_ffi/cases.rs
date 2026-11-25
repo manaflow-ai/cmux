@@ -225,8 +225,8 @@ fn a_move_says_its_step_and_about_how_long_is_left() {
         json!({"direction": "move", "stage": "copy", "name": "dev", "stageMs": 10_000,
                "copy": {"phase": "copy", "filesDone": 301, "filesTotal": 1_204}}),
     );
-    assert_eq!(copying["text"], "2 of 4 · Copying the folder (1,204 files) · about 45 s left");
-    assert_eq!((copying["step"].clone(), copying["steps"].clone()), (json!(2), json!(4)));
+    assert_eq!(copying["text"], "3 of 5 · Copying the folder (1,204 files) · about 45 s left");
+    assert_eq!((copying["step"].clone(), copying["steps"].clone()), (json!(3), json!(5)));
     assert_eq!(copying["etaMs"], 43_000);
     assert_eq!(copying["nextMs"], 3_000, "a measured copy counts down to its next text");
     let stale = ok(
@@ -236,9 +236,13 @@ fn a_move_says_its_step_and_about_how_long_is_left() {
     );
     assert_eq!(
         stale["text"],
-        "2 of 4 · Copying the folder (100 files) · taking longer than its progress said"
+        "3 of 5 · Copying the folder (100 files) · taking longer than its progress said, 2 min so far"
     );
-    assert_eq!((stale["etaMs"].clone(), stale["nextMs"].clone()), (Value::Null, Value::Null));
+    assert_eq!(
+        (stale["etaMs"].clone(), stale["nextMs"].clone()),
+        (Value::Null, json!(60_000)),
+        "past its estimate it keeps a clock, waking when the minute changes"
+    );
     let back = ok(
         c"cloud_move_progress",
         json!({"direction": "bringBack", "stage": "machine", "machine": "paused", "name": "dev"}),
@@ -248,8 +252,10 @@ fn a_move_says_its_step_and_about_how_long_is_left() {
         c"cloud_move_progress",
         json!({"stage": "machine", "machine": "running", "name": "dev"}),
     );
-    assert_eq!(running["text"], "1 of 4 · Connecting to dev · about 35 s left");
+    assert_eq!(running["text"], "2 of 5 · Connecting to dev · about 35 s left");
     assert_eq!(running["nextMs"], 3_000);
+    let checking = ok(c"cloud_move_progress", json!({"direction": "move", "stage": "folder"}));
+    assert_eq!(checking["text"], "1 of 5 · Checking the folder · about 40 s left");
     let (code, _) = call(c"cloud_move_progress", &json!({"stage": "teleport"}));
     assert_eq!(code, ERR_INVALID);
 }

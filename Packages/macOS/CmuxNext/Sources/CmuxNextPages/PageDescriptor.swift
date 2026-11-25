@@ -201,7 +201,7 @@ public extension PageDescriptor {
     static let cloud = PageDescriptor(
         id: "cmux.cloud", resource: "cloud", namespaces: ["cmux.cloud."],
         nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
-        actions: ["cloudPreviewShare", "cloudPreviewRevoke"],
+        actions: ["cloudPreviewShare", "cloudPreviewRevoke", "billing.openPortal"],
         confirmedOps: [
             "cmux.cloud.machine.delete": .delete, "cmux.cloud.snapshot.delete": .delete,
             // Automatic cleanup: archive and delete removes the machine (its disk kept as an archive);

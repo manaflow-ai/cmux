@@ -54,6 +54,9 @@ extension NotificationTarget {
             // The same destination as a Chief notification, which already
             // knows how to open a named Cloud or Mac Home conversation.
             return .chief(conversationID: conversationID)
+        case .macScreen:
+            // Opened by Screen Sharing, not a workspace route (``ShellModel/openLink(_:)``).
+            return nil
         }
     }
 
@@ -87,6 +90,18 @@ extension ShellModel {
     func openLink(_ link: CmuxLink) -> Bool {
         // A link decides where the app opens: a launch restore never lands over it.
         cancelRestore()
+        if case .macScreen(let screen) = link.target {
+            // The device hub lists the account's Macs; Screen Sharing says when this one isn't there.
+            guard screenSharing != nil else {
+                if !NotificationRouter.shared.isExpired(), auth.isSignedIn { return false }
+                toast = NotificationTarget.linkNotFoundToast()
+                theme.haptics.error()
+                return true
+            }
+            linkLog.info("cmux link (mac-screen) opens Screen Sharing, control: \(screen.control, privacy: .public)")
+            macScreenLink = MacScreenLinkPresentation(link: screen)
+            return true
+        }
         let target = NotificationTarget.resolve(link, workspaces: store.activeWorkspaces) { [live] session in
             live?.destination(sessionID: session, workspaceID: nil, tabID: nil)
         }

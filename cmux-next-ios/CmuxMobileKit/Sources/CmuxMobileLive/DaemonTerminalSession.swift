@@ -61,14 +61,29 @@ public final class DaemonTerminalSession: TerminalSession {
     public let terminalID: String?
     public private(set) var programName: String
     public private(set) var isAlternateScreen = false
-    /// The Mac terminal's rows (`vt-state`, `resized`), else the size asked for.
-    public var remoteRows: Int? { reportedRows ?? lastSize?.rows ?? 24 }
+    /// The Mac terminal's rows the screen was shown (`vt-state`, `resized`),
+    /// else the size asked for. A grid the reclaim hold keeps back is not the
+    /// screen's yet: read here, the page laid its mirror out at the Mac's
+    /// 118x69 while the phone's claim was out (Leo, 2026-11-23: "im sometimes
+    /// seeing these 118x69 load ins which are wide... then it properly goes").
+    public var remoteRows: Int? { shownGrid?.rows ?? lastSize?.rows ?? 24 }
     private var reportedRows: Int?
     /// The Mac's grid changed since the screen was last told (``TerminalSessionEvent/hostGrid(columns:rows:)``).
     private var hostGridChanged = false
-    /// The Mac terminal's columns (`vt-state`, `resized`); nil before the
-    /// first attach. The screen renders this grid when it is not the phone's.
-    public var remoteColumns: Int? { reportedColumns }
+    /// The Mac terminal's columns the screen was shown (`vt-state`,
+    /// `resized`); nil before the first grid reaches the screen. The screen
+    /// renders this grid when it is not the phone's.
+    public var remoteColumns: Int? { shownGrid?.columns }
+    /// The last grid given to the screen (past the reclaim hold).
+    private var shownGrid: (columns: Int, rows: Int)?
+
+    /// Gives the screen events past the reclaim hold, noting the grid it now has.
+    private func deliver(_ events: [TerminalSessionEvent]) {
+        for event in events {
+            if case .hostGrid(let columns, let rows) = event { shownGrid = (columns, rows) }
+            handler?(event)
+        }
+    }
     /// The owner the screen was last told (``TerminalSessionEvent/hostGridOwner(_:)``).
     private var toldHostGridOwner: String??
 
@@ -1445,7 +1460,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 armReclaimDeadline()
             }
         }
-        for event in events { handler?(event) }
+        deliver(events)
     }
 
     /// On screen with a grid the phone did not ask for: its size again, at
@@ -1502,7 +1517,7 @@ public final class DaemonTerminalSession: TerminalSession {
         let events = reclaimHold.release(from: grid)
         guard !events.isEmpty else { return }
         log.notice("surface \(self.surface, privacy: .public): reclaim hold released, \(events.count, privacy: .public) events shown")
-        for event in events { handler?(event) }
+        deliver(events)
     }
 
     /// Shown with the Mac's grid held. The Mac already at the phone's grid

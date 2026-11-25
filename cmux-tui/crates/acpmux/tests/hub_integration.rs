@@ -752,7 +752,9 @@ async fn kill_then_prompt_resumes_via_load() {
     let kinds: Vec<String> =
         hub.events(&id, 0, 1000).unwrap().into_iter().map(|e| e.kind).collect();
     assert!(kinds.iter().any(|k| k == "resumed"), "{kinds:?}");
-    assert!(kinds.iter().any(|k| k == "user_message_chunk.replay"), "{kinds:?}");
+    // The load's replay of the chat is kept out of the log (`unread_records.rs`): a resume
+    // costs the log the same few bytes however long the chat.
+    assert!(!kinds.iter().any(|k| k == "user_message_chunk.replay"), "{kinds:?}");
     assert_eq!(hub.session_summary(&session)["turnCount"], 2);
     // The saved mode and options were re-asserted on the respawned agent.
     let replayed = hub

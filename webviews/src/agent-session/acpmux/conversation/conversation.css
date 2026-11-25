@@ -22,7 +22,9 @@
   --cv-exit-ease: var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
   --cv-text: var(--agent-text);
   --cv-text-muted: var(--agent-muted); /* "Worked for", tool verbs */
-  --cv-text-dim: var(--agent-soft); /* progress rows */
+  /* Progress rows, times, command meta: text, so the theme's secondary ink, which holds 4.5:1 on every fill.
+     The tertiary ink (--agent-soft) is a mark ink held at 3:1: on a card it read 3.52:1 light, 3.94:1 dark. */
+  --cv-text-dim: var(--agent-muted);
   /* Background activity follows Claude Code's secondary reading level. */
   --cv-activity-text: color-mix(in srgb, var(--cv-fg) 58%, transparent);
   --cv-fg: var(--agent-text);
@@ -7699,11 +7701,19 @@ a.cv-sha:focus-visible {
 :root:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-jump-latest {
   --glass-tint: color-mix(in srgb, var(--agent-page-bg) var(--ds-glass-popover-tint), transparent);
 }
-/* Hover lays a wash of the text over the glass, in every mode. */
+/* Hover and press lay a wash of the text over the glass, in every mode, on the composer controls'
+   ink ladder (hq docs/design/design-system-decisions A1: hover 8, pressed 16, pressed is fill only;
+   Leo, 2026-11-23: "nor style properly"). */
 .acpmux-jump-latest:hover {
   background-image: linear-gradient(
-    color-mix(in srgb, var(--agent-text) 6%, transparent),
-    color-mix(in srgb, var(--agent-text) 6%, transparent)
+    color-mix(in srgb, var(--agent-text) 8%, transparent),
+    color-mix(in srgb, var(--agent-text) 8%, transparent)
+  );
+}
+.acpmux-jump-latest:active {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--agent-text) 16%, transparent),
+    color-mix(in srgb, var(--agent-text) 16%, transparent)
   );
 }
 /* Keyboard focus: the pane's focus pill (agent-session/shared/styles.css) laid over the glass, with

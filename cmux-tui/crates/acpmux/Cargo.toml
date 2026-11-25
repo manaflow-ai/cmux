@@ -125,6 +125,8 @@ cmux-tui-platform.workspace = true
 # SKILL.md frontmatter, read as YAML (`agent_guidance::frontmatter`), shared with `cmux agent-config skills`.
 cmux-agent-customize.workspace = true
 cmux-file-lock.workspace = true
+# Session Info's per-chat usage stats, invalidated by chat and transcript tag (`hub/usage_view.rs`).
+cmux-tag-cache.workspace = true
 cmux-supervise-core.workspace = true
 cmux-git.workspace = true
 # The trusted session-flag hook a Codex start at a repository head gets (src/codex_repo_gate.rs).

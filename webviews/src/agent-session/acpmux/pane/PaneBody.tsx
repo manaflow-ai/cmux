@@ -22,10 +22,10 @@ import { holdComposerPlace } from "../composer/composerHandover";
 import { hasNativeHost } from "../native";
 import { CloudEnvironmentEditor } from "../CloudEnvironmentEditor";
 import { knownRefusalText } from "../transportErrors";
-import { NewTabPage } from "../NewTabPage";
 import { FOCUS_LOCATION_EVENT, type NewTabHost, type NewTabChat } from "../newTabModel";
-import { NewTabScreen, type NewTabScreenActions } from "../newtab/NewTabScreen";
 import type { NewTabStartFailure } from "../newtab/StartFailure";
+import type { NewTabScreenActions } from "../newtab/NewTabScreen";
+import { LazyNewTabPage, LazyNewTabScreen } from "../newtab/lazyNewTab";
 import { HistoryScreen } from "../newtab/HistoryScreen";
 import { NewTabAppSlot } from "../newtab/NewTabAppSlot";
 import { NewTabClock } from "../newtab/NewTabClock";
@@ -812,7 +812,7 @@ export function drawPaneBody({
             <>
               {/* Setup keeps this page's draft and project, while its hidden input effects stop. */}
               <Activity mode={harnessesOpen ? "hidden" : "visible"}>
-                <NewTabScreen
+                <LazyNewTabScreen
                   // Over cmux's composer, never in its place (Leo 2026-11-16): the clock
                   // (`tabs.newTabClock.*`, newtab/NewTabClock.tsx), then an extension's slot
                   // (`tabs.newTabApp`, newtab/NewTabAppSlot.tsx). Whatever the extension does, the
@@ -1106,7 +1106,7 @@ export function drawPaneBody({
                 : {})}
             />
           ) : showNewTab ? (
-            <NewTabPage
+            <LazyNewTabPage
               onCmuxCommand={(command, args) => handleCmuxCommand(command, args, true)}
               onImportFile={importFile}
               importError={importError}

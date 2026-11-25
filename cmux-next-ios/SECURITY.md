@@ -1406,6 +1406,18 @@ token to that origin, so the origin is allowlisted in each app, not only in the 
     (`<base>/secrets/tunnel.token`, mode 0600). The tunnel must have no private-network routes, so a
     WARP client in the account cannot reach the router directly. The stack's JWKS key id contains its
     tag, so `/.well-known/jwks.json` names the tag.
+  - **Team keys on the VM.** Two team credentials reach every stack's Workers, so a stack's unmerged code
+    can use them, as the hq classic per-tag stacks on the same VM already can:
+    - the Cloudflare TURN key (1Password "Cloudflare TURN Server API Key"), from which each stack's
+      mobile Worker mints the 1 h TURN credentials of `/v1/ice`, as the shared dev Worker does. An up
+      sends it with `op` over SSH stdin to `<base>/secrets/turn.json` (mode 0600). It is sent only when
+      the VM has none or Cloudflare refuses that copy, and it is never printed.
+    - the development Stack project's server key, which the stack's API needs to read a person's teams
+      from Stack. The VM's classic dev backend already keeps it (`/srv/cmux-dev/secrets/runtime.json`),
+      and a stack reads it there only when it names the API's own development project.
+
+    Each reaches its Worker only through a mode-0600 `.dev.vars`, and log tails that a refused start
+    or wake prints have both values removed.
 - **Phone:** read only in DEBUG builds (Debug, Demo): `ChiefCloudConfig.current` compiles the read
   out of Release, TestFlight and App Store builds, and Production removes the kept value at launch
   (`DeveloperOptions.storedKeys`). The first hand-off launch passes `CMUX_NEXT_CLOUD_BACKEND`; the app

@@ -1788,7 +1788,9 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int
             set_browser_engine(Path(side.env()["CMUX_NEXT_CONFIG_FILE"]), engine)
             if planned.get("ffi_baseline"):
                 receipt["ffi_baseline"] = apply_ffi_baseline(rules, planned, side)
-            launched = side.run("launch", timeout=LAUNCH_SECONDS)
+            # The kit's Recorder records the main display (Video), so a kit look shows the copy there; else the copy
+            # is parked on a display no person looks at (side-instance.sh launch, "parked") and shot by its window.
+            launched = side.run("launch", *(["--shown"] if kit is not None else []), timeout=LAUNCH_SECONDS)
             found = re.search(r"pid (\d+)", launched)
             if not found:
                 raise LookError(f"side-instance.sh launch said no pid: {launched[-200:]}")

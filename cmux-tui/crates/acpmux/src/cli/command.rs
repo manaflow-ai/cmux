@@ -892,7 +892,12 @@ pub enum Command {
     #[command(hide = true)]
     Set { session: String, assignment: String },
     #[command(hide = true)]
-    Allow { session: String, option: Option<String> },
+    Allow {
+        session: String,
+        option: Option<String>,
+        #[arg(long)]
+        standing_grant: bool,
+    },
     #[command(hide = true)]
     Deny { session: String },
     #[command(hide = true)]
@@ -1371,9 +1376,16 @@ pub enum SessionCmd {
         team_address: Option<String>,
     },
     /// Answer a pending permission request. The daemon accepts an allow
-    /// only from the cmux app (approve it on the Mac app); a deny option
-    /// works from here.
-    Allow { session: String, option: Option<String> },
+    /// only from the cmux app (approve it on the Mac app), or signed with this
+    /// machine's standing grant (--standing-grant); a deny option works from here.
+    Allow {
+        session: String,
+        option: Option<String>,
+        /// Sign the one-time allow with the standing grant
+        /// (`acpmux machine approvals grant` records it).
+        #[arg(long)]
+        standing_grant: bool,
+    },
     /// Reject a pending permission request.
     Deny { session: String },
     /// Answer a pending agent question: one --answer per question, keyed by
@@ -1801,6 +1813,12 @@ pub struct RetentionArgs {
     /// One chat only (name or id).
     #[arg(long)]
     pub only: Option<String>,
+    /// Drop only the records no reader takes back (a resume's replayed history, thinking ticks,
+    /// hook callbacks; a Codex resume answer's thread), from any chat nothing uses now, open or
+    /// closed. Each log must read back the same chat rows before it is replaced; with --archive
+    /// the old segments stay there.
+    #[arg(long)]
+    pub unread_only: bool,
 }
 
 /// `session stop`'s condition (`hub/stop_if_idle.rs`). Not with `--mesh`: the mesh hub's stop
@@ -1856,7 +1874,9 @@ pub fn flatten(c: Command) -> Command {
                     .or_else(|| team_address.map(|address| format!("team-address={address}")))
                     .unwrap_or_default(),
             },
-            SessionCmd::Allow { session, option } => Command::Allow { session, option },
+            SessionCmd::Allow { session, option, standing_grant } => {
+                Command::Allow { session, option, standing_grant }
+            }
             SessionCmd::Deny { session } => Command::Deny { session },
             SessionCmd::Answer { session, answer } => Command::Answer { session, answer },
             SessionCmd::Export { session, dest } => Command::Export { session, dest },
