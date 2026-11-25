@@ -439,6 +439,27 @@ impl AppVm {
 
     /// Evaluates the app's main script and calls `__cmuxAppInit`.
     pub fn init(&mut self, params: InitParams) -> Result<(), VmError> {
+        self.init_with_state(params, None)
+    }
+
+    /// [`Self::init`] with the values a previous host kept (`cmux.state`):
+    /// `init.state` seeds them. A value over the caps
+    /// ([`crate::protocol::kept_state_refusal`]) is dropped with a log line.
+    pub fn init_with_state(
+        &mut self,
+        params: InitParams,
+        state: Option<Value>,
+    ) -> Result<(), VmError> {
+        let state = state.filter(|values| {
+            let bytes = values.to_string().len();
+            match crate::protocol::kept_state_refusal(values, bytes) {
+                Some(why) => {
+                    self.shared.borrow_mut().log("warn", &why);
+                    false
+                }
+                None => true,
+            }
+        });
         let main = params.main;
         let mut options = rquickjs::context::EvalOptions::default();
         options.filename = params.main_name;
@@ -455,6 +476,7 @@ impl AppVm {
             "knownOps": params.known_ops,
             "locale": params.locale.unwrap_or_else(|| "en".to_string()),
             "strings": if params.strings.is_object() { params.strings } else { json!({}) },
+            "state": state.unwrap_or_else(|| json!({})),
         })
         .to_string();
         match self
@@ -988,6 +1010,25 @@ fn install_native<'js>(
                 Ok(())
             },
         )?,
+    )?;
+    let (s, g) = (shared.clone(), gate.clone());
+    native.set(
+        "keepState",
+        Function::new(ctx.clone(), move |json: V<'js>| -> rquickjs::Result<()> {
+            if g.stopped() {
+                return Ok(());
+            }
+            let json = text(&json)?;
+            let bytes = json.len();
+            let values = parse(&json);
+            let mut shared = s.borrow_mut();
+            // Over a cap: a log line, and the supervisor keeps the last state it got.
+            match crate::protocol::kept_state_refusal(&values, bytes) {
+                Some(why) => shared.log("warn", &why),
+                None => shared.push(FromHost::State { values }, bytes),
+            }
+            Ok(())
+        })?,
     )?;
     let (s, g) = (shared.clone(), gate.clone());
     native.set(
