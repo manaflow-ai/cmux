@@ -825,3 +825,95 @@ async fn a_handshake_that_ends_without_a_ready_link_ends_the_link() {
     assert!(!peer.link().is_ready());
     fake.abort();
 }
+
+/// The link asks for row patches (`sessionChangedDelta: 2`) and makes each one whole again: the
+/// hub reads every change as the whole row. A patch with a gap before it is dropped, the link
+/// asks for the row whole (`_acpmux/session_resync`), and the row it gets goes on as before.
+#[tokio::test(start_paused = true)]
+async fn the_link_makes_each_patch_whole_and_asks_again_after_a_gap() {
+    let (tx, mut notices) = mpsc::channel(64);
+    let peer = saved(|| Peer::new("box", "ws://10.0.0.9:9", None, None, tx));
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+    let (hello_tx, mut hello) = mpsc::unbounded_channel::<Value>();
+    let (resync_tx, mut resynced) = mpsc::unbounded_channel::<Value>();
+    let fake = tokio::spawn(async move {
+        let row = |a: u64| json!({"sessionId": "s", "harness": "claude", "lastSeq": a, "a": a});
+        while let Some(Ok(frame)) = server.next().await {
+            let Frame::Text(text) = frame else { continue };
+            let msg: Value = serde_json::from_str(&text).unwrap();
+            let Some(id) = msg.get("id").cloned() else { continue };
+            let mut frames = vec![json!({"id": id, "result": {}})];
+            match msg["method"].as_str() {
+                Some(method::INITIALIZE) => {
+                    let _ = hello_tx.send(msg["params"].clone());
+                }
+                Some(method::MUX_WATCH) => {
+                    frames = vec![
+                        json!({"id": id, "result": {"sessions": []}}),
+                        json!({"method": method::MUX_SESSION_CHANGED, "params": {"sessionId": "s", "session": row(1), "kind": "status", "seq": 1, "rowSeq": 1}}),
+                        json!({"method": method::MUX_SESSION_PATCH, "params": {"sessionId": "s", "patch": {"a": 2, "lastSeq": 2}, "rowSeq": 2, "baseRowSeq": 1, "kind": "status", "recordKind": "status", "seq": 2}}),
+                        // Row 3 never came.
+                        json!({"method": method::MUX_SESSION_PATCH, "params": {"sessionId": "s", "patch": {"a": 4}, "rowSeq": 4, "baseRowSeq": 3, "kind": "status", "recordKind": "status", "seq": 4}}),
+                    ];
+                }
+                Some(method::MUX_SESSION_RESYNC) => {
+                    let _ = resync_tx.send(msg["params"].clone());
+                    frames = vec![
+                        json!({"method": method::MUX_SESSION_CHANGED, "params": {"sessionId": "s", "session": row(5), "kind": "status", "seq": 5, "rowSeq": 5}}),
+                        json!({"id": id, "result": {"sent": true}}),
+                        json!({"method": method::MUX_SESSION_PATCH, "params": {"sessionId": "s", "patch": {"a": 6}, "rowSeq": 6, "baseRowSeq": 5, "kind": "status", "recordKind": "status", "seq": 6}}),
+                    ];
+                }
+                _ => {}
+            }
+            for mut frame in frames {
+                if frame["params"]["rowSeq"] == 6 {
+                    // Separate the resync's whole row and its following patch in virtual time.
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+                frame["jsonrpc"] = json!("2.0");
+                if server.send(Frame::Text(frame.to_string().into())).await.is_err() {
+                    return;
+                }
+            }
+        }
+    });
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let link = peer.clone();
+    let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+
+    let hello = tokio::time::timeout(Duration::from_secs(5), hello.recv()).await.unwrap().unwrap();
+    assert_eq!(
+        hello["_meta"]["acpmux"]["sessionChangedDelta"],
+        json!(crate::peer_row_patch::VERSION)
+    );
+    let mut rows = Vec::new();
+    while rows.len() < 4 {
+        let (_, _, notice) = tokio::time::timeout(Duration::from_secs(5), notices.recv())
+            .await
+            .expect("the rows come")
+            .expect("the link stays open");
+        if let PeerNotice::SessionChanged { session, .. } = notice {
+            rows.push(session);
+        }
+    }
+    let a: Vec<u64> = rows.iter().map(|r| r["a"].as_u64().unwrap()).collect();
+    assert_eq!(
+        a,
+        [1, 2, 5, 6],
+        "the gap's patch is dropped, the resync's row and the patch after it go on"
+    );
+    assert_eq!(rows[1]["harness"], "claude", "a patch comes out as the whole row");
+    assert!(rows.iter().all(|r| r.get("patch").is_none()));
+    let asked = resynced.try_recv().expect("the link asked for the row whole");
+    assert_eq!(asked["sessionId"], "s");
+    assert!(resynced.try_recv().is_err(), "asked once");
+    serving.abort();
+    fake.abort();
+    tokio::time::advance(demand::IDLE_CLOSE_AFTER - Duration::from_millis(500)).await;
+    assert!(!peer.idle_due(), "the applied patch kept the peer active after the whole row");
+    tokio::time::advance(Duration::from_millis(500)).await;
+    assert!(peer.idle_due(), "the idle interval runs from the last patch");
+}

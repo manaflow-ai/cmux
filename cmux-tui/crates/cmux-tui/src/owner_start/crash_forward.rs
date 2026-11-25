@@ -2,17 +2,20 @@
 //!
 //! The owner's panic hook (`owner_panic.rs`) writes `owner-panics-<session>.jsonl`.
 //! The cmux-next app sends those lines to Sentry for the cmux-tui it bundles;
-//! a Linux, npm or PyPI cmux-tui had nobody to send them. At owner start this
+//! a Linux, Windows, npm or PyPI cmux-tui had nobody to send them (Windows
+//! too since RFD 0157's crash upload piece; `crash_scrub` redacts its
+//! `C:\Users\<name>` paths). At owner start this
 //! sends the lines not sent yet (a main-thread panic ends the process, so its
 //! line goes on the next start) to the app's Sentry project, tagged
 //! `process=cmux-tui`, each line once (a byte offset in `<log>.sent`). The
 //! memory guard's `owner-memory-<session>.jsonl` goes the same way, at start
-//! and right after each alert.
+//! and right after each alert, and so does the interactive client's
+//! `client-hangs.jsonl` (`ui_watchdog`), at client start and right after each hang.
 //!
-//! It sends nothing when: the binary is inside the cmux app (the app sends
+//! It sends nothing until the person opts in (`app.sendAnonymousTelemetry: true` in cmux.json;
+//! unset is off). It also sends nothing when: the binary is inside the cmux app (the app sends
 //! them), a managed policy disables telemetry, `DO_NOT_TRACK` or
-//! `CMUX_TUI_TELEMETRY=off` is set, cmux.json has
-//! `app.sendAnonymousTelemetry: false`, `CI` is set, or the build is not a
+//! `CMUX_TUI_TELEMETRY=off` is set, `CI` is set, or the build is not a
 //! release (no `CMUX_TUI_DISTRIBUTION_VERSION` stamp). Debug builds take a
 //! test DSN from `CMUX_TUI_TEST_SENTRY_DSN`, which also stands in for the stamp.
 
@@ -102,6 +105,10 @@ pub(super) fn consent(inputs: &ConsentInputs<'_>) -> Consent {
     if setting == Some(&Value::Bool(false)) {
         return Consent::Off("app.sendAnonymousTelemetry is false");
     }
+    // Off until the person turns it on: an unset setting sends nothing.
+    if setting != Some(&Value::Bool(true)) {
+        return Consent::Off("app.sendAnonymousTelemetry is not turned on");
+    }
     if env_set("CI").is_some() {
         return Consent::Off("CI");
     }
@@ -140,6 +147,40 @@ pub(super) fn event_for(line: &str, home: Option<&str>) -> Option<Value> {
     }
     let version = text("version").unwrap_or_else(|| DISTRIBUTION_VERSION.to_string());
     let at_ms = record.get("at_ms").and_then(Value::as_u64).unwrap_or_default();
+    if record.get("kind").and_then(Value::as_str) == Some("client-hang") {
+        // A UI-loop hang of the interactive client (ui_watchdog): a warning, one issue per
+        // top frame, with the sampled stack and the waits as extra data.
+        tags.insert("crash_source".into(), json!("client_hang_log"));
+        let list = |key: &str| -> Vec<String> {
+            record
+                .get(key)
+                .and_then(Value::as_array)
+                .map(|items| items.iter().filter_map(Value::as_str).map(scrub).collect())
+                .unwrap_or_default()
+        };
+        return Some(json!({
+            "event_id": uuid::Uuid::new_v4().simple().to_string(),
+            "timestamp": at_ms as f64 / 1000.0,
+            "platform": "native",
+            "level": "warning",
+            "logger": "cmux-tui",
+            "release": format!("cmux-tui@{version}"),
+            "exception": {"values": [{
+                "type": "ClientHang",
+                "value": message,
+                "mechanism": {"type": "ui_watchdog", "handled": true},
+            }]},
+            "message": {"formatted": message},
+            "fingerprint": ["client-hang", location],
+            "tags": tags,
+            "extra": {
+                "duration_ms": record.get("duration_ms"),
+                "backtrace": scrub(record.get("backtrace").and_then(Value::as_str).unwrap_or_default()),
+                "waits": list("waits"),
+                "cancelled": list("cancelled"),
+            },
+        }));
+    }
     if record.get("kind").and_then(Value::as_str) == Some("memory") {
         // A memory guard line (memory_guard.rs): a warning, one issue per
         // release, with the figures as extra data.
@@ -279,16 +320,17 @@ pub(super) struct Forwarder {
 
 impl Forwarder {
     /// Sends `log`'s unsent lines (see ``forward_new``).
-    #[cfg(unix)]
     pub(super) fn forward(&self, log: &Path) -> Result<usize, String> {
         let _sending = self.sending.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         send_all(log, &self.dsn, self.home.as_deref())
     }
+}
 
-    #[cfg(not(unix))]
-    pub(super) fn forward(&self, _log: &Path) -> Result<usize, String> {
-        Ok(0)
-    }
+/// The home `crash_scrub` turns into `~`: `HOME`, or on Windows (where `HOME` is usually unset)
+/// the profile, `USERPROFILE`.
+pub(super) fn home_dir(env: &dyn Fn(&str) -> Option<String>) -> Option<String> {
+    let set = |name: &str| env(name).filter(|value| !value.is_empty());
+    set("HOME").or_else(|| if cfg!(windows) { set("USERPROFILE") } else { None })
 }
 
 /// Decides consent once and, when it allows, sends the unsent lines of every
@@ -300,10 +342,6 @@ pub(super) fn start(logs: Vec<PathBuf>) -> Option<Forwarder> {
     let test_dsn = env(TEST_DSN_ENV).filter(|dsn| !dsn.is_empty());
     #[cfg(not(debug_assertions))]
     let test_dsn: Option<String> = None;
-    if cfg!(not(unix)) {
-        crate::client_log::info(LOG_AREA, "crash-forward: off (unsupported platform)");
-        return None;
-    }
     let executable = std::env::current_exe().ok().and_then(|path| std::fs::canonicalize(path).ok());
     let managed = cmux_config::managed::default_reader(env).read();
     let settings = std::fs::read_to_string(cmux_config::config_path())
@@ -324,7 +362,7 @@ pub(super) fn start(logs: Vec<PathBuf>) -> Option<Forwarder> {
         crate::client_log::warn(LOG_AREA, "crash-forward: off (bad DSN)");
         return None;
     };
-    let forwarder = Forwarder { dsn, home: env("HOME"), sending: Default::default() };
+    let forwarder = Forwarder { dsn, home: home_dir(&env), sending: Default::default() };
     let worker = forwarder.clone();
     let _ = std::thread::Builder::new().name("crash-forward".into()).spawn(move || {
         let mut sent = 0;
@@ -345,10 +383,8 @@ pub(super) fn start(logs: Vec<PathBuf>) -> Option<Forwarder> {
     Some(forwarder)
 }
 
-#[cfg(unix)]
 fn send_all(log: &Path, dsn: &Dsn, home: Option<&str>) -> Result<usize, String> {
-    // reqwest's rustls-no-provider build needs the workspace's ring provider.
-    let _ = rustls::crypto::ring::default_provider().install_default();
+    // `cmux_egress::client_builder` installs the ring provider reqwest's rustls build needs.
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

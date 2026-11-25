@@ -430,6 +430,21 @@
   color: var(--accent-text);
 }
 
+/* A Channels build's PR count: a link-styled toggle that opens the build's list of PRs below. */
+.channel-prs-toggle {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+}
+
+.channel-prs {
+  list-style: none;
+  margin: var(--ds-space-1) 0 0;
+  padding: 0;
+  white-space: normal;
+}
+
 /* A Channels build row's Switch: one per row, shown only while the pointer or focus is on the row,
    and kept while its switch runs, so the track reads as a list, not a column of buttons. */
 .channel-build .channel-switch {
@@ -1257,6 +1272,56 @@
   box-shadow: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
 }
 
+/* Six pages (one settings area, findings G6): the pages sit at the list's own rhythm, and the shown
+   page's other categories open under its link, indented past its icon. */
+.sidebar-section.sidebar-page + .sidebar-section.sidebar-page {
+  margin-top: 0;
+}
+
+.sidebar-page-children .section-link {
+  padding-inline-start: var(--ds-space-5);
+}
+
+.sidebar-page-link[data-open] .section-name {
+  font-weight: var(--weight-emphasis);
+}
+
+@media (max-width: 600px) {
+  /* In the narrow pane's strip the shown page's categories follow its chip in the row. */
+  .sidebar-page-children .section-link {
+    padding-inline-start: 0;
+  }
+}
+
+/* A result's crumb: its page, muted, then its category (findings G6). */
+.result-section-page,
+.result-section-crumb {
+  color: var(--muted-text);
+}
+
+/* Beta chips (appearance.settingsBetaChips, off by default; betaChips.ts): a compact accent-tinted
+   chip beside an experimental row's title and the Experimental sidebar entry. Off, none is drawn. */
+.beta-chip {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  margin-inline-start: var(--page-size-6);
+  padding: 0 var(--page-size-6);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--ds-color-accent);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-emphasis);
+  line-height: var(--page-size-18);
+  letter-spacing: 0.02em;
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+
+.section-link .beta-chip {
+  margin-inline-start: 0;
+}
+
 /* Settings > Customize (components/CustomizeChecklist.tsx): one search over dense groups, each a
    header with its count and one switch per row. */
 .checklist-search {
@@ -1318,6 +1383,46 @@
 .checklist-items {
   border: 1px solid var(--border);
   border-radius: var(--card-radius);
+}
+
+/* The title with Standup at its end; the Standup panel's lines read out loud, one per entry. */
+.checklist-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+}
+
+.checklist-standup {
+  margin: 0 0 var(--ds-space-3);
+}
+
+.checklist-standup .checklist-head {
+  align-items: center;
+}
+
+.checklist-standup .checklist-count {
+  margin-inline-start: auto;
+}
+
+.checklist-standup-lines {
+  margin: 0;
+  padding: var(--ds-space-1) var(--ds-space-2);
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+}
+
+.checklist-standup-lines li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-1) 0;
+}
+
+.checklist-standup-lines .checklist-mark-icon {
+  flex: none;
+  width: 14px;
 }
 
 .checklist-row {

@@ -34,6 +34,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 
 import yaml
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
@@ -352,10 +353,32 @@ def main():
     _check(linux_calls == ["build-linux"], f"the shipped musl targets build once, in build-linux ({linux_calls})")
     _check(all_jobs["build-linux"]["with"]["lto"] == all_jobs["build"]["with"]["lto"],
            "build-linux builds the shipped (fat) profile")
-    early = all_jobs["point-machine-channel-early"]
-    # MACHINE_CHANNEL_THIN: it waits for the channel's own thin Linux legs, not for build-linux's fat ones.
-    _check(needs(early) == ["tree-preflight", "tree-owner-wait", "build-machine-channel"],
-           f"point-machine-channel-early waits for the thin channel legs only ({needs(early)})")
+    # MACHINE_CHANNEL_THIN: the channel's thin legs and points are cmux-machine-channel.yml's, outside the
+    # coalesce window (cmux#54889 waited 75 of 97 min for it); its points wait for those legs only.
+    _check(not {"build-machine-channel", "build-machine-channel-x86_64", "point-machine-channel-early",
+                "point-machine-channel-early-linux"} & set(all_jobs), "no thin machine-channel job waits in this workflow")
+    channel = yaml.safe_load(Path(ROOT, ".github/workflows/cmux-machine-channel.yml").read_text())
+    # LINUX_X86_64_FIRST: the x86_64 point waits for the x86_64 leg alone, not the aarch64 one.
+    # `plan` (does the channel need this commit) runs before either leg, so it adds no wait.
+    _check(needs(channel["jobs"]["point-x86_64"]) == ["plan", "build-x86_64"],
+           f"its x86_64 point waits for the thin x86_64 leg only ({needs(channel['jobs']['point-x86_64'])})")
+    _check(needs(channel["jobs"]["point-linux"]) == ["plan", "build-x86_64", "build-aarch64", "point-x86_64"],
+           f"its Linux point waits for both thin legs ({needs(channel['jobs']['point-linux'])})")
+    # A pull request head (PR_HEAD_FAST_LANE) is superseded by its newer head; a push never cancels.
+    _check("coalesce" not in channel["jobs"]
+           and channel["concurrency"]["cancel-in-progress"] in (False, "${{ github.event_name == 'pull_request' }}"),
+           "no coalesce window, and a push never cancels")
+    # MACHINE_CHANNEL_STAGE_GROUPS: a push is never one run-wide group (the next build waited about 15 min for the
+    # last run's journey verdict, p50 45.7 min on 2026-11-26); each target's build, the plan and the channel
+    # writers each keep one running and one pending job per ref, never cancelling a started one.
+    _check("github.run_id" in channel["concurrency"]["group"],
+           f"a push run holds no run-wide group ({channel['concurrency']['group']})")
+    for job, stage in (("plan", "plan"), ("build-x86_64", "build-x86_64"), ("build-aarch64", "build-aarch64"),
+                       ("point-x86_64", "point"), ("point-linux", "point")):
+        group = channel["jobs"][job].get("concurrency") or {}
+        _check(str(group.get("group", "")).startswith(f"cmux-machine-channel-{stage}-")
+               and "github.ref" in str(group.get("group", "")) and group.get("cancel-in-progress") is False,
+               f"{job} waits in its own per-ref group {stage}, never cancelling ({group})")
     for build_linux, expected in (("success", True), ("failure", False), ("cancelled", False)):
         values = dict(base, **{"needs.build-linux.result": build_linux, "needs.build.result": "success"})
         _check(evaluate(publish["if"], values) == expected,
@@ -381,7 +404,10 @@ def main():
                                                      "needs.tree-preflight.outputs.darwin_builder": "mac"})),
            "darwin-fallback-plan plans nothing when the committed builder is mac (no second builder)")
     fallback = all_jobs["build-darwin-fallback"]
-    _check(fallback["with"]["darwin_builder"] == "mac",
+    # FALLBACK_RETRIES_LOST_LEGS_ON_LINUX: the plan names the builder, a Mac unless every failed leg
+    # never reached its link (then Linux, once, on attempt 1).
+    _check(fallback["with"]["darwin_builder"] == "${{ needs.darwin-fallback-plan.outputs.builder }}"
+           and "builder=mac\n" in plan_steps and 'echo "builder=$builder" >> "$GITHUB_OUTPUT"' in plan_steps,
            "missing macOS targets from the Linux cross build are rebuilt on a Mac")
     _check(fallback["with"]["target_set"] == "${{ needs.darwin-fallback-plan.outputs.target_set }}",
            "the fallback builds only the macOS targets the plan found missing")

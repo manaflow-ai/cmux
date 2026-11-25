@@ -141,7 +141,7 @@ pub(crate) fn pinned(bin_dir: &Path, name: &str) -> Result<Option<Tool>, Code> {
     parse(&bytes, name)
 }
 
-/// The tool packs' cache: `CMUX_TOOL_PACKS_CACHE` when absolute, else `~/Library/Caches/cmux/
+/// The tool packs' cache: `CMUX_TOOL_PACKS_CACHE` when absolute, else `~/Library/Caches/cmux-next/
 /// tool-packs` on macOS and `${XDG_CACHE_HOME:-~/.cache}/cmux/tool-packs` elsewhere.
 pub(crate) fn cache_dir() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os(CACHE_ENV).map(PathBuf::from).filter(|p| p.is_absolute()) {
@@ -156,7 +156,7 @@ pub(crate) fn cache_dir() -> Option<PathBuf> {
             .filter(|p| p.is_absolute())
             .unwrap_or_else(|| home.join(".cache"))
     };
-    Some(base.join("cmux").join("tool-packs"))
+    Some(base.join(cmux_config::NEXT_DIR).join("tool-packs"))
 }
 
 /// Where `tool` named `name` is once it is in `cache`.

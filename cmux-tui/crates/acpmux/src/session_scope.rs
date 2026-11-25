@@ -16,6 +16,9 @@
 //! Every session scope is in [`SESSIONS_SLICE`], which caps all sessions
 //! together, so several sessions at their own ceilings still leave the
 //! machine (the daemon, ssh, the user manager) room ([`slice_settings`]).
+//! Inside it each session has its own slice, `acpmuxsessions-<id>.slice`, which its
+//! harness scope and its background task scopes share: one total per session
+//! (`session_total.rs`).
 //!
 //! The per-session limits come from the profile's env, then the daemon's:
 //! `ACPMUX_SESSION_MEMORY_MB` (default half the machine's memory, less with a lane cap),
@@ -35,7 +38,7 @@
 //! missing or cannot make a scope (no user manager, as in a container), the
 //! harness starts as before; that answer is asked once per `systemd-run` and
 //! limits. macOS gets the process-group half of the valve on the holder track
-//! (cx-t2sqm.3); its harnesses run at background CPU class once started (`cpu_class.rs`).
+//! (cx-t2sqm.3); its harnesses take background CPU class only while the Mac is contended (`cpu_class.rs`).
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
 use std::collections::BTreeMap;
@@ -99,7 +102,11 @@ fn prefix(
         .into_iter()
         .find(|properties| can_scope(&runner, properties, env, limits))?;
     let description = format!("acpmux session {session}");
-    Some(scope_argv(&runner.to_string_lossy(), Some(SESSIONS_SLICE), &description, &properties))
+    // The session's own slice under the sessions slice, so its harness and its background tasks
+    // share one total (`session_total.rs`); the sessions slice when it is off or not made.
+    let slice = crate::session_total::ensure_blocking(session, env, limits);
+    let slice = slice.as_deref().unwrap_or(SESSIONS_SLICE);
+    Some(scope_argv(&runner.to_string_lossy(), Some(slice), &description, &properties))
 }
 
 /// The slice every session scope joins. Dash-free: systemd reads dashes in a
@@ -247,7 +254,7 @@ fn parse_threads_max(text: &str) -> Option<u64> {
 }
 
 /// The kernel's thread limit, None when unreadable.
-fn threads_max() -> Option<u64> {
+pub(crate) fn threads_max() -> Option<u64> {
     std::fs::read_to_string("/proc/sys/kernel/threads-max")
         .ok()
         .as_deref()
@@ -293,6 +300,7 @@ fn properties(get: &dyn Fn(&str) -> Option<String>, memory: u64) -> Vec<String> 
     properties_with_swap(get, memory, 0)
 }
 
+#[cfg(test)]
 fn properties_with_swap(
     get: &dyn Fn(&str) -> Option<String>,
     memory: u64,
@@ -503,7 +511,7 @@ fn limit_sessions_slice(
 /// the one at work. Returns how many settings this call changed. Each `systemctl` call is
 /// bounded by [`PROBE_TIMEOUT`].
 #[cfg(target_os = "linux")]
-fn limit_slice(
+pub(crate) fn limit_slice(
     systemctl: &std::path::Path,
     slice: &str,
     wanted: &[(&str, String)],
@@ -581,7 +589,7 @@ fn probe(runner: &std::path::Path, properties: &[String], env: &BTreeMap<String,
 /// to an unlinked temporary file, never a pipe, so a child that leaves a
 /// process behind holding it cannot make the read wait.
 #[cfg(target_os = "linux")]
-fn run_bounded(
+pub(crate) fn run_bounded(
     program: &std::path::Path,
     args: &[String],
     env: &BTreeMap<String, String>,

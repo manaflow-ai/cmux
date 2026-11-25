@@ -1,7 +1,8 @@
 // The guest's composer and its own messages (design/chat-multiplayer.md section 3): text only, no
 // attachments, slash commands or pickers. A message waiting on the owner shows the guest's chip,
 // the text and "Waiting for <owner>"; once decided it folds to one quiet line, "Sent: …",
-// "Declined: …" or "Not sent: …", as the owner's own declined line does.
+// "Declined: …" or "Not sent: …", as the owner's own declined line does. A refused one (never held)
+// ends in a quiet Try again, which sends it again with its own id and text.
 import { type KeyboardEvent, type ReactNode, useState } from "react";
 import { type StringKey, useT } from "../acpmux/i18n";
 import type { QueuedPrompt } from "../acpmux/model";
@@ -25,10 +26,13 @@ export function GuestMessages({
   prompts,
   me,
   owner,
+  onRetry,
 }: {
   prompts: readonly GuestPrompt[];
   me: Participant;
   owner: string;
+  /** Sends a refused message again (guestPrompts.ts retry); without it a refused line has no Try again. */
+  onRetry?: (clientId: string) => void;
 }) {
   const t = useT();
   const open = prompts.filter(isOpen);
@@ -38,13 +42,22 @@ export function GuestMessages({
     <section className="guest-mine" aria-live="polite">
       {decided.map((prompt) => (
         <p key={prompt.clientId} className="guest-mine__decided" data-state={prompt.state}>
-          {t(
-            prompt.reason === "share.too_many_held"
-              ? "guest.prompt.tooManyHeld"
-              : DECIDED_TEXT[prompt.state as "approved"],
-            {
-              text: firstLine(prompt.text),
-            },
+          <span className="guest-mine__decided-text">
+            {t(
+              prompt.reason === "share.too_many_held"
+                ? "guest.prompt.tooManyHeld"
+                : DECIDED_TEXT[prompt.state as "approved"],
+              {
+                text: firstLine(prompt.text),
+              },
+            )}
+          </span>
+          {/* retry-prompt-ok: the daemon refused this message with a reason (not a dropped connection, which
+              resends by itself as `sending`); sending it again unchanged is the guest's call. */}
+          {prompt.state === "refused" && onRetry && (
+            <button className="guest-mine__retry" type="button" onClick={() => onRetry(prompt.clientId)}>
+              {t("guest.prompt.tryAgain")}
+            </button>
           )}
         </p>
       ))}

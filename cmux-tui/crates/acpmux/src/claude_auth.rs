@@ -39,7 +39,7 @@ const REMEMBERED: [&str; 5] = [
     "HOME",
     BASE_URL,
     "SHELL",
-    crate::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW.0,
+    crate::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW_ENV,
 ];
 
 /// What one environment gives Claude Code.
@@ -489,7 +489,7 @@ fn compose_cloud(agent: &Found, original: &str, gateway: bool) -> String {
     let mut out = String::from("Claude is not signed in here.");
     if agent.endpoint.is_none() {
         out.push_str(&format!(
-            " This Cloud machine's Claude has no model route (Claude home {}); start a new machine to get the current image.",
+            " This Cloud machine's Claude has no model route (Claude home {}): your account has no Claude account or model gateway for Cloud yet. Click Sign in to Claude (Claude's own sign-in, on this machine), then send the message again.",
             tilde(&agent.home)
         ));
     } else {

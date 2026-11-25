@@ -440,7 +440,11 @@ pub fn download(
     commit: &str,
 ) -> Result<Vec<u8>, String> {
     match reference.archive_url(commit) {
-        Some(url) => get_ok(transport, &url, MAX_ARCHIVE),
+        // The machine's git cache proxy first when it runs (it serves only the bytes GitHub
+        // still names), then GitHub itself. `CMUX_TRANSPORT_REWRITE=0` skips the proxy.
+        Some(url) => cmux_transport_rewrite::cached_url(&url)
+            .and_then(|cached| get_ok(transport, &cached, MAX_ARCHIVE).ok())
+            .map_or_else(|| get_ok(transport, &url, MAX_ARCHIVE), Ok),
         None => transport.git_archive(&reference.clone_url(), commit, MAX_ARCHIVE),
     }
 }
@@ -1088,8 +1092,9 @@ impl HttpTransport {
     }
 
     fn client() -> Result<reqwest::Client, String> {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        reqwest::Client::builder()
+        // Through the egress gate (docs/privacy.md): the person's own repository host is
+        // allowed where they name it (`git_install`), the archive hosts are listed.
+        cmux_egress::client_builder("cmux_tui_core::apps::git_source")
             .redirect(reqwest::redirect::Policy::custom(|attempt| {
                 if attempt.previous().len() >= 5 || attempt.url().scheme() != "https" {
                     attempt.stop()

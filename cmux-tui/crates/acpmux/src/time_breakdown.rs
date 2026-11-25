@@ -165,8 +165,18 @@ pub(crate) struct State {
     pub(crate) backfill_asked: bool,
     /// The newest record the saved copy (`FILE`) covers: 0 when none was saved.
     pub(crate) saved_seq: u64,
+    /// What the last change row that carried the breakdown held ([`Self::row_snapshot`]): the
+    /// turns ended by then, and when. None until a row carried it.
+    rowed: Option<(u64, u64)>,
+    /// The record whose change row last carried the breakdown: every build of that record's row
+    /// carries it, not only the first ([`Self::row_snapshot`]).
+    rowed_seq: Option<u64>,
     reducer: Reducer,
 }
+
+/// The longest a running turn's time goes unsent on its chat's change rows
+/// ([`State::row_snapshot`]).
+pub(crate) const ROW_EVERY_MS: u64 = 5_000;
 
 /// The fold saved beside the chat's log (`<chat folder>/time-breakdown.json`), with the last
 /// `seq` it covers. A daemon restores it and folds only the records past that `seq`, so no open
@@ -243,6 +253,38 @@ impl State {
             .checked_div(r.ended_turns)
             .or_else(|| r.turn.as_ref().map(|turn| now.saturating_sub(turn.start_at)))
             .filter(|period| *period > 0)
+    }
+
+    /// The breakdown for the chat's next change row (an attached `session_changed`), when that
+    /// row owes it: a turn ended since the last row that carried it, or a turn has run
+    /// [`ROW_EVERY_MS`] past that row. Every other row leaves it out and the reader keeps the
+    /// one it holds. It is up to [`MAX_SPANS`] spans, 60 to 78 KB of a row: sent with every
+    /// record, six rows a turn, each took 6.5 ms to build and went out ahead of the turn's first
+    /// token on the same connection, 50 ms later to a peer's view of the chat than to its own
+    /// (`tests/transfer_cli/view_latency.rs`).
+    ///
+    /// `seq` is the record the row follows. One record's row is built more than once: once per
+    /// cell (with tools, and with tools less the breakdown for a client that draws none), and again
+    /// when the shared copy (`SharedRow`, a weak share) was already let go. Every build of the
+    /// record that owed the breakdown carries it; before, the first build took it, so a phone's
+    /// lean row (or a second watcher's rebuild) left the pane's row without it.
+    pub(crate) fn row_snapshot(&mut self, now: u64, seq: u64) -> Option<TimeBreakdown> {
+        if !self.initialized {
+            return None;
+        }
+        if self.rowed_seq == Some(seq) {
+            return Some(self.snapshot(now));
+        }
+        let ended = self.reducer.ended_turns;
+        let owed = self.rowed.is_none_or(|(turns, at)| {
+            turns != ended
+                || (self.reducer.turn.is_some() && now.saturating_sub(at) >= ROW_EVERY_MS)
+        });
+        owed.then(|| {
+            self.rowed = Some((ended, now));
+            self.rowed_seq = Some(seq);
+            self.snapshot(now)
+        })
     }
 
     pub(crate) fn snapshot(&self, now: u64) -> TimeBreakdown {

@@ -12,16 +12,16 @@ export function retryParts(
   t: Translate,
   retry: AcpmuxTurnRetry,
   now?: number,
-): { label: string; count: string; error?: string; countdown?: string } {
+): { label: string; count: string; error?: string; detail?: string; countdown?: string } {
   const words = retry.error?.replaceAll("_", " ");
-  const busy = retry.errorStatus === 429 || retry.errorStatus === 529 || BUSY.test(words ?? "");
+  const busy = retryBusy(retry);
   // A connection failure acpmux classified (hub/outage.rs) says what is wrong and where; the words
   // of a busy or unreachable model stay for the rest. Rust decides, this only words it.
   const label = retry.cause
     ? t(retry.cause === "dns" ? "turn.live.retry.outage.dns" : "turn.live.retry.outage.host", {
         host: retry.host ?? t("turn.live.retry.outage.theApi"),
       })
-    : t(busy ? "turn.live.retry.busy" : "turn.live.retry.unreachable");
+    : t(busy ? "capacity.live" : "turn.live.retry.unreachable");
   // Seconds until the deadline acpmux computed; none once it passed or when none was announced.
   const left = retry.retryAt !== undefined && now !== undefined ? Math.ceil((retry.retryAt - now) / 1000) : undefined;
   const countdown =
@@ -37,6 +37,9 @@ export function retryParts(
         ? t("turn.live.retry.attemptOnly", { attempt: retry.attempt })
         : t("turn.live.retry.attempt", { attempt: retry.attempt, max: retry.maxRetries });
   const error = [retry.errorStatus, words].filter((part) => part !== undefined && part !== "").join(" ");
+  // A full or rate-limited model is a wait, not an error: its words leave the line for its tooltip
+  // (RFD model-overload-smoothing §3.8; Leo, 2026-11-24: "fix 529s properly with better designs").
+  if (busy && !retry.cause) return { label, count, ...(error && { detail: error }), ...(countdown && { countdown }) };
   return { label, count, ...(error && { error }), ...(countdown && { countdown }) };
 }
 
@@ -45,6 +48,20 @@ export function formatCountdown(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
+/// Whether the harness retries because the model is busy (a rate limit, an overload), not out of reach.
+export function retryBusy(retry: AcpmuxTurnRetry): boolean {
+  const words = retry.error?.replaceAll("_", " ");
+  return retry.errorStatus === 429 || retry.errorStatus === 529 || BUSY.test(words ?? "");
+}
+
+/// Whether the live line says the retry: "Can't reach the model" heals on its own and offers nothing
+/// to do, so it waits out the shared bound (`unreachableLasting`, ui/lasting.ts `useConnectionQuiet`)
+/// and the line reads as it did meanwhile (Leo, 2026-11-14: "i also want all our connectivity stuff
+/// to shut up"); a busy model says so at once.
+export function retryShown(retry: AcpmuxTurnRetry | undefined, unreachableLasting: boolean): boolean {
+  return retry !== undefined && (retryBusy(retry) || unreachableLasting);
 }
 
 /// How long a paused answer still reads "Writing"; a longer pause is the agent thinking again.

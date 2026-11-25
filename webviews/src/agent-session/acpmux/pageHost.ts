@@ -22,7 +22,6 @@ import { setTabRow } from "./header/tabRow";
 import { receiveNativeRowToolInvocation } from "./header/nativeRowTools";
 import { setFloatingState } from "./floatingState";
 import { configureNativeSidebarPreviewVariant } from "./sidebarPreview";
-import { setSessionStatus } from "./sessionStatus";
 import { setExperimentSwitches } from "../../experiments/switches";
 import { receivePromptUploadState } from "./promptUploadState";
 import { setComputerUsePreview } from "./computerUse/computerUsePreview";
@@ -114,11 +113,8 @@ export function applyHostEvent(event: HostEvent, view: string | null = null): vo
       return bridge?.applyWorkflowLabs?.(event.value === true);
     case "sidebarPreviewVariant":
       return configureNativeSidebarPreviewVariant(event.value);
-    case "sessionStatus":
-      // Direct, like editedFiles: a push before the chat mounts is kept.
-      return setSessionStatus(event.value);
     case "experiments":
-      // Direct, like sessionStatus: a push before a component mounts is kept.
+      // Direct: a push before a component mounts is kept.
       return setExperimentSwitches(event.value);
     case "machineLink":
       return setMachineLink(event.value);

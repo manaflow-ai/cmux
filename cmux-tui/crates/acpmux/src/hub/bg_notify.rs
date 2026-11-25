@@ -34,7 +34,9 @@
 //!   (`lane_report_subagents.rs`): left in its folder, handed over after its next Bash or acpmux
 //!   MCP call, and marked sent once left. One it never took, or one that ended after it stopped
 //!   or while no subagent runs, goes to the chat, saying whose it was (W5-M, 2026-11-08: the end of a subagent's
-//!   `acpmux run` task carried a lane's reply into its lead's chat).
+//!   `acpmux run` task carried a lane's reply into its lead's chat). One that went well waits in
+//!   the chat's inbox for its next turn (or the held result's deadline), as a coordinator's does;
+//!   a failed one wakes it ([`holds_end`]).
 
 use super::bg_tasks::{bg_generation, bg_view};
 use super::*;
@@ -94,9 +96,18 @@ impl Hub {
     /// Mac 5,000 of 6,043 records had one (2026-11-11).
     pub(super) fn bg_notify_resume(self: &Arc<Self>) {
         let root = crate::config::home().join("bg");
+        // Only this hub's chats: an end goes nowhere but a chat it holds (`bg_notify`), and the
+        // first live watch of a lock keeps it (`Watcher::watch`), so a watch taken for another
+        // hub's chat (hubs of one home in one process) would swallow the end that hub owes.
+        let held: std::collections::HashSet<String> =
+            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
         for entry in std::fs::read_dir(&root).into_iter().flatten().flatten() {
             // `.purged` and the like are no chat's.
             if entry.file_name().to_string_lossy().starts_with('.') {
+                continue;
+            }
+            // A chat's folder is named by its id (`bg_run`): another hub's is not read at all.
+            if !held.contains(entry.file_name().to_string_lossy().as_ref()) {
                 continue;
             }
             let dir = entry.path();
@@ -113,6 +124,7 @@ impl Hub {
                     continue;
                 }
                 if let Some(record) = bg_run::read_record(&dir, id)
+                    && held.contains(&record.session_id)
                     && record.generation == generation
                     && record.notify
                     && !bg_run::notified_path(&dir, &record.id).exists()
@@ -158,6 +170,9 @@ impl Hub {
         }
         let session = self.session_get(session_id);
         let Some(session) = session else { return };
+        // The task no longer holds its chat's idle period up (`idle_governor.rs`): the reaper
+        // takes the new deadline.
+        self.idle_wake.notify_one();
         if session.closing.load(Ordering::SeqCst)
             || session.purged.load(Ordering::SeqCst)
             || session.status() == SessionStatus::Closed
@@ -219,14 +234,16 @@ comes to you."
         if let Some(display) = display {
             provenance.set(DISPLAY, json!(display));
         }
-        // A coordinator's task end that went well starts no turn of its own: it waits in the
-        // chat's inbox and goes with the next turn it takes (`inbox_page_rule.rs`). One that
-        // failed wakes it, as does any end in a chat not on the list. Left in the inbox it
-        // counts as sent: the log restores it, and a send again finds it there.
+        // A task end that went well starts no turn of its own when it is a coordinator's, or
+        // when the subagent that started it ended before it ([`holds_end`]): it waits in the
+        // chat's inbox and goes with the next turn it takes (`inbox_page_rule.rs`), or its
+        // deadline brings it. One that failed wakes the chat, as does the lead's own end in a
+        // chat not on the list. Left in the inbox it counts as sent: the log restores it, and a
+        // send again finds it there.
         let prompt_id = format!("{PROMPT_PREFIX}{id}");
         let ok = notice.get("severity").and_then(Value::as_str) == Some("info");
-        if ok
-            && super::inbox::page_rule::listed(&*self.config.read().await, &session.meta().name)
+        let listed = self.page_rule_lists(&session.meta().name);
+        if holds_end(ok, listed, ended.is_some())
             && self.inbox_hold_end(session, &prompt_id, &text, &provenance)
         {
             if let Err(e) = crate::home_fs::write(&mark, b"") {
@@ -332,6 +349,18 @@ fn end_notice(dir: &Path, record: &Record) -> Value {
     let (summary, status) = bg_run::outcome(&view);
     let severity = if status == "ok" { "info" } else { "warn" };
     json!({"sender": SENDER, "severity": severity, "title": summary})
+}
+
+/// Whether a task end waits in the chat's inbox instead of starting a turn of its own: one that
+/// went well (`ok`), in a coordinator's chat (`listed`, RFD 0041), or whose subagent ended before
+/// it (`orphan`). An orphan's end is the leftover of work its subagent already reported on: on one
+/// lane VM's transcripts (2026-11-26), 74 of 213 turns such an end started did nothing (35%,
+/// against 13% for the lead's own ends), and 167 of the 213 had another turn of the chat within
+/// the 15 minutes a held result waits at most (`prompt_class::due_at`), which now carries it.
+/// Leo, 2026-11-26: "simply clear th bullshit. theres noway tere's >100 of actually needed
+/// stuff much less >400". A failed end still wakes the chat: its exit is the news.
+fn holds_end(ok: bool, listed: bool, orphan: bool) -> bool {
+    ok && (listed || orphan)
 }
 
 /// The provenance field that says how the chat draws a task end (`"none"` or `"line"`).
@@ -659,7 +688,14 @@ mod tests {
         let (hub, session) = hub_with_chat("coord-bg-ok", true).await;
         let dir = cmux_unix_socket::short_test_dir("bg-fold-ok");
         let record = ended("ok1", &session, 0);
-        hub.bg_end_to_chat(&session, dir.path(), &record, None).await;
+        let writer = hub.config.write().await;
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            hub.bg_end_to_chat(&session, dir.path(), &record, None),
+        )
+        .await
+        .expect("an exit notice reaches the inbox while configuration is being written");
+        drop(writer);
         hub.bg_end_to_chat(&session, dir.path(), &record, None).await;
         assert!(bg_run::notified_path(dir.path(), "ok1").exists(), "sent: no restart owes it");
         {
@@ -706,6 +742,40 @@ mod tests {
             // it, and this chat has no agent to take it.
             assert!(!bg_run::notified_path(dir.path(), id).exists(), "{id} took the prompt path");
         }
+    }
+
+    /// Which ends wait in the inbox: one that went well, in a listed chat or of an ended subagent.
+    #[test]
+    fn which_task_ends_are_held() {
+        assert!(holds_end(true, true, false), "a coordinator's own exit 0");
+        assert!(holds_end(true, false, true), "an ended subagent's exit 0, any chat");
+        assert!(!holds_end(true, false, false), "the lead's own exit 0 in a plain chat wakes");
+        assert!(!holds_end(false, true, true), "a failure always wakes");
+        assert!(!holds_end(false, false, true));
+    }
+
+    /// In a chat not on the list, the exit-0 end of a task whose subagent ended starts no turn:
+    /// it waits in the inbox, counts as sent, and names whose it was. Its failed end still wakes.
+    #[tokio::test]
+    async fn an_ended_subagents_exit_zero_end_waits_in_any_chat() {
+        let (hub, session) = hub_with_chat("plain-bg-orphan", false).await;
+        let dir = cmux_unix_socket::short_test_dir("bg-fold-orphan");
+        let mut spool = bg_run::Spool::create(dir.path(), "o1", 1 << 20).unwrap();
+        spool.write(b"3 passed\n").unwrap();
+        let sub = json!({"id": "a9d84c88ffff", "type": "fork"});
+        hub.bg_end_to_chat(&session, dir.path(), &ended("o1", &session, 0), Some(&sub)).await;
+        assert!(bg_run::notified_path(dir.path(), "o1").exists(), "held: no restart owes it");
+        {
+            let inbox = session.inbox();
+            assert_eq!(inbox.items.len(), 1);
+            let item = &inbox.items[0];
+            assert_eq!(item.prompt_id, "bg-done-o1");
+            assert!(!item.noticed && inbox.in_flight.is_none(), "no turn was tried");
+            assert!(item.text.contains("3 passed") && item.text.contains("fork subagent a9d84c88"));
+        }
+        hub.bg_end_to_chat(&session, dir.path(), &ended("o2", &session, 1), Some(&sub)).await;
+        assert_eq!(session.inbox().items.len(), 1, "a failed end is a prompt, not an inbox item");
+        assert!(!bg_run::notified_path(dir.path(), "o2").exists(), "o2 took the prompt path");
     }
 
     /// A chat not on the list gets its exit-0 end as before: a prompt, not an inbox item.

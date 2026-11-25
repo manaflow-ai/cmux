@@ -53,11 +53,18 @@ impl Hub {
                 .map(|(n, reason)| (n.clone(), reason.clone()))
                 .collect();
             // Keep cached models until fresh probes finish, invalidating only
-            // changed/removed profiles. Listeners, peers, store and policy stay put.
-            self.known_models
+            // changed/removed profiles (`model_lists`): their ACP list, read under another
+            // profile, is dropped, and their live list turns stale until its probe answers.
+            // Listeners, peers, store and policy stay put.
+            self.known_efforts
                 .lock()
-                .unwrap()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .retain(|name, _| current.harnesses.get(name) == next.harnesses.get(name));
+            for name in current.harnesses.keys() {
+                if current.harnesses.get(name) != next.harnesses.get(name) {
+                    self.model_lists.profile_changed(name);
+                }
+            }
             // Every field of `Config` is named here, with no `..`: a field added to it does not
             // build until it is copied below or listed as kept until a restart, with why. A
             // field in neither is how `remoteDaemon` stayed at its start value, and
@@ -80,6 +87,7 @@ impl Hub {
                 pool,
                 web_roots,
                 vm_host,
+                auto_cloud_enroll,
                 peers,
                 web_asking_modes,
                 agent_start_timeout_ms,
@@ -93,6 +101,8 @@ impl Hub {
                 auto_evacuate,
                 default_permission_mode,
                 remote_daemon,
+                lane_gh_broker,
+                lane_gh_carrier,
                 direct_port,
                 notify_command,
                 disk_low_bytes,
@@ -101,15 +111,17 @@ impl Hub {
                 page_rule,
                 hold_agent_starts_to_starter,
                 auto_resume_delays_ms,
+                capacity_fallback_after,
+                auto_resume_disk_free_bytes,
                 login_env_allow,
                 coderouter_claude_route,
                 machine_wake,
                 peer_wake,
                 btw,
                 titles,
-                summaries,
                 context_overrides,
                 send_relay,
+                send_hop,
                 new_relay,
                 artifacts,
                 composer_max_rows,
@@ -118,6 +130,7 @@ impl Hub {
                 // configures (`daemon.rs`), or is this run's own state.
                 acpmux_v2: _,      // the v2 surfaces are registered at start
                 artifacts_sync: _, // its sync task starts with the daemon
+                memory: _,         // its sync task starts with the daemon
                 write_journal: _,  // the replica and journal open at start
                 store: _,          // the open store
                 // The bound listener, its port and token stay; the hosts and origins it admits
@@ -169,6 +182,7 @@ impl Hub {
             current.pool = pool;
             current.web_roots = web_roots;
             current.vm_host = vm_host;
+            current.auto_cloud_enroll = auto_cloud_enroll;
             // The peers stay put, but a saved peer's VM boundary follows the file at once: a
             // `false` there is the caller taking it back (`vm_boundary.rs`).
             // So does whether this Mac lends it GitHub (`github_broker.rs`).
@@ -186,6 +200,11 @@ impl Hub {
             // The next circuit asking for the cmux-tui remote daemon reads it
             // (`cmux_tui_service.rs`): `acpmux config --set remote_daemon=...` serves it at once.
             current.remote_daemon = remote_daemon;
+            // The next broker stream reads it (`hub_carrier_broker.rs`).
+            current.lane_gh_broker = lane_gh_broker;
+            // The daemon starts the carrier forward once, at its start (`server/machine_enroll.rs`);
+            // a restart applies a change.
+            current.lane_gh_carrier = lane_gh_carrier;
             // The carrier binds its direct port at its start (`hub_carrier_direct.rs`); a
             // restart applies a change.
             current.direct_port = direct_port;
@@ -196,10 +215,15 @@ impl Hub {
             // The next person's prompt to an idle chat reads it (`person_hold.rs`).
             current.person_hold = person_hold;
             // The next message to a coordinator's inbox reads it (`inbox_page_rule.rs`).
+            let names = super::inbox::page_rule::session_names(page_rule.as_ref());
+            *self.page_rule_sessions.lock().unwrap_or_else(|e| e.into_inner()) = names;
             current.page_rule = page_rule;
             current.mcp_store = mcp_store;
             current.hold_agent_starts_to_starter = hold_agent_starts_to_starter;
             current.auto_resume_delays_ms = auto_resume_delays_ms;
+            current.capacity_fallback_after = capacity_fallback_after;
+            // The disk waiter reads it at each re-check (`auto_resume/disk_wait.rs`).
+            current.auto_resume_disk_free_bytes = auto_resume_disk_free_bytes;
             current.coderouter_claude_route = coderouter_claude_route;
             current.machine_wake = machine_wake;
             // The next wake of any peer runs the new command (`Peer::wake`).
@@ -208,9 +232,9 @@ impl Hub {
             current.peer_wake = peer_wake;
             current.btw = btw;
             current.titles = titles;
-            current.summaries = summaries;
             current.context_overrides = context_overrides;
             current.send_relay = send_relay;
+            current.send_hop = send_hop;
             current.new_relay = new_relay;
             current.artifacts = artifacts;
             current.composer_max_rows = composer_max_rows;
@@ -237,6 +261,8 @@ impl Hub {
             )
         };
         self.start_auto_evacuate().await;
+        // Enrollment turned on since: its timer starts (`owner_return.rs`).
+        self.start_owner_return().await;
         // Every row, closed ones too, reads the new usage warning thresholds.
         self.events.changed(None);
         // A new `stalledTurnEndMs` moves the stalled turns' deadlines (`stalled_turn.rs`).
@@ -398,6 +424,23 @@ mod tests {
         assert_eq!(gate.admit(7781).await.unwrap_err().reason, "service.off");
     }
 
+    #[tokio::test]
+    async fn reload_replaces_and_clears_page_rule_sessions() {
+        let root = tempfile::tempdir().unwrap();
+        let (path, hub) = hub_on_disk(root.path());
+        for name in [Some("old"), Some("new"), None] {
+            let mut config = Config::load_from_with(&path, &ProfileSources::none()).unwrap();
+            config.page_rule = name.map(|name| crate::config::PageRuleConfig {
+                sessions: vec![format!("host/{name}")],
+            });
+            config.save().unwrap();
+            hub.reload_catalog().await.unwrap();
+            let _config_writer = hub.config.write().await;
+            assert_eq!(hub.page_rule_lists(" old "), name == Some("old"));
+            assert_eq!(hub.page_rule_lists("host/new"), name == Some("new"));
+        }
+    }
+
     /// The other settings a reload used to leave behind until a restart follow the file too.
     #[tokio::test]
     async fn reload_applies_every_setting_read_where_it_is_used() {
@@ -409,6 +452,7 @@ mod tests {
         changed.agent_inbox = Some(false);
         changed.hold_agent_starts_to_starter = true;
         changed.auto_resume_delays_ms = Some(vec![]);
+        changed.capacity_fallback_after = Some(0);
         changed.login_env_allow = vec!["RELOAD_TEST_*".into()];
         changed.coderouter_claude_route = Some("claude".into());
         changed.btw.model.insert("claude".into(), "claude-haiku".into());
@@ -424,6 +468,7 @@ mod tests {
         assert_eq!(current.agent_inbox, Some(false));
         assert!(current.hold_agent_starts_to_starter);
         assert_eq!(current.auto_resume_delays_ms, Some(vec![]));
+        assert_eq!(current.capacity_fallback_after, Some(0));
         assert_eq!(current.login_env_allow, expected.login_env_allow);
         assert_eq!(current.coderouter_claude_route, expected.coderouter_claude_route);
         assert_eq!(current.btw, expected.btw);

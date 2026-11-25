@@ -63,6 +63,28 @@ path = "tests/test_ios_link_ffi_key.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_link_ffi_sh.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_live_broker_transport.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ios_live_broker_transport.py"
+
+[[test]]
+path = "tests/test_ios_live_lease_owner.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_mobile_core_linux_only.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ios_mobile_core_linux_only.py"
+
+[[test]]
+path = "tests/test_ios_placeholder_bounds.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_screen_sharing_proof.py"
 lane = "manual"
 reason = "Protected capture harness unit tests, no new CI gate. Run python3 tests/test_ios_screen_sharing_proof.py after changing either screen-sharing proof driver or the HQ admission workflow identity."
@@ -80,12 +102,18 @@ path = "tests/test_ios_sim_create.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_sim_logic_xctestrun.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ios_sim_logic_xctestrun.py"
+
+[[test]]
 path = "tests/test_ios_sim_runtime.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_png_opaque.py"
-lane = "linux-guard"
+path = "tests/test_ios_snappy.py"
+lane = "manual"
+reason = "No workflow step runs it yet. Run it yourself: python3 -I tests/test_ios_snappy.py"
 
 [[test]]
 path = "tests/test_ios_testflight_archive_log.py"

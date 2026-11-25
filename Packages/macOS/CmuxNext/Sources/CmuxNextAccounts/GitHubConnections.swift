@@ -56,6 +56,8 @@ public final class GitHubConnections {
     }
 
     public var scopeIsSignedOut: Bool { scope() == nil }
+    /// What the signed-out card's Sign In signs in to ("Signs in to cmux.com"); nil shows no line.
+    public var signInBackend: String?
     public var busy: Bool { workingScope != nil && workingScope == scope() }
     public var currentConnections: [JSONValue] { loadedScope == scope() ? connections : [] }
     /// `integration.connect`'s params: GitHub, the card's repository, and the app's completion link when one is set
@@ -67,13 +69,17 @@ public final class GitHubConnections {
         if returning, let link = completionLink ?? returnTo { params["return_to"] = .string(link) }
         return .object(params)
     }
+    /// Whether an active connection is `account`'s (an org or user name, any case).
+    func coversAccount(_ account: String) -> Bool {
+        currentConnections.contains { $0["status"]?.stringValue == "active" && $0["account"]?["name"]?.stringValue?.caseInsensitiveCompare(account) == .orderedSame }
+    }
+
     public var connected: Bool { currentConnections.contains { $0["status"]?.stringValue == "active" && (canDisconnect($0) || $0["sharing"]?.stringValue == "team") } }
     public var ready: Bool { scope() != nil && loadedScope == scope() && configured }
-    public var canConnect: Bool { ready && !busy && !connected && (!pending || scope().map { resumable(Ask(scope: $0, repo: nil)) } == true) }
-
-    /// A pending flow this launch can resume: its cached browser URL, or the idempotency key of a
-    /// connect whose response was lost (replaying it returns the same pending connection's URL).
-    private func resumable(_ ask: Ask) -> Bool { authorizations[ask] != nil || connectKeys[ask] != nil }
+    /// A pending connection never blocks Connect (#46018): this launch resumes its own flow (its cached URL, or the key
+    /// of a connect whose answer was lost); one it can't resume (another launch's, or one whose return to cmux failed)
+    /// can't be finished, so Connect asks for a new one and the stale one expires on its own (30 min).
+    public var canConnect: Bool { ready && !busy && !connected }
 
     /// An active connection's Reconfigure: its installation's page on GitHub, where the person changes the account's
     /// or org's repository access (another account or org: Disconnect, then Connect GitHub picks it).
@@ -90,15 +96,17 @@ public final class GitHubConnections {
     /// failed call), the API decides: a connection that covers it answers connected and nothing
     /// opens; otherwise GitHub's page for that repository's owner opens. `returnTo`, a cmux link
     /// to the chat, rides in the API's signed state and GitHub's return opens it.
-    public func connect(repo: String? = nil, returnTo: String? = nil) async {
+    /// `org` (an agent's `settings_ask` for connection:github:ORG): done only when an active
+    /// connection is that account's; otherwise GitHub's install page opens to add it.
+    public func connect(repo: String? = nil, org: String? = nil, returnTo: String? = nil) async {
         let bound = scope()
         await perform("githubRefresh")
         guard scope() == bound, !error else { return }
-        if connected, repo == nil { return }
-        await perform("githubConnect", repo: repo, returnTo: returnTo)
+        if connected, repo == nil, org.map(coversAccount) ?? true { return }
+        await perform("githubConnect", repo: repo, returnTo: returnTo, another: org != nil)
     }
 
-    public func perform(_ action: String, connection: String? = nil, repo: String? = nil, returnTo: String? = nil) async {
+    public func perform(_ action: String, connection: String? = nil, repo: String? = nil, returnTo: String? = nil, another: Bool = false) async {
         guard let bound = scope(), workingScope != bound else { return }
         generation += 1
         let ticket = generation
@@ -109,11 +117,9 @@ public final class GitHubConnections {
             switch action {
             case "githubConnect":
                 linkRefusal = nil // a new Connect starts over
-                // A pending flow from another launch has no resumable URL or key here.
-                // Keep it pending until refresh or disconnect resolves that flow. A card's ask (a
-                // repository) goes to the API whatever the list says: the API knows what covers it.
+                // A card's ask (a repository) goes to the API whatever the list says: the API knows what covers it.
                 let ask = Ask(scope: bound, repo: repo)
-                guard ready, repo != nil || !connected, repo != nil || !pending || resumable(ask) else { return }
+                guard ready, repo != nil || another || !connected else { return }
                 if let authorization = authorizations[ask], authorization.expires <= now() {
                     authorizations[ask] = nil
                     connectKeys[ask] = nil

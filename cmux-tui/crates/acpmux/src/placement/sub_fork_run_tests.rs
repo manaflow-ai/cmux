@@ -276,6 +276,9 @@ async fn a_job_that_is_not_json_answers_an_error_frame() {
         prompt: "p".into(),
         name: "n".into(),
         model: None,
+        command: None,
+        cwd: None,
+        path: None,
     };
     let mut out = Vec::new();
     run_job(&job, &FakeHarness { exit: 0 }, &mut out).await.unwrap();

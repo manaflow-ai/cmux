@@ -10,6 +10,38 @@ use serde_json::Value;
 pub const SETTING_ENABLED: &str = "agents.autoRetry.enabled";
 pub const SETTING_INTERVAL: &str = "agents.autoRetry.intervalSeconds";
 pub const SETTING_ATTEMPTS: &str = "agents.autoRetry.attempts";
+/// After how many capacity attempts on one cut prompt its next one runs on a smaller model
+/// (`capacity_failover.rs`); 0 never switches.
+pub const SETTING_CAPACITY_FALLBACK: &str = "agents.autoRetry.capacityFallbackAfter";
+
+/// [`SETTING_CAPACITY_FALLBACK`]'s default: off. A chat keeps the model it was started on unless
+/// its person chooses another (cmux#57784: chats started on Opus 5.5 were left on Sonnet 5.5 when
+/// the gateway's own 503s cut every turn, so none ended well to put Opus back). Switching is
+/// opt-in: the 529-storm chaos test (cmux#54913) measured 1 as the best value for those who want
+/// it (14 of 14 chats failed over and came back, -28% time lost against no switch).
+pub const DEFAULT_CAPACITY_FALLBACK_AFTER: usize = 0;
+
+/// The capacity failover's attempt in force: `configured` (config.json's
+/// `capacityFallbackAfter`) when set, else the settings file's, else the default. Held to
+/// 0..=[`MAX_CONFIGURED_ATTEMPTS`], a fraction rounded down.
+pub(in crate::hub) fn capacity_fallback_after(configured: Option<u64>) -> usize {
+    if let Some(n) = configured {
+        return usize::try_from(n).unwrap_or(usize::MAX).min(MAX_CONFIGURED_ATTEMPTS);
+    }
+    match crate::user_settings::read() {
+        crate::user_settings::Settings::Parsed(doc) => settings_fallback_after(&doc),
+        _ => DEFAULT_CAPACITY_FALLBACK_AFTER,
+    }
+}
+
+fn settings_fallback_after(doc: &Value) -> usize {
+    crate::user_settings::value(doc, SETTING_CAPACITY_FALLBACK)
+        .and_then(|v| v.as_f64())
+        .filter(|n| n.is_finite())
+        .map_or(DEFAULT_CAPACITY_FALLBACK_AFTER, |n| {
+            n.floor().clamp(0.0, MAX_CONFIGURED_ATTEMPTS as f64) as usize
+        })
+}
 
 /// The waits in force, one per attempt: `configured` (config.json's `autoResumeDelaysMs`) when
 /// set, else the settings file's, else the default. A settings file that cannot be read keeps

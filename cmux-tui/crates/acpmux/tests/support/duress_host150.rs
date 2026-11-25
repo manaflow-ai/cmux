@@ -31,7 +31,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 mod starved;
 
 /// Legs beside `ALL_LEGS` that a run names on purpose (`all` does not take them).
-pub(super) const EXTRA_LEGS: [&str; 4] = ["host150", "peerscale", starved::LEG, BURST_LEG];
+pub(super) const EXTRA_LEGS: [&str; 5] =
+    ["host150", "peerscale", starved::LEG, BURST_LEG, super::rfd0050::LEG];
 /// All ready peer links cut in one instant, then let redial (`peer_burst`).
 pub(super) const BURST_LEG: &str = "peerburst";
 /// The peer counts of `peerscale`.
@@ -56,7 +57,11 @@ const HOG_MEMORY_HIGH: &str = "256M";
 const HOG_MAX_BYTES: u64 = 16 << 30;
 
 pub(super) fn is_extra(leg: &str) -> bool {
-    leg == "host150" || leg == starved::LEG || leg == BURST_LEG || peerscale_n(leg).is_some()
+    leg == "host150"
+        || leg == starved::LEG
+        || leg == BURST_LEG
+        || leg == super::rfd0050::LEG
+        || peerscale_n(leg).is_some()
 }
 
 /// `peerscale` names four legs; the rest pass through.
@@ -96,6 +101,9 @@ pub(super) fn extra_cap(leg: &str) -> Duration {
         starved::SETTLE
     } else if leg == BURST_LEG {
         BURST_READY + BURST_WATCH
+    } else if leg == super::rfd0050::LEG {
+        // The longer window, and the 30 s the RAM hog may take to hold its pages.
+        super::rfd0050::WINDOW_MIN + Duration::from_secs(30)
     } else {
         Duration::ZERO
     }
@@ -600,7 +608,7 @@ impl Presence {
                     }
                 }
                 // Once a second: the daemon's tree, the load, swap, RSS and memory pressure.
-                if tick_n % 4 == 0 {
+                if tick_n.is_multiple_of(4) {
                     out.seen.extend(descendants(daemon_pid));
                     if let Some(l) = load1() {
                         out.load1.push(l);

@@ -198,10 +198,22 @@ public struct TabSnapshotStore: Sendable {
 @Observable
 public final class TabSnapshotEntry {
     public fileprivate(set) var image: UIImage?
+    /// The persisted picture dimensions arrive before its bytes finish decoding, so a card can
+    /// reserve the same aspect on a cold launch.
+    public fileprivate(set) var pixelWidth: Int = 0
+    public fileprivate(set) var pixelHeight: Int = 0
+    public var hasKnownPicture: Bool { pixelWidth > 0 && pixelHeight > 0 }
+    public var knownPictureSize: CGSize? {
+        guard hasKnownPicture else { return nil }
+        return CGSize(width: pixelWidth, height: pixelHeight)
+    }
     /// When `image` was captured (0: unknown), so an older picture never replaces a newer one.
     @ObservationIgnored fileprivate var capturedAtMs: Int64 = 0
     /// The disk was asked for this tab's picture (once per launch, and again after a save or an eviction).
     @ObservationIgnored fileprivate var asked = false
+    /// The picture last handed to `put` for this tab (held weakly: the page or raster owns it). The
+    /// same picture again is already shown and on its way to disk, so it is not encoded twice.
+    @ObservationIgnored fileprivate weak var kept: UIImage?
 }
 
 /// The last-known pictures in memory, over `TabSnapshotStore`: read by every
@@ -228,6 +240,10 @@ public final class TabCardSnapshots {
     public private(set) var saves = 0
     /// Pictures not written because their tab closed (or the account signed out) first (tests).
     public private(set) var dropped = 0
+    /// Pictures `put` scaled and encoded off the main thread (tests): one per new picture.
+    public private(set) var encodes = 0
+    /// Pictures `put` was handed again unchanged (the one last kept for the tab), so not encoded (tests).
+    public private(set) var unchanged = 0
     /// Every disk write and delete, in the order the main actor asked for them,
     /// so a tab's close always lands after a save it raced.
     private let disk = DispatchQueue(label: "cmux.mobile.tab-snapshots.disk", qos: .utility)
@@ -259,23 +275,49 @@ public final class TabCardSnapshots {
     /// order (nearest the active tab first), off the main thread.
     public func warm(_ keys: [TabSnapshotKey]) {
         let store = store
+        // `limit` bounds a tab list's warm; a card that appears warms its own key (`warm(key)`),
+        // so a tab past the first `limit`, or one evicted since, is read when it shows.
         for key in keys.prefix(limit) {
             let entry = entry(key)
             guard entry.image == nil, !entry.asked else { continue }
             entry.asked = true
             Task.detached(priority: .userInitiated) { [weak self] in
                 let newest = store.newestPicture(key)
-                // A picture an earlier build saved with the cannot-draw mark in it is never shown
-                // (AgentCardRaster no longer saves one); the card draws afresh instead.
-                let image = newest.flatMap { UIImage(data: $0.data) }.flatMap { CannotDrawMark.isIn($0) ? nil : $0 }?.preparingForDisplay()
-                await self?.loaded(image, key, capturedAtMs: newest?.capturedAtMs ?? 0)
+                await self?.loadedMetadata(newest?.pixelWidth ?? 0, pixelHeight: newest?.pixelHeight ?? 0,
+                                           capturedAtMs: newest?.capturedAtMs ?? 0, key: key)
+                // A picture an earlier build saved as a placeholder (the cannot-draw mark, one solid
+                // colour) is never shown; the card draws afresh instead.
+                let image = newest.flatMap { UIImage(data: $0.data) }.flatMap { CardPictureGate.isPlaceholder($0) ? nil : $0 }?.preparingForDisplay()
+                await self?.loaded(image, key, pixelWidth: newest?.pixelWidth ?? 0,
+                                   pixelHeight: newest?.pixelHeight ?? 0,
+                                   capturedAtMs: newest?.capturedAtMs ?? 0)
             }
         }
     }
 
-    private func loaded(_ image: UIImage?, _ key: TabSnapshotKey, capturedAtMs: Int64) {
+    /// One card's picture, read from disk if it is not in memory: a card that appears asks for its
+    /// own, so a tab past a list's first `limit` or one evicted since still shows its last picture.
+    public func warm(_ key: TabSnapshotKey) {
+        warm([key])
+    }
+
+    private func loadedMetadata(_ pixelWidth: Int, pixelHeight: Int, capturedAtMs: Int64, key: TabSnapshotKey) {
+        guard let entry = entries[key], entry.image == nil else { return }
+        guard pixelWidth > 0, pixelHeight > 0 else { return }
+        entry.pixelWidth = pixelWidth
+        entry.pixelHeight = pixelHeight
+        entry.capturedAtMs = capturedAtMs
+    }
+
+    private func loaded(_ image: UIImage?, _ key: TabSnapshotKey, pixelWidth: Int, pixelHeight: Int,
+                        capturedAtMs: Int64) {
         loads += 1
-        guard let image, let entry = entries[key], entry.image == nil else { return }
+        guard let entry = entries[key], entry.image == nil else { return }
+        if let image {
+            entry.pixelWidth = pixelWidth > 0 ? pixelWidth : max(1, Int((image.size.width * image.scale).rounded()))
+            entry.pixelHeight = pixelHeight > 0 ? pixelHeight : max(1, Int((image.size.height * image.scale).rounded()))
+        }
+        guard let image else { return }
         entry.image = image
         entry.capturedAtMs = capturedAtMs
         touch(key)
@@ -285,13 +327,30 @@ public final class TabCardSnapshots {
     /// written to disk (encoded off the main thread).
     /// `pixelWidth` (a whole page's snapshot): scaled to that width first,
     /// off the main thread, and shown once scaled.
+    /// The picture last put for the tab, handed again (a page that drew nothing since, a chat
+    /// whose card did not change), is neither shown again nor encoded: false then.
+    @discardableResult
     public func put(_ image: UIImage, for key: TabSnapshotKey, pixelWidth: CGFloat = 0,
-                    source: TabSnapshotRecord.Source = .phone, now: Date = Date()) {
+                    source: TabSnapshotRecord.Source = .phone, now: Date = Date()) -> Bool {
+        // The tab is live while this entry is its entry: `remove` drops it (and what it kept).
+        let live = entry(key)
+        if live.kept === image {
+            unchanged += 1
+            // Let go from memory meanwhile: the disk has it.
+            if live.image == nil { warm([key]) }
+            return false
+        }
+        live.kept = image
+        encodes += 1
         let ms = Int64(now.timeIntervalSince1970 * 1000)
         if pixelWidth <= 0 { show(image, key, capturedAtMs: ms) }
-        // The tab is live while this entry is its entry: `remove` drops it.
-        let live = entry(key)
         Task.detached(priority: .utility) { [weak self] in
+            // A placeholder (`CardPictureGate`) is neither shown once scaled nor saved: the card's
+            // last real picture stays.
+            guard !CardPictureGate.isPlaceholder(image) else {
+                if pixelWidth <= 0 { await self?.unshow(image, key) }
+                return
+            }
             var picture = image
             if pixelWidth > 0 {
                 picture = TabCardSnapshots.downscaled(image, pixelWidth: pixelWidth)
@@ -301,6 +360,17 @@ public final class TabCardSnapshots {
             await self?.encoded(data, key, live, pixelWidth: Int(picture.size.width * picture.scale),
                                 pixelHeight: Int(picture.size.height * picture.scale), capturedAtMs: ms, source: source)
         }
+        return true
+    }
+
+    /// A placeholder `put` showed at once goes again (the card's previous picture is gone from
+    /// memory, so it reads the disk's, which the placeholder never replaced).
+    private func unshow(_ image: UIImage, _ key: TabSnapshotKey) {
+        guard let entry = entries[key], entry.image === image else { return }
+        entry.image = nil
+        entry.asked = false
+        resident.removeAll { $0 == key }
+        warm([key])
     }
 
     private func showScaled(_ image: UIImage, _ key: TabSnapshotKey, _ live: TabSnapshotEntry, capturedAtMs: Int64) {
@@ -333,6 +403,8 @@ public final class TabCardSnapshots {
     private func show(_ image: UIImage, _ key: TabSnapshotKey, capturedAtMs: Int64) {
         let entry = entry(key)
         entry.image = image
+        entry.pixelWidth = max(1, Int((image.size.width * image.scale).rounded()))
+        entry.pixelHeight = max(1, Int((image.size.height * image.scale).rounded()))
         entry.capturedAtMs = capturedAtMs
         entry.asked = true
         touch(key)
@@ -405,12 +477,28 @@ public final class TabCardSnapshots {
 /// A tab's last-known picture as its card shows it: full width, from the top.
 /// Draws nothing while the tab has none.
 struct TabSnapshotPicture: View {
-    let image: UIImage
+    let image: UIImage?
+    let pixelWidth: Int
+    let pixelHeight: Int
+
+    init(image: UIImage?, pixelWidth: Int = 0, pixelHeight: Int = 0) {
+        self.image = image
+        self.pixelWidth = pixelWidth
+        self.pixelHeight = pixelHeight
+    }
 
     var body: some View {
         GeometryReader { geo in
-            Image(uiImage: image).resizable().interpolation(.medium)
-                .frame(width: geo.size.width, height: geo.size.width * image.size.height / max(1, image.size.width))
+            let width = CGFloat(pixelWidth > 0 ? pixelWidth : Int(image?.size.width ?? 1))
+            let height = CGFloat(pixelHeight > 0 ? pixelHeight : Int(image?.size.height ?? 1))
+            Color.cmuxMobileBackground
+                .frame(width: geo.size.width, height: geo.size.width * height / max(1, width), alignment: .top)
+                .overlay(alignment: .top) {
+                    if let image {
+                        Image(uiImage: image).resizable().interpolation(.medium)
+                            .frame(width: geo.size.width, height: geo.size.width * height / max(1, width))
+                    }
+                }
         }
         .accessibilityHidden(true)
     }
