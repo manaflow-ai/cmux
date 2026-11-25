@@ -122,15 +122,15 @@ nonisolated extension AcpmuxPaneMethods {
         // Only the live-tree read: `waitLogs: false` answers from the session list at once.
         "_acpmux/info": (["sessionId", "waitLogs", "includeLiveTree"], []),
         "_acpmux/status": ([], []),
-        "_acpmux/host_overload": ([], []),
         "_acpmux/peers": ([], []),
         // Which of the page's requests the daemon still runs (AcpmuxRequestIds.requestStateMethod).
         "_acpmux/request_state": ([], []),
         // The chat Inspector's Perf tab and page reporter (PerfPanel.tsx, perfReporter.ts; acpmux perf_watch.rs):
         // a default-off diagnostic that names no path and starts nothing; acpmux answers this Mac's app and
         // unix socket only. `op`: on, off, status, read (`after`, `limit`, `waitMs`), snapshot, budgets, or report (the
-        // page's measurements: `page`, `windowMs`, `spans`, `renders`, `frames`, `layoutShifts`, `bytes`).
-        "_acpmux/perf": (["op", "after", "limit", "waitMs", "page", "windowMs", "spans", "renders", "frames", "layoutShifts", "bytes"], []),
+        // page's measurements: `page`, `windowMs`, `spans`, `renders`, `frames`, `layoutShifts`, `bytes`), frames, or tally (frameTally.ts: `bucketMs`, `gaps`).
+        "_acpmux/perf": (["op", "after", "limit", "waitMs", "page", "windowMs", "spans", "renders", "frames", "layoutShifts", "bytes", "bucketMs", "gaps"], []),
+        "_acpmux/host_overload": ([], []),
         // Placement names are local display labels; the optional source lets the page filter
         // targets for a chat without exposing a host URL or session identity.
         "_acpmux/move_targets": (["source", "sourceKind"], []),
@@ -178,8 +178,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/permission_groups": (["sessionId"], []),
         "_acpmux/permission_group_respond": (["sessionId", "groupId", "revision", "decisionKey", "decision"], []),
         "_acpmux/permission_chat_revoke": (["sessionId"], []),
-        // No `value` declines the card.
-        "_acpmux/secret_submit": (["sessionId", "secretId", "value"], []),
+        // No `value` declines the card. `keepAs`: the card's "keep as key NAME", which acpmux stores in the key store.
+        "_acpmux/secret_submit": (["sessionId", "secretId", "value", "keepAs"], []),
         // The preset approval card's answer only; a preset write (`set`, `clear`) never comes from the pane.
         "_acpmux/presets": (["name", "approveMode", "approveDigest", "sessionId"], []),
         "_acpmux/archive": (["sessionId", "archived"], []),
