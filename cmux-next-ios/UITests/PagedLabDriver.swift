@@ -82,6 +82,17 @@ struct PagedLabDriver {
         return app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'lab.row.'")).firstMatch
     }
 
+    /// How many lab rows the list draws inside its frame, read in one snapshot (no element looked up
+    /// again later: under a load the rows move between a lookup and its use).
+    func rowsOnScreen() -> Int {
+        guard let snapshot = try? list.snapshot() else { return 0 }
+        let frame = list.frame
+        func rows(_ element: XCUIElementSnapshot) -> [XCUIElementSnapshot] {
+            (element.identifier.hasPrefix("lab.row.") ? [element] : []) + element.children.flatMap(rows)
+        }
+        return rows(snapshot).filter { $0.frame.intersects(frame) && !$0.frame.isEmpty }.count
+    }
+
     /// The list's bottom edge as drawn: the top of the lowest bar under it (the ops, the measurement
     /// line, the composer).
     var floor: CGFloat {

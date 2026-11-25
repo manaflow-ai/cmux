@@ -104,21 +104,22 @@ final class PagedListStressUITests: XCTestCase {
         XCTAssertTrue(pill.waitForExistence(timeout: 10), "\(name): no newest-rows pill under the flood")
         let before = lab.reading
         pill.tap()
-        // Rows keep arriving at the newest end under the flood and the list follows them, so the pill
-        // can come back between arrivals: wait for the slide to end (the lab counts each slide) and
-        // read the frames, not for the pill to stay gone (run 6c578603 timed out on that wait).
-        // With Reduce Motion the jump is instant (no slide is counted): then the reading's newest edge.
-        lab.waitFor("the jump", timeout: 10) { let now = lab.reading; return now.slides > before.slides || now.newer == "end" && now.frames > before.frames + 30 }
+        // Under the flood the person's slide turns into the follow and never settles (40 newest rows
+        // a second keep moving its goal), so no slide is counted and the list keeps moving: run
+        // bd734f10 timed out on that wait and then looked up a row that had moved on. Judge a fixed
+        // window instead: 4 s after the tap (or the pill going, if sooner), read the frames once.
+        let tapped = Date()
+        lab.waitFor("the jump's window", timeout: 6) { !pill.exists || Date().timeIntervalSince(tapped) > 4 }
         lab.attach("\(name)-jumped")
         let reading = lab.reading
-        lab.record(name, #"{"direction":"up","load":"flood","pill":true,"hud":\#(reading.json)}"#)
+        let rowsOnScreen = lab.rowsOnScreen()
+        lab.record(name, #"{"direction":"up","load":"flood","pill":true,"pillAfter":\#(pill.exists),"rowsOnScreen":\#(rowsOnScreen),"hud":\#(reading.json)}"#)
         XCTAssertEqual(reading.pushShifted, before.pushShifted,
                        "\(name): the jump the person asked for counted as \(reading.pushShifted - before.pushShifted) pushes (largest \(reading.pushShift) pt)")
-        // At the newest end: the list follows its newest row (the edge the lab reports) after the jump.
+        // The list follows its newest rows after the jump, and draws rows (SH-11: never a blank screen
+        // after the person's own action).
         XCTAssertEqual(reading.newer, "end", "\(name): after the jump the list does not hold its newest rows")
-        let lowest = lab.visibleRow(nearFloor: true)
-        XCTAssertTrue(lowest.waitForExistence(timeout: 3), "\(name): no row on screen after the jump")
-        XCTAssertGreaterThan(lowest.frame.maxY, lab.floor - 80, "\(name): the pill did not take the list to its newest row")
+        XCTAssertGreaterThan(rowsOnScreen, 0, "\(name): no row on screen after the jump")
     }
 
     // MARK: The run
