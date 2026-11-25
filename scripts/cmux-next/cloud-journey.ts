@@ -2382,7 +2382,12 @@ export function autocloudTuiChat(tui: string, cmux: string, api: Pick<Api, "orig
   const out = r.stdout ?? "";
   const tail = (s: string) => s.trim().split("\n").slice(-6).join(" | ").slice(0, 600);
   // The first dial's trace says why a link that never comes up dropped; later redials repeat it.
-  const head = (s: string) => s.trim().split("\n").slice(0, 24).join(" | ").slice(0, 3000);
+  // The last lines say where a link that did come up stopped (a session/new with no answer); each line is
+  // clipped so one long initialize reply cannot push them out.
+  const head = (s: string) => {
+    const lines = s.trim().split("\n").map((line) => (line.length > 400 ? `${line.slice(0, 400)}…` : line));
+    return (lines.length > 24 ? [...lines.slice(0, 8), `(${lines.length - 24} lines)`, ...lines.slice(-16)] : lines).join(" | ");
+  };
   if (r.error) throw new Error(`cmux-autocloud: ${r.error.message}; stdout: ${tail(out)}; stderr: ${head(r.stderr ?? "")}`);
   const problem = autocloudTuiVerdict(out, word);
   if (r.status !== 0 || problem) throw new Error(`cmux-autocloud exit ${r.status}${problem ? `, ${problem}` : ""}; stdout: ${tail(out)}; stderr: ${head(r.stderr ?? "")}`);

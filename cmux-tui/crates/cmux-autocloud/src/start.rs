@@ -63,7 +63,7 @@ fn remember(api: &str, machine: &str) {
     }
     let r = Remembered { api: api.to_owned(), machine: machine.to_owned() };
     if let Ok(text) = serde_json::to_string(&r) {
-        let _ = std::fs::write(path, text + "\n");
+        let _ = std::fs::write(path, format!("{text}\n"));
     }
 }
 
@@ -179,7 +179,7 @@ where
 {
     let mut attempt = 0;
     loop {
-        attempt += 1;
+        attempt = attempt.saturating_add(1);
         match send().await {
             Ok(value) => return Ok(value),
             Err(error) if error.retryable && attempt < CREATE_TRIES => {
