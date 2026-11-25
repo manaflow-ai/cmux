@@ -12,20 +12,50 @@
 #   ios-live relaunch | tap X Y | type TEXT | tree | log [N]
 #   ios-live window                  open the Simulator app (Xcode 27: Device Hub) on the live device, in the background
 #   ios-live ffi-sync FROM_HOST      copy the built Rust FFI from FROM_HOST (a host with Rust iOS targets)
+#   ios-live slots                   every slot on every host: base, holder; and how many are free
+#
+# Slots (the default): many always-on iPhones, IOS_LIVE_SLOTS_PER_HOST (default 3) on each of
+# IOS_LIVE_HOSTS (default aws-m4pro-1,aws-m4pro-7, the reserved ios pool). `lease take` holds any
+# free slot and prints HOST/SLOT; every other command then drives that slot. `lease release [--erase]`
+# puts it back at origin/feat-cmux-next (erasing the device first with --erase) and frees it.
+# IOS_LIVE_AT=HOST/SLOT looks at a slot you do not hold.
+#
+# One host, one device (the person-mirroring iPhone on air-blue): set IOS_LIVE_HOST and leave
+# IOS_LIVE_HOSTS unset; then nothing above about slots applies.
 #
 # "Your change" is this checkout against its merge base with origin/feat-cmux-next: commits,
 # staged, unstaged and untracked files. Nothing is pushed.
 #
-# IOS_LIVE_HOST picks the host (default air-blue). IOS_LIVE_OWNER names you on the lease
-# (default HOST/session). Every call goes through `reach`.
+# IOS_LIVE_OWNER names you on the lease (default HOST/session). Every call goes through `reach`.
 set -euo pipefail
 
-host="${IOS_LIVE_HOST:-air-blue}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 owner="${IOS_LIVE_OWNER:-$(hostname -s)/${CLAUDE_SESSION_ID:-${CODEX_SESSION_ID:-$PPID}}}"
 remote_root='~/ios-live'
 
 die() { echo "ios-live: $*" >&2; exit 1; }
+
+slot=""
+if [[ -z "${IOS_LIVE_HOSTS:-}" && -n "${IOS_LIVE_HOST:-}" ]]; then
+  slot_mode=0
+  host="$IOS_LIVE_HOST"
+else
+  slot_mode=1
+  IFS=', ' read -r -a hosts <<<"${IOS_LIVE_HOSTS:-aws-m4pro-1,aws-m4pro-7}"
+  [[ ${#hosts[@]} -gt 0 ]] || die "IOS_LIVE_HOSTS names no host"
+  per_host="${IOS_LIVE_SLOTS_PER_HOST:-3}"
+  [[ "$per_host" =~ ^[1-9][0-9]?$ ]] || die "bad IOS_LIVE_SLOTS_PER_HOST $per_host"
+  # The slot you hold: HOST SLOT, in a file named for you (one per owner, so sessions never share).
+  held_file="${XDG_CACHE_HOME:-$HOME/.cache}/ios-live/held-$(printf '%s' "$owner" | tr -c 'A-Za-z0-9._-' '_')"
+  host=""
+  if [[ -n "${IOS_LIVE_AT:-}" ]]; then
+    host="${IOS_LIVE_AT%/*}"; slot="${IOS_LIVE_AT##*/}"
+  elif [[ -f "$held_file" ]]; then
+    read -r host slot <"$held_file" || true
+  fi
+  [[ -z "$slot" || "$slot" =~ ^[1-9][0-9]?$ ]] || die "bad slot $slot (IOS_LIVE_AT=HOST/SLOT)"
+fi
+need_slot() { [[ -n "$host" && -n "$slot" ]] || die "you hold no slot: ios-live lease take (or IOS_LIVE_AT=HOST/SLOT to look at one; ios-live slots lists them)"; }
 quiet() { grep -v -e '^mux_client_request_session' -e '^ControlSocket .* already exists' >&2 || true; }
 on_host() { reach "$host" "$@" 2> >(quiet); }
 
@@ -43,7 +73,18 @@ host_sh() {
     cp "$patch" "$stage/$name"
     set -- "$@" "ios-live/$name"
   fi
-  out="$(COPYFILE_DISABLE=1 tar -C "$stage" -cf - . | on_host "mkdir -p $remote_root && tar -C $remote_root -xf - && bash $remote_root/bin/host.sh $(printf '%q ' "$@"); r=\$?; echo; echo __ios_live_rc=\$r")" || true
+  local env=""
+  [[ "$slot_mode" == 0 ]] || env="IOS_LIVE_SLOTS_PER_HOST=$per_host ${slot:+IOS_LIVE_SLOT=$slot }"
+  # The payload rides in the command itself when it is small (host.sh alone is about 10 KB gzipped and
+  # base64'd): the broker relay a lane VM reaches the Macs through carries no stdin. A big patch
+  # still goes on stdin.
+  local run="${env}bash $remote_root/bin/host.sh $(printf '%q ' "$@"); r=\$?; echo; echo __ios_live_rc=\$r" b64
+  b64="$(COPYFILE_DISABLE=1 tar -C "$stage" -czf - . | base64 | tr -d '\n')"
+  if (( ${#b64} <= 200000 )); then
+    out="$(on_host "mkdir -p $remote_root && printf %s $b64 | perl -MMIME::Base64 -0777 -ne 'print decode_base64(\$_)' | tar -C $remote_root -xzf - && $run" </dev/null)" || true
+  else
+    out="$(COPYFILE_DISABLE=1 tar -C "$stage" -cf - . | on_host "mkdir -p $remote_root && tar -C $remote_root -xf - && $run")" || true
+  fi
   rm -rf "$stage"
   rc="$(sed -n 's/^__ios_live_rc=\([0-9]*\)$/\1/p' <<<"$out" | tail -n 1)"
   grep -v '^__ios_live_rc=' <<<"$out" || true
@@ -69,14 +110,73 @@ now() { perl -MTime::HiRes=time -e 'printf "%.3f\n", time'; }
 # since T0: seconds since T0 (now's format), in perl as now is: bc is not on every client (a Linux host has none).
 since() { perl -MTime::HiRes=time -e 'printf "%.2f\n", time - $ARGV[0]' "$1"; }
 
+# lease take, slot mode: your own slot first (a renewal), then the first free slot on any host.
+slot_take() {
+  local minutes="${1:-20}" h n rc order=()
+  [[ -n "$host" ]] && order+=("$host")
+  for h in "${hosts[@]}"; do [[ "$h" == "$host" ]] || order+=("$h"); done
+  for h in "${order[@]}"; do
+    host="$h"; slot=""; rc=0
+    n="$(host_sh slot-take "$owner" "$minutes")" || rc=$?
+    n="$(tail -n 1 <<<"$n" | tr -d '[:space:]')"
+    if [[ "$rc" == 0 && "$n" =~ ^[0-9]+$ ]]; then
+      mkdir -p "$(dirname "$held_file")"
+      echo "$h $n" >"$held_file"
+      echo "$h/$n"; return 0
+    fi
+    [[ "$rc" == 3 ]] && echo "ios-live: $h: every slot is held" >&2 || echo "ios-live: $h did not answer (rc $rc)" >&2
+  done
+  die "no free slot on ${hosts[*]} (ios-live slots)"
+}
+
+# lease release, slot mode: back at origin/feat-cmux-next with no patch (erased first with --erase), then free.
+slot_release() {
+  need_slot
+  local ok=1
+  if [[ "${1:-}" == --erase ]]; then host_sh erase "$owner" || ok=0; fi
+  host_sh up "$owner" origin/feat-cmux-next >/dev/null || ok=0
+  [[ "$ok" == 1 ]] || echo "ios-live: $host/$slot did not come back clean; the next up rebuilds it" >&2
+  host_sh lease release "$owner" >/dev/null
+  rm -f "$held_file"
+  echo "released $host/$slot"
+}
+
+list_slots() {
+  local h free=0 total=0 line
+  for h in "${hosts[@]}"; do
+    host="$h"; slot=""
+    while IFS= read -r line; do
+      [[ "$line" =~ ^[0-9]+$'\t' ]] || continue
+      total=$((total + 1)); [[ "$line" == *$'\t'free ]] && free=$((free + 1))
+      echo "$h/$line"
+    done < <(host_sh slots || echo "$h unreachable" >&2)
+  done
+  echo "free: $free of $total"
+}
+
 cmd="${1:-status}"; shift || true
+if [[ "$slot_mode" == 1 ]]; then
+  case "$cmd" in
+    lease)
+      case "${1:-show}" in
+        take) slot_take "${2:-20}"; exit ;;
+        release) slot_release "${2:-}"; exit ;;
+      esac ;;
+    slots) list_slots; exit ;;
+    ffi-sync|-h|--help|help) ;;
+    *) need_slot ;;
+  esac
+fi
 case "$cmd" in
   status|log|tree|udid|window) host_sh "$cmd" "$@" ;;
   shot)
     out="${1:-ios-live.png}"
-    host_sh shot ios-live/shot.png >/dev/null
-    rsync -q -e reach "$host:ios-live/shot.png" "$out" 2> >(quiet)
+    remote_shot="ios-live/shot.png"
+    [[ -z "$slot" ]] || remote_shot="ios-live/slots/$slot/shot.png"
+    host_sh shot "$remote_shot" >/dev/null
+    rsync -q -e reach "$host:$remote_shot" "$out" 2> >(quiet)
     echo "$out" ;;
+  slots) die "slots are off: IOS_LIVE_HOST is set and IOS_LIVE_HOSTS is not" ;;
   lease)
     sub="${1:-show}"
     case "$sub" in show) host_sh lease show ;; *) host_sh lease "$sub" "$owner" "${2:-20}" ;; esac ;;
@@ -91,12 +191,16 @@ case "$cmd" in
   undo|relaunch) host_sh "$cmd" "$owner" "$@" ;;
   tap) host_sh tap "$owner" "${1:?x}" "${2:?y}" ;;
   type) host_sh type "$owner" "${1:?text}" ;;
-  ffi-sync)
+  ffi-sync)  # to the one host, or in slot mode to every host (each slot's build reads the host's copy)
     from="${1:?ffi-sync FROM_HOST}"
     rel=cmux-next-ios/CmuxMobileKit
-    reach "$from" "tar -C ~/ios-live/src/$rel -cf - Frameworks/CmuxMobileLinkFFI.xcframework Sources/CmuxMobileLinkFFI" 2> >(quiet) \
-      | reach "$host" "rm -rf ~/ios-live/ffi && mkdir -p ~/ios-live/ffi && tar -C ~/ios-live/ffi -xf - && echo $from > ~/ios-live/ffi/synced" 2> >(quiet)
-    echo "ios-live: FFI copied from $from" ;;
-  -h|--help|help) sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+    targets=("$host")
+    [[ "$slot_mode" == 0 ]] || targets=("${hosts[@]}")
+    for to in "${targets[@]}"; do
+      reach "$from" "tar -C ~/ios-live/src/$rel -cf - Frameworks/CmuxMobileLinkFFI.xcframework Sources/CmuxMobileLinkFFI" 2> >(quiet) \
+        | reach "$to" "rm -rf ~/ios-live/ffi && mkdir -p ~/ios-live/ffi && tar -C ~/ios-live/ffi -xf - && echo $from > ~/ios-live/ffi/synced" 2> >(quiet)
+      echo "ios-live: FFI copied from $from to $to"
+    done ;;
+  -h|--help|help) awk 'NR > 1 && /^set -/ {exit} NR > 1' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
   *) die "unknown command $cmd (ios-live help)" ;;
 esac
