@@ -115,7 +115,7 @@ cleanup() {
   [[ -n $ids ]] && d network rm $ids >/dev/null 2>&1 || true
   ids=$(d volume ls -q --filter "label=$LABEL" 2>/dev/null || true)
   [[ -n $ids ]] && d volume rm $ids >/dev/null 2>&1 || true
-  [[ -n $BORE_PID ]] && kill "$BORE_PID" 2>/dev/null || true
+  [[ -n $BORE_PID ]] && kill $BORE_PID 2>/dev/null || true
   [[ $OUT == "$WORK"/* ]] && cat "$OUT"
   rm -rf -- "$WORK"
   log "cleaned up run $RUN_ID"
@@ -140,6 +140,29 @@ done
 [[ -n $PORT ]] || { cat "$WORK/bore/log"; result FAIL setup "bore.pub gave no port"; exit 1; }
 CONTROL="http://bore.pub:$PORT"
 log "control URL $CONTROL (bore.pub TCP relay to this runner's 127.0.0.1:8080)"
+# Run 45621004035: the relay answered /health at 13:20 and refused the VMs' joins at 13:25 ("connection
+# refused" on bore.pub:$PORT), so the client's session had dropped. Keep it up: reconnect at once, asking for
+# the same port, and log each drop so a refusal in a later step names its cause.
+BORE_FIRST=$BORE_PID
+(
+  trap 'kill "$child" 2>/dev/null; exit 0' TERM
+  child=$BORE_FIRST
+  while :; do
+    wait "$child" 2>/dev/null || true
+    kill -0 "$child" 2>/dev/null && { sleep 2; continue; }
+    echo "[$(date +%H:%M:%S)] bore session to bore.pub:$PORT dropped; reconnecting on the same port" >>"$WORK/bore/drops"
+    "$WORK/bore/bore" local 8080 --to bore.pub --port "$PORT" >>"$WORK/bore/log" 2>&1 &
+    child=$!
+    sleep 1
+  done
+) &
+BORE_PID="$! $BORE_FIRST"
+control_up() { # control_up WHY: the relay still reaches headscale, else FAIL with its drop log
+  local _
+  for _ in $(seq 1 30); do curl -fsS -m 5 "$CONTROL/health" >/dev/null 2>&1 && return 0; sleep 1; done
+  cat "$WORK/bore/drops" "$WORK/bore/log" 2>/dev/null | tail -20
+  result FAIL setup "headscale not reachable through $CONTROL $1"; exit 1
+}
 
 # ---------------------------------------------------------------- headscale
 cat >"$WORK/config.yaml" <<EOF
@@ -240,12 +263,14 @@ log "headscale up behind $CONTROL; user cmux id=$USER_ID; 5 single-use keys (fro
 # ---------------------------------------------------------------- backends: two staging VMs
 TARBALL=$(curl -fsS --retry 3 'https://pkgs.tailscale.com/stable/?mode=json' | jq -r '.Tarballs.amd64')
 [[ $TARBALL == tailscale_*_amd64.tgz ]] || { result FAIL setup "no tailscale tarball name ($TARBALL)"; exit 1; }
+control_up "before the VMs join"
 VMS_UP=1
 T0=$(date +%s.%N)
 if (cd "$REPO" && bun scripts/cmux-next/tailnet-move-vms.ts up --run "$RUN" --login-server "$CONTROL" \
       --key-a "$WORK/keys/a" --key-b "$WORK/keys/b" --tarball "https://pkgs.tailscale.com/stable/$TARBALL" \
       --json "$WORK/vms.json") 2>&1 | redact; then :; fi
 if [[ ! -s $WORK/vms.json ]]; then
+  cat "$WORK/bore/drops" 2>/dev/null || true
   result FAIL vms "two staging VMs did not come up on the tailnet"; exit 1
 fi
 IP_A=$(jq -r .a.ip "$WORK/vms.json")
