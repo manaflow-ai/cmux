@@ -2611,6 +2611,7 @@ export class AcpmuxDirectClient {
         this.daemonProbeRefused = false;
         this.resetRequestCheck();
         this.wire.lifecycle("open");
+        acpmuxPerf.markLaunch("socketOpen");
         // The action trace's spans and its status question go on this socket (actionTrace.ts).
         actionTrace.connect((method, params) => this.request(method, params));
         resolve(socket);
@@ -2672,6 +2673,7 @@ export class AcpmuxDirectClient {
         initializeParams(),
         AcpmuxDirectClient.DAEMON_PROBE_AFTER_MS,
       );
+      acpmuxPerf.markLaunch("initialized");
       this.canFork = servesOperation(initialized, FORK_OP);
       const features = initialized?._meta?.acpmux?.features;
       this.features = new Set(
@@ -2727,6 +2729,7 @@ export class AcpmuxDirectClient {
       // Awaited below: a list that fails meanwhile is not left unobserved.
       listRead.catch(() => undefined);
       early = this.askEarly();
+      acpmuxPerf.markLaunch("attachSent");
       // The chat's own row, when its attach answered before the list: the chat opens on it, and the
       // list settles behind the open (`attachedBeforeList`).
       const attachedRow = early && (await this.attachedBeforeList(early, listRead));
@@ -3674,6 +3677,7 @@ export class AcpmuxDirectClient {
     this.keepQueueAuthors(held.queue);
     this.earlyTail = { sessionId, generation, through };
     this.drewKeptTail = true;
+    acpmuxPerf.markLaunch("tailWhileConnecting");
     // Drawn now, the socket still connecting or open: the open's hold ends with these rows, as its
     // own draw point would end it, rather than keeping the chat off screen until acpmux answers
     // `initialize` and the list (hq#7289: about 900 ms for the chat in front at relaunch). A chat
@@ -6676,6 +6680,7 @@ export class AcpmuxDirectClient {
       this.earlyAttach = undefined;
     }
     const result = await sent.attaching;
+    acpmuxPerf.markLaunch("attachAnswered");
     this.syncView();
     if (!current()) return [];
     // The row changed while the attach was out to name another session than the reply's (another
