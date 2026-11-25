@@ -42,6 +42,11 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
+          # Into its own folder, never the workspace: on a reused pool VM the workspace holds the last job's full
+          # checkout, and a sparse checkout over it refused to drop that job's edited files and then stalled 60 s
+          # fetching blobs from the promisor remote before failing (job 139305954541: 65 s, no comment written).
+          # That stall was most of this job's ~1.2 minutes per call over ~18,000 calls a day.
+          path: .red-checks-src
           sparse-checkout: |
             scripts/ci/pr_red_checks_comment.py
             scripts/ci/pr_status.py
@@ -62,4 +67,6 @@ jobs:
           OWN_CHECKS_GREEN: ${{ inputs.own_checks_green }}
           # The `ran` line judges each workflow's branch filter against this base.
           BASE_REF: ${{ github.event.pull_request.base.ref }}
+        # The script's git reads (the head over ls-remote, the merge ref for the `ran` line) use this folder's origin.
+        working-directory: .red-checks-src
         run: python3 scripts/ci/pr_red_checks_comment.py
