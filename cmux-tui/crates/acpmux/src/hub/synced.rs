@@ -410,7 +410,8 @@ impl Hub {
             std::mem::replace(&mut meta.pinned, pinned)
         };
         if was != pinned {
-            self.events.row_changed(session);
+            // Told now: a peer following this list hears the pin at once (`row_changed_told`).
+            self.events.row_changed_told(session);
             self.save_meta_answered(session)?;
         }
         self.synced_record(pin_key(&session.id), Value::Bool(pinned));
