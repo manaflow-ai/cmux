@@ -635,3 +635,60 @@ async fn with_no_localapi_socket_the_default_adds_no_tailnet_path_and_no_error()
     assert!(!peer.dial_order().contains(&Via::Tailnet));
     assert!(peer.dial_order().contains(&Via::Ssh), "the other paths are untouched");
 }
+
+/// ask-3c089caeef measurement (ignored; `scripts/bench/tailnet-race-netlab.sh` runs it): the
+/// cold connect over real sockets, before (`off`: no tailnet path) and after (`direct-only`),
+/// with the tailnet path at `TAILNET_BENCH_TAILNET` and every other path at
+/// `TAILNET_BENCH_OTHER`. Each dial is a TCP connect plus a one-byte echo. Prints p50/p95 ms.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "netlab bench: needs scripts/bench/tailnet-race-netlab.sh"]
+async fn tailnet_race_netlab_bench() {
+    use crate::tailnet::PeerPath;
+    use crate::tailnet_carrier::Mode;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("{k} unset"));
+    let tailnet: std::net::SocketAddr = env("TAILNET_BENCH_TAILNET").parse().unwrap();
+    let other: std::net::SocketAddr = env("TAILNET_BENCH_OTHER").parse().unwrap();
+    let n: usize = env("TAILNET_BENCH_N").parse().unwrap();
+    let label = env("TAILNET_BENCH_LABEL");
+    fn dial(addr: std::net::SocketAddr) -> Dial {
+        Box::pin(async move {
+            let mut s = tokio::net::TcpStream::connect(addr).await.map_err(|e| e.to_string())?;
+            s.set_nodelay(true).ok();
+            s.write_all(b"p").await.map_err(|e| e.to_string())?;
+            let mut b = [0u8; 1];
+            s.read_exact(&mut b).await.map_err(|e| e.to_string())?;
+            Ok("open")
+        })
+    }
+    for (name, mode) in [("before(off)", Mode::Off), ("after(direct-only)", Mode::DirectOnly)] {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let peer = tailnet_peer(mode, &calls, PeerPath::Direct);
+        peer.refresh_tailnet(Some(Duration::from_secs(2))).await;
+        let order = peer.dial_order();
+        let mut ms = Vec::new();
+        let mut failed = 0;
+        let mut won_tailnet = 0;
+        for _ in 0..n {
+            let dials = order
+                .iter()
+                .map(|via| (*via, dial(if *via == Via::Tailnet { tailnet } else { other })))
+                .collect();
+            let started = std::time::Instant::now();
+            match tokio::time::timeout(Duration::from_secs(3), race(dials, STAGGER)).await {
+                Ok(Ok((via, _, _))) => {
+                    ms.push(started.elapsed().as_secs_f64() * 1000.0);
+                    won_tailnet += usize::from(via == Via::Tailnet);
+                }
+                _ => failed += 1,
+            }
+        }
+        ms.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let q = |p: f64| ms.get(((ms.len() as f64 - 1.0) * p).round() as usize).copied();
+        println!(
+            "BENCH {label} {name}: n={n} p50={:.1}ms p95={:.1}ms failed={failed} tailnet_won={won_tailnet} order={order:?}",
+            q(0.5).unwrap_or(f64::NAN),
+            q(0.95).unwrap_or(f64::NAN),
+        );
+    }
+}
