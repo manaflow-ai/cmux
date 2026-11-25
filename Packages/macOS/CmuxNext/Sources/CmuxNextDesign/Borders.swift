@@ -1,20 +1,6 @@
 public import AppKit
 public import CmuxNextDesignTokens
 
-/// `appearance.borders` in cmux.json: `default` draws the app's borders,
-/// hairlines and separators; `none` removes every one of them.
-public nonisolated enum BorderMode: String, Sendable, CaseIterable, Codable, TunableChoice {
-    case `default`
-    case none
-
-    public var tunableTitle: String {
-        switch self {
-        case .default: "Default"
-        case .none: "None"
-        }
-    }
-}
-
 /// The one switch every border, hairline and separator in the app goes
 /// through (pane borders, the focus ring, divider lines, tab, strip,
 /// sidebar and palette separators, panel and badge strokes). A value, so

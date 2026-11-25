@@ -1,22 +1,35 @@
 # CmuxNextDesign's files the Linux settings exporter compiles (scripts/cmux-next/regenerate-settings-exports-linux.sh),
 # relative to Sources/CmuxNextDesign: the design model the settings read, none of it AppKit.
 AppleWallpapers.swift
+BackdropAgentGlow.swift
 BackdropArt.swift
 BackdropCatalog.swift
+BackdropDynamicMode.swift
 BackdropLocation.swift
 BackdropRotation.swift
 BackdropTimeOfDay.swift
 BackdropUserImages.swift
+BorderMode.swift
 DensityPreset.swift
 DensityTokenCatalog.swift
 DensityTokens.swift
 DesignSettings.swift
+HoverCards/HoverCardTiming.swift
 MachineColorOverrides.swift
+StatusIndicator/StaticStatusGlyph.generated.swift
 StatusIndicator/StatusIconSet.swift
+StatusIndicator/StatusIndicatorPlan.swift
+StatusIndicator/StatusMark.swift
+Sun.swift
 TabShape.swift
 Text/FontSmoothing.swift
 Text/ProcessFontSmoothing.swift
-Toast/CmuxToastStyle.swift
 TitleAreaTone.swift
+TitlebarStyle.swift
+Toast/CmuxToastLook.swift
+Toast/CmuxToastStyle.swift
+Tunables/BrowserChromeTuning.swift
+Tunables/MetricTunables.swift
 TwoTone.swift
+WindowBackdrop.swift
 Windows/SurfaceBackgrounds.swift

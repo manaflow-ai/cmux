@@ -8,11 +8,13 @@
 # reads, from links to this checkout's files:
 #   CmuxNextSettings, CmuxNextDesignTokens  every file but those that import an Apple-only module (APPLE_ONLY below)
 #                                           or are listed in LinuxSettingsExports/excluded.txt;
-#   CmuxNextDesign                          the files in LinuxSettingsExports/design-sources.txt;
+#   CmuxNextDesign, CmuxNextCompat          the files in LinuxSettingsExports/design-sources.txt and
+#                                           compat-sources.txt;
 #   CmuxNextActions                         the action exporter's list (LinuxActionExports/sources.txt), linked
 #                                           against the pinned Rust action catalog (build-action-catalog-linux.sh);
-#   CmuxNextCompat, CoreGraphics            LinuxSettingsExports/StandIns, the few names the model reads;
+#   CoreGraphics, and Linux stand-ins       LinuxSettingsExports/StandIns, for the few Apple names the model reads;
 #   CmuxTheme                               Packages/Shared/CmuxTheme, as is;
+#   CCmuxMotionFFI                          the pinned cmux-motion C ABI, built for Linux (build-motion-ffi-linux.sh);
 # plus the generated half of CmuxNextSettings (gen-settings-sources.py, as the Mac's SettingsSchemaPlugin runs it).
 # The `cmux-next-settings-exports` tool writes the files through the code the Mac's tests compare them with
 # (ManagedPreferencesManifest.exportFiles, SettingsSchemaExport), so a new setting reaches both the same way. A
@@ -30,6 +32,8 @@ APPLE_ONLY='AppKit|SwiftUI|QuartzCore|ImageIO|ObjectiveC|UniformTypeIdentifiers|
 started=$SECONDS
 catalog="$package/.build/linux-action-catalog"
 "$root/scripts/cmux-next/build-action-catalog-linux.sh" "$catalog"
+motion="$package/.build/linux-motion-ffi"
+"$root/scripts/cmux-next/build-motion-ffi-linux.sh" "$motion"
 
 # The scratch package: links to the checkout's files, remade each run so a file dropped from a list is gone.
 scratch="$package/.build/linux-settings-exports"
@@ -51,12 +55,15 @@ link_portable() { # MODULE: every file that imports no Apple-only module, less e
   while IFS= read -r file; do
     file="${file#./}"
     grep -qxF "$1/$file" "$tool/excluded.txt" && continue
-    grep -qE "^[[:space:]]*(@[A-Za-z_]+ +)*((public|internal|package) +)?import +($APPLE_ONLY)\b" "$dir/$file" && continue
+    # The motion FFI is built for Linux (build-motion-ffi-linux.sh); any other Apple-only import leaves the file out.
+    grep -E "^[[:space:]]*(@[A-Za-z_]+ +)*((public|internal|package) +)?import +($APPLE_ONLY)\b" "$dir/$file" |
+      grep -qvE "import +CCmuxMotionFFI\b" && continue
     link "$dir" "$1" "$file"
   done < <(cd "$dir" && find . -name '*.swift' | LC_ALL=C sort)
 }
 link_list "$package/LinuxActionExports/sources.txt" CmuxNextActions
 link_list "$tool/design-sources.txt" CmuxNextDesign
+link_list "$tool/compat-sources.txt" CmuxNextCompat
 link_portable CmuxNextDesignTokens
 link_portable CmuxNextSettings
 python3 -I "$root/scripts/cmux-next/gen-settings-sources.py" --swift-out "$sources/CmuxNextSettings/Generated" >/dev/null
@@ -68,6 +75,7 @@ mkdir -p "$sources/CmuxNextSettingsExports"
 ln -s "$tool/main.swift" "$sources/CmuxNextSettingsExports/main.swift"
 # SwiftPM takes no target path outside the package: the module map and header, linked in.
 ln -s "$catalog/include" "$sources/CCmuxActionCatalogFFI"
+ln -s "$motion/include" "$sources/CCmuxMotionFFI"
 # Swift settings: CmuxNext's (Package.swift): uiSwiftSettings for Actions, DesignTokens and Design, and
 # daemonSwiftSettings for Settings, as on the Mac.
 cat > "$scratch/package/Package.swift" <<SWIFT
@@ -90,6 +98,7 @@ let package = Package(
     dependencies: [.package(path: "$root/Packages/Shared/CmuxTheme")],
     targets: [
         .systemLibrary(name: "CCmuxActionCatalogFFI"),
+        .systemLibrary(name: "CCmuxMotionFFI"),
         .target(name: "CoreGraphics", swiftSettings: daemon),
         .target(name: "CmuxNextCompat", swiftSettings: daemon),
         .target(
@@ -100,12 +109,13 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextDesignTokens",
-            dependencies: ["CmuxNextCompat", "CoreGraphics", .product(name: "CmuxTheme", package: "CmuxTheme")],
-            swiftSettings: ui
+            dependencies: ["CCmuxMotionFFI", "CmuxNextCompat", "CoreGraphics", .product(name: "CmuxTheme", package: "CmuxTheme")],
+            swiftSettings: ui,
+            linkerSettings: [.unsafeFlags(["-L", "$motion/lib"])]
         ),
         .target(
             name: "CmuxNextDesign",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesignTokens", "CoreGraphics", .product(name: "CmuxTheme", package: "CmuxTheme")],
+            dependencies: ["CCmuxMotionFFI", "CmuxNextCompat", "CmuxNextDesignTokens", "CoreGraphics", .product(name: "CmuxTheme", package: "CmuxTheme")],
             swiftSettings: ui
         ),
         .target(

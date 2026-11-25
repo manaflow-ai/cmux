@@ -1,14 +1,6 @@
 public import Foundation
 import ImageIO
 
-/// How a dynamic macOS wallpaper changes (`appearance.backgroundDynamic`).
-public nonisolated enum BackdropDynamicMode: String, CaseIterable, Sendable {
-    /// Its light or dark frame, with the window's appearance.
-    case appearance
-    /// Its frames through the day, like macOS's Dynamic desktop: by the sun, or by the clock.
-    case time
-}
-
 /// The frame schedule of a dynamic HEIC, read from its `apple_desktop` metadata once per file and
 /// cached: sun positions (`solar`), fractions of the day (`h24`), and its light and dark frames
 /// (`apr`, and the `ap` pair the other two carry).

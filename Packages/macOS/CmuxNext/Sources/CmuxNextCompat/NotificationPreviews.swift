@@ -11,9 +11,11 @@ public enum NotificationPreviews: String, Hashable, Sendable, CaseIterable {
     /// Never: the banner says where and what state, not what was said.
     case never
 
+    #if canImport(AppKit) // the window server's: the Linux settings exporter builds the rest
     /// Whether the login session's screen is locked now, as the window server reports it.
     public static var screenIsLocked: Bool {
         let session = CGSessionCopyCurrentDictionary() as? [String: Any]
         return session?["CGSSessionScreenIsLocked"] as? Bool ?? false
     }
+    #endif
 }

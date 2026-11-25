@@ -3,7 +3,7 @@ public import Foundation
 // What the settings model reads from Apple frameworks, for the Linux build (CmuxNextSettings there is a scratch
 // package of Sources/CmuxNextSettings files listed in sources.txt). Text is the English source, which the
 // exports use; the app resolves the localized strings from the xcstrings on the Mac.
-#if !canImport(Darwin)
+#if !canImport(AppKit)
 extension String {
     public struct LocalizationValue: ExpressibleByStringInterpolation, Sendable {
         public let value: String
