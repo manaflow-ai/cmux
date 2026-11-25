@@ -226,7 +226,8 @@ export function CloudTriToggle({
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a segment holds a glyph and a tooltip, which an input cannot.
             role="radio"
             aria-checked={mode === pin}
-            aria-label={t(NAMES[mode])}
+            // Blocked, every segment runs the blocked action, so each says that action, not its mode.
+            aria-label={why ? t(BLOCKED[why]) : t(NAMES[mode])}
             tabIndex={mode === pin ? 0 : -1}
             className="acpmux-hybrid-toggle acpmux-hybrid-tri__segment"
             data-look={look}
