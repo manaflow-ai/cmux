@@ -56,6 +56,8 @@ mod bg_folder;
 mod bg_folder_bench;
 mod bg_notify;
 mod bg_tasks;
+/// A chat waiting for capacity: the one calm state every client draws.
+pub(crate) mod capacity_wait;
 #[cfg(test)]
 mod wait_reason_tests;
 #[cfg(test)]
@@ -102,6 +104,7 @@ mod ephemeral;
 #[cfg(test)]
 mod first_work_tests;
 mod fork;
+mod forward_wait;
 #[cfg(test)]
 mod title_log_tests;
 pub use fork::Retarget;
@@ -151,6 +154,7 @@ mod fork_replay;
 pub mod fork_subagent;
 mod fork_transcript_auth;
 pub mod forum;
+pub mod forum_hosted;
 pub(crate) mod full_access_bound;
 pub(crate) mod full_access_children;
 mod handoff;
@@ -250,6 +254,7 @@ mod earned_access;
 #[cfg_attr(not(test), allow(dead_code))]
 mod earned_events;
 mod hybrid_hold;
+mod launch_backoff;
 pub mod ledger;
 mod list_order;
 mod model_alias;
@@ -717,8 +722,9 @@ pub struct HubEvent {
 }
 
 /// A [`HubEvent`]'s cells its receivers share: its row without its tools, with them, and with
-/// them but no time breakdown (a client that draws none, `omitTimeBreakdown`), and the clock of
-/// its fan-out to the connections (`gauges::FanoutClock`).
+/// them but no time breakdown (a client that draws none: its `initialize`'s `omitTimeBreakdown`,
+/// or an attach's, `SubOpts::omit_time_breakdown`), and the clock of its fan-out to the
+/// connections (`gauges::FanoutClock`).
 #[derive(Debug, Default)]
 pub struct EventRow {
     pub cells: [SharedRow; 3],
@@ -925,6 +931,9 @@ pub struct PromptOptions {
     /// An automatic continuation (`auto_resume.rs`): runs only while the chat still ends on
     /// this turn, checked again once it holds the turn lock, else refused unrecorded.
     pub after_turn: Option<String>,
+    /// A fired continuation's generation (`auto_resume.rs` `Pending::generation`): its turn
+    /// starts only while no Stop came since its fire, even once its mark is gone.
+    pub fired: Option<u64>,
     /// `_meta.acpmux.supersede` (`supersede.rs`): the same sender's prompts still queued under
     /// this key leave the queue, replaced by this one.
     pub supersede: Option<String>,
@@ -1036,6 +1045,8 @@ pub struct Hub {
     pub(super) mailbox: Mailbox,
     /// The forum log (`forum.rs`, `hub/forum.rs`).
     pub(super) forum: std::sync::OnceLock<crate::forum::Forum>,
+    /// The team's hosted forum, set up from the env on first use (`hub/forum_hosted.rs`).
+    pub(super) forum_hosted: std::sync::OnceLock<forum_hosted::Slot>,
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
     /// The chats that left memory, each a compact row (`evict.rs`).
     pub(crate) evicted: evict::Tier,
@@ -1203,7 +1214,16 @@ pub struct Hub {
     /// The ACP lists kept on disk by earlier probes (`live_models::AcpCache`), read once at
     /// start: by harness, the profile key it was probed under and the list. Each fills
     /// `known_models` for a profile with the same key until its probe answers (`model_probe.rs`).
-    pub(super) acp_cached: StdMutex<HashMap<String, (String, Vec<(String, String)>)>>,
+    /// The probe's choices (`probed_choices`) ride along, so a restart needs no probe for them.
+    pub(super) acp_cached: StdMutex<
+        HashMap<String, (String, Vec<(String, String)>, Option<crate::live_models::AcpChoices>)>,
+    >,
+    /// When each ACP harness's list was last probed (this run, or the kept file's time): a
+    /// models read probes one older than `live_ages::ACP_MAX_AGE` again (`model_probe.rs`).
+    pub(super) acp_ages: StdMutex<live_ages::LiveAges>,
+    /// The program each live list kept on disk was listed by, as loaded at start: an unchanged
+    /// program is not probed at start (`hub/live_models.rs`).
+    pub(super) live_disk_keys: StdMutex<HashMap<String, crate::live_models::CacheKey>>,
     /// The harnesses whose `known_models` entry is that disk copy, not a report of this
     /// daemon's: the probe still runs for them.
     pub(super) acp_from_disk: StdMutex<std::collections::HashSet<String>>,
@@ -1550,6 +1570,9 @@ pub struct Hub {
     /// default daemon never starts or links a node without an explicit request.
     #[cfg(all(unix, feature = "tailnet"))]
     pub(crate) tailnet_controller: std::sync::OnceLock<Arc<crate::tailnet::embedded::Controller>>,
+    /// Where each workspace runs now, for the stable tailnet node's front
+    /// (`tailnet/stable_front.rs`), set by `_acpmux/tailnet/placement`.
+    pub(crate) tailnet_placements: Arc<cmux_tailnet_front::PlacementTable>,
     /// Brief identities shared by dispatch, report and MCP clients.
     pub(crate) briefs: dispatch::Briefs,
     /// Every Claude workflow of this daemon's chats (`workflow_index.rs`).
@@ -1675,6 +1698,7 @@ impl Hub {
             store: Box::new(crate::store::ForkView::new(store)),
             mailbox,
             forum: std::sync::OnceLock::new(),
+            forum_hosted: std::sync::OnceLock::new(),
             sessions: StdMutex::new(HashMap::new()),
             evicted: Default::default(),
             spoken_handle_renames: StdMutex::new(()),
@@ -1753,6 +1777,8 @@ impl Hub {
             cache_test_save_every_ms: AtomicU64::new(peer_cache::SAVE_EVERY_MS),
             known_models: StdMutex::new(HashMap::new()),
             acp_cached: StdMutex::new(HashMap::new()),
+            acp_ages: StdMutex::new(live_ages::LiveAges::default()),
+            live_disk_keys: StdMutex::new(HashMap::new()),
             acp_from_disk: StdMutex::new(std::collections::HashSet::new()),
             probed_choices: StdMutex::new(HashMap::new()),
             live_models: StdMutex::new(HashMap::new()),
@@ -1923,6 +1949,7 @@ impl Hub {
             pairing: Default::default(),
             #[cfg(all(unix, feature = "tailnet"))]
             tailnet_controller: std::sync::OnceLock::new(),
+            tailnet_placements: Default::default(),
             briefs,
         });
         if let Ok(c) = hub.config.try_read() {
@@ -2034,6 +2061,28 @@ impl Hub {
         );
         let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         sessions.values().filter(|s| s.turn().is_none()).cloned().collect()
+    }
+
+    /// Tests only: `session`'s record of `kind`, heard as the hub's own event.
+    #[cfg(test)]
+    pub(crate) fn emit_for_test(&self, session: &str, kind: &str, msg: Value) {
+        let record = EventRecord {
+            seq: 1,
+            at: 0,
+            dir: "mux".into(),
+            kind: kind.into(),
+            msg,
+            host_seq: None,
+        };
+        let _ = self.events.send(HubEvent {
+            session_id: session.into(),
+            record: Arc::new(record),
+            remote: None,
+            update_line: Default::default(),
+            row: Default::default(),
+            list_seq: 0,
+            peer_batch: false,
+        });
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<HubEvent> {
@@ -2494,6 +2543,7 @@ impl Hub {
             hibernated_at: AtomicU64::new(hibernated_at),
             wake_cause: StdMutex::new(None),
             policy_refusal: Default::default(),
+            launch_backoff: Default::default(),
             agent_requests: std::sync::atomic::AtomicUsize::new(0),
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),
