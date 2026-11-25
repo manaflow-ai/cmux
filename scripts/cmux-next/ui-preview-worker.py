@@ -97,8 +97,9 @@ WEB_CAP = 4
 SWIFT_SPARSE = ("Packages/", "Prototypes/", "Resources/", "vendor/")
 WEB_SPARSE = ("webviews/", "design/", "first-party-apps/", "scripts/cmux-next/", "cmux-tui/frontends/",
               "Resources/", "package.json", "bun.lock",
-              # webviews postinstall (gen-strings -> gen-feature-tips) reads the What's New highlights.
-              "release-notes/next/")
+              # What bun install's postinstall (gen-strings: feature tips, design scales, strings) and the gallery's
+              # protocol:codegen read outside webviews/; without them every web look fails at "bun install exited 1".
+              "release-notes/next/", "schemas/", "cmux-tui/crates/acpmux/spec/", "*.xcstrings")
 GALLERY_PORT = 4217
 KEEP_H = 36
 # Bounds, seconds.

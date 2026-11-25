@@ -50,11 +50,15 @@ class PlanTests(unittest.TestCase):
         self.assertTrue(w.plan(["cmux-tui/frontends/web/src/x.ts"])["web"])
 
     def test_the_web_tree_holds_what_the_webviews_install_reads(self):
-        # bun install's postinstall (gen-strings -> gen-feature-tips) reads release-notes/next/highlights; a web tree
-        # without it fails every web look at "bun install exited 1".
-        tips = (ROOT / "webviews/scripts/pages/gen-feature-tips.mjs").read_text()
-        self.assertIn('"release-notes/next/highlights"', tips)
-        self.assertTrue(any("release-notes/next/highlights/".startswith(p) for p in w.WEB_SPARSE))
+        # bun install's postinstall and protocol:codegen read these outside webviews/; a web tree without one fails
+        # every web look at "bun install exited 1" (found on the Linux pool, 2026-11-25).
+        reads = {"webviews/scripts/pages/gen-feature-tips.mjs": "release-notes/next/highlights",
+                 "webviews/scripts/pages/gen-design-scale.mjs": "schemas/design-scale/design-scale.json",
+                 "webviews/scripts/acpmux-protocol-codegen.ts": "cmux-tui/crates/acpmux/spec/acpmux-protocol.json"}
+        for script, path in reads.items():
+            self.assertIn(path, (ROOT / script).read_text(), script)
+            self.assertTrue(any(path.startswith(p) for p in w.WEB_SPARSE), path)
+        self.assertIn("*.xcstrings", w.WEB_SPARSE)
 
     def test_a_linked_module_with_no_scene_is_nothing(self):
         p = w.plan(["Packages/macOS/CmuxNext/Sources/CmuxNextSettings/S.swift"])
