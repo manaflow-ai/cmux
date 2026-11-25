@@ -2895,9 +2895,6 @@ async fn refuse_unauthenticated(
     .await;
 }
 
-/// Turn a hub record into client notifications for one connection. It is called only for the
-/// records routed to the connection (`interest.rs`): a record a watcher is sent anything for here
-/// must be one `interest::watch_hears` names.
 /// The `_acpmux/event` params of a record of this daemon's own chat, built once and shared by
 /// every connection (`HubEvent::event_params`). `deliver`'s `routed` leaves them as they are: it
 /// changes only a peer's chat's, and `event_value` has no `peer` to take out. None for a peer's.
@@ -2908,6 +2905,9 @@ fn shared_event(ev: &HubEvent) -> Option<&Value> {
     Some(ev.event_params.get_or_init(|| event_value(&ev.session_id, &ev.record)))
 }
 
+/// Turn a hub record into client notifications for one connection. It is called only for the
+/// records routed to the connection (`interest.rs`): a record a watcher is sent anything for here
+/// must be one `interest::watch_hears` names.
 fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     // The close of one peer's batch of rows (`hub/list_guard.rs` `send_remote_batch`): only a
     // watcher that asked for batches hears it, in place of the rows' `session_changed`.
