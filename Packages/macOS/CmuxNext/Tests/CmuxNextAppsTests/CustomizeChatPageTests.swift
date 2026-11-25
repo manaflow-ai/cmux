@@ -9,6 +9,8 @@ import Testing
 /// the page as the answer.
 @MainActor
 struct CustomizeChatPageTests {
+    private typealias JSONValue = CmuxNextSettings.JSONValue
+
     private func params(_ verb: String, _ arg: String? = nil) -> JSONValue {
         var object: [String: JSONValue] = ["verb": .string(verb)]
         if let arg { object["arg"] = .string(arg) }
