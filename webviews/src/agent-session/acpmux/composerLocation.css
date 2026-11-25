@@ -1472,9 +1472,11 @@
 }
 /* The row's margin is all the room under it: the chat composer's own 16 px bottom padding stacked
    on it (26 px, Claude Code leaves about 8) is dropped while the quiet row ends the composer (Leo
-   2026-10-21: "WE HAVE TOO MUCH STUPID SPACE AT THE BOTTOM COMPAREDE TO CLAUDE CODE"). Only
-   the floating chat dock: a fresh chat's hero layout keeps its padding. */
-.acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer[data-foot] { padding-bottom: 0; }
+   2026-10-21: "WE HAVE TOO MUCH STUPID SPACE AT THE BOTTOM COMPAREDE TO CLAUDE CODE"). The open
+   chat's dock, floating or in flow (`data-dock="flow"`: a handoff review, the inspector), drops it
+   alike, so the composer does not jump 16 px as the stage over it switches (Leo, 2026-11-24: "we need
+   to have more things decoupled from posisble shifts"); a fresh chat's hero layout keeps its padding. */
+.acpmux-main:is([data-dock="float"], [data-dock="flow"]) > .acpmux-dock > .acpmux-composer[data-foot] { padding-bottom: 0; }
 /* The chips lay out as the row's own items, so the mode goes left and the rest right (right too
    before a chat has a mode, as on a fresh New Tab page). */
 .acpmux-composer-foot .acpmux-chips { display: contents; }

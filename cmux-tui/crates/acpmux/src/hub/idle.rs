@@ -357,14 +357,20 @@ impl Hub {
         if !busy {
             self.confirm_claude_stored(&session).await;
         }
-        // A recap the person will want is asked before the process goes (`away_recap.rs`).
-        if busy || !self.idle_eligible(&session) || self.recap_before_sleep(&session) {
+        // A recap the person will want is asked before the process goes (`away_recap.rs`), and
+        // an armed cache compaction runs now, into this live harness, while its cache is warm:
+        // one into the respawned harness rewrites the whole context (`cache_compact.rs`).
+        if busy
+            || !self.idle_eligible(&session)
+            || self.recap_before_sleep(&session)
+            || self.cache_compact_before_reap(&session)
+        {
             self.touch(&session);
             return;
         }
         // Its MCP servers, read before the leases: the configs are files (`idle_census.rs`).
         let Some(child) = session.child.lock().await.clone() else { return };
-        let sidecars = self.sidecars(&child).await;
+        let sidecars = self.sidecars(&session, &child).await;
         // Held until the harness is ended: no turn, start, mode change, fork or stop
         // begins meanwhile, and one that already began keeps the harness up.
         let turn = session.turn_lock.try_lock();

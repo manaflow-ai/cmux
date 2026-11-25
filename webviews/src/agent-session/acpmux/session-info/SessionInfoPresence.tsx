@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { SessionInfoCloudControl } from "../hybrid/SessionInfoCloud";
 import { flushSync } from "react-dom";
 import { usePresence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
@@ -202,6 +203,7 @@ export const SessionInfoPresence = memo(function SessionInfoPresence({
   readCarried,
   onResolveCarried,
   remoteControl,
+  cloud,
   onCompact,
   onViewPrompt,
   onOpenChat,
@@ -277,6 +279,8 @@ export const SessionInfoPresence = memo(function SessionInfoPresence({
   readCarried?: ReadCarried;
   onResolveCarried?: ResolveCarried;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
+  /// Environment's cloud controls (hybrid/HybridMounts.tsx), in Remote Control's place.
+  cloud?: SessionInfoCloudControl;
   onCompact?: () => void;
   onViewPrompt?: () => void;
   onOpenChat?: (sessionId: string) => void;
@@ -723,6 +727,7 @@ export const SessionInfoPresence = memo(function SessionInfoPresence({
           onOpenArtifacts={rowCount > 0 ? () => setGallery(true) : undefined}
           onReconnectMcp={onReconnectMcp}
           remoteControl={scope ? undefined : remoteControl}
+          cloud={scope ? undefined : cloud}
           onCompact={scope ? undefined : onCompact}
           onViewPrompt={scope ? undefined : onViewPrompt}
           onOpenFolder={openFolder}
@@ -821,6 +826,7 @@ export const SessionInfoPresence = memo(function SessionInfoPresence({
         readCarried={scope ? undefined : readCarried}
         onResolveCarried={scope ? undefined : onResolveCarried}
         remoteControl={scope ? undefined : remoteControl}
+        cloud={scope ? undefined : cloud}
         // Compact ends the chat's context, not a subagent's.
         onCompact={scope ? undefined : onCompact}
         onViewPrompt={scope ? undefined : onViewPrompt}

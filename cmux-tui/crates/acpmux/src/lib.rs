@@ -86,6 +86,7 @@ pub mod config;
 pub mod conn_origin;
 pub mod context_inventory;
 pub mod cpu_class;
+pub mod customize_run;
 pub mod cwd_pin;
 pub mod daemon;
 pub(crate) mod daemon_parts;
@@ -219,6 +220,7 @@ pub mod mcp_args;
 /// Each chat's `cmux` MCP server over loopback HTTP, started on use and stopped when idle.
 pub mod mcp_gateway;
 pub mod mcp_hint;
+pub mod memory_mount;
 pub mod mesh;
 pub mod mesh_control;
 pub mod mesh_gate;

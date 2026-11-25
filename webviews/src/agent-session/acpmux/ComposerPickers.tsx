@@ -2514,7 +2514,7 @@ const TerminalShieldIcon = () => (
   </Icon>
 );
 /** A mode's symbol: the harness's own icon for it when its menu draws one, else the shield family. */
-function ModeIcon({ modeId, icon }: { modeId?: unknown; icon?: ModeIconName }) {
+export function ModeIcon({ modeId, icon }: { modeId?: unknown; icon?: ModeIconName }) {
   if (icon === "hand") return <HandIcon />;
   if (icon === "terminal-shield") return <TerminalShieldIcon />;
   if (icon === "shield-alert") return <ShieldIcon shield="alert" modeIcon="shield-alert" />;

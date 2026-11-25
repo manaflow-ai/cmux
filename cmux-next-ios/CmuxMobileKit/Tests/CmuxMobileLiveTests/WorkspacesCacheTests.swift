@@ -175,11 +175,13 @@ enum CacheFixture {
     @Test func eachTeamKeepsItsOwnRowsAndTheLaunchDrawsTheLastOne() async throws {
         // A switch to a team shown before draws its rows (Leo, 2026-11-24: "wer need to chase all
         // these placeholders doen and prevent them"): saving team two keeps team one's rows.
+        // Rows are listed most recently focused first (LiveSnapshotStore sorts by focusOrder, high
+        // first), so w2-0 gets the highest order and the list comes back in `rows` order.
         let (store, directory) = CacheFixture.saved(500)
         defer { try? FileManager.default.removeItem(at: directory) }
         let other = MacDevice(id: "m2", name: "Laptop", isOnline: false)
         let rows = (0..<5).map { Workspace(id: "w2-\($0)", macID: other.id, title: "two \($0)", directory: "/", tabs: [],
-                                                         lastActivityAt: CacheFixture.savedAt, focusOrder: $0) }
+                                                         lastActivityAt: CacheFixture.savedAt, focusOrder: 4 - $0) }
         store.save(LiveSnapshot(teamID: "t2", teamName: "Two", macs: [other], linkedMacID: nil,
                                 workspaces: [other.id: .init(workspaces: rows, savedAt: CacheFixture.savedAt)]), accountID: "user")
         store.flush()
