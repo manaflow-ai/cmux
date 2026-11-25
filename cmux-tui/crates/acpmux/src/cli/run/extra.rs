@@ -729,6 +729,19 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::Rebalance(crate::cli::command::RebalanceArgs {
+            dry_run,
+            force,
+            max_moves,
+            timeout,
+            undo,
+        }) => {
+            super::rebalance::run(
+                super::rebalance::Args { dry_run, force, max_moves, timeout, undo },
+                json_out,
+            )
+            .await
+        }
         Command::MoveSessions(crate::cli::command::MoveSessionsArgs {
             sessions,
             host,
@@ -1109,6 +1122,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         // This machine's own key file or ssh agent; no daemon.
         Command::Host(PeerCmd::Key { create }) => crate::cli::host_ssh_key::run(create, json_out),
+        // Its own socket, a fresh daemon connection per client: none held here.
+        #[cfg(unix)]
+        Command::Host(PeerCmd::BrokerForward { owner, socket }) => {
+            crate::cli::host_broker_forward::run(owner, socket).await
+        }
+        #[cfg(not(unix))]
+        Command::Host(PeerCmd::BrokerForward { .. }) => {
+            Err(anyhow!("machine broker-forward needs unix sockets"))
+        }
         Command::Host(PeerCmd::Join {
             ticket,
             name,
@@ -1322,7 +1344,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             Ok(())
         }
         // Reads the host; asks a running daemon only, never starts one (`host_load.rs`).
-        Command::Host(PeerCmd::Load) => {
+        Command::Host(PeerCmd::Load { watch: true, lines }) => {
+            crate::host_load_watch::run(lines).await
+        }
+        Command::Host(PeerCmd::Load { .. }) => {
             let load = crate::host_load::sample().await;
             print_json(&serde_json::to_value(&load)?);
             Ok(())
@@ -1471,7 +1496,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     }
                     return Ok(());
                 }
-                PeerCmd::Load | PeerCmd::DiskWalk | PeerCmd::Verdict | PeerCmd::Notice { .. } => {
+                PeerCmd::Load { .. }
+                | PeerCmd::DiskWalk
+                | PeerCmd::Verdict
+                | PeerCmd::Notice { .. } => {
                     return Err(anyhow!(
                         "machine load, disk-walk, verdict and notice are handled before connecting"
                     ));
@@ -1596,7 +1624,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 | PeerCmd::Tunnel { .. }
                 | PeerCmd::Vault { .. }
                 | PeerCmd::Deps { .. }
-                | PeerCmd::Key { .. } => {
+                | PeerCmd::Key { .. }
+                | PeerCmd::BrokerForward { .. } => {
                     return Err(anyhow!(
                         "host join, leave, consent, vault and deps are handled before daemon connection"
                     ));
@@ -1614,7 +1643,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 let state = crate::peer_link::state_label(&p, crate::store::now_ms());
                 let build = p.get("remoteBuild").and_then(Value::as_str).unwrap_or("");
                 println!(
-                    "{:<16} {:<10} {:>3} sessions  {}  {:<24} {}{}{}{}",
+                    "{:<16} {:<10} {:>3} sessions  {}  {:<24} {}{}{}{}{}",
                     p.get("name").and_then(Value::as_str).unwrap_or(""),
                     state,
                     p.get("sessions").and_then(Value::as_u64).unwrap_or(0),
@@ -1630,6 +1659,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         .and_then(Value::as_str)
                         .map(|e| format!("  ({e})"))
                         .unwrap_or_default(),
+                    crate::fleet_elastic::suffix(&p),
                     // A user or port: another account's or another daemon on that machine.
                     p.get("canonicalEndpoint")
                         .and_then(Value::as_str)

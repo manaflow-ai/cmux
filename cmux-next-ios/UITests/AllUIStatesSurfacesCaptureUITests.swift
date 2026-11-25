@@ -180,10 +180,10 @@ final class AllUIStatesSurfacesCaptureUITests: UIStateCaptureCase {
         let g = "11 Tab card still pictures"
         capture([
             // The gallery takes its scheme from -cmux-mobile-gallery-appearance, not the device's look.
-            Scene(group: g, id: "stills-light", args: ["-cmux-mobile-recovery-gallery", "stills", "-cmux-mobile-gallery-appearance", "light"], looks: [.light], settle: 3),
-            Scene(group: g, id: "stills-dark", args: ["-cmux-mobile-recovery-gallery", "stills", "-cmux-mobile-gallery-appearance", "dark"], looks: [.dark], settle: 3),
-            Scene(group: g, id: "stills-mocha", args: ["-cmux-mobile-recovery-gallery", "stills-mocha", "-cmux-mobile-gallery-appearance", "dark"], looks: [.dark], settle: 3),
-            Scene(group: g, id: "stills-solarized", args: ["-cmux-mobile-recovery-gallery", "stills-solarized", "-cmux-mobile-gallery-appearance", "light"], looks: [.light], settle: 3),
+            Scene(group: g, id: "stills-light", args: ["-cmux-mobile-recovery-gallery", "stills", "-cmux-mobile-gallery-appearance", "light"], looks: [.light], ready: .clock(3)),
+            Scene(group: g, id: "stills-dark", args: ["-cmux-mobile-recovery-gallery", "stills", "-cmux-mobile-gallery-appearance", "dark"], looks: [.dark], ready: .clock(3)),
+            Scene(group: g, id: "stills-mocha", args: ["-cmux-mobile-recovery-gallery", "stills-mocha", "-cmux-mobile-gallery-appearance", "dark"], looks: [.dark], ready: .clock(3)),
+            Scene(group: g, id: "stills-solarized", args: ["-cmux-mobile-recovery-gallery", "stills-solarized", "-cmux-mobile-gallery-appearance", "light"], looks: [.light], ready: .clock(3)),
         ])
     }
 }
