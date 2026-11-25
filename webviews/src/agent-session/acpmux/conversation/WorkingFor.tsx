@@ -18,8 +18,9 @@ import { useContext, useMemo } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { usePageNow as useTicking } from "../../../ui/pageClock";
-import { ChevronRight, TerminalSquare } from "./icons";
-import { useTextSwap } from "../../../ui/motion/useTextSwap";
+import { TerminalSquare } from "./icons";
+import { TextRoll } from "../../../ui/motion/TextRoll";
+import { DisclosureChevron } from "./DisclosureChevron";
 import { BackgroundHint } from "./BackgroundHint";
 import { TimedLabel } from "./TurnTokens";
 import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
@@ -66,8 +67,6 @@ export function WorkingFor({
   const sending = shown !== undefined && sendName !== undefined;
   const doing = sending ? t("send.sending", { target: sendName }) : shown;
   const parts = counts ? workingParts(counts) : [];
-  // A new call changes the words as Claude desktop's line does (ui/motion/useTextSwap.ts).
-  const words = useTextSwap<HTMLSpanElement>(waiting ? undefined : (doing ?? ""));
   const toggles = onToggle !== undefined && !row.below;
   // The ticking "Working for 42s" the toggle holds room for: the same words at the widest time of
   // its shape across units, so a tick, "59s" into "1m 0s" too, moves nothing after the toggle.
@@ -93,10 +92,13 @@ export function WorkingFor({
         </output>
       ) : doing || row.thinkingNow ? (
         <>
-          <span ref={words} className={doing ? "cv-worked__label cv-worked__doing" : "cv-worked__label"}>
-            {doing ??
-              (held ? t("thinking") : <StatusVerb elapsedMs={Math.max(0, until - row.at)} verbKey={row.verbKey} />)}
-          </span>
+          {/* A new call rolls the words through the line's faded edges (ui/motion/TextRoll.tsx). */}
+          <TextRoll turn={doing ?? ""} className={doing ? "cv-worked__roll is-doing" : "cv-worked__roll"}>
+            <span className={doing ? "cv-worked__label cv-worked__doing" : "cv-worked__label"}>
+              {doing ??
+                (held ? t("thinking") : <StatusVerb elapsedMs={Math.max(0, until - row.at)} verbKey={row.verbKey} />)}
+            </span>
+          </TextRoll>
           <span className="cv-worked__time">{formatDuration(Math.max(0, until - row.at))}</span>
         </>
       ) : (
@@ -130,11 +132,11 @@ export function WorkingFor({
         <button type="button" className="cv-worked__toggle" aria-expanded={expanded} onClick={onToggle}>
           <span className="cv-worked__hug">
             {label}
-            <ChevronRight size={14} className={`cv-worked__chevron cv-rotor${expanded ? " is-open" : ""}`} />
+            <DisclosureChevron open={expanded} look="worked" />
           </span>
           <span className="cv-worked__toggle-sizer" aria-hidden="true">
             {sizer && <span className="cv-worked__label">{sizer}</span>}
-            <ChevronRight size={14} className="cv-worked__chevron cv-rotor is-reserved" />
+            <DisclosureChevron open={false} look="worked" reserved />
           </span>
         </button>
       ) : (
@@ -156,9 +158,7 @@ export function WorkingFor({
       {/* Over the work it is the turn's header in its running phase (turns.ts `turnHeaderId`): the
           ended "Worked for"'s chevron has its slot already, right after the words as it draws
           there, unseen until the turn ends and the line opens what it folded. */}
-      {!row.below && !toggles && (
-        <ChevronRight size={14} className="cv-worked__chevron cv-rotor is-reserved" aria-hidden="true" />
-      )}
+      {!row.below && !toggles && <DisclosureChevron open={false} look="worked" reserved />}
     </div>
   );
 }
