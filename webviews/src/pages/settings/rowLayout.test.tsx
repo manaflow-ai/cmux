@@ -2,7 +2,6 @@
 // write inside the sidebar_row_layout reducer's bounds, and the editor (editors/RowLayoutEditor.tsx)
 // edits the three layout keys, maps a daemon refusal's problems onto its items, and resets.
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
-import { act } from "react";
 import { installDom } from "./testDom";
 import {
   BY_AGENT_KEY,
@@ -41,14 +40,6 @@ describe("the model", () => {
     expect(readLayout({})).toBeNull();
     expect(layout([]).lines).toEqual([[]]);
     expect(writeLayout(layout([]))).toEqual([["name"]]);
-  });
-
-  test("a slot-only line is not drawn, as the reducer reads it: the next line holds the name", () => {
-    const read = layout([["icon"], ["name", "branch"]]);
-    expect(read.lines).toEqual([["branch"]]);
-    expect(writeLayout(toggleSlot(read, "progress"))).toEqual([["icon", "name", "branch", "progress"]]);
-    // The name on a later line is dropped, as the reducer drops it (nameMoved).
-    expect(layout([["branch"], ["name"]]).lines).toEqual([["branch"]]);
   });
 
   test("at most three lines of six text tokens, as the reducer draws", () => {
@@ -100,11 +91,6 @@ describe("the model", () => {
     // The last line's only chip has no new line to go to.
     expect(stepPlace(start, { line: 1, index: 0 }, "down")).toBeNull();
     expect(stepPlace(start, { line: 0, index: 0 }, "up")).toBeNull();
-    // Line one keeps the name, so its only chip can start line two.
-    const one = layout([["name", "branch"]]);
-    const down = stepPlace(one, { line: 0, index: 0 }, "down");
-    expect(down).toEqual({ line: 1, index: 0 });
-    expect(writeLayout(moveToken(one, { line: 0, index: 0 }, down!))).toEqual([["name"], ["branch"]]);
   });
 
   test("customizing starts from the row the switches draw", () => {
@@ -126,22 +112,10 @@ describe("the model", () => {
   });
 
   test("by-kind and by-agent maps keep their order and drop an entry set to null", () => {
-    const stored = { agent: [["name"]], browser: [["name", "ports"]] };
-    const entries = readMap({ ...stored, terminal: "nope" });
+    const entries = readMap({ agent: [["name"]], terminal: "nope", browser: [["name", "ports"]] });
     expect(entries.map(([key]) => key)).toEqual(["agent", "browser"]);
-    expect(writeMap(stored, "agent", null)).toEqual({ browser: [["name", "ports"]] });
-    expect(Object.keys(writeMap(stored, "mixed", layout([["name"]])))).toEqual(["agent", "browser", "mixed"]);
-  });
-
-  test("editing one agent keeps every other agent's stored layout exactly as it was", () => {
-    const stored = JSON.parse('{"claude":[["icon"],["name","branch"]],"__proto__":[["name","ports"]]}');
-    const next = writeMap(stored, "codex", layout([["name", "branch"]]));
-    expect(JSON.parse(JSON.stringify(next))).toEqual({
-      claude: [["icon"], ["name", "branch"]],
-      ["__proto__"]: [["name", "ports"]],
-      codex: [["name", "branch"]],
-    });
-    expect(Object.keys(next)).toEqual(["claude", "__proto__", "codex"]);
+    expect(writeMap(entries, "agent", null)).toEqual({ browser: [["name", "ports"]] });
+    expect(Object.keys(writeMap(entries, "mixed", layout([["name"]])))).toEqual(["agent", "browser", "mixed"]);
   });
 
   test("a refusal's problems map to their key, entry, line and token", () => {
@@ -334,54 +308,6 @@ describe("the editor", () => {
       codex: [["name", "branch"]],
       claude: [["icon", "name", "working", "progress"]],
     });
-  });
-
-  test("removing the last agent shown keeps an agent another writer saved meanwhile", async () => {
-    await open({ mock: { values: { [BY_AGENT_KEY]: { claude: [["name", "branch"]] } } } });
-    await tab("By Agent");
-    // The CLI saves Codex; this page has not heard of it yet (no change event reached it).
-    (page!.provider as unknown as { values: Map<string, unknown> }).values.set(BY_AGENT_KEY, {
-      claude: [["name", "branch"]],
-      codex: [["name", "ports"]],
-    });
-    const claude = editor().querySelector<HTMLElement>('[data-row-layout-entry="claude"]')!;
-    await click(claude.querySelector('[data-row-layout-action="remove-entry"]')!);
-    await settle();
-    expect(ops(page!.provider, "cmux.settings.reset")).toEqual([]);
-    expect(sets(BY_AGENT_KEY).at(-1)!.value).toEqual({ codex: [["name", "ports"]] });
-  });
-
-  test("Add Agent never replaces an agent another writer saved meanwhile", async () => {
-    await open({ mock: { values: { [BY_AGENT_KEY]: { claude: [["name", "branch"]] } } } });
-    await tab("By Agent");
-    (page!.provider as unknown as { values: Map<string, unknown> }).values.set(BY_AGENT_KEY, {
-      claude: [["name", "branch"]],
-      codex: [["name", "ports"], ["branch"]],
-    });
-    await changeValue(editor().querySelector<HTMLInputElement>(".row-layout-agent-field")!, "codex");
-    await click(editor().querySelector('[data-row-layout-action="add-agent"]')!);
-    await settle();
-    expect(sets(BY_AGENT_KEY)).toEqual([]);
-    expect(editor().querySelector('[data-row-layout-entry="codex"]')).not.toBeNull();
-  });
-
-  test("Reset to Default inside the editor resets the tab shown, never All Rows from By Agent", async () => {
-    await open({
-      mock: { values: { [LINES_KEY]: [["name", "branch"]], [BY_AGENT_KEY]: { codex: [["name", "ports"]] } } },
-    });
-    await tab("By Agent");
-    const chip = editor().querySelector('[data-chip="ports"]')!;
-    await act(async () => {
-      chip.dispatchEvent(
-        new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 60 }),
-      );
-    });
-    const reset = [...document.querySelectorAll<HTMLButtonElement>("[role=menu] [role=menuitem]")].find(
-      (button) => button.textContent === "Reset to Default",
-    )!;
-    await click(reset);
-    expect(ops(page!.provider, "cmux.settings.reset").map((op) => (op as { key: string }).key)).toEqual([BY_AGENT_KEY]);
-    expect(editor().getAttribute("data-reset-key")).toBe(BY_AGENT_KEY);
   });
 
   test("a link to By Kind opens the editor on its tab", async () => {

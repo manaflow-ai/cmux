@@ -86,18 +86,14 @@ export function readLayout(value: unknown): Layout | null {
   for (const line of value.slice(0, MAX_LINES)) {
     if (!Array.isArray(line)) continue;
     const out: TextToken[] = [];
-    let named = false;
     for (const token of line) {
       if (!isToken(token) || seen.has(token)) continue;
       seen.add(token);
       if (isSlot(token)) slots.add(token);
-      // The name counts only on the first line drawn; elsewhere the reducer drops it.
-      else if (token === "name") named = lines.length === 0;
-      else if (out.length < MAX_TOKENS) out.push(token);
+      else if (token !== "name" && out.length < MAX_TOKENS) out.push(token);
     }
-    // As the reducer: a line is drawn when something on it is (the name, or text). A slot-only
-    // line is not, so `[["icon"], ["name", "branch"]]` draws Name and Git Branch on line one.
-    if (out.length > 0 || named) lines.push(out);
+    // A line that held only the name or slots still keeps line one's place (the name leads it).
+    if (out.length > 0 || lines.length === 0) lines.push(out);
   }
   if (lines.length === 0) lines.push([]);
   return { slots, lines };
@@ -195,9 +191,8 @@ export function stepPlace(layout: Layout, from: Place, direction: "left" | "righ
   if (direction === "right") return from.index < line.length - 1 ? { line: from.line, index: from.index + 1 } : null;
   const next = from.line + (direction === "up" ? -1 : 1);
   if (next < 0) return null;
-  // A later last line's only chip has nowhere new to go: moving it down would leave its line empty.
-  // Line one keeps the name, so its last chip can start line two.
-  if (from.line > 0 && next === layout.lines.length && line.length === 1) return null;
+  // The last line's only chip has nowhere new to go: moving it down would leave its line empty.
+  if (next === layout.lines.length && line.length === 1) return null;
   if (next > layout.lines.length || next >= MAX_LINES) return null;
   if (next < layout.lines.length && lineFull(layout, next)) return null;
   return { line: next, index: layout.lines[next]?.length ?? 0 };
@@ -259,24 +254,21 @@ export function readMap(value: unknown): Array<[string, Layout]> {
   });
 }
 
-/**
- * The stored map with `id` set to `layout` (null removes it). Every other entry is kept exactly as
- * stored, so editing one kind or agent never rewrites another's layout. Keys are set as own
- * properties, so an agent id such as `__proto__` stays an entry.
- */
-export function writeMap(stored: unknown, id: string, layout: Layout | null): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  const put = (key: string, entry: unknown) =>
-    Object.defineProperty(out, key, { value: entry, enumerable: true, writable: true, configurable: true });
-  const entries = typeof stored === "object" && stored !== null && !Array.isArray(stored) ? Object.entries(stored) : [];
+/** The map with `id` set to `layout` (null removes it); written in the order the editor lists. */
+export function writeMap(
+  entries: Array<[string, Layout]>,
+  id: string,
+  layout: Layout | null,
+): Record<string, Token[][]> {
+  const out: Record<string, Token[][]> = {};
   let placed = false;
   for (const [key, entry] of entries) {
     if (key === id) {
       placed = true;
-      if (layout) put(key, writeLayout(layout));
-    } else put(key, entry);
+      if (layout) out[key] = writeLayout(layout);
+    } else out[key] = writeLayout(entry);
   }
-  if (!placed && layout) put(id, writeLayout(layout));
+  if (!placed && layout) out[id] = writeLayout(layout);
   return out;
 }
 

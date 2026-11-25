@@ -15,8 +15,6 @@
   --border-strong: var(--app-border-strong, var(--ds-color-focus));
   --input-bg: var(--ds-color-hover);
   --accent-soft: var(--ds-color-selection);
-  /* Status colors (a Connected dot, a done mark): the shared design tokens, light and dark. */
-  --success: var(--ds-color-success);
   --danger: var(--ds-color-danger);
   --warning: var(--ds-color-attention);
   --motion-hover: var(--cmux-motion-quick);
@@ -177,9 +175,11 @@ mark {
 }
 
 .section-link {
-  --settings-nav-padding: var(--ds-space-1) var(--ds-space-2);
   display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
   width: 100%;
+  padding: var(--ds-space-1) var(--ds-space-2);
   border: 0;
   border-radius: var(--ds-radius-md);
   background: transparent;
@@ -192,21 +192,15 @@ mark {
   -webkit-user-drag: none;
 }
 
-.section-link-content {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  align-items: center;
-  gap: var(--ds-space-2);
-  padding: var(--settings-nav-padding);
-  border-radius: inherit;
-}
-
-.section-link:is(:hover, :active) > .section-link-content {
+/* Only the pointer fades in. The current-section mark snaps: a route the host opens while the
+   tab is hidden (Customize Appearance… on a kept page) must not replay a fade from the old
+   section when the tab shows again. */
+.section-link:hover {
   background: var(--input-bg);
+  transition: background var(--motion-hover);
 }
 
-.section-link[aria-current] > .section-link-content {
+.section-link[aria-current] {
   background: var(--accent-soft);
 }
 
@@ -300,13 +294,6 @@ mark {
   overflow-wrap: anywhere;
 }
 
-/* Update Automatically: the shared switch before its words (HarnessesCard). */
-.harness-auto {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--ds-space-2);
-}
-
 /* A provider's accounts under its harness row (ProviderAccounts). */
 .harness-accounts {
   gap: var(--ds-space-2);
@@ -381,22 +368,6 @@ mark {
 /* A device row's Full access switch, under the device's own line (Settings > Devices). */
 .row-main.device-full-access {
   padding-top: var(--ds-space-2);
-}
-
-/* A Remote machine's AutoCloud capabilities (Mac, Xcode, Simulator, GPU), under its policy line. */
-.autocloud-caps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--ds-space-1);
-  padding-top: var(--ds-space-1);
-}
-
-.autocloud-cap {
-  padding: 0 var(--ds-space-2);
-  border: 1px solid var(--border);
-  border-radius: var(--ds-radius-sm);
-  color: var(--muted-text);
-  font-size: var(--text-caption);
 }
 
 .row-label {
@@ -546,12 +517,6 @@ mark {
 
 .notice-text {
   flex: 1;
-}
-
-/* A row note (#44894): where the value comes from, or why it does not draw. Not a problem, so the
-   muted text color instead of the warning color. */
-.notice.row-note {
-  color: var(--muted-text);
 }
 
 .empty {
@@ -1209,13 +1174,6 @@ mark {
   padding: var(--ds-space-1) 0 0;
 }
 
-/* New Command's form is a fieldset (one named group), without the fieldset's own frame. */
-.agent-command-form {
-  min-inline-size: 0;
-  margin: 0;
-  border: 0;
-}
-
 .accounts-row {
   --accounts-mark-width: var(--page-size-20);
 }
@@ -1242,7 +1200,7 @@ mark {
 }
 
 .accounts-status[data-status="success"] .accounts-dot {
-  border-color: var(--success);
+  border-color: var(--success, var(--text));
 }
 
 .accounts-status[data-status="attention"] .accounts-dot {
@@ -1324,197 +1282,6 @@ mark {
   margin-left: auto;
 }
 
-/* Settings > Integrations (IntegrationsHubCard): one card of sections. A row with no control on its
-   right (an approval, Link Stripe) lets its text run the card's width; its buttons sit one step under
-   the text, not on it. Notes and the pause card keep a step from the Refresh line above them. */
-.hub-actions {
-  padding-top: var(--ds-space-2);
-}
-
-.hub-note {
-  margin-top: var(--ds-space-2);
-}
-
-.hub-lead {
-  margin-bottom: var(--ds-space-2);
-}
-
-.hub-below {
-  margin-top: var(--ds-space-2);
-  margin-bottom: 0;
-}
-
-/* The tabs under the header: Connections, Approvals, Rules, Audit. The list keeps a step from the
-   header's last line, and each panel's first group starts one step under the tabs. */
-.hub-tabs {
-  margin-top: var(--ds-space-3);
-}
-
-.hub-tab-list {
-  margin-bottom: var(--ds-space-3);
-}
-
-.hub-form {
-  gap: var(--ds-space-2);
-  align-items: flex-start;
-}
-
-.accounts-buttons > .hub-field {
-  width: var(--page-size-160);
-}
-
-/* Settings > Automations: the form reads as labeled fields in rows, a condition is one line
-   (path, operator, value, remove), and the preview wraps its rendered prompt. */
-.autocloud-form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ds-space-2);
-}
-
-.autocloud-heading {
-  margin-top: var(--ds-space-2);
-}
-
-.autocloud-field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ds-space-1);
-  min-width: 0;
-}
-
-.autocloud-form > .autocloud-field {
-  max-width: var(--page-size-320);
-}
-
-.autocloud-form > .autocloud-field:has(textarea) {
-  max-width: none;
-}
-
-.hub-form > .autocloud-field {
-  flex: 1 1 var(--page-size-160);
-}
-
-.autocloud-condition {
-  flex-wrap: nowrap;
-}
-
-.autocloud-condition > .field:first-child {
-  flex: 2 1 0;
-}
-
-.autocloud-condition > select {
-  flex: none;
-}
-
-.autocloud-condition > .field:not(:first-child) {
-  flex: 1 1 0;
-}
-
-.autocloud-textarea {
-  box-sizing: border-box;
-  width: 100%;
-  min-height: calc(var(--ds-control-row) * 5);
-  padding: var(--ds-space-1) var(--ds-space-2);
-  border: 1px solid var(--border);
-  border-radius: var(--ds-radius-md);
-  background: var(--input-bg);
-  color: var(--text);
-  font: inherit;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  resize: vertical;
-  outline: none;
-}
-
-.autocloud-textarea:focus-visible {
-  border-color: var(--border-strong);
-  box-shadow: 0 0 0 2px var(--accent-soft);
-}
-
-.autocloud-check {
-  display: flex;
-  align-items: center;
-  gap: var(--ds-space-1);
-}
-
-.autocloud-preview {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ds-space-1);
-  padding: var(--ds-space-2);
-  border: 1px solid var(--border);
-  border-radius: var(--ds-radius-md);
-}
-
-.autocloud-prompt {
-  margin: 0;
-  max-height: calc(var(--ds-control-row) * 8);
-  overflow: auto;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font-size: var(--text-detail);
-}
-
-.autocloud-number {
-  max-width: var(--page-size-160);
-}
-
-/* Settings > Connections (ConnectionsCard): the catalog as a grid of tiles in rank order, each with
-   its title and status on one line, one line about it, and its button at the bottom. */
-.connections-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(var(--page-size-240), 1fr));
-  gap: var(--ds-space-2);
-}
-
-.connections-tile {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ds-space-1);
-  min-width: 0;
-  padding: var(--ds-space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--ds-radius-lg);
-  background: var(--input-bg);
-}
-
-.connections-tile[data-connections-state="unavailable"] {
-  opacity: 0.7;
-}
-
-.connections-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--ds-space-2);
-}
-
-.connections-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--ds-space-2);
-  margin-top: auto;
-  padding-top: var(--ds-space-2);
-}
-
-.connections-key {
-  display: flex;
-  flex: 1;
-  gap: var(--ds-space-2);
-  min-width: 0;
-}
-
-.connections-key > .keys-field {
-  flex: 1;
-  min-width: 0;
-}
-
-.connections-owner {
-  display: flex;
-  align-items: center;
-  gap: var(--ds-space-2);
-}
-
 /* Settings > Devices: tones reuse the Accounts status dot; the history is a compact table. */
 .devices-header {
   justify-content: flex-start;
@@ -1525,7 +1292,7 @@ mark {
 }
 
 .devices-status[data-tone="success"] .accounts-dot {
-  border-color: var(--success);
+  border-color: var(--success, var(--text));
 }
 
 .devices-status[data-tone="attention"] .accounts-dot {
@@ -1707,7 +1474,7 @@ mark {
 }
 
 .devices-pill[data-tone="success"] {
-  color: var(--success);
+  color: var(--success, var(--text));
 }
 
 .devices-pill[data-tone="attention"] {
@@ -1729,46 +1496,6 @@ mark {
   grid-template-columns: repeat(auto-fill, minmax(var(--page-size-112), 1fr));
   gap: var(--ds-space-2);
   margin-top: var(--ds-space-2);
-}
-
-/* The Background card's placement preview: the picture in a window-shaped frame, dragged into place. */
-.placement-preview {
-  display: grid;
-  gap: var(--ds-space-2);
-  margin-top: var(--ds-space-3);
-  max-width: var(--page-size-420);
-}
-
-.placement-frame {
-  position: relative;
-  aspect-ratio: 16 / 10;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: var(--page-size-6);
-  background: var(--input-bg);
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
-}
-
-.placement-frame[data-dragging] {
-  cursor: grabbing;
-}
-
-.placement-frame[aria-disabled="true"] {
-  cursor: default;
-}
-
-.placement-image {
-  position: absolute;
-  max-width: none;
-  pointer-events: none;
-}
-
-.placement-controls {
-  display: flex;
-  align-items: center;
-  gap: var(--ds-space-2);
 }
 
 .backdrop-group-title {
@@ -2429,10 +2156,6 @@ mark {
 
 .menus-detail-header {
   display: flex;
-  /* The title and four buttons are wider than the detail column beside the menu list: the buttons
-     wrap under the title instead of running past the column (Reset to Default was cut at the
-     window's edge). */
-  flex-wrap: wrap;
   align-items: center;
   gap: var(--ds-space-2);
 }
@@ -2529,26 +2252,12 @@ mark {
   height: var(--ds-space-4);
 }
 
-/* A row's title takes the row's whole width at rest: its buttons show only on hover, so they lie
-   over the title's end instead of holding a slot (Leo, 2026-11-24: "if the buttons show on hover,
-   then we should show the whole line before ellipsis-ing. and when the area is hovered over,
-   there's that whatever some amount of good fading that makes it all feel like one motion";
-   "you're early ellipsis-ing because of a button that doesnt even always show"). The title is a
-   .ui-reveal-text (ui/motion/motion.css): its end fades, not an ellipsis, and fades under the
-   buttons while they show. The row is the host (data-reveal-overlap: a chevron or badge may follow
-   a short title, and gives way under the buttons). */
 .menu-row-title {
   flex: 1;
   min-width: 0;
-}
-
-.menu-row-body {
-  position: relative;
-}
-
-/* A drag shows no buttons, so the title's end shows whole. */
-.menu-preview[data-reordering] .menu-row-body .ui-reveal-text {
-  --ui-reveal-cover: 0px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 button.menu-disclosure {
@@ -2565,11 +2274,6 @@ button.menu-disclosure {
 }
 
 .menu-row-actions {
-  position: absolute;
-  inset-inline-end: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: var(--layer-raised);
   display: inline-flex;
   opacity: 0;
   transition: var(--cmux-hover-reveal-out-transition);
@@ -2585,13 +2289,6 @@ button.menu-disclosure {
 /* It follows the pointer's dwell (pages/shared/desktop.css --cmux-hover-reveal-*): in for as long as the pointer stays, out a little faster, at once from the keyboard. */
 .menu-row:has(:focus-visible) .menu-row-actions {
   transition: none;
-}
-
-/* Renaming a submenu puts its field where the title was; the buttons then take their place beside it
-   (only in that state). */
-.menu-row-body:has(.menu-rename) .menu-row-actions {
-  position: static;
-  transform: none;
 }
 
 .menu-separator .menu-separator-line {
@@ -2725,115 +2422,6 @@ button.menu-disclosure {
   background: var(--accent-soft);
 }
 
-/* Settings > Computer Use (ComputerUseCard): the built-in line, the mode list, the app lists. */
-.computer-use-builtin {
-  margin: 0 0 var(--ds-space-3);
-  color: var(--muted-text);
-}
-
-.computer-use-modes {
-  display: grid;
-  gap: var(--ds-space-1);
-  margin: var(--ds-space-2) 0 0;
-  padding: 0;
-  border: 0;
-  min-width: 0;
-}
-
-.computer-use-mode {
-  position: relative;
-  display: flex;
-  gap: var(--ds-space-3);
-  align-items: flex-start;
-  padding: var(--ds-space-2) var(--ds-space-3);
-  border-radius: var(--ds-radius-sm);
-}
-
-.computer-use-mode:hover {
-  background: var(--input-bg);
-}
-
-.computer-use-mode[data-checked] {
-  background: var(--accent-soft);
-}
-
-.computer-use-mode:focus-within {
-  outline: 2px solid var(--border-strong);
-  outline-offset: -2px;
-}
-
-.computer-use-mode input {
-  margin: var(--ds-space-1) 0 0;
-}
-
-.computer-use-mode-text {
-  display: grid;
-  gap: var(--ds-space-1);
-  min-width: 0;
-}
-
-.computer-use-mode-title {
-  font-weight: var(--weight-emphasis);
-}
-
-.computer-use-list {
-  display: grid;
-  gap: 0;
-  margin: var(--ds-space-2) 0 0;
-  padding: 0;
-  list-style: none;
-  max-height: 240px;
-  overflow-y: auto;
-}
-
-.computer-use-list-row {
-  display: flex;
-  gap: var(--ds-space-3);
-  align-items: center;
-  justify-content: space-between;
-  min-height: var(--ds-control-row);
-  padding: 0 var(--ds-space-2);
-  border-bottom: 1px solid var(--border);
-}
-
-.computer-use-list-row:last-child {
-  border-bottom: 0;
-}
-
-.computer-use-app {
-  display: flex;
-  gap: var(--ds-space-2);
-  align-items: baseline;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.computer-use-app-id {
-  color: var(--muted-text);
-  font-family: var(--font-mono, ui-monospace, monospace);
-}
-
-.computer-use-approval-controls {
-  display: inline-flex;
-  gap: var(--ds-space-2);
-  align-items: center;
-}
-
-.computer-use-add {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--ds-space-2);
-  align-items: center;
-  margin-top: var(--ds-space-2);
-}
-
-.computer-use-add .field[type="text"] {
-  flex: 1;
-  min-width: 160px;
-}
-
 /* Settings > Agents > Worktree Setup (WorktreeSetupCard.tsx, design/worktree-setup.md): each script
    is its name, what it is for, a code box, and what the repository says under it. Switching the
    project changes only the values, never the fields, so nothing moves. */
@@ -2870,6 +2458,37 @@ button.menu-disclosure {
 .worktree-setup-files {
   flex: 1;
   min-width: 0;
+}
+
+/* Settings > Personalization (PersonalizationCard): its parts under the shared jump bar (layout.css
+ * .jump-bar), each a titled run of its home category's card or rows, with More in … on its right. */
+.personalization-part {
+  scroll-margin-top: var(--jump-bar-clearance);
+  margin-bottom: var(--ds-space-6);
+}
+
+.personalization-part-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--ds-space-4);
+  margin: 0 0 var(--ds-space-3);
+}
+
+.personalization-part-title {
+  margin: 0;
+  font-size: var(--text-body);
+  font-weight: var(--weight-emphasis);
+  color: var(--text);
+}
+
+.personalization-more {
+  color: var(--muted-text);
+}
+
+.personalization-more-links {
+  display: flex;
+  gap: var(--ds-space-1);
 }
 
 /* Settings > Models (ModelsCard.tsx): three groups, each title with its help and an optional + on the
@@ -3002,7 +2621,7 @@ button.menu-disclosure {
   font-size: var(--text-detail);
 }
 
-/* Appearance > Customization Library (CustomizeLibraryCard): one row per entry, top first.
+/* Personalization > Customization Library (CustomizeLibraryCard): one row per entry, top first.
    The mark is the entry's swatches (its thumbnail is its colors and keys, never a capture); its
    order buttons show on hover and focus like the menu rows'; an entry that is off reads dimmed. */
 .library-mark {
@@ -3066,18 +2685,6 @@ button.menu-disclosure {
   color: var(--ds-color-attention);
 }
 
-/* A PR entry's lines (`cmux customize use pr:N`): what it cannot carry wraps as one muted sentence
-   each, and the last refresh's note keeps the attention color while the entry is off (it says why
-   it turned off) and reads muted while it is on. */
-.library-needs-build,
-.library-note {
-  overflow-wrap: anywhere;
-}
-
-[data-library-code]:not([data-on]) .library-note {
-  color: var(--ds-color-attention);
-}
-
 .library-position {
   flex: none;
   min-width: var(--ds-space-4);
@@ -3117,175 +2724,6 @@ button.menu-disclosure {
 
 .library-tile .library-order {
   align-self: flex-end;
-}
-
-/* Settings > Appearance > Looks (LooksGalleryCard): a grid of look tiles, each its golden sample in
-   a fixed 16:10 frame (the frame holds its size before the image arrives, so tiles never move), its
-   name and tagline, then Install or its switch and Uninstall. The Stacked list under it is the
-   installed looks top first, one Settings row each. */
-.looks-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: var(--ds-space-3);
-  padding: var(--ds-space-3);
-}
-
-.looks-hero {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ds-space-3);
-  padding: var(--ds-space-3);
-}
-
-.looks-rail {
-  display: grid;
-  grid-auto-columns: minmax(180px, 1fr);
-  grid-auto-flow: column;
-  gap: var(--ds-space-3);
-  overflow-x: auto;
-}
-
-.looks-list {
-  display: flex;
-  flex-direction: column;
-}
-
-.looks-tile {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ds-space-2);
-  min-width: 0;
-  padding: var(--ds-space-2);
-  border: 1px solid var(--ds-color-separator);
-  border-radius: var(--ds-radius-lg);
-}
-
-.looks-tile[data-size="row"] {
-  flex-direction: row;
-  align-items: center;
-  padding: var(--ds-space-2) var(--ds-space-3);
-  border: 0;
-  border-radius: 0;
-}
-
-.looks-tile[data-size="row"] + .looks-tile[data-size="row"] {
-  border-top: 1px solid var(--ds-color-separator);
-}
-
-.looks-preview {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  aspect-ratio: 16 / 10;
-  overflow: hidden;
-  border: 1px solid var(--ds-color-separator);
-  border-radius: var(--ds-radius-md);
-}
-
-.looks-tile[data-size="row"] .looks-preview {
-  flex: none;
-  width: 96px;
-}
-
-.looks-preview img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.looks-preview-missing {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--ds-space-1);
-}
-
-.looks-tile-body {
-  display: flex;
-  flex: 1;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--ds-space-2);
-  min-width: 0;
-}
-
-.looks-tile[data-size="row"] .looks-tile-body {
-  align-items: center;
-}
-
-/* In a tile the text takes the whole width and the controls sit under it, Install or the switch
-   leading and Uninstall trailing, so a long name never squeezes beside them. */
-.looks-tile:not([data-size="row"]) .looks-tile-body {
-  flex-direction: column;
-  align-items: stretch;
-}
-
-.looks-tile:not([data-size="row"]) .looks-controls {
-  justify-content: space-between;
-}
-
-.looks-tile-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.looks-tagline {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.looks-controls {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: var(--ds-space-2);
-}
-
-.looks-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--ds-space-1);
-}
-
-.looks-sheet {
-  margin: var(--ds-space-3);
-}
-
-.looks-changes {
-  margin: 0;
-  padding-inline-start: var(--ds-space-4);
-  color: var(--ds-color-muted);
-}
-
-.looks-replaces,
-.looks-unreviewed {
-  color: var(--ds-color-attention);
-}
-
-.looks-stacked {
-  margin-top: var(--ds-space-3);
-}
-
-.looks-position {
-  flex: none;
-  min-width: var(--ds-space-4);
-  text-align: end;
-  font-variant-numeric: tabular-nums;
-}
-
-.looks-source {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-[data-looks-layer]:not([data-on]) :is(.row-title, .looks-source) {
-  opacity: 0.55;
 }
 
 /* A search no setting matches (AskCmuxRow.tsx): the words become a wish for the Customize chat.
@@ -3359,186 +2797,6 @@ button.menu-disclosure {
   text-decoration: underline;
 }
 
-/* Personalization > Customization Problems and its one-line notice (CustomizeDoctorCard.tsx;
-   design/customize-doctor.md). Quiet: a small dot (the Accounts status dot's border shape) in the
-   attention color for a finding that changes what the person sees now, muted for the rest, never a
-   red slab; no transition or animation of its own (the banner is ui/Notice's, through the motion
-   gate). The chip's button is ui/Button, whose hover and press change only its fill. */
-.doctor-dot {
-  flex: none;
-  align-self: flex-start;
-  width: 0;
-  height: 0;
-  /* Centers the 6px dot on the first line of body text. */
-  --doctor-dot-offset: calc((var(--text-body--line-height) - 6px) / 2);
-  margin-top: var(--doctor-dot-offset);
-  border: 3px solid var(--muted-text);
-  border-radius: 50%;
-  opacity: 0.6;
-}
-
-.doctor-dot[data-level="warning"] {
-  border-color: var(--warning);
-  opacity: 1;
-}
-
-.doctor-head {
-  display: flex;
-  align-items: baseline;
-  gap: var(--ds-space-2);
-  min-width: 0;
-}
-
-.doctor-head .group-title {
-  flex: none;
-}
-
-.doctor-controls {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--ds-space-1);
-}
-
-.doctor-finding[data-dismissed] :is(.doctor-dot, .row-title, .doctor-detail, .doctor-place) {
-  opacity: 0.55;
-}
-
-.doctor-finding > .accounts-form,
-[data-doctor-help] > .accounts-form {
-  padding-inline-start: calc(6px + var(--ds-space-3));
-}
-
-/* inline: the count and the line in the card's header. */
-.doctor-inline {
-  display: flex;
-  align-items: baseline;
-  gap: var(--ds-space-2);
-  min-width: 0;
-  margin: 0 0 var(--ds-space-2);
-}
-
-.doctor-count {
-  flex: none;
-  padding: 0 var(--ds-space-1);
-  border-radius: var(--ds-radius-sm);
-  background: var(--input-bg);
-  color: var(--muted-text);
-  font-size: var(--text-detail);
-  line-height: var(--text-detail--line-height);
-  font-variant-numeric: tabular-nums;
-}
-
-.doctor-line {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* banner: ui/Notice's warning across the top of the column. */
-.doctor-banner {
-  margin: 0 0 var(--ds-space-4);
-}
-
-/* A font row's pictures (components/FontPreview.tsx): a tile per face choice, drawn in that face at the
-   surface's size and line height, under the row; the density tiles' look. */
-.font-tiles {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(var(--page-size-150), 1fr));
-  gap: var(--page-size-10);
-  padding: var(--page-size-6) 0;
-}
-
-.font-tile {
-  display: flex;
-  flex-direction: column;
-  gap: var(--page-size-6);
-  min-width: 0;
-  padding: var(--page-size-6);
-  border: 1px solid var(--border);
-  border-radius: var(--ds-space-2);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-}
-
-.font-tile[data-on] {
-  border-color: var(--text);
-}
-
-.font-tile-picture {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-width: 0;
-  overflow: hidden;
-  padding: var(--page-size-6) var(--page-size-10);
-  border: 1px solid var(--border);
-  border-radius: var(--page-size-6);
-  background: var(--input-bg);
-  color: var(--text);
-}
-
-.font-tile-glyphs,
-.font-tile-line {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.font-tile-glyphs {
-  font-size: 1.6em;
-}
-
-.font-tile-name {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--page-size-6);
-  font-size: var(--text-caption);
-  letter-spacing: var(--text-caption--letter-spacing);
-}
-
-.font-tile-name small {
-  color: var(--muted-text);
-}
-
-.font-sample {
-  overflow: hidden;
-  margin: var(--page-size-6) 0;
-  padding: var(--page-size-6) var(--page-size-10);
-  border: 1px solid var(--border);
-  border-radius: var(--page-size-6);
-  background: var(--input-bg);
-  color: var(--text);
-  white-space: nowrap;
-}
-
-/* Settings > General's Text Size card (TextSizeCard): the picker on a card of its own, ahead of every row. */
-.text-size-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ds-space-2);
-  padding: var(--ds-space-3);
-  border: 1px solid var(--border);
-  border-radius: calc(var(--ds-radius-control) + var(--ds-space-3));
-}
-
-.text-size-card__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--ds-space-2);
-}
-
-.text-size-card__head .group-title {
-  margin: 0;
-}
-
-.text-size-card__detail {
-  margin: 0;
-  color: var(--muted-text);
-}
 /* A json row (Row Layout, a JSON value): its editor is a body under the title, as wide as the row,
    not a control beside it. Its right edge is the card's control edge. */
 .row[data-kind="json"] > .row-main {
@@ -3599,8 +2857,8 @@ button.menu-disclosure {
 /* A tab whose key holds an override carries the page's edited dot (Settings > Menus' marker). */
 .row-layout-tabs .ui-tabs-trigger[data-customized]::after {
   content: "";
-  width: var(--page-size-5);
-  height: var(--page-size-5);
+  width: 5px;
+  height: 5px;
   margin-inline-start: var(--ds-space-1);
   border-radius: 50%;
   background: var(--cmux-accent, var(--ds-color-accent));
@@ -3677,7 +2935,7 @@ button.menu-disclosure {
 
 .row-layout-preview-name {
   overflow: hidden;
-  font-weight: var(--font-weight-emphasis);
+  font-weight: 500;
   color: var(--text);
   text-overflow: ellipsis;
 }
@@ -3697,8 +2955,8 @@ button.menu-disclosure {
 
 .row-layout-preview-working {
   flex: none;
-  width: var(--page-size-6);
-  height: var(--page-size-6);
+  width: 6px;
+  height: 6px;
   margin-inline-start: auto;
   border-radius: 50%;
   background: var(--cmux-accent, var(--ds-color-accent));
@@ -3709,7 +2967,7 @@ button.menu-disclosure {
   inset-inline-start: 0;
   bottom: 0;
   width: 60%;
-  height: var(--page-size-2);
+  height: 2px;
   background: var(--cmux-accent, var(--ds-color-accent));
 }
 
@@ -3732,7 +2990,7 @@ button.menu-disclosure {
 .row-layout-line-label {
   overflow: hidden;
   font-size: var(--text-caption);
-  font-weight: var(--font-weight-emphasis);
+  font-weight: 500;
   color: var(--muted-text);
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -3841,8 +3099,8 @@ button.menu-disclosure {
 /* Where the dragged chip lands. */
 .row-layout-caret {
   position: absolute;
-  width: var(--page-size-2);
-  border-radius: var(--page-size-1);
+  width: 2px;
+  border-radius: 1px;
   background: var(--ds-color-focus);
   pointer-events: none;
 }
@@ -3949,7 +3207,7 @@ button.menu-disclosure {
 .row-layout-entry-title {
   margin: 0 auto 0 0;
   font-size: var(--text-body);
-  font-weight: var(--font-weight-emphasis);
+  font-weight: 500;
 }
 
 .row-layout-entry-head:has(.row-layout-entry-note) .row-layout-entry-title {
@@ -3997,242 +3255,4 @@ button.menu-disclosure {
   margin: 0;
   padding: 0;
   list-style: none;
-}
-
-/* Updates > App Update's Go Back to Previous Build (PreviousBuildRow). `line`: an inline link-weight
-   button after the sentence; `panel`: the build in a box of its own. */
-.previous-build-line .previous-build-link {
-  min-height: 0;
-  padding: 0 var(--ds-space-1);
-  vertical-align: baseline;
-  color: var(--accent-text);
-  background: transparent;
-}
-
-.previous-build-panel .previous-build-box {
-  padding: var(--ds-space-2);
-  border: 1px solid var(--border);
-  border-radius: var(--ds-radius-md);
-  background: var(--input-bg);
-}
-
-.previous-build-version {
-  font-variant-numeric: tabular-nums;
-}
-
-/* Settings > General's Customize cmux card (CustomizeProgressCard): progress, then the steps left, each
- * with a check and an Open link to where it is done. */
-.customize-progress {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ds-space-2);
-  padding: var(--ds-space-3);
-  border: 1px solid var(--border);
-  border-radius: calc(var(--ds-radius-control) + var(--ds-space-3));
-}
-
-.customize-progress__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--ds-space-2);
-}
-
-.customize-progress__summary {
-  display: flex;
-  align-items: baseline;
-  gap: var(--ds-space-2);
-  min-width: 0;
-}
-
-.customize-progress__head .group-title {
-  margin: 0;
-}
-
-.customize-progress__count,
-.customize-progress__detail {
-  margin: 0;
-  color: var(--muted-text);
-}
-
-.customize-progress__bar {
-  display: block;
-  width: 100%;
-  height: var(--ds-space-1);
-  overflow: hidden;
-  border: 0;
-  border-radius: var(--grid-half-step);
-  appearance: none;
-  background: var(--input-bg);
-}
-
-.customize-progress__bar::-webkit-progress-bar {
-  background: transparent;
-}
-
-.customize-progress__bar::-webkit-progress-value {
-  border-radius: var(--grid-half-step);
-  background: var(--accent);
-  transition: width var(--cmux-motion-standard) var(--cmux-ease-out);
-}
-
-.customize-progress__steps {
-  display: flex;
-  flex-direction: column;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.customize-progress__step {
-  display: flex;
-  align-items: center;
-  gap: var(--ds-space-2);
-  padding: var(--ds-space-1) 0;
-}
-
-.customize-progress__check {
-  position: relative;
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  background: transparent;
-  color: var(--ds-color-on-accent);
-}
-
-.customize-progress__step[data-done] .customize-progress__check {
-  border-color: var(--ds-color-accent);
-  background: var(--accent);
-}
-
-.customize-progress__check input {
-  position: absolute;
-  inset: 0;
-  margin: 0;
-  opacity: 0;
-}
-
-.customize-progress__check input:disabled {
-  cursor: default;
-}
-
-.customize-progress__check:has(input:focus-visible) {
-  outline: 2px solid var(--ds-color-accent);
-  outline-offset: 1px;
-}
-
-.customize-progress__check .icon {
-  width: 12px;
-  height: 12px;
-}
-
-.customize-progress__words {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.customize-progress__step[data-done] .customize-progress__step-title {
-  color: var(--muted-text);
-}
-
-.customize-progress__more {
-  align-self: flex-start;
-}
-
-.customize-progress--newTab,
-.customize-progress--ring {
-  flex-direction: row;
-  align-items: center;
-}
-
-.customize-progress--newTab .customize-progress__summary,
-.customize-progress--ring .customize-progress__summary {
-  flex: 1;
-}
-
-.customize-progress--ring .customize-progress__summary {
-  flex-direction: column;
-  gap: 0;
-}
-
-.customize-progress__ring circle {
-  fill: none;
-  stroke-width: 3;
-}
-
-.customize-progress__ring-track {
-  stroke: var(--border);
-}
-
-.customize-progress__ring-fill {
-  stroke: var(--ds-color-accent);
-  stroke-linecap: round;
-}
-
-/* Add a Connection > Claude Code's Paste a token instead: a collapsed disclosure in the help line's
-   type under Connect Claude, the paste form inside it once opened. */
-.models-claude-paste > summary {
-  width: fit-content;
-  cursor: pointer;
-}
-.models-claude-paste[open] > summary {
-  margin-bottom: 8px;
-}
-
-/* Settings > General's Replay the Intro card (ReplayIntroCard), right under Text Size: a line and a button that
-   reopens the Make cmux Yours step. */
-.replay-intro-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--ds-space-3);
-  padding: var(--ds-space-3);
-  border: 1px solid var(--border);
-  border-radius: calc(var(--ds-radius-control) + var(--ds-space-3));
-}
-
-.replay-intro-card__text {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ds-space-1);
-  min-width: 0;
-}
-
-.replay-intro-card__text .group-title {
-  margin: 0;
-}
-
-.replay-intro-card__detail {
-  margin: 0;
-  color: var(--muted-text);
-}
-
-.replay-intro-card__run {
-  flex: none;
-}
-
-/* A card's slot: no box of its own, so a deep link can find any card without changing the layout. */
-.card-slot {
-  display: contents;
-}
-
-/* The row, card or connection a deep link landed on (settingsLinks.ts): ringed while
- * LinkLanding.tsx holds the attribute (LINK_HIGHLIGHT_MS). */
-[data-link-target] {
-  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus);
-  outline-offset: 2px;
-}
-
-/* A link that named nothing on the page says what it asked for. */
-.link-missing {
-  display: block;
-  margin: 0 0 12px;
 }
