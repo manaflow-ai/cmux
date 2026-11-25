@@ -47,7 +47,7 @@ chat adoption and before/after galleries are specified in
 | sidebar-card | native | card veil | Update Ready, notices, Now Playing |
 | native-overlay | native | real glass | the floating native surfaces that exist today: palette, toasts, find bars, HUDs (which-key, zoom), drag ghosts, browser bubbles and cards, Chief pet, permission request, notifications panel, Home sheets. **A closed set.** |
 | material-source | native | real glass | the shared glass itself and the hosts built on it: `Glass`, `GlassPanelView`, `OverlaySurface`, tooltip, hover card, find pill, shortcut chip |
-| scene-renderer | native | real glass or card veil | the Apps scene renderer, which draws the material each scene node names |
+| scene-renderer | native | real glass or card veil | the Apps scene renderer, which draws the material each scene node names, and the glass card an app overlay (`presentation.overlay`) draws its scene on |
 | debug | native | real glass | Debug fixtures and playgrounds, never shipped |
 
 What the rule means in practice:
@@ -119,6 +119,18 @@ His reference is the account menu of a desktop chat app: one translucent surface
   `webviews/test/floating-material-sync.test.ts` fails when the two drift.
 - Host glass puts the web menus on the same App material, so the two meet; the web side matches
   the native one, never the reverse.
+
+## One material per surface (2026-11-21)
+
+Each floating web surface draws one material: the App's host glass or the page's `.ui-glass`, never
+both and never neither (`glass-system.md`, "One material per surface", has the rules and the state
+table). In the agent pane's code (`webviews/src/ui`, `webviews/src/agent-session`) every element with
+a floating surface class (`ui-popup`, `ui-tooltip`, `ui-notice`, `ui-dialog`, `acpmux-composer-box`,
+`nt-composer-surface`, `acpmux-minimap__card`) carries `data-host-glass="menu|popover|chip"` and
+`.ui-glass`, or `data-page-glass="<reason>"` saying why it keeps the page's glass. A
+`hostGlass={false}` opt-out needs the same reason. `bun scripts/check-one-material.ts` fails the rest
+(rule `surface`); its backlog is `PENDING` in that script plus `web_floating_pending` here, and only
+shrinks.
 
 ## Inventory (2026-11-09, feat-cmux-next efdf71a9)
 

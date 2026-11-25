@@ -477,6 +477,14 @@ fn json_leaves(value: &Value, parts: &mut Vec<String>, out: &mut Vec<Leaf>) {
     } else {
         match value {
             Value::String(s) => short(s),
+            // Permission rules are what a person reads the list for: show them, not a count.
+            Value::Array(items)
+                if merged_list(parts)
+                    && !items.is_empty()
+                    && items.iter().all(Value::is_string) =>
+            {
+                short(&items.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", "))
+            }
             Value::Array(items) => count(items.len()),
             Value::Object(_) => "{}".to_owned(),
             other => other.to_string(),
@@ -871,6 +879,112 @@ pub fn apply(
         path,
         backup: existed.then(|| store.backup_path(&backup_target)),
     })
+}
+
+/// The permission rule lists `rule` edits, as Claude Code names them.
+pub const RULE_LISTS: [&str; 3] = ["allow", "deny", "ask"];
+
+/// Adds (`add`) or removes one Claude Code permission rule (`Bash(npm run test:*)`, `Read(./.env)`,
+/// `WebFetch`, `mcp__server__tool`) in `permissions.<list>` of one scope's file (default `user`).
+/// The lists merge across scopes in Claude Code, so each scope's file holds only its own rules;
+/// adding a rule already there, or removing one that is not, writes nothing. The rest of the file,
+/// comments and order included, stays as it was.
+pub fn rule(
+    ctx: &Context,
+    list: &str,
+    rule: &str,
+    add: bool,
+    scope: Option<&str>,
+) -> Result<Written, SettingsError> {
+    if !RULE_LISTS.contains(&list) {
+        return Err(SettingsError::new(
+            "agent_config.unknown_key",
+            format!("permission lists are {}", RULE_LISTS.join(", ")),
+        ));
+    }
+    let rule = rule.trim();
+    if add {
+        valid_rule(rule)?;
+    }
+    let scope = scope.unwrap_or("user");
+    let path = scope_path(ctx, Agent::Claude, scope)?;
+    let store = ctx.homes.edits.clone();
+    let _lock = store.lock(&path).map_err(|e| io_error(&path, e))?;
+    let backup_target = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+    let existed = path.exists();
+    let source = read_existing(&path)?;
+    let source = if source.trim().is_empty() { "{}\n".to_owned() } else { source };
+    let doc = match serde_json::from_str::<Value>(&source) {
+        Ok(doc @ Value::Object(_)) => doc,
+        _ if matches!(cmux_config::jsonc::parse(&source), Ok(Value::Object(_))) => {
+            return Err(SettingsError::new(
+                "agent_config.parse",
+                format!("{}: {IGNORED_JSONC}; remove it in the file first", path.display()),
+            ));
+        }
+        _ => {
+            return Err(SettingsError::new(
+                "agent_config.parse",
+                format!("{} is not a JSON object; fix it in the file first", path.display()),
+            ));
+        }
+    };
+    let key = format!("permissions.{list}");
+    let mut rules: Vec<Value> = match doc.pointer(&format!("/permissions/{list}")) {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(items)) => items.clone(),
+        Some(_) => {
+            return Err(SettingsError::new(
+                "agent_config.parse",
+                format!("{key} in {} is not a list; fix it in the file first", path.display()),
+            ));
+        }
+    };
+    let present = rules.iter().any(|r| r.as_str() == Some(rule));
+    let written = Written {
+        agent: Agent::Claude,
+        key,
+        scope: scope.to_owned(),
+        path: path.clone(),
+        backup: None,
+    };
+    if present == add {
+        return Ok(written);
+    }
+    if add {
+        rules.push(Value::String(rule.to_owned()));
+    } else {
+        rules.retain(|r| r.as_str() != Some(rule));
+    }
+    let parts = ["permissions".to_owned(), list.to_owned()];
+    let fail = |error: cmux_config::jsonc::JsoncError| {
+        SettingsError::new("agent_config.parse", format!("cannot edit {}: {error}", path.display()))
+    };
+    let text = if rules.is_empty() {
+        cmux_config::jsonc::remove(&source, &parts).map_err(fail)?
+    } else {
+        cmux_config::jsonc::set(&source, &parts, &Value::Array(rules)).map_err(fail)?
+    };
+    store.replace(&path, &text).map_err(|e| io_error(&path, e))?;
+    Ok(Written { backup: existed.then(|| store.backup_path(&backup_target)), ..written })
+}
+
+/// A rule is a tool name (`Bash`, `mcp__github`), optionally with one `(specifier)`.
+fn valid_rule(rule: &str) -> Result<(), SettingsError> {
+    let bad = |why: &str| {
+        Err(SettingsError::new("agent_config.invalid_value", format!("{rule:?}: {why}")))
+    };
+    if rule.is_empty() || rule.chars().count() > 1000 || rule.chars().any(char::is_control) {
+        return bad("a rule is one line of at most 1000 characters");
+    }
+    let (tool, rest) = rule.split_once('(').unwrap_or((rule, ""));
+    if tool.is_empty() || !tool.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+        return bad("a rule starts with a tool name (Bash, Read, WebFetch, mcp__server__tool)");
+    }
+    if rule.contains('(') && (!rest.ends_with(')') || rest.len() < 2) {
+        return bad("a specifier is one (…) after the tool name, as in Bash(npm run test:*)");
+    }
+    Ok(())
 }
 
 /// Where an agent keeps the variables every session it starts gets: Claude Code's `env` object,

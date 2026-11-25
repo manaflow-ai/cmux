@@ -147,6 +147,10 @@ WEB_SPARSE = ["/*", "!/cmux-next-ios/", "!/web/", "!/cmux-tui/crates/", "!/ghost
 # Bounds, in seconds.
 GIT_SECONDS = 600
 LAUNCH_SECONDS = 120
+# side-instance.sh launch first waits for room in the Mac's memory budget for agents' apps (mac-budget admit,
+# SIDE_INSTANCE_BUDGET_WAIT_S, default 1800) and only then opens the copy, so its bound is that wait plus
+# LAUNCH_SECONDS. A bound under the wait killed the launcher mid-wait: a bare TimeoutExpired, no copy, and none of
+# the launcher's own "the memory budget stayed full" message naming who holds it (Air Blue, 2026-11-23).
 WINDOW_SECONDS = 60
 STEP_SECONDS = 45
 APPLY_SECONDS = 900
@@ -188,7 +192,9 @@ def log(message: str) -> None:
 
 # A line where a tool says why it failed: cargo's and git's `error:`/`fatal:`, rustc's `error[E0425]:`, and a
 # compiler's `path:line:col: error: ...` (Zig, Swift, clang).
-ERROR_LINE = re.compile(r"(?:error(?:\[\w+\])?|fatal):\s|:\d+:\d+: error: ")
+# Also a script's thrown error (`TypeError: ...`, Node's `ENOENT: no such file or directory, scandir ...`): bun's
+# "error: postinstall script ... exited with 1" alone hid that a sparse checkout lacked release-notes/ (2026-11-22).
+ERROR_LINE = re.compile(r"(?:error(?:\[\w+\])?|fatal):\s|:\d+:\d+: error: |(?:^|\s)(?:[A-Z]\w*Error|E[A-Z]{2,}):\s")
 
 
 def why_failed(output: str, most: int = 300) -> str:
@@ -211,6 +217,13 @@ def why_failed(output: str, most: int = 300) -> str:
         kept.append(line)
         size += len(line) + 3
     return " | ".join(reversed(kept))[:most] if kept else text[-most:]
+
+
+def why_exited(done: subprocess.CompletedProcess, most: int = 300) -> str:
+    """Why a step failed, never empty: its own words (why_failed of stderr, else stdout), else its exit status and
+    that it printed nothing (an empty "web-overlay.sh server --local:" said nothing at all, 2026-11-22)."""
+    said = why_failed(done.stderr or done.stdout, most)
+    return said or f"exited {done.returncode} and printed nothing"
 
 
 def git(repo: Path, *args: str, check: bool = True, env: dict | None = None, timeout: float = GIT_SECONDS) -> str:
@@ -500,6 +513,9 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
             out["tree_key"] = planned.get("tree_key")
             if baseline:
                 out["ffi_baseline"] = baseline
+            # A worker reads it to build the head's daemon and pass it as look --rust-binary-head (no tree is
+            # ever published for a lane head).
+            out["tree_published"] = bool(planned.get("published"))
             if not planned.get("published"):
                 out["notes"].append("the head's cmux-tui tree is not published yet (CI publishes it after the "
                                     "push); a look waits for it or builds it locally")
@@ -785,6 +801,17 @@ def rpc(path: str, method: str, params: dict | None = None, timeout: float = STE
         return {"error": reply.get("error")}
     result = reply.get("result")
     return result if isinstance(result, dict) else {"value": result}
+
+
+
+def launch_seconds(env=None) -> float:
+    """The bound for `side-instance.sh launch`: the launcher's memory-budget wait, then LAUNCH_SECONDS to open."""
+    raw = (os.environ if env is None else env).get("SIDE_INSTANCE_BUDGET_WAIT_S", "1800")
+    try:
+        wait = max(0.0, float(raw))
+    except ValueError:
+        wait = 1800.0
+    return wait + LAUNCH_SECONDS
 
 
 def until(what: str, seconds: float, probe):
@@ -1362,6 +1389,44 @@ def web_checkout(repo: Path, head: str, scratch: Path) -> Path:
     return tree
 
 
+# Besides the bundles' inputs, what webviews/dev-server and vite.config.ts read at start: the markdown viewer's
+# shell (plugins.ts), the gallery's fixtures and themes (galleryHost.ts), the looks, and the Swift design tunables.
+DEV_SERVER_READS = ["schemas", "Resources/markdown-viewer", "Resources/cmux-themes", "Resources/ghostty/themes",
+                    "examples", "Packages/macOS/CmuxNext/Sources/CmuxNextDesign"]
+
+
+def widen_sparse(tree: Path) -> None:
+    """A sparse checkout (wt's default) gets the files its webviews read (web-bundle-key.py --inputs: the string
+    catalogs, release-notes highlights, schemas), so its dev server's install and string tables find them: from
+    a wt checkout with only /scripts/ and /webviews/, `cmux app try .` stopped at bun's postinstall
+    (gen-strings.mjs: ENOENT release-notes/next/highlights, 2026-11-22). Adding is all it does; nothing leaves."""
+    if git(tree, "config", "--bool", "core.sparseCheckout", check=False).strip() != "true":
+        return
+    done = subprocess.run([sys.executable, str(tree / "scripts/cmux-next/web-bundle-key.py"), str(tree), "--inputs"],
+                          capture_output=True, text=True, timeout=120)
+    if done.returncode != 0:
+        raise LookError(f"web-bundle-key.py --inputs: {why_exited(done)}")
+    cone = git(tree, "config", "--bool", "core.sparseCheckoutCone", check=False).strip() == "true"
+    patterns = []
+    for name in [*done.stdout.split(), *DEV_SERVER_READS]:
+        name = name.removeprefix(":(glob)").strip("/")
+        if cone:  # cone mode takes directories only: the part before the first wildcard, else the file's folder
+            glob = re.search(r"[*?\[]", name)
+            name = name[:glob.start()].rstrip("/") if glob else (name if (tree / name).is_dir() else str(Path(name).parent))
+            if name in ("", "."):
+                continue
+        entry = name if cone else f"/{name}"
+        if name and entry not in patterns:
+            patterns.append(entry)
+    if not patterns:
+        return
+    listed = set(git(tree, "sparse-checkout", "list", check=False).split())
+    missing = [p for p in patterns if p not in listed]
+    if missing:
+        log(f"sparse checkout: adding the files its web UI reads ({len(missing)} paths: {' '.join(missing[:4])}...)")
+        git(tree, "sparse-checkout", "add", *missing)
+
+
 def tree_web_key(tree: Path) -> str | None:
     """TREE's web source key as it is on disk, edits and untracked files included (web-bundle-key.py hashes
     every file git sees under the bundle inputs), when CI published bundles for exactly that key; else None."""
@@ -1431,7 +1496,7 @@ def apply_web(repo: Path, planned: dict, src_tree: Path | None, side: Side, scra
         done = subprocess.run([str(HERE / "web-overlay.sh"), "install", str(bundles), "--commit", head], env=env,
                               capture_output=True, text=True, timeout=300)
         if done.returncode != 0:
-            raise LookError(f"web-overlay.sh install: {why_failed(done.stderr, 300)}")
+            raise LookError(f"web-overlay.sh install: {why_exited(done)}")
         applied = {"how": "published bundles", "key": key}
         if src_tree is not None:
             applied["dev_server_starter_pid"] = start_dev_server_behind(src_tree, side, env)
@@ -1439,6 +1504,8 @@ def apply_web(repo: Path, planned: dict, src_tree: Path | None, side: Side, scra
     if not shutil.which("bun"):
         raise LookError("no web bundles are published for the head and no bun here serves its webviews")
     tree = src_tree
+    if tree is not None:
+        widen_sparse(tree)
     if tree is None:
         # A dev server runs the head's own code here: only a head on a branch of origin or already merged.
         tips = git(repo, "ls-remote", "--heads", "origin", check=False).split()
@@ -1453,7 +1520,7 @@ def apply_web(repo: Path, planned: dict, src_tree: Path | None, side: Side, scra
     done = subprocess.run([str(HERE / "web-overlay.sh"), "server", "--local", "--worktree", str(tree), "--port",
                            str(port)], env=env, capture_output=True, text=True, timeout=APPLY_SECONDS)
     if done.returncode != 0:
-        raise LookError(f"web-overlay.sh server --local: {why_failed(done.stderr or done.stdout, 300)}")
+        raise LookError(f"web-overlay.sh server --local: {why_exited(done)}")
     return {"how": "dev server", "port": port}
 
 
@@ -1499,11 +1566,13 @@ RESTART_ACPMUX = ("--restart-acpmux",)
 
 
 def apply_rust(rules: Path, planned: dict, src_tree: Path | None, side: Side, scratch: Path,
-               given: Path | None = None) -> dict:
+               given: Path | None = None, head_binary: Path | None = None) -> dict:
     """The change's daemon into the copy (hot-apply.py apply --branch --parts rust): the published build of the
     head's cmux-tui tree, else a local cargo build of a dir: source. A plan with daemon_from (the change applied
     onto the app's commit) takes that commit's published build, else GIVEN (look --rust-binary), never the
-    head's: the head's daemon is the skew the plan stepped around."""
+    head's: the head's daemon is the skew the plan stepped around. HEAD_BINARY (look --rust-binary-head) is a cmux-tui
+    the caller built from the head itself: it goes in only when the head's tree has no published build (a sha:
+    source of a lane head, whose tree CI never publishes), the published build otherwise."""
     onto = planned.get("daemon_from")
     if onto:
         argv = [sys.executable, str(rules / "scripts/cmux-next/hot-apply.py"), "apply", onto, "--branch",
@@ -1526,7 +1595,13 @@ def apply_rust(rules: Path, planned: dict, src_tree: Path | None, side: Side, sc
     if planned.get("ffi_baseline"):
         argv.append("--ffi-in")  # apply_ffi_baseline put the release in before the copy opened
     binary = None
-    if src_tree is not None and (src_tree / "cmux-tui/Cargo.toml").is_file() and shutil.which("cargo"):
+    if head_binary is not None:
+        # Hot-verify of a lane head (2026-11-23): CI publishes no cmux-tui tree for lane/** heads, so every rust
+        # look of one failed on hot-apply's fetch (8 of 63 looks done in a day). The worker builds the head's
+        # daemon with its warm Cargo home and passes it; a published build of the same tree still wins.
+        if not (planned.get("tree_key") and hot().published(planned["tree_key"])):
+            binary = head_binary
+    elif src_tree is not None and (src_tree / "cmux-tui/Cargo.toml").is_file() and shutil.which("cargo"):
         published = hot().published(planned["tree_key"]) if planned.get("tree_key") else False
         if not published:
             log(cargo_note(planned.get("tree_key"), src_tree))
@@ -1543,7 +1618,8 @@ def apply_rust(rules: Path, planned: dict, src_tree: Path | None, side: Side, sc
                         "build the app with it on the fleet, `cmux-ci build cmux --ref SHA`")
     if binary is not None:
         argv += ["--binary", str(binary)]
-    how = "local cargo build" if binary is not None else "published tree build"
+    how = ("given binary built from the head" if binary is not None and binary == head_binary
+           else "local cargo build" if binary is not None else "published tree build")
     return run_hot_apply_rust(argv, side, how)
 
 
@@ -1727,7 +1803,9 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int
             set_browser_engine(Path(side.env()["CMUX_NEXT_CONFIG_FILE"]), engine)
             if planned.get("ffi_baseline"):
                 receipt["ffi_baseline"] = apply_ffi_baseline(rules, planned, side)
-            launched = side.run("launch", timeout=LAUNCH_SECONDS)
+            # The kit's Recorder records the main display (Video), so a kit look shows the copy there; else the copy
+            # is parked on a display no person looks at (side-instance.sh launch, "parked") and shot by its window.
+            launched = side.run("launch", *(["--shown"] if kit is not None else []), timeout=launch_seconds())
             found = re.search(r"pid (\d+)", launched)
             if not found:
                 raise LookError(f"side-instance.sh launch said no pid: {launched[-200:]}")
@@ -1757,7 +1835,9 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int
         with phases("apply"):
             if "rust" in planned["layers"]:
                 given = Path(args.rust_binary).resolve() if getattr(args, "rust_binary", None) else None
-                applied["rust"] = apply_rust(rules, planned, src_tree, side, scratch, given)
+                head_binary = (Path(args.rust_binary_head).resolve() if getattr(args, "rust_binary_head", None)
+                               else None)
+                applied["rust"] = apply_rust(rules, planned, src_tree, side, scratch, given, head_binary)
             if "web" in planned["layers"]:
                 applied["web"] = apply_web(rules, planned, src_tree, side, scratch)
                 # The copy's pages reload on the new overlay: wait for the window to change from the before shot
@@ -2294,7 +2374,7 @@ def command_run(args) -> int:
                           # A copy of a built app never passes for a clone of the golden one (reusable_copy).
                           try_app=app_info(the_app) if built_app is None else {"built": planned["head"]},
                           try_label=label, try_layers=layers)
-            launched = side.run("launch", timeout=LAUNCH_SECONDS)
+            launched = side.run("launch", timeout=launch_seconds())
             found = re.search(r"pid (\d+)", launched)
             if not found:
                 raise LookError(f"side-instance.sh launch said no pid: {launched[-200:]}")
@@ -2372,6 +2452,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--no-video", action="store_true")
     p.add_argument("--rust-binary", help="the cmux-tui built from the plan's daemon_from (the change applied onto "
                    "the app's commit), when no CI build of it is published")
+    p.add_argument("--rust-binary-head", help="the cmux-tui built from the head itself, for a plan with no "
+                   "daemon_from whose head tree CI has not published (a lane head): used only while it is unpublished")
     p.add_argument("--watch", action="store_true")
     p.add_argument("--pr", type=int, help="the pull request a sha: source is the head of: its published web layer")
     p.set_defaults(func=command_look)

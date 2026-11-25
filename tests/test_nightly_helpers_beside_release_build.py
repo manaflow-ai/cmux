@@ -399,5 +399,37 @@ class NightlyInputsTests(unittest.TestCase):
             nightly_inputs.bundle_notices(app)
 
 
+FALLBACK = ROOT / "scripts/ci/nightly-steps/mobile-host-fallback.sh"
+
+
+class MobileHostFallbackTests(unittest.TestCase):
+    """An iOS change that breaks cmux-mobile-host must not stop the Mac NIGHTLY (Leo, 11-25: "build broke
+    on an iOS change that left a field out of the phone link code are we able to decouple"; runs
+    45551813915 and 45556730650)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.base = Path(self.tmp.name)
+        self.out = self.base / "out/cmux-mobile-host"
+
+    def fallback(self, appcast):
+        env = {**os.environ, "RUNNER_TEMP": str(self.base),
+               "CMUX_MOBILE_HOST_FALLBACK_APPCAST": appcast}
+        return subprocess.run(["bash", str(FALLBACK), "arm64", str(self.out)], env=env, capture_output=True, text=True)
+
+    def test_no_published_dmg_fails(self):
+        appcast = self.base / "appcast.xml"
+        appcast.write_text("<rss><channel><item></item></channel></rss>")
+        result = self.fallback(appcast.as_uri())
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("no DMG", result.stderr)
+        self.assertFalse(self.out.exists())
+
+    def test_the_published_host_is_tried_only_after_this_macs_last_good_one(self):
+        script = (ROOT / "scripts/ci/nightly-steps/app-bundle-chief-and-mobile-host.sh").read_text()
+        self.assertLess(script.index("last-good-mobile-host.sh"), script.index("mobile-host-fallback.sh"))
+        self.assertIn('[ "${NIGHTLY_COMPONENT_GATES:-}" != block ] || exit 1', script)
+
 if __name__ == "__main__":
     unittest.main()

@@ -55,8 +55,6 @@ pub(crate) const STALE_RUN_MS: u64 = 30 * 60_000;
 /// Runs started longer ago than this are not read for the Home rows.
 const RUNNING_WINDOW_MS: u64 = 24 * 60 * 60_000;
 
-/// Most steps one run keeps.
-pub(crate) const MAX_RUN_STEPS: u64 = 2000;
 /// Most steps in one append.
 pub(crate) const MAX_APPEND_STEPS: usize = 64;
 /// Most bytes of all steps of one append, as JSON.
@@ -126,7 +124,6 @@ pub(crate) enum StepKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(crate) struct Usage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input: Option<u64>,
@@ -141,7 +138,6 @@ pub(crate) struct Usage {
 /// The agent session a run ran in (`acpmux`, `pi`, ...), so a page can link
 /// to its full log while it lives.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(crate) struct SessionLink {
     pub kind: String,
     pub id: String,
@@ -152,7 +148,6 @@ pub(crate) struct SessionLink {
 /// `conversation-run-append` `run`: the run's id and the summary fields this
 /// append sets (an absent field keeps its value).
 #[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(crate) struct RunInput {
     pub id: String,
     #[serde(default)]
@@ -222,7 +217,6 @@ pub(crate) struct Run {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(crate) struct FileChange {
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -238,7 +232,6 @@ pub(crate) struct FileChange {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(crate) struct Tool {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -262,7 +255,6 @@ pub(crate) struct Tool {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(crate) struct Link {
     pub label: String,
     pub url: String,
@@ -270,7 +262,6 @@ pub(crate) struct Link {
 
 /// One step as the agent writes it (the owner adds `seq`, `at` and `rev`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(crate) struct StepInput {
     pub id: String,
     pub kind: StepKind,
@@ -499,9 +490,8 @@ impl ConversationStore {
                     (u64::try_from(seq)?, at)
                 }
                 None => {
-                    if run.step_count >= MAX_RUN_STEPS {
-                        return Err(refused("run_full"));
-                    }
+                    // Steps are not capped by count: each is one row under the step table's
+                    // primary key, and readers page them by `rev` (`run_page`).
                     run.step_count += 1;
                     (run.step_count, now)
                 }

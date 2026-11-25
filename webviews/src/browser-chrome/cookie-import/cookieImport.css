@@ -17,7 +17,7 @@
   width: 100%;
   min-height: calc(var(--ds-control-compact) + 2 * var(--ds-space-2));
   padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-3);
-  border-radius: var(--transient-surface-radius);
+  border-radius: var(--role-toast-radius); /* concentric-allow: the toast role caps the concentric corner (schemas/design-roles) */
   color: var(--ci-ink);
   font-family: var(--font-ui);
   font-size: var(--text-body);
@@ -49,8 +49,8 @@
 }
 
 /* TOAST LOOK (the app's): the overlay dialog's grammar (pages/overlay/dialog/dialog.css), Lawrence
-   2026-11-09. The line reads in the title's weight in the full ink; Don't Show Again is quiet text,
-   Not Now a gray button and Import the filled primary, each 28 px with the dialog buttons' radius,
+   2026-11-09. The line reads in the title's weight in the full ink; Never for Chrome is quiet text,
+   Not now a gray button and Import the filled primary, each 28 px with the dialog buttons' radius,
    on a row of their own under the line. */
 .ci-card[data-look="toast"] {
   --ci-icon: var(--ds-icon-32, 32px);
@@ -124,7 +124,7 @@
   margin-inline-start: auto;
 }
 
-/* BUTTONS AND STACKED LOOKS: Not Now and Import as compact buttons of one width, Don't Show Again a
+/* BUTTONS AND STACKED LOOKS: Not now and Import as compact buttons of one width, Never for Chrome a
    ghost button of the same height in the faint ink. */
 .ci-row {
   display: flex;

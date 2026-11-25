@@ -2,7 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import { base64Decode, isValidDeviceKey, keyFingerprint, lowSHex } from "./crypto";
 import { DEVICE_ID, REPLAY_WINDOW_MS, checkDeviceSignature, readDeviceHeaders } from "./deviceAuth";
 import { relayEntitlement } from "./billing";
-import { HOST_RELAY_HEADER, ORIGIN_HEADER, SCOPE_HEADER, SESSION_DEVICE_HEADER, STACK_TOKEN_HEADER, USER_HEADER, type Env } from "./env";
+import { HOST_RELAY_HEADER, ORIGIN_HEADER, SCOPE_HEADER, SESSION_DEVICE_HEADER, SPACE_HEADER, STACK_TOKEN_HEADER, USER_HEADER, type Env } from "./env";
 import { ApiError, badRequest, errorResponse, json, notFound } from "./errors";
 import { internalCall, why } from "./internalCall";
 import { REATTACH_TTL_S, TICKET_TTL_S, type Scope, mintTicket } from "./tickets";
@@ -41,6 +41,11 @@ export function isDevicePlatform(value: unknown): value is DevicePlatform {
 }
 /** The share approval format the hub carries (acpmux `share_approval::VERSION`). */
 export const SHARE_APPROVAL_VERSION = "cmux.share-approval.v1";
+/**
+ * The control approval format (cmux-share-approval `CONTROL_VERSION`): the same signed yes, for
+ * "control for my other signed-in machines" on the Mac it names.
+ */
+export const CONTROL_APPROVAL_VERSION = "cmux.control-approval.v1";
 
 export type PermissionScope = "none" | "ask" | "view" | "full";
 type SessionState = "pending" | "approved" | "live" | "ended";
@@ -80,6 +85,8 @@ interface SessionRow {
   relay_paid: number | null;
   /** When that answer was read (ms); it covers the session's host end for ANCHOR_RELAY_TTL_MS. */
   relay_read_at: number | null;
+  /** When billing last failed to answer for this session (ms), null if its last read answered. */
+  relay_unread_at: number | null;
 }
 
 interface RelayRow {
@@ -96,8 +103,13 @@ interface RelayRow {
 }
 
 export const PENDING_TTL_MS = 5 * 60 * 1000;
-/** How long a device may stay disconnected before its sessions end (reason peer_offline). */
-export const OFFLINE_GRACE_MS = 30_000;
+/**
+ * How long a device may stay disconnected before its sessions end (reason peer_offline), counted from when it was
+ * last heard. A screen share comes back by itself after a 60 s network drop (goal screen-share-fast): a drop can
+ * start up to one ping (30 s) after the last frame, so the grace covers that ping, the drop and the reconnect. The
+ * rd host keeps its side of the session for 90 s of viewer silence (cmux-rd-host stream.rs REATTACH_GRACE_NS).
+ */
+export const OFFLINE_GRACE_MS = 120_000;
 /**
  * A socket close reported by the Session DO is provisional for this long: an
  * authoritative end (/end, revoke, removal, sharing off, sign-out) that arrives
@@ -132,6 +144,9 @@ interface WireTicket {
   ticket: string;
   signalURL: string;
   ice: IceServer[];
+  /** Why `ice` holds or lacks the cmux relay: the session's billing answer (`relayFields`). */
+  relay: "paid" | "free" | "unread";
+  relayNote?: string;
   peer: { id: string; name: string; signingKey: string };
   role: "viewer" | "host";
   scope: Scope;
@@ -212,7 +227,19 @@ const ADDED_COLUMNS: [string, string, string][] = [
   ["sessions", "moved_from", "TEXT"],
   ["sessions", "relay_paid", "INTEGER"],
   ["sessions", "relay_read_at", "INTEGER"],
+  ["sessions", "relay_unread_at", "INTEGER"],
 ];
+
+/** What a ticket, `/ice` and `/me` say when billing gave no answer: never "free". */
+export const PLAN_UNREAD = "could not read your plan";
+
+/**
+ * A session's relay answer as its ends see it: `unread` (with the note) when billing failed,
+ * so a viewer that gets no relay can say why instead of reading the failure as a free plan.
+ */
+function relayFields(e: "paid" | "free" | "error"): { relay: "paid" | "free" | "unread"; relayNote?: string } {
+  return e === "error" ? { relay: "unread", relayNote: PLAN_UNREAD } : { relay: e };
+}
 
 /** A registration's `machine`: the lowercase hex SHA-256 the app derives from the Mac's hardware id. */
 const MACHINE = /^[0-9a-f]{64}$/;
@@ -335,6 +362,8 @@ export class UserDO extends DurableObject<Env> {
     }
     const owner = this.sql.exec("SELECT v FROM meta WHERE k = 'user_id'").toArray()[0];
     if (owner) this.setOwner(owner.v as string);
+    const space = this.sql.exec("SELECT v FROM meta WHERE k = 'build_space'").toArray()[0];
+    if (space) this.space = space.v as string;
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
     // Sockets restored from hibernation need the silence check armed: a socket
     // accepted before this check existed has no clock until a sweep stamps it.
@@ -344,6 +373,19 @@ export class UserDO extends DurableObject<Env> {
   // ---- owner (v1: always the user; team sharing later adds 'team' rows) ----
 
   private ownerId = "";
+  /**
+   * The build space this DO is the user's object in (src/buildSpace.ts; "" for the default space), from its
+   * first request. Its name already says it (`dev:<slug>|<user>`); its Session DOs report back to it by it.
+   */
+  private space = "";
+
+  /** Records this DO's build space; a request of another space never reaches it (index.ts names DOs by space). */
+  private setSpace(space: string) {
+    if (this.space === space) return;
+    if (this.space || this.ownerId) throw new Error(`user DO of build space "${this.space}" got a request of "${space}"`);
+    this.space = space;
+    this.sql.exec("INSERT INTO meta(k, v) VALUES ('build_space', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v", space);
+  }
 
   /** Records the user this DO belongs to and backfills rows written before owner columns existed. */
   private setOwner(userId: string) {
@@ -497,6 +539,7 @@ export class UserDO extends DurableObject<Env> {
       if (url.pathname.startsWith("/internal/")) return await this.internal(url.pathname, request);
       const userId = request.headers.get(USER_HEADER);
       if (!userId) throw new ApiError(401, "unauthorized", "missing user");
+      this.setSpace(request.headers.get(SPACE_HEADER) ?? "");
       this.setOwner(userId);
       const origin = request.headers.get(ORIGIN_HEADER) ?? url.origin;
       const stackToken = request.headers.get(STACK_TOKEN_HEADER);
@@ -632,8 +675,10 @@ export class UserDO extends DurableObject<Env> {
     if (a === "auth" && b === "device" && d === "anchor" && n === 3 && m === "POST") return this.anchor(me, c);
 
     if (a === "me" && n === 1 && m === "GET") {
-      const plan = (await this.entitlement(c)) === "paid" ? "paid" : "free";
-      return json({ userId: c.userId, plan, device: publicDevice(me, this.online(me.id)) });
+      const answer = await this.entitlement(c).catch(() => "error" as const);
+      // `plan` stays paid|free for the apps that read it; a failed read says so beside it.
+      const plan = answer === "paid" ? "paid" : "free";
+      return json({ userId: c.userId, plan, ...(answer === "error" && c.stackToken ? { planNote: PLAN_UNREAD } : {}), device: publicDevice(me, this.online(me.id)) });
     }
     if (a === "user" && b === "ws" && n === 2 && m === "GET") return await this.openSocket(request, me);
     if (a === "devices") {
@@ -646,7 +691,8 @@ export class UserDO extends DurableObject<Env> {
       if (n === 3 && d === "mac-screen" && m === "PUT") return this.setSharing(me, b!, this.parse(raw));
       if (n === 3 && d === "screen-share" && m === "PUT") return this.reportScreenShare(me, b!, this.parse(raw));
       if (n === 3 && d === "sign-out" && m === "POST") return this.signOut(me, b!);
-      if (n === 3 && d === "share-approval" && m === "POST") return this.carryShareApproval(me, b!, this.parse(raw), c);
+      if (n === 3 && d === "share-approval" && m === "POST") return this.carryApproval(me, b!, this.parse(raw), c, SHARE_APPROVAL_VERSION, "share.approval");
+      if (n === 3 && d === "control-approval" && m === "POST") return this.carryApproval(me, b!, this.parse(raw), c, CONTROL_APPROVAL_VERSION, "control.approval");
     }
     if (a === "permissions") {
       if (n === 1 && m === "GET") return this.listPermissions(url.searchParams.get("host"));
@@ -954,18 +1000,23 @@ export class UserDO extends DurableObject<Env> {
    * dispatch, so an agent's fleet or CLI token never sends one), as the device the approval
    * names, on this account, to a live host of it. The target checks the signature against this
    * account's device list, then turns its own sharing on (acpmux `share_host/approval.rs`).
+   *
+   * `POST /v1/devices/:id/control-approval {approval}` carries a `cmux.control-approval.v1` the
+   * same way, under the same checks, as a `control.approval` push: the owner's tap on their own
+   * device grants that Mac's "control for my other signed-in machines", with nobody at the Mac.
+   * Each path takes only its own format, so one tap is carried as one grant.
    */
-  private carryShareApproval(me: DeviceRow, id: string, body: Record<string, unknown>, c: CallContext): Response {
+  private carryApproval(me: DeviceRow, id: string, body: Record<string, unknown>, c: CallContext, version: string, push: "share.approval" | "control.approval"): Response {
     const raw = body.approval;
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw badRequest("approval must be an object");
     const f = raw as Record<string, unknown>;
-    if (f.v !== SHARE_APPROVAL_VERSION) throw badRequest(`approval.v must be ${SHARE_APPROVAL_VERSION}`);
+    if (f.v !== version) throw badRequest(`approval.v must be ${version}`);
     const at = f.confirmed_at;
     const atOk = (typeof at === "number" && Number.isSafeInteger(at) && at >= 0) || (typeof at === "string" && /^\d{1,15}$/.test(at));
     if (!atOk) throw badRequest("approval.confirmed_at must be whole Unix seconds");
     const name = (v: unknown, field: string) => (v === undefined || v === "" ? "" : str(v, field, 200));
     const approval = {
-      v: SHARE_APPROVAL_VERSION,
+      v: version,
       target: str(f.target, "approval.target", 64),
       target_name: name(f.target_name, "approval.target_name"),
       asker: str(f.asker, "approval.asker", 64),
@@ -982,7 +1033,7 @@ export class UserDO extends DurableObject<Env> {
     const host = this.liveDevice(id);
     if (!HOST_PLATFORMS.includes(host.platform)) throw new ApiError(403, "not_host", "only a Mac, a Linux desktop or a Windows PC shares its screen");
     if (!this.online(id)) throw new ApiError(409, "host_offline", "the host is not connected");
-    this.send(id, { type: "share.approval", from: me.id, approval });
+    this.send(id, { type: push, from: me.id, approval });
     return json({ delivered: true, hostId: id });
   }
 
@@ -1153,7 +1204,7 @@ export class UserDO extends DurableObject<Env> {
     this.checkPushed(me, newHost, newViewer, old.scope, c);
     const newId = this.insertSession(newViewer, newHost, old.scope, old.id);
     // A move continues the same share: it keeps the billing answer its viewer's request got.
-    this.sql.exec("UPDATE sessions SET relay_paid = ?, relay_read_at = ? WHERE id = ?", old.relay_paid ?? null, old.relay_read_at ?? null, newId);
+    this.sql.exec("UPDATE sessions SET relay_paid = ?, relay_read_at = ?, relay_unread_at = ? WHERE id = ?", old.relay_paid ?? null, old.relay_read_at ?? null, old.relay_unread_at ?? null, newId);
     this.audit("moved", { viewerId: old.viewer_id, hostId: old.host_id, scope: old.scope, sessionId: old.id, detail: newId });
     this.audit("approved", { viewerId: newViewer, hostId: newHost, scope: old.scope, sessionId: newId, detail: "moved" });
     // The new share is up before the old one goes: a move that cannot start keeps the old share.
@@ -1248,6 +1299,7 @@ export class UserDO extends DurableObject<Env> {
       {
         sid: s.id,
         userId: c.userId,
+        space: this.space,
         scope: s.scope,
         viewer: { id: viewer.id, key: viewer.signing_key },
         host: { id: host.id, key: host.signing_key },
@@ -1258,13 +1310,14 @@ export class UserDO extends DurableObject<Env> {
     // first makes init refuse), so there is nothing to start.
     if (!this.stillOpen(s.id)) return;
     if (!init.ok) throw new Error(`session init ${init.status}`);
-    const tickets = await this.issueTickets(s, c, (await entitled) === "paid" ? await mintTurn(this.env) : [], TICKET_TTL_S, false, pushed);
+    const answer = await entitled;
+    const tickets = await this.issueTickets(s, c, answer === "paid" ? await mintTurn(this.env) : [], answer, TICKET_TTL_S, false, pushed);
     if (!tickets) return;
     for (const ticket of tickets) this.send(ticket.role === "viewer" ? viewer.id : host.id, { type: "session.ticket", ...ticket });
   }
 
   /** Mints fresh tickets for the same approved viewer/host pair. */
-  private async issueTickets(s: SessionRow, c: CallContext, ice: IceServer[], ttlS: number, reattach: boolean, pushed: Pushed | null = null): Promise<[WireTicket, WireTicket] | null> {
+  private async issueTickets(s: SessionRow, c: CallContext, ice: IceServer[], answer: "paid" | "free" | "error", ttlS: number, reattach: boolean, pushed: Pushed | null = null): Promise<[WireTicket, WireTicket] | null> {
     if (!this.stillOpen(s.id)) return null;
     const viewer = this.device(s.viewer_id);
     const host = this.device(s.host_id);
@@ -1274,7 +1327,7 @@ export class UserDO extends DurableObject<Env> {
     for (const [self, peer, role] of [[viewer, host, "viewer"], [host, viewer, "host"]] as const) {
       const ticket = await mintTicket(this.env, { sid: s.id, role, dev: self.id, peer: peer.id, peerKey: peer.signing_key, scope: s.scope, ...(reattach ? { reattach: true } : {}) }, Date.now(), ttlS);
       if (!this.stillOpen(s.id)) return null;
-      result.push({ sessionId: s.id, ticket, signalURL, ice, peer: { id: peer.id, name: peer.name, signingKey: peer.signing_key }, role, scope: s.scope, ownerKind: "user", ...(pushed ? { pushed: true as const, movedFrom: pushed.movedFrom } : {}) });
+      result.push({ sessionId: s.id, ticket, signalURL, ice, ...relayFields(answer), peer: { id: peer.id, name: peer.name, signingKey: peer.signing_key }, role, scope: s.scope, ownerKind: "user", ...(pushed ? { pushed: true as const, movedFrom: pushed.movedFrom } : {}) });
     }
     return result as [WireTicket, WireTicket];
   }
@@ -1290,8 +1343,8 @@ export class UserDO extends DurableObject<Env> {
     // session below its stored permission was approved once (Ask, or View asking for Full): only
     // None refuses its reattach.
     if (this.permission(host.id, me.id) === "none") throw new ApiError(403, "permission_none", "the host no longer allows this device");
-    const entitled = (await this.sessionEntitlement(s, c)) === "paid";
-    const tickets = await this.issueTickets(s, c, entitled ? await mintTurn(this.env) : [], REATTACH_TTL_S, true);
+    const answer = await this.sessionEntitlement(s, c);
+    const tickets = await this.issueTickets(s, c, answer === "paid" ? await mintTurn(this.env) : [], answer, REATTACH_TTL_S, true);
     if (!tickets) throw new ApiError(409, "session_not_active", "session is not active");
     for (const ticket of tickets) this.send(ticket.role === "viewer" ? me.id : host.id, { type: "session.ticket", ...ticket });
     this.audit("reattached", { viewerId: me.id, hostId: host.id, scope: s.scope, sessionId: id, detail: "viewer" });
@@ -1367,8 +1420,9 @@ export class UserDO extends DurableObject<Env> {
     const s = this.session(id);
     if (!s || (s.viewer_id !== me.id && s.host_id !== me.id)) throw notFound("session not found");
     if (s.state !== "approved" && s.state !== "live") throw new ApiError(409, "session_not_active", "session is not active");
-    const ice = (await this.sessionEntitlement(s, c)) === "paid" ? await mintTurn(this.env) : [];
-    return json({ ice });
+    const answer = await this.sessionEntitlement(s, c);
+    const ice = answer === "paid" ? await mintTurn(this.env) : [];
+    return json({ ice, ...relayFields(answer) });
   }
 
   // ---- relays ----
@@ -1495,22 +1549,38 @@ export class UserDO extends DurableObject<Env> {
   /**
    * One session's relay right. Its viewer and host are one account (one UserDO per user), so
    * a paid answer from billing covers both ends. A full caller (the app, with a Stack token)
-   * asks billing, fail closed, and the answer is kept on the session (a failed read clears
-   * it). A host or machine caller has no Stack token: it gets the relay while its session holds
-   * a paid answer read in the last ANCHOR_RELAY_TTL_MS (the same bound as an anchor's), else its
-   * own (a host anchor's `rel`; a machine session's none). A move carries the answer and its
-   * read time, never refreshes them. A free or failed read grants nothing to either end.
+   * asks billing and the answer is kept on the session. A host or machine caller has no Stack
+   * token: it gets the relay while its session holds a paid answer read in the last
+   * ANCHOR_RELAY_TTL_MS (the same bound as an anchor's), else its own (a host anchor's `rel`; a
+   * machine session's none). A move carries the answer and its read time, never refreshes them.
+   *
+   * A failed read is not a free plan: it is recorded (`relay_unread_at`), never stored as free,
+   * and leaves the last answer as it was, so a paid answer read within that bound still covers
+   * both ends; with none, the read is `error` and the ends are told "could not read your plan".
+   * A free answer, or a failure with no fresh paid answer behind it, grants nothing.
    */
   private async sessionEntitlement(s: SessionRow, c: CallContext): Promise<"paid" | "free" | "error"> {
     if (c.scope === "full") {
       const answer = await this.entitlement(c).catch(() => "error" as const);
-      const paid = answer === "error" ? null : answer === "paid" ? 1 : 0;
-      this.sql.exec("UPDATE sessions SET relay_paid = ?, relay_read_at = ? WHERE id = ?", paid, paid === null ? null : Date.now(), s.id);
+      if (answer === "error") {
+        this.sql.exec("UPDATE sessions SET relay_unread_at = ? WHERE id = ?", Date.now(), s.id);
+        return this.heldPaid(s.id) ? "paid" : "error";
+      }
+      this.sql.exec("UPDATE sessions SET relay_paid = ?, relay_read_at = ?, relay_unread_at = NULL WHERE id = ?", answer === "paid" ? 1 : 0, Date.now(), s.id);
       return answer;
     }
-    const held = this.sql.exec("SELECT relay_paid, relay_read_at FROM sessions WHERE id = ?", s.id).toArray()[0];
-    if (held && (held.relay_paid as number | null) === 1 && (held.relay_read_at as number) + ANCHOR_RELAY_TTL_MS > Date.now()) return "paid";
-    return this.entitlement(c).catch(() => "error" as const);
+    if (this.heldPaid(s.id)) return "paid";
+    // Its own right (a host anchor's `rel`); a machine session has no Stack token, so its own
+    // read always fails and says nothing about the plan: only the viewer's recorded read does.
+    if ((await this.entitlement(c).catch(() => "error" as const)) === "paid") return "paid";
+    const held = this.sql.exec("SELECT relay_unread_at FROM sessions WHERE id = ?", s.id).toArray()[0];
+    return held && held.relay_unread_at != null ? "error" : "free";
+  }
+
+  /** Whether the session holds a paid billing answer read within ANCHOR_RELAY_TTL_MS. */
+  private heldPaid(id: string): boolean {
+    const held = this.sql.exec("SELECT relay_paid, relay_read_at FROM sessions WHERE id = ?", id).toArray()[0];
+    return !!held && (held.relay_paid as number | null) === 1 && (held.relay_read_at as number) + ANCHOR_RELAY_TTL_MS > Date.now();
   }
 
   /** The cmux relay entitlement: billing for a full session, the anchor's record for a host session. */

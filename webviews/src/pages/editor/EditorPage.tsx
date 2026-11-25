@@ -37,6 +37,8 @@ export interface EditorPageProps {
   strings: Strings;
   /** Mounts the editor into its element (and unmounts it on null). */
   editorRef: (element: HTMLDivElement | null) => void;
+  /** Vim's mode line (`editor.vimMode`), which the view's vim writes; the status bar shows it. */
+  vimLine?: HTMLElement;
   /** The page with no file (store phase `empty`): the viewer empty state. */
   emptyState?: () => ReactNode;
 }
@@ -52,7 +54,7 @@ function fileName(path: string): string {
   return path.split("/").filter(Boolean).pop() ?? path;
 }
 
-export function EditorPage({ store, status, find, strings, editorRef, emptyState }: EditorPageProps) {
+export function EditorPage({ store, status, find, strings, editorRef, vimLine, emptyState }: EditorPageProps) {
   const state = useSyncExternalStore(store.subscribe, store.getState);
   const view = useSyncExternalStore(status.subscribe, status.get);
   const { t } = strings;
@@ -139,13 +141,28 @@ export function EditorPage({ store, status, find, strings, editorRef, emptyState
         <div className="ed-host" ref={editorRef} />
         {find ? <EditorFindBar find={find} strings={strings} /> : null}
       </div>
-      {settings.statusBar && view && state.phase === "ready" ? (
-        <footer className="ed-status">
-          <span>{strings.format(L.position, String(view.line), String(view.column))}</span>
-          <span>{strings.format(view.insertSpaces ? L.spaces : L.tabs, String(view.tabSize))}</span>
-          <span>{view.bom ? t(L.utf8Bom) : "UTF-8"}</span>
-          <span>{view.eol === "mixed" ? t(L.mixed) : view.eol}</span>
-          <span>{view.language === "text" ? t(L.plainText) : view.languageName}</span>
+      {((settings.statusBar && view) || (settings.vimMode && vimLine)) && state.phase === "ready" ? (
+        // With `editor.vimMode` the bar shows vim's mode line (and its `:` prompt) even when
+        // `editor.statusBar` is off.
+        <footer className="ed-status" data-vim={settings.vimMode && vimLine ? "" : undefined}>
+          {vimLine ? (
+            <div
+              className="ed-vim-slot"
+              ref={(slot) => {
+                // Moved only once: moving it again would blur an open `:` prompt.
+                if (slot && vimLine.parentNode !== slot) slot.replaceChildren(vimLine);
+              }}
+            />
+          ) : null}
+          {settings.statusBar && view ? (
+            <>
+              <span>{strings.format(L.position, String(view.line), String(view.column))}</span>
+              <span>{strings.format(view.insertSpaces ? L.spaces : L.tabs, String(view.tabSize))}</span>
+              <span>{view.bom ? t(L.utf8Bom) : "UTF-8"}</span>
+              <span>{view.eol === "mixed" ? t(L.mixed) : view.eol}</span>
+              <span>{view.language === "text" ? t(L.plainText) : view.languageName}</span>
+            </>
+          ) : null}
         </footer>
       ) : null}
     </div>

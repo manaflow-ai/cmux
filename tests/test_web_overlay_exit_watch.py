@@ -28,6 +28,9 @@ SCRIPT = ROOT / "scripts/cmux-next/web-overlay.sh"
 _process_gone_spec = importlib.util.spec_from_file_location("process_gone", ROOT / "tests" / "process_gone.py")
 process_gone = importlib.util.module_from_spec(_process_gone_spec)
 _process_gone_spec.loader.exec_module(process_gone)
+_group_reaper_spec = importlib.util.spec_from_file_location("group_reaper", ROOT / "tests" / "group_reaper.py")
+group_reaper = importlib.util.module_from_spec(_group_reaper_spec)
+_group_reaper_spec.loader.exec_module(group_reaper)
 
 # `bun run dev` serves agent-pane/index.html on CMUX_WEBVIEWS_DEV_PORT until its server child exits;
 # every other bun command (gen-strings) does nothing. It names itself `bun` (prctl), as web-overlay.sh
@@ -80,6 +83,12 @@ class WebOverlayExitWatchTests(unittest.TestCase):
             "FAKE_BUN_FAIL": str(self.tmp / "fail"),
         }
         self.group = None
+        # The server runs in its own group and outlives this test by design; a run killed before tearDown
+        # (a runner timeout) left it at PPID 1 for weeks. The reaper kills every group it was told about,
+        # and the one dev-server.pid names, when this process ends any way at all.
+        self.reaper = group_reaper.Reaper()
+        self.reaper.pidfile(self.state / "dev-server.pid")
+        self.reaper.remove(self.tmp)
 
     def tearDown(self):
         if self.group:
@@ -87,6 +96,7 @@ class WebOverlayExitWatchTests(unittest.TestCase):
                 os.killpg(self.group, signal.SIGKILL)
             except ProcessLookupError:
                 pass
+        self.reaper.close()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def run_script(self, *args: str) -> None:
@@ -96,6 +106,7 @@ class WebOverlayExitWatchTests(unittest.TestCase):
     def start(self) -> None:
         self.run_script("server", "--local", "--worktree", str(self.tree), "--port", str(self.port))
         self.group = int((self.state / "dev-server.pid").read_text())
+        self.reaper.group(self.group)
         self.assertEqual(json.loads(self.web_dev.read_text())["server"], f"http://127.0.0.1:{self.port}/")
 
     def group_gone(self, group=None) -> bool:

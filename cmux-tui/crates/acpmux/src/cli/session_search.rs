@@ -90,7 +90,9 @@ impl HistoryQuery {
 pub async fn run(client: Arc<Client>, args: SearchArgs, json_out: bool) -> Result<()> {
     let id = resolve_id(&client, &expand_session_key(&args.session)?).await?;
     let mut params = args.query.params()?;
-    params["sessionId"] = json!(id);
+    if let Some(fields) = params.as_object_mut() {
+        fields.insert("sessionId".to_owned(), json!(id));
+    }
     let v = client.request(method::MUX_SESSION_SEARCH, params).await?;
     if json_out {
         print_json(&v);

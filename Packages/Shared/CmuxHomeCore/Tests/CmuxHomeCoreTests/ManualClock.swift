@@ -1,5 +1,9 @@
 import Foundation
+#if canImport(os)
 import os
+#else
+@testable import CmuxHomeCore // OSAllocatedUnfairLock's stand-in
+#endif
 
 /// A clock that moves only when a test calls `advance(by:)`. Sleepers wait
 /// until the clock passes their deadline; a cancelled sleeper throws at once.
