@@ -12,7 +12,8 @@ fn list(
     since: Option<&Value>,
 ) -> Value {
     let since = since.map(|version| version.as_str().unwrap().to_string());
-    handle_command(mux, client, Command::ListNotifications { limit, since, stats: false }, writer).unwrap()
+    handle_command(mux, client, Command::ListNotifications { limit, since, stats: false }, writer)
+        .unwrap()
 }
 
 fn post(mux: &Arc<Mux>, title: &str) {
