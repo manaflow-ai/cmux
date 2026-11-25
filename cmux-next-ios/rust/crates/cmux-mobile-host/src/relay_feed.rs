@@ -287,8 +287,10 @@ impl Feed {
             let listed: Vec<String> = sessions
                 .filter_map(|row| row.get("sessionId").and_then(Value::as_str).map(str::to_owned))
                 .collect();
-            // The list is newest first: follow its first rows, oldest of them first.
-            for session in listed.iter().take(MAX_CHATS).rev() {
+            // The list is newest first: follow its first rows, oldest of them first. Only a list
+            // that changed marks its rows: an unchanged one costs no attach.
+            let changed = self.surfaces.get(CHAT_LIST).and_then(|s| s.last.as_ref()) != Some(list);
+            for session in listed.iter().take(MAX_CHATS).rev().filter(|_| changed) {
                 self.follow(session);
                 self.dirty.insert(session.clone());
             }
