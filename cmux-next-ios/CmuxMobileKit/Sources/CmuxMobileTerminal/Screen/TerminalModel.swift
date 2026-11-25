@@ -580,6 +580,19 @@ public final class TerminalModel {
     public static let debugKeyAccepted = Notification.Name("cmux.debug.terminal.keyAccepted")
     /// DEBUG: the terminal demo driver's last step (`TerminalDemoDriver`).
     var demoNote = "start"
+    /// DEBUG `-cmux-mobile-terminal-text-probe`: the page carries its screen's last rows as the
+    /// label of a clear `debug.terminal.screenText` element, read from Ghostty's grid (what the
+    /// terminal holds, whatever a simulator screenshot of its Metal layer shows). UI tests
+    /// assert on it (TerminalChatFaceRelaunchUITests: a Chat face prompt reaches the terminal).
+    static let debugScreenTextProbe = CommandLine.arguments.contains("-cmux-mobile-terminal-text-probe")
+    /// DEBUG: the screen's last `rows` non-blank rows (the text probe's label).
+    func debugScreenTail(rows: Int = 24) -> String {
+        guard let text = controller?.surface.screenText() else { return "" }
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        return lines.suffix(rows).joined(separator: "\n")
+    }
     #endif
 
     /// Refreshes `snapshot` from the live page (the grid is about to show it).

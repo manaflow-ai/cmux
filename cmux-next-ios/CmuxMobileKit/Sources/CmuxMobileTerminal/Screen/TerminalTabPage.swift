@@ -168,8 +168,37 @@ public struct TerminalTabPage: View {
             .onChange(of: model.showArtifacts) { _, shown in
                 if shown { host.controller.presentArtifacts() } else { host.controller.dismissArtifacts() }
             }
+            #if DEBUG
+            .overlay(alignment: .topLeading) {
+                if TerminalModel.debugScreenTextProbe, isInteractive {
+                    TerminalScreenTextProbe(model: host.model)
+                }
+            }
+            #endif
     }
 }
+
+#if DEBUG
+/// DEBUG `-cmux-mobile-terminal-text-probe` (``TerminalModel/debugScreenTextProbe``): the
+/// screen's last rows, read twice a second, as a clear element's label for UI tests.
+private struct TerminalScreenTextProbe: View {
+    let model: TerminalModel
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+            let rows = model.debugScreenTail()
+            Text(rows)
+                .font(.system(size: 2))
+                .foregroundStyle(.clear)
+                .frame(width: 4, height: 4, alignment: .topLeading)
+                .allowsHitTesting(false)
+                // The whole text, whatever the 4 pt frame draws of it.
+                .accessibilityLabel(rows)
+                .accessibilityIdentifier("debug.terminal.screenText")
+        }
+    }
+}
+#endif
 
 /// The tab's grid card: the last snapshot of the page (no second live
 /// surface), or a quiet placeholder before the page has been on screen.

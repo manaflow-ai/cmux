@@ -25,12 +25,12 @@ final class TerminalChatFaceRelaunchUITests: XCTestCase {
     var title = ""
 
     @MainActor
-    func launch() -> XCUIApplication {
+    func launch(_ extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchEnvironment["CMUX_MOBILE_MOCK_TERMINAL_AGENTS"] = "1"
         app.launchArguments += ["-cmux-mobile-tab", "home", "-cmux-mobile-no-restore",
-                                "-cmuxMobile.settings.terminalChatToggle", "YES"]
+                                "-cmuxMobile.settings.terminalChatToggle", "YES"] + extra
         app.launch()
         let choose = app.scrollViews["setup.teams.choose"]
         if choose.waitForExistence(timeout: 10) { app.buttons["Manaflow"].tap() }
@@ -130,10 +130,13 @@ final class TerminalChatFaceRelaunchUITests: XCTestCase {
     /// Leo, 2026-11-16: "it's not usable like the regular gui". A terminal's Chat face has the
     /// regular chat's composer, and a prompt sent there is typed into the terminal that runs the
     /// session (#44137). On mock data the terminal is the DEBUG mock shell, which echoes what it is
-    /// typed: the Terminal face then shows the line.
+    /// typed: the Terminal face then shows the line. The mock shell starts at its prompt
+    /// (`-cmux-mobile-term-no-intro`: it drops keys while a scripted command runs), and the page's
+    /// DEBUG text probe (`-cmux-mobile-terminal-text-probe`) carries the screen's rows as read from
+    /// Ghostty's grid, so the test reads what the terminal holds, not the Metal layer's pixels.
     @MainActor
     func testAPromptOnTheChatFaceIsTypedIntoItsTerminal() throws {
-        let app = launch()
+        let app = launch(["-cmux-mobile-term-no-intro", "-cmux-mobile-terminal-text-probe"])
         open(app, Self.claude)
         expectFace(app, "terminal", "11-claude-opens-on-terminal")
         show(app, "chat")
@@ -162,10 +165,25 @@ final class TerminalChatFaceRelaunchUITests: XCTestCase {
         XCTAssertFalse(refused.waitForExistence(timeout: 3), "the terminal took the prompt\n\(app.debugDescription)")
         attach(app, "15-chat-face-sent")
 
-        // The terminal ran it: its face shows the mock shell's echo.
+        // The terminal ran it: its face shows the typed command and the mock shell's echo, the
+        // echo on a row of its own.
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
         show(app, "terminal")
         expectFace(app, "terminal", "16-terminal-face-shows-the-prompt")
+        let screen = app.descendants(matching: .any)["debug.terminal.screenText"].firstMatch
+        XCTAssertTrue(screen.waitForExistence(timeout: 10), "the terminal's text probe\n\(app.debugDescription)")
+        var rows: [String] = []
+        for _ in 0..<20 {
+            rows = screen.label.components(separatedBy: "\n")
+            if rows.contains(where: { $0.hasSuffix("echo sent-from-the-chat-face") }),
+               rows.contains("sent-from-the-chat-face") { break }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        }
+        attach(app, "17-terminal-echoed-the-prompt")
+        XCTAssertTrue(rows.contains(where: { $0.hasSuffix("echo sent-from-the-chat-face") }),
+                      "the terminal shows the typed command; its rows:\n\(rows.joined(separator: "\n"))")
+        XCTAssertTrue(rows.contains("sent-from-the-chat-face"),
+                      "the mock shell echoed it on its own row; its rows:\n\(rows.joined(separator: "\n"))")
     }
 
     @MainActor
