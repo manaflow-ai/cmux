@@ -931,8 +931,8 @@ fn unpin_order(doc: &Doc, ids: &[ItemId]) -> Result<Vec<ItemId>, Refusal> {
     let mut later_sibling = HashMap::new();
     for run in sibling_runs.values_mut() {
         run.sort_unstable_by_key(|(order, item)| (*order, item.id.as_str()));
-        for pair in run.windows(2) {
-            later_sibling.insert(pair[0].1.id.as_str(), pair[1].1);
+        for ((_, earlier), (_, later)) in run.iter().zip(run.iter().skip(1)) {
+            later_sibling.insert(earlier.id.as_str(), *later);
         }
     }
 
