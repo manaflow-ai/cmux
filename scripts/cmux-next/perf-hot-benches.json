@@ -18,7 +18,7 @@
     },
     "local-pty-output": {
       "what": "one PTY read of a terminal the daemon runs in-process (--ephemeral, Windows fallback; surface/spawn.rs reader): the read, the bytes already waiting read into the same buffer, one parse",
-      "bench": "cargo test --release -p cmux-tui --test terminal_throughput_stages -- --ignored --nocapture (daemon-ephemeral stage: MB/s and busiest threads)",
+      "bench": "cargo test --release -p cmux-tui --test it -- terminal_throughput_stages:: --ignored --nocapture (daemon-ephemeral stage: MB/s and busiest threads)",
       "owner": "terminal host"
     },
     "chats-window-query": {
