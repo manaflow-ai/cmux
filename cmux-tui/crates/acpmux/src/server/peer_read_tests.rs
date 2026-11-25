@@ -53,7 +53,7 @@ async fn a_slow_reply_in_flight_keeps_the_read_past_idle() {
     let out = peer_read(&read, IDLE, CAP, answer).await;
     feeder.abort();
     assert_eq!(out, Ok("page"));
-    assert!(PEER_READ_STEP > 64 * 6, "a step stays above a ping budget");
+    const { assert!(PEER_READ_STEP > 64 * 6, "a step stays above a ping budget") };
 }
 
 #[tokio::test(start_paused = true)]
