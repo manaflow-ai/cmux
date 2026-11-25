@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.browser.hostWhitelist.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only these hosts open in cmux, such as *.example.com. Empty opens all."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux で開くのはこれらのホストだけです（例: *.example.com）。空の場合はすべて開きます。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لا تُفتح في cmux إلا هذه المضيفات، مثل *.example.com. إذا تُركت فارغة تُفتح كلها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Samo ovi hostovi se otvaraju u cmuxu, npr. *.example.com. Prazno otvara sve."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kun disse værter åbnes i cmux, f.eks. *.example.com. Tom åbner alle."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nur diese Hosts öffnen sich in cmux, etwa *.example.com. Leer öffnet alle."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Solo estos hosts se abren en cmux, como *.example.com. Vacío abre todos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seuls ces hôtes s’ouvrent dans cmux, comme *.example.com. Vide les ouvre tous."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Solo questi host si aprono in cmux, ad esempio *.example.com. Vuoto li apre tutti."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មាន​តែ​ម៉ាស៊ីន​ទាំងនេះ​ទេ​ដែល​បើក​ក្នុង cmux ដូចជា *.example.com។ ទទេ​បើក​ទាំងអស់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 호스트만 cmux에서 열립니다(예: *.example.com). 비워 두면 모두 열립니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bare disse vertene åpnes i cmux, for eksempel *.example.com. Tom åpner alle."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tylko te hosty otwierają się w cmux, np. *.example.com. Puste otwiera wszystkie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Somente estes hosts abrem no cmux, como *.example.com. Vazio abre todos."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "В cmux открываются только эти хосты, например *.example.com. Если пусто — все."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เฉพาะโฮสต์เหล่านี้ที่เปิดใน cmux เช่น *.example.com หากว่างไว้ จะเปิดทั้งหมด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Yalnızca bu ana bilgisayarlar cmux’ta açılır; örneğin *.example.com. Boşsa tümü açılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "У cmux відкриваються лише ці хости, наприклад *.example.com. Якщо порожньо — усі."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chỉ những máy chủ này mở trong cmux, ví dụ *.example.com. Để trống thì mở tất cả."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "只有这些主机在 cmux 中打开，例如 *.example.com。留空则全部打开。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "只有這些主機會在 cmux 中開啟，例如 *.example.com。留空則全部開啟。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

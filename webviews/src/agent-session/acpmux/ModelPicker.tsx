@@ -40,7 +40,7 @@ import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, type ModelPickerProps } from "./m
 import { curatedSections, modelSections } from "./modelSections";
 import { ModelSearchIndex } from "./modelSearch";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
-import { effortWords, fitsQuery, modelEffort, parseQuery, type ParsedQuery, matchingModels } from "./modelQuery";
+import { effortWords, fitsQuery, matchingModels, modelEffort, parseQuery, type ParsedQuery } from "./modelQuery";
 import { listsFeedModels } from "./feedHarnesses";
 import { INSTALL_COMMANDS } from "./harnesses/harnessRows";
 import { groupVariants } from "./modelVariants";
@@ -678,7 +678,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const harnessText = t("picker.harness");
   const noMatchesText = t("picker.noMatches");
   const starredText = t("picker.starred");
-  const addHarnessText = t("modelPicker.addHarness");
+  const addHarnessText = props.addAgentLabel ?? t("modelPicker.addHarness");
   const fastText = t("picker.fastOn");
   const unavailableText = t("picker.unavailable");
   const notInstalledText = t("harnesses.notInstalled");
@@ -1850,6 +1850,9 @@ export function ModelPicker(props: ModelPickerProps) {
         <PickerDialog
           ref={settleMenu}
           id={menuId}
+          // The App's menu glass under the page, as the quick model menus and every Menu (ui/glass/hostGlass.ts).
+          data-host-glass="menu"
+          data-host-glass-cover=""
           data-reasoning-column={columnEffort ? true : undefined}
           className="ui-popup ui-glass ui-picker-popup acpmux-mp z-(--layer-dropdown) flex w-[min(310px,var(--available-width,calc(100vw-24px)))] overflow-hidden rounded-[var(--ui-popup-radius,8px)] text-control text-fg"
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the popover is positioned by the shared anchor helper.
