@@ -403,6 +403,7 @@ import {
   type TurnView,
   liveTurnPlan,
   earlierTurnPlan,
+  liveTurnClockStart,
   EARLIER_PLAN,
   withEarlierPlan,
   samePlanEntries as sameEntries,
@@ -2749,6 +2750,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         list: snapshot.summary?.taskList,
       })
     : undefined;
+  // The hat's plan header counts the running turn's current stretch, as the transcript's live line does.
+  const hatCounts = hatTasks !== undefined && snapshot.isWorking;
+  const hatTurnSince = useMemo(
+    () => (hatCounts ? liveTurnClockStart(sourceRows, snapshot.turnStartedAtMs) : undefined),
+    [hatCounts, sourceRows, snapshot.turnStartedAtMs],
+  );
   const hatEarlier = hatTasks?.earlier ?? false;
   const hatKept = hatTasks?.kept ?? false;
   const hatPlanSource = hatTasks?.plan;
@@ -6135,6 +6142,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             plan={hatPlan}
             planEarlier={hatEarlier}
             planKept={hatKept}
+            turnSince={hatTurnSince}
             onTuck={trayPlacement === "tray" ? tuckTray : undefined}
             // The open hat's tuck stands where the person put the handle (middle by default), never where
             // the tucked pill steps aside for Jump to latest: it is the hat's own control, on the hat's
