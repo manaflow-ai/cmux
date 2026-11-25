@@ -5,7 +5,7 @@
 # Usage: run.sh OUT [ROUNDS]  (ROUNDS: time the parse instead, the best round to OUT)
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
-root=$(cd "$here/../../../../.." && pwd)
+root=$(cd "$here/../../../../../.." && pwd)
 src=$root/Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/catalyst/MarkdownParser.swift
 work=$(mktemp -d)
 python3 - "$src" "$work/parser.swift" <<'PY'
