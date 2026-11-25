@@ -3,9 +3,16 @@
 //! terminal notification was posted for (`_program_alert`,
 //! `_looks_like_alert`, `_alert_notifies`), which `cmux status run`s finished
 //! and whether they notify (`_status_runs`, `_run_notifies`), and the
-//! notifications panel's selection (`_panel_move`, `_panel_reconcile`).
+//! notifications panel's selection (`_panel_move`, `_panel_reconcile`),
+//! `notifications.*` in cmux.json parsed (`_settings_parse`,
+//! `_sound_rule_parse`, `_quiet_minutes`), and the keys a machine's
+//! workspace's settings are saved under (`_workspace_key`, `_workspace_ids`).
 
-use cmux_window_rules::{banner, notifications_panel, status_alerts};
+use std::collections::BTreeSet;
+
+use cmux_window_rules::{
+    banner, notification_keys, notification_settings, notifications_panel, status_alerts,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -20,7 +27,7 @@ fn value<T: serde::Serialize>(answer: T) -> Result<Value, i32> {
 }
 
 /// The ops this module answers (exact names: the other `window_notifications_*` ops are misc's).
-const OPS: [&[u8]; 9] = [
+const OPS: [&[u8]; 14] = [
     b"window_notifications_banner",
     b"window_notifications_plain_text",
     b"window_notifications_program_alert",
@@ -30,6 +37,11 @@ const OPS: [&[u8]; 9] = [
     b"window_notifications_run_notifies",
     b"window_notifications_panel_move",
     b"window_notifications_panel_reconcile",
+    b"window_notifications_settings_parse",
+    b"window_notifications_sound_rule_parse",
+    b"window_notifications_quiet_minutes",
+    b"window_notifications_workspace_key",
+    b"window_notifications_workspace_ids",
 ];
 
 /// Whether `operation` is one of this module's.
@@ -113,6 +125,55 @@ struct Reloaded {
     new: Vec<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Config {
+    /// The cmux.json root; absent reads as no settings.
+    #[serde(default)]
+    root: Value,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RuleValue {
+    #[serde(default)]
+    value: Value,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Clock {
+    text: String,
+}
+
+/// One machine's workspace: `keys` are the muted keys, `ruleKeys` the keys
+/// `notifications.sounds.workspaces` has a rule under, `localIds` the ids of
+/// the workspaces on this Mac (the Swift `hasRule` and `localHolds`).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceKey {
+    machine: String,
+    workspace: String,
+    local_machine: String,
+    #[serde(default)]
+    keys: BTreeSet<String>,
+    #[serde(default)]
+    rule_keys: BTreeSet<String>,
+    #[serde(default)]
+    local_ids: BTreeSet<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceIds {
+    machine: String,
+    local_machine: String,
+    #[serde(default)]
+    keys: BTreeSet<String>,
+    #[serde(default)]
+    local_ids: BTreeSet<String>,
+}
+
 pub(crate) fn respond_notify(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
     let answer = match operation {
         // The banner's title, subtitle and body.
@@ -150,6 +211,39 @@ pub(crate) fn respond_notify(operation: &[u8], request: &[u8]) -> Result<Vec<u8>
         b"window_notifications_panel_reconcile" => {
             let request: Reloaded = read(request)?;
             json!({ "selected": notifications_panel::reconcile_selection(request.selected.as_deref(), &request.old, &request.new) })
+        }
+        // `notifications.*` and the feed mirror: the preferences and every bad value's diagnostic.
+        b"window_notifications_settings_parse" => {
+            let request: Config = read(request)?;
+            value(notification_settings::parse(&request.root))?
+        }
+        // One level's sound rule (`rule` null: refused); `accepts`: no problem, cmux.json can hold it.
+        b"window_notifications_sound_rule_parse" => {
+            let request: RuleValue = read(request)?;
+            let mut problems = Vec::new();
+            let rule = notification_settings::parse_sound_rule(&request.value, &mut problems);
+            let accepts = rule.is_some() && problems.is_empty();
+            json!({ "rule": rule, "problems": problems, "accepts": accepts })
+        }
+        b"window_notifications_quiet_minutes" => {
+            let request: Clock = read(request)?;
+            json!({ "minutes": notification_settings::quiet_hours_minutes(&request.text) })
+        }
+        b"window_notifications_workspace_key" => {
+            let r: WorkspaceKey = read(request)?;
+            let (machine, workspace, local) =
+                (r.machine.as_str(), r.workspace.as_str(), r.local_machine.as_str());
+            json!({
+                "settingsKey": notification_keys::settings_key(machine, workspace, local),
+                "qualified": notification_keys::qualified(machine, workspace),
+                "mutes": notification_keys::mutes(&r.keys, machine, workspace, local, &r.local_ids),
+                "legacyRemoteKey": notification_keys::legacy_remote_key(&r.keys, machine, workspace, local, &r.local_ids),
+                "ruleKey": notification_keys::rule_key(machine, workspace, local, &r.rule_keys, &r.local_ids),
+            })
+        }
+        b"window_notifications_workspace_ids" => {
+            let r: WorkspaceIds = read(request)?;
+            json!({ "ids": notification_keys::workspace_ids(&r.keys, &r.machine, &r.local_machine, &r.local_ids) })
         }
         _ => return Err(ERR_INVALID),
     };

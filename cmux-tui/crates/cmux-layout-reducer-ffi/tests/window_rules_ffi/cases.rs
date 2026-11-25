@@ -1137,3 +1137,154 @@ fn notifications_panel_selection_moves_and_reconciles() {
     // The ops misc answers still reach it.
     assert_eq!(call_json(c"window_notifications_last_prompt", &json!({"prompts": []})).0, OK);
 }
+
+#[test]
+fn notification_settings_parse_into_preferences_and_diagnostics() {
+    let (status, body) = call_json(
+        c"window_notifications_settings_parse",
+        &json!({"root": {
+            "notifications": {
+                "dismissal": "click", "timeoutSeconds": 0, "dockBadge": "yes",
+                "quietHours": {"start": "22:00", "end": "07:30"},
+                "mutedWorkspaces": ["ws_1"],
+                "sources": {"cli": {"color": "#f80", "desktop": false}},
+                "sounds": {"volume": 0.5, "workspaces": {"ws_1": "none", "ws_2": 3}},
+            },
+            "feed": {"mirrorNotifications": {"terminal": "title"}},
+        }}),
+    );
+    assert_eq!(status, OK);
+    let prefs = &body["prefs"];
+    assert_eq!(prefs["dismissal"], "click");
+    assert_eq!(prefs["timeoutSeconds"], 1.0);
+    assert_eq!(prefs["dockBadge"], true);
+    assert_eq!(prefs["quietHours"], json!({"start": 1320, "end": 450}));
+    assert_eq!(prefs["mutedWorkspaces"], json!(["ws_1"]));
+    assert_eq!(
+        prefs["sources"]["cli"],
+        json!({"color": {"hex": 0xFF8800, "alpha": 1.0}, "desktop": false})
+    );
+    assert_eq!(prefs["sounds"]["volume"], 0.5);
+    assert_eq!(prefs["sounds"]["workspaces"], json!({"ws_1": {"sound": "none", "events": {}}}));
+    assert_eq!(
+        prefs["feedMirror"],
+        json!({"agents": true, "terminal": "title", "agentPermissionPrompts": false})
+    );
+    assert_eq!(
+        body["diagnostics"],
+        json!([
+            {"kind": "invalidValue", "path": "notifications.timeoutSeconds", "message": "clamped to 1.0...86400.0"},
+            {"kind": "invalidValue", "path": "notifications.dockBadge", "message": "expected true or false"},
+            {"kind": "invalidValue", "path": "notifications.sounds.workspaces.ws_2",
+             "message": "expected a sound name or {\"sound\", \"volume\", \"events\"}"},
+        ])
+    );
+    // No root: the defaults, no diagnostic.
+    let (status, body) = call_json(c"window_notifications_settings_parse", &json!({}));
+    assert_eq!(status, OK);
+    assert_eq!(body["prefs"]["toastStyle"], "standard");
+    assert_eq!(body["prefs"]["quietHours"], Value::Null);
+    assert_eq!(body["diagnostics"], json!([]));
+}
+
+#[test]
+fn a_sound_rule_parses_with_its_problems() {
+    assert_eq!(
+        call_json(c"window_notifications_sound_rule_parse", &json!({"value": "Glass"})),
+        (OK, json!({"rule": {"sound": "Glass", "events": {}}, "problems": [], "accepts": true}))
+    );
+    assert_eq!(
+        call_json(
+            c"window_notifications_sound_rule_parse",
+            &json!({"value": {"volume": 2, "events": {"bell": "Tink"}}})
+        ),
+        (
+            OK,
+            json!({
+                "rule": {"volume": 1.0, "events": {"bell": "Tink"}},
+                "problems": ["volume: clamped to 0...1"],
+                "accepts": false,
+            })
+        )
+    );
+    assert_eq!(
+        call_json(c"window_notifications_sound_rule_parse", &json!({"value": 3})),
+        (
+            OK,
+            json!({
+                "rule": null,
+                "problems": ["expected a sound name or {\"sound\", \"volume\", \"events\"}"],
+                "accepts": false,
+            })
+        )
+    );
+    assert_eq!(
+        call_json(c"window_notifications_quiet_minutes", &json!({"text": "07:30"})),
+        (OK, json!({"minutes": 450}))
+    );
+    assert_eq!(
+        call_json(c"window_notifications_quiet_minutes", &json!({"text": "24:00"})),
+        (OK, json!({"minutes": null}))
+    );
+    assert_eq!(call_json(c"window_notifications_quiet_minutes", &json!({})).0, ERR_INVALID);
+}
+
+#[test]
+fn a_remote_workspace_reads_its_qualified_and_legacy_keys() {
+    let qualified = "machine:bGFi:workspace:d3NfbGFi";
+    assert_eq!(
+        call_json(
+            c"window_notifications_workspace_key",
+            &json!({"machine": "lab", "workspace": "ws_lab", "localMachine": "local",
+                    "keys": ["ws_lab"], "ruleKeys": ["ws_lab"]})
+        ),
+        (
+            OK,
+            json!({
+                "settingsKey": qualified,
+                "qualified": qualified,
+                "mutes": true,
+                "legacyRemoteKey": "ws_lab",
+                "ruleKey": "ws_lab",
+            })
+        )
+    );
+    // A workspace on this Mac holds the id: the bare key stays local.
+    assert_eq!(
+        call_json(
+            c"window_notifications_workspace_key",
+            &json!({"machine": "lab", "workspace": "ws_lab", "localMachine": "local",
+                    "keys": ["ws_lab"], "ruleKeys": ["ws_lab"], "localIds": ["ws_lab"]})
+        ),
+        (
+            OK,
+            json!({
+                "settingsKey": qualified,
+                "qualified": qualified,
+                "mutes": false,
+                "legacyRemoteKey": null,
+                "ruleKey": qualified,
+            })
+        )
+    );
+    assert_eq!(
+        call_json(
+            c"window_notifications_workspace_ids",
+            &json!({"machine": "lab", "localMachine": "local",
+                    "keys": [qualified, "ws_bare", "ws_local", "machine:b3RoZXI=:workspace:d3M="],
+                    "localIds": ["ws_local"]})
+        ),
+        (OK, json!({"ids": ["ws_bare", "ws_lab"]}))
+    );
+    assert_eq!(
+        call_json(
+            c"window_notifications_workspace_ids",
+            &json!({"machine": "local", "localMachine": "local", "keys": ["ws_1"]})
+        ),
+        (OK, json!({"ids": ["ws_1"]}))
+    );
+    assert_eq!(
+        call_json(c"window_notifications_workspace_key", &json!({"machine": "lab"})).0,
+        ERR_INVALID
+    );
+}

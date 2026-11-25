@@ -41,6 +41,10 @@
 //! - [`status_alerts`]: which OSC 7501 record a terminal notification was
 //!   posted for, which `cmux status run`s finished and whether they notify.
 //! - [`notifications_panel`]: the notifications panel's keyboard selection.
+//! - [`notification_settings`]: `notifications.*` and the feed mirror in
+//!   cmux.json, parsed, with each bad value's diagnostic.
+//! - [`notification_keys`]: the key a machine's workspace's mute or sound
+//!   rule is saved under, and the legacy bare ids a remote one still reads.
 
 pub mod appearance;
 pub mod banner;
@@ -52,6 +56,8 @@ pub mod editors;
 pub mod files;
 pub mod history;
 pub mod launch;
+pub mod notification_keys;
+pub mod notification_settings;
 pub mod notifications;
 pub mod notifications_panel;
 pub mod remote;
