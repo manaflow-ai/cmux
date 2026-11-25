@@ -43,7 +43,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Ask for more capacity for the work this machine runs: grows it live within the creator's plan, or says what it takes (over the plan, a fan-out past one machine, a kind not offered). Never waits for the machine. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine).
+    /// Ask for more capacity for the work this machine runs: grows it live within the creator's plan, or says what it takes (over the plan, a kind not offered); past one machine, makes a fan-out of K machines and answers its handle (each machine's id). Never waits for a machine to be ready. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine).
     CloudVmMachineRequestOp {
         name: "cloud.vm.machine.request",
         class: Mutation,
@@ -100,9 +100,39 @@ pub struct CloudVmMachineRequestResultSize {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmMachineRequestResultFanoutEach {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub vcpu: WireNumber,
+    pub mem_gib: WireNumber,
+}
+
+wire_enum! {
+    CloudVmMachineRequestResultFanoutSlotsItemStatus {
+        Created = "created",
+        Refused = "refused",
+        Unconfirmed = "unconfirmed",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmMachineRequestResultFanoutSlotsItem {
+    pub index: WireNumber,
+    pub status: CloudVmMachineRequestResultFanoutSlotsItemStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudVmMachineRequestResultFanout {
+    pub handle: String,
     pub width: WireNumber,
-    pub each: String,
+    pub each: CloudVmMachineRequestResultFanoutEach,
+    pub slots: Vec<CloudVmMachineRequestResultFanoutSlotsItem>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -872,32 +902,4 @@ pub struct DomainListResult {
     pub team: TeamId,
     pub domains: Vec<TeamDomain>,
     pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes domain.list declares.
-    DomainListError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Give up a claimed or verified domain (owners and admins). Another team may then verify it.
-    DomainReleaseOp {
-        name: "domain.release",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "destructive",
-        principals: [Session],
-        params: DomainReleaseParams,
-        result: DomainReleaseResult,
-        error: DomainReleaseError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct DomainReleaseParams {
-    pub domain: EmailDomain,
 }

@@ -25,7 +25,7 @@ const MAX_REPLY: u64 = 1 << 20;
 pub(super) fn tool() -> Value {
     json!({
         "name": NAME,
-        "description": "Ask for more capacity for THIS cmux Cloud machine (vCPU, memory), as `cmux machine request` does. Answers at once: fits (already has it), grow (resizing now, within the plan), over_plan (the largest the plan takes, and what lifts it), fanout (past 32 vCPU / 64 GiB: K machines), or unavailable. Only on a cmux Cloud machine.",
+        "description": "Ask for more capacity for THIS cmux Cloud machine (vCPU, memory), as `cmux machine request` does. Answers at once: fits (already has it), grow (resizing now, within the plan), over_plan (the largest the plan takes, and what lifts it), fanout (past 32 vCPU / 64 GiB: K machines made now, answered as a handle with each machine id), or unavailable. Only on a cmux Cloud machine.",
         "inputSchema": {
             "type": "object",
             "properties": {

@@ -5,6 +5,41 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeSearchParams {
+    pub q: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<ConversationId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<ParticipantId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<ConversationKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before: Option<Timestamp>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeSearchResultHitsItemRangesItem {
+    pub start: i64,
+    pub length: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeSearchResultHitsItem {
+    pub conversation: ConversationId,
+    pub title: Option<String>,
+    pub seq: i64,
+    pub message_id: String,
+    pub author: ParticipantId,
+    pub created_at: Timestamp,
+    pub snippet: String,
+    pub ranges: Vec<HomeSearchResultHitsItemRangesItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HomeSearchResult {
     pub hits: Vec<HomeSearchResultHitsItem>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -865,42 +900,4 @@ pub struct IntegrationConnectParams {
     pub repo: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub return_to: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationConnectResult {
-    pub connection: Connection,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub authorize_url: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub connected: Option<BoolLit<true>>,
-}
-
-wire_errors! {
-    /// The error codes integration.connect declares.
-    IntegrationConnectError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        IntegrationLimit = "integration.limit",
-        IntegrationNotConfigured = "integration.not_configured",
-        PolicyDenied = "policy.denied",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// List the team's connections the caller may use (no secrets) and which providers this deployment can connect.
-    IntegrationListOp {
-        name: "integration.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:ConnectionDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: IntegrationListParams,
-        result: IntegrationListResult,
-        error: IntegrationListError,
-    }
 }

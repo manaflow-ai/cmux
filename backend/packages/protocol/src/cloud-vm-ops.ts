@@ -125,7 +125,8 @@ export const CloudVmAttentionEmit = vmDef(
 /**
  * `cmux machine request` from the agent on the machine (cmuxterm-hq RFD draft agent-work-placement, 9 and 13; Leo,
  * 2026-11-25: "how can an agent know/ask for more capacity?"). Answers at once (MachineRequest.ts): fits, grow (a live
- * resize within the creator's plan), over_plan, fanout or unavailable, with the words the agent reads back.
+ * resize within the creator's plan), over_plan, fanout (K machines made now; the answer is their handle) or
+ * unavailable, with the words the agent reads back.
  */
 export const CloudVmMachineRequest = vmDef(
   "cloud.vm.machine.request",
@@ -145,10 +146,25 @@ export const CloudVmMachineRequest = vmDef(
     machine: Schema.String,
     size: Schema.optionalKey(Schema.Struct({ name: Schema.optionalKey(Schema.String), vcpu: Schema.Number, mem_gib: Schema.Number })),
     code: Schema.optionalKey(Schema.String),
-    fanout: Schema.optionalKey(Schema.Struct({ width: Schema.Number, each: Schema.String })),
+    fanout: Schema.optionalKey(
+      Schema.Struct({
+        handle: Schema.String,
+        width: Schema.Number,
+        each: Schema.Struct({ name: Schema.optionalKey(Schema.String), vcpu: Schema.Number, mem_gib: Schema.Number }),
+        slots: Schema.Array(
+          Schema.Struct({
+            index: Schema.Number,
+            status: Schema.Literals(["created", "refused", "unconfirmed"]),
+            machine: Schema.optionalKey(Schema.String),
+            code: Schema.optionalKey(Schema.String),
+            message: Schema.optionalKey(Schema.String)
+          })
+        )
+      })
+    ),
     upgrade_plan: Schema.optionalKey(Schema.String)
   }),
-  "Ask for more capacity for the work this machine runs: grows it live within the creator's plan, or says what it takes (over the plan, a fan-out past one machine, a kind not offered). Never waits for the machine."
+  "Ask for more capacity for the work this machine runs: grows it live within the creator's plan, or says what it takes (over the plan, a kind not offered); past one machine, makes a fan-out of K machines and answers its handle (each machine's id). Never waits for a machine to be ready."
 )
 
 export const cloudVmOps = [CloudVmSelfGet, CloudVmNetworkPolicy, CloudVmReceiverLifecycle, CloudVmStatusReport, CloudVmEventEmit, CloudVmAttentionEmit, CloudVmMachineRequest] as const

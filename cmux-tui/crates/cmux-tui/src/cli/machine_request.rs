@@ -24,7 +24,7 @@ const ASK_BOUND: Duration = Duration::from_secs(90);
 pub(super) const USAGE: &str = "usage: cmux machine request --vcpu N [--mem GIB] [--fanout K] [--kind linux|mac|gpu] --for \"why\" [--until DONE|30m|2h|1d] [--json]\n\n\
 Ask for more capacity for the work this cmux Cloud machine runs. Answers at once: the machine\n\
 already has it, it grows now (within your plan), what your plan allows instead, or a fan-out of\n\
-several machines past the largest one (32 vCPU / 64 GiB). Run it on the Cloud machine itself:\n\
+several machines made now past the largest one (32 vCPU / 64 GiB), with each machine's id. Run it on the Cloud machine itself:\n\
 it speaks as the machine, with no sign-in.";
 
 #[derive(Debug, PartialEq)]

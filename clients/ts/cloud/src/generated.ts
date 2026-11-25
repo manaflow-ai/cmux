@@ -2400,7 +2400,7 @@ export interface CloudOps {
       readonly delivered: boolean
     }
   }
-  /** Ask for more capacity for the work this machine runs: grows it live within the creator's plan, or says what it takes (over the plan, a fan-out past one machine, a kind not offered). Never waits for the machine. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine). */
+  /** Ask for more capacity for the work this machine runs: grows it live within the creator's plan, or says what it takes (over the plan, a kind not offered); past one machine, makes a fan-out of K machines and answers its handle (each machine's id). Never waits for a machine to be ready. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine). */
   readonly "cloud.vm.machine.request": {
     readonly params: {
       readonly machine: MachineId
@@ -2422,8 +2422,20 @@ export interface CloudOps {
       }
       readonly code?: string
       readonly fanout?: {
+        readonly handle: string
         readonly width: number | "Infinity" | "-Infinity" | "NaN"
-        readonly each: string
+        readonly each: {
+          readonly name?: string
+          readonly vcpu: number | "Infinity" | "-Infinity" | "NaN"
+          readonly mem_gib: number | "Infinity" | "-Infinity" | "NaN"
+        }
+        readonly slots: ReadonlyArray<{
+          readonly index: number | "Infinity" | "-Infinity" | "NaN"
+          readonly status: "created" | "refused" | "unconfirmed"
+          readonly machine?: string
+          readonly code?: string
+          readonly message?: string
+        }>
       }
       readonly upgrade_plan?: string
     }
