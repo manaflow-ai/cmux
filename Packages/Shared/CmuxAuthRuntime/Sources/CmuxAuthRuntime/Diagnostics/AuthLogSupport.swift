@@ -1,28 +1,18 @@
 #if !canImport(OSLog)
 import Foundation
+import Synchronization
 
-/// Lock surface used by the auth runtime on platforms without Apple's `os` module.
-// lint:allow lock - stands in for os.OSAllocatedUnfairLock where it is unavailable.
-final class OSAllocatedUnfairLock<State>: @unchecked Sendable { // crash-allow: `state` is read and written only inside withLock, under `mutex`
-    private let mutex = NSLock()
-    private var state: State
+/// Lock surface used by the auth runtime on platforms without Apple's `os` module: a `Mutex` holds the
+/// state, so the class is Sendable with no unchecked conformance.
+final class OSAllocatedUnfairLock<State: Sendable>: Sendable {
+    private let mutex: Mutex<State>
 
     init(initialState: State) {
-        state = initialState
-    }
-
-    init(uncheckedState: State) {
-        state = uncheckedState
+        mutex = Mutex(initialState)
     }
 
     func withLock<R>(_ body: (inout State) throws -> R) rethrows -> R {
-        mutex.lock()
-        defer { mutex.unlock() }
-        return try body(&state)
-    }
-
-    func withLockUnchecked<R>(_ body: (inout State) throws -> R) rethrows -> R {
-        try withLock(body)
+        try mutex.withLock { try body(&$0) }
     }
 }
 
