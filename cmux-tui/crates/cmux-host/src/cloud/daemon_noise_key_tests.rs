@@ -67,3 +67,22 @@ fn the_cloud_session_identity_lives_under_its_encoded_name() {
         Path::new("/home/cmux/.local/state/cmux/remote/sessions/Y2xvdWQ/auth/identity.json")
     );
 }
+
+/// The cmux vault seals to the public key the bind sends (`public_key`); the private half read here
+/// opens it, so the two must be one X25519 pair, as the vault's HPKE derives it.
+#[test]
+fn the_private_half_is_the_pair_of_the_public_key_the_bind_sends() {
+    let private = [7_u8; 32];
+    let text = format!(r#"{{"version": 1, "private_key": "{}"}}"#, URL_SAFE_NO_PAD.encode(private));
+    let read = private_key(&text).unwrap();
+    assert_eq!(*read, private);
+    let hpke = cmux_vault_e2e::crypto::DeviceKey::from_private(&*read).unwrap();
+    assert_eq!(Some(URL_SAFE_NO_PAD.encode(hpke.public_bytes())), public_key(&text));
+    for text in [
+        "",
+        "{}",
+        r#"{"version": 2, "private_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}"#,
+    ] {
+        assert!(private_key(text).is_none(), "{text}");
+    }
+}

@@ -697,7 +697,7 @@ impl<H: Http> CloudClient<H> {
     /// One GET on this machine's API origin as its `vm` install. As
     /// [`Self::post_as_install`], only a 401 or an `auth.*` 403 drops the
     /// cached bearer and retries once.
-    fn get_as_install(&mut self, path: &str, now_wall_ms: u64) -> Answer {
+    pub(super) fn get_as_install(&mut self, path: &str, now_wall_ms: u64) -> Answer {
         let url = self.url(path);
         let send = |client: &mut Self| -> Option<(u16, Value)> {
             let token = client.token(now_wall_ms).ok()?;

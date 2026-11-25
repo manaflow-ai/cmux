@@ -283,3 +283,52 @@ fn a_secrets_file_of_any_size_is_masked_and_named() {
     let said = String::from_utf8_lossy(&out.stdout).trim().to_owned();
     assert_eq!(said, "300 300", "{}", String::from_utf8_lossy(&out.stderr));
 }
+
+/// The cmux vault's names (below its header in machine-secrets.env, written by cmux host) are the vault's:
+/// an apply whose machine.toml does not declare them never unsets them, while a name `cmux cloud
+/// deliver-secrets` sent for an older config still is.
+#[cfg(unix)]
+#[test]
+fn an_apply_never_unsets_the_vaults_names() {
+    let scratch = tempfile_dir("cmux-apply-vault");
+    let home = scratch.join("home");
+    std::fs::create_dir_all(home.join(".config/cmux")).unwrap();
+    std::fs::write(
+        home.join(".config/cmux/machine-secrets.env"),
+        "export OLD_DELIVERED='a'\nexport DECLARED='b'\n# cmux vault (end to end encrypted, delivered by cmux host): names below\nexport FROM_VAULT='c'\n",
+    )
+    .unwrap();
+    let applier_path = scratch.join("apply");
+    std::fs::write(&applier_path, applier()).unwrap();
+    let call = "import importlib.machinery, importlib.util, sys, types\n\
+                try:\n    import tomllib\n\
+                except ImportError:\n    sys.modules['tomllib'] = types.ModuleType('tomllib')\n\
+                l = importlib.machinery.SourceFileLoader('applier', sys.argv[1])\n\
+                m = importlib.util.module_from_spec(importlib.util.spec_from_loader('applier', l))\n\
+                l.exec_module(m)\n\
+                print(' '.join(m.stale_names(['DECLARED'])), '|', ' '.join(sorted(m.delivered())))\n";
+    let Ok(out) = std::process::Command::new("python3")
+        .args(["-I", "-c", call])
+        .arg(&applier_path)
+        .env("HOME", &home)
+        .output()
+    else {
+        return;
+    };
+    let _ = std::fs::remove_dir_all(&scratch);
+    let said = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+    assert_eq!(
+        said,
+        "OLD_DELIVERED | DECLARED FROM_VAULT OLD_DELIVERED",
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[cfg(unix)]
+fn tempfile_dir(prefix: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("{prefix}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir.canonicalize().unwrap()
+}

@@ -270,9 +270,10 @@ def private_folder(path):
     os.chmod(path, 0o700)
 
 
-def delivered():
+def delivered(vault_only=False):
     """The names in machine-secrets.env: a regular file of this user (machine.env sources nothing else),
-    opened without following a link or blocking on a FIFO."""
+    opened without following a link or blocking on a FIFO. `vault_only`: just the names below the cmux
+    vault's header (cmux host writes them there, cloud/vault.rs; the vault owns them, not this config)."""
     try:
         fd = os.open(SECRETS_FILE, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except OSError:
@@ -281,7 +282,17 @@ def delivered():
         st = os.fstat(f.fileno())
         if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid():
             return set()
-        return {m.group(1) for m in re.finditer(r"^export ([A-Za-z_][A-Za-z0-9_]*)=", f.read(), re.M)}
+        text = f.read()
+    if vault_only:
+        at = re.search(r"^# cmux vault", text, re.M)
+        text = text[at.start():] if at else ""
+    return {m.group(1) for m in re.finditer(r"^export ([A-Za-z_][A-Za-z0-9_]*)=", text, re.M)}
+
+
+def stale_names(declared):
+    """Delivered names this config does not declare, to unset after sourcing: a secret delivered for an
+    older config. Never the vault's (it keeps its own names: one it stops sending leaves the file)."""
+    return sorted(delivered() - delivered(vault_only=True) - set(declared))
 
 
 def previous_env_names():
@@ -700,7 +711,7 @@ def apply_once(request):
         if config["secrets"]:
             lines += ["unset " + " ".join(config["secrets"])]
         lines += ['if [ -z "${CMUX_MACHINE_SETUP:-}" ] && [ -f "$HOME/.config/cmux/machine-secrets.env" ] && [ ! -L "$HOME/.config/cmux/machine-secrets.env" ]; then . "$HOME/.config/cmux/machine-secrets.env"; fi']
-        stale = sorted(delivered() - set(config["secrets"]))
+        stale = stale_names(config["secrets"])
         if stale:
             lines += ["unset " + " ".join(stale)]
         # Names an earlier apply exported (or already unset) and this config no longer declares: a shell

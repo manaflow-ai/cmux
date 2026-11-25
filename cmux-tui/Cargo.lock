@@ -2233,6 +2233,7 @@ dependencies = [
  "cmux-signed-envelope",
  "cmux-supervise-core",
  "cmux-unix-socket",
+ "cmux-vault-e2e",
  "flate2",
  "libc",
  "proptest",

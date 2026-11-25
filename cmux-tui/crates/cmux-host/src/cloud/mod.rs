@@ -39,6 +39,8 @@
 //! choice), `additions_thread` (its listing and send, off the poll loop),
 //! [`page_cache`] (the sync and clean page-cache drop the platform runs before a pause),
 //! [`page_in`] (the harness executables read back in right after a resume),
+//! [`vault`] (the cmux vault's machine side: values devices sealed to this machine, into
+//! `machine-secrets.env`), `vault_file` (its files) and `vault_thread` (its pull),
 //! `role` (the Linux worker), [`trajectory`] (ACP chats kept in cmux
 //! Cloud and restored into a replacement machine, #25584),
 //! and `trajectory_thread` (its thread). A person's Claude or Codex login is
@@ -100,6 +102,11 @@ pub mod session;
 pub mod trajectory;
 #[cfg(unix)]
 pub mod trajectory_thread;
+pub mod vault;
+#[cfg(unix)]
+pub mod vault_file;
+#[cfg(target_os = "linux")]
+pub mod vault_thread;
 pub mod wake_echo;
 #[cfg(test)]
 mod wake_echo_tests;
