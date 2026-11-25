@@ -223,7 +223,7 @@ export function CloudTriToggle({
         <Tooltip key={mode} {...tip(mode)} side="top">
           <button
             type="button"
-            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the ARIA radio pattern on a segment button; an <input type="radio"> would change the segment's keys and look.
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a segment holds a glyph and a tooltip, which an input cannot.
             role="radio"
             aria-checked={mode === pin}
             aria-label={t(NAMES[mode])}

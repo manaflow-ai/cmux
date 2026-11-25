@@ -116,7 +116,7 @@ export function PlaceControl({
           <button
             key={mode}
             type="button"
-            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the ARIA radio pattern on a segment button; an <input type="radio"> would change the segment's keys and look.
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a button radio with an icon and a two-line label, which a native input cannot hold
             role="radio"
             aria-checked={place.mode === mode}
             className="acpmux-place-rowbtn"
@@ -148,7 +148,7 @@ export function PlaceControl({
           <button
             key={mode}
             type="button"
-            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the ARIA radio pattern on a segment button; an <input type="radio"> would change the segment's keys and look.
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a button radio with an icon and a two-line label, which a native input cannot hold
             role="radio"
             aria-checked={place.mode === mode}
             className="acpmux-place-segbtn"

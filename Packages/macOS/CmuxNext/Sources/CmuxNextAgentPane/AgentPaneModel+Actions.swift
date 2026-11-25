@@ -70,12 +70,13 @@ extension AgentPaneModel {
     /// is an `unavailable` failure, so the page can say so, with the app's reason when it gave one
     /// (``AgentPaneActionRun/refused(_:)``); one that ran and then stopped reports itself in the app
     /// (its own toast).
-    func runAction(_ id: String, session: String? = nil, environment: String? = nil, handoff: String? = nil, app: String? = nil, mode: String? = nil,
-                   queued: Int? = nil, hasDraft: Bool? = nil, sessions: [String]? = nil, repo: String? = nil, returnTo: String? = nil) -> [String: Any] {
+    func runAction(_ id: String, session: String? = nil, environment: String? = nil, handoff: String? = nil, app: String? = nil,
+                   repo: String? = nil, returnTo: String? = nil, mode: String? = nil,
+                   queued: Int? = nil, hasDraft: Bool? = nil, sessions: [String]? = nil) -> [String: Any] {
         let screenShare = id == "session.screenShare"
         let gated = Self.connectActions.contains(id) || Self.accessActions.contains(id) || Self.cloudStartActions.contains(id)
-            || Self.terminalSwitchActions.contains(id) || Self.folderActions.contains(id) || Self.setupActions.contains(id)
-            || Self.placeActions.contains(id) || screenShare || Self.githubActions.contains(id)
+            || Self.terminalSwitchActions.contains(id) || Self.folderActions.contains(id) || Self.placeActions.contains(id)
+            || Self.setupActions.contains(id) || screenShare || Self.githubActions.contains(id)
         guard id == "newTab.page" || Self.paletteActions.contains(id) || gated, let onRunAction else {
             return Self.unsupported("action.run")
         }

@@ -4,8 +4,6 @@ import { pressToOpen } from "../../../ui/pressToOpen";
 import { useT } from "../i18n";
 import { EvacuateControl } from "../place/EvacuateControl";
 import type { EvacuateState } from "../place/placeModel";
-import { useExperimentSwitch } from "../../../experiments/switches";
-import { CLOUD_TOGGLE_SWITCH } from "../hybrid/hybridModel";
 import { ShortcutKeycaps } from "../ButtonKeycaps";
 import { SHORTCUT_ACTIONS, useShortcut } from "../shortcuts";
 import { AgentMark } from "../tabMarks";
@@ -27,8 +25,8 @@ export function ChatCards({
   onOpenInTerminal,
   onShowAll,
   onColdArchive,
-  onPlace: placeProp,
-  onEvacuate: evacuateProp,
+  onPlace,
+  onEvacuate,
   evacuate,
   onCancelEvacuate,
   onBringBack,
@@ -64,10 +62,6 @@ export function ChatCards({
   glow?: HomeCardGlowArm;
 }) {
   const nt = useNt();
-  // The place and Evacuate rows are the Cloud Toggle experiment's (hybrid/hybridModel.ts), off by default.
-  const cloud = useExperimentSwitch(CLOUD_TOGGLE_SWITCH);
-  const onPlace = cloud ? placeProp : undefined;
-  const onEvacuate = cloud ? evacuateProp : undefined;
   const t = useT();
   const allChatsKey = useShortcut(SHORTCUT_ACTIONS.searchChats);
   // The tinted glow draws on the card grid only; the one-line list keeps its plain rows.

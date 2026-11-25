@@ -9106,6 +9106,399 @@
         }
       }
     },
+    "cloud.place.personOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only you can move chats between this Mac and Cloud, with a click in cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "وحدك يمكنك نقل المحادثات بين هذا الـ Mac وCloud، بنقرة في cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Samo vi možete premještati razgovore između ovog Maca i Clouda, klikom u cmuxu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kun du kan flytte chats mellem denne Mac og Cloud, med et klik i cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nur du kannst Chats zwischen diesem Mac und der Cloud verschieben, mit einem Klick in cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo tú puedes mover chats entre este Mac y Cloud, con un clic en cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vous seul pouvez déplacer des chats entre ce Mac et Cloud, d'un clic dans cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo tu puoi spostare le chat tra questo Mac e Cloud, con un clic in cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この Mac と Cloud の間でチャットを移動できるのはあなただけです（cmux でのクリックで）。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មានតែអ្នកទេ ដែលអាចផ្លាស់ទីការជជែករវាង Mac នេះ និង Cloud ដោយចុចក្នុង cmux។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac과 Cloud 사이에서 채팅을 옮길 수 있는 것은 cmux에서 직접 클릭하는 사용자뿐입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bare du kan flytte chatter mellom denne Macen og Cloud, med et klikk i cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tylko ty możesz przenosić czaty między tym Makiem a Cloud, klikając w cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Só você pode mover chats entre este Mac e o Cloud, com um clique no cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Только вы можете переносить чаты между этим Mac и Cloud — щелчком в cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มีเพียงคุณเท่านั้นที่ย้ายแชทระหว่าง Mac เครื่องนี้กับ Cloud ได้ ด้วยการคลิกใน cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbetleri bu Mac ile Cloud arasında yalnızca siz, cmux'ta bir tıklamayla taşıyabilirsiniz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Лише ви можете переносити чати між цим Mac і Cloud — клацанням у cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ bạn mới có thể chuyển cuộc trò chuyện giữa máy Mac này và Cloud, bằng một cú nhấp trong cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有你能在 cmux 中点击，在此 Mac 和 Cloud 之间移动聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有你能在 cmux 中點按，在此 Mac 與 Cloud 之間移動聊天。"
+          }
+        }
+      }
+    },
+    "cloud.place.bulkRunning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats are already moving. Wait for that to finish, or cancel it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المحادثات قيد النقل بالفعل. انتظر حتى ينتهي ذلك، أو ألغِه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Razgovori se već premještaju. Sačekajte da se to završi ili ga otkažite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chats flyttes allerede. Vent, til det er færdigt, eller annuller det."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chats werden bereits verschoben. Warte, bis das fertig ist, oder brich es ab."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ya se están moviendo chats. Espera a que termine o cancélalo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Des chats sont déjà en cours de déplacement. Attendez la fin ou annulez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Delle chat sono già in spostamento. Attendi che finisca o annullalo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "すでにチャットを移動中です。完了を待つか、キャンセルしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជជែកកំពុងផ្លាស់ទីរួចហើយ។ រង់ចាំឱ្យវាចប់ ឬបោះបង់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이미 채팅을 옮기는 중입니다. 끝날 때까지 기다리거나 취소하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chatter flyttes allerede. Vent til det er ferdig, eller avbryt det."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czaty są już przenoszone. Poczekaj, aż to się skończy, albo anuluj."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Já há chats sendo movidos. Aguarde terminar ou cancele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Чаты уже переносятся. Дождитесь окончания или отмените."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังย้ายแชทอยู่แล้ว รอให้เสร็จ หรือยกเลิก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbetler zaten taşınıyor. Bitmesini bekleyin ya da iptal edin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Чати вже переносяться. Дочекайтеся завершення або скасуйте."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các cuộc trò chuyện đang được chuyển. Hãy đợi xong hoặc hủy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已有聊天正在移动。请等待完成，或取消。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已有聊天正在移動。請等待完成，或取消。"
+          }
+        }
+      }
+    },
+    "cloud.place.identityChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not moved: the Cloud account or team changed after this started."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يتم النقل: تغيّر حساب Cloud أو الفريق بعد بدء ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije premješteno: Cloud račun ili tim se promijenio nakon početka."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke flyttet: Cloud-kontoen eller teamet ændrede sig, efter dette startede."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nicht verschoben: Das Cloud-Konto oder Team hat sich nach dem Start geändert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se movió: la cuenta o el equipo de Cloud cambió después de empezar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non déplacé : le compte ou l'équipe Cloud a changé après le début."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non spostata: l'account o il team Cloud è cambiato dopo l'avvio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移動されていません：開始後に Cloud のアカウントまたはチームが変わりました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនបានផ្លាស់ទី៖ គណនី ឬក្រុម Cloud បានផ្លាស់ប្តូរ បន្ទាប់ពីការចាប់ផ្តើម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "옮기지 않음: 시작한 뒤 Cloud 계정이나 팀이 바뀌었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke flyttet: Cloud-kontoen eller teamet endret seg etter at dette startet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie przeniesiono: konto lub zespół Cloud zmieniły się po rozpoczęciu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não movido: a conta ou equipe do Cloud mudou depois do início."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не перенесено: аккаунт или команда Cloud изменились после начала."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่ได้ย้าย: บัญชีหรือทีม Cloud เปลี่ยนหลังจากเริ่มแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Taşınmadı: Cloud hesabı veya ekibi bu başladıktan sonra değişti."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не перенесено: обліковий запис або команда Cloud змінилися після початку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa chuyển: tài khoản hoặc nhóm Cloud đã thay đổi sau khi bắt đầu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未移动：开始后 Cloud 帐户或团队已更改。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未移動：開始後 Cloud 帳號或團隊已變更。"
+          }
+        }
+      }
+    },
     "cloud.moveAsk.bringBackIsPersons": {
       "extractionState": "manual",
       "localizations": {

@@ -459,10 +459,12 @@ pub fn view(flow: &Flow, now_ms: u64) -> View {
     }
 }
 
-/// Why Auto moves a chat to Cloud.
+/// Why Auto moves a chat: to Cloud (every reason but `Back`), or back to this Mac (`Back`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum AutoReason {
+    /// The conditions that sent it cleared ([`AutoDecision::Back`]): Auto brings it back to this Mac.
+    Back,
     /// The lid closed, or the computer is about to sleep.
     Sleep,
     LowBattery,

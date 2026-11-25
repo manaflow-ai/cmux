@@ -173,7 +173,7 @@ export function MoveProgress({
   const bar = (
     <div
       className="acpmux-move-bar"
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a styled bar; <progress> cannot take the fill span.
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a segmented step bar, one segment per step state, which <progress> cannot draw
       role="progressbar"
       aria-label={t("place.move.label")}
       aria-valuemin={1}

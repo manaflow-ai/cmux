@@ -9,8 +9,6 @@ import { placeName } from "../place/PlaceControl";
 import type { PlaceState } from "../place/placeModel";
 import { placeActions, type PlaceClaims } from "../place/usePlace";
 import { CloudTriToggle } from "./CloudTriToggle";
-import { useExperimentSwitch } from "../../../experiments/switches";
-import { CLOUD_TOGGLE_SWITCH } from "./hybridModel";
 import type { SessionInfoCloudControl } from "./SessionInfoCloud";
 
 /// Where the chat runs now, in the place lane's own words: the move in flight, else the place the
@@ -36,9 +34,8 @@ export function HybridChip({
 }) {
   const t = useT();
   const { place } = useHeaderState();
-  const on = useExperimentSwitch(CLOUD_TOGGLE_SWITCH);
   const actions = useMemo(() => (session ? placeActions(session, say, claims) : undefined), [session, say, claims]);
-  if (!on || !place || !actions) return null;
+  if (!place || !actions) return null;
   return (
     <CloudTriToggle
       pin={place.mode}
@@ -58,13 +55,12 @@ export function useSessionInfoCloud(
   say?: (text: string) => void,
 ): SessionInfoCloudControl | undefined {
   const { place } = useHeaderState();
-  const on = useExperimentSwitch(CLOUD_TOGGLE_SWITCH);
   return useMemo(() => {
-    if (!on || !place || !session) return undefined;
+    if (!place || !session) return undefined;
     const actions = placeActions(session, say);
     return {
       view: { lit: false, pin: place.mode, at: place.at, used: 0, total: 0 },
       setPin: actions.setMode,
     };
-  }, [on, place, session, say]);
+  }, [place, session, say]);
 }

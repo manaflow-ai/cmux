@@ -16,6 +16,9 @@ public struct Evacuation: Equatable {
     public var rows: [Row]
     /// Cancel was pressed: no queued chat starts.
     public var stopped = false
+    /// Why the run stopped when no one pressed Cancel (the Cloud account or team changed under it): its dropped chats say
+    /// it as failed; nil after a Cancel, whose dropped chats read cancelled.
+    public var stopReason: String?
 }
 
 extension CloudPlaceFlows {
@@ -27,6 +30,9 @@ extension CloudPlaceFlows {
     /// Whether the run still launches queued chats.
     public var evacuationStopped: Bool { evacuation?.stopped ?? true }
 
+    /// Whether a run has not ended: a chat is queued or still moving (a cancelled run counts until its moves end).
+    public var evacuationRunning: Bool { evacuation.map { $0.endedMs == nil } ?? false }
+
     /// The chat's move starts (`running`) or ends (`ended`); the run ends with its last chat.
     public func evacuationPhase(_ session: String, _ phase: Evacuation.Phase) {
         guard var run = evacuation, let index = run.rows.firstIndex(where: { $0.session == session }) else { return }
@@ -36,9 +42,11 @@ extension CloudPlaceFlows {
     }
 
     /// Cancel: the queued chats are dropped and none starts; returns the sessions running now, whose moves the caller cancels.
-    public func stopEvacuation() -> [String] {
+    /// `reason`: the run stopped for it, not a Cancel (its dropped chats read failed, with it).
+    public func stopEvacuation(reason: String? = nil) -> [String] {
         guard var run = evacuation, run.endedMs == nil else { return [] }
         run.stopped = true
+        run.stopReason = run.stopReason ?? reason
         for index in run.rows.indices where run.rows[index].phase == .queued { run.rows[index].phase = .dropped }
         if !run.rows.contains(where: { $0.phase == .running }) { run.endedMs = nowMs }
         evacuation = run
@@ -64,7 +72,9 @@ extension CloudPlaceFlows {
                 let view = views[row.session].flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
                 switch row.phase {
                 case .queued: chat["state"] = "queued"
-                case .dropped: chat["state"] = "cancelled"
+                case .dropped:
+                    chat["state"] = run.stopReason == nil ? "cancelled" : "failed"
+                    if let reason = run.stopReason { chat["reason"] = reason }
                 case .running:
                     chat["state"] = "moving"
                     if let step = view?["step"] as? String { chat["step"] = step }

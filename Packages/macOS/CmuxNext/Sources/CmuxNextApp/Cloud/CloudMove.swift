@@ -136,13 +136,11 @@ struct CloudMove {
         // A failure toast an earlier move without a card left up (with its Retry) goes too.
         if carded { CmuxToastCenter.shared.close(id: toastID) } else { toast(toastID, CloudMoveStrings.moving, duration: Self.working, working: true) }
         asks.moveStarted(tabID, services: services)
-        let place = services.cloud.place
         let progress = CloudMoveProgress(.move) { [services] in if !carded { Self.toast(services, toastID, CloudMoveStrings.moving + "\n" + $0, duration: Self.working, working: true) } }
+        let place = services.cloud.place
         let work: ActionWork = Task { @MainActor in
-            defer {
-                progress.end()
-                place.finished(session)
-            }
+            defer { place.finished(session) }
+            defer { progress.end() }
             do {
                 let machine = try await body(progress)
                 retries[tabID] = nil

@@ -339,7 +339,14 @@ final class CloudService {
         // The place driver hears sleep and wake from the app's one presence adapter (``FeedService``).
         observers.append(Task { [weak self] in
             for await _ in NSWorkspace.shared.notificationCenter.notifications(named: NSWorkspace.didWakeNotification) {
+                self?.placeDriver?.slept(false)
                 await AcpmuxEnvironment.relaySystemWake(build: LaunchIdentity.current().build) { await self?.refresh(ifOlderThan: .seconds(30)) }
+            }
+        })
+        // Auto starts its moves as the system is about to sleep.
+        observers.append(Task { [weak self] in
+            for await _ in NSWorkspace.shared.notificationCenter.notifications(named: NSWorkspace.willSleepNotification) {
+                self?.placeDriver?.slept(true)
             }
         })
         // A sign-out or a team switch (the user signed in may stay) ends start-session asks and

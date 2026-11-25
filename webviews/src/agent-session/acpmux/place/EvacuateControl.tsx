@@ -159,7 +159,7 @@ export function EvacuateControl({
       {look === "bar" && (
         <div
           className="acpmux-move-bar"
-          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a styled bar; <progress> cannot take the fill span.
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- one segment per chat state, which <progress> cannot draw
           role="progressbar"
           aria-label={t("place.evacuate.label")}
           aria-valuemin={0}
