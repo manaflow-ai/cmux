@@ -35,6 +35,7 @@ import {
 } from "./transcriptGrid";
 import type { MachineResources } from "./machineResources";
 import type { AutoResumeStatus } from "./autoResumeStatus";
+import type { CapacityWaitState } from "./capacityWait";
 import type { VideoInfo } from "./composer/videoAttachments";
 import type { AttachmentSource } from "./attachments";
 import type { HarnessIconSpec } from "../shared/harnessIcons";
@@ -1293,6 +1294,8 @@ export type AcpmuxSnapshot = {
   type: "snapshot";
   /** The selected chat's daemon-owned retry, including the last automatic attempt. */
   autoResume?: AutoResumeStatus;
+  /** The chat acpmux holds for capacity (hub/capacity_wait.rs): one calm state, never red. */
+  capacityWait?: CapacityWaitState;
   protocolVersion: number;
   rows: AcpmuxRow[];
   /// Reply row ids removed by explicit message_superseded events; refresh retention must not restore them.

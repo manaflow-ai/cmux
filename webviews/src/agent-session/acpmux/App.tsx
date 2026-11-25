@@ -547,6 +547,7 @@ import {
   RunElsewhereStore,
 } from "./conversation/runElsewhereModel";
 import { NewestSteerContext, SteerChatContext } from "./conversation/pendingSteerModel";
+import { CapacityWaitContext } from "./capacityWait";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
 import { useTranscriptView, type TranscriptView } from "./conversation/transcriptView";
 import { isWorkedFold, NO_FOLD_TOGGLES, viewFolds, type Folds } from "./conversation/viewFolds";
@@ -2586,6 +2587,25 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   useLayoutEffect(() => {
     subsessionStore.current!.set(snapshot.sessions);
   }, [snapshot.sessions]);
+  // A hidden chat keeps the session list and nothing made from it (hq#21290: 100 open chats in one
+  // renderer each held a card and a name index per listed chat). Shown again, the stores are made
+  // from the latest list before the first frame, with no redraw of the pane.
+  useLayoutEffect(() => {
+    const stores = [hoverStore.current!, subsessionStore.current!];
+    const sync = () => {
+      const hidden = document.visibilityState === "hidden";
+      for (const store of stores) {
+        if (hidden) store.release();
+        else store.restore();
+      }
+    };
+    sync();
+    document.addEventListener("visibilitychange", sync);
+    return () => {
+      document.removeEventListener("visibilitychange", sync);
+      for (const store of stores) store.restore();
+    };
+  }, []);
   const subsessions = useMemo<Subsessions>(
     () => ({
       store: subsessionStore.current!,
@@ -6073,8 +6093,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     recheck: recheckCloudChat,
   });
   const cloudUnavailable =
-    cloudRecoveryShows && (cloudRecovery.state === "paused" || cloudRecovery.state === "deleted")
-      ? cloudChatUnavailable(snapshot.unavailable ?? { reason: "offline" }, cloudRecovery.state, machineName)
+    cloudRecoveryShows &&
+    (cloudRecovery.state === "paused" ||
+      cloudRecovery.state === "deleted" ||
+      (cloudRecovery.resuming && cloudRecovery.state === "live"))
+      ? cloudChatUnavailable(
+          snapshot.unavailable ?? { reason: "offline" },
+          cloudRecovery.state,
+          machineName,
+          cloudRecovery.resuming,
+        )
       : snapshot.unavailable;
   /// The chat a send now wakes its Cloud machine for (cloudWake.ts), or undefined.
   const cloudWakeState: CloudWakeState = {
@@ -9432,7 +9460,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const transcript = (
     <PresentationContext.Provider value={chatPresentation}>
       <ThinkingVerbsContext.Provider value={thinkingVerbs}>
-        <SteerChatContext.Provider value={snapshot.sessionId ?? ""}>{transcriptContent}</SteerChatContext.Provider>
+        <SteerChatContext.Provider value={snapshot.sessionId ?? ""}>
+          <CapacityWaitContext.Provider value={snapshot.capacityWait}>{transcriptContent}</CapacityWaitContext.Provider>
+        </SteerChatContext.Provider>
       </ThinkingVerbsContext.Provider>
     </PresentationContext.Provider>
   );
