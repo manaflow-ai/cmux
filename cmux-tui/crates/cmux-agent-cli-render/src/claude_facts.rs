@@ -9,7 +9,7 @@
 //! narrow one give the same facts (`tests/parity.rs` checks them against the recorded sessions).
 
 use crate::claude::Chrome;
-use crate::{Cell, FAINT, Grid, INVERSE};
+use crate::{Cell, FAINT, Grid};
 
 /// What one look at the screen found. `None`: not on screen now (the banner scrolled away, no
 /// turn has ended), so the last value seen still holds ([`ScreenFacts::apply`]).
@@ -32,6 +32,9 @@ pub struct ScreenFacts {
     /// The spinner row while a turn runs (`✻ Photosynthesizing… (3s · ↓ 25 tokens)`), cell for
     /// cell: its glyph, verb, shimmer, timer and token count are the host's alone.
     pub spinner: Option<Vec<Cell>>,
+    /// A one-time notice under the banner (`▎ Auto mode is now Claude Code's default ...`),
+    /// its rows cell for cell at the host's width; empty when none is on screen.
+    pub notice: Vec<Vec<Cell>>,
 }
 
 /// Claude Code's spinner glyphs.
@@ -104,6 +107,20 @@ impl ScreenFacts {
             }
             facts.spinner = Some(cells);
         }
+        // A notice: the run of `▎` rows nearest the banner's end.
+        let start = rows.iter().position(|r| r.starts_with('▎'));
+        if let Some(start) = start {
+            for (row, text) in grid.cells.iter().zip(&rows).skip(start) {
+                if !text.starts_with('▎') {
+                    break;
+                }
+                let mut cells = row.clone();
+                while cells.last().is_some_and(Cell::is_blank) {
+                    cells.pop();
+                }
+                facts.notice.push(cells);
+            }
+        }
         // The prompt: the last `❯` row with a rule above it, its draft running to the rule below.
         let prompt = (1..rows.len()).rev().find(|&y| {
             (rows[y].starts_with("❯\u{a0}") || rows[y].starts_with("❯ ") || rows[y] == "❯")
@@ -121,11 +138,17 @@ impl ScreenFacts {
                 let cells: Vec<&Cell> = row.iter().skip(2).collect();
                 for (x, cell) in cells.iter().enumerate() {
                     let text = if cell.text.is_empty() { " " } else { cell.text.as_str() };
-                    // The cursor sits on an empty prompt's first placeholder letter, drawn
-                    // inverse rather than dim: it belongs to the placeholder.
+                    // The cursor sits on an empty prompt's first placeholder letter, which
+                    // is then drawn plain (or inverse) rather than dim: it belongs to the
+                    // placeholder when the rest of the row is dim.
                     let cursor_on_dim = x == 0
-                        && cell.style.attrs & INVERSE != 0
-                        && cells.get(1).is_some_and(|next| next.style.attrs & FAINT != 0);
+                        && !cell.is_blank()
+                        && cells.get(1).is_some_and(|next| next.style.attrs & FAINT != 0)
+                        && cells
+                            .iter()
+                            .skip(1)
+                            .filter(|c| !c.is_blank())
+                            .all(|c| c.style.attrs & FAINT != 0);
                     if i == 0 && (cell.style.attrs & FAINT != 0 || cursor_on_dim) {
                         dim.push_str(text);
                     } else {
@@ -167,5 +190,8 @@ impl ScreenFacts {
             chrome.placeholder.clone_from(&self.placeholder);
         }
         chrome.spinner.clone_from(&self.spinner);
+        if !self.notice.is_empty() {
+            chrome.notice = Some(self.notice.clone());
+        }
     }
 }

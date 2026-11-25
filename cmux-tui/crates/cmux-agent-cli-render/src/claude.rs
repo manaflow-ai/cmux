@@ -60,6 +60,9 @@ pub struct Chrome {
     /// The spinner row as the host's screen draws it (`claude_facts`); None draws
     /// `✻ Working…`.
     pub spinner: Option<Vec<Cell>>,
+    /// A one-time notice the host drew under the banner, its rows at the host's width
+    /// (`claude_facts`): laid out again at this width.
+    pub notice: Option<Vec<Vec<Cell>>>,
 }
 
 /// One tool call, as its `tool_call` and `tool_call_update` records say.
@@ -189,10 +192,22 @@ pub fn render_with_history(
         banner(&mut lines, version, chrome, width);
         lines.push(Line::new());
     }
-    for item in &items {
+    if let Some(rows) = &chrome.notice {
+        notice(&mut lines, rows, width);
+    }
+    for (i, item) in items.iter().enumerate() {
+        // A turn that ended in an API error draws no done line.
+        let after_error = i
+            .checked_sub(1)
+            .and_then(|j| items.get(j))
+            .is_some_and(|prev| matches!(prev, Item::Answer(text) if is_api_error(text)));
+        if matches!(item, Item::Done { .. }) && after_error {
+            continue;
+        }
         lines.push(Line::new());
         match item {
             Item::Prompt(text) => prompt(&mut lines, text, width),
+            Item::Answer(text) if is_api_error(text) => error_answer(&mut lines, text, width),
             Item::Answer(text) => answer(&mut lines, text, width),
             Item::Tool(tool) => tool_lines(&mut lines, tool, chrome, width),
             Item::Done { started, ended } => done(&mut lines, *started, *ended, chrome),
@@ -437,6 +452,55 @@ fn prompt(lines: &mut Vec<Line>, text: &str, width: usize) {
 }
 
 /// Answer text: `code` spans in their color without the backticks, `**bold**` bold.
+/// Claude Code's own message for a failed request (`API Error: 502 ...`), stored in the
+/// transcript as the turn's answer.
+fn is_api_error(text: &str) -> bool {
+    text.starts_with("API Error")
+}
+
+/// An API error answer: dot and text in Claude Code's warning amber.
+fn error_answer(lines: &mut Vec<Line>, text: &str, width: usize) {
+    let amber = Style { fg: crate::Color::Rgb(255, 193, 7), ..Style::PLAIN };
+    for (i, row) in wrap(text.trim_end(), width.saturating_sub(2)).iter().enumerate() {
+        let mut l = Line::new();
+        l.push(if i == 0 { "●" } else { " " }, amber).push(" ", Style::PLAIN);
+        l.push(row, amber);
+        lines.push(l);
+    }
+}
+
+/// The host's notice, laid out at `width`: its rows joined into paragraphs (a row of a new
+/// style, or a link, starts one), each wrapped behind the notice's bar.
+fn notice(lines: &mut Vec<Line>, rows: &[Vec<Cell>], width: usize) {
+    let mut paragraphs: Vec<(Style, Style, String)> = Vec::new();
+    for row in rows {
+        let bar = row.first().map_or(Style::PLAIN, |c| c.style);
+        let body: Vec<&Cell> = row.iter().skip(2).collect();
+        let style = body.iter().find(|c| !c.is_blank()).map_or(Style::PLAIN, |c| c.style);
+        let text: String = body
+            .iter()
+            .map(|c| if c.text.is_empty() { " " } else { c.text.as_str() })
+            .collect::<String>()
+            .trim()
+            .to_owned();
+        match paragraphs.last_mut() {
+            Some((_, last, para)) if *last == style && !text.starts_with("http") => {
+                para.push(' ');
+                para.push_str(&text);
+            }
+            _ => paragraphs.push((bar, style, text)),
+        }
+    }
+    for (bar, style, text) in paragraphs {
+        for row in wrap(&text, width.saturating_sub(2)) {
+            let mut l = Line::new();
+            l.push("▎", bar).push(" ", Style::PLAIN);
+            l.push(&row, style);
+            lines.push(l);
+        }
+    }
+}
+
 fn answer(lines: &mut Vec<Line>, text: &str, width: usize) {
     let mut first = true;
     for para in text.trim_end().split('\n') {
