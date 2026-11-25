@@ -564,6 +564,7 @@ public final class AgentChatStore {
         let chunks = pendingChunks
         pendingChunks = []
         chunkFlushes += 1
+        lastReplayBatch = nil
         for chunk in Self.merged(chunks) { applyEvent(chunk) }
         refreshDerived(lastTurnOnly: true)
         updateQuietStatus()
@@ -993,6 +994,9 @@ public final class AgentChatStore {
     }
 
     func apply(_ event: AgentSessionEvent) {
+        // Anything applied since a replay (a refused Full-access switch, a mode pick) may have
+        // moved the state that replay sets, so the next equal replay applies again.
+        if case .batch = event {} else { lastReplayBatch = nil }
         applyEvent(event)
         spillIfOffScreen()
         refreshDerived()
