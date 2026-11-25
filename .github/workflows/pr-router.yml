@@ -53,6 +53,9 @@ jobs:
       start: ${{ steps.route.outputs.start }}
       # The step table's jobs the change routes (pr_router.py table_jobs_routed): pr-pipeline.yml starts only those.
       table: ${{ steps.route.outputs.table }}
+      # The head's tier (head_tier.py, or full with full-ci): pr-pipeline.yml's linux job skips the full-tier steps
+      # on `cheap`.
+      tier: ${{ steps.route.outputs.tier }}
     steps:
       - name: Checkout the router (the merge commit and the base tip)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -166,6 +169,7 @@ jobs:
     uses: ./.github/workflows/pr-pipeline.yml
     with:
       jobs: ${{ needs.route.outputs.table || '' }}
+      tier: ${{ needs.route.outputs.tier || 'full' }}
     secrets:
       GLAEDA_ROUTE_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
     permissions:

@@ -26,8 +26,10 @@ pr_router.json lists each routed workflow ("callee") with what used to start it:
              change must also touch one of them;
   table_jobs for the step table's workflow (pr-pipeline.yml): the jobs of ci/steps.toml it runs. It starts
              when the change routes a step of one of them (scripts/ci/ci_steps.py, each step's `inputs`);
-             a table that cannot be read starts it. A job of FULL_TIER_JOBS (the `mac` job) is routed only
-             on a full-tier head: a draft or idle head runs no Mac, as cmux-next.yml's path_route held;
+             a table that cannot be read starts it. A job of FULL_TIER_JOBS (mac, web-browser, ios) is routed
+             only on a full-tier head: a draft or idle head runs no Mac, as cmux-next.yml's path_route held,
+             and a step marked `tier = "full"` is routed only there too (the `tier` output, which
+             pr-pipeline.yml passes to `ci/run run --tier`);
   labels     labels whose `labeled` event starts it whatever the paths (full-ci always does);
   draft      true for a workflow that also runs on a draft head (scripts/ci/head_tier.py's cheap tier);
              any other callee starts on a draft only with full-ci, and runs when the PR is marked ready
@@ -61,8 +63,9 @@ import workflow_paths_cover_inputs as filters  # noqa: E402
 
 ROOT = HERE.parents[1]
 # The step table's jobs that run only on a full-tier head (head_tier.py): a draft, or a base merge into an idle pull
-# request, routes them nowhere, as cmux-next.yml's path_route turned every Mac tier off for one.
-FULL_TIER_JOBS = ("mac",)
+# request, routes them nowhere, as cmux-next.yml's path_route turned every Mac tier off for one. web-browser and ios
+# joined mac (ci140 cut 2: 4.8 and 2.5 min per cheap-tier PR, 2026-11-25 04-09Z); the land's full-tier run checks them.
+FULL_TIER_JOBS = ("mac", "web-browser", "ios")
 MANIFEST = HERE / "pr_router.json"
 ENTRY = ROOT / ".github" / "workflows" / "pr-router.yml"
 FULL_CI = "full-ci"
@@ -110,7 +113,7 @@ def table_steps(config: dict, files: list[str], table: Path | None = None, full:
     # Any failure to read the table (a missing file, bad TOML, a wrong shape, a runner that does not import)
     # starts the pipeline, whose own run reports it: the router routes more, never less, and never fails on it.
     try:
-        routed = ci_steps.route(ci_steps.load(table or ci_steps.TABLE), files)
+        routed = ci_steps.route(ci_steps.load(table or ci_steps.TABLE), files, tier="full" if full else "cheap")
     except Exception:  # noqa: BLE001
         return None
     steps = [step for job in config["table_jobs"] if full or job not in FULL_TIER_JOBS for step in routed.get(job, [])]
@@ -132,7 +135,7 @@ def table_jobs_routed(callees: dict, files: list[str] | None, table: Path | None
     if files is None:
         return jobs
     try:
-        routed = ci_steps.route(ci_steps.load(table or ci_steps.TABLE), files)
+        routed = ci_steps.route(ci_steps.load(table or ci_steps.TABLE), files, tier="full" if full else "cheap")
     except Exception:  # noqa: BLE001
         return jobs
     return [job for job in jobs if routed.get(job)]
@@ -265,11 +268,12 @@ def land_status(event: dict, decided: tuple[str, str]) -> str:
 
 
 def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None,
-                  table: list[str] | None = None, status: str = "") -> None:
+                  table: list[str] | None = None, status: str = "", tier: str = "full") -> None:
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
         out.write(f"start={json.dumps(start, separators=(',', ':'))}\n")
         out.write(f"table={json.dumps(table or [], separators=(',', ':'))}\n")
         out.write(f"land_status={status}\n")
+        out.write(f"tier={tier}\n")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     lines = ["### pr router", "",
              f"changed files: {len(files) if files is not None else 'unknown'}", "",
@@ -293,7 +297,7 @@ def main(argv: list[str]) -> int:
         labels = {str(label.get("name") or "") for label in (event.get("pull_request") or {}).get("labels") or []}
         full = decided[0] == "full" or FULL_CI in labels
         write_outputs(start, why, files, table_jobs_routed(callees, files, full=full),
-                      land_status(event, decided))
+                      land_status(event, decided), "full" if full else "cheap")
         return 0
     if mode == "check":
         problems = check(callees, ENTRY.read_text(), ENTRY.parent)

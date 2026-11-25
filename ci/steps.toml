@@ -8,6 +8,8 @@
 # route it (`inputs`, globs; none means every change), whether it blocks, its class and its timeout;
 # `alone = true` runs it by itself, after the job's other steps; `ignore` (globs) names paths among its inputs that
 # route nothing (notes beside the code a step builds), and a later `!glob` there takes paths back (last match decides).
+# `tier = "full"` runs it only on a full-tier head (scripts/ci/head_tier.py: ready-to-land, full-ci, a base push);
+# a draft or idle head (`ci/run run --tier cheap`) skips it, and the land's full-tier run checks it.
 # `ci/run` (scripts/ci/ci_steps.py) routes a diff to steps and runs one job's steps in parallel. A step
 # with `blocks = false` runs in the `advisory` job, in class `idle`, and its failure is a warning: the
 # job still passes. tests/test_ci_step_table.py holds both rules.
@@ -1638,6 +1640,9 @@ cargo bench --profile gate -p acpmux --bench icount --locked -- check
 # only the workspace members whose sources name cmux_next_, retried only on a recognized Cargo fetch failure.
 [step.cmux-next-daemon-tests]
 job = "linux"
+# Full tier only (ci140 cut 2): on 2026-11-25 04-09Z the linux jobs that ran it took 18 to 54 minutes, about 60% of
+# linux minutes; a draft or idle head skips it and the land's full-tier run checks it.
+tier = "full"
 # 22 to 27 minutes of test compile cold (a few warm from the push's saved target), then the tests: the job's own
 # 65-minute bound for this step.
 alone = true
@@ -1721,6 +1726,9 @@ exit "$status"
 # did not run, as the workflow's report job did for both logs.
 [step.ios-matrix-protocol]
 job = "linux"
+# Full tier only (ci140 cut 2): the linux jobs that ran it took 28 to 47 minutes (2026-11-25 04-09Z); a draft or idle
+# head skips it and the land's full-tier run checks it.
+tier = "full"
 # Every test of the cmux-next-ios/rust workspace on all cores, and a scroll gate that times itself under load.
 alone = true
 timeout = 2700

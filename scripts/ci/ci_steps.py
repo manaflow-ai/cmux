@@ -93,6 +93,7 @@ PIPELINE_PATHS = ("ci/steps.toml", "ci/run", "scripts/ci/ci_steps.py", ".github/
 ADVISORY_JOB = "advisory"
 LOG_LOCK = threading.Lock()
 CLASSES = ("feed", "named", "pr", "batch", "idle")
+TIERS = ("cheap", "full")  # a step's `tier`: `full` runs only on a full-tier head (route, run --tier)
 
 
 class TableError(ValueError):
@@ -117,6 +118,9 @@ class Step:
     needs: tuple[str, ...] = ()
     alone: bool = False
     reuse: bool = True
+    # `full`: the step runs only on a full-tier head (scripts/ci/head_tier.py: ready-to-land, full-ci, a push to a
+    # base); a cheap-tier head (`run --tier cheap`) skips it, and the land's own full-tier run checks it.
+    tier: str = "cheap"
 
 
 @dataclass
@@ -190,6 +194,7 @@ def parse(doc: dict) -> Table:
             needs=tuple(raw.get("needs", ())),
             alone=raw.get("alone", False),
             reuse=raw.get("reuse", True),
+            tier=raw.get("tier", "cheap"),
         )
         if step.job not in jobs:
             raise TableError(f"step {name}: job {step.job!r} is not one of [jobs] {sorted(jobs)}")
@@ -199,6 +204,8 @@ def parse(doc: dict) -> Table:
             raise TableError(f"step {name}: `alone` is true or false")
         if not isinstance(step.reuse, bool):
             raise TableError(f"step {name}: `reuse` is true or false")
+        if step.tier not in TIERS:
+            raise TableError(f"step {name}: `tier` is one of {TIERS}")
         if step.klass not in CLASSES:
             raise TableError(f"step {name}: class {step.klass!r} is not one of {CLASSES}")
         if not step.blocks and (step.job != ADVISORY_JOB or step.klass != "idle"):
@@ -235,10 +242,14 @@ def routed(step: Step, paths: list[str] | None) -> bool:
     return any(p.match(path) and kept(path) for path in paths for p in patterns)
 
 
-def route(table: Table, paths: list[str] | None, label: str | None = None) -> dict[str, list[str]]:
+def route(table: Table, paths: list[str] | None, label: str | None = None,
+          tier: str = "full") -> dict[str, list[str]]:
+    """The routed steps by job. TIER `cheap` (a cheap-tier head) leaves out every step marked `tier = "full"`."""
     jobs: dict[str, list[str]] = {}
     for step in table.steps.values():
         if label is not None and label not in step.labels:
+            continue
+        if tier == "cheap" and step.tier == "full":
             continue
         if routed(step, paths):
             jobs.setdefault(step.job, []).append(step.name)
@@ -304,7 +315,7 @@ def step_key(step: Step, table: Table, files: list[tuple[str, str, str]], tree: 
         changed = None if paths is None else sorted(paths)
     doc = {
         "v": STEP_KEY_VERSION,
-        "step": {f: getattr(step, f) for f in Step.__dataclass_fields__ if f not in ("title", "about")},
+        "step": {f: getattr(step, f) for f in Step.__dataclass_fields__ if f not in ("title", "about", "tier")},
         "setup": table.setup.get(step.job, ""),
         "tools": {t: table.tools[t] for t in sorted(step.needs)},
         "pipeline": {p: oids.get(p, "") for p in PIPELINE_PATHS if p != "ci/steps.toml"},
@@ -501,8 +512,12 @@ def reuse_passes(table: Table, steps: list[Step], paths: list[str] | None, store
 
 def run_job(table: Table, job: str, paths: list[str] | None, label: str | None = None, out=sys.stdout,
             workers: int | None = None, only: list[str] | None = None, store: StepResults | None = None,
-            root: Path = ROOT) -> int:
-    names = route(table, paths, label).get(job, [])
+            root: Path = ROOT, tier: str = "full") -> int:
+    names = route(table, paths, label, tier).get(job, [])
+    held = [n for n in route(table, paths, label).get(job, []) if n not in names]
+    if held:
+        print(f"::notice title=Cheap tier::{', '.join(held)} run only on the full tier (ready-to-land or full-ci): "
+              "skipped on this head", file=out)
     if only:
         for name in only:
             if name not in table.steps:
@@ -620,24 +635,27 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     r = sub.add_parser("route")
     r.add_argument("--paths-file")
+    r.add_argument("--tier", choices=TIERS, default="full")
     x = sub.add_parser("run")
     x.add_argument("--job", required=True)
     x.add_argument("--paths-file")
     x.add_argument("--label", default="", help="the label of a labeled or unlabeled event; empty for other events")
     x.add_argument("--workers", type=int, default=0, help="steps at once (default: the machine's CPUs)")
     x.add_argument("--only", default="", help="run only these routed steps (comma or space separated); empty: all")
+    x.add_argument("--tier", choices=TIERS, default="full",
+                   help="the head's tier (scripts/ci/head_tier.py); cheap skips the steps marked tier = \"full\"")
     args = parser.parse_args(argv)
     table = load(Path(args.table))
     paths = read_paths(args.paths_file)
     if args.command == "route":
-        print(json.dumps(route(table, paths), indent=1, sort_keys=True))
+        print(json.dumps(route(table, paths, tier=args.tier), indent=1, sort_keys=True))
         return 0
     if args.job not in table.jobs:
         parser.error(f"--job {args.job!r} is not one of {sorted(table.jobs)}")
     # A label event runs only the steps that name the label: those read the event, so none is reused.
     store = None if args.label else StepResults.from_env(dict(os.environ))
     return run_job(table, args.job, paths, args.label or None, workers=args.workers or None,
-                   only=parse_only(args.only), store=store, root=Path.cwd())
+                   only=parse_only(args.only), store=store, root=Path.cwd(), tier=args.tier)
 
 
 if __name__ == "__main__":

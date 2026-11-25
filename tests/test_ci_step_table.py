@@ -100,6 +100,39 @@ class TableRulesTest(unittest.TestCase):
         self.assertEqual(ci_steps.route(t, None, "perf"), {"advisory": ["perf"]})
         self.assertEqual(ci_steps.route(t, None, "risk:low"), {})
 
+    def test_a_cheap_tier_head_skips_the_full_tier_steps(self) -> None:
+        t = table('''
+            [step.lint]
+            job = "linux"
+            run = "true"
+            [step.daemon]
+            job = "linux"
+            tier = "full"
+            run = "true"
+        ''')
+        self.assertEqual(ci_steps.route(t, None)["linux"], ["lint", "daemon"])
+        self.assertEqual(ci_steps.route(t, None, tier="cheap")["linux"], ["lint"])
+        with self.assertRaises(ci_steps.TableError):
+            table('''
+                [step.x]
+                job = "linux"
+                tier = "sometimes"
+                run = "true"
+            ''')
+        # The tier key leaves every step's reuse key as it was: a cheap step's pass is not rerun for it.
+        plain = table('''
+            [step.daemon]
+            job = "linux"
+            run = "true"
+        ''')
+        self.assertEqual(ci_steps.step_key(plain.steps["daemon"], plain, [], "tree", None, {}),
+                         ci_steps.step_key(t.steps["daemon"], t, [], "tree", None, {}))
+        # The real table: a draft's cmux-tui change routes the daemon tests nowhere; the land's full tier does.
+        real = ci_steps.load()
+        self.assertIn("cmux-next-daemon-tests", ci_steps.route(real, ["cmux-tui/src/main.rs"])["linux"])
+        self.assertNotIn("cmux-next-daemon-tests",
+                         ci_steps.route(real, ["cmux-tui/src/main.rs"], tier="cheap").get("linux", []))
+
     def test_ignore_drops_paths_from_inputs(self) -> None:
         t = table('''
             [step.kit]
@@ -892,20 +925,25 @@ class PipelineTest(unittest.TestCase):
         # Unknown changes or an unreadable table run every job.
         self.assertEqual(routed(callees, None), ["linux", "web-browser", "mac", "ios"])
         self.assertEqual(routed(callees, ["docs/x.md"], ROOT / "no-such.toml"), ["linux", "web-browser", "mac", "ios"])
-        # The mac job runs only on a full-tier head: a draft's Swift change routes it nowhere.
+        # The mac, web-browser and ios jobs run only on a full-tier head: a draft's Swift or webviews change routes
+        # them nowhere.
         swift = ["Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionRegistry.swift"]
         self.assertIn("mac", routed(callees, swift))
         self.assertNotIn("mac", routed(callees, swift, full=False))
-        self.assertEqual(routed(callees, None, full=False), ["linux", "web-browser", "ios"])
-        self.assertEqual(pr_router.FULL_TIER_JOBS, ("mac",))
+        self.assertEqual(routed(callees, ["webviews/src/app.tsx"], full=False), ["linux"])
+        self.assertEqual(routed(callees, None, full=False), ["linux"])
+        self.assertEqual(pr_router.FULL_TIER_JOBS, ("mac", "web-browser", "ios"))
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "out"
             with mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(out)}):
                 pr_router.write_outputs(["pr-pipeline.yml"], {}, ["webviews/a.ts"], ["web-browser"])
             self.assertIn('table=["web-browser"]\n', out.read_text())
+            self.assertIn("tier=full\n", out.read_text())
         router = yaml.safe_load((ROOT / ".github/workflows/pr-router.yml").read_text())
         self.assertEqual(router["jobs"]["route"]["outputs"]["table"], "${{ steps.route.outputs.table }}")
-        self.assertEqual(router["jobs"]["pipeline"]["with"], {"jobs": "${{ needs.route.outputs.table || '' }}"})
+        self.assertEqual(router["jobs"]["pipeline"]["with"], {"jobs": "${{ needs.route.outputs.table || '' }}",
+                                                              "tier": "${{ needs.route.outputs.tier || 'full' }}"})
+        self.assertEqual(router["jobs"]["route"]["outputs"]["tier"], "${{ steps.route.outputs.tier }}")
 
     def test_each_pipeline_job_runs_only_when_routed(self) -> None:
         wf = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
