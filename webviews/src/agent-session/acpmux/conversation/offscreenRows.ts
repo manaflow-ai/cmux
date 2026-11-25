@@ -88,6 +88,17 @@ export function mountsOffscreen(
   return top + height < viewTop - margin || top > viewTop + viewHeight + margin;
 }
 
+/// Whether a row placed at `top` with `height` (the thread's coordinates) is out of the view as it
+/// mounts, so an entrance on it would play for no one (cmuxterm-hq docs/design/transcript-animation-rules.md,
+/// rule 1; Leo, 2026-11-22: "i scroll down, some bullshit ABOVE folds...? and plays an animation!?").
+/// Above the view it is unseen whether or not the view follows. Below it only when the reader has
+/// scrolled up (`viewHeight` > 0): a followed view (`viewHeight` 0) brings the new tail in, and that
+/// row keeps its entrance.
+export function entersUnseen(top: number, height: number, viewTop: number, viewHeight: number): boolean {
+  if (top + height <= viewTop + 1) return true;
+  return viewHeight > 0 && top >= viewTop + viewHeight - 1;
+}
+
 /// Whether `row` (a transcript row that mounted offscreen) has its contents skipped now: its height
 /// is then only its placed one, never a drawn one. It is skipped from its mount until the page says it
 /// rendered it (`onceRendered`); no style or layout is read.
