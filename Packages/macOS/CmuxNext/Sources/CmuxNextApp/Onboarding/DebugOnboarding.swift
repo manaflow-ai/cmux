@@ -38,7 +38,7 @@ enum DebugOnboarding {
         case "skip": model.skipStep()
         // The close button. `skip_all` is Escape.
         case "close": onboarding.controller?.closeWithCloseButton()
-        case "skip_all": model.finish(completed: false)
+        case "skip_all": model.skipStep()
         case "detect": model.importer.redetect()
         case "toggle_profile":
             if let id = params["id"]?.stringValue, let profile = model.importer.profiles.first(where: { $0.id == id }) {
