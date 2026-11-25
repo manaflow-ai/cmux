@@ -324,7 +324,7 @@ export interface ToastOptions {
 /** `cmux.state`: the values the last host kept (`init.state`), the signals made so far, and what goes to the host. */
 const kept = {
   seed: {} as Record<string, unknown>,
-  values: {} as Record<string, unknown>,
+  values: Object.create(null) as Record<string, unknown>,
   signals: new Map<string, { pair: [Read<unknown>, Write<unknown>]; set: Write<unknown> }>(),
   dirty: false
 }
@@ -335,7 +335,16 @@ export function seedKeptState(values: unknown) {
   const seed = values && typeof values === "object" && !Array.isArray(values) ? (values as Record<string, unknown>) : {}
   kept.seed = { ...seed }
   kept.values = { ...kept.values, ...seed }
-  for (const [name, entry] of kept.signals) if (Object.prototype.hasOwnProperty.call(seed, name)) entry.set(seed[name])
+  let restored = false
+  for (const [name, entry] of kept.signals) {
+    if (Object.prototype.hasOwnProperty.call(seed, name)) {
+      entry.set(seed[name])
+      restored = true
+    }
+  }
+  // A top-level signal can be created before init. Its restored value must be
+  // mirrored back after seeding, even when no later write occurs.
+  if (restored) kept.dirty = true
 }
 
 // One message per flush, after every effect settled: the host keeps the last object it got.
@@ -371,7 +380,7 @@ export function keptState<T>(key: string, initial: T): [Read<T>, Write<T>] {
     write(next)
     const value = read.peek()
     if (Object.prototype.hasOwnProperty.call(kept.values, name) && Object.is(kept.values[name], value)) return
-    kept.values[name] = value
+    Object.defineProperty(kept.values, name, { value, writable: true, enumerable: true, configurable: true })
     kept.dirty = true
     // A write with no reader schedules no flush; the host still hears of it on the next one.
     batch(() => {})

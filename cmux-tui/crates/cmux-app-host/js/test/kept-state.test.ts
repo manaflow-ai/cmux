@@ -62,4 +62,23 @@ describe("cmux.state", () => {
     await host.settle()
     expect(host.keptStates).toEqual([{ k: 5 }])
   })
+
+  test("mirrors a restored top-level signal after init and keeps prototype keys", async () => {
+    const host = new FakeHost(
+      app(`
+        const [count, setCount] = cmux.state("count", 0)
+        globalThis.count = count
+        globalThis.setCount = setCount
+        return {}
+      `),
+      init({ count: 1, ["__proto__"]: "safe" }),
+    )
+    host.mount("m1", "render")
+    await host.settle()
+    expect(host.eval("count()")).toBe(1)
+    expect(host.keptStates.at(-1)).toEqual({ count: 1, ["__proto__"]: "safe" })
+    host.eval(`cmux.state("__proto__", "")[1]("kept")`)
+    await host.settle()
+    expect(host.keptStates.at(-1)).toEqual({ count: 1, ["__proto__"]: "kept" })
+  })
 })
