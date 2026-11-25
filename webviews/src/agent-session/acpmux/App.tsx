@@ -173,6 +173,7 @@ import { startFromContext } from "./newtab/startHint";
 import { useSameValue } from "./session-info/sameValue";
 import { drawsAsIs, setStreamingRowBlocked, streamingRowBlocked, textOnlyRow } from "./streamingRow";
 import { liveToolOutput } from "./liveToolOutput";
+import { liveThought } from "./liveThought";
 import { remoteComposer } from "./remoteEditing";
 import { type ComposerHandle, type ComposerRelay, type ComposerWake } from "./Composer";
 import { takeExternalInto } from "./composer/externalAttach";
@@ -6359,6 +6360,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const toolOutputEpoch = useRef(0);
   // The pane drew a new snapshot: its rows hold every call's output as of that draw again.
   useLayoutEffect(() => liveToolOutput.settle(toolOutputEpoch.current), [clientSnapshot]);
+  /// The draw (liveThought.ts `redraw`) of the snapshot the pane set last; once it commits, its rows
+  /// hold each thought as of then.
+  const thoughtEpoch = useRef(0);
+  useLayoutEffect(() => liveThought.settle(thoughtEpoch.current), [clientSnapshot]);
   /// The pane's transition draw of a snapshot that has not committed yet (paneSnapshotLane.ts).
   const [pendingPaneDraw] = useState(() => new PendingPaneDraw());
   useLayoutEffect(() => pendingPaneDraw.committed(clientSnapshot), [pendingPaneDraw, clientSnapshot]);
@@ -8056,6 +8061,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       drawnSnapshot,
       receivedSnapshot,
       toolOutputEpoch,
+      thoughtEpoch,
       pendingPaneDraw,
       snapshotRef,
       chrome,
@@ -9042,7 +9048,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (sessionId: string) => directClient.current?.sessionCommands(sessionId) ?? Promise.resolve([]),
     [],
   );
-  const pendingCommands = useSessionCommands(commandSession, commandRevision, readSessionCommands);
+  const watchSessionCommands = useCallback(
+    (sessionId: string, listener: () => void) =>
+      directClient.current?.watchSessionCommands(sessionId, listener) ?? (() => undefined),
+    [],
+  );
+  const pendingCommands = useSessionCommands(
+    commandSession,
+    commandRevision,
+    readSessionCommands,
+    watchSessionCommands,
+  );
   const inspectorHiddenSurface = quick || showNewTab;
   inspectorHiddenSurfaceRef.current = inspectorHiddenSurface;
   useEffect(() => {

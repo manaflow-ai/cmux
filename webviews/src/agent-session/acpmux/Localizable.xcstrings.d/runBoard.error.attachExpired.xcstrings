@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "runBoard.error.attachExpired" : {
+      "comment" : "Agent pane run board: error shown when a worker's terminal endpoint expired before attaching",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "انتهت صلاحية رابط الطرفية هذا. افتح الطرفية مرة أخرى."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ovaj link terminala je istekao. Ponovo otvorite terminal."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dette terminallink er udløbet. Åbn terminalen igen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dieser Terminal-Link ist abgelaufen. Öffne das Terminal erneut."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This terminal link expired. Open the terminal again."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Este enlace de terminal caducó. Vuelve a abrir la terminal."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ce lien de terminal a expiré. Rouvrez le terminal."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Questo link al terminale è scaduto. Riapri il terminale."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このターミナルのリンクは期限切れです。ターミナルをもう一度開いてください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "តំណ terminal នេះផុតកំណត់ហើយ។ សូមបើក terminal ម្ដងទៀត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 터미널 링크가 만료되었습니다. 터미널을 다시 여세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne terminallenken er utløpt. Åpne terminalen på nytt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ten link do terminala wygasł. Otwórz terminal ponownie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Este link do terminal expirou. Abra o terminal de novo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Срок действия ссылки на терминал истёк. Откройте терминал снова."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ลิงก์เทอร์มินัลนี้หมดอายุแล้ว เปิดเทอร์มินัลอีกครั้ง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu terminal bağlantısının süresi doldu. Terminali yeniden açın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Термін дії посилання на термінал минув. Відкрийте термінал знову."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Liên kết terminal này đã hết hạn. Hãy mở lại terminal."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此终端链接已过期。请重新打开终端。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此終端機連結已過期。請重新開啟終端機。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
