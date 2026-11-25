@@ -200,7 +200,7 @@ final class SectionHeaderRowView: SidebarRowView {
             ownIcon = machine.icon
             let drawn = Self.drawn(machine)
             statusTone = Self.tone(drawn, hostGroup: section.isHostGroup)
-            let words = Self.statusWords(machine.status)
+            let words = Self.statusWords(drawn.status)
             badgeText = Self.statusText(drawn.status, hostGroup: section.isHostGroup)
             // A connected Cloud machine draws no dot (Leo 2026-10-30), yet its tooltip still says it is connected.
             statusTip = Self.statusToolTip(words: words, detail: machine.detail, bareDot: badgeText == nil
