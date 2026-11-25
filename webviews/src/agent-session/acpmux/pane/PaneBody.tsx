@@ -375,6 +375,8 @@ export type PaneBodyDeps = NewTabShown &
     turnWorking: boolean;
     summaryPanel: React.JSX.Element;
     underHeader: UnderHeaderLines;
+    /// An Auto chat's line and kept-changes notice, built by App.tsx; null when there is none.
+    autoBanner: React.JSX.Element | null;
     checkpoints: ReturnType<typeof useCheckpoints>;
     cloudUnavailable: ChatUnavailable | undefined;
     cloudRecovery: ReturnType<typeof useCloudChatRecovery>;
@@ -649,6 +651,7 @@ export function drawPaneBody({
   turnWorking,
   summaryPanel,
   underHeader,
+  autoBanner,
   checkpoints,
   cloudUnavailable,
   cloudRecovery,
@@ -1480,6 +1483,7 @@ export function drawPaneBody({
                     noteDelayMs={snapshot.peerKinds?.[snapshot.peerCopy.peer] === "ssh" ? LINK_DOWN_SAID_MS : undefined}
                   />
                 )}
+                {underHeader.autoSession && autoBanner}
                 {/* Computer use's live preview: the app this chat's agent drives, at the top right. Always
                       mounted: with no card it draws the last one's exit, then nothing (cardMotion.ts). */}
                 <ComputerUsePreviewCard

@@ -33,6 +33,7 @@ members = [
     "crates/acpmux-book",
     "crates/cmux-coderouter",
     "crates/cmux-history",
+    "crates/cmux-forum-hosted",
     "crates/cmux-session-cloud",
     "crates/cmux-imessage",
     "crates/cmux-chat-index",
@@ -79,6 +80,7 @@ members = [
     "crates/cmux-tab-discard",
     "crates/cmux-lifeline",
     "crates/cmux-cloud-machine",
+    "crates/cmux-auto-session",
     "crates/cmux-cloud-tasks",
     "crates/cmux-cloud-config",
     "crates/cmux-vm-pool",
@@ -181,6 +183,7 @@ members = [
     "crates/cmux-cloud-wire",
     "crates/cmux-tab-snapshots",
     "crates/cmux-palette-ranker",
+    "crates/cmux-keymap",
     "crates/cmux-terminal-find",
     "crates/cmux-palette-eval",
     "crates/cmux-backdrop-gen",
@@ -248,6 +251,7 @@ default-members = [
     "crates/cmux-tab-discard",
     "crates/cmux-lifeline",
     "crates/cmux-cloud-machine",
+    "crates/cmux-auto-session",
     "crates/cmux-cloud-tasks",
     "crates/cmux-cloud-config",
     "crates/cmux-vm-pool",
@@ -337,6 +341,7 @@ default-members = [
     "crates/cmux-mobile-ffi",
     "crates/cmux-cloud-wire",
     "crates/cmux-palette-ranker",
+    "crates/cmux-keymap",
     "crates/cmux-terminal-find",
     "crates/cmux-palette-eval",
     "crates/cmux-action-catalog",
@@ -426,6 +431,7 @@ cmux-bookmarks-ops = { path = "crates/cmux-bookmarks-ops" }
 cmux-cloud-start-core = { path = "crates/cmux-cloud-start-core" }
 cmux-lifeline = { path = "crates/cmux-lifeline" }
 cmux-cloud-machine = { path = "crates/cmux-cloud-machine" }
+cmux-auto-session = { path = "crates/cmux-auto-session" }
 cmux-cloud-tasks = { path = "crates/cmux-cloud-tasks" }
 cmux-cloud-config = { path = "crates/cmux-cloud-config" }
 cmux-vm-pool = { path = "crates/cmux-vm-pool" }
@@ -444,6 +450,7 @@ cmux-daemon-conn-core = { path = "crates/cmux-daemon-conn-core" }
 acpmux-hot = { path = "crates/acpmux-hot" }
 cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-palette-ranker = { path = "crates/cmux-palette-ranker" }
+cmux-keymap = { path = "crates/cmux-keymap" }
 cmux-terminal-find = { path = "crates/cmux-terminal-find" }
 cmux-theme-tokens = { path = "crates/cmux-theme-tokens" }
 cmux-theme-pack = { path = "crates/cmux-theme-pack" }
