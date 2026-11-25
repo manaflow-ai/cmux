@@ -3,6 +3,7 @@
 // only. The decisions (when a move starts, when Auto moves, what carries) are Rust's.
 import type { HybridBlocked, HybridBlockedWhy, SlotHolder } from "../hybrid/hybridModel";
 import type { StringKey } from "../i18n";
+import { hybridStartOf, type HybridStart } from "../hybrid/hybridModel";
 
 export type PlaceMode = "local" | "cloud" | "auto";
 export type PlaceAt = "local" | "cloud";
@@ -54,6 +55,9 @@ export interface PlaceState {
   readonly blocked?: HybridBlocked;
   /// Every slot is held: the chats holding them (Rust `priority::control`, `Admit::Full`).
   readonly holders?: readonly SlotHolder[];
+  /// A hybrid start under way or just ended (RFD 0078): the chat started here while its Cloud
+  /// machine boots. The three-state control draws it.
+  readonly start?: HybridStart;
 }
 
 export type EvacuateChatState = "queued" | "moving" | "live" | "failed" | "cancelled";
@@ -187,6 +191,7 @@ export function placeOf(value: unknown): PlaceState | undefined {
   const move = moveOf(raw.move);
   const blocked = blockedOf(raw.blocked);
   const holders = holdersOf(raw.holders);
+  const start = hybridStartOf(raw.start);
   return {
     mode: raw.mode as PlaceMode,
     at: raw.at === "cloud" ? "cloud" : "local",
@@ -194,6 +199,7 @@ export function placeOf(value: unknown): PlaceState | undefined {
     ...(move ? { move } : {}),
     ...(blocked ? { blocked } : {}),
     ...(holders ? { holders } : {}),
+    ...(start ? { start } : {}),
   };
 }
 

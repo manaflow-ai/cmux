@@ -162,6 +162,21 @@ impl UsageCache {
 /// day ago or purged. A chat still listed keeps what the last pass found until a pass finds more.
 /// Returns the chats whose stats went. A set of the listed ids: one lookup per chat, where a
 /// walk of every source per chat cost N x N (~9 million compares with 3,000 chats).
+/// The harness whose transcripts a chat of `family` writes: Claude Code's for `claude` and a
+/// profile named for a Claude Code wrapper (`claude-sr2`, `claude-sr2-pipe` declare
+/// `family = "claude-sr2"` and run Claude Code, which writes its own transcript), Codex's for
+/// `codex`; None for any other family, whose usage nothing here reads. Before this, a
+/// `claude-sr2` chat had no `usageStats`, so its machine read as unmetered.
+pub(super) fn transcript_family(family: &str) -> Option<&'static str> {
+    match family {
+        "codex" => Some("codex"),
+        f if f == "claude" || f.starts_with("claude-") || f.starts_with("claude_") => {
+            Some("claude")
+        }
+        _ => None,
+    }
+}
+
 pub(super) fn prune_unlisted<T>(
     trackers: &mut HashMap<String, T>,
     stats: &HashSet<String>,
@@ -286,9 +301,8 @@ impl Hub {
     /// Whether a whole pass reads `m`'s chat: a Claude Code or Codex chat with its agent's
     /// session id, open or changed in the last day.
     fn reads_usage(m: &SessionMeta, now: u64) -> bool {
-        let family = m.family.as_deref().unwrap_or_default();
         m.agent_session_id.as_deref().is_some_and(|s| !s.is_empty())
-            && matches!(family, "claude" | "codex")
+            && transcript_family(m.family.as_deref().unwrap_or_default()).is_some()
             && !(m.status == SessionStatus::Closed && m.updated_at.saturating_add(DAY_MS) < now)
     }
 
@@ -305,7 +319,9 @@ impl Hub {
             if !Self::reads_usage(&m, now) {
                 continue;
             }
-            let family = m.family.clone().unwrap_or_default();
+            let family = transcript_family(m.family.as_deref().unwrap_or_default())
+                .unwrap_or_default()
+                .to_owned();
             let sid = m.agent_session_id.clone().unwrap_or_default();
             let (claude_stdio, env) = self.harness_env(&m).await;
             let env = crate::route_account::spawn_env(&m, env);
