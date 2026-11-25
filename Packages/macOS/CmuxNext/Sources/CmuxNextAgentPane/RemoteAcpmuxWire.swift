@@ -726,12 +726,14 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// The fields of a chat summary its names are read from (`AgentTurnStateStore.remoteFields`), each string capped at
     /// 4096 characters and at most 8 former names: what ``noteChat(_:)`` hands on of another machine's summary.
     static func chatNames(_ summary: [String: Any]) -> [String: Any] {
+        // By Unicode scalars: one `Character` may stack any number of combining marks.
+        func capped(_ text: String) -> String { String(String.UnicodeScalarView(text.unicodeScalars.prefix(4096))) }
         var names: [String: Any] = [:]
         for key in ["sessionId", "title", "titleSource", "lastPrompt", "name", "harness", "family", "displayName"] {
-            if let text = summary[key] as? String { names[key] = String(text.prefix(4096)) }
+            if let text = summary[key] as? String { names[key] = capped(text) }
         }
         if let former = summary["formerNames"] as? [Any] {
-            names["formerNames"] = former.suffix(8).compactMap { ($0 as? String).map { String($0.prefix(4096)) } }
+            names["formerNames"] = former.suffix(8).compactMap { ($0 as? String).map(capped) }
         }
         return names
     }
@@ -774,7 +776,8 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             // joins the chat's Subagents summary and the sidebar's tree.
             if let changed = change as? [String: Any], let session = changed["session"] as? [String: Any],
                let id = changed["sessionId"] as? String {
-                if names(id) { noteChat(session) } else { noteLinks([session]) }
+                // Noted under the session it was checked against, never the one its summary claims.
+                if names(id) { var session = session; session["sessionId"] = id; noteChat(session) } else { noteLinks([session]) }
             }
             notify("_acpmux/session_changed", change)
         case .presence(let data):

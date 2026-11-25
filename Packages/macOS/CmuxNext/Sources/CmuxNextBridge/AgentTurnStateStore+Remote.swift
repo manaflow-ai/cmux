@@ -35,12 +35,25 @@ extension AgentTurnStateStore {
     static func remoteSummary(_ summary: [String: Any]) -> [String: Any] {
         var safe: [String: Any] = [:]
         for key in remoteFields {
-            if let text = summary[key] as? String { safe[key] = String(text.prefix(remoteFieldLimit)) }
+            if let text = summary[key] as? String { safe[key] = capped(text) }
         }
         if let former = summary["formerNames"] as? [Any] {
-            safe["formerNames"] = former.suffix(remoteFormerNamesKept).compactMap { ($0 as? String).map { String($0.prefix(remoteFieldLimit)) } }
+            safe["formerNames"] = former.suffix(remoteFormerNamesKept).compactMap { ($0 as? String).map(capped) }
         }
         return safe
+    }
+
+    /// `text` cut to ``remoteFieldLimit`` Unicode scalars: a cap by `Character` lets one grapheme stack any number of
+    /// combining marks past it.
+    nonisolated static func capped(_ text: String) -> String {
+        String(String.UnicodeScalarView(text.unicodeScalars.prefix(remoteFieldLimit)))
+    }
+
+    /// Whether `host` reads as a machine's host (`install:` or `registry:` and a short id without control characters);
+    /// a remote's word is noted under nothing else.
+    nonisolated static func isRemoteHost(_ host: String) -> Bool {
+        guard host.hasPrefix("install:") || host.hasPrefix("registry:"), host.utf8.count <= 266 else { return false }
+        return !host.unicodeScalars.contains { $0.properties.generalCategory == .control || $0.properties.generalCategory == .format }
     }
 
     /// The most combining marks kept on one character (a stack of them overflows the tab strip and the row).
@@ -106,7 +119,7 @@ extension AgentTurnStateStore {
     /// two machines claim is noted from neither again, its names dropped. Writes only what changed.
     public func noteRemote(_ untrusted: [String: Any], host: String, machine: String) {
         let summary = Self.remoteSummary(untrusted)
-        guard let localHost, let session = summary["sessionId"] as? String, Self.isRemoteSessionID(session), !host.isEmpty,
+        guard let localHost, let session = summary["sessionId"] as? String, Self.isRemoteSessionID(session), Self.isRemoteHost(host),
               !machine.isEmpty, host != localHost, !mirroredHosts.contains(host) else { return }
         switch remoteHostMachines[host] {
         case machine?: break
@@ -124,7 +137,7 @@ extension AgentTurnStateStore {
         if let held = remoteSessions[key] {
             record = held
         } else {
-            if remoteSessions.count >= Self.remoteLimit { remoteSessions.removeAll() }
+            if remoteSessions.count >= Self.remoteLimit { dropRemote { _ in true } }
             if remoteSessions.keys.lazy.filter({ $0.hasPrefix(host + "\u{0}") }).count >= Self.remoteLimitPerHost { dropRemote(host: host) }
             record = Session()
             remoteSessions[key] = record
@@ -147,8 +160,11 @@ extension AgentTurnStateStore {
     }
 
     /// Drops every noted name of `host`; each of its readers reads its chat as unnamed.
-    private func dropRemote(host: String) {
-        for key in remoteSessions.keys where key.hasPrefix(host + "\u{0}") {
+    private func dropRemote(host: String) { dropRemote { $0.hasPrefix(host + "\u{0}") } }
+
+    /// Drops the noted names whose key `drops` picks, clearing each record so a reader holding it reads it unnamed.
+    private func dropRemote(_ drops: (String) -> Bool) {
+        for key in remoteSessions.keys where drops(key) {
             let record = remoteSessions.removeValue(forKey: key)
             record?.title = nil
             record?.generatedTitle = nil

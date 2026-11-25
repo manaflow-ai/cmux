@@ -128,6 +128,22 @@ struct CloudChatNamesTests {
         #expect(AgentTurnStateStore.plainName("👩\u{200D}💻 ship it") == "👩\u{200D}💻 ship it")
     }
 
+    @Test func aHostThatIsNotAMachinesOrCarriesControlsIsNeverNoted() {
+        let turns = Self.turns()
+        for host in ["vm", "install:" + String(repeating: "x", count: 300), "install:a\u{0000}b", "registry:a\u{202E}b"] {
+            turns.noteRemote(Self.summary, host: host, machine: "vm")
+        }
+        #expect(turns.remoteRecordCount == 0)
+        turns.noteRemote(Self.summary, host: "registry:cloud-vm", machine: "vm")
+        #expect(turns.remoteRecordCount == 1)
+    }
+
+    @Test func aFieldIsCappedByScalarsNotByCharacters() {
+        // One grapheme of 10,000 combining marks: a cap by `Character` keeps all of it.
+        let stacked = "a" + String(repeating: "\u{0301}", count: 10_000)
+        #expect(AgentTurnStateStore.capped(stacked).unicodeScalars.count == AgentTurnStateStore.remoteFieldLimit)
+    }
+
     @Test func aRemoteSessionIdThatIsTooLongOrCarriesControlsIsNeverNoted() {
         let turns = Self.turns()
         turns.noteRemote(["sessionId": String(repeating: "x", count: 300), "title": "t"], host: Self.cloudHost, machine: "vm")
