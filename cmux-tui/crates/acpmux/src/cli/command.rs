@@ -535,6 +535,11 @@ pub enum Command {
         /// wait for the reply.
         #[arg(long, conflicts_with_all = ["wait", "quiet", "timeout", "tag"])]
         gather: bool,
+        /// Deliver it within this long (90s, 5m, 1h): a message the receiver's inbox holds wakes
+        /// the receiver by its deadline, at the latest 15 minutes for a result (an action) and
+        /// 60 for an FYI (a block or a question wakes it at once). This only tightens that.
+        #[arg(long, value_name = "DURATION", value_parser = crate::prompt_class::parse_within)]
+        within: Option<u64>,
     },
     /// Team-scoped durable messages. Needs a team hub (`meshRelay`); on there by default.
     #[command(aliases = aliases::INBOX)]
@@ -691,6 +696,10 @@ pub enum Command {
     /// Forum rules: announce one, list the current ones, ack one.
     #[command(subcommand)]
     Forum(crate::cli::forum::ForumCmd),
+    /// The fleet memory mount (~/.cmux/memory): sync, put, get, ls, history, status, and link a
+    /// harness's memory folder into it.
+    #[command(subcommand)]
+    Memory(crate::cli::memory::MemoryCmd),
     /// Bridge Claude Desktop, Codex Desktop and ChatGPT Desktop to each other and to cmux sessions:
     /// connect, send, inbox.
     #[command(subcommand)]
@@ -873,7 +882,16 @@ pub enum Command {
         /// Answer once the agent is ready, not when it starts.
         #[arg(long)]
         wait: bool,
+        /// A harness and model the person set up, `HARNESS[:MODEL]`, warmed beside the default
+        /// (personal spares; repeat for each, at most 4).
+        #[arg(long = "shape", value_name = "HARNESS[:MODEL]")]
+        shapes: Vec<String>,
     },
+    /// The harnesses and models this machine's person used in the last week (newest first, at
+    /// most 4), as `warm-home --shape` takes them: the Cloud app reads them on the Mac and warms
+    /// a spare of each on the person's Cloud machine.
+    #[command(name = "spare-shapes", hide = true)]
+    SpareShapes,
     #[command(hide = true)]
     Info {
         session: String,
@@ -946,6 +964,26 @@ pub enum Command {
         after_help = "Examples:\n  acpmux icon @ 🥭\n  acpmux icon @ sf:leaf.fill\n  acpmux icon @ ./mark.svg\n  acpmux icon @ https://github.com\n  acpmux rename @ Mango --handle --icon 🥭\n  acpmux icon @ none"
     )]
     Icon { session: String, icon: Option<String> },
+    /// Make a session the successor of sessions that died or moved (a rotation, a restart under a
+    /// new name, a move): a message to one of them reaches it, here and through the mesh hub.
+    /// Each name it takes over keeps the names that one answered to.
+    #[command(
+        after_help = "Examples:\n  acpmux succeed old-host/old-lane\n  acpmux succeed --session lane-b lane-a"
+    )]
+    Succeed {
+        /// The session that takes over (default: the one this shell runs in).
+        #[arg(long, default_value = "@")]
+        session: String,
+        /// `HOST/NAME`, or a NAME on this machine.
+        #[arg(required = true)]
+        names: Vec<String>,
+    },
+    /// Role addresses a session answers to: `goal:SLUG`, `area:NAME`, `topic:NAME`. A message
+    /// to one reaches the session that claimed it last, here and through the mesh hub.
+    Role {
+        #[command(subcommand)]
+        cmd: RoleCmd,
+    },
     /// Give the session this shell runs in a stable name every machine that peers this one sends
     /// to: a Claude Code session acpmux did not start (the Claude desktop app's Code tab, a
     /// terminal `claude`). Run it from that session's own Bash tool: it delivers a one-time code
@@ -1120,7 +1158,7 @@ pub enum Command {
         /// permission mode every new chat starts in, `permissions.codex=ask` for
         /// one harness, `session.memory_mb=6144`, `session.swap_mb=2048`,
         /// `session.tasks_max=8192`, `session.sessions_tasks_max=131072`,
-        /// `session.cpu_class=normal`, `remote_daemon=127.0.0.1:PORT` or
+        /// `session.cpu_class=background`, `remote_daemon=127.0.0.1:PORT` or
         /// `lane_gh_broker=~/.cache/lane-gh-broker/broker.sock`). A value the
         /// daemon would refuse to start with is refused and config.json is left as it was:
         /// `transport.wireguard=true` needs `transport.wireguardStatic` in config.json first.
@@ -1381,6 +1419,26 @@ pub enum SecretCmd {
     /// elsewhere) and write `KEY = { keychain = "cmux-harness/ID/KEY" }` into
     /// the profile file. Reads a hidden prompt, or stdin; never prints it.
     Set { id: String, key: String },
+}
+
+#[derive(Subcommand)]
+pub enum RoleCmd {
+    /// Claim ADDRESS: every other session here gives it up.
+    #[command(after_help = "Examples:\n  acpmux role claim goal:ci-linux-on-pool")]
+    Claim {
+        address: String,
+        /// The session that claims it (default: the one this shell runs in).
+        #[arg(long, default_value = "@")]
+        session: String,
+    },
+    /// Give ADDRESS up.
+    Release {
+        address: String,
+        #[arg(long, default_value = "@")]
+        session: String,
+    },
+    /// Every role and successor entry the sessions here hold.
+    Ls,
 }
 
 #[derive(Subcommand)]
