@@ -67,7 +67,7 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
-      # Why: docs/ci/cmux-next-workflow-notes.md#note-558 (a stalled runner fails in minutes)
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-stall-step-bounds (a stalled runner fails in minutes)
       - name: Cache Bun package cache
         if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         timeout-minutes: 4

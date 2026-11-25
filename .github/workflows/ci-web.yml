@@ -573,7 +573,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 30
     steps:
-      # Why: docs/ci/cmux-next-workflow-notes.md#note-558 (a stalled runner fails in minutes)
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-stall-step-bounds (a stalled runner fails in minutes)
       - name: Checkout
         timeout-minutes: 6
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

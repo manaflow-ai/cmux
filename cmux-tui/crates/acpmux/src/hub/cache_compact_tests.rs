@@ -21,25 +21,33 @@ fn usage(used: u64, size: u64, expires: Option<u64>) -> Value {
 
 #[test]
 fn the_settings_source_matches_the_daemon() {
-    assert_eq!(row(SETTING_ENABLED)["default"], json!(false), "opt-in (Leo)");
-    assert_eq!(row(SETTING_MIN_CONTEXT)["default"], json!(50));
+    assert_eq!(row(SETTING_ENABLED)["default"], json!(true), "on by default (Leo, 2026-11-24)");
+    assert_eq!(row(SETTING_MIN_CONTEXT)["default"], json!(30));
     assert_eq!(row(SETTING_MIN_CONTEXT)["range"]["min"], json!(10));
     assert_eq!(row(SETTING_MIN_CONTEXT)["range"]["max"], json!(95));
 }
 
 #[test]
-fn off_unless_turned_on() {
-    assert_eq!(settings_threshold(None), None, "no settings file");
-    assert_eq!(settings_threshold(Some(&json!({}))), None, "the default is off");
+fn on_unless_turned_off() {
+    assert_eq!(settings_threshold(None), Some(0.3), "no settings file: the defaults");
+    assert_eq!(settings_threshold(Some(&json!({}))), Some(0.3), "the default is on, at 30%");
+    let junk = json!({"agents": {"cacheCompact": {"enabled": "no"}}});
+    assert_eq!(settings_threshold(Some(&junk)), Some(0.3), "a non-bool is the default");
     let off = json!({"agents": {"cacheCompact": {"enabled": false}}});
-    assert_eq!(settings_threshold(Some(&off)), None);
+    assert_eq!(settings_threshold(Some(&off)), None, "only an explicit false turns it off");
+    let flat_off = json!({"agents.cacheCompact.enabled": false});
+    assert_eq!(settings_threshold(Some(&flat_off)), None);
     let on = json!({"agents": {"cacheCompact": {"enabled": true}}});
-    assert_eq!(settings_threshold(Some(&on)), Some(0.5), "the default threshold");
+    assert_eq!(settings_threshold(Some(&on)), Some(0.3), "the default threshold");
     let flat =
         json!({"agents.cacheCompact.enabled": true, "agents.cacheCompact.minContextPercent": 80});
     assert_eq!(settings_threshold(Some(&flat)), Some(0.8));
+    let percent_only = json!({"agents": {"cacheCompact": {"minContextPercent": 60}}});
+    assert_eq!(settings_threshold(Some(&percent_only)), Some(0.6), "on, at its own percent");
     let wild = json!({"agents": {"cacheCompact": {"enabled": true, "minContextPercent": 400}}});
     assert_eq!(settings_threshold(Some(&wild)), Some(0.95), "clamped to the range");
+    let low = json!({"agents": {"cacheCompact": {"minContextPercent": 1}}});
+    assert_eq!(settings_threshold(Some(&low)), Some(0.1), "clamped to the range");
 }
 
 #[test]
