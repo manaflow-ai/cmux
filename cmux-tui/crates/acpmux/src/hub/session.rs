@@ -520,6 +520,8 @@ pub struct Session {
     /// The running turn's finished command calls, bounded, that its last reply's claims are
     /// checked against when it ends (`claim_check.rs`).
     pub(super) claim_runs: StdMutex<super::claim_check::ClaimRuns>,
+    /// The running turn's prefetched files and the reads of them since (`prefetch.rs`).
+    pub(super) prefetch: StdMutex<Option<super::prefetch::PrefetchTurn>>,
     /// Its command calls while its harness's sandbox refuses them, newest last and bounded
     /// (`harness_sandbox.rs`): one that completes ends the failure. Empty otherwise.
     pub(super) harness_sandbox_calls: StdMutex<std::collections::VecDeque<String>>,
