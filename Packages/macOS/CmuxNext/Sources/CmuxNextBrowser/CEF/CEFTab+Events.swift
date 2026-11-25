@@ -71,6 +71,7 @@ extension CEFTab {
             reapplyColorScheme()
             if PageBackground.isRealPage(URL(string: url)) { reachedFirstRealPage() }
         case .loadEnd:
+            host.hostView.inTree.refit() // a navigation may bring a new renderer view, whose drawing layer drifts (CEFInTreeLayerFit)
             if PageBackground.isRealPage(committedURL) || blankIsDocument { documentLoaded = true } // its script ran: a focused field and listeners exist
             if !hasDocument { host.lifecycleTrace.record(id, "cef-load-end loaded=\(documentLoaded) painted=\(documentPainted) loading=\(chromiumLoading)") }
             documentMayTakeKeys() // loading may have stopped before this load end

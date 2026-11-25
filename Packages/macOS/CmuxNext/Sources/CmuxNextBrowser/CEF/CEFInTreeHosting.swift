@@ -284,6 +284,13 @@ final class CEFInTreeHosting {
         return made
     }
 
+    /// Fits the page's drawing layers to their views now (``CEFInTreeLayerFit``): a navigation's new renderer view, which
+    /// Chromium sizes itself after the load, gets the fit and its layout manager before any pane resize.
+    func refit() {
+        guard page != nil, let container else { return }
+        CEFInTreeLayerFit.shared.fit(container)
+    }
+
     /// The page's current main-frame view (re-read each time: it changes with the renderer).
     var contentView: NSView? {
         guard page != nil, let browser else { return nil }
