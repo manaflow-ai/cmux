@@ -113,6 +113,36 @@ export function sceneTiming(motion: unknown, env: SceneMotionEnv, doc?: Document
   return { duration: parsed.duration * 1000 * env.speed, easing: CURVES[parsed.curve] ?? MOTION_EASE_OUT };
 }
 
+/** A `transition`'s kind: the bare kind, or `{kind, motion}`'s (cmux.motion/1 sends one of the two). */
+export function sceneTransitionKind(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  const kind = sceneRecord(value).kind;
+  return typeof kind === "string" ? kind : undefined;
+}
+
+/** A timed transition's (`{kind, motion}`) enter and leave length and curve as scene.css's
+ * `--cmux-app-scene-enter`, `-leave` and `-ease`, in ms; undefined for a bare kind (scene.css's own
+ * steps) or when the scene must not move. */
+export function sceneTransitionVars(
+  value: unknown,
+  env: SceneMotionEnv,
+  doc?: Document,
+): Record<`--${string}`, string> | undefined {
+  if (typeof value === "string") return undefined;
+  const timing = sceneTiming(sceneRecord(value).motion, env, doc);
+  if (!timing) return undefined;
+  const ms = `${Math.round(timing.duration)}ms`;
+  return { "--cmux-app-scene-enter": ms, "--cmux-app-scene-leave": ms, "--cmux-app-scene-ease": timing.easing };
+}
+
+/** How long a leaving node with this `transition` stays, in ms: its own timing for `{kind, motion}`,
+ * else undefined (the motion scale's quick step). */
+export function sceneTransitionLeaveMs(value: unknown, env: SceneMotionEnv, doc?: Document): number | undefined {
+  if (typeof value === "string") return undefined;
+  const timing = sceneTiming(sceneRecord(value).motion, env, doc);
+  return timing ? timing.duration : undefined;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Props as CSS values.
 

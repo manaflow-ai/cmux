@@ -1477,6 +1477,11 @@ def supersede_for_unread(state, t, newest, supported_parts):
     had never run, so NOW's infinite_chat_size_ratio_max read unknown for days."""
     cur = state.get("current")
     gave = cur.get("superseded") if isinstance(cur, dict) and isinstance(cur.get("superseded"), dict) else None
+    if not gave and isinstance(cur, dict) and cur.get("parts_todo") and all(is_linux_part(p) for p in cur["parts_todo"]):
+        # Mac parts that ended 'no_tree' before wait_for_tree kept a record: that record has no `at`, so it ends now.
+        lost = [p for p in (cur.get("parts") or {}).values() if isinstance(p, dict) and p.get("state") == "no_tree"]
+        if lost:
+            gave = {"why": lost[0].get("reason") or "no published cmux-tui tree"}
     if gave and cur.get("parts_todo"):
         # Its Linux parts may still run, for SUPERSEDED_LINUX_HOURS: the newer tip measures them again anyway, and
         # a Linux request the build controller never answers otherwise held the measurement to ABANDON_WALL_HOURS
@@ -1912,6 +1917,12 @@ def wait_for_tree(cur, t, tree_ready):
         cur["parts"][name] = {"state": "no_tree", "reason": why}
         cur["parts_todo"].remove(name)
     cur.pop("tree_wait_since", None)
+    if cur["parts_todo"]:
+        # Its Linux parts get SUPERSEDED_LINUX_HOURS, as a superseded tip's do (supersede_for_unread): the next tip,
+        # whose tree is published, measures them again with its Mac parts. Without the bound they held the next tip
+        # back for hours (tip 2322b92a, 2026-11-23: Mac parts no_tree at 19:14Z, 16 Linux parts still to do at 22:30Z,
+        # so tabs, never read, waited behind them).
+        cur["superseded"] = {"by": None, "why": why, "at": iso(t)}
     return ""
 
 
