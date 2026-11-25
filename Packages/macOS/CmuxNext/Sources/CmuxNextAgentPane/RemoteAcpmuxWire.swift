@@ -706,9 +706,10 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             state.noted &+= 1
             return state.noted
         }
-        let deliver: @Sendable () -> Void = { [state] in
+        // The wire held weakly (its `Mutex` state cannot be captured by value): a closed wire's late note is dropped.
+        let deliver: @Sendable () -> Void = { [weak self] in
             MainDelivery().run {
-                guard state.withLock({ $0.noted }) == note,
+                guard let self, self.state.withLock({ $0.noted }) == note,
                       var summary = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
                 for host in hosts { chatNoted(summary, host) }
                 if let alias {
