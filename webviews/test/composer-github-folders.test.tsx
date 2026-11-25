@@ -1491,3 +1491,47 @@ test("folders of chats an agent or a Chief started are never listed; the person'
     await act(async () => root.unmount());
   }
 });
+
+test("the open menu keeps a repository's place when its main checkout arrives and becomes its lead row (cmux#53226)", async () => {
+  const gh = host({ "github.status": ready, "github.repos.list": installed });
+  setFolderUseTimes((folder) => ({ "/Users/me/wt/x-a": 3000, "/Users/me/notes": 1000 })[folder]);
+  const repo = { root: "/Users/me/src/x", name: "x" };
+  let setChoices: (next: { cwd: string; label: string; repo?: typeof repo }[]) => void = () => {};
+  function Tray() {
+    const github = useGitHubPicker(gh.store);
+    const [choices, set] = useState<{ cwd: string; label: string; repo?: typeof repo }[]>([
+      { cwd: "/Users/me/wt/x-a", label: "x-a", repo },
+      { cwd: "/Users/me/notes", label: "notes" },
+    ]);
+    setChoices = set;
+    return (
+      <ComposerContext
+        summary={{ sessionId: "", cwd: "/Users/me/notes" }}
+        projectChoices={choices}
+        onProject={() => {}}
+        onNoProject={() => {}}
+        localName="This Mac"
+        runMode={{ mode: "cloud", onMode: () => {} }}
+        github={github}
+      />
+    );
+  }
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  await act(async () => root.render(<Tray />));
+  try {
+    await openFolderMenu();
+    expect(labels(".ui-combobox-scroll [role=option]")[1]).toBe("notes");
+    await act(async () =>
+      setChoices([
+        { cwd: "/Users/me/notes", label: "notes" },
+        { cwd: "/Users/me/src/x", label: "x", repo },
+        { cwd: "/Users/me/wt/x-a", label: "x-a", repo },
+      ]),
+    );
+    await settle();
+    // Before: the repository's block went last once its lead row changed to the main checkout.
+    expect(labels(".ui-combobox-scroll [role=option]")[1]).toBe("notes");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

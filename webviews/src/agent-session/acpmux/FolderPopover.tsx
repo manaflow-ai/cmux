@@ -668,7 +668,9 @@ export function FolderPopover({
 /// repository's rows (its lead, New Worktree, its open worktrees) kept together and placed by when its newest
 /// folder was used, the added repositories among them by theirs; with words typed, the folders in the search's
 /// order, the typed path, then the repositories that match. Cloud adds each machine's folders after them. Each
-/// block is keyed by its first row's value.
+/// block is keyed by its repository (a folder's) or its one row's value.
+type Block = { key: string; rows: string[] };
+
 function orderedRows({
   cloud,
   cloudRows,
@@ -683,29 +685,30 @@ function orderedRows({
   shown: ReadonlyMap<string, { group: { key: string; members: readonly FolderChoice[] } }>;
   typed: string;
   typedPath: string | undefined;
-}): string[][] {
-  const repos: { repo: AddedRepo; block: string[] }[] = [];
-  githubRows.forEach((repo, value) => repos.push({ repo, block: [value] }));
-  const blocks: { block: string[]; at: number | undefined }[] = [];
+}): Block[] {
+  const repos: { repo: AddedRepo; block: Block }[] = [];
+  githubRows.forEach((repo, value) => repos.push({ repo, block: { key: value, rows: [value] } }));
+  const blocks: { block: Block; at: number | undefined }[] = [];
   let previous: string | undefined;
   shown.forEach((place, value) => {
     const group = place.group;
     if (group.key !== previous) {
-      blocks.push({ block: [], at: newestUse(group.members) });
+      // Keyed by the repository, not its lead row: a main checkout arriving after the open becomes the lead.
+      blocks.push({ block: { key: `\u0000group:${group.key}`, rows: [] }, at: newestUse(group.members) });
       previous = group.key;
     }
-    blocks[blocks.length - 1]!.block.push(value);
+    blocks[blocks.length - 1]!.block.rows.push(value);
   });
-  const path = typedPath ? [[typedPath]] : [];
+  const path = typedPath ? [{ key: typedPath, rows: [typedPath] }] : [];
   // Cloud: the machines' own folders under their headings, after the one list.
-  const machines = cloud ? [...cloudRows.keys()].map((value) => [value]) : [];
+  const machines = cloud ? [...cloudRows.keys()].map((value) => ({ key: value, rows: [value] })) : [];
   if (typed) return [...blocks.map(({ block }) => block), ...path, ...repos.map(({ block }) => block), ...machines];
   return [...mergeByRecentUse(blocks, repos), ...path, ...machines];
 }
 
 /// The blocks' keys in the order `kept` showed them, then the blocks it did not show, in their own order.
-function keptOrder(kept: readonly string[] | undefined, blocks: readonly string[][]): string[] {
-  const keys = blocks.map((block) => block[0]!);
+function keptOrder(kept: readonly string[] | undefined, blocks: readonly Block[]): string[] {
+  const keys = blocks.map((block) => block.key);
   if (!kept) return keys;
   const now = new Set(keys);
   const order = kept.filter((key) => now.has(key));
@@ -721,9 +724,9 @@ function sameKeys(left: readonly string[], right: readonly string[] | undefined)
 }
 
 /// The blocks' rows in `order` (by each block's key), or in their own order with none.
-function orderBlocks(blocks: readonly string[][], order: readonly string[] | undefined): string[] {
-  if (!order) return blocks.flat();
-  const byKey = new Map(blocks.map((block) => [block[0]!, block]));
+function orderBlocks(blocks: readonly Block[], order: readonly string[] | undefined): string[] {
+  if (!order) return blocks.flatMap((block) => block.rows);
+  const byKey = new Map(blocks.map((block) => [block.key, block.rows]));
   return order.flatMap((key) => byKey.get(key) ?? []);
 }
 
