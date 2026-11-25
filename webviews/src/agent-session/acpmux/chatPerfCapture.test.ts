@@ -6,6 +6,7 @@ import {
   captureKind,
   frameSummary,
   layoutShiftSummary,
+  keydownSummary,
   longTaskSummary,
   scriptSource,
   unmeasuredReason,
@@ -83,6 +84,32 @@ describe("chat perf capture: pure parts", () => {
     expect(scriptSource(undefined)).toBe("");
   });
 
+  test("script time sums every script in long animation frames, not only the top list", () => {
+    const scripts = Array.from({ length: 8 }, () => ({ invoker: "i", sourceURL: "u", duration: 10 }));
+    const report = longTaskSummary([{ duration: 120, scripts }], "long-animation-frame");
+    expect(report.script_ms).toBe(80);
+    expect(report.top_scripts).toHaveLength(1);
+    // A longtask entry carries no script attribution: no number, not zero.
+    expect(longTaskSummary([{ duration: 120 }], "longtask").script_ms).toBeNull();
+  });
+
+  test("keydown-to-frame is the p95 of keydown entries, null when nobody typed", () => {
+    const entries = [
+      ...Array.from({ length: 20 }, (_, index) => ({ name: "keydown", duration: 16 + index * 8 })),
+      { name: "pointerdown", duration: 400 },
+    ];
+    const typed = keydownSummary(entries);
+    expect(typed.count).toBe(20);
+    expect(typed.p95_ms).toBe(160);
+    expect(typed.max_ms).toBe(168);
+    expect(keydownSummary([{ name: "click", duration: 50 }])).toEqual({
+      count: 0,
+      threshold_ms: 16,
+      p95_ms: null,
+      max_ms: null,
+    });
+  });
+
   test("layout shift sums only shifts without recent input", () => {
     expect(
       layoutShiftSummary([
@@ -151,7 +178,7 @@ function fakeEnv() {
       observers.set(type, onEntries);
       return { disconnect: () => void observers.delete(type) };
     },
-    supportedEntryTypes: () => ["long-animation-frame", "layout-shift"],
+    supportedEntryTypes: () => ["long-animation-frame", "layout-shift", "event"],
   };
   return {
     env,
@@ -229,7 +256,7 @@ describe("chat perf capture: the window", () => {
     expect(recorder.active).toBe(false);
     const running = recorder.capture({ seconds: 1 }, page.env);
     expect(recorder.active).toBe(true);
-    expect(page.live()).toEqual({ frames: 1, timers: 1, observers: 2, channelOpen: true, visibilityListeners: 1 });
+    expect(page.live()).toEqual({ frames: 1, timers: 1, observers: 3, channelOpen: true, visibilityListeners: 1 });
     for (let index = 0; index < 4; index += 1) {
       page.advance(16);
       page.frame();
@@ -271,6 +298,47 @@ describe("chat perf capture: the window", () => {
     expect(report.measured).toBe(false);
     expect(report.unmeasured_reason).toBe("no_frames");
     expect(page.live().observers).toBe(0);
+  });
+});
+
+describe("chat perf capture: script, keydown and size", () => {
+  test("the report carries script ms per second, keydown p95 and the shown chat's rows and events", async () => {
+    const page = fakeEnv();
+    const recorder = new ChatPerfCapture();
+    const running = recorder.capture({ seconds: 2 }, page.env, () => ({ rows: 340, events: 5200 }));
+    page.observers.get("long-animation-frame")?.([
+      { duration: 120, scripts: [{ invoker: "a", sourceURL: "u", duration: 50 }] }, // motion-allow: a long-task entry's length, not motion
+      { duration: 90, scripts: [{ invoker: "b", sourceURL: "u", duration: 30 }] }, // motion-allow: a long-task entry's length, not motion
+    ]);
+    page.observers.get("event")?.([
+      { name: "keydown", duration: 24 },
+      { name: "keydown", duration: 40 },
+      { name: "pointerdown", duration: 300 },
+    ]);
+    page.finish();
+    const report = (await running) as Record<string, any>;
+    expect(report.long_tasks.script_ms).toBe(80);
+    expect(report.script_ms_per_s).toBe(40);
+    expect(report.keydown.count).toBe(2);
+    expect(report.keydown.p95_ms).toBe(40);
+    expect(report.transcript).toEqual({ rows: 340, events: 5200 });
+    expect(page.live().observers).toBe(0);
+  });
+
+  test("nobody typing leaves keydown p95 null, and a page without the entry types leaves both null", async () => {
+    const page = fakeEnv();
+    const typed = new ChatPerfCapture().capture({ seconds: 1 }, page.env);
+    page.finish();
+    const report = (await typed) as Record<string, any>;
+    expect(report.keydown.p95_ms).toBeNull();
+    expect(report.transcript).toEqual({ rows: null, events: null });
+    const bare = fakeEnv();
+    bare.env.supportedEntryTypes = () => [];
+    const none = new ChatPerfCapture().capture({ seconds: 1 }, bare.env);
+    bare.finish();
+    const bareReport = (await none) as Record<string, any>;
+    expect(bareReport.script_ms_per_s).toBeNull();
+    expect(bareReport.keydown).toBeNull();
   });
 });
 
