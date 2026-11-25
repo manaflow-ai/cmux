@@ -56,6 +56,8 @@ mod bg_folder;
 mod bg_folder_bench;
 mod bg_notify;
 mod bg_tasks;
+/// A chat waiting for capacity: the one calm state every client draws.
+pub(crate) mod capacity_wait;
 #[cfg(test)]
 mod wait_reason_tests;
 #[cfg(test)]

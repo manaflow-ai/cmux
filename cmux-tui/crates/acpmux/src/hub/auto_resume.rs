@@ -220,10 +220,12 @@ pub(in crate::hub) fn row_last_turn(
 ) -> Option<Value> {
     let last = last?;
     let error = last.get("errorText").and_then(Value::as_str).unwrap_or_default();
+    // An account's spent limit is a capacity cause too (`capacity_wait.rs`): never red while held.
     let capacity = last.get("status").and_then(Value::as_str) == Some("failed")
-        && super::turn_errors::resume_cause(error, error).and_then(RetryReason::from_cause)
-            == Some(RetryReason::Capacity);
-    let waits = retry.filter(|r| r.reason == RetryReason::Capacity);
+        && super::turn_errors::resume_cause(error, error)
+            .and_then(RetryReason::from_cause)
+            .is_some_and(super::capacity_wait::is_capacity);
+    let waits = retry.filter(|r| super::capacity_wait::is_capacity(r.reason));
     if !capacity || (waits.is_none() && !deciding) {
         return Some(last.clone());
     }

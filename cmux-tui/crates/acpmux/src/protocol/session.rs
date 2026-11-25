@@ -352,6 +352,11 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(default)]
     pub retry_deciding: bool,
+    /// It waits for capacity and goes on by itself (`hub/capacity_wait.rs`). Absent otherwise,
+    /// and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub capacity_wait: Option<CapacityWait>,
     /// Attached clients.
     pub attached: u64,
     /// Some attached client shows the chat.
@@ -865,6 +870,34 @@ pub struct ErrorDetails {
     pub queued: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retry_after_ms: Option<u64>,
+}
+
+/// A chat waiting for capacity (`hub/capacity_wait.rs`): a turn cut by an overloaded model, an
+/// exhausted account pool or the account's rate limit, which acpmux continues by itself. A
+/// client draws it as one calm state ("Waiting for capacity, about 40 s"; in a list "paused for
+/// capacity, resumes ~22:41"), never as a failed turn, and keeps `error` for a details
+/// disclosure.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CapacityWait {
+    /// `capacity` or `rate_limit`.
+    pub reason: RetryReason,
+    /// When it goes on (epoch ms); absent while the continuation is still being decided.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub resumes_at: Option<u64>,
+    /// The cut turn the wait continues, when there is one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub turn_id: Option<String>,
+    /// Since when it waits (epoch ms): the cut turn's end.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub since: Option<u64>,
+    /// The harness's raw error, cut to 600 characters, for a details disclosure only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub error: Option<String>,
 }
 
 /// An automatic retry of a failed turn that waits (`hub/auto_resume.rs`): attempt `attempt`
