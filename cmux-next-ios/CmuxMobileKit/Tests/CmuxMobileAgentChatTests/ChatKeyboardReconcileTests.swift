@@ -31,6 +31,13 @@ import CmuxMobileSupport
         #expect(chrome.frame.height >= 44, "owned chat top chrome must cover its header: \(chrome.frame)")
         #expect(chrome.backgroundColor?.resolvedColor(with: controller.traitCollection)
             == UIColor.cmuxMobileBackground.resolvedColor(with: controller.traitCollection))
+
+        // A safe-area change must resize the owned shelf without dropping its themed fill.
+        controller.topInset = 68
+        controller.view.layoutIfNeeded()
+        #expect(chrome.frame.height >= 68, "top chrome lost the updated safe-area inset: \(chrome.frame)")
+        #expect(chrome.backgroundColor?.resolvedColor(with: controller.traitCollection)
+            == UIColor.cmuxMobileBackground.resolvedColor(with: controller.traitCollection))
     }
 
     @Test func aDetachedHideReturnsTheChatDockToTheBottom() throws {
