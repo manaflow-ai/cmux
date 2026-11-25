@@ -436,9 +436,10 @@
   max-width: 70%;
   margin-bottom: var(--cv-user-attachment-gap);
 }
-/* A prompt whose attachments were placed in its text draws them in the same block above its bubble
-   (UserBubble.tsx): the bubble's column, its tiles' 4px side margins outside it so their edges are
-   the bubble's, the same gap under it (each tile's 2px bottom margin and this). */
+/* The strip view's band, and an attachment-only prompt's, above the bubble (UserBubble.tsx): the
+   bubble's column, its tiles' 4px side margins outside it so their edges are the bubble's, the same
+   gap under it (each tile's 2px bottom margin and this). A placed prompt's attachments draw in its
+   text, where they were put (.cv-user__inline-image). */
 /* A prompt's file chips (UserBubble.tsx legacy band) keep the same column and gap. */
 .cv-user__files:not(.cv-user__inline-strip, .cv-message__files) {
   max-width: 70%;
@@ -491,6 +492,8 @@
 .cv-user__video {
   position: relative;
   display: block;
+  /* Its width is its own (SentVideoTile.tsx), so the glyph can size by the tile's drawn height. */
+  container-type: inline-size;
 }
 /* The arrow, as every cmux control has (no pointing hand), not the image's zoom-in. */
 .cv-user__images .cv-user__video,
@@ -503,8 +506,12 @@
   left: 50%;
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  /* 32px, or 40% of a short wide tile's drawn height (its width over --sent-video-ratio), at least
+     20px: a 1406x434 recording's 480x148 tile keeps 32px; a narrow chat's 300x92 one too; a sliver
+     scales down rather than covering its picture. */
+  --cv-video-play: clamp(20px, calc(40cqw / var(--sent-video-ratio, 1)), 32px);
+  width: var(--cv-video-play);
+  height: var(--cv-video-play);
   border-radius: 50%;
   color: var(--cv-text);
   transform: translate(-50%, -50%);
@@ -3196,6 +3203,14 @@ body {
     -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 20% 30%, transparent 50% 100%);
     mask-image: linear-gradient(90deg, transparent 0%, #000 20% 30%, transparent 50% 100%);
     transform: translateX(-50%);
+  }
+  /* A running call's own clock (RunningTime.tsx) sits after the words in the row, with no lit copy of
+     its time: the band would span the row, so its lit words ran on under the clock and the clock drew
+     over their cut end while the glimmer crossed (Leo, 2026-11-25: "when the glimmer happens ... there's
+     a timer number that appears at the end and overlaps?"). The band takes the words' box instead, so
+     the words cut with their ellipsis before the clock and the clock keeps its own slot. */
+  :root:not([data-status-indicators="static"]) .cv-shimmer__row:has(> .cv-command__elapsed) > .cv-thinking.is-shimmer {
+    position: relative;
   }
   :root:not([data-status-indicators="static"]) .cv-shimmer__lit {
     display: flex;
@@ -8885,6 +8900,12 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 }
 .cv-user__inline-image img {
   vertical-align: middle;
+}
+/* The thumbnail's button is a block, as its placeholder is: an inline-block button sits on a text
+   line and adds the font's descent under the image (6.75px), so the line grew when the read landed
+   and moved every row below (Leo, 2026-11-22: "there were various resizing things going on"). */
+.cv-user__inline-image > button {
+  display: block;
 }
 /* A sent file in a prompt's order: the shared file chip (FileAttachment.tsx), on the same surface
    as a legacy prompt's file band (composerAttachments.css .cv-user__files). */
