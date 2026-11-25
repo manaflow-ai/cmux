@@ -62,7 +62,11 @@ jobs:
   resolve:
     name: resolve head and base
     # A draft is gated when it is marked ready; a dispatch always runs.
-    if: ${{ always() && !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    # A same-repository pull request is gated by the build fleet's cmux-next/fast-verdict (the controller runs these
+    # gates and the routed linux steps on its warm pool, cmuxterm-hq cmux_next_fast_verdict.go) while
+    # vars.CI_PR_FLEET_VERDICT is not 0: no hosted job here. A dispatch (a merger's fresh gates on the tip) and a fork
+    # still run.
+    if: ${{ always() && !cancelled() && (github.event_name != 'pull_request' || (!github.event.pull_request.draft && !(vars.CI_PR_FLEET_VERDICT != '0' && github.event.pull_request.head.repo.full_name == github.repository))) }}
     # Fork pull requests use the same ephemeral Blacksmith lane as other
     # Linux work; this job has read-only contents permission and no secrets.
     # An explicit rerun replaces the queued run in this PR-only concurrency group.

@@ -125,7 +125,9 @@ jobs:
   pipeline:
     name: pr pipeline
     needs: route
-    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'pr-pipeline.yml') }}
+    # Not for a same-repository head while vars.CI_PR_FLEET_VERDICT is not 0: the build fleet's cmux-next/fast-verdict
+    # runs these same `linux` steps on its warm pool (cmuxterm-hq cmux_next_fast_verdict.go). 0 puts this job back.
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'pr-pipeline.yml') && !(vars.CI_PR_FLEET_VERDICT != '0' && github.event.pull_request.head.repo.full_name == github.repository) }}
     uses: ./.github/workflows/pr-pipeline.yml
     with:
       jobs: ${{ needs.route.outputs.table || '' }}
