@@ -777,10 +777,9 @@ pub(super) async fn handle(
                     (token, Some(expires_at))
                 }
                 // The keychain may ask: off the runtime's threads.
-                Some(reference) => (
-                    delivered(kind, blocking(move || resolve(&id, &reference)).await??),
-                    None,
-                ),
+                Some(reference) => {
+                    (delivered(kind, blocking(move || resolve(&id, &reference)).await??), None)
+                }
             };
             Ok(
                 json!({"family": family, "kind": kind, "env": {var: value}, "expires_at": expires_at}),

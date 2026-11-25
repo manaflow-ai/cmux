@@ -96,9 +96,23 @@ async fn a_cold_archived_idle_chat_past_the_bound_is_deleted() {
     let session = hub.resolve("cold").unwrap();
     hub.cold_archive_request(session.clone(), true).await.unwrap();
     assert!(hub.store.is_cold("cold"));
+    eprintln!(
+        "after archive: status {:?} preview {}",
+        session.meta().status,
+        session.meta().cold.is_some()
+    );
     let req = HistoryDeleteRequest { older_than_days: Some(30), ..Default::default() };
     let report = hub.history_delete_now(req).await.unwrap();
-    assert_eq!(report["deleted"], 1, "{report}");
+    let state = hub.resolve("cold").map(|s| {
+        let m = s.meta();
+        format!(
+            "status {:?} preview {} cold {}",
+            m.status,
+            m.cold.is_some(),
+            hub.store.is_cold("cold")
+        )
+    });
+    assert_eq!(report["deleted"], 1, "{report} {state:?}");
     assert!(hub.resolve("cold").is_err());
     hub.shutdown_all().await;
 }
