@@ -1,5 +1,8 @@
 import CmuxEgress
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 #if canImport(os)
 import os
 #endif
