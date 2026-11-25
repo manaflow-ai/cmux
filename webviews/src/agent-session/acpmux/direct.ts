@@ -13690,8 +13690,9 @@ export class AcpmuxDirectClient {
     return (await this.request("_acpmux/plan/keep", { sessionId, buildId, keep })) as PlanCompareReply;
   }
   /// Answers a secret card: `value` provides it (acpmux keeps it in memory and gives the agent a
-  /// one-use ref), none declines. The wire log never holds the value (wire.ts).
-  async secret(secretId: string, value?: string): Promise<void> {
+  /// one-use ref), none declines. `keepAs` also stores it in the key store as that key (acpmux
+  /// `Hub::keep_card_value`). The wire log never holds the value (wire.ts).
+  async secret(secretId: string, value?: string, keepAs?: string): Promise<void> {
     const sessionId = this.actingSessionId;
     if (!sessionId) return;
     try {
@@ -13699,6 +13700,7 @@ export class AcpmuxDirectClient {
         sessionId,
         secretId,
         ...(value ? { value } : {}),
+        ...(value && keepAs ? { keepAs } : {}),
       });
     } catch (error) {
       // A card acpmux no longer has never gets its answer: close it. Any other refusal keeps it.
