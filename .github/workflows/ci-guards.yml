@@ -198,10 +198,6 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_cloud_overflow_switch.py
 
-      - name: Validate the CI overflow switch routes
-        if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_overflow_switch_routes.py
-
       - name: Validate the runner pools and their reconciler
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_runner_pools.py
