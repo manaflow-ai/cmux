@@ -397,7 +397,7 @@ impl HeldFold {
     }
 
     /// The fold as JSON: the records still waiting, in log order, and the approved revisions.
-    pub(in crate::hub) fn to_json(self) -> Value {
+    pub(in crate::hub) fn into_json(self) -> Value {
         json!({"waiting": self.waiting.into_records(), "approved": self.approved})
     }
 
