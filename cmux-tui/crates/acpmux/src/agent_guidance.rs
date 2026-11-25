@@ -147,16 +147,19 @@ pub struct UserSkill {
     pub dir: PathBuf,
 }
 
-/// `$CMUX_AGENT_SKILLS_DIR`, else `$XDG_CONFIG_HOME/cmux/skills`, else `~/.config/cmux/skills`.
+/// `$CMUX_AGENT_SKILLS_DIR`, else `$XDG_CONFIG_HOME/cmux/skills`, else `~/.config/cmux/skills`
+/// (`cmux-next` instead of `cmux` on macOS, `cmux_config::NEXT_DIR`).
 pub fn user_skills_dir() -> Option<PathBuf> {
     let var = |name: &str| std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from);
     if let Some(dir) = var(USER_SKILLS_DIR_ENV) {
         return Some(dir);
     }
     if let Some(xdg) = var("XDG_CONFIG_HOME") {
-        return Some(xdg.join("cmux/skills"));
+        return Some(xdg.join(cmux_config::NEXT_DIR).join("skills"));
     }
-    var("HOME").or_else(dirs::home_dir).map(|home| home.join(".config/cmux/skills"))
+    var("HOME")
+        .or_else(dirs::home_dir)
+        .map(|home| home.join(".config").join(cmux_config::NEXT_DIR).join("skills"))
 }
 
 /// The person's skills in `dir`, in name order. A folder without a readable `SKILL.md`, or one
@@ -351,7 +354,10 @@ fn materialize_within(
     }
     let manifest = json!({
         "name": USER_PLUGIN_NAME,
-        "description": "Your own skills from ~/.config/cmux/skills, for agents cmux starts",
+        "description": format!(
+            "Your own skills from ~/.config/{}/skills, for agents cmux starts",
+            cmux_config::NEXT_DIR
+        ),
         "version": env!("CARGO_PKG_VERSION"),
     });
     files.push((".claude-plugin/plugin.json".to_owned(), manifest.to_string().into_bytes()));
