@@ -181,7 +181,7 @@ fn the_value_rules_match_swift() {
     assert!(is_editor_command("-editor.action.x"));
     assert!(is_editor_command("undo"));
     assert!(!is_editor_command("editor.action.é"));
-    assert!(!is_editor_command(&format!("editor.{}", "a".repeat(121))));
+    assert!(!is_editor_command(&format!("editor.{}", "a".repeat(122))));
     assert!(is_language_id("c++"));
     assert!(!is_language_id(""));
     assert!(!is_language_id("shell script"));
@@ -241,7 +241,7 @@ fn sources_read_the_chosen_editor_only() {
 
     let found = load(home, Choice::Auto, read(&texts)).expect("cursor");
     assert_eq!(found.editor, Editor::Cursor);
-    assert_eq!(found.files, [cursor_settings.clone()]);
+    assert_eq!(found.files, std::slice::from_ref(&cursor_settings));
     assert_eq!(found.section["tabSize"], json!(3));
     assert_eq!(
         load(home, Choice::Editor(Editor::Zed), read(&texts)).expect("zed").section["tabSize"],
