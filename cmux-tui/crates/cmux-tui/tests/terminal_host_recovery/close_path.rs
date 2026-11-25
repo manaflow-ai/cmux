@@ -98,10 +98,8 @@ fn batch_close_ends_hosts_without_waiting_for_termination_receipts() {
 fn failed_host_cleanup_does_not_starve_later_close_signals() {
     const WEDGED: usize = 8;
     let mut harness = RecoveryHarness::start_unstarted("close-cleanup-off-signal-workers");
-    harness.extra_env = vec![(
-        "CMUX_TUI_TEST_DISCOVERED_HOST_CLEANUP_DELAY_MS".into(),
-        "2000".into(),
-    )];
+    harness.extra_env =
+        vec![("CMUX_TUI_TEST_DISCOVERED_HOST_CLEANUP_DELAY_MS".into(), "2000".into())];
     harness.restart();
 
     let mut wedged = Vec::with_capacity(WEDGED);
@@ -136,8 +134,8 @@ fn failed_host_cleanup_does_not_starve_later_close_signals() {
         serde_json::json!({
             "id": 20_000,
             "cmd": "close-terminal",
-            "terminal_id": healthy_terminal_id,
-            "terminal_incarnation": healthy_incarnation,
+            "terminal_id": &healthy_terminal_id,
+            "terminal_incarnation": &healthy_incarnation,
         }),
     );
 
