@@ -733,7 +733,7 @@ pub fn summarize_with(
         }
         by_feature.insert(f, FeatureSplit { on: on.metrics(), off: off.metrics() });
     }
-    rows.sort_by(|a, b| b.metrics.total_tokens.cmp(&a.metrics.total_tokens));
+    rows.sort_by_key(|r| std::cmp::Reverse(r.metrics.total_tokens));
     Ok(Scorecard {
         since: options.since,
         until: options.until,
