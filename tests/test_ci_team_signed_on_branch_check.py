@@ -33,7 +33,7 @@ class CheckTheCommitStep(unittest.TestCase):
     def test_it_spends_no_rest_call(self):
         run = step()["run"]
         self.assertNotIn("gh api", run)
-        self.assertIn("merge-base --is-ancestor", run)
+        self.assertIn("git -C onbranch fetch", run)  # by git transport (#56794)
 
     @unittest.skipUnless(os.environ.get("CMUX_TEAM_SIGNED_LIVE") == "1", "network: CMUX_TEAM_SIGNED_LIVE=1")
     def test_live_on_branch_passes_and_never_merged_is_refused(self):
@@ -42,7 +42,7 @@ class CheckTheCommitStep(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp, self.subTest(commit=commit):
                 env = dict(os.environ, COMMIT=commit, REPO="manaflow-ai/cmux", RUNNER_TEMP=tmp,
                            GH_TOKEN="", GIT_TERMINAL_PROMPT="0")
-                done = subprocess.run(["bash", "-c", run], env=env, capture_output=True, text=True, timeout=600)
+                done = subprocess.run(["bash", "-c", run], env=env, capture_output=True, text=True, timeout=600, cwd=tmp)
                 self.assertEqual(done.returncode, want, done.stdout + done.stderr)
                 if want == 0:
                     self.assertIn("is on feat-cmux-next", done.stdout)
