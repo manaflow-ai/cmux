@@ -233,17 +233,31 @@ impl cmux_usage_share::upload::Sender for UsageSender {
 const UPLOAD_RETRY_FIRST: Duration = Duration::from_secs(60);
 
 /// Uploads this daemon's shared usage spool (`cmux-usage-share`) to the person's team: once
-/// [`cmux_usage_share::FIRST_UPLOAD_AFTER`] after start, then every
+/// [`cmux_usage_share::FIRST_UPLOAD_AFTER`] after sharing is first seen on, then every
 /// [`cmux_usage_share::UPLOAD_EVERY`], sooner with backoff after a 5xx or no answer. While sharing
-/// is off a wake rereads the setting and sends nothing. Without a person's sign-in, or with an
-/// answer that says this person or server does not share (401, 403, 404) or refuses a batch, it
-/// logs the status once and waits for the next round. Lives as long as the daemon.
-pub(crate) async fn usage_upload_loop() {
+/// is off it sets no timer: it reads the setting again when the settings file changes
+/// (`settings`, the hub's `settings_changes`), so an idle daemon does not wake for it (it woke 30
+/// s after start and every 10 minutes, `tests/daemon_idle.rs`). Without a person's sign-in, or
+/// with an answer that says this person or server does not share (401, 403, 404) or refuses a
+/// batch, it logs the status once and waits for the next round. Lives as long as the daemon.
+pub(crate) async fn usage_upload_loop(mut settings: tokio::sync::watch::Receiver<u64>) {
     let Some(sharer) = cmux_usage_share::global() else { return };
-    tokio::time::sleep(cmux_usage_share::FIRST_UPLOAD_AFTER).await;
+    let mut first = true;
     let mut retry = UPLOAD_RETRY_FIRST;
     let mut last_logged: Option<String> = None;
     loop {
+        // Marked seen before the read: a change after it ends the wait below at once.
+        settings.borrow_and_update();
+        sharer.reread();
+        if !tokio::task::spawn_blocking(|| sharer.enabled()).await.unwrap_or(false) {
+            if settings.changed().await.is_err() {
+                return;
+            }
+            continue;
+        }
+        if std::mem::take(&mut first) {
+            tokio::time::sleep(cmux_usage_share::FIRST_UPLOAD_AFTER).await;
+        }
         let ended = usage_round(sharer).await;
         let wait = match &ended {
             Some(Sent::Retry { .. }) => {

@@ -259,9 +259,6 @@ jobs:
   # 2026-11-13..21) plus the run, and base-red-watch bisects it over the covered range. Pull requests are unchanged
   # (the coalesce job is skipped on them). vars.NEXT_GUARDS_COALESCE = '0' runs every push again.
   coalesce:
-    # actions: read: base-coalesce lists this workflow's runs to re-run a window whose run failed.
-    permissions:
-      actions: read
     uses: ./.github/workflows/base-coalesce.yml
     with:
       key: cmux-next-guards
@@ -1526,7 +1523,9 @@ jobs:
       - name: The fast gates workflow and its merge and gate script
         id: tt-fast-gates
         if: ${{ success() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-fast-gates ')) }}
-        run: python3 tests/test_cmux_next_fast_gates.py
+        run: |
+          python3 tests/test_cmux_next_fast_gates.py
+          python3 tests/test_ci_entry_logs.py
 
       - name: A scheduled dispatch runs the whole Swift suite on the feat-cmux-next tip
         id: tt-tip-swift-suite
