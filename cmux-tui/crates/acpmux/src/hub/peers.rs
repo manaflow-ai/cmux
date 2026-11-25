@@ -381,6 +381,7 @@ impl Hub {
                 let leased = self.peers.lock().unwrap_or_else(|e| e.into_inner()).remove(name);
                 if let Some(leased) = leased {
                     leased.stop();
+                    crate::server::channels::link_lost(self, name, leased.generation);
                 }
                 // The lease lock is held here and this peer has no cache. Avoid taking the
                 // per-peer writer, whose workers take the lease lock while saving.
@@ -587,6 +588,9 @@ impl Hub {
     /// A peer left for good: watchers hear its last state, `offline` with error `removed`,
     /// unless another instance took its name meanwhile (`peer_states.rs`).
     pub(super) fn note_peer_removed(&self, peer: &crate::peer::Peer) {
+        // Its link's channels close for their local side now: the link's own `Disconnected`
+        // notice finds the peer gone (`server/channels.rs`).
+        crate::server::channels::link_lost(self, &peer.name, peer.generation);
         self.peer_states().removed(&peer.name, peer.generation, peer.link().last_seen);
         self.events.origin_tee(&peer.name, OriginState::Removed, crate::store::now_ms());
     }
@@ -713,6 +717,13 @@ impl Hub {
         self.peer(name).map(|p| p.forget_session_messages_for_tests()).is_some()
     }
 
+    /// Agent byte channels on this daemon: (channels open, services listened on)
+    /// (`server/channels.rs`), for integration tests.
+    #[doc(hidden)]
+    pub fn channel_counts_for_tests(&self) -> (usize, usize) {
+        crate::server::channels::counts(self)
+    }
+
     pub(super) fn peer(&self, name: &str) -> Option<Arc<crate::peer::Peer>> {
         self.peers.lock().unwrap().get(name).cloned()
     }
@@ -760,6 +771,10 @@ impl Hub {
         if summary.get("indicator").is_none() || summary.get("lane").is_none() || old_lane {
             super::views::decide(&mut summary);
         }
+        // Decided again here, with `peer` (its machine fact), and for a peer from before it.
+        // Kept whole: the cache serves an attached chat's read with tools, and a census row
+        // cuts it as it goes out (`without_summary_tools`, `PeerRow::listed`).
+        super::views::set_composer_status(&mut summary, true);
         summary
     }
 
@@ -933,6 +948,8 @@ impl Hub {
                     tracing::info!(peer = %peer, "peer restarting");
                 }
                 PeerNotice::Disconnected(e) => {
+                    // Channels that rode the link end for their local side.
+                    crate::server::channels::link_lost(self, &peer, generation);
                     if let Some(p) = self.peer(&peer).filter(|p| p.generation == generation) {
                         p.rows_ready.store(false, std::sync::atomic::Ordering::SeqCst);
                     }
@@ -1010,7 +1027,8 @@ impl Hub {
                             let previous = old.remove(&id);
                             let previous = previous.as_ref().map(|r| &r.summary);
                             let summary =
-                                PeerRow::new(&Self::retain_summary_tools(summary, previous));
+                                PeerRow::new(&Self::retain_summary_tools(summary, previous))
+                                    .keeping_time_breakdown(previous);
                             // A row back as it was before its link dropped keeps that row's
                             // text, which its outage's announcements share too.
                             let summary = match live.get(&id) {
@@ -1189,7 +1207,13 @@ impl Hub {
                         announced = row.clone();
                         map.insert(
                             id.clone(),
-                            RemoteSession { peer: peer.clone(), summary: row, receipt },
+                            RemoteSession {
+                                peer: peer.clone(),
+                                // The chart it had stays in the copy kept, never in the notice.
+                                summary: row
+                                    .keeping_time_breakdown(previous.as_ref().map(|r| &r.summary)),
+                                receipt,
+                            },
                         );
                         let created = summary.get("createdAt").and_then(Value::as_u64);
                         if self.peer_snapshots.allows(generation) {
@@ -1236,6 +1260,13 @@ impl Hub {
                     if summary.get("status").and_then(Value::as_str) == Some("closed") {
                         self.trim_closed_peer_rows(&peer, generation);
                     }
+                }
+                // A channel this daemon opened on the peer: its bytes and its end
+                // (`server/channels.rs`).
+                PeerNotice::Notification { method: m, params, .. }
+                    if crate::server::channels::from_peer_method(&m) =>
+                {
+                    crate::server::channels::from_peer(self, &peer, generation, &m, &params);
                 }
                 // A prompt this daemon forwarded was taken (`outbox.rs` `PeerAccepts`).
                 PeerNotice::Notification { method: m, params, .. }

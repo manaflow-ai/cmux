@@ -219,6 +219,10 @@ pub(super) enum Wait<'a> {
 /// another daemon (`transfer_out.rs`). One whose move committed keeps its move's mark for good
 /// (`MOVED_AWAY` after a restart), and answers where it went: no move of it is under way.
 pub(super) fn moving_error(session: &Session) -> RpcError {
+    // Auto mode froze it (`auto_hold.rs`): no move is under way.
+    if session.moving().as_deref() == Some(super::AUTO_AWAY) {
+        return super::auto_hold::away_error(session);
+    }
     match session.read_meta(|m| m.moved_to.clone()) {
         Some(to) => super::transfer_out::moved_error(&to),
         None => {
@@ -388,8 +392,9 @@ impl Hub {
                     }
                     // A rate limit's compaction goes ahead of what the hold queued: those go in
                     // after it, with the continuation (`rate_hold.rs`, `compact_first.rs`).
-                    let rate_compaction =
-                        p.after_turn && super::auto_resume::rate_compaction_runs(session);
+                    let rate_compaction = p.after_turn
+                        && (super::auto_resume::rate_compaction_runs(session)
+                            || super::cold_wake::goes_ahead_of_batch(session, p.provenance));
                     // A prompt that took the turn lock and has not shown its turn yet
                     // (`start_turn` runs after awaits) is a turn too. The count is read before
                     // the claim: a prompt counts in `queued` until it holds the claim.
@@ -508,8 +513,9 @@ impl Hub {
                     // turn.
                     // A chat the rate limit holds starts nothing now (`rate_hold.rs`): it queues;
                     // only its compaction goes ahead of what the hold queued.
-                    let rate_compaction =
-                        p.after_turn && super::auto_resume::rate_compaction_runs(session);
+                    let rate_compaction = p.after_turn
+                        && (super::auto_resume::rate_compaction_runs(session)
+                            || super::cold_wake::goes_ahead_of_batch(session, p.provenance));
                     if (queue_waits_for(session, p.agent.is_some()) && !rate_compaction)
                         || Self::rate_holds(session, p.provenance)
                     {
