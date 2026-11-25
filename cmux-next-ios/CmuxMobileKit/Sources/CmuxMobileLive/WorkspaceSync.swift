@@ -179,7 +179,7 @@ public final class WorkspaceSync {
                 ("set-client-info", [
                     "name": deviceName, "kind": "ios", "device_kind": "iphone", "device_name": deviceName, "device_id": deviceID,
                     // `page-tabs-v1`: the Mac's page tabs read as their page (a phone tab is a simulator tab).
-                    "capabilities": ["conversation-tabs-v1", "agent-session-tabs-v1", "page-tabs-v1"],
+                    "capabilities": WorkspaceSync.clientCapabilities,
                 ]),
                 ("identify", [:]),
                 ("subscribe", ["tree_events": "deltas"]),
@@ -716,5 +716,79 @@ public final class WorkspaceSync {
             throw DaemonReplyError(message: object["error"] as? String ?? "request failed", code: object["error_code"] as? String)
         }
         return object
+    }
+}
+
+// MARK: - One-request catch-up (`catch-up` link service)
+
+extension WorkspaceSync {
+    /// What the phone's `daemon` line lists in `set-client-info`; a `catch-up` lists the same
+    /// for its own read, so its tree reads as this line's does.
+    nonisolated static let clientCapabilities = ["conversation-tabs-v1", "agent-session-tabs-v1", "page-tabs-v1"]
+
+    /// Where a `catch-up` starts: the held tree's `known` and the line position its answer will
+    /// cover (taken before the channel opens, as ``refresh()`` takes it before its list). Nil
+    /// while the line sets up or lists, or on a daemon that does not take `known`: today's
+    /// list answers then.
+    func catchUpStart() async -> (known: WorkspaceProjection.KnownTree?, coveredThrough: UInt64)? {
+        guard let client, !initializing, refreshTask == nil, listsKnown else { return nil }
+        let known = await projection.known
+        return (known, await client.receivedPosition)
+    }
+
+    /// Applies a `catch-up` reply's tree (`data`, the daemon's `list-workspaces` answer) as
+    /// ``refresh()`` applies its own list's: `unchanged` keeps the tree and orders it again, a
+    /// whole tree replaces it. False when it was not applied (a list ran meanwhile, the line
+    /// changed): the caller lists as today.
+    @discardableResult
+    func applyCatchUp(_ data: Data, unchanged: Bool, coveredThrough: UInt64) async -> Bool {
+        guard let client, !initializing, refreshTask == nil else { return false }
+        let projection = projection
+        let task = Task { [weak self] () -> Bool in
+            guard let self else { return false }
+            await updateTask?.value
+            defer {
+                if self.client === client {
+                    refreshTask = nil
+                    // A refresh() asked while this applied lists after it, as its own loop would.
+                    if dirty {
+                        dirty = false
+                        Task { await self.refresh() }
+                    } else {
+                        drain()
+                    }
+                }
+            }
+            guard self.client === client, !Task.isCancelled else { return false }
+            if unchanged {
+                let next = await projection.rearrange(arrangement)
+                guard self.client === client, !Task.isCancelled else { return false }
+                snapshotSequence = max(snapshotSequence, coveredThrough)
+                discardBeforeSnapshot()
+                lastError = nil
+                if let next {
+                    tree = next
+                    onTree?(next)
+                }
+                return true
+            }
+            do {
+                let next = try await projection.reset(snapshot: data, macID: macID,
+                                                      previous: tree?.workspaces ?? [], agents: agents,
+                                                      activity: activity, arrangement: arrangement)
+                guard self.client === client, !Task.isCancelled else { return false }
+                snapshotSequence = max(snapshotSequence, coveredThrough)
+                discardBeforeSnapshot()
+                tree = next
+                lastError = nil
+                onTree?(next)
+                return true
+            } catch {
+                log.error("catch-up tree: \(String(describing: error), privacy: .public)")
+                return false
+            }
+        }
+        refreshTask = Task { _ = await task.value }
+        return await task.value
     }
 }

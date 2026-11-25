@@ -38,7 +38,9 @@ extension AgentPaneGitPullRequest {
     nonisolated static func mergeView(_ repository: String, _ number: Int, github: GitHubCall = AgentPaneGitHubREST.call) async -> Result<MergeView, MergeRefusal> {
         let parts = repository.split(separator: "/").map(String.init)
         guard parts.count == 2 else { return .failure(MergeRefusal(message: mergeChangedMessage)) }
-        let answer = await github(["op": "graphql", "repo": repository, "query": mergeQuery,
+        // Read with checks' permissions: under `pulls` alone an App token gets an empty rollup, and
+        // the merge would rest on mergeStateStatus alone.
+        let answer = await github(["op": "graphql", "repo": repository, "query": mergeQuery, "scope": "checks",
                                    "variables": ["owner": parts[0], "name": parts[1], "number": number] as [String: any Sendable]])
         guard let repo = answer.data?["repository"] as? [String: Any], var pull = repo["pullRequest"] as? [String: Any] else {
             return .failure(MergeRefusal(message: answer.ok ? mergeChangedMessage : answer.refusal))
@@ -58,8 +60,12 @@ extension AgentPaneGitPullRequest {
         guard merged.ok else { return .refused(merged.refusal) }
         // A base branch with a merge queue takes it into the queue, not merged yet.
         let after = await mergeView(repository, number, github: github)
-        let state = (try? after.get().pullRequest["state"] as? String)?.uppercased()
-        return .merged(queued: state != nil && state != "MERGED")
+        if let state = (try? after.get().pullRequest["state"] as? String)?.uppercased() {
+            return .merged(queued: state != "MERGED")
+        }
+        // The read-back failed: only GitHub's own answer to the merge says it merged; else unknown.
+        if (merged.object?["merged"] as? Bool) == true { return .merged(queued: false) }
+        return .refused(mergeUnconfirmedMessage)
     }
 
     @concurrent static func merge(_ number: Int, url shown: String, in folder: String,
@@ -119,6 +125,13 @@ extension AgentPaneGitPullRequest {
     nonisolated static var mergeUnknownMessage: String {
         String(localized: "agentPane.error.gitMergeUnknown",
                defaultValue: "GitHub is still checking whether this pull request can merge. Try again in a moment.",
+               bundle: .localizedModule)
+    }
+
+    /// GitHub took the merge, but neither its answer nor a read-back says it merged.
+    nonisolated static var mergeUnconfirmedMessage: String {
+        String(localized: "agentPane.error.gitMergeUnconfirmed",
+               defaultValue: "GitHub took the merge but hasn't confirmed it. Open the pull request to see whether it merged.",
                bundle: .localizedModule)
     }
 

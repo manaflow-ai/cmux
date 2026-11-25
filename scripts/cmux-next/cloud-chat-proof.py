@@ -64,6 +64,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import claude_login_cache  # noqa: E402
+from app_launch_env import launch_env  # noqa: E402
 from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
@@ -620,6 +621,7 @@ launch = [open_tool, "-W", "-g", "-n"]
 # LaunchServices starts the app with its own environment, not this process's ENV, so the proof's socket
 # must travel as --env, and only as CMUX_NEXT_SOCKET_PATH: CMUX_SOCKET_PATH is a marker of another cmux,
 # and the app then strips the CMUX_NEXT_* state-root knobs (LaunchIdentity.inheritedKeys), the socket one included.
+# `open` also hands the app this process's environment, so the launcher runs on launch_env(ENV) (app_launch_env.py).
 launch.extend(["--env", f"CMUX_NEXT_SOCKET_PATH={SOCKET_PATH}"])
 if CONFIG_FILE:
     # Its own cmux.json, as the socket: LaunchServices passes the app only what --env names.
@@ -645,7 +647,7 @@ if args.cleanup_tag:
         launchable_cleanup = False
 if launchable_cleanup:
     try:
-        app_launcher = subprocess.Popen(launch, env=ENV, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        app_launcher = subprocess.Popen(launch, env=launch_env(ENV), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError as error:
         record("launch app", 1, "", str(error))
         finish("fail: launch app")

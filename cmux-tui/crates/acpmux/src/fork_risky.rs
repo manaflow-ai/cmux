@@ -4,18 +4,20 @@
 //! When a chat on a Cloud machine asks to run a step that is hard to undo (a force push, a hard
 //! reset, a recursive remove of the checkout, a database migration, or anything the hand's own
 //! destructive classifier refuses on a Mac), its `permission_request` carries a `forkOffer`
-//! (`{machine, reason, clientKey}`). The person's "Fork first" answers the request with
-//! `forkFirst: true` (`_acpmux/permission_respond`): the daemon forks its own machine (memory and
-//! disk, cmux-platform `POST /v1/machines/{id}/fork`, the `machine.fork` call sub VMs use), logs
-//! `fork_checkpoint` with the copy's id and how long the fork took, and only then lets the step
-//! run here. The copy stays as the checkpoint: the state before the step, running, which the
-//! person can open or go back to. A fork that fails leaves the request waiting, so the person can
-//! still allow it without one, or refuse it.
+//! (`{machine, reason, clientKey}`). The person's "Fork first" is carried by the app, not by this
+//! daemon: a fork is the machine creator's call (cmux-platform refuses an agent key), and a Cloud
+//! machine holds no creator credential (nothing sets `CMUX_CLOUD_ACCESS_TOKEN` there; acpmux
+//! strips it from its children). The app forks the machine under the offer's `clientKey` with the
+//! person's own token (the app server's `cloud.machine.fork`, `POST /v1/machines/{id}/fork`), then
+//! answers the request with an allow and `forkCheckpoint: {machine, fork, forkMs}`
+//! (`_acpmux/permission_respond`). This daemon checks it against its own offer, logs
+//! `fork_checkpoint`, and only then lets the step run. The copy stays as the checkpoint: the
+//! state before the step, running, which the person can open or go back to. A fork that fails
+//! sends no answer, so the request still waits: the person can allow it without one, or refuse it.
 //!
-//! Only the decision and the classifier live here, pure, so the tests need no machine.
+//! Only the decision, the classifier and the check live here, pure, so the tests need no machine.
 
 use serde_json::{Value, json};
-use std::time::Instant;
 
 /// The longest `clientKey` cmux-platform takes for a fork.
 const MAX_CLIENT_KEY: usize = 128;
@@ -212,23 +214,25 @@ pub fn offer_here(request: &Value, permission: &str) -> Option<Value> {
     offer(true, crate::placement::sub_fork::this_machine().as_deref(), request, permission)
 }
 
-/// Carry out an offer with `machines`: fork, and answer the `fork_checkpoint` record.
-pub async fn fork_first<M: crate::placement::sub_fork::Machines>(
-    machines: &M,
-    offer: &Value,
-    permission: &str,
-) -> Result<Value, String> {
+/// The `fork_checkpoint` record for the copy the app made for `offer` (`carried`:
+/// `{machine, fork, forkMs}` from `_acpmux/permission_respond`'s `forkCheckpoint`), or why it does
+/// not fit: another machine than the offer's, or a copy id or time that is not one.
+pub fn checkpoint(offer: &Value, permission: &str, carried: &Value) -> Result<Value, String> {
     let machine = offer["machine"].as_str().ok_or("the offer names no machine")?;
-    let key = offer["clientKey"].as_str().ok_or("the offer has no clientKey")?;
-    let started = Instant::now();
-    let fork = machines.fork(machine, key).await?;
-    let ms = started.elapsed().as_millis() as u64;
+    if carried["machine"].as_str() != Some(machine) {
+        return Err(format!("forkCheckpoint.machine is not this machine ({machine})"));
+    }
+    let fork = carried["fork"].as_str().filter(|f| valid_machine(f) && *f != machine);
+    let fork = fork.ok_or("forkCheckpoint.fork is not a copy's machine id")?;
+    let ms = carried["forkMs"].as_u64().ok_or("forkCheckpoint.forkMs is not a number of ms")?;
     Ok(json!({
         "permissionId": permission,
         "machine": machine,
         "fork": fork,
         "forkMs": ms,
         "reason": offer["reason"],
+        "clientKey": offer["clientKey"],
+        "carriedBy": "app",
     }))
 }
 

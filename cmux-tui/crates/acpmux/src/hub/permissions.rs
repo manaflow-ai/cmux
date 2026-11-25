@@ -84,10 +84,10 @@ impl Hub {
             if stop.is_cancelled() {
                 return;
             }
-            let mut slot = session.inbound_rx.lock().await;
+            let mut slot = session.inbound_rx().lock().await;
             if session.status() == SessionStatus::Closed
                 && rx.is_empty()
-                && !producers_live(&session.inbound_tx)
+                && !producers_live(session.inbound_tx())
             {
                 *slot = Some(rx);
                 return;
@@ -97,7 +97,7 @@ impl Hub {
 
     /// Start the chat's inbound loop when no loop holds its receiver.
     pub(super) async fn spawn_inbound_loop(self: &Arc<Self>, session: &Arc<Session>) {
-        if let Some(rx) = session.inbound_rx.lock().await.take() {
+        if let Some(rx) = session.inbound_rx().lock().await.take() {
             let (hub, s) = (self.clone(), session.clone());
             self.scope.spawn_named("inbound-loop", async move { hub.inbound_loop(s, rx).await });
         }
@@ -110,7 +110,7 @@ impl Hub {
         stop: &tokio_util::sync::CancellationToken,
         closed: &mut tokio::sync::watch::Receiver<bool>,
     ) {
-        while let Some(item) = next_inbound(rx, stop, closed, &session.inbound_tx).await {
+        while let Some(item) = next_inbound(rx, stop, closed, session.inbound_tx()).await {
             // An agent's stream allocates without any request: its pages go back once it stops.
             cmux_tui_platform::malloc_quiet_trim::note_activity();
             match item {
@@ -127,6 +127,13 @@ impl Hub {
                         // What an agent a Stop ended still had in flight is not the next turn's
                         // (`cancel.rs`): none of it lands in the turn that runs now.
                         if agent == session.stopped_agent.load(Ordering::SeqCst) {
+                            continue;
+                        }
+                        // The replay of a session its `session/fork` made (`fork_replay.rs`).
+                        if params
+                            .as_ref()
+                            .is_some_and(|p| super::fork_replay::update_of_the_fork(&session, p))
+                        {
                             continue;
                         }
                         // Debug builds only: `ACPMUX_TEST_UPDATE_DELAY_MS` holds each update
@@ -182,6 +189,7 @@ impl Hub {
                             .contains(&agent);
                         self.arm_auto_background(&session, params.as_ref(), replayed);
                         self.on_update_cache(&session, params.as_ref(), replayed);
+                        self.surgery_on_update(&session, params.as_ref(), replayed);
                         self.notice_overlaps(&session);
                     } else if m == method::CANCEL_REQUEST
                         && let Some(id) = params.as_ref().and_then(|p| p.get("requestId"))
@@ -556,6 +564,10 @@ impl Hub {
                 if let Some(goal) = update.pointer("/_meta/goal") {
                     m.goal = crate::goal::GoalState::from_value(goal, m.family.as_deref());
                     goal_write = true;
+                    // The agent's own word on its loops (`agent_timer.rs`); a replay is history.
+                    if !replayed {
+                        super::agent_timer::note_agent_goal(session, goal);
+                    }
                 }
                 // A harness title made from the first input stops before a client context
                 // (prompt_context.rs), so a Cmd-I chat titles from the person's words.
@@ -2260,14 +2272,16 @@ async fn next_inbound(
 }
 
 impl Hub {
-    /// "Fork first" on a risky step's prompt (`fork_risky.rs`): fork this machine under the
-    /// prompt's offer and log `fork_checkpoint`, before the answer lets the step run. The prompt
-    /// must still wait and still carry an offer; a fork that fails leaves it waiting.
-    pub(crate) async fn fork_before_answer(
+    /// "Fork first" on a risky step's prompt (`fork_risky.rs`): the copy the app made of this
+    /// machine under the prompt's offer (`carried`, `{machine, fork, forkMs}`) is checked against
+    /// the offer and logged as `fork_checkpoint`, before the answer lets the step run. The prompt
+    /// must still wait, still carry an offer, and be answered with an allow.
+    pub(crate) fn fork_checkpoint(
         &self,
         session: &Session,
         permission_id: &str,
         option: Option<&str>,
+        carried: &Value,
     ) -> Result<Value, RpcError> {
         let request = {
             let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
@@ -2276,26 +2290,15 @@ impl Hub {
         .ok_or_else(|| RpcError::invalid_params("that request no longer waits"))?;
         let options = request["options"].as_array().map_or(&[][..], Vec::as_slice);
         if !option.and_then(|o| option_kind(options, o)).is_some_and(|k| k.starts_with("allow")) {
-            return Err(RpcError::invalid_params("forkFirst goes with an allow"));
+            return Err(RpcError::invalid_params("forkCheckpoint goes with an allow"));
         }
         let offer = crate::fork_risky::offer_here(&request, permission_id).ok_or_else(|| {
             RpcError::invalid_params(
                 "no fork offer for this request (cloud.autoCloud off, not a Cloud machine, or not a risky step)",
             )
         })?;
-        let machines =
-            crate::placement::sub_fork::CloudMachines::from_env(|k| std::env::var(k).ok())
-                .map_err(|e| RpcError::new(-32000, format!("cannot fork this machine: {e}")))?;
-        let record =
-            crate::fork_risky::fork_first(&machines, &offer, permission_id).await.map_err(|e| {
-                self.append(
-                    session,
-                    "mux",
-                    "fork_checkpoint_failed",
-                    json!({"permissionId": permission_id, "offer": offer, "error": e}),
-                );
-                RpcError::new(-32000, format!("the fork failed, the step still waits: {e}"))
-            })?;
+        let record = crate::fork_risky::checkpoint(&offer, permission_id, carried)
+            .map_err(RpcError::invalid_params)?;
         tracing::info!(session = %session.id, fork = %record["fork"], ms = %record["forkMs"], "forked before a risky step");
         self.append(session, "mux", "fork_checkpoint", record.clone());
         Ok(record)

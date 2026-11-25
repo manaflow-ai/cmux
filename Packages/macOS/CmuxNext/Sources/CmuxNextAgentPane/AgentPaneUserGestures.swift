@@ -359,6 +359,18 @@ import CmuxNextCompat
         return actAsMe.isOn && actAsMe.revocations == under
     }
 
+    /// Starts `ticket`'s clock again: a permission answer's ticket the person's Fork first paid for,
+    /// held while the App forks the machine (``AgentPaneForkFirst``). False when it is gone (a
+    /// reconnect, a newer answer, or it expired while another ticket was reserved).
+    func renew(_ ticket: String) -> Bool {
+        guard tickets[ticket] != nil else { return false }
+        tickets[ticket]?.at = now()
+        return true
+    }
+
+    /// Drops `ticket`, unspent (a Fork first whose fork failed).
+    func drop(_ ticket: String) { dropTickets { key, _ in key == ticket } }
+
     /// Drops every ticket (a reconnect, the end of a harness switch, the page's release).
     /// A seeded prompt's ticket stays: it belongs to the pane's one seed, not to a connection.
     public func clearTickets() { dropTickets { _, _ in true } }

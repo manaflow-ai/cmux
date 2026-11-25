@@ -28,19 +28,24 @@ public struct ConnectionBannerState: Sendable, Hashable {
         chipKind.map { ConnectionChip.Content($0, sentence: sentence) }
     }
 
+    /// Whether the state is drawn (and announced) at all: a link still trying is not
+    /// (``ConnectionChip/Kind/paints``); a banner with a sentence to read always is.
+    public var paints: Bool { chip?.paints ?? true }
+
     /// What VoiceOver reads for the chip: the words plus the Mac, when the state names one.
     var sentence: String {
         guard let macName, !macName.isEmpty else { return chipKind == .cantReach ? String(localized: "Can't reach your Mac") : text }
         return showsSpinner ? String(localized: "Reconnecting to \(macName)…") : String(localized: "\(macName) is offline")
     }
 
+    /// A redial past the quiet bound. No link path posts it any more (the chip waits out the bound and
+    /// then says Offline); it stays for the flap-dismissal rule's spinner window and its tests.
     public static func reconnecting(to mac: String, identity: String? = nil) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…", identity: identity ?? mac, chipKind: .reconnecting, macName: mac) }
     /// This iPhone has no network. No Retry: there is nothing to retry until the network comes
     /// back, and then the links redial by themselves (`LiveCoordinator.networkPathChanged`).
     public static let offline = Self(symbol: "wifi.slash", showsSpinner: false, text: "Offline", chipKind: .offline)
+    /// Presence says the Mac is offline (asleep, cmux quit): known, so it shows at once.
     public static func macOffline(_ mac: String, identity: String? = nil) -> Self { Self(symbol: "moon.zzz", showsSpinner: false, text: "Offline", offersRetry: true, identity: identity ?? mac, chipKind: .macOffline, macName: mac) }
-    public static let connected = Self(symbol: "checkmark", showsSpinner: false, text: "Connected")
-    public static func connecting(to mac: String, identity: String? = nil) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…", identity: identity ?? mac, chipKind: .reconnecting, macName: mac) }
     /// The account's session was revoked: nothing reconnects until the person
     /// signs in again, which the banner's one button starts.
     public static let signedOut = Self(symbol: "person.crop.circle.badge.exclamationmark", showsSpinner: false,
@@ -51,6 +56,8 @@ public struct ConnectionBannerState: Sendable, Hashable {
         Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: String(localized: "Couldn't refresh"),
              offersRetry: true, identity: identity)
     }
+    /// The link to the Mac is down (dialing, redialing, waiting out a backoff). The coordinator
+    /// holds it for the shared quiet bound; before that the screen keeps its rows and says nothing.
     public static let connectionFailed = Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: "Offline", offersRetry: true, chipKind: .cantReach)
     /// An application failure distinct from connection state.
     public static func failed(_ text: String, identity: String? = nil) -> Self {

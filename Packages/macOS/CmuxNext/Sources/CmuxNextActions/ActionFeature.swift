@@ -39,7 +39,9 @@ extension ActionFeature {
     }
 }
 
+#if canImport(AppKit)
 extension ActionRegistry {
     /// The turned-off feature of the action `id`, or nil (DisabledFeatures).
     public func disabledFeature(for id: ActionID) -> ActionFeature? { descriptor(for: id).flatMap { ActionFeature.turnedOff($0, in: disabledFeatures) } }
 }
+#endif
