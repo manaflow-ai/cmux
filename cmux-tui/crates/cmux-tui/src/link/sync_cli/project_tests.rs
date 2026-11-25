@@ -260,7 +260,7 @@ fn the_ready_line_splits_the_gate_into_listing_encoding_and_mount() {
 fn an_empty_or_non_git_folder_is_projected_not_skipped() {
     let empty = tempfile::tempdir().unwrap();
     let listed = list(&std::fs::canonicalize(empty.path()).unwrap()).unwrap();
-    assert!(listed.served.is_empty());
+    assert!(listed.served.iter().all(Option::is_none), "no file to serve");
     assert_eq!(listed.manifest.len(), 1, "the folder itself and nothing in it");
     let encoded = listed.manifest.encode().unwrap();
     assert!(!encoded.is_empty(), "zero manifest bytes would ask the machine for a resume");
