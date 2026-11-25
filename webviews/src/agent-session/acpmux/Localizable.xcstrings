@@ -65088,6 +65088,270 @@
         }
       }
     },
+    "planUsage.evenPace": {
+      "comment": "Agent pane and Settings: plan usage bar, the even-pace mark's label: where the bar would stand were the window spent evenly; {percent} is a whole number.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Even pace: {percent}%"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الوتيرة المتساوية: {percent}%"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ravnomjeran tempo: {percent} %"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jævnt tempo: {percent} %"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gleichmäßiges Tempo: {percent} %"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ritmo uniforme: {percent} %"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rythme régulier : {percent} %"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ritmo costante: {percent}%"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "均等ペース: {percent}%"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ល្បឿនស្មើ៖ {percent}%"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "균등 속도: {percent}%"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jevnt tempo: {percent} %"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Równe tempo: {percent}%"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ritmo uniforme: {percent}%"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Равномерный темп: {percent} %"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัตราสม่ำเสมอ: {percent}%"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eşit hız: %{percent}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Рівномірний темп: {percent}%"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tốc độ đều: {percent}%"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "均匀进度：{percent}%"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "平均進度：{percent}%"
+          }
+        }
+      }
+    },
+    "planUsage.aheadOfPace": {
+      "comment": "Agent pane and Settings: plan usage bar, said with the bar when the share used runs ahead of the even-pace mark.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ahead of pace"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أسرع من الوتيرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ispred tempa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Foran tempoet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Über dem Tempo"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Por delante del ritmo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En avance sur le rythme"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oltre il ritmo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ペースより早い"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លឿនជាងល្បឿន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "속도보다 빠름"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Foran tempoet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szybciej niż tempo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "À frente do ritmo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Опережает темп"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เร็วกว่าอัตรา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hızın önünde"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Випереджає темп"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vượt tốc độ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "超出进度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "超出進度"
+          }
+        }
+      }
+    },
     "planUsage.percentUsed": {
       "comment": "Agent pane: plan usage popover, a window's share used; {percent} is a whole number.",
       "extractionState": "manual",
@@ -286739,6 +287003,138 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "composer.queueSummary": {
+      "comment": "Agent pane: the queued prompts list's summary (its tooltip); {n} is how many wait. They go in order and can be edited or removed until then",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} queued, sent in order. Edit or remove one until it goes."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} queued, sent in order. Edit or remove one until it goes."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} queued, sent in order. Edit or remove one until it goes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} queued, sent in order. Edit or remove one until it goes."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} queued, sent in order. Edit or remove one until it goes."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} queued, sent in order. Edit or remove one until it goes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} queued, sent in order. Edit or remove one until it goes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} queued, sent in order. Edit or remove one until it goes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} queued, sent in order. Edit or remove one until it goes."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} queued, sent in order. Edit or remove one until it goes."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} queued, sent in order. Edit or remove one until it goes."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} queued, sent in order. Edit or remove one until it goes."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} queued, sent in order. Edit or remove one until it goes."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} queued, sent in order. Edit or remove one until it goes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} queued, sent in order. Edit or remove one until it goes."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} queued, sent in order. Edit or remove one until it goes."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} queued, sent in order. Edit or remove one until it goes."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} queued, sent in order. Edit or remove one until it goes."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} queued, sent in order. Edit or remove one until it goes."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} queued, sent in order. Edit or remove one until it goes."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{n} queued, sent in order. Edit or remove one until it goes."
           }
         }
       }
