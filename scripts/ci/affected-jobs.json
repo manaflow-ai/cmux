@@ -28,66 +28,117 @@
   ],
   "workflows": {
     ".github/workflows/cmux-tui-spec.yml": {
-      "inputs": [".github/workflows/cmux-tui-spec.yml", ".github/actions/tree-result/"],
+      "inputs": [
+        ".github/workflows/cmux-tui-spec.yml",
+        ".github/actions/tree-result/"
+      ],
       "jobs": {
         "acpmux-tests": {
           "name": "acpmux tests (lib, hub_integration)",
           "crates": [
-            "cmux-tui/crates/acpmux", "cmux-tui/crates/acpmux-book", "cmux-tui/crates/acpmux-build-id",
-            "cmux-tui/crates/acpmux-client", "cmux-tui/crates/acpmux-core", "cmux-tui/crates/acpmux-list-types"
+            "cmux-tui/crates/acpmux",
+            "cmux-tui/crates/acpmux-book",
+            "cmux-tui/crates/acpmux-build-id",
+            "cmux-tui/crates/acpmux-client",
+            "cmux-tui/crates/acpmux-core",
+            "cmux-tui/crates/acpmux-list-types"
           ],
           "inputs": [
-            "scripts/cmux-next/run-v2-gates.sh", "scripts/cmux-next/v2-gates.d/",
-            "scripts/ci/apt-ensure.sh", "scripts/ci/cargo_test_verdict.py", "scripts/ci/git_tree.py", "scripts/ci/test_reds.py",
-            "tests/test_cargo_test_verdict.py", ".github/actions/cache-restore/", ".github/actions/cache-save/",
-            "scripts/ci/cargo-lib-tests-at-once.sh", "scripts/ci/tests/cargo-lib-tests-at-once.test.sh",
+            "scripts/cmux-next/run-v2-gates.sh",
+            "scripts/cmux-next/v2-gates.d/",
+            "scripts/ci/apt-ensure.sh",
+            "scripts/ci/cargo_test_verdict.py",
+            "scripts/ci/git_tree.py",
+            "scripts/ci/test_reds.py",
+            "tests/test_cargo_test_verdict.py",
+            ".github/actions/cache-restore/",
+            ".github/actions/cache-save/",
+            "scripts/ci/cargo-lib-tests-at-once.sh",
+            "scripts/ci/tests/cargo-lib-tests-at-once.test.sh",
             "scripts/ci/acpmux-tests-pr-deferred.txt"
           ]
         },
         "acpmux-sim": {
           "name": "acpmux simulation (seeds)",
-          "crates": ["cmux-tui/crates/acpmux"],
-          "features": ["sim"]
+          "crates": [
+            "cmux-tui/crates/acpmux"
+          ],
+          "features": [
+            "sim"
+          ]
         },
         "carrier-sim": {
           "name": "carrier simulation (seeds)",
-          "crates": ["cmux-tui/crates/cmux-remote", "cmux-tui/crates/cmux-link", "cmux-tui/crates/cmux-relay"],
+          "crates": [
+            "cmux-tui/crates/cmux-remote",
+            "cmux-tui/crates/cmux-link",
+            "cmux-tui/crates/cmux-relay"
+          ],
           "inputs": [
-            "cmux-tui/crates/cmux-tui/src/carrier/", "ghostty-next", "scripts/install-zig-ci.sh",
-            "scripts/ci/init-submodule.sh", "scripts/ci/apt-ensure.sh"
+            "cmux-tui/crates/cmux-tui/src/carrier/",
+            "ghostty-next",
+            "scripts/install-zig-ci.sh",
+            "scripts/ci/init-submodule.sh",
+            "scripts/ci/apt-ensure.sh"
           ]
         },
         "acpmux-protocol-ir": {
           "name": "acpmux protocol IR is current",
-          "crates": ["cmux-tui/crates/acpmux"],
-          "inputs": ["scripts/cmux-next/cargo-locks.py"]
+          "crates": [
+            "cmux-tui/crates/acpmux"
+          ],
+          "inputs": [
+            "scripts/cmux-next/cargo-locks.py"
+          ]
         }
       }
     },
     ".github/workflows/cmux-tui-windows-check.yml": {
-      "inputs": [".github/workflows/cmux-tui-windows-check.yml", ".github/actions/tree-result/"],
+      "inputs": [
+        ".github/workflows/cmux-tui-windows-check.yml",
+        ".github/actions/tree-result/"
+      ],
       "jobs": {
         "windows-gnu-check": {
           "name": "cargo check (x86_64-pc-windows-gnu)",
           "compile_only": true,
-          "crates": ["cmux-tui/crates/cmux-tui-core", "cmux-tui/crates/cmux-tui", "cmux-tui/crates/acpmux"],
+          "crates": [
+            "cmux-tui/crates/cmux-tui-core",
+            "cmux-tui/crates/cmux-tui",
+            "cmux-tui/crates/acpmux"
+          ],
           "inputs": [
-            "ghostty-next", "scripts/install-zig-ci.sh", ".github/actions/ghostty-zig-packages/",
+            "ghostty-next",
+            "scripts/install-zig-ci.sh",
+            ".github/actions/ghostty-zig-packages/",
             "scripts/cmux-next/cargo-locks.py"
           ]
         }
       }
     },
     ".github/workflows/cmux-tui-sdks.yml": {
-      "inputs": [".github/workflows/cmux-tui-sdks.yml", ".github/actions/tree-result/"],
+      "inputs": [
+        ".github/workflows/cmux-tui-sdks.yml",
+        ".github/actions/tree-result/"
+      ],
       "jobs": {
         "conformance": {
           "name": "seven-language live conformance",
-          "crates": ["cmux-tui/crates/cmux-tui", "cmux-tui/bindings/rust", "cmux-tui/bindings/rust-daemon-client"],
+          "crates": [
+            "cmux-tui/crates/cmux-tui",
+            "cmux-tui/bindings/rust",
+            "cmux-tui/bindings/rust-daemon-client"
+          ],
           "inputs": [
-            "cmux-tui/bindings/", "cmux-tui/spec/", "ghostty", "ghostty-next", "scripts/install-zig-ci.sh",
-            ".github/actions/ghostty-zig-packages/", ".github/actions/zig-global-cache/",
-            "scripts/ghostty-zig-version.sh", "scripts/ci/init-submodule.sh"
+            "cmux-tui/bindings/",
+            "cmux-tui/spec/",
+            "ghostty",
+            "ghostty-next",
+            "scripts/install-zig-ci.sh",
+            ".github/actions/ghostty-zig-packages/",
+            ".github/actions/zig-global-cache/",
+            "scripts/ghostty-zig-version.sh",
+            "scripts/ci/init-submodule.sh"
           ]
         }
       }
@@ -102,27 +153,53 @@
           "binaries_only": true,
           "binaries_key": "scripts/cmux-next/cmux-tui-tree-inputs.txt",
           "crates": [
-            "cmux-tui/crates/cmux-tui", "cmux-tui/crates/cmux-holder", "cmux-tui/crates/cmux-app-host",
-            "cmux-tui/crates/cmux-browser-host", "cmux-tui/crates/acpmux",
-            "cmux-tui/bindings/examples/rust-agent-screen-detection", "first-party-apps/cloud/server"
+            "cmux-tui/crates/cmux-tui",
+            "cmux-tui/crates/cmux-holder",
+            "cmux-tui/crates/cmux-app-host",
+            "cmux-tui/crates/cmux-browser-host",
+            "cmux-tui/crates/acpmux",
+            "cmux-tui/bindings/examples/rust-agent-screen-detection",
+            "first-party-apps/cloud/server"
           ],
-          "features": ["tailnet", "hub-carrier"],
+          "features": [
+            "tailnet",
+            "hub-carrier"
+          ],
           "inputs": [
-            "ghostty-next", "workers/cmux-vm/cli/",
-            "scripts/cmux-next/cmux-tui-tree-inputs.txt", "scripts/ci/cmux_tui_tree_key.py",
+            "ghostty-next",
+            "workers/cmux-vm/cli/",
+            "scripts/cmux-next/cmux-tui-tree-inputs.txt",
+            "scripts/ci/cmux_tui_tree_key.py",
             "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings.d/",
-            "webviews/", "schemas/", "web/data/model-catalog/", "scripts/cmux-next/build-agent-pane-web.sh",
-            "scripts/cmux-next/private-bun.sh", "scripts/check-webviews-bun-version.sh",
+            "webviews/",
+            "schemas/",
+            "web/data/model-catalog/",
+            "scripts/cmux-next/build-agent-pane-web.sh",
+            "scripts/cmux-next/private-bun.sh",
+            "scripts/check-webviews-bun-version.sh",
             "scripts/webviews_bun_version.py",
-            "scripts/cmux-next/build-layout-reducer-ffi.sh", "scripts/ci/acpmux-build-features.sh",
-            "scripts/ci/tailnet-go.sh", "scripts/cmux-next/build-acpmux.sh", "scripts/ci/cargo-groups.sh",
-            "scripts/ci/cmux-tui-darwin-builder", "scripts/ci/macos-cross.sh", "scripts/ci/macos_stubs.py",
-            "scripts/ci/macho_weaken.py", "scripts/ci/macos-stubs/", ".github/workflows/cmux-tui-build-package.yml",
-            "scripts/cmux-next/cmux-tui-build-profiles.json", "scripts/ghostty-zig-version.sh",
-            "scripts/ci/stage-agent-detector.sh", "scripts/ci/cmux-tui-mac-cargo-builds.sh",
+            "scripts/cmux-next/build-layout-reducer-ffi.sh",
+            "scripts/ci/acpmux-build-features.sh",
+            "scripts/ci/tailnet-go.sh",
+            "scripts/cmux-next/build-acpmux.sh",
+            "scripts/ci/cargo-groups.sh",
+            "scripts/ci/cmux-tui-darwin-builder",
+            "scripts/ci/macos-cross.sh",
+            "scripts/ci/macos_stubs.py",
+            "scripts/ci/macho_weaken.py",
+            "scripts/ci/macos-stubs/",
+            ".github/workflows/cmux-tui-build-package.yml",
+            "scripts/cmux-next/cmux-tui-build-profiles.json",
+            "scripts/ghostty-zig-version.sh",
+            "scripts/ci/stage-agent-detector.sh",
+            "scripts/ci/cmux-tui-mac-cargo-builds.sh",
             "scripts/select-ci-xcode.sh",
-            "plans/cmux-next/daemon-capabilities.json", "scripts/cmux-next/pin-cmux-tui.sh",
-            "scripts/cmux-next/check-daemon-capabilities.sh", "scripts/cmux-next/generated-autofixable.sh", "scripts/cmux-next/autofix-areas.sh", "scripts/cmux-next/cmux-tui.pin",
+            "plans/cmux-next/daemon-capabilities.json",
+            "scripts/cmux-next/pin-cmux-tui.sh",
+            "scripts/cmux-next/check-daemon-capabilities.sh",
+            "scripts/cmux-next/generated-autofixable.sh",
+            "scripts/cmux-next/autofix-areas.sh",
+            "scripts/cmux-next/cmux-tui.pin",
             "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/FirstLaunchTests.swift",
             "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/MarkdownPageFindTests.swift",
             "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/FileSourceSwitchTests.swift",
@@ -132,21 +209,32 @@
             "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ClassicUpgradeHugeSimulationTests.swift",
             "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ClassicUpgradeSimulator.swift",
             "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/AppOnboardingServices+ClassicSessions.swift",
-            "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/AppOnboardingServices+ClassicMigration.swift"
+            "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/AppOnboardingServices+ClassicMigration.swift",
+            "scripts/ci/job_input_fingerprint.py",
+            "scripts/ci/job_reuse.py"
           ],
           "routed_elsewhere": [
-            "scripts/ci/reset-stale-submodules.sh", "scripts/ci/owned_spm_scratch.py",
-            "scripts/ci/swiftpm_prefetch_binary_artifacts.py", "scripts/ci/e2e_warm_derived_data.py",
-            "scripts/cmux-next/fast-tier-cache-key.sh", ".github/actions/cache-restore/",
-            "scripts/cmux-next/regenerate-action-contracts.sh", "scripts/cmux-next/regenerate-settings-exports.sh",
-            "scripts/cmux-next/check-settings-exports.sh", "scripts/cmux-next/base-autofix-exports-pack.sh",
+            "scripts/ci/reset-stale-submodules.sh",
+            "scripts/ci/owned_spm_scratch.py",
+            "scripts/ci/swiftpm_prefetch_binary_artifacts.py",
+            "scripts/ci/e2e_warm_derived_data.py",
+            "scripts/cmux-next/fast-tier-cache-key.sh",
+            ".github/actions/cache-restore/",
+            "scripts/cmux-next/regenerate-action-contracts.sh",
+            "scripts/cmux-next/regenerate-settings-exports.sh",
+            "scripts/cmux-next/check-settings-exports.sh",
+            "scripts/cmux-next/base-autofix-exports-pack.sh",
             "scripts/ci/defaults_guard.py",
-            "scripts/cmux-next/build-web-bundles.sh", "scripts/cmux-next/web-bundle-key.py",
+            "scripts/cmux-next/build-web-bundles.sh",
+            "scripts/cmux-next/web-bundle-key.py",
             "scripts/cmux-next/private-bun.sh"
           ],
           "key_only": [
-            "schemas/link-token/native.json", "schemas/link-token/vectors.json", "scripts/cmux-next/run-v2-gates.sh",
-            "scripts/cmux-next/tests/run-v2-gates.test.sh", "scripts/cmux-next/v2-gates.d/"
+            "schemas/link-token/native.json",
+            "schemas/link-token/vectors.json",
+            "scripts/cmux-next/run-v2-gates.sh",
+            "scripts/cmux-next/tests/run-v2-gates.test.sh",
+            "scripts/cmux-next/v2-gates.d/"
           ]
         }
       }
