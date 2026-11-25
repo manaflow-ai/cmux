@@ -570,6 +570,38 @@ async fn wedge_matching_restored_success_removes_current_prompt() {
     hub.shutdown_all().await;
 }
 
+/// A restored run that was already claimed (`resume = false`) still clears its startup marker
+/// when settlement removes it, so a retry with the same prompt id is not treated as stale.
+#[tokio::test]
+async fn wedge_restored_taken_after_claim_clears_the_restore_marker() {
+    let hub = memory_hub();
+    let session = hub
+        .new_session(crate::hub::NewRequest {
+            cwd: Some(std::env::temp_dir()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    insert(&hub, &session, "same-prompt", None);
+    let current = {
+        let mut queue = session.queue.lock().unwrap();
+        queue[0].restored = true;
+        queue[0].resume = false;
+        queue[0].clone()
+    };
+    session.restored.lock().unwrap().push((current.prompt_id.clone(), current.turn_id.clone()));
+
+    hub.settle_restored_run(
+        &session,
+        &current,
+        Ok(json!({"stopReason": "end_turn", "_meta": {"acpmux": {"inbox": true}}})),
+    );
+
+    assert!(session.queue().is_empty(), "the restored prompt stayed queued");
+    assert!(session.restored.lock().unwrap().is_empty(), "stale restore marker remained");
+    hub.shutdown_all().await;
+}
+
 /// A hub whose session store is memory, for tests that queue prompts directly.
 fn memory_hub() -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({

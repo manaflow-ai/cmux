@@ -1452,14 +1452,14 @@ impl Hub {
     ) {
         let prompt_id = removed.prompt_id.as_str();
         if removed.restored {
-            if removed.resume {
-                // No runner claimed it. A spawned runner needs this ID to observe its withdrawal.
-                session
-                    .restored
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .retain(|(id, turn)| id != prompt_id || turn != &removed.turn_id);
-            }
+            // Remove the exact restored identity even after its runner claimed it. `resume` is
+            // only the startup hand-off marker; a taken/refused restored run can otherwise leave
+            // a stale (prompt_id, turn_id) that poisons a retry with the same prompt id.
+            session
+                .restored
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .retain(|(id, turn)| id != prompt_id || turn != &removed.turn_id);
             let answer = if removed.declined.load(Ordering::SeqCst) {
                 Err(queue_approve::declined_error(prompt_id, &removed.turn_id))
             } else {
