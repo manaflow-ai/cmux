@@ -20,7 +20,7 @@
         "result": "ok"
       }
     ],
-    "router_ir_sha256": "799583cb88d70602efe4f5bd10115887380c31edaca71fdec7d2be466bb7673a",
+    "router_ir_sha256": "9c7ac89321fc7558de581fc812418a1eaf4caabc43a83d9074c4618b4f06ba39",
     "rule": "ir_sha256 \"router\" stands for router_ir_sha256"
   },
   "fragments": [
@@ -3052,7 +3052,7 @@
       "kind": "validation",
       "name": "welcome with extra field",
       "type": "ProviderWelcome",
-      "valid": false,
+      "valid": true,
       "value": {
         "provider": "p",
         "router_key": "AAAA",

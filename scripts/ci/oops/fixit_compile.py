@@ -25,7 +25,8 @@ fixit-compile) that ci-oops reads. The tree is then put back as it was (--keep l
 `run` exits with COMMAND's first exit code either way: the commit under test does not compile, so its check stays
 red; the fixup commit that .github/workflows/fixit-compile-push.yml pushes from the patch (a same-repo lane/* pull
 request only) is the commit that goes green. When an error has no machine-applicable fix, or the second compile
-fails too, nothing is written and the red is the real class's (a fix agent's, act_agent).
+fails too, no patch is written: a record goes to $FIXIT_HANDOFF_OUT (else $RUNNER_TEMP/fixit-handoff), which a base or
+nightly run hands to fixit-handoff (fixit_handoff.py: the culprit's revert, pushed when clear, else its own PR).
 
 OUT defaults to $FIXIT_COMPILE_OUT, else $RUNNER_TEMP/fixit-compile, else .build/fixit-compile under --root. NAME
 defaults to the kind and a hash of COMMAND, so two wrapped compiles in one job write two patches.
@@ -332,6 +333,24 @@ def summary(text: str) -> None:
             pass
 
 
+def handoff(name: str, kind: str, argv: list[str], plan: dict, why: list[str], red_at: str) -> None:
+    """A red with no machine fix: its record for fixit-handoff (scripts/ci/oops/fixit_handoff.py), in
+    $FIXIT_HANDOFF_OUT, else $RUNNER_TEMP/fixit-handoff (apart from the patches), so a base or nightly run hands the
+    red to the culprit's revert instead of leaving it for a fix agent. Nothing is written off CI."""
+    out = os.environ.get("FIXIT_HANDOFF_OUT") or (
+        str(Path(os.environ["RUNNER_TEMP"]) / "fixit-handoff") if os.environ.get("RUNNER_TEMP") else "")
+    if not out:
+        return
+    record = {"fixer": "fixit-handoff", "kind": kind, "errors": plan.get("errors", 0), "left": why[:10],
+              "command": " ".join(argv), "red_at": red_at, **ctx_fields()}
+    try:
+        Path(out).mkdir(parents=True, exist_ok=True)
+        (Path(out) / f"{name}.json").write_text(json.dumps(record, indent=2) + "\n")
+    except OSError:
+        return
+    say(f"handed to fixit-handoff: {Path(out) / (name + '.json')}")
+
+
 def ctx_fields() -> dict:
     """What the ledger line and the push need to find this compile again."""
     env = os.environ
@@ -395,6 +414,7 @@ def _after_red(args: argparse.Namespace, argv: list[str], cwd: Path, repo: Path,
             f"is applied (the red is left for a fix agent)")
         for line in why_not[:10]:
             say(f"  left: {line}")
+        handoff(name, args.kind, argv, plan, why_not, red_at)
         return status
 
     say(f"every one of {plan['errors']} error(s) has a machine-applicable fix: applying {sum(map(len, edits.values()))}"
@@ -403,12 +423,14 @@ def _after_red(args: argparse.Namespace, argv: list[str], cwd: Path, repo: Path,
         originals = apply_edits(edits)
     except (OSError, ValueError) as exc:
         say(f"could not apply the fixes ({exc}); left as it is")
+        handoff(name, args.kind, argv, plan, [f"could not apply the fixes: {exc}"], red_at)
         return status
     try:
         again = (run_plain(argv, cwd, REPORT) if args.kind != "cargo" else run_cargo(json_argv, cwd, REPORT))[0]
         if again != 0:
             say(f"the second compile failed too (exit {again}): the fixes are dropped, the first failure stands")
             restore(originals)
+            handoff(name, args.kind, argv, plan, [f"the second compile failed too (exit {again})"], red_at)
             return status
         patch = diff_patch(repo, list(edits))
     except Exception:

@@ -85,7 +85,7 @@ pub(crate) fn shader_ids() -> Vec<String> {
 /// Swift `BackdropSelectionSetting.picture`: `system:` or `file:` with an
 /// absolute path, a canonical `youtube:` video (crate::youtube), a living
 /// wallpaper (`shader:NAME`), or a listed fixed background.
-pub(crate) fn is_picture(text: &str) -> bool {
+pub fn is_picture(text: &str) -> bool {
     is_path_or_video(text) || picture_choices().iter().any(|choice| choice == text)
 }
 
@@ -137,7 +137,7 @@ pub fn normalize_backdrop(row: &Row, value: Value) -> Value {
 
 /// Swift `BackdropSelectionSetting.acceptsSchedule`: an object of valid
 /// times to fixed pictures.
-pub(crate) fn is_schedule(value: &Value) -> bool {
+pub fn is_schedule(value: &Value) -> bool {
     value.as_object().is_some_and(|members| {
         members.iter().all(|(key, value)| is_when(key) && value.as_str().is_some_and(is_picture))
     })
@@ -175,7 +175,7 @@ pub(crate) fn is_when(text: &str) -> bool {
 
 /// Swift `BackdropLocation(text:)`: `LAT,LON` with latitude in -90...90 and
 /// longitude in -180...180, spaces around each allowed.
-pub(crate) fn is_location(text: &str) -> bool {
+pub fn is_location(text: &str) -> bool {
     let parts: Vec<&str> = text.split(',').map(trim_whitespaces).collect();
     let [latitude, longitude] = parts.as_slice() else {
         return false;
@@ -189,7 +189,7 @@ pub(crate) fn is_location(text: &str) -> bool {
 /// what each background mode last showed. An object with at most `rotate`
 /// (`daily` or a folder), `folder` (a folder) and `off` (`none` or a fixed
 /// picture); any other member is refused.
-pub(crate) fn is_memory(value: &Value) -> bool {
+pub fn is_memory(value: &Value) -> bool {
     value.as_object().is_some_and(|members| {
         members.iter().all(|(name, value)| {
             let Some(text) = value.as_str() else {
@@ -227,7 +227,7 @@ pub(crate) fn selection_choices() -> Vec<String> {
 
 /// `appearance.backgroundRecents`: at most [`RECENTS_CAP`] distinct
 /// background values ([`is_selection`]), newest first.
-pub(crate) fn is_recents(value: &Value) -> bool {
+pub fn is_recents(value: &Value) -> bool {
     let Some(items) = value.as_array() else { return false };
     let mut seen = std::collections::HashSet::new();
     items.len() <= RECENTS_CAP

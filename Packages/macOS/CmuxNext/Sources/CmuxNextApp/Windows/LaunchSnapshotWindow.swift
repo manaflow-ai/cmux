@@ -1,3 +1,4 @@
+import CmuxNextAppCore
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextLayout

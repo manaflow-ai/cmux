@@ -116,13 +116,17 @@ impl Hub {
 
     /// The `inbox_read` records of what a read or an ack marked read, one per thread.
     fn log_read(&self, session: &Session, marked: Vec<(String, Vec<String>)>) {
+        let any = !marked.is_empty();
         for (thread, ids) in marked {
             self.append(
                 session,
                 "mux",
-                "inbox_read",
+                super::super::surge_triage::READ_KIND,
                 json!({"threadId": thread, "promptIds": ids}),
             );
+        }
+        if any {
+            self.surge_after_read(session, None);
         }
     }
 }

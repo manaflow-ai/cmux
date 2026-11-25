@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 @testable import CmuxNextApp
+import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextPages
 import CmuxNextTabs
@@ -94,7 +95,7 @@ struct SignInPageOpensBesideTests {
 
             let second = try await Self.open(services) { back = services.linkOpener.openSignInPage(Self.page, beside: codePane.view) }
             try await PinnedPageTests.until({ codePane.stripModel.selectedID?.rawValue == second }, report: { "a second sign-in page is not selected: " + Self.describe(content) })
-            codePane.select(StripTabID(other.id))
+            codePane.select(TabID(other.id))
             try await PinnedPageTests.until({ codePane.stripModel.selectedID?.rawValue == other.id })
             let end2 = try #require(back)
             end2()

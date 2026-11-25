@@ -149,7 +149,10 @@ pub struct CFace {
     /// 0 none 1 a bar.
     pub progress: u8,
     pub progress_error: u8,
-    pub reserved: [u8; 2],
+    /// 1: the agent tab's agent runs in a terminal, not a chat
+    /// (`agent_in_terminal`).
+    pub agent_in_terminal: u8,
+    pub reserved: [u8; 1],
     /// The first of this workspace's listed tabs in the reply (one per tab).
     pub listed_start: u32,
     /// This workspace's status block entries in the reply's `kept_entries`.
@@ -429,7 +432,8 @@ impl Faces {
                 notice,
                 progress: u8::from(face.progress.is_some()),
                 progress_error: u8::from(face.progress.is_some_and(|bar| bar.is_error)),
-                reserved: [0; 2],
+                agent_in_terminal: u8::from(face.agent_in_terminal),
+                reserved: [0; 1],
                 listed_start,
                 kept_entry_start,
                 kept_entry_count: u32::try_from(face.status_entries.len()).unwrap_or(0),
