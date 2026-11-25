@@ -12,7 +12,7 @@ import PackageDescription
 //   CmuxNextApp -> every feature module
 //   CmuxNextBridge -> Daemon, Layout, Sidebar, Tabs (App-layer mapping, testable)
 //   CmuxNextBrowserCore -> Compat, Wakeups (the browser's engine-neutral values and protocols; Browser re-exports it)
-//   CmuxNextFavicons -> CmuxNextBrowser, CmuxNextTabs (public read-only favicon leaf)
+//   CmuxNextFavicons -> CmuxNextBrowser, CmuxNextCompat, CmuxNextTabs (public read-only favicon leaf)
 //   CmuxNextTabs, Sidebar, Layout, Browser -> CmuxNextDesign; Tabs, Home -> DesignTokens (the tab close rule); Tabs, Sidebar -> CmuxNextIcons; Palette -> Design, Actions
 //   Feature UI modules never import CmuxNextDaemon; the App maps daemon state into their view models.
 //   CmuxNextTerminal -> CmuxNextTerminalGeometry, CmuxNextCopyMode (pure), CmuxGhosttyKit (binary), CCmuxAppFFI (predictive echo)
@@ -103,9 +103,9 @@ import PackageDescription
 //     updates as owner-bound terminal jobs: intents, receipts, outcomes; the App supplies the route glue)
 //   CmuxNextFileGrid -> system frameworks only (the thumbnail grid: tiles, thumbnail cache, drag
 //     out, drop reading, Quick Look and the command menu; it reads and changes no files)
-//   CmuxNextScreenshots -> Compat, FileGrid, Files (the Screenshots pane: source detection for macOS and the
-//     screenshot tools, reading, watching and file operations through CmuxNextFiles, the live model
-//     and the pane view; no daemon; the App supplies the workspace)
+//   CmuxNextScreenshots -> Compat, Design, FileGrid, Files, Settings, Wakeups (the Screenshots pane, screenshot
+//     sources and file operations, and window capture with page and overlay compositing; the App supplies the
+//     workspace and Chromium page images)
 //   CmuxNextAgentLanes -> AgentActivity, Apps, Bridge, Sidebar, Wakeups (the acpmux `_acpmux/watch` feed for turn
 //     states and lanes, cx-v9k2f, the sidebar's Priority view and its Chief item with its App Store card)
 //   CmuxNextApps -> Actions, Design, Icons, Wakeups, HomeCore, HomeRender (app platform: manifest model, scene store + native renderer, JavaScriptCore
@@ -194,7 +194,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 6518d5e546f66e0b7aae72f02dab0cd6a0c671416bc7be404d436a693c20af7f
+// app-ffi-pin-checksum: c98e0723ea839dc2e287ef1768443564d345635a3355facd761081bd8a175f6e
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -1651,8 +1651,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // Wakeups: ScreenshotMask waits out a window's frames on a DemandTimer.
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextCompat",
+                "CmuxNextDesign",
                 "CmuxNextFileGrid",
                 "CmuxNextFiles",
+                "CmuxNextSettings",
                 "CmuxNextWakeups",
             ],
             resources: [
@@ -2370,6 +2372,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDesignTokens",
                 "CmuxNextIcons",
                 "CmuxNextTestSupport",
+                "CmuxNextWakeups",
                 "CmuxNextWakeupsTestSupport",
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
             ],
@@ -2650,6 +2653,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextFavicons",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextBrowser",
+                "CmuxNextCompat",
                 "CmuxNextTabs",
                 "CmuxNextWakeups",
             ],
