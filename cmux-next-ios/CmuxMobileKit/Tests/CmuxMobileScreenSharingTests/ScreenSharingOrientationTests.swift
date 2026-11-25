@@ -34,7 +34,8 @@ import UIKit
     /// chat tab (or an address-bar edit) keeps the phone sideways; the last
     /// page leaving (zoomed out to the grid) turns it back.
     @MainActor @Test func everyTabPageTurnsWithThePhone() {
-        let orientation = ScreenSharingOrientation.shared
+        // Its own instance: another test's pages on `shared` can't leak in.
+        let orientation = ScreenSharingOrientation()
         #expect(!orientation.isShowingTurningPage)
         orientation.tabPage("browser", shows: true)
         #expect(orientation.isShowingTurningPage)
