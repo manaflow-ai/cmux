@@ -1917,7 +1917,7 @@
           "title": "Tailscale Carrier",
           "help": "Race a peer's direct Tailscale address with the other transports when tailscaled reports one.",
           "kind": "choice",
-          "default": "off",
+          "default": "direct-only",
           "group": "cmux Remote",
           "values": [
             "off",

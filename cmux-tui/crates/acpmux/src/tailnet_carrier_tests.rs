@@ -28,7 +28,7 @@ fn who(login: Option<&str>) -> Identity {
 }
 
 #[test]
-fn the_setting_parses_and_defaults_to_off() {
+fn the_setting_parses() {
     assert_eq!(Mode::parse("on"), Some(Mode::On));
     assert_eq!(Mode::parse("direct-only"), Some(Mode::DirectOnly));
     assert_eq!(Mode::parse("off"), Some(Mode::Off));
@@ -229,4 +229,33 @@ async fn a_cold_localapi_read_is_awaited_briefly_and_never_runs_the_cli() {
     assert!(source.get(Duration::from_millis(50)).await.is_none());
     assert!(started.elapsed() >= Duration::from_millis(50));
     assert_eq!(cli_calls.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn the_default_is_direct_only_and_off_or_garbage_turns_it_off() {
+    let none = || None::<String>;
+    assert_eq!(Mode::default(), Mode::DirectOnly);
+    assert_eq!(Mode::resolve(None, none), Mode::DirectOnly, "nothing set: direct-only");
+    assert_eq!(Mode::resolve(None, || Some("off".into())), Mode::Off, "the setting off");
+    assert_eq!(Mode::resolve(None, || Some("on".into())), Mode::On);
+    assert_eq!(Mode::resolve(None, || Some("sideways".into())), Mode::Off, "not understood");
+    assert_eq!(Mode::resolve(Some("off"), || Some("on".into())), Mode::Off, "the env wins");
+    assert_eq!(Mode::resolve(Some("direct-only"), none), Mode::DirectOnly);
+    assert_eq!(Mode::from_env(), Mode::Off, "unit tests never read the developer's file");
+    // DERP and peer relays stay out of the default (RFD 0164; hq#26023).
+    assert!(!Mode::default().offers(PeerPath::Derp));
+    assert!(!Mode::default().offers(PeerPath::PeerRelay));
+}
+
+#[test]
+fn a_failed_tailnet_bind_backs_off_to_ten_minutes() {
+    use crate::tailnet_carrier::{MAX_BIND_WAIT, next_bind_wait};
+    let mut wait = FAILED_FRESH;
+    let mut waits = vec![];
+    for _ in 0..8 {
+        wait = next_bind_wait(wait);
+        waits.push(wait.as_secs());
+    }
+    assert_eq!(waits, [60, 120, 240, 480, 600, 600, 600, 600]);
+    assert_eq!(MAX_BIND_WAIT, Duration::from_secs(600));
 }

@@ -950,7 +950,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         hub.scope.spawn_until_cancelled("channel watch", crate::cli::hosts::watch_channel());
     }
     let ws_shutdown = hub.ws_shutdown.clone();
-    // Opt-in (`CMUX_TAILNET_CARRIER`): peers of this person's tailnet may also reach the same
+    // `transport.tailnetCarrier` (default direct-only; `CMUX_TAILNET_CARRIER` overrides): peers of this person's tailnet may also reach the same
     // port on this machine's tailnet address, whois-admitted (`tailnet_carrier.rs`).
     let tailnet_mode = crate::tailnet_carrier::Mode::from_env();
     if let (Some(addr), Some((_, token)), true) =
