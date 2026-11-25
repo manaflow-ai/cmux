@@ -24,6 +24,14 @@
 //! command still in the foreground after five minutes goes to the background on its own
 //! (`hub/auto_background.rs`), since no list knows a person's own scripts.
 //!
+//! A Claude Code subagent's rewritten call is `process start --wait` run with
+//! `run_in_background: true`: the task is still the daemon's, and a harness background shell
+//! follows it to its end and fails when it failed. The daemon's end message reaches a subagent only
+//! as context on its next tool call, so a subagent that was handed just a task id ended its turn
+//! with no live child and nothing ever woke it (2026-11-23, cosmic-gray coordinator helpers stalled
+//! on CI waits). Ending that shell (the harness's own timeout) leaves the task running, and its end
+//! message still comes.
+//!
 //! A CI wait (`glaeda-gh wait`, `lane-gh call ci_wait`, `gh run watch`) in the foreground is
 //! rewritten too, a subagent's included, so no wait runs as a shell under the harness. Before,
 //! a background subagent's foreground `glaeda-gh wait` (with a 90-minute Bash `timeout`, so
@@ -313,10 +321,17 @@ as asked."
     if let Some(why) = slow {
         words.extend(["--slow".to_owned(), why.to_owned()]);
     }
+    // A subagent's task is followed by a harness background shell (`process start --wait`):
+    // the end message reaches a subagent only on its next tool call, and one that ended its turn
+    // makes none, so without a live child of its own nothing ever woke it.
+    let subagent = input.get("agent_id").and_then(Value::as_str).is_some();
+    if subagent {
+        words.push("--wait".to_owned());
+    }
     words.extend(["--".to_owned(), command.to_owned()]);
     let mut tool_input = input.get("tool_input").filter(|t| t.is_object())?.clone();
     tool_input.set("command", json!(crate::agent_tools::quoted(&words)));
-    tool_input.set("run_in_background", json!(false));
+    tool_input.set("run_in_background", json!(subagent));
     Some(json!({"hookSpecificOutput": {
         "hookEventName": "PreToolUse",
         "updatedInput": tool_input,
@@ -823,9 +838,10 @@ mod tests {
     }
 
     /// The two chats that would not hibernate (2026-11-22): a background subagent blocked in a
-    /// foreground `glaeda-gh wait` for 40 and 90 minutes, a bash under an idle harness. The wait
-    /// now starts as a daemon task, still marked as that subagent's, so its end reaches it or its
-    /// lead and the harness can hibernate meanwhile.
+    /// foreground `glaeda-gh wait` for 40 and 90 minutes. The wait now starts as a daemon task,
+    /// still marked as that subagent's, followed by a harness background shell (`--wait`), so the
+    /// subagent's turn goes on and the task's end wakes it (2026-11-23: helpers given only a task
+    /// id ended their turn and nothing ever woke them).
     #[cfg(unix)]
     #[test]
     fn a_subagents_foreground_ci_wait_is_rewritten_into_a_daemon_task_start() {
@@ -845,6 +861,8 @@ mod tests {
             let slow = words.iter().position(|w| w == "--slow").expect("--slow");
             assert_eq!(words[slow + 1], "a CI wait", "{command}");
             assert_eq!(words.last().unwrap(), command);
+            assert!(words.iter().any(|w| w == "--wait"), "{command}");
+            assert_eq!(updated["run_in_background"], true, "{command}");
             // `main` marks the rewritten call as the subagent's, so `process start` names it.
             let mut call = input.clone();
             call["tool_input"] = updated;
@@ -855,6 +873,29 @@ mod tests {
                 "{text}"
             );
         }
+    }
+
+    /// 2026-11-23, cosmic-gray: a helper's `run_in_background` shell became a daemon task whose
+    /// start answered at once; the harness saw no live child of the helper, the helper ended its
+    /// turn, and the task's end message reaches a subagent only on its next tool call, so nothing
+    /// woke it. A subagent's background shell now runs `process start --wait` in the background,
+    /// a harness shell that ends with the task and wakes the subagent; the lead's is unchanged
+    /// (its end message wakes the lead's chat).
+    #[cfg(unix)]
+    #[test]
+    fn a_subagents_background_shell_follows_its_daemon_task_to_the_end() {
+        let mut input = json!({
+            "tool_name": "Bash", "cwd": "/w", "agent_id": "a0a68e7af3df5967e",
+            "tool_input": {"command": "sleep 90; echo done", "run_in_background": true}});
+        let updated = rewritten(&input, Route::CodeMode);
+        assert_eq!(updated["run_in_background"], true, "{updated}");
+        let words = argv(&updated);
+        assert!(words.iter().any(|w| w == "--wait"), "{words:?}");
+        assert_eq!(words.last().unwrap(), "sleep 90; echo done");
+        input.as_object_mut().unwrap().remove("agent_id");
+        let lead = rewritten(&input, Route::CodeMode);
+        assert_eq!(lead["run_in_background"], false, "{lead}");
+        assert!(!argv(&lead).iter().any(|w| w == "--wait"), "{lead}");
     }
 
     /// A wait with a short bound of its own reads the state now: it runs as asked.

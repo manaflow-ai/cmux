@@ -321,8 +321,29 @@ fn start(slow: Option<&str>) -> Start {
         notify: true,
         route: Some("code-mode".to_owned()),
         slow: slow.map(str::to_owned),
+        wait: false,
         command: "npm run dev".to_owned(),
     }
+}
+
+/// `--wait` (a subagent's rewritten background shell, `bg_hook::decide`) exits with the task's
+/// own code, 128 + its signal when killed, 1 when it was stopped or lost.
+#[test]
+fn a_waited_task_ends_with_its_own_exit_code() {
+    let code = |v: Value| exit_code(&v);
+    assert_eq!(code(json!({"state": "exited", "exitCode": 0})), 0);
+    assert_eq!(code(json!({"state": "exited", "exitCode": 3})), 3);
+    assert_eq!(code(json!({"state": "killed", "signal": 15})), 143);
+    assert_eq!(code(json!({"state": "stopped"})), 1);
+    assert_eq!(code(json!({"state": "lost"})), 1);
+    let look = WaitParams::of(
+        &json!({"sessionId": "s1", "callerSubagent": {"id": "a1", "type": "claude"}}),
+        "bg-1",
+    );
+    assert_eq!(
+        look.look(),
+        json!({"sessionId": "s1", "id": "bg-1", "callerSubagent": {"id": "a1", "type": "claude"}, "maxBytes": 1})
+    );
 }
 
 /// `process start` (the Bash hook's rewrite, `bg_hook::decide`) starts the task in the chat its

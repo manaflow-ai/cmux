@@ -129,6 +129,12 @@ pub enum ProcessCmd {
         hook_denied: Option<std::path::PathBuf>,
         #[arg(long = "hook-key", hide = true)]
         hook_key: Option<String>,
+        /// Then block until the task ends, print its last output and fail when it failed.
+        /// The task is still the daemon's: ending this wait leaves it running. A Claude Code
+        /// subagent's background shell runs this (`bg_hook.rs`), so the harness has a live
+        /// child whose end wakes the subagent.
+        #[arg(long)]
+        wait: bool,
         /// The command, run by bash -c.
         command: String,
     },
@@ -158,13 +164,27 @@ pub async fn run(cmd: ProcessCmd, json_out: bool) -> Result<()> {
         slow,
         hook_denied,
         hook_key,
+        wait,
         command,
     } = cmd
     {
-        let start = Start { cwd, description, notify: !no_notify, route, slow, command };
+        let start = Start { cwd, description, notify: !no_notify, route, slow, wait, command };
         let env = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
         let outcome = start_task(&start, &env).await;
-        return finish_start(&start, outcome, hook_denied.zip(hook_key), json_out);
+        let waiter = outcome.as_ref().ok().map(|(view, client, params)| {
+            (client.clone(), WaitParams::of(params, view.get_str("id").unwrap_or_default()))
+        });
+        let outcome = outcome.map(|(view, _, _)| view);
+        finish_start(&start, outcome, hook_denied.zip(hook_key), json_out)?;
+        let Some((client, look)) = waiter.filter(|_| wait) else { return Ok(()) };
+        let code = wait_for_task(&client, look, json_out).await?;
+        let _ = std::io::stdout().flush();
+        // A failed task fails this command (the CLI's error exit, 1), so the shell that
+        // followed it reads as failed too.
+        return match code {
+            0 => Ok(()),
+            n => Err(anyhow!("the background task failed (its exit status {n})")),
+        };
     }
     // Read from the processes themselves: no daemon needed, and none started.
     #[cfg(unix)]
@@ -827,6 +847,7 @@ struct Start {
     notify: bool,
     route: Option<String>,
     slow: Option<String>,
+    wait: bool,
     command: String,
 }
 
@@ -859,18 +880,99 @@ fn start_params(start: &Start, env: Env<'_>, here: Option<std::path::PathBuf>) -
 }
 
 /// Starts the task on the daemon that issued the chat's caller token, which owns the chat's
-/// tasks (else this home's daemon), and answers its view.
-async fn start_task(start: &Start, env: Env<'_>) -> Result<Value, StartFailed> {
+/// tasks (else this home's daemon), and answers its view, with the connection and the params
+/// that name the chat (and subagent) for a `--wait` that follows ([`wait_for_task`]).
+async fn start_task(
+    start: &Start,
+    env: Env<'_>,
+) -> Result<(Value, std::sync::Arc<Client>, Value), StartFailed> {
     let unsent = |e: anyhow::Error| StartFailed { sent: false, error: e };
     let params = start_params(start, env, std::env::current_dir().ok()).map_err(unsent)?;
     let client = match env(crate::person_tokens::CALLER_SOCKET_ENV) {
         Some(socket) => Client::connect(std::path::Path::new(&socket)).await.map_err(unsent)?,
         None => crate::daemon::connect(false).await.map_err(unsent)?,
     };
-    client
-        .request(method::MUX_BG_START, params)
+    let view = client
+        .request(method::MUX_BG_START, params.clone())
         .await
-        .map_err(|e| StartFailed { sent: true, error: e })
+        .map_err(|e| StartFailed { sent: true, error: e })?;
+    Ok((view, client, params))
+}
+
+/// The first and the longest pause between two looks at a task `--wait` follows. Each look is
+/// one request on the daemon's local socket (a stat of the task's record), no network.
+const WAIT_LOOK_FIRST: Duration = Duration::from_millis(250);
+const WAIT_LOOK_MAX: Duration = Duration::from_secs(5);
+
+/// `process start --wait`: blocks until the started task is no longer running, then prints the
+/// tail of its output (the daemon's default read, its last 64 KiB) and answers the task's exit
+/// status: its own code, 128 + its signal when killed, 1 when stopped or lost.
+/// The read goes out as the chat's own agent (the caller token and the subagent the hook marked)
+/// to the end of the output, so the daemon counts the task's end as told
+/// (`hub::Hub::bg_output_as`) and sends no second message about it. Should this wait end first
+/// (the harness stopped its shell), the task runs on and its end message still comes.
+async fn wait_for_task(client: &Client, mut wait: WaitParams, json_out: bool) -> Result<i32> {
+    let mut pause = WAIT_LOOK_FIRST;
+    loop {
+        let look = client.request(method::MUX_BG_OUTPUT, wait.look()).await?;
+        if look.get_str("state") != Some("running") {
+            break;
+        }
+        tokio::time::sleep(pause).await;
+        pause = (pause * 2).min(WAIT_LOOK_MAX);
+    }
+    wait.max = None;
+    let view = client.request(method::MUX_BG_OUTPUT, wait.look()).await?;
+    if json_out {
+        print_json(&view);
+    } else {
+        let text = view.get_str("text").unwrap_or_default();
+        print!("{text}");
+        if !text.is_empty() && !text.ends_with('\n') {
+            println!();
+        }
+        let (line, _) = crate::bg_run::outcome(&view);
+        let id = view.get_str("id").unwrap_or_default();
+        println!("[acpmux] background task {id} {line}");
+    }
+    Ok(exit_code(&view))
+}
+
+/// What `--wait` reads a task by: the start's chat and subagent, and the task's id.
+struct WaitParams {
+    base: Value,
+    max: Option<u64>,
+}
+
+impl WaitParams {
+    fn of(start_params: &Value, id: &str) -> Self {
+        let mut base = json!({"sessionId": start_params.get("sessionId"), "id": id});
+        if let Some(sub) = start_params.get("callerSubagent") {
+            base.set("callerSubagent", sub.clone());
+        }
+        Self { base, max: Some(1) }
+    }
+
+    fn look(&self) -> Value {
+        let mut params = self.base.clone();
+        if let Some(max) = self.max {
+            params.set("maxBytes", json!(max));
+        }
+        params
+    }
+}
+
+/// The exit code `--wait` ends with for a task's final view.
+fn exit_code(view: &Value) -> i32 {
+    match (view.get_str("state"), view.get("exitCode").and_then(Value::as_i64)) {
+        (Some("exited"), Some(code)) => i32::try_from(code).unwrap_or(1),
+        (Some("killed"), _) => view
+            .get("signal")
+            .and_then(Value::as_i64)
+            .and_then(|n| i32::try_from(128 + n).ok())
+            .unwrap_or(1),
+        _ => 1,
+    }
 }
 
 /// Why `process start` has no task: `sent` once the request reached the daemon, which may have
@@ -935,7 +1037,13 @@ while this chat's agent hibernates."
 working meanwhile."
         ));
     }
-    if start.notify {
+    if start.wait {
+        text.push_str(
+            " This shell follows it to its end, then prints its last output and fails if it \
+failed; its end wakes the agent that started it. Should this shell end first, the task runs on",
+        );
+        text.push_str(if start.notify { " and its end comes as one message." } else { "." });
+    } else if start.notify {
         text.push_str(" This chat gets one message when it ends, with its last lines.");
     }
     text.push_str(&format!(
