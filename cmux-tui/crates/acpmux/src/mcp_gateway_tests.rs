@@ -214,6 +214,34 @@ async fn an_idle_chats_server_stops_and_its_next_call_starts_one_that_was_initia
     assert_eq!(answer["id"], json!(7));
 }
 
+/// The idle-server look woke an idle daemon every 30 s with no chat holding anything, the one wake
+/// left at idle but the lag canary's (`tests/daemon_idle.rs`: the runtime's pool ran in 2 of 6
+/// windows). It looks only while a chat used since its last stop may still hold a server or tool
+/// servers, and sleeps on the next request.
+#[tokio::test]
+async fn an_idle_gateway_looks_for_idle_servers_only_while_a_chat_holds_one() {
+    let home = tempfile::tempdir().unwrap();
+    let g = gateway(home.path(), Duration::from_millis(200)).await;
+    g.keep("chat-r", launch(home.path())).unwrap();
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert_eq!(g.reap_passes.load(Ordering::Relaxed), 0, "looked with no chat used");
+    let answer = rpc(&g, "chat-r", call(1)).await;
+    assert_eq!(answer["id"], json!(1), "{answer}");
+    let pid = g.server_pid("chat-r").await.expect("runs");
+    until("the idle server stops", async || g.server_pid("chat-r").await.is_none() && gone(pid))
+        .await;
+    let stopped = g.reap_passes.load(Ordering::Relaxed);
+    assert!(stopped > 0, "the idle server stopped with no look");
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    // One more look at most: a request during a look's sleep leaves it one wake.
+    let after = g.reap_passes.load(Ordering::Relaxed);
+    assert!(after <= stopped + 1, "{} looks after every server stopped", after - stopped);
+    let answer = rpc(&g, "chat-r", call(2)).await;
+    assert_eq!(answer["id"], json!(2), "{answer}");
+    until("a used chat is looked at again", async || g.reap_passes.load(Ordering::Relaxed) > after)
+        .await;
+}
+
 #[tokio::test]
 async fn thirty_chats_hold_no_process_while_idle() {
     let home = tempfile::tempdir().unwrap();
@@ -587,6 +615,41 @@ async fn a_wake_is_answered_its_start_with_no_process_and_a_call_starts_one() {
     assert!(next.chat("chat-w").unwrap().kept_answer("tools/list", &json!({})).is_some());
 }
 
+/// The number for item (1) of Leo's 04:31Z ask: a harness start (`initialize` then
+/// `tools/list`) on a chat whose server stopped, answered by starting the server (no kept
+/// answers: a first start, or another build) and from the kept answers (every later wake).
+#[tokio::test]
+async fn a_start_from_kept_answers_skips_the_server_start_numbers() {
+    let home = tempfile::tempdir().unwrap();
+    let g = gateway(home.path(), IDLE_STOP).await;
+    let mut cold = Vec::new();
+    let mut kept = Vec::new();
+    for round in 0..5u64 {
+        let session = format!("chat-n{round}");
+        g.keep(&session, launch(home.path())).unwrap();
+        let started = Instant::now();
+        rpc(&g, &session, init(1)).await;
+        rpc(&g, &session, list(2)).await;
+        cold.push(started.elapsed());
+        let pid = g.server_pid(&session).await.expect("the first start runs the server");
+        hibernated_on(&g, &session);
+        until("the server stops", async || g.server_pid(&session).await.is_none() && gone(pid))
+            .await;
+        let started = Instant::now();
+        rpc(&g, &session, init(3)).await;
+        rpc(&g, &session, list(4)).await;
+        kept.push(started.elapsed());
+        assert_eq!(g.server_pid(&session).await, None, "answered with no process");
+    }
+    cold.sort();
+    kept.sort();
+    eprintln!(
+        "start after an idle stop (initialize + tools/list, median of 5): server start {:?}, kept answers {:?}",
+        cold[2], kept[2]
+    );
+    assert!(kept[2] < cold[2]);
+}
+
 /// Another launch (the person's settings changed it) or another `initialize` (another harness)
 /// is answered by the server, never from what an earlier one was told.
 #[tokio::test]
@@ -637,7 +700,10 @@ fn tool_specs(session: &str, socket: &Path, allow: Option<&str>) -> Vec<Value> {
         acpmux[crate::agent_tools::MCP_TOOLS_ENV] = json!(allow);
     }
     let spec = |name: &str, word: &str, env: Value| json!({"name": name, "command": "/bin/acpmux", "args": ["acp", word], "env": env});
+    let mut computer_use = base(crate::computer_use::mcp::SESSION_ENV);
+    computer_use["CMUX_TUI_SOCKET"] = json!("/nonexistent/cmux-tui.sock");
     vec![
+        spec("cmux-computer-use", "computer-use-mcp", computer_use),
         spec("cmux-secrets", "secret-mcp", base("ACPMUX_SECRET_SESSION")),
         spec("cmux-sessions", "offer-mcp", base("ACPMUX_OFFER_SESSION")),
         spec("cmux-subsessions", "subsession-mcp", caller(base("ACPMUX_SESSION_ID"))),
