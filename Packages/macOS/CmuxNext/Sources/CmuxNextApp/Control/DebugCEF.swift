@@ -28,6 +28,7 @@ enum DebugCEF {
             "spare_window": .string(services.cache.cef.spareWindowState),
             "spare_page": .string(services.cache.cef.sparePageState),
             "spare_pages_taken": .number(Double(services.cache.cef.sparePagesTaken)),
+            "spare_release": .string(services.cache.cef.spareReleaseState),
             "engine_start_main_ms": .number(milliseconds(services.cache.cef.engineStartMainThreadTime)),
             "start_steps": .array(services.cache.cef.startMarks.map {
                 .object(["name": .string($0.name), "start_uptime_ns": .number(Double($0.startUptimeNanos)), "ms": .number($0.milliseconds)])
@@ -55,8 +56,7 @@ enum DebugCEF {
         if let duration = report.initializeDuration { object["initialize_ms"] = .number(milliseconds(duration)) }
         if let seconds = report.readyAfterLaunch { object["ready_after_launch_s"] = .number(seconds) }
         object["launch_switches"] = .array(report.launchSwitches.map { .string($0) })
-        let fields = object
-        return .followUp { [work = services.work] in
+        return .followUp { [work = services.work, fields = object] in
             var fields = fields
             // Unread (cancelled, shutting down) is null, never a footprint of 0.
             fields["footprint_mb"] = (try? await work.run(.bestEffort, mayBlock: .system) { footprintMegabytes() }).map(JSONValue.number) ?? .null
