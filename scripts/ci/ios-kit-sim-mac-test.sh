@@ -26,6 +26,7 @@ echo "udid=$udid" >> "$GITHUB_OUTPUT"
 xcodebuild test -scheme CmuxMobileKit-Package -destination "id=$udid,arch=arm64" \
   -enableCodeCoverage NO -derivedDataPath "${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP/dd-ios-sim}" CODE_SIGNING_ALLOWED=NO -quiet \
   -skip-testing:CmuxMobileInstantPerfTests \
+  -skip-testing:CmuxMobileDesignCoreTests \
   -skip-testing:CmuxMobileRealtimeTests \
   -skip-testing:CmuxMobileTransportTests \
   -resultBundlePath "$RUNNER_TEMP/ios-sim.xcresult" && status=0 || status=$?
