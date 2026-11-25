@@ -14,8 +14,10 @@
 //! most [`HOLD`] after its record. Only its place among the agent's output moves, and the events
 //! of the same records (`_acpmux/event`) go at once as before.
 
-use super::{Conn, Hub, Message, json, method, outbound};
+use super::{Conn, Hub, Message, method, outbound};
 use crate::no_panic::LockExt as _;
+use serde_json::Value;
+use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use tokio::time::{Duration, Instant};
 
@@ -71,20 +73,66 @@ pub(super) async fn wait(due: Option<Instant>) {
 /// Sends the rows held for `conn`, oldest first. A chat's row is built once for all of its held
 /// rows: it is the chat as it is now, which each of them would show anyway once applied.
 pub(super) fn flush(hub: &Hub, conn: &Conn) {
+    flush_sharing(hub, conn, None);
+}
+
+/// [`flush`] ahead of `ev`'s own row: a held row of `ev`'s chat is the event's shared full row
+/// (`HubEvent::row`), built once for this connection's held rows, its own row and every other
+/// watcher's, where each had built it again (6% of a host's CPU in a 2,000-chat prompt burst).
+/// The row returned keeps that cell alive until the event's row is read from it.
+pub(super) fn flush_sharing(
+    hub: &Hub,
+    conn: &Conn,
+    ev: Option<&crate::hub::HubEvent>,
+) -> Option<Arc<Value>> {
     let held = conn.held_rows.take();
-    let mut built: Option<(&str, serde_json::Value)> = None;
+    let mut shared = None;
+    let mut built: Option<(&str, Arc<Value>)> = None;
     for row in &held {
         if built.as_ref().is_none_or(|(id, _)| *id != row.session_id) {
-            let Ok(s) = hub.resolve(&row.session_id) else { continue };
-            built = Some((&row.session_id, hub.session_change_summary(&s)));
+            let build = || {
+                let s = hub.resolve(&row.session_id).ok()?;
+                Some(hub.session_change_summary(&s))
+            };
+            let summary = match ev {
+                Some(ev) if ev.remote.is_none() && ev.session_id == row.session_id => {
+                    let summary = ev.row.cells[1].get_or_build(build);
+                    shared.clone_from(&summary);
+                    summary
+                }
+                _ => build().map(Arc::new),
+            };
+            let Some(summary) = summary else { continue };
+            built = Some((&row.session_id, summary));
         }
         let Some((_, summary)) = &built else { continue };
         conn.send_row(
             &Message::notification(
                 method::MUX_SESSION_CHANGED,
-                json!({"sessionId": row.session_id, "session": summary, "kind": row.kind, "recordKind": row.kind, "seq": row.seq, "listSeq": row.list_seq}),
+                row_notice(&row.session_id, summary, &row.kind, &row.kind, row.seq, row.list_seq),
             ),
             outbound::Row::None,
         );
     }
+    shared
+}
+
+/// A `_acpmux/session_changed` notice's params, with the row cloned in: `json!` copies a `Value`
+/// through the serializer (`to_value`), 1.4% of a host's CPU in a 2,000-chat prompt burst.
+pub(super) fn row_notice(
+    session_id: &str,
+    summary: &Value,
+    kind: &str,
+    record_kind: &str,
+    seq: u64,
+    list_seq: u64,
+) -> Value {
+    let mut params = serde_json::Map::new();
+    params.insert("sessionId".into(), Value::String(session_id.to_owned()));
+    params.insert("session".into(), summary.clone());
+    params.insert("kind".into(), Value::String(kind.to_owned()));
+    params.insert("recordKind".into(), Value::String(record_kind.to_owned()));
+    params.insert("seq".into(), seq.into());
+    params.insert("listSeq".into(), list_seq.into());
+    Value::Object(params)
 }

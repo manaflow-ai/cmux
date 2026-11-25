@@ -1032,7 +1032,7 @@ impl Conn {
 
     fn send_as(&self, msg: &Message, reply_to: Option<&str>, row: outbound::Row) {
         self.raise_gate();
-        let redacted = if self.origin == Origin::Peer {
+        let redacted = if self.origin == Origin::Peer && message_has_hosts(msg) {
             let mut copy = msg.clone();
             let changed = match &mut copy {
                 Message::Notification { params: Some(params), .. } => {
@@ -3209,7 +3209,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             conn.held_rows.hold(&ev.session_id, &rec.kind, rec.seq, ev.list_seq);
             return;
         }
-        held_rows::flush(hub, conn);
+        let _held_row = held_rows::flush_sharing(hub, conn, Some(&ev));
         // Built once per record, by the first watcher that sends it, and shared by the others
         // (`HubEvent::row`): with many watchers, each built the whole row again.
         let full = attached || conn.watch_tools.load(Ordering::SeqCst);
@@ -3246,7 +3246,14 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 conn.send_row(
                     &Message::notification(
                         method::MUX_SESSION_CHANGED,
-                        json!({"sessionId": ev.session_id, "session": *summary, "kind": kind, "recordKind": rec.kind, "seq": rec.seq, "listSeq": ev.list_seq}),
+                        held_rows::row_notice(
+                            &ev.session_id,
+                            &summary,
+                            kind,
+                            &rec.kind,
+                            rec.seq,
+                            ev.list_seq,
+                        ),
                     ),
                     row,
                 );
@@ -3289,3 +3296,13 @@ use requests::handle_notification;
 pub use requests::{DURABLE_DISPATCH_FEATURE, SESSION_RESUME_FEATURE};
 pub(crate) use vault::reply as vault_reply;
 pub(crate) use workflow_activity::owner_call as workflow_owner_call;
+
+/// Whether a message sent down a peer link has a sender host to redact
+/// (`pending::redact_message_hosts`); only those are copied before sending.
+fn message_has_hosts(msg: &Message) -> bool {
+    match msg {
+        Message::Notification { params: Some(params), .. } => pending::has_message_hosts(params),
+        Message::Response { result: Some(result), .. } => pending::has_message_hosts(result),
+        _ => false,
+    }
+}
