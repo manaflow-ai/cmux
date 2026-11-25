@@ -70,7 +70,7 @@ fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
         .output()
         .map_err(|e| format!("git {}: {e}", args.join(" ")))?;
     // `git diff --no-index` exits 1 when files differ.
-    if !out.status.success() && !(args.contains(&"--no-index") && out.status.code() == Some(1)) {
+    if !(out.status.success() || args.contains(&"--no-index") && out.status.code() == Some(1)) {
         return Err(format!(
             "git {}: {}",
             args.join(" "),
@@ -188,17 +188,16 @@ pub fn create(opts: &Options) -> Result<Created, String> {
         if words
             .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.'))
             .any(|w| w == *tool)
+            && let Ok(out) = Proc::new(tool).arg("--version").stdin(Stdio::null()).output()
         {
-            if let Ok(out) = Proc::new(tool).arg("--version").stdin(Stdio::null()).output() {
-                let text = String::from_utf8_lossy(if out.stdout.is_empty() {
-                    &out.stderr
-                } else {
-                    &out.stdout
-                })
-                .into_owned();
-                if let Some(line) = text.lines().next() {
-                    fingerprint.tools.insert((*tool).to_owned(), line.trim().to_owned());
-                }
+            let text = String::from_utf8_lossy(if out.stdout.is_empty() {
+                &out.stderr
+            } else {
+                &out.stdout
+            })
+            .into_owned();
+            if let Some(line) = text.lines().next() {
+                fingerprint.tools.insert((*tool).to_owned(), line.trim().to_owned());
             }
         }
     }

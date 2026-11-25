@@ -34,6 +34,8 @@ pub struct Session {
     /// The applied machine.toml's idle window (cmux-cloud-start-core `machine_config::idle`), read
     /// on each workload probe; None while the file declares none.
     idle_window: Option<u64>,
+    /// The pressure probe's block (`pressure.rs`), as last reported; None while nothing is short.
+    pressure: Option<Value>,
     /// This service is the restart a flip or a rollback queued: the reports say degraded until
     /// the restarted session host answers `identify` ([`Session::after_restart`]).
     awaiting_daemon: bool,
@@ -194,6 +196,7 @@ impl Session {
             stream_live: false,
             workload: None,
             idle_window: None,
+            pressure: None,
             awaiting_daemon: false,
             wake: WakeEcho::default(),
         }
@@ -310,6 +313,7 @@ impl Session {
         );
         activity.workload = self.workload.as_ref().map(Workload::to_json);
         activity.idle_window_seconds = self.idle_window;
+        activity.pressure = self.pressure.clone();
         activity
     }
 
@@ -352,6 +356,17 @@ impl Session {
             return Vec::new();
         }
         self.acp_refresh(now)
+    }
+
+    /// The pressure probe's block (`pressure.rs`; None: nothing is short). A report goes when it
+    /// changed, so the Cloud's sizer looks at the machine within seconds of it running short.
+    pub fn pressure(&mut self, block: Option<Value>, now: u64) -> Vec<OpRequest> {
+        if block == self.pressure {
+            return Vec::new();
+        }
+        self.pressure = block;
+        let activity = self.activity();
+        self.reporter.set_activity(activity, true, now).into_iter().collect()
     }
 
     /// The applied machine.toml's idle window as it stands (`machine_config::idle::read`). A report
