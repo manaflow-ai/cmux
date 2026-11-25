@@ -4,7 +4,8 @@ import Foundation
 /// machine deleted, the start's first turn failing there): the tab draws its own new page again, and that
 /// page says so above the composer instead of opening blank (cmux#55066: "it just shows a blank screen
 /// after not working"). The prompt the start took goes back into the composer (the app's seed); the notice
-/// says where it went and the ways on, and Dismiss closes it.
+/// says where it went and the ways on, and Dismiss closes it. The app seeds the page with it
+/// (``AgentPaneSeedSource/cloudChatEnded``), so it shows from the page's first frame.
 extension AgentPaneView {
     /// Shows the notice; `machine` is the Cloud machine's name, when known.
     public func showCloudChatEnded(machine: String?, promptBack: Bool) {

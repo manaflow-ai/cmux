@@ -339,6 +339,7 @@ public final class AgentPaneView: NSView {
         }
         inputReadiness.attach(webView)
         flickerLog?.watchWindows()
+        if let ended = model.seed?.cloudChatEnded { showCloudChatEnded(machine: ended.machine, promptBack: ended.promptBack) }
         if let page {
             attachPage(page)
         } else {

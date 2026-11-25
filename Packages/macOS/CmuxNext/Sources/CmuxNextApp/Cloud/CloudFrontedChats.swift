@@ -39,8 +39,6 @@ final class CloudFrontedChats {
     @ObservationIgnored var reshow: @MainActor (AgentTabKey) -> Void = { _ in }
     /// Mac tab `mac`'s Cloud chat, Cloud tab `cloud`, went: before its own page draws again (cmux#55066).
     @ObservationIgnored var ended: @MainActor (_ mac: AgentTabKey, _ cloud: AgentTabKey) -> Void = { _, _ in }
-    /// What the new page of a Mac tab whose Cloud chat ended says, until that page is made (``wire(_:services:)``).
-    @ObservationIgnored var endedNotices: [AgentTabKey: (machine: String?, promptBack: Bool)] = [:]
 
     var isEmpty: Bool { fronts.isEmpty && making.isEmpty }
 
@@ -104,25 +102,15 @@ extension CloudFrontedChats {
             // task-owner: one close request; the workspace's row never showed, so nothing waits on it
             Task { _ = try? await connection.closeWorkspace(WorkspaceKey(rawValue: front.workspace)) }
         }
-        // The Mac tab's new page says the Cloud chat ended, with the start's prompt back in its composer, never a
-        // blank chat (cmux#55066). Kept until that page is made, in the reshow below.
+        // The Mac tab's new page says the Cloud chat ended, the start's prompt back in its composer: never a blank chat (cmux#55066).
         fronts.ended = { [weak services] mac, cloud in
-            guard let services else { return }
-            let started = services.agentTabs.pageChats.cloudStarted.removeValue(forKey: cloud)
-            let prompt = started?.start.task.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if !prompt.isEmpty { services.agentTabs.seeds[mac] = AgentPaneSeedSource(AgentPaneSeed(cwd: started?.chat, draft: started?.start.task)) }
-            services.agentTabs.frontedChats.endedNotices[mac] = (services.machines.session(cloud.machine)?.machine.title, !prompt.isEmpty)
-            services.cloud.logger.notice("cloud chat shown in place ended: its Mac tab shows its own page again (prompt back: \(!prompt.isEmpty, privacy: .public))")
+            guard let tabs = services?.agentTabs else { return }
+            let started = tabs.pageChats.cloudStarted.removeValue(forKey: cloud), seed = AgentPaneSeedSource(AgentPaneSeed(cwd: started?.chat, draft: started?.start.task))
+            seed.cloudChatEnded = (services?.machines.session(cloud.machine)?.machine.title, started?.start.task.contains { !$0.isWhitespace } == true); tabs.seeds[mac] = seed
         }
         // After the release that dropped the front: a show now would make the Mac tab's page inside that release.
         // task-owner: one main hop; it shows nothing once the app's services went
-        fronts.reshow = { [weak services] mac in Task { @MainActor [weak services] in
-            guard let services else { return }
-            showSelected(mac.key, services: services)
-            if let ended = services.agentTabs.frontedChats.endedNotices.removeValue(forKey: mac) {
-                services.agentTabs.view(for: mac.key, machine: mac.machine)?.showCloudChatEnded(machine: ended.machine, promptBack: ended.promptBack)
-            }
-        } }
+        fronts.reshow = { [weak services] mac in Task { @MainActor [weak services] in if let services { showSelected(mac.key, services: services) } } }
         fronts.restore()
     }
 
