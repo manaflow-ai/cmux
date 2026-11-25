@@ -188,6 +188,33 @@ class ReadTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             f.main(["--sha", SHA, "--repo", REPO, "--phase", "release"])
 
+    def test_the_test_compile_phase_names_its_package_set(self):
+        clock, urls = Clock(), []
+
+        def fetch(url, timeout):
+            urls.append(url)
+            clock.t += 5
+            return 200, rec("fail", configuration="test-compile")
+
+        word, _ = f.read(SHA, REPO, "12", 600, 300, fetch=fetch, now=clock.now, sleep=clock.sleep,
+                         phase="test-compile", packages="CmuxCore,CmuxNext")
+        self.assertEqual(word, "fail")
+        self.assertIn("phase=test-compile", urls[0])
+        self.assertIn("packages=CmuxCore%2CCmuxNext", urls[0])
+        # Another phase's record never answers it.
+        clock, urls = Clock(), []
+        word, _ = f.read(SHA, REPO, "12", 600, 300, fetch=lambda u, t: (200, rec("pass", configuration="debug")),
+                         now=clock.now, sleep=clock.sleep, phase="test-compile", packages="A")
+        self.assertEqual(word, "none")
+
+    def test_test_compile_without_packages_is_no_verdict(self):
+        import contextlib
+        import io
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(f.main(["--sha", SHA, "--repo", REPO, "--phase", "test-compile", "--wait", "0"]), 0)
+        self.assertEqual(out.getvalue().strip(), "none")
+
     def test_the_workflow_skips_only_a_push_whose_head_moved(self):
         w = (Path(__file__).resolve().parents[3] / ".github/workflows/cmux-next.yml").read_text()
         i = w.index('if [[ "$word" == superseded && -z "${PR:-}" ]]; then')

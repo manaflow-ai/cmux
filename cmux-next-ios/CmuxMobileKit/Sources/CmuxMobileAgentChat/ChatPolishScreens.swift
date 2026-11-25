@@ -66,7 +66,7 @@ struct SessionInfoScreen: View {
         }
         .navigationTitle("Session Info")
         .navigationBarTitleDisplayMode(.inline)
-        .sensoryFeedback(.success, trigger: copied)
+        .cmuxMobileSensoryFeedback(.success, trigger: copied)
         .task { await reload() }
         .refreshable { await reload() }
         .chatDemoReceiver(store: store, surface: surface)
@@ -297,7 +297,7 @@ struct EventInspectorScreen: View {
             }
         }
         .searchable(text: $filter, prompt: "Filter")
-        .sensoryFeedback(.success, trigger: copied)
+        .cmuxMobileSensoryFeedback(.success, trigger: copied)
         .navigationTitle("Event Inspector")
         .navigationBarTitleDisplayMode(.inline)
     }
