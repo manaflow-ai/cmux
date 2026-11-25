@@ -3328,6 +3328,11 @@ async fn hub_carrier_kept_circuit_numbers() {
     );
 }
 
+// ---- The session-move matrix over the hub relay (RFD 0138). ----
+
+#[path = "hub_carrier/move_matrix_relay.rs"]
+mod move_matrix_relay;
+
 /// The lane-gh broker as a carrier service (RFD 0127 cut 2): B's gate names its broker socket
 /// for A's proven key only, so a broker stream from A reaches that socket on B's kept circuit.
 /// B with no gate (no `laneGhBroker`) refuses `service.off`, and a stranger's key is refused.
