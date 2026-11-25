@@ -115,7 +115,7 @@ fn a_chat_with_no_turn_reads_no_frames() {
 
 #[test]
 fn customizing_the_app_is_told_from_paths_and_commands() {
-    let settings = json!({"rawInput": {"file_path": "/Users/x/.config/cmux/cmux-next.json"}});
+    let settings = json!({"rawInput": {"file_path": "/Users/x/cmux-next.json"}});
     assert!(customizes_app(&settings));
     let run = json!({"rawInput": {"command": "cmux customize use dir:/w --watch"}});
     assert!(customizes_app(&run));

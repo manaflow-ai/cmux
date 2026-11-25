@@ -282,7 +282,7 @@ pub(crate) fn trigger_of(kind: Option<&str>, update: &Value) -> Option<&'static 
 pub(crate) fn customizes_app(update: &Value) -> bool {
     let settings = named_paths(update).iter().any(|p| {
         let p = p.to_ascii_lowercase();
-        p.ends_with("cmux-next.json") || p.ends_with("cmux.json") || p.contains("/.config/cmux/")
+        p.ends_with("cmux-next.json") || p.ends_with("cmux.json")
     });
     let command = update
         .pointer("/rawInput/command")
