@@ -779,8 +779,8 @@ extension GroupHeaderRowView {
         machineWords.stringValue = SectionHeaderRowView.statusWords(SectionHeaderRowView.drawn(machine).status)
         machineWords.isHidden = look != .markAndWords
         machineMark.setAccessibilityElement(false)
-        themedToolTip = machine.detail.map { "\(SectionHeaderRowView.statusWords(machine.status)): \($0)" }
-            ?? SectionHeaderRowView.statusWords(machine.status)
+        let tipWords = SectionHeaderRowView.statusWords(SectionHeaderRowView.drawn(machine).status)
+        themedToolTip = machine.detail.map { "\(tipWords): \($0)" } ?? tipWords
     }
 
     // theme-scoped: called only inside performWithTheme
