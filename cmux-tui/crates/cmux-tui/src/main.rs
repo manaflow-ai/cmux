@@ -2335,14 +2335,12 @@ fn relay_daemon_options(
     slots: Vec<String>,
     credentials: Vec<RelayCredentialArg>,
 ) -> anyhow::Result<Vec<remote_runtime::RelayDaemonOptions>> {
-    const MAX_DAEMON_RELAYS: usize = 4;
+    // Relay registrations are not capped by count: each is one tokio task holding one
+    // WebSocket to its relay, a constant cost.
     if endpoints.len() != slots.len() || endpoints.len() != credentials.len() {
         anyhow::bail!(
             "each relay registration needs one --relay, one --relay-slot, and one relay credential source"
         );
-    }
-    if endpoints.len() > MAX_DAEMON_RELAYS {
-        anyhow::bail!("a daemon supports at most {MAX_DAEMON_RELAYS} relay registrations");
     }
     endpoints
         .into_iter()
