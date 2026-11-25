@@ -3119,6 +3119,175 @@ button.menu-disclosure {
   align-self: flex-end;
 }
 
+/* Settings > Appearance > Looks (LooksGalleryCard): a grid of look tiles, each its golden sample in
+   a fixed 16:10 frame (the frame holds its size before the image arrives, so tiles never move), its
+   name and tagline, then Install or its switch and Uninstall. The Stacked list under it is the
+   installed looks top first, one Settings row each. */
+.looks-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-3);
+}
+
+.looks-hero {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-3);
+}
+
+.looks-rail {
+  display: grid;
+  grid-auto-columns: minmax(180px, 1fr);
+  grid-auto-flow: column;
+  gap: var(--ds-space-3);
+  overflow-x: auto;
+}
+
+.looks-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.looks-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  padding: var(--ds-space-2);
+  border: 1px solid var(--ds-color-separator);
+  border-radius: var(--ds-radius-lg);
+}
+
+.looks-tile[data-size="row"] {
+  flex-direction: row;
+  align-items: center;
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border: 0;
+  border-radius: 0;
+}
+
+.looks-tile[data-size="row"] + .looks-tile[data-size="row"] {
+  border-top: 1px solid var(--ds-color-separator);
+}
+
+.looks-preview {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border: 1px solid var(--ds-color-separator);
+  border-radius: var(--ds-radius-md);
+}
+
+.looks-tile[data-size="row"] .looks-preview {
+  flex: none;
+  width: 96px;
+}
+
+.looks-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.looks-preview-missing {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+
+.looks-tile-body {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+
+.looks-tile[data-size="row"] .looks-tile-body {
+  align-items: center;
+}
+
+/* In a tile the text takes the whole width and the controls sit under it, Install or the switch
+   leading and Uninstall trailing, so a long name never squeezes beside them. */
+.looks-tile:not([data-size="row"]) .looks-tile-body {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.looks-tile:not([data-size="row"]) .looks-controls {
+  justify-content: space-between;
+}
+
+.looks-tile-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.looks-tagline {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.looks-controls {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
+.looks-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+
+.looks-sheet {
+  margin: var(--ds-space-3);
+}
+
+.looks-changes {
+  margin: 0;
+  padding-inline-start: var(--ds-space-4);
+  color: var(--ds-color-muted);
+}
+
+.looks-replaces,
+.looks-unreviewed {
+  color: var(--ds-color-attention);
+}
+
+.looks-stacked {
+  margin-top: var(--ds-space-3);
+}
+
+.looks-position {
+  flex: none;
+  min-width: var(--ds-space-4);
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.looks-source {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+[data-looks-layer]:not([data-on]) :is(.row-title, .looks-source) {
+  opacity: 0.55;
+}
+
 /* A search no setting matches (AskCmuxRow.tsx): the words become a wish for the Customize chat.
    One row under "No settings match.", a hover fill on its own box like a result row, the words
    quoted under the action; Return in the search does the same. */
