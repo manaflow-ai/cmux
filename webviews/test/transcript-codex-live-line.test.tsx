@@ -329,6 +329,13 @@ test("a command with no line yet reads its title, or Running a command for the b
   expect(bare).toMatchObject({ doing: "", doingShell: true });
 });
 
+test("a running single-file shell read names its file on the collapsed live line", () => {
+  const live = codex([row("u", "user"), row("run", "activity", { items: [call("cat src/foo.ts", "in_progress")] })]).at(
+    -1,
+  );
+  expect(live).toMatchObject({ doing: "Read foo.ts", doingShell: false });
+});
+
 test("with a todo list the activity line under it is the live line", () => {
   const plan = row("p", "plan", { plan: [{ content: "Fix the grid", status: "in_progress" }] });
   const shaped = turnView(

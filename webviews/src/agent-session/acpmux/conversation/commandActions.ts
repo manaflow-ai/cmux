@@ -1212,6 +1212,14 @@ export function actionText(t: Translate, action: CommandAction): string {
   return t(action.key, action.values ?? {});
 }
 
+/// The file named by a standalone shell read. A pipeline can do more with the file's contents.
+export function singleFileRead(command: string): string | undefined {
+  if (command.includes("|")) return undefined;
+  const action = commandAction(command);
+  if (action?.key === "command.read" && !action.more && action.files?.length === 1) return action.files[0];
+  return undefined;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Rows and groups.
 
@@ -1280,7 +1288,12 @@ export function commandSaid(t: Translate, tool: Tool): string | undefined {
   if (description) return description;
   const command = tool.command?.trim();
   if (!command) return undefined;
-  if (running(tool)) return scriptSaid(t, command, true) ?? commandSummary(t, command, currentCommandRules());
+  if (running(tool)) {
+    const file = singleFileRead(command);
+    return file
+      ? t("command.read", { file: baseName(file) })
+      : (scriptSaid(t, command, true) ?? commandSummary(t, command, currentCommandRules()));
+  }
   const success = succeeded(tool);
   const action = success ? commandAction(command) : undefined;
   if (action && !action.more) return actionText(t, action);

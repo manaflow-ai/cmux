@@ -120,7 +120,7 @@ export const ToolRow = memo(function ToolRow({
   // How long a running call has run, at the row's edge, counting each second (RunningTime.tsx).
   const runningTime = running && <RunningTime startedAt={tool.startedAt} background={!foreground} />;
   // Only a call with a command line is a shell; an MCP call can also say "execute".
-  const shell = tool.kind === "execute" && Boolean(tool.command);
+  const shell = Boolean(tool.command) && (tool.kind === "execute" || tool.kind === "read");
   // Find counts a shell's whole line: a shortened line is skipped.
   // A label that names what the command did draws no command at all (commandActions.ts), even when
   // its words hold it ("Checked git status"), as on a command row (CommandRow.tsx).
@@ -162,10 +162,9 @@ export const ToolRow = memo(function ToolRow({
   const [clipped, setClipped] = useState(false);
   // A call that returned or wrote images opens to them (`ToolImages`), as the Codex app's does.
   const images = useMemo(() => toolImages(tool), [tool]);
-  // A read of one file says its name alone, its full path on hover, and does not open (ReadLabel.tsx),
-  // whatever tool read it, as the Codex app's reads.
+  // Native reads show a file and its path on hover. A shell read also opens to its command and output.
   const read = description || write || asRun ? undefined : readPath(tool);
-  const expandable = !read && (hasDetails || clipped || images.length > 0);
+  const expandable = shell || (!read && (hasDetails || clipped || images.length > 0));
   // Label-only rows disclose only actual overflow, not a guessed character count. While open,
   // retain the closed measurement so wrapping does not remove the reader's collapse control.
   useLayoutEffect(() => {
@@ -202,7 +201,7 @@ export const ToolRow = memo(function ToolRow({
   );
   const content = (
     <>
-      <span className="cv-tool__icon">{toolIcon(toolKind(tool))}</span>
+      <span className="cv-tool__icon">{toolIcon(read ? "read" : toolKind(tool))}</span>
       <span ref={labelRef} className="cv-tool__text" data-find-skip={(shell && (open || !drawsCommand)) || undefined}>
         {words}
         {tool.background && tool.background.state !== "running" && (
@@ -313,8 +312,7 @@ export const ToolRow = memo(function ToolRow({
       {/* Its images show once the row opens, a small one at its edge until then (ToolVisualRow): a run
           of screenshots stays a list of lines (Lucas, 2026-11-11: "this really really big scroll
           because it has so many images"), as the Codex app's does. */}
-      {/* A read never opens: no body, even with the fold held open (Verbose view, a Find reveal). */}
-      {!read && fold.present && (shell || files.length > 0 || body || fields || images.length > 0) && (
+      {expandable && fold.present && (shell || files.length > 0 || body || fields || images.length > 0) && (
         <div {...fold.bodyProps}>
           {images.length > 0 && <ToolImages sources={images} />}
           {shell ? (

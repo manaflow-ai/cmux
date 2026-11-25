@@ -77,10 +77,10 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
   const whole = short === commandFolder(tool.command ?? "").rest.trim();
   // What the command did, when the table or its description names it (commandActions.ts); the
   // opened Shell block shows the whole line.
-  const said = commandSaid(t, tool);
-  // A finished read of one file (`sed -n …p a.swift`, `cat a.swift`) draws as every harness's read:
+  // A shell read of one file (`sed -n …p a.swift`, `cat a.swift`) draws as every harness's read:
   // the book, "Read <file name>", its full path on hover (ReadLabel.tsx).
   const read = tool.description?.trim() || tool.background ? undefined : readPath(tool);
+  const said = read ? undefined : commandSaid(t, tool);
   const cwd = useContext(SessionCwdContext);
   // A live command is its own shimmered line, so it needs no "Running" word (Leo, 2026-11-23:
   // "running" doesn't need text). Finished commands keep the reader's localized "Ran" lead.
@@ -118,20 +118,6 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
       )}
     </>
   );
-  // A read does not open, as the Codex app's reads: the book, its name, its path on hover.
-  if (read)
-    return (
-      <div className="cv-tool cv-command is-strong" data-tool-id={tool.id}>
-        <span className="cv-tool__icon">
-          <OpenBook />
-        </span>
-        <span className="cv-command__text">{called}</span>
-        <span className="cv-command__meta">
-          <ReactionMark reaction={tool.reaction} />
-          {tool.approved && <ApprovedMark />}
-        </span>
-      </div>
-    );
   return (
     <>
       <button
@@ -146,9 +132,7 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
         }}
         onClick={fold.toggle}
       >
-        <span className="cv-tool__icon">
-          <TerminalSquare />
-        </span>
+        <span className="cv-tool__icon">{read ? <OpenBook /> : <TerminalSquare />}</span>
         <span className="cv-command__text">
           {words}
           {/* While it runs, a light band crosses these words (ShimmerText.tsx RowShimmer). */}
