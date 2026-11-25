@@ -5646,11 +5646,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const removeSessionFolder = useCallback(
     (folder: string) => {
       const client = directClient.current;
+      const sessionId = snapshot.sessionId;
       const folders = sessionInfoSnapshot.summary?.additionalDirectories;
-      if (!client || !folders) return Promise.reject(new Error(translate("error.notOpen")));
-      return client.setDirectories(folders.filter((path) => path !== folder));
+      if (!client || !sessionId || !folders) return Promise.reject(new Error(translate("error.notOpen")));
+      return client.setDirectories(folders.filter((path) => path !== folder), sessionId, folders);
     },
-    [sessionInfoSnapshot.summary?.additionalDirectories],
+    [sessionInfoSnapshot.summary?.additionalDirectories, snapshot.sessionId],
   );
   // Compact from Session Info's Context sends the agent's own /compact
   // with the reach a context-full failure's Compact has: only where the agent lists it, never to a

@@ -99,8 +99,21 @@ impl Hub {
             return Err(refused("is required (an empty list clears them)"));
         }
         let dirs = without_cwd(requested(params).await?, &session.meta().cwd);
+        let expected = match params.get("expectedAdditionalDirectories") {
+            Some(value) => {
+                let expected = requested(&json!({FIELD: value})).await?;
+                Some(without_cwd(expected, &session.meta().cwd))
+            }
+            None => None,
+        };
         let changed = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            if expected.as_ref().is_some_and(|expected| expected != &m.additional_directories) {
+                return Err(
+                    RpcError::invalid_params("additionalDirectories changed")
+                        .with_data(json!({"reason": "additionalDirectories.changed", FIELD: m.additional_directories})),
+                );
+            }
             let changed = m.additional_directories != dirs;
             m.additional_directories = dirs.clone();
             changed
