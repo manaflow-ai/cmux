@@ -325,6 +325,12 @@ fn cache() -> &'static Cache {
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Forget every destination's answer: the network changed, and its proxy
+/// settings (a PAC URL from DHCP, a VPN's proxy) may have too.
+pub fn forget() {
+    cache().lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
+}
+
 fn cached(key: &CacheKey) -> Option<Vec<Hop>> {
     let cache = cache().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     cache.get(key).filter(|(at, _)| at.elapsed() < CACHE_FOR).map(|(_, hops)| hops.clone())
@@ -486,6 +492,11 @@ pub(crate) async fn http_connect(
     host: &str,
     port: u16,
 ) -> Result<TcpStream, EgressError> {
+    // A name with a space or a line break would end the request line or
+    // smuggle headers into the proxy's request.
+    if host.is_empty() || host.bytes().any(|b| b.is_ascii_whitespace() || b.is_ascii_control()) {
+        return Err(EgressError::Io(format!("not a host name to tunnel to: {host:?}")));
+    }
     let target = authority(host, port);
     let mut request = format!(
         "CONNECT {target} HTTP/1.1\r\nHost: {target}\r\nUser-Agent: cmux-mobile-link\r\nProxy-Connection: Keep-Alive\r\n"
@@ -617,6 +628,23 @@ mod tests {
 
     fn http(host: &str, port: u16) -> Hop {
         Hop::Http(ProxyServer::new(host, port))
+    }
+
+    /// A destination name with a line break or a space never reaches the
+    /// proxy: it would end the CONNECT line and smuggle headers in.
+    #[tokio::test]
+    async fn a_connect_target_that_would_inject_headers_is_refused() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = ProxyServer::new("127.0.0.1", address.port());
+        for host in ["evil\r\nX-Injected: 1", "a b", "", "tab\there"] {
+            let stream = TcpStream::connect(address).await.unwrap();
+            let error = http_connect(stream, &server, host, 443).await.expect_err(host);
+            assert!(
+                matches!(error, EgressError::Io(ref message) if message.contains("not a host name")),
+                "{error}"
+            );
+        }
     }
 
     #[test]
