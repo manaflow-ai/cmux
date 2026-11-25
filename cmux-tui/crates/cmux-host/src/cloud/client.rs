@@ -431,7 +431,7 @@ fn keep_sccache(store: &mut dyn Store, section: &super::wire::SccacheSection) {
     match section {
         SccacheSection::Env(vars) => match store.write(KEPT_FILE, &file_text(vars), 0o600) {
             Ok(()) => {
-                eprintln!("cmux-host: cloud: bind: compiler cache settings kept: {}", names(vars))
+                eprintln!("cmux-host: cloud: bind: compiler cache settings kept: {}", names(vars));
             }
             Err(e) => {
                 eprintln!("cmux-host: cloud: bind: sccache.json write: {e}; compiler cache off");
@@ -755,6 +755,26 @@ impl<H: Http> CloudClient<H> {
             Some((status, body)) => Answer::Http { status, body },
         };
         super::apps_call::reply_for(&answer, &self.bound.machine)
+    }
+
+    /// One MCP message to the platform's `/mcp` as this machine's `vm` install (`mcp_call.rs`,
+    /// checked before it gets here). A 401 drops the cached bearer and retries once.
+    pub fn mcp_call(&mut self, call: &super::mcp_call::McpCall, now_wall_ms: u64) -> Value {
+        let url = format!("{}{}", self.bound.env.platform_origin(), super::mcp_call::MCP_PATH);
+        let headers = super::mcp_call::headers();
+        let send = |client: &mut Self| -> Option<(u16, Value)> {
+            let token = client.token(now_wall_ms).ok()?;
+            client.http.send("POST", &url, Some(&call.body), Some(&token), &headers).ok()
+        };
+        let answer = match send(self) {
+            None => Answer::Transport,
+            Some((401, _)) => {
+                self.cached = None;
+                send(self).map_or(Answer::Transport, |(status, body)| Answer::Http { status, body })
+            }
+            Some((status, body)) => Answer::Http { status, body },
+        };
+        super::mcp_call::reply_for(&answer)
     }
 
     pub fn github_status(&mut self, now_wall_ms: u64) -> Value {

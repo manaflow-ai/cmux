@@ -54,6 +54,7 @@ struct CloudChatsScreen: View {
                 }
                 if loading {
                     CmuxSpinner(label: Text("Loading Cloud chats…"))
+                        .placeholderBound("cloud.chats.loading", .milliseconds(2000))
                 } else if needsMac {
                     CloudChatsConnectMac { openDevices() }
                 } else if let error {
@@ -181,6 +182,7 @@ struct CloudChatsConnecting: View {
     var body: some View {
         VStack(spacing: 6) {
             CmuxSpinner(label: Text("Connecting to \(machine) through \(mac)…"))
+                .placeholderBound("cloud.chat.connecting", .milliseconds(0))
             // The text is "Up to 40 s" for the first 5 s: no redraw until it counts.
             TimelineView(ElapsedTextSchedule(since: since, quietSeconds: 5)) { context in
                 let elapsed = Int(context.date.timeIntervalSince(since))
@@ -213,6 +215,55 @@ struct CloudChatsConnectFailed: View {
     }
 }
 
+/// What the Cloud chat list's read depends on.
+private struct ListRead: Equatable {
+    let ready: Bool
+    let revision: Int
+    let shown: Int
+    let retry: Int
+}
+
+/// New Chat on a Cloud machine is tappable while its relay connects: a tap before the hub is
+/// ready waits for it and starts the chat then, instead of a grayed, dead button (Leo, 2026-11-24,
+/// back from another app: "the entire thing is somehow grayed out and I can't interact with
+/// anything at all"). A connect that fails drops the waiting tap, and the person is told why.
+struct CloudChatStartQueue: Equatable {
+    /// A New Chat tap waits for the hub.
+    private(set) var queued = false
+
+    enum Step: Equatable {
+        /// Start the chat now.
+        case start
+        /// Nothing to do (waiting, or a start already runs).
+        case none
+        /// The waiting tap was dropped: the connect failed.
+        case dropped
+    }
+
+    /// New Chat tapped: start now when the hub is ready, else wait for it. A second tap while one
+    /// starts or waits is the same request.
+    mutating func tap(ready: Bool, starting: Bool) -> Step {
+        if starting || queued { return .none }
+        if ready { return .start }
+        queued = true
+        return .none
+    }
+
+    /// The link changed: a waiting tap starts once the hub is ready, and is dropped if the connect failed.
+    mutating func link(ready: Bool, failed: Bool) -> Step {
+        guard queued else { return .none }
+        if ready {
+            queued = false
+            return .start
+        }
+        if failed {
+            queued = false
+            return .dropped
+        }
+        return .none
+    }
+}
+
 private struct CloudMachineChatsScreen: View {
     let live: LiveCoordinator?
     let macID: String
@@ -230,8 +281,16 @@ private struct CloudMachineChatsScreen: View {
     @State private var starting = false
     @State private var startFailed = false
     @State private var startError = ""
+    /// A New Chat tap made before the relay was ready.
+    @State private var startQueue = CloudChatStartQueue()
     /// How many of the machine's chats the list draws, newest first (Show Older Chats adds a page).
     @State private var shown = CloudChatList.pageSize
+    /// The chats acpmux listed for `shown`, in its order (the Mac's lists read the same one).
+    @State private var listed = CloudChatList.Listed()
+    /// The last list read failed: the list says so and offers Retry (pull to refresh reads it too).
+    @State private var listError: String?
+    /// Retry and pull to refresh read the list again.
+    @State private var listRetry = 0
 
     var body: some View {
         Group {
@@ -243,9 +302,14 @@ private struct CloudMachineChatsScreen: View {
                     ContentUnavailableView("Chat unavailable", systemImage: "bubble.left",
                                            description: Text("This chat is no longer listed on this Cloud machine."))
                 } else {
-                    let listed = CloudChatList.newest(relay.hub.sessions.values, shown: shown)
                     List {
-                        ForEach(listed.rows, id: \.id) { chat in
+                        if let listError {
+                            Section {
+                                Text(listError).foregroundStyle(.secondary)
+                                Button("Retry") { listRetry += 1 }
+                            }
+                        }
+                        ForEach(listed.sessions(in: relay.hub), id: \.id) { chat in
                             Button { selectedSession = chat.id } label: {
                                 VStack(alignment: .leading) {
                                     Text(chat.displayName)
@@ -262,8 +326,9 @@ private struct CloudMachineChatsScreen: View {
                             }
                         }
                     }
+                    .refreshable { await readList(relay.hub, settle: false) }
                     .overlay {
-                        if relay.hub.sessions.isEmpty {
+                        if relay.hub.sessions.isEmpty, listError == nil {
                             ContentUnavailableView("No chats", systemImage: "bubble.left",
                                                    description: Text("Tap New Chat to start one on this Cloud machine."))
                         }
@@ -282,8 +347,8 @@ private struct CloudMachineChatsScreen: View {
                 Button("Reconnect", systemImage: "arrow.clockwise") { refresh += 1 }
             }
             ToolbarItem(placement: .primaryAction) {
-                Button("New Chat", systemImage: "square.and.pencil") { startChat() }
-                    .disabled(starting || relay?.hub.isReady != true)
+                Button("New Chat", systemImage: "square.and.pencil") { newChatTapped() }
+                    .disabled(starting)
                     .accessibilityIdentifier("cloudChats.new")
             }
         }
@@ -316,7 +381,24 @@ private struct CloudMachineChatsScreen: View {
                 self.error = "Couldn't connect. Try again."
             }
         }
-        .overlay { if starting { CmuxSpinner(label: Text("Starting chat…")) } }
+        // acpmux orders and picks the page; a change of the hub's list reads it again (the last
+        // page stays drawn meanwhile, and after a failed read, which the list shows with Retry).
+        .task(id: ListRead(ready: relay?.hub.isReady == true, revision: relay?.hub.listRevision ?? 0,
+                           shown: shown, retry: listRetry)) {
+            guard let hub = relay?.hub, hub.isReady else { return }
+            await readList(hub, settle: !listed.ids.isEmpty)
+        }
+        .overlay { if starting || startQueue.queued { CmuxSpinner(label: Text("Starting chat…")) } }
+        // A New Chat tap made while the relay connected starts once it is ready.
+        .onChange(of: [relay?.hub.isReady == true, failure != nil || relay?.isRetired == true]) { _, link in
+            switch startQueue.link(ready: link[0], failed: link[1]) {
+            case .start: startChat()
+            case .dropped:
+                startError = failure ?? "This Cloud machine's chats are unavailable."
+                startFailed = true
+            case .none: break
+            }
+        }
         // The preferred chat opens once it is listed: with the first page, or with a later one.
         .onChange(of: relay?.hub.isReady == true && preferredSession.flatMap { relay?.hub.sessions[$0] } != nil, initial: true) { _, ready in
             guard ready, !openedPreferred, let preferredSession,
@@ -324,6 +406,22 @@ private struct CloudMachineChatsScreen: View {
                   relay?.hub.sessions[preferredSession] != nil else { return }
             openedPreferred = true
             selectedSession = preferredSession
+        }
+    }
+
+    /// Reads the first `shown` chats; `settle` waits out a burst of list changes first. A failed
+    /// read keeps the last page and says it failed; the next read that succeeds clears it.
+    private func readList(_ hub: AcpmuxHub, settle: Bool) async {
+        if settle { try? await Task.sleep(for: .milliseconds(250)) }
+        guard !Task.isCancelled else { return }
+        do {
+            let page = try await CloudChatList.newest(hub, shown: shown)
+            guard !Task.isCancelled else { return }
+            listed = page
+            listError = nil
+        } catch {
+            guard !Task.isCancelled else { return }
+            listError = "Couldn't load chats. Try again."
         }
     }
 
@@ -335,9 +433,13 @@ private struct CloudMachineChatsScreen: View {
         return nil
     }
 
+    private func newChatTapped() {
+        if startQueue.tap(ready: relay?.hub.isReady == true, starting: starting) == .start { startChat() }
+    }
+
     /// The new chat opens as soon as the machine started it; the Mac shows the same tab.
     private func startChat() {
-        guard let relay, !starting else { return }
+        guard let relay, relay.hub.isReady, !starting else { return }
         starting = true
         Task {
             defer { starting = false }

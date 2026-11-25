@@ -213,7 +213,7 @@ const PROJECTION_COMPARE_FULL_CRON = "7 * * * *"
 
 export default {
   async fetch(request: Request, raw: RawEnv, ctx: ExecutionContext): Promise<Response> {
-    // The request's build space (build-space.ts): every object it reaches is that space's. Production ignores it.
+    // The request's build space (build-space.ts): every object it reaches is that space's. Production refuses a dev space.
     const space = spaceOf(request, raw)
     if (!space.ok) return space.response
     const env = spacedEnv(raw, space.space)
