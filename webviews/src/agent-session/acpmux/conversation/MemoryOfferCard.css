@@ -63,6 +63,7 @@
   padding-bottom: var(--ds-space-1, 4px);
 }
 .cv-memory__file {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   font-family: var(--cv-mono);
@@ -104,18 +105,26 @@
   flex: none;
   color: var(--cv-memory-add);
 }
+/* The sign and the fact are the line's text (cardFit.css): the fact wraps, never cut, so a long one
+   stays readable; the buttons drop under it when the card is narrow. */
+.cv-memory__main.cv-fit-text {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2, 8px);
+  overflow: visible;
+  white-space: normal;
+}
 .cv-memory__text {
   flex: 1;
   min-width: 0;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
-.cv-memory__actions {
-  display: inline-flex;
-  flex: none;
-  gap: var(--ds-space-1, 4px);
-}
 .cv-memory__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ds-space-1, 4px);
   min-height: 20px;
   padding: 0 var(--ds-space-2, 8px);
   border: 0;
@@ -144,7 +153,6 @@
   opacity: 0.6;
 }
 .cv-memory__foot {
-  display: flex;
   justify-content: flex-end;
   padding-top: var(--ds-space-2, 8px);
 }
