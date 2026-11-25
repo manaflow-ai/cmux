@@ -33,12 +33,6 @@ const HOOKS: Hook[] = [
     today: "var(--glass-material-rim), inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge)",
   },
   {
-    file: "agent-session/acpmux/styles.css",
-    property: "--acpmux-composer-radius",
-    token: "--cmux-composer-radius",
-    today: "22px",
-  },
-  {
     file: "agent-session/acpmux/composerLocation.css",
     property: "--acpmux-composer-radius",
     token: "--cmux-composer-radius",

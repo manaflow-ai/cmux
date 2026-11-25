@@ -347,14 +347,9 @@ pub(super) struct EmptyKittyProbeFilter;
 
 impl EmptyKittyProbeFilter {
     pub(super) fn write<'a>(&mut self, data: Cow<'a, [u8]>) -> Cow<'a, [u8]> {
-        // Every match starts with ESC, so testing only at ESC positions finds
-        // a match exactly when `windows(..).any(..)` does.
-        let bytes = data.as_ref();
-        let mut at = byte_scan::find_esc(bytes, 0);
-        while at < bytes.len() && !bytes[at..].starts_with(Self::EMPTY_PROBE) {
-            at = byte_scan::find_esc(bytes, at + 1);
-        }
-        if at == bytes.len() {
+        // One substring search finds a match exactly when `windows(..).any(..)`
+        // does, without restarting a scan at every ESC of SGR-colored text.
+        if memchr::memmem::find(data.as_ref(), Self::EMPTY_PROBE).is_none() {
             return data;
         }
         self.write_matched(data)

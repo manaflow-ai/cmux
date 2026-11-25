@@ -157,7 +157,7 @@ impl Mux {
     /// and counted in `still_pinned`.
     pub(crate) fn release_workspace_names(&self, actor: &Actor) -> anyhow::Result<(usize, usize)> {
         let pinned: Vec<(String, String)> = {
-            let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             state
                 .workspaces
                 .iter()
@@ -258,7 +258,7 @@ impl Mux {
             drop(state);
             let receipt = registry
                 .commit_registry_intent(crate::workspace_registry::RegistryIntent::Workspace(
-                    intent,
+                    Box::new(intent),
                 ))?
                 .into_workspace()?;
             let commit = receipt.commit;
@@ -275,7 +275,7 @@ impl Mux {
                 .iter()
                 .position(|workspace| workspace.key == key)
                 .context("renamed workspace left state during its commit")?;
-            state.workspaces[index].name = name;
+            state.set_workspace_name(index, name);
             state.workspaces[index].name_source = name_source;
             state.workspaces[index].name_revision = name_revision;
             // A replayed receipt carries the original, possibly older,
@@ -355,8 +355,8 @@ impl Mux {
             result.clone(),
             deltas,
             move |state| {
+                state.set_workspace_name(index, name);
                 let workspace = &mut state.workspaces[index];
-                workspace.name = name;
                 workspace.name_source = name_source;
                 workspace.name_revision = name_revision;
             },

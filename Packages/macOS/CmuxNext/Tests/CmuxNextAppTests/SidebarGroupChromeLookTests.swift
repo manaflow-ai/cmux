@@ -135,8 +135,6 @@ import Testing
         // The member count is opt-in (`sidebar.groupHeader.memberCount`, Lawrence 2026-10-20).
         let design = DesignSettings()
         design.sidebarSections.groupHeaderMemberCount = true
-        // The band look (`sidebar.groupHeader.background` Automatic): the default is plain folders (`SidebarGroupsAsFoldersTests`).
-        design.sidebarSections.groupHeaderBackground = .auto
         let sidebar = SidebarView(model: SidebarModel(sections: [CmuxNextSidebar.SidebarSection(kind: section.kind, nodes: nodes)]),
                                   design: design)
         sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 600)

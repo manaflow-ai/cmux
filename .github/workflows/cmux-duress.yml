@@ -55,7 +55,7 @@ env:
 jobs:
   duress:
     name: cmux-duress tests, bench and scenarios
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_16 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     # A cold build of cmux-duress with ghostty-vt and cmux-agent-cli-render, debug and release, plus the bench
     # and the scenarios; a warm cache leaves most of this unused.
     timeout-minutes: 45
@@ -118,7 +118,7 @@ jobs:
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-duress-linux
+          shared-key: cmux-duress-linux-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
       - name: Report cargo cache hit

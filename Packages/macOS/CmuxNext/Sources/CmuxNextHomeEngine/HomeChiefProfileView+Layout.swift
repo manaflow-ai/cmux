@@ -74,12 +74,14 @@ extension HomeChiefProfileView {
             closeButton.centerYAnchor.constraint(equalTo: topAnchor, constant: Self.closeCenterY),
             closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.closeInset),
         ])
-        // The screen's 16:10; in the popover the note's card stops at a sensible height, on the page it
-        // takes the screen's place whole.
-        if settings != nil { gateBox.heightAnchor.constraint(lessThanOrEqualToConstant: 320).isActive = true }
-        let ratio = gateBox.heightAnchor.constraint(equalTo: gateBox.widthAnchor, multiplier: 10.0 / 16.0)
-        ratio.priority = .defaultHigh
-        ratio.isActive = true
+        // On the page the note takes the screen's 16:10 place whole. In the popover it is only as tall as
+        // its glyph, line and button, with no card of its own (Lawrence 2026-11-23: a lone line in a big
+        // empty card).
+        if settings == nil {
+            let ratio = gateBox.heightAnchor.constraint(equalTo: gateBox.widthAnchor, multiplier: 10.0 / 16.0)
+            ratio.priority = .defaultHigh
+            ratio.isActive = true
+        }
         // A frame narrower than the card clips its edges (it stays centered) rather than break its rows.
         let fits = column.widthAnchor.constraint(lessThanOrEqualTo: document.widthAnchor, constant: settings == nil ? -32 : 0)
         fits.priority = settings == nil ? .required : .defaultHigh
@@ -117,7 +119,10 @@ extension HomeChiefProfileView {
         let buttons = NSStackView(views: [gateButton, gateMoveButton])
         buttons.orientation = .horizontal
         buttons.spacing = Metrics.space2
-        let note = NSStackView(views: [gateLabel, buttons])
+        gateGlyph.image = NSImage(systemSymbolName: "desktopcomputer", accessibilityDescription: nil)
+        gateGlyph.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 28, weight: TypeScale.regular)
+        gateGlyph.setAccessibilityElement(false)
+        let note = NSStackView(views: [gateGlyph, gateLabel, buttons])
         note.orientation = .vertical
         note.alignment = .centerX
         note.spacing = Metrics.space3
@@ -128,11 +133,21 @@ extension HomeChiefProfileView {
             note.centerYAnchor.constraint(equalTo: gateBox.centerYAnchor),
             note.widthAnchor.constraint(equalTo: gateBox.widthAnchor, constant: -32),
         ])
+        if settings != nil {
+            NSLayoutConstraint.activate([
+                note.topAnchor.constraint(equalTo: gateBox.topAnchor, constant: Metrics.space4),
+                gateBox.bottomAnchor.constraint(equalTo: note.bottomAnchor, constant: Metrics.space4),
+            ])
+        }
         gateLabel.preferredMaxLayoutWidth = (settings == nil ? Self.expandedNoteWidth : Self.columnWidth) - 32
     }
 
+    /// The page's note stands in for the screen on the screen's fill; the popover's has none.
     func applyGateFill() {
-        performWithTheme { gateBox.layer?.backgroundColor = Palette.hoverFill.cgColor }
+        performWithTheme {
+            gateBox.layer?.backgroundColor = settings == nil ? Palette.hoverFill.cgColor : nil
+            gateGlyph.contentTintColor = Palette.textSecondary
+        }
     }
 
     @objc private func gateAction() {
