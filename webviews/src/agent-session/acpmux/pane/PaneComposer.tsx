@@ -265,6 +265,8 @@ export type PaneComposerDeps = {
   setStatusCardOpen: React.Dispatch<React.SetStateAction<boolean>>;
   openImage: (src: string, alt: string, path?: string) => void;
   cloudStarting: boolean;
+  /// Return during a Cloud start queues the message for the started chat ("just go"); false: it waits.
+  onCloudStartQueue?: (text: string) => boolean;
   composerDrawn: AcpmuxSnapshot;
   guestsHere: boolean;
   composerSnapshot: AcpmuxSnapshot;
@@ -522,6 +524,7 @@ export function drawPaneComposer({
   changesPillNode,
   openImage,
   cloudStarting,
+  onCloudStartQueue,
   composerDrawn,
   guestsHere,
   composerSnapshot,
@@ -993,6 +996,7 @@ export function drawPaneComposer({
             relay={subagentRelay}
             onFocusEdge={markDockEdge}
             cloudStarting={cloudStarting}
+            {...(onCloudStartQueue ? { onCloudStartQueue } : {})}
             snapshot={composerDrawn}
             guestHarnesses={guestsHere ? composerSnapshot.catalog : undefined}
             headerCwd={snapshot.summary?.cwd ?? ""}

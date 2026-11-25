@@ -92,6 +92,8 @@ jobs:
       # downloads only what changed. A pull request's save is scoped to its own ref: no other branch's run restores it,
       # so a contributor's install scripts cannot seed a cache that a trusted run reads.
       - name: Cache Bun package cache
+        timeout-minutes: 3
+        continue-on-error: true
         if: ${{ (steps.scope.outputs.run == 'true') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
