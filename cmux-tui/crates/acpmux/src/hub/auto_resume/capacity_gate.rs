@@ -248,11 +248,16 @@ fn family_of(session: &Session) -> String {
 }
 
 impl Hub {
-    /// Whether `session`'s capacity waits go through the gate: a background chat's only.
+    /// Whether `session`'s capacity waits go through the gate: a background chat's only, by the
+    /// class its agent's requests carry to the gateway (`lifecycle.rs` `cold_start`), not by who
+    /// sent the last prompt: a lane a coordinator made stays background when a person prompts it.
     fn gated(&self, session: &Session) -> bool {
         let meta = session.meta();
-        self.subrouter_priority(session, &meta, self.for_a_person(session))
-            == crate::subrouter_priority::BACKGROUND
+        let for_person = super::super::host_level::made_for_a_person(
+            meta.created_by.as_ref(),
+            session.person.load(Ordering::SeqCst),
+        );
+        self.subrouter_priority(session, &meta, for_person) == crate::subrouter_priority::BACKGROUND
     }
 
     async fn gate_timing(&self) -> Timing {
