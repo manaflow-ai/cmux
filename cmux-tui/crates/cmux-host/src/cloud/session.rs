@@ -8,6 +8,7 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 
 use super::sender::{Answer, AttentionQueue, EventOutcome, EventQueue, OpRequest, Reporter};
+use super::wake_echo::WakeEcho;
 use super::wire::{
     ACP_ACTIVITY_TTL_MS, ATTENTION_EMIT_OP, Activity, ActivityChange, DaemonInfo, EVENT_EMIT_OP,
     activity_from_daemon,
@@ -33,9 +34,13 @@ pub struct Session {
     /// The applied machine.toml's idle window (cmux-cloud-start-core `machine_config::idle`), read
     /// on each workload probe; None while the file declares none.
     idle_window: Option<u64>,
+    /// The pressure probe's block (`pressure.rs`), as last reported; None while nothing is short.
+    pressure: Option<Value>,
     /// This service is the restart a flip or a rollback queued: the reports say degraded until
     /// the restarted session host answers `identify` ([`Session::after_restart`]).
     awaiting_daemon: bool,
+    /// Wake-to-first-echo timing of the latest resume (`wake_echo.rs`).
+    wake: WakeEcho,
 }
 
 /// What the machine's acpmux daemons last said: each one's sessions at work and until when it
@@ -191,7 +196,9 @@ impl Session {
             stream_live: false,
             workload: None,
             idle_window: None,
+            pressure: None,
             awaiting_daemon: false,
+            wake: WakeEcho::default(),
         }
     }
 
@@ -217,14 +224,28 @@ impl Session {
     }
 
     /// The guest resumed (the supervisor's clock-set wake, a confirmed
-    /// unchanged instance id): one report named `resume`.
-    pub fn resume(&mut self, now: u64) -> Vec<OpRequest> {
+    /// unchanged instance id) at wall-clock `wall`: one report named `resume`, and the wake's
+    /// timing starts (`wake_echo.rs`).
+    pub fn resume(&mut self, now: u64, wall: u64) -> Vec<OpRequest> {
+        if let Some(ended) = self.wake.resumed(now, wall) {
+            self.reporter.replace_wake(Some(ended));
+        }
         self.reporter.trigger("resume", now).into_iter().collect()
     }
 
     /// One `subscribe-activity` snapshot or `activity-changed` event.
     pub fn daemon_activity(&mut self, activity: &Value, now: u64) -> Vec<OpRequest> {
-        self.own_activity(&activity_from_daemon(activity), now)
+        let mut out = match self.wake.daemon_activity(activity) {
+            Some(block) => self.reporter.set_wake(block, now).into_iter().collect(),
+            None => Vec::new(),
+        };
+        out.extend(self.own_activity(&activity_from_daemon(activity), now));
+        out
+    }
+
+    /// The wake being timed, or else the last one timed (the role's state file).
+    pub fn wake_latest(&self) -> Option<Value> {
+        self.wake.latest()
     }
 
     /// The daemon's or the socket's activity changed: every change is reported.
@@ -292,6 +313,7 @@ impl Session {
         );
         activity.workload = self.workload.as_ref().map(Workload::to_json);
         activity.idle_window_seconds = self.idle_window;
+        activity.pressure = self.pressure.clone();
         activity
     }
 
@@ -334,6 +356,17 @@ impl Session {
             return Vec::new();
         }
         self.acp_refresh(now)
+    }
+
+    /// The pressure probe's block (`pressure.rs`; None: nothing is short). A report goes when it
+    /// changed, so the Cloud's sizer looks at the machine within seconds of it running short.
+    pub fn pressure(&mut self, block: Option<Value>, now: u64) -> Vec<OpRequest> {
+        if block == self.pressure {
+            return Vec::new();
+        }
+        self.pressure = block;
+        let activity = self.activity();
+        self.reporter.set_activity(activity, true, now).into_iter().collect()
     }
 
     /// The applied machine.toml's idle window as it stands (`machine_config::idle::read`). A report
@@ -468,6 +501,9 @@ impl Session {
             self.acp.expire(now);
             out.extend(self.acp_refresh(now));
         }
+        if let Some(block) = self.wake.fire(now) {
+            out.extend(self.reporter.set_wake(block, now));
+        }
         out.extend(self.reporter.fire(now));
         out.extend(self.events.fire(now));
         if let Some(req) = self.attention.fire(now) {
@@ -501,6 +537,9 @@ impl Session {
             return (next.into_iter().collect(), note);
         }
         let note = Some(report_note(&request.reason, answer));
+        if answer.ok() {
+            self.wake.report_ok(now);
+        }
         (self.reporter.finished(answer, now, random).into_iter().collect(), note)
     }
 
@@ -510,6 +549,7 @@ impl Session {
             self.events.next_deadline(),
             self.attention.next_deadline(),
             self.acp.next_expiry(),
+            self.wake.next_deadline(),
         ]
         .into_iter()
         .flatten()

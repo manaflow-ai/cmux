@@ -29,7 +29,7 @@ class CloudChatProofTests(unittest.TestCase):
     def run_proof(self, *, backend_name="staging", backend=None, environment=None, wrong_bundle=False,
                   signed_in=True, reply="CLOUD_BROWSER_PROOF_OK title=Example Domain h1=Example Domain", cleanup_exit=0, app_exits=True,
                   from_folder=False, folder_reply=True, cut_off_chat=False, grant=False, login="", agent="claude",
-                  cache=False, secret_exit=0):
+                  cache=False, secret_exit=0, cli_takes_login=True):
         calls = []
         stored = {}
         folders = []
@@ -95,6 +95,9 @@ class CloudChatProofTests(unittest.TestCase):
                     value = {"removed": True}
                 elif words == ["vm", "token", "create", "--ttl", "30m", "--json"]:
                     value = {"stored": True}
+                elif words == ["cloud", "start-chat", "--help"]:
+                    # The Rust start-chat (#55501) lists no --login; an older app's CLI does.
+                    value = "usage: cmux cloud start-chat [--prompt TEXT]" + (" [--login MODE]" if cli_takes_login else "")
                 elif words[:2] == ["cloud", "start-chat"] and cut_off_chat:
                     # A cancel stops the proof while its chat waits: the proof's own handler runs, as on SIGTERM.
                     signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
@@ -122,7 +125,7 @@ class CloudChatProofTests(unittest.TestCase):
                             answer = f"{reply} folder={word}"
                         rest = rest[:2] + rest[4:]
                     # `--login` goes to a Claude chat only, after any --from-folder.
-                    chosen = ["--login", login] if login and agent == "claude" else []
+                    chosen = ["--login", login] if login and agent == "claude" and cli_takes_login else []
                     self.assertEqual(rest, ["--agent", agent, *chosen, "--name", "proof-test", "--wait",
                                             "--timeout", "600", "--json"])
                     value = {"machine_id": "machine-proof", "session_id": "session-proof",
@@ -178,6 +181,9 @@ class CloudChatProofTests(unittest.TestCase):
             self.assertEqual(launch_kwargs["stdout"], subprocess.DEVNULL)
             self.assertEqual(launch_kwargs["stderr"], subprocess.DEVNULL)
             self.assertNotIn(claude_login_cache.TOKEN_ENV, launch_kwargs["env"], "The launcher never inherits the Claude token")
+            # `open` hands the app the launcher's environment: CMUX_SOCKET_PATH there marks another cmux and the
+            # app drops CMUX_NEXT_SOCKET_PATH (the daily proof's app.unreachable from 11-17).
+            self.assertNotIn("CMUX_SOCKET_PATH", launch_kwargs["env"], "The launched app never inherits a cmux marker")
             launcher.wait.assert_called_once_with(timeout=60)
             self.assertTrue(evidence_path.is_file(), "Every terminal outcome must write its evidence")
             for folder in folders:
@@ -230,7 +236,7 @@ class CloudChatProofTests(unittest.TestCase):
                 code, evidence, calls = self.run_proof(backend_name=backend_name, grant=True, login="none")
                 self.assertEqual(code, 0, evidence)
                 self.assertEqual(evidence["claude_login"], {"consent_granted": True, "login": "none", "cached": False})
-                start = next(words for words in calls if words[:2] == ["cloud", "start-chat"])
+                start = next(words for words in calls if words[:3] == ["cloud", "start-chat", "--prompt"])
                 self.assertEqual(start[start.index("--login") + 1], "none")
 
     def test_cache_claude_login_gives_the_account_its_cached_login_and_the_chat_copies_it(self):
@@ -246,7 +252,7 @@ class CloudChatProofTests(unittest.TestCase):
                 self.assertEqual([words[3] for words in calls if words[:3] == ["cloud", "secret", "set"]], entries)
                 self.assertEqual(sorted(words[3] for words in calls if words[:3] == ["cloud", "secret", "rm"]),
                                  sorted(entries))
-                chat = next(index for index, words in enumerate(calls) if words[:2] == ["cloud", "start-chat"])
+                chat = next(index for index, words in enumerate(calls) if words[:3] == ["cloud", "start-chat", "--prompt"])
                 last_set = max(index for index, words in enumerate(calls) if words[:3] == ["cloud", "secret", "set"])
                 self.assertLess(last_set, chat, "the login is cached before the start reads it")
                 self.assertEqual(calls[chat][calls[chat].index("--login") + 1], "pass")
@@ -292,6 +298,15 @@ class CloudChatProofTests(unittest.TestCase):
         self.assertEqual(code, 0, evidence)
         self.assertEqual(evidence["claude_login"], {"consent_granted": True, "login": None, "cached": False})
         start = next(words for words in calls if words[:2] == ["cloud", "start-chat"])
+        self.assertNotIn("--login", start)
+
+    def test_login_is_dropped_when_the_cli_no_longer_takes_it(self):
+        # cloud-chat-proof run 45643891279: the tagged app's Rust start-chat refused `--login` (usage.invalid) on
+        # staging and prod, so the proof never reached its chat. A CLI without the word gets no --login.
+        code, evidence, calls = self.run_proof(grant=True, login="pass", cache=True, cli_takes_login=False)
+        self.assertEqual(code, 0, evidence)
+        self.assertIsNone(evidence["claude_login"]["login"])
+        start = next(words for words in calls if words[:3] == ["cloud", "start-chat", "--prompt"])
         self.assertNotIn("--login", start)
 
     def test_from_folder_reply_must_hold_the_word_only_the_folder_has(self):
