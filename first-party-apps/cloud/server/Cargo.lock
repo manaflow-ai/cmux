@@ -168,6 +168,7 @@ dependencies = [
  "base64",
  "cmux-app-manifest",
  "cmux-cloud-client",
+ "cmux-cloud-disk",
  "cmux-cloud-wire",
  "cmux-terminal-iface",
  "getrandom 0.3.4",
@@ -190,9 +191,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-cloud-disk"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-cloud-machine"
 version = "0.1.0"
 dependencies = [
+ "cmux-cloud-disk",
  "cmux-lifeline",
  "serde",
  "serde_json",

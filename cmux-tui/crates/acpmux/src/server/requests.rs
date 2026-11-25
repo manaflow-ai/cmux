@@ -3019,7 +3019,9 @@ async fn dispatch_request_with_identity(
                     ));
                 }
                 let wait = params.get("wait").and_then(Value::as_bool) == Some(true);
-                return heap(|| hub.reserve_home_warm(wait)).await;
+                // The harnesses and models the person set up (personal spares, ask-30d56720f6).
+                let shapes = crate::hub::parse_home_shapes(params.get("shapes"))?;
+                return heap(|| hub.reserve_home_warm(wait, shapes)).await;
             }
             let s = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_owned);
             // A Cloud chat's coming start (cmux#45953): its owner credential, from this machine's
@@ -3810,6 +3812,13 @@ async fn dispatch_request_with_identity(
         }
         method::MUX_ATTACH => {
             let s = hub.resolve(session_key(&params)?)?;
+            // The machine's fill, to a client that asked for it (`fill.rs`, RFD 0139).
+            super::fill::follow(
+                conn,
+                params.get("fill") == Some(&Value::Bool(true)),
+                &s.id,
+                &s.meta().cwd,
+            );
             let hidden = params.get("visible") == Some(&Value::Bool(false));
             // The app's pane draws nothing of a chat it does not show: no stream while hidden.
             // Never a peer daemon's link, which attaches hidden for the people it carries.
@@ -4032,6 +4041,15 @@ async fn dispatch_request_with_identity(
         super::controls::METHOD => super::controls::handle(hub, conn, &params),
         method::MUX_WATCH => super::list_reply::watch(hub, conn, &params).await,
         method::MUX_EVENTS | method::MUX_ATTACHMENT => {
+            // A client reading a chat's records again lost some of its stream (a host left frames
+            // out): its next chunk goes whole, a template it can rebuild from (`chunk_deltas.rs`).
+            if m == method::MUX_EVENTS
+                && conn.chunk_deltas.enabled()
+                && let Ok(key) = session_key(&params)
+                && let Ok(s) = hub.resolve(key)
+            {
+                conn.chunk_deltas.forget(&s.id);
+            }
             // A page reads the log from disk: off the runtime's workers (`qos::off_worker`).
             crate::qos::off_worker(|| events::handle(hub, m, &params, conn.caller()))
         }

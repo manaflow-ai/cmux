@@ -243,8 +243,8 @@ impl ScreenState {
 
     /// About how many bytes the state holds in memory (what the rings count).
     pub fn footprint(&self) -> usize {
-        std::mem::size_of::<ScreenState>()
-            + self.cells.len() * std::mem::size_of::<SyncCell>()
+        size_of::<ScreenState>()
+            + self.cells.len() * size_of::<SyncCell>()
             + self.cells.iter().map(|c| c.text.len() + c.style.link.len()).sum::<usize>()
     }
 
@@ -787,7 +787,7 @@ pub fn apply(base: Option<&ScreenState>, payload: &[u8]) -> Result<ScreenState, 
     } else {
         let cols = r.small(u64::from(u16::MAX), "cols")?;
         let rows = r.small(u64::from(u16::MAX), "rows")?;
-        if cols == 0 || rows == 0 || u64::from(cols) * u64::from(rows) > MAX_CELLS {
+        if cols == 0 || rows == 0 || cols * rows > MAX_CELLS {
             return Err(SyncError::Malformed("grid"));
         }
         (cols as u16, rows as u16)
@@ -2209,10 +2209,10 @@ mod tests {
         assert_eq!(parse_diff_datagram(&d[0]).unwrap().0.stamp, 0);
         assert!(stamp_datagram(&mut d[0], 77));
         assert_eq!(parse_diff_datagram(&d[0]).unwrap().0.stamp, 77);
-        let ack = rx.on_datagram(&d[0]).unwrap();
+        let mut ack = rx.on_datagram(&d[0]).unwrap();
         assert_eq!(parse_ack_stamp(&ack), Some(77));
         assert_eq!(parse_ack_datagram(&ack), Some((3, 1)));
-        assert!(!stamp_datagram(&mut ack.clone(), 1));
+        assert!(!stamp_datagram(&mut ack, 1));
         // A stale copy is acked with its own stamp and the seq held.
         assert!(stamp_datagram(&mut d[0], 78));
         let again = rx.on_datagram(&d[0]).unwrap();
