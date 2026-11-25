@@ -1,10 +1,22 @@
 // l10n-allow-file: transcript fixture prompts and question outcomes.
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import pending from "../../Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/pending-single.json";
 import { layoutConversation, type AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { AgentQuestion, State } from "../src/agent-session/acpmux/question/model";
 import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
 import { isVisiblyEmptyMessage } from "../src/agent-session/acpmux/conversation/visibleMessage";
+
+// These pin how a running turn's calls draw in sight, the `open` live arm they were written for;
+// the shipped `folded` keeps them under a closed "Working for" (#50987, live-turn-folds-to-line.test.ts).
+let armsBefore: typeof globalThis.cmuxExperiments;
+beforeEach(() => {
+  armsBefore = globalThis.cmuxExperiments;
+  globalThis.cmuxExperiments = { ...armsBefore, "live-turn-work": "open" };
+});
+afterEach(() => {
+  if (armsBefore === undefined) delete globalThis.cmuxExperiments;
+  else globalThis.cmuxExperiments = armsBefore;
+});
 
 const row = (id: string, kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
   id,
