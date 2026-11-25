@@ -18,7 +18,7 @@ import {
   type Setup,
 } from "./customizeStudio";
 
-export type StudioLayout = "store" | "manager" | "setups";
+export type StudioLayout = "store" | "manager" | "setups" | "tiles";
 
 /** A small cmux window: a sidebar of sessions, a chat with two messages and a composer. */
 export function MiniCmux({
@@ -219,8 +219,11 @@ function StoreLayout({ studio, selected: initialSelected }: { studio: Studio; se
             >
               <MiniCmux on={new Set([entry.id])} size="thumb" focus={entry.id} />
               <span className="studio-card-name">
-                {entry.name}
-                {studio.on.has(entry.id) && <span className="studio-on-dot" aria-label="On" />}
+                <span className="studio-card-title">{entry.name}</span>
+                {/* Always drawn, so turning one on never re-wraps its name. */}
+                <span className="studio-pill studio-on-pill" data-shown={studio.on.has(entry.id) ? "" : undefined}>
+                  On
+                </span>
               </span>
               <span className="studio-card-line">{entry.line}</span>
             </button>
@@ -304,6 +307,78 @@ function ManagerLayout({ studio }: { studio: Studio }) {
   );
 }
 
+/** Tiles: pictures first, the fewest words (the macOS Appearance tiles; the unnamed background tiles
+ * beside a live window in onboarding's Make cmux Yours, #51603). The live window leads, the setups
+ * sit beside it as one list, and every customization is one tile that is its own switch: its
+ * picture, its name, on or off. Pointing at a tile outlines what it changes in the live window. */
+function TilesLayout({ studio }: { studio: Studio }) {
+  const [peek, setPeek] = useState<Effect | undefined>(undefined);
+  const current = SETUPS.find((setup) => sameSet(studio.on, setup.on));
+  const conflicts = liveConflicts(studio.on);
+  return (
+    <div className="studio-tiles">
+      <div className="studio-tiles-top">
+        <MiniCmux on={studio.on} focus={peek} />
+        <div className="studio-tiles-setups" role="group" aria-label="Setup">
+          <span className="studio-muted">Setups</span>
+          {SETUPS.map((setup) => (
+            <button
+              key={setup.id}
+              type="button"
+              className="studio-setup-row"
+              data-setup={setup.id}
+              aria-pressed={current?.id === setup.id}
+              onClick={() => studio.tryOn(setup)}
+            >
+              <span className="studio-radio" />
+              <span className="studio-manager-text">
+                <span className="studio-card-name">{setup.name}</span>
+                <span className="studio-card-line">{setup.line}</span>
+              </span>
+            </button>
+          ))}
+          <span className="studio-muted studio-custom studio-card-line" data-shown={current ? undefined : ""}>
+            Your own mix: it matches no setup.
+          </span>
+        </div>
+      </div>
+      <div className="studio-tile-grid">
+        {CUSTOMIZATIONS.map((item) => {
+          const on = studio.on.has(item.id);
+          const lost = conflicts.find((conflict) => conflict.loser === item.id);
+          return (
+            <button
+              key={item.id}
+              type="button"
+              role="switch"
+              aria-checked={on}
+              className="studio-tile"
+              data-customization={item.id}
+              title={lost ? `${byId(lost.winner).name} wins: both change the sidebar.` : item.line}
+              onClick={() => studio.toggle(item.id, !on)}
+              onPointerEnter={() => setPeek(item.id)}
+              onPointerLeave={() => setPeek(undefined)}
+              onFocus={() => setPeek(item.id)}
+              onBlur={() => setPeek(undefined)}
+            >
+              <MiniCmux on={new Set([item.id])} size="thumb" focus={item.id} />
+              <span className="studio-tile-foot">
+                <span className="studio-tile-name">{item.name}</span>
+                <SwitchTrack on={on} />
+              </span>
+              <span className="studio-card-line">
+                {[item.source.kind === "pr" && !item.source.merged && "Unmerged", lost && "Overridden"]
+                  .filter(Boolean)
+                  .join(" · ") || "\u00a0"}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /** Setups: people first. Pick whose setup to look at; it lists what it would change from yours, each
  * line a switch, over the live window of the result (Arc's spaces, VS Code's profile import). */
 function SetupsLayout({ studio, initialSetup }: { studio: Studio; initialSetup: string }) {
@@ -339,10 +414,20 @@ function SetupsLayout({ studio, initialSetup }: { studio: Studio; initialSetup: 
       <div className="studio-setups-body">
         <div className="studio-setups-changes">
           <h3>What {picked.name} changes from yours</h3>
-          {changes.adds.length + changes.removes.length === 0 && (
-            <p className="studio-muted">Nothing: it is what you have.</p>
-          )}
+          {/* The buttons sit above the list, and the list keeps room for every row: a setup with
+              fewer changes moves nothing. */}
+          <div className="studio-actions">
+            <button type="button" className="studio-button studio-button-primary" onClick={() => studio.tryOn(picked)}>
+              Try {picked.name}
+            </button>
+            <button type="button" className="studio-button">
+              Share link
+            </button>
+          </div>
           <ul>
+            {changes.adds.length + changes.removes.length === 0 && (
+              <li className="studio-muted studio-nothing">Nothing: it is what you have.</li>
+            )}
             {[...changes.adds, ...changes.removes].map((id) => {
               return (
                 <SwitchRow
@@ -355,14 +440,6 @@ function SetupsLayout({ studio, initialSetup }: { studio: Studio; initialSetup: 
               );
             })}
           </ul>
-          <div className="studio-actions">
-            <button type="button" className="studio-button studio-button-primary" onClick={() => studio.tryOn(picked)}>
-              Try {picked.name}
-            </button>
-            <button type="button" className="studio-button">
-              Share link
-            </button>
-          </div>
         </div>
         <MiniCmux on={studio.on} />
       </div>
@@ -427,6 +504,7 @@ export function CustomizeStudio({
       </header>
       {layout === "store" && <StoreLayout studio={studio} selected={selected} />}
       {layout === "manager" && <ManagerLayout studio={studio} />}
+      {layout === "tiles" && <TilesLayout studio={studio} />}
       {layout === "setups" && <SetupsLayout studio={studio} initialSetup={trying ?? "leo"} />}
     </div>
   );

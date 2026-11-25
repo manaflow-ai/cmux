@@ -56,7 +56,7 @@ export const CUSTOMIZATIONS: readonly Customization[] = [
   {
     id: "compact",
     name: "Compact sidebar",
-    line: "Narrower sidebar, tighter rows, more sessions on screen.",
+    line: "Narrower sidebar and tighter rows fit more sessions.",
     author: "Leo",
     source: { kind: "preference" },
   },

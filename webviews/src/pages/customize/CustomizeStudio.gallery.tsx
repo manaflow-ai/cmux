@@ -2,18 +2,19 @@
 // The customization paradigm Leo asked for, 2026-11-24 07:32Z: "getting a proper customization
 // paradigm would be better. the settings page customize is... not good."; 07:17Z: "having people be
 // able to easily toggle my customieer or whatever would be god". Design note: cmuxterm-hq
-// docs/design/customization-paradigm.md. Three layouts over one live preview, each as a teammate
-// opens it (Leo's customizations off) and after one click on Try Leo's setup:
+// docs/design/customization-paradigm.md. Four layouts over one live preview, each as a teammate
+// opens it (Leo's customizations off), after one click on Try Leo's setup, and as Leo has it:
 // - store: Raycast Store / Obsidian community plugins. A shelf of setups, a grid of customizations
 //   with their after picture, the selected one's before/after and switch on the right.
-// - manager: a game mod manager / VS Code profiles. One switch per row with its source and any
-//   conflict, the setup picker on top, the live window beside; pointing at a row shows its
-//   before/after.
+// - manager: a game mod manager / VS Code profiles. One row per customization, the whole row its
+//   switch, with its source and any conflict; the setup picker on top; the live window beside, with
+//   the before/after of the row last pointed at.
 // - setups: people first (Arc spaces, VS Code profile import). Pick whose setup, see what it changes
-//   from yours, each change a switch, over the live result.
-// Recommended: manager. It is the fewest clicks from "what is on" to "turn this off", every switch
-// is visible at once like a checklist (Leo, 2026-11-22: "as few clicks as reasonable"), and the
-// before/after stays one point away instead of a page away.
+//   from yours, each change a switch, beside the live result.
+// - tiles: pictures first (macOS Appearance tiles, onboarding's Make cmux Yours #51603). The live
+//   window leads, and each customization is one picture tile that is its own switch.
+// Refined in three screenshot rounds (verify/customize-paradigm): nothing in any layout may move
+// when a switch, a row or a setup is flicked through fast.
 import { componentEntry } from "../../gallery/format";
 import type { Effect } from "./customizeStudio";
 import type { StudioLayout } from "./CustomizeStudio";
@@ -36,6 +37,7 @@ const LAYOUTS: Record<StudioLayout, string> = {
   store: "Store: setups shelf, customization cards, detail with before/after",
   manager: "Manager (recommended): one switch per row, setup picker, live window beside",
   setups: "Setups: whose setup, what it changes from yours, live result",
+  tiles: "Tiles: the live window first, each customization a picture tile that is its own switch",
 };
 
 const variants: Record<string, { note: string; props: Props }> = {};
@@ -45,7 +47,7 @@ for (const layout of Object.keys(LAYOUTS) as StudioLayout[]) {
     props: { layout, on: [] },
   };
   variants[`${layout}-trying-leo`] = {
-    note: `${LAYOUTS[layout]}; after Try Leo's setup: the trial bar offers Keep or Revert.`,
+    note: `${LAYOUTS[layout]}; after Try Leo's setup: the header offers Keep or Revert.`,
     props: { layout, on: [], trying: "leo" },
   };
   variants[`${layout}-leo`] = {
