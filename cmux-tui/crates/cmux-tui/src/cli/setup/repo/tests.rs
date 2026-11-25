@@ -12,8 +12,8 @@ use serde_json::{Value, json};
 
 use super::super::super::OutputMode;
 use super::{
-    Apps, Checkout, Failure, Request, card_text, fetch_from, inert, install_as, order, parse,
-    reload, remove, set_on, stepped, swap, undo_redo, update, variant,
+    Apps, Checkout, Failure, Request, card_text, fetch_from, inert, install_as, install_link,
+    order, parse, reload, remove, set_on, stepped, swap, undo_redo, update, variant,
 };
 
 /// Installs `text` under its own id, as `cmux setup install TEXT` does.
@@ -829,4 +829,51 @@ fn a_variant_is_picked_in_the_looks_layer_and_goes_with_it() {
     // Removing the look takes the variant off with it: no theme file left named.
     remove(&customize, &Local, Some("leo/night")).unwrap();
     assert!(!text(&settings).contains("night-"), "{}", text(&settings));
+}
+
+#[test]
+fn install_link_takes_one_link_and_never_a_yes() {
+    let link = "cmux://setups/install?repo=github.com%2Fa%2Fb";
+    assert_eq!(
+        parse(&words(&["install-link", link])),
+        Ok(Request::InstallLink { link: link.to_owned() })
+    );
+    assert!(parse(&words(&["install-link", link, "--yes"])).is_err());
+    assert!(parse(&words(&["install-link"])).is_err());
+    assert!(parse(&words(&["install-link", link, link])).is_err());
+}
+
+#[test]
+fn a_setup_pages_open_in_cmux_link_asks_with_the_card_and_its_pinned_reference() {
+    let root = tempfile::tempdir().unwrap();
+    let world = world(root.path());
+    let customize = Customize::open(Roots::under(&root.path().join("home")));
+    let commit = "1".repeat(40);
+    let link = format!(
+        "cmux://setups/install?repo=github.com%2Fmanaflow-ai%2Fcmux-setup-sample&commit={commit}"
+    );
+    let Err(failure) = install_link(&customize, &world, OutputMode::Json, &link) else {
+        panic!("a link installed without asking")
+    };
+    assert_eq!(failure.code, "setup.needs_consent");
+    assert_eq!(
+        failure.details["reference"],
+        json!(format!("github.com/manaflow-ai/cmux-setup-sample@{commit}"))
+    );
+    let text = failure.details["text"].as_str().unwrap();
+    assert!(text.contains("Sample Setup (manaflow-ai/cmux-setup-sample)"), "{text}");
+    assert!(customize.setups().unwrap().is_empty());
+    assert!(world.installed.borrow().is_empty());
+    // An extension's link, another kind, or one with a flag is not a setup link.
+    for bad in [
+        "cmux://apps/install?repo=github.com/a/b",
+        "cmux://setups/install?repo=github.com/a/b&yes=1",
+        "cmux://setups/install?repo=github.com/a/b&commit=main",
+        "https://setups/install?repo=github.com/a/b",
+    ] {
+        let Err(failure) = install_link(&customize, &world, OutputMode::Json, bad) else {
+            panic!("{bad} was taken")
+        };
+        assert_eq!(failure.code, "setup.link", "{bad}");
+    }
 }
