@@ -801,6 +801,10 @@ const selfMs = new Map<string, number>();
 const totalMs = new Map<string, number>();
 /// A built-in's (no url: style reads, layout, DOM calls) self ms by the nearest bundle function that called it.
 const nativeByCaller = new Map<string, number>();
+/// PROFILE=1: each React memo's own callback (the frame `mountMemo`/`updateMemo` called), by the
+/// component that ran it and the callback's heaviest callee: "Component › body › callee".
+const memoBodies = new Map<string, number>();
+const MEMO_HOOKS = new Set(["mountMemo", "updateMemo"]);
 let profiled = 0;
 /// MODE=reopen-spare: how long each adopt event's own task ran (ms), the synchronous React pass
 /// `useSessionAdoption` flushes inside the event, before the browser can paint anything.
@@ -948,6 +952,20 @@ function addRelaunchProfile(
       if (caller === undefined && up !== id && one.callFrame.url) caller = key;
     }
     if (!node.callFrame.url && caller) bump(nativeByCaller, `${node.callFrame.functionName} <- ${caller}`, ms);
+    // The innermost memo on the stack: its callback, the callback's callee and the component around it.
+    const chain: ProfileNode["callFrame"][] = [];
+    for (let up: number | undefined = id; up !== undefined; up = parent.get(up)) {
+      const one = byId.get(up);
+      if (!one || one.callFrame.functionName === "(root)") break;
+      chain.push(one.callFrame);
+    }
+    const hook = chain.findIndex((frame) => MEMO_HOOKS.has(frame.functionName));
+    if (hook > 0) {
+      const body = chain[hook - 1];
+      const callee = hook > 1 ? chain[hook - 2] : undefined;
+      const owner = chain.slice(hook + 1).find((frame) => frame.url && /^[A-Z]/.test(frame.functionName));
+      bump(memoBodies, `${owner?.functionName ?? "?"} › ${nodeKey(body)}${callee ? ` › ${nodeKey(callee)}` : ""}`, ms);
+    }
   });
   close();
   profiled += 1;
@@ -970,6 +988,7 @@ function printProfile(): void {
   );
   top(`${what} profile, inclusive:`, totalMs, 45);
   top(`${what} profile, built-ins by caller:`, nativeByCaller, 20);
+  top(`${what} profile, memo callbacks (component › callback › callee):`, memoBodies, 30);
 }
 
 type Round = {
