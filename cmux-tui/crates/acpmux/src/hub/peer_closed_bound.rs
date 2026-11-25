@@ -200,7 +200,7 @@ mod tests {
     /// write. Now a lookup answers while a notice waits on the rows writer, and the notice still
     /// lands once the writer lets go.
     #[test]
-    fn a_peer_lookup_never_waits_behind_a_notice_waiting_on_the_rows_writer() {
+    fn wedge_a_peer_lookup_never_waits_behind_a_notice_waiting_on_the_rows_writer() {
         use crate::peer::PeerNotice;
         let (hub, peer) = hub_with_peer("vm");
         let rows_of = |ids: &[&str]| {
@@ -239,6 +239,7 @@ mod tests {
         let answered = rx.recv_timeout(std::time::Duration::from_secs(2));
         drop(rows);
         notice.join().unwrap();
+        eprintln!("wedge-bench: peer lookup during a notice's rows-writer wait: {answered:?}");
         let (found, took) = answered.expect("a peer lookup waited behind a peer notice");
         assert!(found);
         assert!(took < std::time::Duration::from_millis(500), "lookup took {took:?}");

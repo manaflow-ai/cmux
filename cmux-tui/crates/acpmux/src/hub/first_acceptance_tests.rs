@@ -17,7 +17,7 @@ fn ledger_entry(session: &Session, id: &str) -> PromptOutcome {
 }
 
 #[tokio::test]
-async fn a_resend_answers_with_the_inbox_receipt_its_first_run_got() {
+async fn wedge_a_resend_answers_with_the_inbox_receipt_its_first_run_got() {
     let hub = hub();
     let session = chat(&hub, "01-target", "target");
     let outcome = ledger_entry(&session, "msg_1");
@@ -50,7 +50,7 @@ async fn a_resend_answers_with_the_inbox_receipt_its_first_run_got() {
 }
 
 #[tokio::test]
-async fn a_resend_of_a_first_run_refused_unaccepted_hears_no_acceptance() {
+async fn wedge_a_resend_of_a_first_run_refused_unaccepted_hears_no_acceptance() {
     let hub = hub();
     let session = chat(&hub, "01-target2", "target2");
     let outcome = ledger_entry(&session, "msg_2");
