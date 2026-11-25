@@ -17,6 +17,12 @@ async fn a_mailbox_frame_sent_right_after_hello_is_never_lost() {
     let items = tokio::time::timeout(std::time::Duration::from_secs(5), client.next_mailbox()).await.unwrap();
     assert_eq!(
         items,
-        Some(vec![MailboxItem { id: "r1".into(), from: "p".into(), sealed: "AQ".into(), at: Some(5) }])
+        Some(vec![MailboxItem {
+            id: "r1".into(),
+            from: "p".into(),
+            sealed: "AQ".into(),
+            at: Some(5),
+            seq: None
+        }])
     );
 }
