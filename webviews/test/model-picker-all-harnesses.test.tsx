@@ -464,3 +464,48 @@ test("the Gemini tab's account avatar wears the Gemini mark on its Antigravity r
   const badge = dom.window.document.querySelector(".acpmux-cols-corner .acpmux-cols-avatar-badge [data-agent]");
   expect(badge?.getAttribute("data-agent")).toBe("gemini");
 });
+
+// Lucas 2026-11-25: "resizing seems to move the anchor ... ensure the anchor of the menu is always the
+// same and only size changes". A chip in the end half of the chat column (the New Tab row's model chip)
+// lines up the menu with its end, so the width grip is on the start edge and the chip's end edge stays;
+// one in the start half keeps the start alignment.
+for (const [where, left, grip] of [
+  ["end half", 800, "start"],
+  ["start half", 40, "end"],
+] as const)
+  test(`a chip in the column's ${where} puts the width grip on the menu's ${grip} edge`, async () => {
+    const { createRoot } = await import("react-dom/client");
+    const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
+    const column = dom.window.document.createElement("div");
+    column.className = "acpmux-main";
+    column.getBoundingClientRect = () =>
+      ({ left: 0, right: 1000, top: 0, bottom: 800, width: 1000, height: 800 }) as DOMRect;
+    host.append(column);
+    root = createRoot(column);
+    await act(async () =>
+      root!.render(
+        <ModelPicker
+          catalog={[claude, { id: "codex", name: "Codex", models: [{ id: "sol", name: "Sol" }], pickable: true }]}
+          harness="claude"
+          model="opus"
+          label="Opus 5.5"
+          efforts={[]}
+          recents={[]}
+          onLand={() => {}}
+          onCombo={() => {}}
+          onHarness={() => {}}
+          onEffort={() => {}}
+          quick={{}}
+        />,
+      ),
+    );
+    const chip = column.querySelector<HTMLButtonElement>("button")!;
+    chip.getBoundingClientRect = () =>
+      ({ left, right: left + 90, top: 700, bottom: 728, width: 90, height: 28 }) as DOMRect;
+    await act(async () => chip.click());
+    await settle();
+    expect(dom.window.document.querySelector(".acpmux-cols-resize")?.getAttribute("data-edge")).toBe(grip);
+    // Its own size rule, never the shared settled floor (ui/popupSettle.ts): that floor kept the widest
+    // width, so a drag could not narrow the menu and its pin moved the menu off the chip.
+    expect(dom.window.document.querySelector(".acpmux-cols")?.getAttribute("data-popup-settle")).toBe("own");
+  });

@@ -270,10 +270,21 @@ function Columns({
   // The chip's edge that stays put as its name changes: in a row packed to its end (the chat's quiet
   // row) a longer or shorter name moves the chip's start, so the menu lines up with its end and never
   // jumps as a model, a level or Fast changes the chip.
+  // A chip in the end half of its chat column lines up with its end too (the New Tab row spreads its
+  // chips, the model chip at the far end): aligned to the start, the menu overflowed past the column,
+  // the positioner shifted it back, and a resize moved it, since the drag pins the edges a start
+  // alignment has (Lucas 2026-11-25: "ensure the anchor of the menu is always the same and only size
+  // changes"). Aligned to the end, the chip's end edge stays put and the menu grows from its start.
   const [align, setAlign] = useState<"start" | "end">("start");
   useLayoutEffect(() => {
     const chip = button.current ?? trigger.current;
-    if (open && chip) setAlign(rowPackedToEnd(chip) ? "end" : "start");
+    if (!open || !chip) return;
+    const box = chip.getBoundingClientRect();
+    const column = chip.ownerDocument.querySelector(CHAT_COLUMN)?.getBoundingClientRect();
+    const left = column?.left ?? 0;
+    const right = column?.right ?? chip.ownerDocument.defaultView?.innerWidth ?? box.right;
+    const endHalf = box.left + box.width / 2 > (left + right) / 2;
+    setAlign(rowPackedToEnd(chip) || endHalf ? "end" : "start");
   }, [open, trigger]);
   // The menu stays where it opened while it is open: a pick lands at once and renames the chip, and a
   // longer or shorter name never moves the menu under the pointer. A resized window places it again.
@@ -1547,6 +1558,10 @@ function Columns({
         side={side}
         align={align}
         flip={false}
+        // Its own size rule (widthOf, heightOf, sizeHold): the shared settled floor (ui/popupSettle.ts)
+        // would keep the widest width it had, so a drag could never narrow it and the drag's pin for
+        // the narrower width moved the menu off its chip.
+        popupSettle="own"
         initialFocus={field}
         finalFocus={false}
       >
