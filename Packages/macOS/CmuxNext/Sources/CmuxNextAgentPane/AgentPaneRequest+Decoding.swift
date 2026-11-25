@@ -33,7 +33,7 @@ extension AgentPaneRequest {
         let usable = sessions.allSatisfy { !$0.isEmpty && $0.count <= 256 && !$0.contains(",") }
         switch id {
         case "cloudEvacuate", "cloudBringBackAll": return usable && (1...500).contains(sessions.count)
-        case "chatPlace.set", "chatMove.cancel", "chatMove.retry": return usable && sessions.count == 1 && session == nil
+        case "chatPlace.set", "chatPriority.set", "chatMove.cancel", "chatMove.retry": return usable && sessions.count == 1 && session == nil
         default: return false
         }
     }
@@ -711,6 +711,8 @@ extension AgentPaneRequest {
             let app = params?["app"].map { $0 as? String }
             // A `mode` is Chat Place's only (`chatPlace.set`): where the chat runs (local, cloud or auto); any other is refused.
             let mode = params?["mode"].map { $0 as? String }
+            // A `priority` is Keep Running's only (`chatPriority.set`): high or normal; any other is refused.
+            let priority = params?["priority"].map { $0 as? String }
             // `queued` and `hasDraft` are what the page knows of the chat's cargo (Chat Place's set and retry only); any other is refused.
             let queued = params?["queued"].map { $0 as? Int }
             let hasDraft = params?["hasDraft"].map { $0 as? Bool }
@@ -723,6 +725,7 @@ extension AgentPaneRequest {
                handoff.map({ $0.map { id == "palette.newCloudChat" && AgentPaneRequest.isHandoffToken($0) } ?? false }) ?? true,
                app.map({ $0.map { AgentPaneModel.editorActions.contains(id) && AgentPaneRequest.isEditorID($0) } ?? false }) ?? true,
                mode.map({ $0.map { id == "chatPlace.set" && ["local", "cloud", "auto"].contains($0) } ?? false }) ?? true,
+               priority.map({ $0.map { id == "chatPriority.set" && ["high", "normal"].contains($0) } ?? false }) ?? true,
                queued.map({ $0.map { ["chatPlace.set", "chatMove.retry"].contains(id) && (0...100_000).contains($0) } ?? false }) ?? true,
                hasDraft.map({ $0 != nil && ["chatPlace.set", "chatMove.retry"].contains(id) }) ?? true,
                sessions.map({ $0.map { AgentPaneRequest.areSessionTargets($0, id: id, alongside: session ?? nil) } ?? false }) ?? true {
@@ -735,7 +738,7 @@ extension AgentPaneRequest {
                 let org = (params?["org"] as? String).flatMap { github && AgentPaneRequest.isGitHubOwner($0) ? $0 : nil }
                 self = .runAction(id, session: session ?? nil, environment: environment ?? nil, handoff: handoff ?? nil, app: app ?? nil,
                                   repo: repo, returnTo: returnTo, org: org,
-                                  mode: mode ?? nil, queued: queued ?? nil, hasDraft: hasDraft ?? nil, sessions: sessions ?? nil)
+                                  mode: mode ?? nil, queued: queued ?? nil, hasDraft: hasDraft ?? nil, sessions: sessions ?? nil, priority: priority ?? nil)
             } else {
                 self = .unsupported(method)
             }
