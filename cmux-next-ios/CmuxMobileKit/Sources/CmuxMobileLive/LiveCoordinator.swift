@@ -107,6 +107,8 @@ public final class LiveCoordinator {
     #if canImport(CmuxMobileLinkFFI)
     /// Other devices waiting for a linked Mac's Allow, answered from this phone (ask-45c37458ea).
     public let pairRequests = MacPairRequests()
+    /// Each Mac's one-request catch-up cursors (`LiveCoordinator+CatchUp.swift`, off by default).
+    @ObservationIgnored let catchUps = MacCatchUps()
     #endif
     /// Every linked Mac's tabs as its `tabs` service pushes them: what the grid's cards show
     /// of tabs this phone never opened. The shell sets its sink (the phone's card store).
@@ -921,8 +923,8 @@ public final class LiveCoordinator {
         guard let team = store.activeTeam, registeredTeamID == team.id else { return }
         let remembered = UserDefaults.standard.string(forKey: "cmuxMobile.live.mac.\(team.id)")
             ?? (snapshot?.teamID == team.id ? snapshot?.linkedMacID : nil)
-        // The remembered Mac stands for its computer (a build this phone picked, beside
-        // another build of the same computer), in the focus and in every list (``MacRoster``).
+        // The remembered Mac (one this phone picked) is the team's picked Mac: it takes the focus.
+        // Every build is listed on its own (``MacRoster``).
         store.setPickedMac(remembered, teamID: team.id)
         let next = LinkMachine.target(in: listedMacs(store.activeTeam ?? team), remembered: remembered, current: focusedMacID)
         // The focused Mac's session exists before the focus moves to it.
@@ -931,20 +933,16 @@ public final class LiveCoordinator {
         applyLinks()
     }
 
-    /// The Macs the phone focuses and the screens list: the owner's own, one
-    /// build per computer (``MacRoster``).
+    /// The Macs the phone focuses and the screens list: the owner's own, each
+    /// build as its own Mac (``MacRoster``).
     private func listedMacs(_ team: Team) -> [MacDevice] {
         MacRoster(team.macs.filter { !othersMacs.contains($0.id) }, preferring: team.pickedMacID).visible
     }
 
-    /// The Macs this phone may link: the listed ones, and another build on a
-    /// listed Mac while something names it (a Feed answer or a notification of
-    /// that build, `touch`, or a link it still holds until idle), so an ask
-    /// from that build is still answered on it.
+    /// The Macs this phone may link: every listed one (each build is listed as its
+    /// own Mac); ``MacLinkPolicy`` picks which of them hold a link.
     private func dialableMacs(_ team: Team) -> [MacDevice] {
-        let own = team.macs.filter { !othersMacs.contains($0.id) }
-        let listed = Set(MacRoster(own, preferring: team.pickedMacID).visible.map(\.id))
-        return own.filter { listed.contains($0.id) || lastShown[$0.id] != nil }
+        listedMacs(team)
     }
 
     /// The focused Mac changed: the last one stays linked while it is recent
@@ -966,9 +964,7 @@ public final class LiveCoordinator {
         guard let team = store.activeTeam, registeredTeamID == team.id else { return }
         let macs = dialable ?? dialableMacs(team)
         let now = instants.now()
-        // nil (Workspaces, the Feed): every listed Mac. Another build of a listed Mac is
-        // never "shown" by that: it keeps its link only for the idle window after
-        // something named it (`touch`), then closes.
+        // nil (Workspaces, the Feed): every listed Mac.
         let showing = showingMacs ?? Set(listedMacs(team).map(\.id))
         for id in showing { lastShown[id] = now }
         for (id, session) in sessions { session.link.onScreen = showing.contains(id) }
@@ -1379,6 +1375,7 @@ public final class LiveCoordinator {
         for session in sessions.values { session.link.send(away.map { .resumed(after: $0) } ?? .resume) }
         #if canImport(CmuxMobileLinkFFI)
         pairRequests.foreground()
+        catchUpOnForeground()
         #endif
     }
 
