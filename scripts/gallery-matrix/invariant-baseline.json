@@ -2552,7 +2552,8 @@
       "center-line:row backgroundTask-18"
     ],
     "agent-pane.transcript-row-alignment#mix": [
-      "center-line:row subagentDone:agent-docs-check"
+      "center-line:row subagentDone:agent-docs-check",
+      "center-line:row backgroundTask-18"
     ],
     "agent-pane.transcript-row-alignment#off": [
       "center-line:row subagentDone:agent-docs-check",
