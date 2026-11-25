@@ -29,7 +29,6 @@ import {
   layoutConversation,
   type PlacedLayout,
   type RowHeights,
-  layoutGeometry,
   placedFromEstimate,
   placedWithOrigin,
   placeRowsIndexed,
@@ -48,6 +47,7 @@ import {
   restRoom,
   rowFrameKey,
   SINCE_DIVIDER,
+  layoutGeometry,
 } from "./model";
 import { RowFrameCache } from "./conversation/rowFrameCache";
 import { railOwnsWheel } from "./threadMinimap/railWheel";
@@ -114,11 +114,11 @@ import { keepTabOnScreen } from "../../ui/tabReach";
 import { type TrailingTimer, trailingTimer } from "../../ui/trailingTimer";
 import { useRowRepositories } from "./conversation/useRowRepositories";
 import {
+  type ReferenceScope,
+  type ReferenceScopeCache,
   newReferenceScopeCache,
   referenceScopes,
   turnOpener,
-  type ReferenceScope,
-  type ReferenceScopeCache,
 } from "./conversation/bareReferences";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
@@ -157,9 +157,9 @@ import {
   playTurnEnd,
   settleTurnEnd,
   TURN_END_ATTR,
+  turnEndRecap,
   type TurnEndCapture,
   type TurnEndFold,
-  turnEndRecap,
 } from "./conversation/turnEndFold";
 import { installGutterSelect, type HeldRow } from "./conversation/gutterSelect";
 import {
@@ -171,7 +171,7 @@ import {
   type ChatFind,
   rowHolds,
 } from "./conversation/chatFind";
-import { LIVE_THINKING, THINKING, foldCovers, turnFooterFrom, retryTargetIn, NEXT_STEP } from "./conversation/turns";
+import { LIVE_THINKING, NEXT_STEP, THINKING, foldCovers, turnFooterFrom, retryTargetIn } from "./conversation/turns";
 import { createLiveLinePulse } from "./conversation/liveLinePulse";
 import { installWheelGlide } from "./wheelGlide";
 import { installDockWheelHold, installWheelPassThrough } from "./wheelPassThrough";
@@ -179,7 +179,7 @@ import { type TranscriptNeedsYou } from "./needsYou/JumpPill";
 import { copyTextResult } from "./conversation/clipboard";
 import { transcriptRangeText } from "./conversation/transcriptCopy";
 import { chatColumnOf, useChatSizing } from "./chatWidth";
-import { useChatDisplay, sendPopEnabled } from "./chatDisplay";
+import { sendPopEnabled, useChatDisplay } from "./chatDisplay";
 import { useComposerSettings } from "./composerSettings";
 import { type Folds } from "./conversation/viewFolds";
 import { noteSendFromLatest } from "./conversation/sendMorph";
@@ -191,7 +191,7 @@ import {
   noteUnreadNews,
   noteUnreadCount,
 } from "./conversation/unreadState";
-import { sinceNews, sinceCount, type HeldSpan, SinceTurnHold } from "./conversation/sinceNews";
+import { type HeldSpan, SinceTurnHold, sinceNews, sinceCount } from "./conversation/sinceNews";
 import {
   jumpUpShown,
   jumpUpTarget,
@@ -205,7 +205,7 @@ import { jumpUpButton } from "./jumpUp.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
 import { motionToken, warmMotionTokens } from "../../ui/motion/motionTokens";
-import { followShownScrollerFade, SHOWN_INK_PROPERTIES } from "../../scrollers";
+import { SHOWN_INK_PROPERTIES, followShownScrollerFade } from "../../scrollers";
 import { thumbMotion } from "./conversation/thumbMotion.experiment";
 import { editableTarget, wheelScrollsDown } from "./conversation/wheelChain";
 import { heightLeftAbove, type NewerReserve, newerReserve, rowsReplaced } from "./conversation/newerReserve";
@@ -252,8 +252,8 @@ import {
   ARRIVAL_PASS_MS,
   arrivedAtTail,
   TokenRows,
-  broughtSentPrompt,
   noReplyCame,
+  broughtSentPrompt,
   newestPromptIndex,
 } from "./transcript/arrivals";
 import {
@@ -1950,7 +1950,9 @@ function TranscriptView({
   /// The last update asked of `drawn` from an effect or a callback: whether React ran it yet, and what it
   /// gave. Ran, and what it gave is what is drawn, nothing asked waits: a report equal to what is
   /// drawn changes nothing, so `flushDrawn` asks nothing (`askDrawn`).
-  const drawnAsk = useRef<{ ran: boolean; result?: DrawnHeights }>({ ran: false });
+  const drawnAsk = useRef<{ ran: boolean; result?: DrawnHeights }>({
+    ran: false,
+  });
   /// `setDrawn(update)`, noted in `drawnAsk`.
   const askDrawn = useCallback((update: (current: DrawnHeights) => DrawnHeights) => {
     const ask: { ran: boolean; result?: DrawnHeights } = { ran: false };
@@ -2920,6 +2922,10 @@ function TranscriptView({
   /// the send motion's length. A row landing later in `sendRiseUntil` (a delayed thinking or tool
   /// row) arrives on the arrival step instead of starting the send curve over after the bubble rested.
   const sendClockUntil = useRef(Number.NEGATIVE_INFINITY);
+  /// A send whose own rows have not landed yet: the send's clock starts when they do. Timed from the
+  /// commit alone, a loaded page that drew the prompt's row after the clock's end (240 ms on `quick`)
+  /// moved the rows above by the whole room in one frame (agent-pane.send-rise on CI).
+  const sendRowsPending = useRef(false);
   /// The latest send came while a turn ran (a steer): its row lands above the running work, an
   /// arrival like any other (followChase's arrival step), not the send's rise from the composer.
   /// Set while rendering, as React adjusts state on a prop change, so the passes after this
@@ -3804,7 +3810,10 @@ function TranscriptView({
     // 13 px when the first older page landed (bench/settled-page.bench.ts chat_switch, stream). Rows that grow
     // keep the room as it was: taken from it, each streamed token moved every row above it (workspace_switch).
     const reserved = gone
-      ? { reserve: Math.max(gone.room, gone.end - (placed.totalHeight - placedOrigin)), state: undefined }
+      ? {
+          reserve: Math.max(gone.room, gone.end - (placed.totalHeight - placedOrigin)),
+          state: undefined,
+        }
       : olderReserve(olderRoom.current, {
           sessionId,
           rows,
@@ -5026,6 +5035,17 @@ function TranscriptView({
             // With the send pop on, the send's own rows rise on the pop's clock instead of at once, in
             // either arm (SEND-RISE, Leo, 2026-11-22: "the chat transcript above doesn't quite smoothly
             // account for things"). The pop's own rise only: off, a page's own send clock still lands at once.
+            // The clock starts over when the send's first rows land (`sendRowsPending`), so a page that
+            // drew them late still rises on the whole clock instead of landing them at once. Before
+            // `rising` reads it: after, rows a loaded page drew 350-600 ms after Return read the clock
+            // the press set as spent and moved 140-175 px in one frame (agent-pane.send-rise, quick/settle).
+            if (sentRows && sendRowsPending.current) {
+              sendRowsPending.current = false;
+              sendClockUntil.current = Math.max(
+                sendClockUntil.current,
+                now + Math.max(sendMotionMs(node), sendRiseMs(node)),
+              );
+            }
             const rising = sentRows && now < sendClockUntil.current && popRiseMs(node) > 0;
             const atOnce =
               dockMoved ||
@@ -5779,7 +5799,12 @@ function TranscriptView({
     // height also holds the thread's own padding).
     const next = Math.max(0, Math.floor(room - Math.max(0, node.scrollHeight - node.clientHeight)));
     if (next >= room - 0.5) return;
-    setRoomGone({ sessionId, firstId: first.id, room: next, end: next + measured.layout.totalHeight - room });
+    setRoomGone({
+      sessionId,
+      firstId: first.id,
+      room: next,
+      end: next + measured.layout.totalHeight - room,
+    });
   };
   // After the placement pass above: its offset is the one this reads, and the state it sets renders
   // again before the frame paints.
@@ -5907,6 +5932,7 @@ function TranscriptView({
       // (placement pass), and the reply's rows that land next rise on it too (`sendRows`).
       sendRiseUntil.current = performance.now() + SEND_RISE_MS;
       sendClockUntil.current = performance.now() + Math.max(sendMotionMs(node), sendRiseMs(node));
+      sendRowsPending.current = true;
       return;
     }
     revealing.current = undefined;
@@ -5952,6 +5978,7 @@ function TranscriptView({
     // The prompt's rows that land in the next commits glide in too (placement pass, `sendRows`).
     sendRiseUntil.current = performance.now() + SEND_RISE_MS;
     sendClockUntil.current = performance.now() + Math.max(sendMotionMs(node), sendRiseMs(node));
+    sendRowsPending.current = true;
     // Sent while scrolled up: on a page's own send clock the view glides down to the latest message
     // on Jump to latest's ride (one viewport at most), and the prompt's row and reply land on the
     // moving end. On the product's 0 clock (Leo, 2026-11-11: "that slow settle animation is just so
