@@ -21,6 +21,7 @@
 //! - `migrate.classic` `{file}` answers `{edits: [{path, value}]}` (`value`
 //!   `null`: remove the key).
 //! - `migrate.legacy_path` `{path}` answers `{legacy?}`;
+//!   `migrate.legacy_paths` `{}` answers `{renames: [{path, legacy}]}`, every one;
 //!   `migrate.legacy_value` `{path, root}` answers `{value?}`.
 //! - `editor_toggle.all` `{}` answers `{toggles: [{action, key}]}`;
 //!   `editor_toggle.next` `{action, section?}` answers `{key, value}` or `{}`.
@@ -50,6 +51,7 @@ pub fn call(op: &str, request: &Value) -> Option<Result<Value, OpError>> {
         "import.browser_enabled" => browser_enabled(request),
         "migrate.classic" => migrate_classic(request),
         "migrate.legacy_path" => legacy_path(request),
+        "migrate.legacy_paths" => Ok(legacy_paths()),
         "migrate.legacy_value" => legacy_value(request),
         "editor_toggle.all" => Ok(toggles()),
         "editor_toggle.next" => toggle_next(request),
@@ -201,6 +203,12 @@ fn legacy_path(request: &Value) -> Result<Value, OpError> {
     Ok(Value::Object(out))
 }
 
+fn legacy_paths() -> Value {
+    let renames: Vec<Value> =
+        renamed::legacy_paths().into_iter().map(|(path, legacy)| json!({"path": path, "legacy": legacy})).collect();
+    json!({ "renames": renames })
+}
+
 fn legacy_value(request: &Value) -> Result<Value, OpError> {
     let mut out = Map::new();
     if let Some(found) = renamed::legacy_value(&path(request, "path")?, value(request, "root")?) {
@@ -296,6 +304,8 @@ mod tests {
             json!({"legacy": ["appearance", "backdropArt"]})
         );
         assert_eq!(ok("migrate.legacy_path", json!({"path": ["editor", "fontSize"]})), json!({}));
+        let renames = ok("migrate.legacy_paths", json!({}));
+        assert!(renames["renames"].as_array().is_some_and(|renames| renames.len() >= 5));
         let root = json!({"computerUse": {"enabled": false}});
         assert_eq!(ok("migrate.legacy_value", json!({"path": ["computerUse", "mode"], "root": root})), json!({"value": "off"}));
     }

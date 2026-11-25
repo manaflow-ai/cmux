@@ -5,7 +5,7 @@
 
 use serde_json::Value;
 
-use crate::schema::{Kind, Schema, replaced_by_row};
+use crate::schema::{Kind, Schema, replaced_by_row, replaced_keys};
 use crate::value::value_at;
 
 const BACKGROUND: [&str; 2] = ["appearance", "background"];
@@ -42,6 +42,21 @@ pub fn legacy_path(path: &[String]) -> Option<Vec<String>> {
     }
     // `appearance.background` replaced the paintings-only `appearance.backdropArt`.
     (path == BACKGROUND).then(|| owned(&BACKDROP_ART))
+}
+
+/// Every renamed row and the old key it replaced, as [`legacy_path`] answers
+/// them: the app reads this once rather than asking per row.
+pub fn legacy_paths() -> Vec<(Vec<String>, Vec<String>)> {
+    let mut out: Vec<(Vec<String>, Vec<String>)> = Vec::new();
+    for replaced in replaced_keys() {
+        if !out.iter().any(|(row, _)| *row == replaced.row) {
+            out.push((replaced.row.clone(), replaced.old.clone()));
+        }
+    }
+    if !out.iter().any(|(row, _)| *row == BACKGROUND) {
+        out.push((owned(&BACKGROUND), owned(&BACKDROP_ART)));
+    }
+    out
 }
 
 /// A bundled work by id, a retired id's stand-in, else `none` (Swift
@@ -102,6 +117,10 @@ mod tests {
         }
         assert_eq!(legacy_path(&path("sidebar.workspaceRow.branch")), None);
         assert_eq!(legacy_path(&path("editor.fontSize")), None);
+        for (row, old) in legacy_paths() {
+            assert_eq!(legacy_path(&row), Some(old));
+        }
+        assert!(legacy_paths().iter().any(|(row, _)| *row == path("appearance.background")));
     }
 
     #[test]
