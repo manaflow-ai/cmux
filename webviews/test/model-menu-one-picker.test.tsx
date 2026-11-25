@@ -278,3 +278,46 @@ test("a started Antigravity chat that cannot fork lists Antigravity on the share
   await click(row);
   expect(switched).toEqual(["codex"]);
 });
+
+async function mountChat(snapshot: Snapshot) {
+  const { createRoot } = await import("react-dom/client");
+  const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+  const { ChatComposerChips } = await import("../src/agent-session/acpmux/App");
+  const calls: { method: string; params: unknown }[] = [];
+  (dom.window as unknown as { cmuxAcpmuxActions: unknown }).cmuxAcpmuxActions = new Proxy(
+    {},
+    { get: (_target, method) => async (params: unknown) => void calls.push({ method: String(method), params }) },
+  );
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ChatComposerChips snapshot={snapshot} />
+      </QueryClientProvider>,
+    ),
+  );
+  await settle();
+  return calls;
+}
+
+// A host that serves Continue In… but no in-place fork carries the conversation to the picked
+// harness through Continue In…'s review, never a blank chat.
+test("a started chat whose host cannot fork in place continues in the picked harness", async () => {
+  const snapshot = chat(await everyHarness(), 1, { sessionId: "s1", canHandoff: true, canFork: false });
+  snapshot.summary!.harness = "antigravity";
+  snapshot.summary!.model = "gemini-4-hydrogen";
+  snapshot.rows = [{ id: "u1", version: 1, kind: "user", text: "1+1" } as Snapshot["rows"][number]];
+  const calls = await mountChat(snapshot);
+  await open();
+  expect(tabNames()).toContain("Antigravity");
+  const codex = [...(columns()?.querySelectorAll<HTMLElement>('.acpmux-cols-rail [role="tab"]') ?? [])].find(
+    (tab) => tab.getAttribute("aria-label") === "Codex",
+  )!;
+  await click(codex);
+  await click(columns()!.querySelector<HTMLElement>('[role="listbox"] [role="option"]')!);
+  await settle();
+  const methods = calls.map((call) => call.method);
+  expect(methods).toContain("chat.handoff.prepare");
+  expect(methods).not.toContain("chat.new");
+  expect(calls.find((call) => call.method === "chat.handoff.prepare")?.params).toEqual({ harness: "codex" });
+}, 30_000);
