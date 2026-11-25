@@ -26,8 +26,7 @@ import Testing
         // Neither UDP nor the TURN host: cmux's WebSocket relay (PROTOCOL.md "WebSocket relay").
         _ = machine.handle(.linkUpdated(generation: machine.generation, path: .httpsRelay, rttMillis: nil))
         #expect(machine.phase.diagnosticLine(macName: "Studio") == "Connected · WireGuard relay (cmux, HTTPS) · 40 ms")
-        // A connected link says nothing in the header (#53778: "no Connecting spinner"; Leo,
-        // 2026-11-24: "all the connecting... indicators ... nah let's not do that").
+        // The header says nothing for a connected link, on cmux's relay as on any path (#53778).
         #expect(machine.phase.statusLine(macName: "Studio") == nil)
         _ = machine.handle(.linkUpdated(generation: machine.generation, path: .noPath, rttMillis: nil))
         #expect(machine.phase.diagnosticLine(macName: "Studio") == "Connected · WireGuard no path · 40 ms")

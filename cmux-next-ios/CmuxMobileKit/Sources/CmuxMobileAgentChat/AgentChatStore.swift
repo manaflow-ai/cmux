@@ -595,6 +595,11 @@ public final class AgentChatStore {
 
     // MARK: Intents
 
+    /// The composer's attachments changed: the source may start sending files ahead of Send.
+    public func composerAttachmentsChanged(_ attachments: [AgentAttachment]) {
+        source.prestageAttachments(attachments)
+    }
+
     /// `denyingPermission`: the message is "Reply instead" for the pending
     /// permission (SPEC 6.5): deny it so the agent goes on, and send the
     /// message as guidance. A plain message while a permission waits queues.
@@ -1809,7 +1814,11 @@ public final class AgentChatStore {
                 markdown += text
                 turns[last].items[item] = .message(id: id, markdown: markdown)
             } else {
-                turns[last].items.append(.message(id: messageId ?? UUID().uuidString, markdown: text))
+                // The same message going on after a row of its own between (an image it sent)
+                // takes a new id: two rows never share one.
+                var id = messageId ?? UUID().uuidString
+                if turns[last].items.contains(where: { $0.id == "m-\(id)" }) { id += "-#\(turns[last].items.count)" }
+                turns[last].items.append(.message(id: id, markdown: text))
             }
             currentMessageID = messageId
             startsNewAttempt = false

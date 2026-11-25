@@ -243,6 +243,7 @@ pub struct Adopted {
     pub acked_h: u64,
     pub max_out_id: i64,
     pub exited: Option<Option<i32>>,
+    pub launch_credential: super::LaunchCredential,
 }
 
 pub enum Connect {
@@ -579,6 +580,7 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
             acked_h,
             max_out_id,
             exited,
+            launch_credential,
         }) => Adopted {
             version,
             host_build,
@@ -588,6 +590,7 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
             acked_h,
             max_out_id,
             exited,
+            launch_credential,
         },
         Some(HostFrame::Incompatible { min, max, host_build }) => {
             return Ok(Connect::Incompatible { min, max, host_build });

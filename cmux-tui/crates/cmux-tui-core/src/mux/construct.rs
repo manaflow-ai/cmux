@@ -463,6 +463,7 @@ impl Mux {
             daemon_shutdown_waker: Mutex::new(None),
             control_clients: crate::server::ClientRegistry::new(input_lane),
             tree_reply_flight: Default::default(),
+            workspace_delta: Default::default(),
             #[cfg(unix)]
             agent_transfers: Default::default(),
             #[cfg(unix)]

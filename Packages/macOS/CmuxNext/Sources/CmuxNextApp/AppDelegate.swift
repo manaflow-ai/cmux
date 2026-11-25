@@ -200,7 +200,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.newTabSpares.prewarm() // the first agent page loads while the windows build (cx-z9kz0)
         DebugTimings.markLaunch("dfl.settings")
         if services.crashRecovery.recovery.startsUpdaterBeforeWindows { services.updater.start() } // a restart loop: before the daemon and windows, so a build that ends before its first frame can still fetch its fix
-        NSApp.mainMenu = MainMenu.make(registry: services.registry, customizations: CustomizationsMenu.item(settings: { [weak services] in services?.settings },
+        NSApp.mainMenu = MainMenu.make(registry: services.registry, customizations: CustomizationsMenu.item(registry: services.registry, settings: { [weak services] in services?.settings },
             openAll: { [weak services] in try? services?.settingsWindow.show(section: nil, route: SettingsDeepLink.customizeRoute) }))
         DebugTimings.markLaunch("dfl.menu")
         logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
@@ -368,6 +368,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         CustomizeDoctorNotice(cli: { [bundled = services.bundledCLI] in await bundled.resolve() }, settingsFile: { [weak settings] in settings?.file.url }, untilWindow: { [firstFrame] in await firstFrame.opened() }, present: CustomizeDoctorNotice.toast { [weak registry] in // `customize doctor --announce` after each load; Review opens its card
             _ = registry?.perform("openSettings", invocation: ActionInvocation(arguments: ["route": .string(CustomizeDoctorNotice.route)], origin: .user)) }).follow(settings)
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, isFirstLaunch: OnboardingWindowPresenter.isFirstLaunch(), firstWindow: { [firstFrame] in await firstFrame.opened() })
+        AnonymousTelemetryConsent.install(on: settings) // after hang reports: `app.sendAnonymousTelemetry` writes reach the app's preference
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store, menuBar: services.menuBarExtra)
         let acpmux = QuitAgents.environment(services)
         AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)

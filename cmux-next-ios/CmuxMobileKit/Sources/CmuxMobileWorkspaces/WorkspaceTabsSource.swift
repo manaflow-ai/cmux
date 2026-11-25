@@ -61,6 +61,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
     @ObservationIgnored var surfaces: [String: AgentChatSurface] = [:]
     /// Each chat tab's composer draft, kept across rebuilds and launches (nil: not kept).
     @ObservationIgnored var drafts: ComposerDraftStore? = .shared
+    /// Where the person was, kept across launches: a chat tab opens at its kept reading place
+    /// and keeps it as they read (nil: not kept).
+    @ObservationIgnored var lastPlace: LastPlaceMemory? = .shared
     /// Toggle Terminal and Chat (WorkspaceTabsSource+TerminalChat.swift): the face each paired tab
     /// shows, once the person chose one (else Rust's default).
     var chosenFaces: [String: TabFace] = [:]
@@ -995,6 +998,14 @@ public final class WorkspaceTabsSource: TabsDataSource {
             let key = ComposerDraftStore.key(macID: macID, tabID: id)
             surface.text = drafts.text(for: key) ?? ""
             surface.onTextChange = { [weak drafts] text in drafts?.save(text, for: key) }
+        }
+        // The reading place of the last run, from the phone's own file (never the network).
+        if let lastPlace {
+            let workspaceID = workspaceID
+            surface.restoreAnchor = lastPlace.readingAnchor(workspaceID: workspaceID, tabID: id)
+            surface.onReadingAnchor = { [weak lastPlace] anchor in
+                lastPlace?.noteReading(workspaceID: workspaceID, tabID: id, anchor: anchor)
+            }
         }
         // `/fork` and an earlier prompt's Edit and Resend open their copy as a tab beside it.
         surface.tabActions = AgentChatTabActions(

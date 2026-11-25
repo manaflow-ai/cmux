@@ -121,14 +121,6 @@
       "root_fix": "1b"
     },
     {
-      "id": "chat.tool.fullOutput.loading",
-      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/ToolViews.swift",
-      "line": 139,
-      "bound_ms": 2000,
-      "waits_for": "a tool call's full output on its way from the Mac",
-      "root_fix": "1b"
-    },
-    {
       "id": "chat.user.empty",
       "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/AgentChatScreen.swift",
       "line": 1123,
@@ -390,6 +382,26 @@
       "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/ParityViews.swift",
       "text": "Text(\"Preparing the summary…\").font(.footnote).foregroundStyle(.secondary)",
       "reason": "work the person asked for (an agent writing a continuation summary), not content on its way: progress, not a placeholder"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
+      "text": "case \"b\": SkeletonList(rows: 3, delay: .zero, caption: caption, style: .plainList, captionPlacement: .below)",
+      "reason": "design gallery: skeleton variants drawn for review, not in a flow"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
+      "text": "case \"c\": SkeletonList(rows: 3, delay: .zero, caption: caption, style: .plainList, captionPlacement: .above)",
+      "reason": "design gallery: skeleton variants drawn for review, not in a flow"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
+      "text": "case \"before\": SkeletonList(rows: 3, delay: .zero, caption: caption)",
+      "reason": "design gallery: skeleton variants drawn for review, not in a flow"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
+      "text": "default: SkeletonList(rows: 3, delay: .zero, caption: caption, style: .plainList, captionPlacement: .spoken)",
+      "reason": "design gallery: skeleton variants drawn for review, not in a flow"
     }
   ]
 }
