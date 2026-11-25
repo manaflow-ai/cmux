@@ -142,13 +142,14 @@ fn bedrock_region(url: &str) -> Option<&str> {
     providers::bedrock_region(url)
 }
 
-/// The families a key connection serves: its endpoints' (Revision 3), for a route the catalog
-/// knows; else the route's own.
+/// The families a key connection serves: the ones its route file names, which a spawn goes by
+/// (`Route::serves`), so a key saved before Revision 3 lists what it still serves; for a route
+/// that names none, its endpoints' (Revision 3) when the catalog knows it.
 fn key_families(file: &RouteFile) -> Vec<String> {
-    match route_endpoints(file) {
-        Some(e) => e.families(),
-        None => file.families.clone(),
+    if !file.families.is_empty() {
+        return file.families.clone();
     }
+    route_endpoints(file).map(|e| e.families()).unwrap_or_default()
 }
 
 fn connection(route: &Route, facts: Facts, b: &Bindings) -> Connection {
@@ -877,6 +878,31 @@ mod tests {
         assert_eq!(state(Some(&d.routes), &d.home)["spread"], true);
         assert_eq!(set_spread(Some(&d.routes), &d.home, false).unwrap()["spread"], false);
         assert_eq!(routes::bindings(&d.home).spread, Some(false));
+    }
+
+    /// cmux#48428 review: a key saved before Revision 3 keeps its saved families, which spawns go
+    /// by; it is listed with them, not with what the catalog would give a new key.
+    #[test]
+    fn a_saved_key_is_listed_with_the_families_its_route_serves() {
+        let d = dirs();
+        add_key(Some(&d.routes), &d.home, "openrouter", "keychain:cmux-or", None).unwrap();
+        let route = routes::find(Some(&d.routes), "openrouter-key").unwrap();
+        let text = std::fs::read_to_string(&route.path).unwrap();
+        let old =
+            text.lines()
+                .map(|l| {
+                    if l.starts_with("families") { "families = [\"claude\", \"codex\"]" } else { l }
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+        assert_ne!(old, text, "the route file names its families: {text}");
+        std::fs::write(&route.path, old).unwrap();
+
+        let route = routes::find(Some(&d.routes), "openrouter-key").unwrap();
+        assert!(!route.serves("opencode"));
+        let listed = list(Some(&d.routes), &d.home, &routes::bindings(&d.home));
+        let key = listed.iter().find(|c| c.id == "openrouter-key").unwrap();
+        assert_eq!(key.families, vec!["claude".to_owned(), "codex".to_owned()]);
     }
 
     #[test]

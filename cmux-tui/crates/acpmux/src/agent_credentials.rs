@@ -75,7 +75,7 @@ pub const MARKER: &str = "ACPMUX_LAUNCH_CREDENTIAL";
 
 /// What a credentialed agent never inherits: the machine's coderouter route, and every other
 /// provider login or endpoint switch that would outrank the credential or send it elsewhere.
-pub const UNSET: [&str; 29] = [
+pub const UNSET: [&str; 24] = [
     "ANTHROPIC_BASE_URL",
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
@@ -99,13 +99,18 @@ pub const UNSET: [&str; 29] = [
     "CMUX_PROVIDER_RESPONSES_URL",
     "CMUX_PROVIDER_REGION",
     "CMUX_OPENCODE_AUTH",
-    // AWS credentials the image may carry would outrank a Bedrock key (cmux#48428).
+    "ANTHROPIC_BEDROCK_BASE_URL",
+];
+
+/// What a Bedrock credential's agent also never inherits: AWS credentials the image may carry
+/// would outrank the Bedrock key (cmux#48428). Every other agent keeps them, so `aws` still works
+/// from its shell.
+pub const UNSET_FOR_BEDROCK: [&str; 5] = [
     "AWS_PROFILE",
     "AWS_ACCESS_KEY_ID",
     "AWS_SECRET_ACCESS_KEY",
     "AWS_SESSION_TOKEN",
     "AWS_REGION",
-    "ANTHROPIC_BEDROCK_BASE_URL",
 ];
 
 /// The Codex provider a ChatGPT plan token runs on: the ChatGPT Codex backend
@@ -263,6 +268,12 @@ impl AgentCredential {
         self.env.get(provider_wire::ID).map(String::as_str)
     }
 
+    /// Whether it is an Amazon Bedrock key, whose agent must not inherit AWS credentials.
+    fn is_bedrock(&self) -> bool {
+        self.provider() == Some("bedrock")
+            || matches!(self.anthropic_auth(), Some(Ok(crate::providers::AnthropicAuth::Bedrock)))
+    }
+
     fn anthropic_auth(&self) -> Option<Result<crate::providers::AnthropicAuth, ()>> {
         self.env
             .get(provider_wire::ANTHROPIC_AUTH)
@@ -345,7 +356,8 @@ pub fn apply(
     // Every variable OpenCode reads a catalog provider's key from goes too: an inherited one
     // would pick another provider than the delivered key's.
     let opencode = crate::providers::PROVIDERS.iter().filter_map(|p| p.opencode.map(|o| o.env));
-    for key in UNSET.into_iter().chain(opencode) {
+    let bedrock = if credential.is_bedrock() { &UNSET_FOR_BEDROCK[..] } else { &[] };
+    for key in UNSET.into_iter().chain(opencode).chain(bedrock.iter().copied()) {
         env.remove(key);
         if !unset.iter().any(|u| u == key) {
             unset.push(key.to_owned());
@@ -900,6 +912,49 @@ mod tests {
         assert_eq!(e["AWS_BEARER_TOKEN_BEDROCK"], "ABSKbedrock");
         assert_eq!(e["AWS_REGION"], "us-west-2");
         assert!(!e.contains_key("ANTHROPIC_BASE_URL"));
+    }
+
+    /// cmux#48428 review: only a Bedrock key clears the AWS credentials the agent inherited; an
+    /// OpenRouter key or a Claude token leaves them, so `aws` still works from the agent's shell.
+    #[test]
+    fn only_a_bedrock_key_clears_inherited_aws_credentials() {
+        let aws = [
+            ("AWS_PROFILE", "work"),
+            ("AWS_ACCESS_KEY_ID", "AKIAX"),
+            ("AWS_SECRET_ACCESS_KEY", "s"),
+            ("AWS_SESSION_TOKEN", "t"),
+            ("AWS_REGION", "eu-west-1"),
+        ];
+        let unset_list = |e: &BTreeMap<String, String>| e[crate::routes::UNSET_KEY].clone();
+
+        let openrouter = provider(OPENROUTER).unwrap();
+        let token =
+            AgentCredential::parse(&json!({"env": {CLAUDE_OAUTH: "sk-ant-oat01-abc"}})).unwrap();
+        for (c, family) in [(&openrouter, "opencode"), (&openrouter, "claude"), (&token, "claude")]
+        {
+            let mut e = env(&aws);
+            assert!(apply(c, family, &mut vec![family.to_owned()], &mut e));
+            for (k, v) in aws {
+                assert_eq!(e.get(k).map(String::as_str), Some(v), "{family} keeps {k}");
+                assert!(!unset_list(&e).split(',').any(|u| u == k), "{family} unsets {k}");
+            }
+        }
+
+        let bedrock = provider(&[
+            ("CMUX_PROVIDER_API_KEY", "ABSKbedrock"),
+            ("CMUX_PROVIDER_ID", "bedrock"),
+            ("CMUX_PROVIDER_ANTHROPIC_AUTH", "bedrock"),
+            ("CMUX_PROVIDER_REGION", "us-west-2"),
+        ])
+        .unwrap();
+        let mut e = env(&aws);
+        assert!(apply(&bedrock, "claude", &mut vec!["claude".to_owned()], &mut e));
+        for k in ["AWS_PROFILE", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"]
+        {
+            assert!(!e.contains_key(k), "Bedrock drops {k}");
+            assert!(unset_list(&e).split(',').any(|u| u == k), "Bedrock unsets {k}");
+        }
+        assert_eq!(e["AWS_REGION"], "us-west-2", "the key's own region replaces the inherited one");
     }
 
     #[test]

@@ -162,6 +162,12 @@ test("a key the provider refuses says so, and the form asks for it again", async
   );
   expect(form.querySelector<HTMLInputElement>('input[type="password"]')!.value).toBe("");
   expect(connectionIds(rendered)).toEqual([]);
+
+  // Back to the list and another provider: that refusal was OpenRouter's, so it is not shown here.
+  await click(sheet()!.querySelector('[data-models-action="back"]')!);
+  await click(sheet()!.querySelector('[data-models-choice="xai"]')!);
+  expect(sheet()!.querySelector('[data-models-key-form="xai"]')).not.toBeNull();
+  expect(sheet()!.querySelector("[data-models-sheet-error]")).toBeNull();
 });
 
 test("Amazon Bedrock takes its AWS Region with the key", async () => {

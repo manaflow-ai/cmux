@@ -9,17 +9,16 @@ use crate::agent_credentials::Family;
 use crate::providers::{self, AnthropicAuth};
 
 /// The variables a catalog provider's key reaches an agent by outside the base-URL path: OpenCode's
-/// built-in provider variables and Bedrock's.
-fn names() -> impl Iterator<Item = &'static str> {
-    providers::PROVIDERS.iter().filter_map(|p| p.opencode.map(|o| o.env)).chain([
-        "CLAUDE_CODE_USE_BEDROCK",
-        "AWS_BEARER_TOKEN_BEDROCK",
-        "AWS_REGION",
-        "AWS_PROFILE",
-        "AWS_ACCESS_KEY_ID",
-        "AWS_SECRET_ACCESS_KEY",
-        "AWS_SESSION_TOKEN",
-    ])
+/// built-in provider variables and Bedrock's switches. The AWS credentials go only for a Bedrock
+/// key, which they would outrank; every other agent keeps them for its own `aws` use.
+fn names(bedrock: bool) -> impl Iterator<Item = &'static str> {
+    let aws: &[&'static str] =
+        if bedrock { &crate::agent_credentials::UNSET_FOR_BEDROCK } else { &[] };
+    providers::PROVIDERS
+        .iter()
+        .filter_map(|p| p.opencode.map(|o| o.env))
+        .chain(["CLAUDE_CODE_USE_BEDROCK", "AWS_BEARER_TOKEN_BEDROCK"])
+        .chain(aws.iter().copied())
 }
 
 /// The env of a catalog key route for `family`, or None for every other route and family, which
@@ -52,8 +51,9 @@ fn env(route: &Route, family: &str) -> Option<BTreeMap<String, String>> {
 /// `out` untouched) when the route and family take the base-URL path.
 pub(super) fn fill(route: &Route, family: &str, out: &mut RouteEnv) -> bool {
     let Some(env) = env(route, family) else { return false };
+    let bedrock = route.file.provider.as_deref() == Some("bedrock");
     let more: Vec<String> =
-        names().filter(|k| !out.unset.iter().any(|u| u == k)).map(str::to_owned).collect();
+        names(bedrock).filter(|k| !out.unset.iter().any(|u| u == k)).map(str::to_owned).collect();
     out.unset.extend(more);
     out.set = env;
     true

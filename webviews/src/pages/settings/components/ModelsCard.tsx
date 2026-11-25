@@ -898,6 +898,14 @@ export function AddConnectionSheet({
   const catalog = providerCatalog(models);
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<Choice | null>(() => startChoice(start, catalog));
+  // The choice the last gesture went out for: its refusal shows only while that choice is open, so
+  // going back and picking another provider starts clean.
+  const [ranFor, setRanFor] = useState<Choice | null>(null);
+  const sheetRun: Run = (gesture) => {
+    setRanFor(picked);
+    return run(gesture);
+  };
+  const shownRefusal = picked && (ranFor === picked || ranFor === null) ? refusal : null;
   const inGroup = (group: ModelProviderInfo["group"]) => catalog.filter((info) => info.group === group).map(keyChoice);
   const needle = query.trim().toLocaleLowerCase();
   const matches = (choice: Choice) =>
@@ -943,9 +951,9 @@ export function AddConnectionSheet({
           )}
           <h2>{picked ? picked.title : title}</h2>
         </header>
-        {picked && refusal && (
+        {shownRefusal && (
           <p className="row-error" role="alert" data-models-sheet-error="">
-            {refusal}
+            {shownRefusal}
           </p>
         )}
         {!picked && (
@@ -1000,7 +1008,7 @@ export function AddConnectionSheet({
           <div className="accounts-form" data-models-way="chatgpt">
             <p className="row-help">{t("settingsWindow.models.chatgpt.help")}</p>
             {attempt || error ? (
-              <ChatGPTStatus chatgpt={models.chatgpt} busy={busy} run={run} />
+              <ChatGPTStatus chatgpt={models.chatgpt} busy={busy} run={sheetRun} />
             ) : (
               <div className="accounts-buttons">
                 <Button
@@ -1017,14 +1025,14 @@ export function AddConnectionSheet({
             )}
           </div>
         )}
-        {picked?.kind === "claude" && <ClaudeTokenForm busy={busy} run={run} onDone={onClose} />}
+        {picked?.kind === "claude" && <ClaudeTokenForm busy={busy} run={sheetRun} onDone={onClose} />}
         {picked?.kind === "key" &&
           (picked.info.unavailable ? (
             <p className="row-help" data-models-way="unavailable" data-models-key-form={picked.provider}>
               {t("settingsWindow.models.key.signInOnly", picked.info.label)}
             </p>
           ) : (
-            <KeyForm info={picked.info} busy={busy} run={run} onDone={onClose} />
+            <KeyForm info={picked.info} busy={busy} run={sheetRun} onDone={onClose} />
           ))}
       </div>
     </Dialog>

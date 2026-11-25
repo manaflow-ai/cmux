@@ -483,28 +483,49 @@ fn is_private_host(host: &str) -> bool {
     }
 }
 
-/// An address a key must never be sent to: this machine, a private, link-local, CGNAT or
-/// unique-local network (an IPv4-mapped IPv6 address is read as its IPv4 one).
+/// An address a key must never be sent to: this machine, a private, link-local, CGNAT,
+/// unique-local, reserved, benchmarking or multicast network. An IPv6 address that carries an IPv4
+/// one (IPv4-mapped or -compatible, NAT64 `64:ff9b::/96`, 6to4 `2002::/16`) is read as that IPv4.
 fn is_private_ip(ip: std::net::IpAddr) -> bool {
-    use std::net::IpAddr;
+    use std::net::{IpAddr, Ipv4Addr};
     let ip = match ip {
-        IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(IpAddr::V6(v6), IpAddr::V4),
+        IpAddr::V6(v6) => {
+            let s = v6.segments();
+            let o = v6.octets();
+            let tail = Ipv4Addr::new(o[12], o[13], o[14], o[15]);
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                IpAddr::V4(v4)
+            } else if s[..6] == [0x64, 0xff9b, 0, 0, 0, 0]
+                || (s[..6] == [0; 6] && !v6.is_loopback() && !v6.is_unspecified())
+            {
+                IpAddr::V4(tail)
+            } else if s[0] == 0x2002 {
+                IpAddr::V4(Ipv4Addr::new(o[2], o[3], o[4], o[5]))
+            } else {
+                IpAddr::V6(v6)
+            }
+        }
         ip => ip,
     };
     match ip {
         IpAddr::V4(v4) => {
-            let [a, b, ..] = v4.octets();
-            v4.is_loopback()
+            let [a, b, c, _] = v4.octets();
+            a == 0 // this network, 0.0.0.0/8
+                || v4.is_loopback()
                 || v4.is_private()
                 || v4.is_link_local()
-                || v4.is_unspecified()
                 || v4.is_broadcast()
+                || v4.is_multicast()
+                || a >= 240 // reserved
                 || (a == 100 && (64..128).contains(&b)) // CGNAT, tailnets
+                || (a == 198 && (b == 18 || b == 19)) // benchmarking
+                || (a == 192 && b == 0 && c == 0) // IETF protocol assignments
         }
         IpAddr::V6(v6) => {
             let first = v6.segments()[0];
             v6.is_loopback()
                 || v6.is_unspecified()
+                || v6.is_multicast()
                 || (first & 0xfe00) == 0xfc00
                 || (first & 0xffc0) == 0xfe80
         }
@@ -619,8 +640,10 @@ pub async fn check(p: &Provider, endpoints: &Endpoints, key: &str) -> Checked {
     // key to this machine or a private network.
     let Ok(parsed) = reqwest::Url::parse(&url) else { return Checked::Unreachable };
     let Some(host) = parsed.host_str().map(str::to_owned) else { return Checked::Unreachable };
+    // No proxy: one would resolve the name itself and undo the address pinning below.
     let mut builder = reqwest::Client::builder()
         .timeout(CHECK_TIMEOUT)
+        .no_proxy()
         .redirect(reqwest::redirect::Policy::none());
     if host.trim_start_matches('[').trim_end_matches(']').parse::<std::net::IpAddr>().is_err() {
         let port = parsed.port_or_known_default().unwrap_or(443);
@@ -716,13 +739,13 @@ pub fn delivery(id: &str, endpoints: &Endpoints, key: String) -> Vec<(&'static s
     env
 }
 
-/// The variables OpenCode reads provider `id`'s key from on the machine, from this catalog
-/// (a launch credential names a provider, never a variable).
 /// The AWS region a Bedrock route keeps in its `health_url` (`https://bedrock-mantle.REGION.api.aws/v1/models`).
 pub fn bedrock_region(url: &str) -> Option<&str> {
     url.strip_prefix("https://bedrock-mantle.")?.split_once(".api.aws/")?.0.into()
 }
 
+/// The variables OpenCode reads provider `id`'s key from on the machine, from this catalog
+/// (a launch credential names a provider, never a variable).
 pub fn opencode_env(id: &str) -> Option<OpenCode> {
     find(id).and_then(|p| p.opencode)
 }
@@ -826,13 +849,23 @@ mod tests {
             "::1",
             "fe80::1",
             "::ffff:192.168.0.1",
+            // cmux#48428 review: reserved ranges and IPv6 forms that carry a private IPv4.
+            "0.1.2.3",
+            "198.18.0.1",
+            "192.0.0.8",
+            "240.0.0.1",
+            "224.0.0.1",
+            "64:ff9b::a9fe:a9fe",
+            "64:ff9b::a00:5",
+            "2002:a00:1::",
+            "::10.0.0.1",
+            "ff02::1",
         ] {
             assert!(is_private_ip(private.parse().unwrap()), "{private}");
         }
-        assert!(
-            !is_private_ip("1.1.1.1".parse().unwrap())
-                && !is_private_ip("2606:4700::1111".parse().unwrap())
-        );
+        for public in ["1.1.1.1", "2606:4700::1111", "64:ff9b::808:808", "2002:808:808::"] {
+            assert!(!is_private_ip(public.parse().unwrap()), "{public}");
+        }
         // A real gateway path (a Cloudflare account id is 32 hex characters) is not a key.
         let gateway =
             "https://gateway.ai.cloudflare.com/v1/0123456789abcdef0123456789abcdef/main/anthropic";
