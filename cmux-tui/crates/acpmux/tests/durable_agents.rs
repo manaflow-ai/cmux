@@ -50,6 +50,8 @@ mod loop_panic;
 mod lost_link_turn;
 #[path = "durable_agents/overload_duress.rs"]
 mod overload_duress;
+#[path = "durable_agents/queue_edit_base.rs"]
+mod queue_edit_base;
 #[path = "durable_agents/queue_edit_parts.rs"]
 mod queue_edit_parts;
 #[path = "durable_agents/queue_restore.rs"]

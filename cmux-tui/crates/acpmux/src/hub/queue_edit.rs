@@ -55,6 +55,21 @@ fn lists_command(update: Option<&Value>, name: &str) -> bool {
     )
 }
 
+/// Whether the text an edit started from is the prompt's text, its ends' white space aside (the
+/// editor trims what it saves).
+fn same_words(base: &str, whole: &str) -> bool {
+    base.trim() == whole.trim()
+}
+
+/// What an edit from a copy that is not the prompt's whole text gets (`update_queued`): the
+/// prompt is kept, and `text` is its whole text, for the editor to start again from.
+fn stale_base(prompt_id: &str, whole: &str) -> RpcError {
+    RpcError::invalid_params(
+        "queue.stale: this prompt's text is not the text the edit started from; reopen it and edit again",
+    )
+    .with_data(json!({"reason": "queue.stale", "promptId": prompt_id, "text": whole}))
+}
+
 /// The stricter of two controls:an edit never runs a prompt under looser rules than either
 /// the prompt's sender's or the editor's.
 fn stricter(a: Control, b: Control) -> Control {
@@ -306,8 +321,11 @@ impl Hub {
         let new_value = match op {
             "update" => {
                 let edit = Edit::parse(params)?;
-                let updated = self
-                    .update_queued(session, prompt_id, edit, control, trust_gate, device, editor)?;
+                // The words the edit started from: refused when the prompt no longer reads so.
+                let base = params.get("base").and_then(Value::as_str);
+                let updated = self.update_queued(
+                    session, prompt_id, edit, base, control, trust_gate, device, editor,
+                )?;
                 json!(updated)
             }
             "move" => {
@@ -370,11 +388,17 @@ impl Hub {
     /// Replaces a waiting prompt's content (`Edit`); it keeps its place. It runs under the
     /// stricter rules of its sender and its editor. Only its sender edits it (`editor`,
     /// `author.rs`), and a person's prompt edited by that person is still theirs.
+    ///
+    /// `base` is the text the editor opened with. One that is not the prompt's whole text now (the
+    /// list's 200-character preview of a long prompt, or words another edit changed since) is
+    /// refused `queue.stale` and the prompt kept as it is: a save from a cut copy would drop
+    /// everything past the cut.
     fn update_queued(
         &self,
         session: &Arc<Session>,
         prompt_id: &str,
         edit: Edit,
+        base: Option<&str>,
         control: Control,
         trust_gate: bool,
         device: Option<&str>,
@@ -389,6 +413,12 @@ impl Hub {
                 return Ok(false);
             };
             crate::author::may_change(editor, q.sender())?;
+            if let Some(base) = base {
+                let whole = prompt_text(&q.run.blocks);
+                if !same_words(base, &whole) {
+                    return Err(stale_base(prompt_id, &whole));
+                }
+            }
             // As it was, for an edit a restore's hold could not keep (`append_answered`).
             let was = (q.run.clone(), q.preview.clone(), q.revision);
             // Approved, it runs the words the owner approved (`queue_approve.rs`).
@@ -663,8 +693,24 @@ impl Hub {
 
 #[cfg(test)]
 mod tests {
-    use super::{Edit, checked_display_parts, moved_display_parts};
+    use super::{Edit, checked_display_parts, moved_display_parts, same_words, stale_base};
     use serde_json::{Value, json};
+
+    /// An edit from the list's cut preview of a long prompt is not its whole text, and is refused
+    /// with the whole text; the whole text, or it with the editor's trimmed ends, is the same.
+    #[test]
+    fn an_edit_from_a_cut_preview_is_stale() {
+        let whole = format!("{}\n\nand the end that matters", "word ".repeat(60));
+        let preview = crate::hub::session::short_text(&whole, 200);
+        assert!(!same_words(&preview, &whole));
+        assert!(!same_words(preview.trim_end_matches('…'), &whole));
+        assert!(same_words(&whole, &whole));
+        assert!(same_words(&format!("  {}\n", whole.trim()), &whole));
+        let error = stale_base("p1", &whole);
+        let data = error.data.clone().unwrap_or_default();
+        assert_eq!(data["reason"], "queue.stale");
+        assert_eq!(data["text"], whole.as_str());
+    }
 
     /// Image bytes `bytes` as an ACP image block, and its attachment id.
     fn image(bytes: &[u8], name: &str) -> (Value, String) {

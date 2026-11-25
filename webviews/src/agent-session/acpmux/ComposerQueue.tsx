@@ -302,9 +302,16 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   const recovered = useRef(new Map<string, { text: string; original: string; generation: number }>());
   // The images the open edit drops from its prompt.
   const [dropped, setDropped] = useState<ReadonlySet<string>>(new Set());
-  const setEditing = (id: string | undefined) => {
+  // The words the open edit started from (the row's text when it opened, or the text a reopened
+  // edit was typed over): its Save names them as `base` when they may not be the prompt's whole text
+  // now, a cut preview or words changed under the editor, and acpmux keeps the prompt unless they
+  // are (hub/queue_edit.rs `queue.stale`).
+  const openedFrom = useRef<{ id: string; text: string }>(undefined);
+  const setEditing = (id: string | undefined, from?: string) => {
     setDropped(new Set());
     setEditingId(id);
+    const text = from ?? queueNow.current.find((entry) => entry.id === id)?.prompt;
+    openedFrom.current = id !== undefined && text !== undefined ? { id, text } : undefined;
   };
   // Rows opened to their whole text (a row shows two lines until it is opened).
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
@@ -505,7 +512,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
       else if (saveGeneration.current.get(id) === waiting.generation) {
         editingNow.current = id;
         draft.current = { id, original: waiting.original, text: waiting.text };
-        setEditing(id);
+        setEditing(id, waiting.original);
         return;
       }
     }
@@ -816,6 +823,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
     if (entry.author !== undefined) return cancel(shown.indexOf(entry));
     const images = entry.images ?? [];
     const kept = images.filter((image) => !dropped.has(image.id));
+    const from = openedFrom.current?.id === entry.id ? openedFrom.current.text : entry.prompt;
     draft.current = undefined;
     setEditing(undefined);
     editingNow.current = undefined;
@@ -829,9 +837,12 @@ export const ComposerQueue = React.memo(function ComposerQueue({
     // Text alone keeps every image; an image removed sends the ones left.
     const removed = kept.length < images.length;
     if (!next || (next === entry.prompt && !removed) || !onChange) return;
+    // A cut preview, or words that changed while the editor was open, are named: acpmux saves the
+    // edit only if they are still the prompt's whole text, so a save never drops what was past a cut.
+    const base = from.endsWith("…") || from !== entry.prompt ? { base: from } : {};
     const edit: QueueEdit = removed
-      ? { op: "update", text: next, images: kept.map((image) => image.id) }
-      : { op: "update", text: next };
+      ? { op: "update", text: next, images: kept.map((image) => image.id), ...base }
+      : { op: "update", text: next, ...base };
     const generation = (saveGeneration.current.get(entry.id) ?? 0) + 1;
     saveGeneration.current.set(entry.id, generation);
     const latest = () => saveGeneration.current.get(entry.id) === generation;
@@ -854,12 +865,12 @@ export const ComposerQueue = React.memo(function ComposerQueue({
         // Another edit is open (or a sibling's recovery just claimed the editor in this batch): its
         // draft is not ours to drop, so this text waits its turn and the row stays queued meanwhile.
         if (editingNow.current !== undefined || leavingNow.current.has(entry.id)) {
-          recovered.current.set(entry.id, { text: next, original: entry.prompt, generation });
+          recovered.current.set(entry.id, { text: next, original: from, generation });
           return;
         }
         editingNow.current = entry.id;
-        draft.current = { id: entry.id, original: entry.prompt, text: next };
-        setEditing(entry.id);
+        draft.current = { id: entry.id, original: from, text: next };
+        setEditing(entry.id, from);
       },
     );
   };

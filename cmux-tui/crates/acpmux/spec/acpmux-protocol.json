@@ -6773,6 +6773,7 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "base": true,
         "images": true,
         "index": true,
         "op": true,

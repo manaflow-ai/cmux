@@ -1195,8 +1195,10 @@ export type AcpmuxCatalogModel = {
 /// now (steered into the running turn, whose step stops, when its agent steers), or `interrupt`:
 /// stop the running turn and run it next.
 export type QueueEdit =
-  /** New text; the prompt keeps its images, or with `images` (acpmux ids) only those. */
-  | { op: "update"; text: string; images?: string[] }
+  /** New text; the prompt keeps its images, or with `images` (acpmux ids) only those. `base`: the
+   *  text the editor opened with, when it may not be the prompt's whole text now (a cut preview);
+   *  acpmux refuses the edit `queue.stale` unless it is, and keeps the prompt. */
+  | { op: "update"; text: string; images?: string[]; base?: string }
   | { op: "move"; index: number }
   | { op: "send_now" }
   | { op: "interrupt" }

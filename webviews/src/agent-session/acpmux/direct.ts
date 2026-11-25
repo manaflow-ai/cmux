@@ -361,6 +361,8 @@ import {
   DELIVERY_RANK,
   deliveryHop,
   mergeQueue,
+  cutQueueRows,
+  withWholeText,
   sentPromptShape,
   settleOptimisticPrompt,
   promptImages,
@@ -3254,6 +3256,7 @@ export class AcpmuxDirectClient {
     this.queueEdited.clear();
     // A held prompt's text read for the chat before is not this one's (`fetchHeldText`).
     this.heldTextReads.clear();
+    this.cutTextReads.clear();
     this.forkedAtSeq = undefined;
     this.runChanges = [];
     this.runChangeRows.clear();
@@ -3914,6 +3917,7 @@ export class AcpmuxDirectClient {
     this.keepQueueAuthors(kept.queue);
     // The replayed `queued` records carry each prompt's whole text; acpmux's list gives the order.
     this.queue = mergeQueue(this.queue, listed?.queue ?? kept.queue, this.queueAuthors, this.queueEdited);
+    this.fetchCutText();
     // From the frame the rows are drawn, not from the attach: a live record of the chat that comes
     // before it is asked (while the chat left detaches) is held too (`copyLive`).
     if (this.lastSeq > 0) this.copyLive = new Map();
@@ -7105,6 +7109,8 @@ export class AcpmuxDirectClient {
     );
     // A held prompt whose record is older than the page shows its list preview: read its record.
     this.fetchHeldText();
+    // A long prompt of the person's shows the list's cut preview: read its whole text.
+    this.fetchCutText();
     // acpmux holds nothing older than the page: the pane offers no more history. A settled page laid
     // on drawn rows left its older records to the history reads, so those still read them.
     // A forward page's `hasMore` is of the records past it, never the older history.
@@ -7374,6 +7380,7 @@ export class AcpmuxDirectClient {
         if (watch) watch.latestSummary = { session, seq: typeof params?.seq === "number" ? params.seq : undefined };
         this.queue = mergeQueue(this.queue, session.queue, this.queueAuthors, this.queueEdited);
         this.fetchHeldText();
+        this.fetchCutText();
       }
       // The machine of a chat shown from the Mac's copy is back: read the chat from it now (an
       // attach of a recreated session replaces the copy). A row naming another session while the
@@ -13729,6 +13736,34 @@ export class AcpmuxDirectClient {
   /// `queue_get` never repeats on every update. A read for a selection the pane left is dropped. A
   /// record that arrives live meanwhile wins.
   private heldTextReads = new Set<string>();
+  /// The person's rows that show a cut preview (`cutQueueRows`): one `_acpmux/queue_text` each per
+  /// selection and preview (keyed like `heldTextReads`, never repeated on every update), so an edit
+  /// opens from the whole text. Only where acpmux serves it (`queue-text-v1`).
+  private cutTextReads = new Set<string>();
+  private fetchCutText(): void {
+    const sessionId = this.selectedSessionId;
+    const generation = this.selectionGeneration;
+    if (!sessionId || this.capabilities?.has("queue-text-v1") !== true) return;
+    const key = (entry: QueuedPrompt) => `${generation}\u0000${entry.id}\u0000${entry.prompt}`;
+    const current = () => generation === this.selectionGeneration && this.selectedSessionId === sessionId;
+    for (const entry of cutQueueRows(this.queue)) {
+      if (this.cutTextReads.has(key(entry))) continue;
+      this.cutTextReads.add(key(entry));
+      const cut = entry.prompt;
+      void this.request("_acpmux/queue_text", { sessionId, promptId: entry.id })
+        .then((record: Record<string, any> | undefined) => {
+          if (!current() || typeof record?.text !== "string") return;
+          this.installWholeText(entry.id, cut, record.text);
+        })
+        .catch(() => undefined);
+    }
+  }
+  private installWholeText(promptId: string, cut: string, whole: string): void {
+    const next = withWholeText(this.queue, promptId, cut, whole);
+    if (next === this.queue) return;
+    this.queue = [...next];
+    this.emit();
+  }
   private fetchHeldText(): void {
     const sessionId = this.selectedSessionId;
     const generation = this.selectionGeneration;
@@ -14391,13 +14426,24 @@ export class AcpmuxDirectClient {
   }
   /// Changes a waiting prompt (`_acpmux/queue_edit`): `update` its text, `move` it to `index`
   /// (0 runs next), `send_now` or `interrupt`. `ok` is false when it no longer waits.
+  /// An `update` from a cut copy (`base`, its words when the editor opened) is refused
+  /// `queue.stale` and the prompt kept whole: the row takes the whole text acpmux answers with, and
+  /// `ok` is false, so the typed words go back to the composer and nothing is lost.
   async editQueued(promptId: string, edit: QueueEdit): Promise<{ ok: boolean }> {
     if (!this.actingSessionId) return { ok: false };
-    return this.request("_acpmux/queue_edit", {
-      sessionId: this.actingSessionId,
-      promptId,
-      ...edit,
-    });
+    try {
+      return await this.request("_acpmux/queue_edit", {
+        sessionId: this.actingSessionId,
+        promptId,
+        ...edit,
+      });
+    } catch (error) {
+      const data = (error as { data?: { reason?: unknown; text?: unknown } } | null)?.data;
+      if (edit.op !== "update" || data?.reason !== "queue.stale") throw error;
+      if (typeof data.text === "string" && edit.base !== undefined)
+        this.installWholeText(promptId, edit.base, data.text);
+      return { ok: false };
+    }
   }
   /// Answers a permission: `optionId` picks an option (absent cancels the request), and
   /// `answers` carries a question's harness-shaped answers (question/model.ts `reply`). An option

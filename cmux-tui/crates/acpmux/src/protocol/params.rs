@@ -285,7 +285,7 @@ keyed! {
     /// `_acpmux/queue_decline`.
     QueueDeclineParams: ["sessionId", "promptId"];
     /// `_acpmux/queue_edit`.
-    QueueEditParams: ["sessionId", "promptId", "op", "text", "images", "index"];
+    QueueEditParams: ["sessionId", "promptId", "op", "text", "images", "index", "base"];
     /// `_acpmux/queue_get`.
     QueueGetParams: ["sessionId", "promptId"];
     /// `_acpmux/queue_remove`.
