@@ -109,6 +109,15 @@ import Testing
         #expect(sizing.keyboardPlacement(gridRows: 37, visibleHeight: 6 * 16, cursorRow: 36) == Placement(lift: 0, headerRows: 2))
     }
 
+    @Test func aHostGridKeepsItsHeaderWhenThePhoneAreaIsShorter() {
+        let sizing = TerminalGridSizing(cellHeight: 16)
+        // The 40-row host is shifted up three rows to keep its last cursor row
+        // visible in the phone's 37-row area. Placement must still measure the
+        // host grid, so its first three rows can be pinned back above the body.
+        #expect(sizing.keyboardPlacement(gridRows: 40, visibleHeight: 37 * 16, cursorRow: 36)
+                == .init(lift: 0, headerRows: 3))
+    }
+
     @Test func aCursorUnderTheToolbarLiftsTheGridByWholeRows() {
         let sizing = TerminalGridSizing(cellHeight: 16)
         // vim on line 1 with the keyboard up: 17 rows clipped at the top.
