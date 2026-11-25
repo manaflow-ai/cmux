@@ -75,5 +75,15 @@ struct ToolbarLayoutTests {
         let bottom = ToolbarLayout.barInset(metrics: metrics(.bottom), size: size, safeTop: safeTop, safeBottom: safeBottom)
         #expect(bottom == size.height - layout(.bottom).capsule.minY + 8)
     }
+
+    /// The page's live top inset is the drawn pill's: collapsed, 8 pt under the pill the toolbar
+    /// draws, so the page meets the chrome with no strip between them (Leo 2026-11-24).
+    @Test func liveInsetMeetsTheCollapsedPill() {
+        let insets = ToolbarLayout.pageInsets(metrics: metrics(.top), size: size, safeTop: safeTop, safeBottom: safeBottom,
+                                              bar: .collapsed)
+        #expect(insets.resting.top == layout(.top).capsule.maxY + 8)
+        #expect(insets.live.top == layout(.top, bar: .collapsed).capsule.maxY + 8)
+        #expect(insets.live.bottom == safeBottom)
+    }
 }
 #endif

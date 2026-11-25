@@ -10,7 +10,8 @@ public import Foundation
 /// Mac's checkout of it, cloned first when there is none (``AgentPaneGitHubCheckout``).
 public nonisolated enum AgentPaneGitHubRequest: Equatable, Sendable {
     case status
-    case connect
+    /// `repo` (`owner/name`): a Cloud start's Connect GitHub card for the repository its machine could not clone (#55104).
+    case connect(repo: String?)
     case repos(query: String?)
     /// `repo` (`owner/name`) as a folder on this Mac: one of `candidates` (the folders the page knows for it)
     /// or the default clone folder when one is a checkout of it, else a new clone there.
@@ -27,7 +28,12 @@ public nonisolated enum AgentPaneGitHubRequest: Equatable, Sendable {
     init?(method: String, params: [String: Any]?) {
         switch method {
         case "github.status": self = .status
-        case "github.connect": self = .connect
+        case "github.connect":
+            switch params?["repo"] {
+            case nil, is NSNull: self = .connect(repo: nil)
+            case let repo as String where CloudGitHubRepos.isFullName(repo): self = .connect(repo: repo)
+            default: return nil
+            }
         case "github.repos.list":
             let query = params?["query"]
             if query == nil || query is NSNull {
@@ -79,9 +85,9 @@ public nonisolated enum AgentPaneGitHubRequest: Equatable, Sendable {
         switch self {
         case .status:
             return Self.statusReply(await gitHub.status())
-        case .connect:
+        case .connect(let repo):
             guard gesture() else { return AgentPaneModel.transportFailure(.gestureRequired) }
-            switch await gitHub.connect() {
+            switch await gitHub.connect(repo) {
             // The installation page, or the cmux sign-in for a person signed out, opened.
             case .opened: return AgentPaneReply.success(["opened": true])
             // Nothing to open: the team is connected already (the picker reads `github.status` again).
@@ -148,7 +154,8 @@ public nonisolated enum AgentPaneGitHubRequest: Equatable, Sendable {
 public struct AgentPaneGitHub {
     /// `state` (`ready`, `not_connected`, `unavailable`), `repos_scope` (`all`, `selected`, nil) and why unavailable.
     public var status: @MainActor () async -> CloudGitHubPicker.Status
-    public var connect: @MainActor () async -> AgentPaneGitHubConnect
+    /// Connect GitHub; its `repo` (`owner/name`) is a Cloud start card's repository, nil for the folder menu (#55104).
+    public var connect: @MainActor (String?) async -> AgentPaneGitHubConnect
     public var repos: @MainActor (String?) async -> Result<CloudGitHubRepos, CloudGitHubRepos.Failure>
     /// The sizes the repos list gave, shared by every pane's copy: a Cloud start in a picked repository is sized from them.
     public let sizes: AgentPaneGitHubRepoSizes
@@ -162,7 +169,15 @@ public struct AgentPaneGitHub {
                 repos: @escaping @MainActor (String?) async -> Result<CloudGitHubRepos, CloudGitHubRepos.Failure>,
                 sizes: AgentPaneGitHubRepoSizes = AgentPaneGitHubRepoSizes(),
                 checkout: AgentPaneGitHubCheckout? = nil, changes: CloudGitHubChanges? = nil) {
-        (self.status, self.connect, self.repos, self.sizes, self.checkout, self.changes) = (status, connect, repos, sizes, checkout, changes)
+        self.init(status: status, connectRepo: { _ in await connect() }, repos: repos, sizes: sizes, checkout: checkout, changes: changes)
+    }
+
+    public init(status: @escaping @MainActor () async -> CloudGitHubPicker.Status,
+                connectRepo: @escaping @MainActor (String?) async -> AgentPaneGitHubConnect,
+                repos: @escaping @MainActor (String?) async -> Result<CloudGitHubRepos, CloudGitHubRepos.Failure>,
+                sizes: AgentPaneGitHubRepoSizes = AgentPaneGitHubRepoSizes(),
+                checkout: AgentPaneGitHubCheckout? = nil, changes: CloudGitHubChanges? = nil) {
+        (self.status, self.connect, self.repos, self.sizes, self.checkout, self.changes) = (status, connectRepo, repos, sizes, checkout, changes)
     }
 
     /// The App's: `picker` reads and connects as the person in the team a Cloud start's machine is made in, `open`
@@ -170,7 +185,7 @@ public struct AgentPaneGitHub {
     /// cmux sign-in (``CloudAuth/beginSignIn(selectAccount:)``, which joins one already in progress).
     @MainActor public static func live(_ picker: CloudGitHubPicker, open: @escaping @MainActor (URL) -> Void) -> AgentPaneGitHub {
         AgentPaneGitHub(status: { await picker.status() },
-                        connect: { AgentPaneGitHubConnect(await picker.connect(), open: open) { _ = picker.auth.beginSignIn() } },
+                        connectRepo: { AgentPaneGitHubConnect(await picker.connect(repo: $0), open: open) { _ = picker.auth.beginSignIn() } },
                         repos: { await picker.repos(query: $0) },
                         checkout: AgentPaneGitHubCheckout { await picker.cloneToken(repo: $0)?.token },
                         changes: picker.auth.gitHubChanges)

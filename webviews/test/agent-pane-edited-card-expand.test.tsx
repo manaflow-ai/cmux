@@ -1,6 +1,9 @@
 // l10n-allow-file: test fixture paths and file text, not shipped UI.
-// Single-file headers open the changes pane, retaining tool-call and checkpoint diffs.
-// Multi-file cards still expand their file lists in the transcript.
+// Single-file headers open the file's diff inline, inside the card (Leo, 2026-11-22: "it should be
+// able to just open inline inside the fucking existing agent chat situation."), and the opened diff's
+// Open in Changes icon opens the changes pane, retaining tool-call and checkpoint diffs. There is no
+// View changes button beside the header ("we cant be having bullshit like this"). Multi-file cards
+// still expand their file lists in the transcript, and each file row opens its own diff under it.
 import { afterAll, afterEach, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, type ReactNode } from "react";
@@ -62,10 +65,14 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
   setEditedFilesSettings({});
+  // An opened inline diff is a transcript disclosure, kept by row id and path across renders.
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
+  resetTranscriptDisclosure();
 });
 
 afterAll(async () => {
@@ -229,13 +236,18 @@ async function renderCard(row: AcpmuxRow, load?: TurnCheckpointLoad) {
 }
 
 const text = (selector: string) => host.querySelector(selector)?.textContent ?? undefined;
-const inlineDiff = () => host.querySelector(".acpmux-edited .cv-edit-diff") !== null;
+const inlineDiff = () => host.querySelector(".acpmux-edited .acpmux-edited-diff .cv-edit-diff") !== null;
+/// The one-file card's chevron (its keyboard control) and whether it reads open.
+const chevron = () => host.querySelector<HTMLButtonElement>(".acpmux-edited-head button.acpmux-edited-chevron");
+const expanded = () => chevron()?.getAttribute("aria-expanded");
+/// The opened inline diff's Open in Changes icon.
+const openInChanges = () => host.querySelector<HTMLButtonElement>(".acpmux-edited-diff button.acpmux-edited-open");
 const click = (element: Element | null) =>
   act(async () => {
     element!.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
   });
 
-/// The files the turn's own diff (the in-place View changes) shows for `rows`, with the checkpoint.
+/// The files the turn's own diff (Open in Changes, in place) shows for `rows`, with the checkpoint.
 async function viewedFiles(rows: AcpmuxRow[], load: TurnCheckpointLoad) {
   const { turnFiles, turnPathsOnly } = await import("../src/agent-session/acpmux/diff");
   const { turnDisplay } = await import("../src/agent-session/acpmux/changes/turnCheckpoint");
@@ -249,7 +261,7 @@ async function viewedFiles(rows: AcpmuxRow[], load: TurnCheckpointLoad) {
   }));
 }
 
-/// Where View changes opens for the chat folder `folder`, whose `git.status` `readStatus` answers.
+/// Where Open in Changes opens for the chat folder `folder`, whose `git.status` `readStatus` answers.
 async function opensIn(
   rows: AcpmuxRow[],
   rowId: string,
@@ -264,26 +276,34 @@ async function opensIn(
 test.each([
   ["with a diff in its content", false],
   ["with only its input", true],
-])("a new file (Write, nothing before it) %s opens its changes from the header", async (_shape, fromInput) => {
+])("a new file (Write, nothing before it) %s opens its diff inline from the header", async (_shape, fromInput) => {
   const row = activity(`turn-1-${fromInput}`, [await writeNewFile(fromInput)]);
   const opened = await renderCard(row);
   expect(text(".acpmux-edited-title > div")).toBe("Edited l-setup.txt");
   expect(text(".acpmux-edited-sub .acpmux-diff-counts")).toBe("+9-0");
   // Built from the input, the page never saw the file on disk: Undo is not offered from it.
   if (fromInput) expect(host.querySelector(".acpmux-edited-undo")).toBeNull();
-  expect(host.querySelector(".acpmux-edited-toggle") !== null).toBe(false);
+  // One way to open it: the header and its chevron, no View changes button.
+  expect(host.querySelector(".acpmux-review-changes")).toBeNull();
+  expect(chevron()?.getAttribute("aria-label")).toBe("View changes");
+  expect(expanded()).toBe("false");
   expect(inlineDiff()).toBe(false);
   await click(host.querySelector(".acpmux-edited-icon"));
-  expect(opened).toEqual([{ rowId: row.id, path: SETUP }]);
+  expect(opened).toEqual([]);
+  expect(expanded()).toBe("true");
+  expect(inlineDiff()).toBe(true);
   await click(host.querySelector(".acpmux-edited-title"));
-  expect(opened).toHaveLength(2);
-  expect(inlineDiff()).toBe(false);
+  expect(opened).toEqual([]);
+  expect(expanded()).toBe("false");
 });
 
-test("a new file's View changes opens the turn's own diff, all nine lines added", async () => {
+test("a new file's Open in Changes opens the turn's own diff, all nine lines added", async () => {
   const row = activity("turn-1", [await writeNewFile(true)]);
   const opened = await renderCard(row);
-  await click(host.querySelector(".acpmux-review-changes"));
+  await click(chevron());
+  expect(opened).toEqual([]);
+  expect(openInChanges()?.getAttribute("aria-label")).toBe("Open in Changes");
+  await click(openInChanges());
   expect(opened).toEqual([{ rowId: "turn-1", path: SETUP }]);
   // The chat folder's git diff beside the chat has no /tmp file: the turn's diff opens in place.
   expect(await opensIn([row], "turn-1", FOLDER)).toBe("in place");
@@ -299,9 +319,12 @@ test("a Write over an existing file lists its path without counts, not as a new 
   expect(text(".acpmux-edited-title > div")).toBe("Edited 1 file");
   expect(host.querySelector(".acpmux-edited .acpmux-diff-add")).toBeNull();
   expect(host.querySelector(".acpmux-edited-path")?.getAttribute("data-path")).toBe(NOTES);
-  // Nothing to diff: no View changes and no inline diff.
+  // Nothing to diff: no chevron, and a header click opens no inline diff.
   expect(host.querySelector(".acpmux-review-changes")).toBeNull();
   expect(host.querySelector(".acpmux-edited-toggle") !== null).toBe(false);
+  await click(host.querySelector(".acpmux-edited-head"));
+  expect(inlineDiff()).toBe(false);
+  expect(openInChanges()).toBeNull();
   expect(await viewedFiles([row], { state: "unsupported" })).toEqual([]);
 });
 
@@ -315,6 +338,7 @@ test("a Write whose old contents never came lists its path without counts, chevr
   expect(host.querySelector(".acpmux-edited-toggle") !== null).toBe(false);
   expect(host.querySelector(".acpmux-edited-undo")).toBeNull();
   expect(host.querySelector(".acpmux-review-changes")).toBeNull();
+  expect(openInChanges()).toBeNull();
   // The turn's own diff has nothing to show for it.
   expect(await viewedFiles([row], { state: "unsupported" })).toEqual([]);
 });
@@ -412,27 +436,33 @@ test("the same Write once its result confirmed a create is a new file, all lines
   // Undo may move the new file to the Trash.
   expect(host.querySelector(".acpmux-edited-undo")).not.toBeNull();
   await click(host.querySelector(".acpmux-edited-head"));
+  expect(opened).toEqual([]);
+  expect(inlineDiff()).toBe(true);
+  await click(openInChanges());
   expect(opened).toEqual([{ rowId: row.id, path: SETUP }]);
-  expect(inlineDiff()).toBe(false);
   expect(await viewedFiles([row], { state: "unsupported" })).toEqual([
     { path: SETUP, created: true, additions: 9, deletions: 0, lines: Array(9).fill("add") },
   ]);
 });
 
-test("a file outside the repository opens its changes from the header once the checkpoint loads", async () => {
+test("a file outside the repository opens its diff inline from the header once the checkpoint loads", async () => {
   const row = activity("turn-2", [await editOutside()]);
   const opened = await renderCard(row, emptyCheckpoint);
   expect(text(".acpmux-edited-title > div")).toBe("Edited hosts.local");
   expect(text(".acpmux-edited-sub .acpmux-diff-counts")).toBe("+1-0");
   await click(host.querySelector(".acpmux-edited-head"));
-  expect(opened).toEqual([{ rowId: row.id, path: "/etc/hosts.local" }]);
-  expect(inlineDiff()).toBe(false);
+  expect(opened).toEqual([]);
+  expect(inlineDiff()).toBe(true);
+  expect(host.querySelector(".acpmux-edited-diff .cv-edit-diff__name")?.getAttribute("data-path")).toBe(
+    "/etc/hosts.local",
+  );
 });
 
-test("a file outside the repository opens through View changes with its tool-call diff", async () => {
+test("a file outside the repository opens through Open in Changes with its tool-call diff", async () => {
   const row = activity("turn-2", [await editOutside()]);
   const opened = await renderCard(row, emptyCheckpoint);
-  await click(host.querySelector(".acpmux-review-changes"));
+  await click(chevron());
+  await click(openInChanges());
   expect(opened).toEqual([{ rowId: "turn-2", path: "/etc/hosts.local" }]);
   expect(await opensIn([row], "turn-2", FOLDER)).toBe("in place");
   expect(await viewedFiles([row], emptyCheckpoint)).toEqual([
@@ -474,7 +504,7 @@ test("a file the checkpoint holds under another path for the same folder lists o
   ]);
 });
 
-test("an edited file opens its changes from the title without expanding inline", async () => {
+test("an edited file opens its diff inline from the title, not the changes pane", async () => {
   const row = activity("turn-3", [await editInFolder()]);
   const opened = await renderCard(row);
   expect(text(".acpmux-edited-title > div")).toBe("Edited upload.sh");
@@ -482,14 +512,16 @@ test("an edited file opens its changes from the title without expanding inline",
   // Its input holds only the strings, not the whole file: Undo is not offered from them.
   expect(host.querySelector(".acpmux-edited-undo")).toBeNull();
   await click(host.querySelector(".acpmux-edited-title"));
-  expect(opened).toEqual([{ rowId: row.id, path: `${FOLDER}/upload.sh` }]);
-  expect(inlineDiff()).toBe(false);
+  expect(opened).toEqual([]);
+  expect(inlineDiff()).toBe(true);
+  expect(expanded()).toBe("true");
 });
 
-test("an edited file in the chat folder opens through View changes beside the chat", async () => {
+test("an edited file in the chat folder opens through Open in Changes beside the chat", async () => {
   const row = activity("turn-3", [await editInFolder()]);
   const opened = await renderCard(row);
-  await click(host.querySelector(".acpmux-review-changes"));
+  await click(chevron());
+  await click(openInChanges());
   expect(opened).toEqual([{ rowId: "turn-3", path: `${FOLDER}/upload.sh` }]);
   // The folder's git diff holds it, as before; with no local folder the turn's diff opens in place.
   expect(await opensIn([row], "turn-3", FOLDER)).toBe("beside");
@@ -505,7 +537,8 @@ test("an edited file in the chat folder opens through View changes beside the ch
 test("a chat folder that is not a repository opens the turn's own diff, even for a file inside it", async () => {
   const row = activity("turn-6", [await editInFolder()]);
   const opened = await renderCard(row);
-  await click(host.querySelector(".acpmux-review-changes"));
+  await click(chevron());
+  await click(openInChanges());
   expect(opened).toEqual([{ rowId: "turn-6", path: `${FOLDER}/upload.sh` }]);
   // git.status fails for the folder: the viewer beside the chat would only ask for a repository.
   expect(await opensIn([row], "turn-6", FOLDER, notARepository)).toBe("in place");
@@ -513,7 +546,7 @@ test("a chat folder that is not a repository opens the turn's own diff, even for
   expect(await opensIn([row], "turn-6", FOLDER, async () => ({}))).toBe("in place");
 });
 
-test("a MultiEdit opens its changes with every edit from its latest input", async () => {
+test("a MultiEdit opens its diff inline with every edit from its latest input", async () => {
   const row = activity("turn-7", [await multiEdit()]);
   const opened = await renderCard(row);
   expect(text(".acpmux-edited-title > div")).toBe("Edited config.sh");
@@ -521,23 +554,26 @@ test("a MultiEdit opens its changes with every edit from its latest input", asyn
   expect(text(".acpmux-edited-sub .acpmux-diff-counts")).toBe("+3-2");
   expect(host.querySelector(".acpmux-edited-undo")).toBeNull();
   await click(host.querySelector(".acpmux-edited-head"));
+  expect(opened).toEqual([]);
+  expect(inlineDiff()).toBe(true);
+  await click(openInChanges());
   expect(opened).toEqual([{ rowId: row.id, path: CONFIG }]);
-  expect(inlineDiff()).toBe(false);
   expect(await viewedFiles([row], { state: "unsupported" })).toEqual([
     { path: CONFIG, created: false, additions: 3, deletions: 2, lines: ["del", "add", "del", "add", "add"] },
   ]);
 });
 
-test("a single-file card without a diff opener stays static", async () => {
+test("a single-file card without a diff opener still opens inline, with no Open in Changes", async () => {
   const { createRoot } = await import("react-dom/client");
   const { EditedFilesCard } = await import("../src/agent-session/acpmux/conversation/EditedFilesCard");
   const row = activity("single-static", [await writeNewFile()]);
   root = createRoot(host);
   await act(async () => root!.render(<EditedFilesCard row={row} />));
+  expect(host.querySelector(".acpmux-edited-head")?.hasAttribute("data-interactive")).toBe(true);
   await click(host.querySelector(".acpmux-edited-head"));
-  expect(host.querySelector(".acpmux-edited-head")?.hasAttribute("data-interactive")).toBe(false);
-  expect(host.querySelector(".acpmux-edited-toggle") !== null).toBe(false);
-  expect(inlineDiff()).toBe(false);
+  expect(expanded()).toBe("true");
+  expect(inlineDiff()).toBe(true);
+  expect(openInChanges()).toBeNull();
 });
 
 test("a collapsed multi-file card still opens and closes its file list", async () => {
@@ -563,7 +599,11 @@ test("the nine-file reference card starts with three rows, expands and restores,
   expect(text(".acpmux-edited-dir")).toBe("Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/");
   expect(text(".acpmux-edited-more")).toBe("Show 6 more files");
   expect(host.querySelector<HTMLButtonElement>(".acpmux-edited-undo")?.disabled).toBe(false);
-  expect(text(".acpmux-review-changes")).toBe("View changes");
+  // Undo is the head's only action: no View changes, no hover link in the counts.
+  expect(host.querySelector(".acpmux-review-changes")).toBeNull();
+  expect([...host.querySelectorAll(".acpmux-edited-actions button")].map((b) => b.getAttribute("aria-label"))).toEqual([
+    "Undo",
+  ]);
 
   await click(host.querySelector(".acpmux-edited-more"));
   expect(files()).toHaveLength(9);
@@ -572,14 +612,21 @@ test("the nine-file reference card starts with three rows, expands and restores,
   expect(files()).toHaveLength(3);
   expect(text(".acpmux-edited-more")).toBe("Show 6 more files");
 
+  // A file row opens its own diff under it; that diff's Open in Changes opens the pane at the file.
+  expect(files()[0]!.getAttribute("aria-expanded")).toBe("false");
   await click(files()[0]!);
-  expect(opened.at(-1)).toEqual({
-    rowId: "nine-file-card-default",
-    path: "Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/CornerFlushTests.swift",
-  });
-  await click(host.querySelector(".acpmux-review-changes"));
-  expect(opened.at(-1)?.rowId).toBe("nine-file-card-default");
-  expect(opened.at(-1)?.path).toBeUndefined();
+  expect(opened).toEqual([]);
+  expect(files()[0]!.getAttribute("aria-expanded")).toBe("true");
+  const entry = files()[0]!.closest(".acpmux-edited-entry")!;
+  expect(entry.querySelector(".acpmux-edited-diff .cv-edit-diff")).not.toBeNull();
+  expect(host.querySelectorAll(".acpmux-edited-diff")).toHaveLength(1);
+  await click(entry.querySelector(".acpmux-edited-diff .acpmux-edited-open"));
+  expect(opened).toEqual([
+    {
+      rowId: "nine-file-card-default",
+      path: "Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/CornerFlushTests.swift",
+    },
+  ]);
 });
 
 test("an explicit edited-file row preference is preserved", async () => {

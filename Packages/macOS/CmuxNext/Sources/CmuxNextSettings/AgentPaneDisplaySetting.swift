@@ -15,10 +15,12 @@ public nonisolated struct AgentPaneDisplaySetting: Sendable, Hashable {
         MarkdownViewerSettingsSchema.fontPresetPath, MarkdownViewerSettingsSchema.codeFamilyPath, MarkdownViewerSettingsSchema.codeScalePath,
     ]
     /// The app keys the chat follows: Minimal Mode (``SidebarSectionsSetting/minimalPath``) and
-    /// Show Feature Tips (``UpdatesSettings/showFeatureTipsPath``; webviews featureTips.tsx), and
-    /// AutoCloud (``CloudNewWorkspaceSetting/autoCloudPath``; webviews autoCloud.ts), hidden in cmux-next.json.
+    /// Show Feature Tips (``UpdatesSettings/showFeatureTipsPath``; webviews featureTips.tsx),
+    /// AutoCloud (``CloudNewWorkspaceSetting/autoCloudPath``; webviews autoCloud.ts), a Settings > Machines switch, off by default,
+    /// and the key style and keyboard layout the page's lists answer to (``KeyboardStyleSettings``; webviews ui/keyStyle.ts).
     public static let followedAppPaths: [[String]] = [
         SidebarSectionsSetting.minimalPath, UpdatesSettings.showFeatureTipsPath, CloudNewWorkspaceSetting.autoCloudPath,
+        KeyboardStyleSettings.keyStylePath, KeyboardStyleSettings.shortcutLayoutPath,
     ]
     /// The transcript look keys, which a theme file may set (``ThemeFileOverlay/lookKeys``): read from the
     /// effective root, not the user's own file (docs/cmux-next/transcript-customization.md).

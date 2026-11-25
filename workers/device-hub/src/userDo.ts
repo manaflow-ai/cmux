@@ -41,6 +41,11 @@ export function isDevicePlatform(value: unknown): value is DevicePlatform {
 }
 /** The share approval format the hub carries (acpmux `share_approval::VERSION`). */
 export const SHARE_APPROVAL_VERSION = "cmux.share-approval.v1";
+/**
+ * The control approval format (cmux-share-approval `CONTROL_VERSION`): the same signed yes, for
+ * "control for my other signed-in machines" on the Mac it names.
+ */
+export const CONTROL_APPROVAL_VERSION = "cmux.control-approval.v1";
 
 export type PermissionScope = "none" | "ask" | "view" | "full";
 type SessionState = "pending" | "approved" | "live" | "ended";
@@ -670,7 +675,8 @@ export class UserDO extends DurableObject<Env> {
       if (n === 3 && d === "mac-screen" && m === "PUT") return this.setSharing(me, b!, this.parse(raw));
       if (n === 3 && d === "screen-share" && m === "PUT") return this.reportScreenShare(me, b!, this.parse(raw));
       if (n === 3 && d === "sign-out" && m === "POST") return this.signOut(me, b!);
-      if (n === 3 && d === "share-approval" && m === "POST") return this.carryShareApproval(me, b!, this.parse(raw), c);
+      if (n === 3 && d === "share-approval" && m === "POST") return this.carryApproval(me, b!, this.parse(raw), c, SHARE_APPROVAL_VERSION, "share.approval");
+      if (n === 3 && d === "control-approval" && m === "POST") return this.carryApproval(me, b!, this.parse(raw), c, CONTROL_APPROVAL_VERSION, "control.approval");
     }
     if (a === "permissions") {
       if (n === 1 && m === "GET") return this.listPermissions(url.searchParams.get("host"));
@@ -978,18 +984,23 @@ export class UserDO extends DurableObject<Env> {
    * dispatch, so an agent's fleet or CLI token never sends one), as the device the approval
    * names, on this account, to a live host of it. The target checks the signature against this
    * account's device list, then turns its own sharing on (acpmux `share_host/approval.rs`).
+   *
+   * `POST /v1/devices/:id/control-approval {approval}` carries a `cmux.control-approval.v1` the
+   * same way, under the same checks, as a `control.approval` push: the owner's tap on their own
+   * device grants that Mac's "control for my other signed-in machines", with nobody at the Mac.
+   * Each path takes only its own format, so one tap is carried as one grant.
    */
-  private carryShareApproval(me: DeviceRow, id: string, body: Record<string, unknown>, c: CallContext): Response {
+  private carryApproval(me: DeviceRow, id: string, body: Record<string, unknown>, c: CallContext, version: string, push: "share.approval" | "control.approval"): Response {
     const raw = body.approval;
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw badRequest("approval must be an object");
     const f = raw as Record<string, unknown>;
-    if (f.v !== SHARE_APPROVAL_VERSION) throw badRequest(`approval.v must be ${SHARE_APPROVAL_VERSION}`);
+    if (f.v !== version) throw badRequest(`approval.v must be ${version}`);
     const at = f.confirmed_at;
     const atOk = (typeof at === "number" && Number.isSafeInteger(at) && at >= 0) || (typeof at === "string" && /^\d{1,15}$/.test(at));
     if (!atOk) throw badRequest("approval.confirmed_at must be whole Unix seconds");
     const name = (v: unknown, field: string) => (v === undefined || v === "" ? "" : str(v, field, 200));
     const approval = {
-      v: SHARE_APPROVAL_VERSION,
+      v: version,
       target: str(f.target, "approval.target", 64),
       target_name: name(f.target_name, "approval.target_name"),
       asker: str(f.asker, "approval.asker", 64),
@@ -1006,7 +1017,7 @@ export class UserDO extends DurableObject<Env> {
     const host = this.liveDevice(id);
     if (!HOST_PLATFORMS.includes(host.platform)) throw new ApiError(403, "not_host", "only a Mac, a Linux desktop or a Windows PC shares its screen");
     if (!this.online(id)) throw new ApiError(409, "host_offline", "the host is not connected");
-    this.send(id, { type: "share.approval", from: me.id, approval });
+    this.send(id, { type: push, from: me.id, approval });
     return json({ delivered: true, hostId: id });
   }
 

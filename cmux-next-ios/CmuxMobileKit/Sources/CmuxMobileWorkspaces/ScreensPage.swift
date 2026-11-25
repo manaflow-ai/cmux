@@ -56,7 +56,8 @@ struct ScreensPage: View {
     }
 
     @ViewBuilder private var content: some View {
-        if let screens = source.workspace?.screens, !screens.isEmpty {
+        if let workspace = source.workspace, workspace.layout != nil, !workspace.screens.isEmpty {
+            let screens = workspace.screens
             List {
                 ForEach(Array(screens.enumerated()), id: \.element.id) { index, screen in
                     Section {
@@ -75,8 +76,9 @@ struct ScreensPage: View {
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
-        } else if source.awaitsMacList {
+        } else if source.workspace?.layout == nil, source.awaitsMacList {
             // The Mac's list is on its way: loading, never "No Screens Yet".
+            // placeholder-ok: this workspace has never had a cached screen list.
             CmuxSpinner(label: Text("Loading screens from \(source.macName)…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("screens.loading")
