@@ -49,6 +49,8 @@ const CLI_FLAGS: &[&str] = &[
     "no-wait",
     "interactive",
     "focus",
+    // `run_action` reads `--no-focus` as the run's `focus: false` (and the action's `focus` when it takes one).
+    "no-focus",
     "target",
     "arg",
     "json",
@@ -92,6 +94,7 @@ struct Action {
 }
 
 fn repo_root() -> PathBuf {
+    // affected-reads: plans/cmux-next/action-surfaces.json cmux-tui
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 
@@ -567,9 +570,13 @@ fn reaches_app(cli_name: &str) -> bool {
 #[test]
 fn every_cli_call_site_sends_only_arguments_its_action_takes() {
     let actions = actions();
+    // A catalog request row's CLI is the mux grammar's own verb, which maps its flags itself
+    // (`catalog_request_tests` checks it sends the row's request): not this contract's.
+    let requests = super::action_surface_parity::catalog_request_cli_names();
+    let reaches = |cli_name: &str| !requests.contains(cli_name) && reaches_app(cli_name);
     let mut drift = Vec::new();
     for file in source_files() {
-        drift.extend(drift_in(&file, &actions, &reaches_app));
+        drift.extend(drift_in(&file, &actions, &reaches));
     }
     let lines = drift
         .iter()

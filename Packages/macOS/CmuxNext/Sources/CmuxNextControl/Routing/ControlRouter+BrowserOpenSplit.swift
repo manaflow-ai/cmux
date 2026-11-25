@@ -12,8 +12,10 @@ import Foundation
 ///   its query stays with the caller.
 /// - `workspace_id`: the workspace whose pane gets the tab (`ws_…`, key or
 ///   handle). Its pane is the one a window shows focused, else its first
-///   screen's default pane. Naming a background workspace never switches the
-///   view unless `focus` is true.
+///   screen's default pane. When that pane holds an agent chat, the tab opens
+///   in the column right of the chat, as the chat's own agent's would
+///   (`placeBesideTargetChat`, ControlCaller), never in the chat's pane.
+///   Naming a background workspace never switches the view unless `focus` is true.
 /// - `terminal_id`: the caller's terminal (`CMUX_TUI_TERMINAL_ID`): its pane
 ///   gets the tab when no workspace is named. An unknown terminal (another
 ///   session's) falls through to the focused pane.
@@ -62,6 +64,8 @@ struct BrowserOpenSplitRun {
         ]
         if let origin = request.origin { params["origin"] = .string(origin) }
         if let tab = placement.targetTab { params["target"] = .string("tab:" + tab) }
+        // A named workspace names no pane: right of its agent chat when its pane holds one.
+        if placement.kind == .workspace { params["beside_chat"] = true }
         // action.run aims it beside the caller's chat, or at a new column there.
         if placement.kind.isBesideCaller, let session = request.agentSession {
             var caller: [String: JSONValue] = ["agent_session": .string(session)]

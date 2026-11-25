@@ -5,15 +5,15 @@
 //!
 //! - an open answers a handle of this connection that stands for the peer's, so another
 //!   connection, even for the same chat, cannot read through it (`media.handle`);
-//! - a connection holds at most [`MAX_HANDLES`] of them, counting the opens still waiting on the
-//!   peer and only the handles used within [`IDLE`] (the peer closes the others), so one client
-//!   cannot fill the link's table, even with many opens at once;
+//! - a connection holds any number of them, up to the peer's own [`MAX_OPEN`], counting the
+//!   opens still waiting on the peer and only the handles used within [`IDLE`] (the peer closes
+//!   the others);
 //! - a handle's entry goes with its final range, or with a refused one once it is closed on the
 //!   peer too (a refusal may come from the peer's guard, before its reader closed it), and
 //!   when the connection ends every handle still held is closed on the peer: a range of length
 //!   0, which the peer refuses and so closes.
 
-use crate::hub::media_handles::{IDLE, MAX_HANDLES};
+use crate::hub::media_handles::{IDLE, MAX_OPEN};
 use crate::peer::Peer;
 use crate::rpc::{RpcError, method};
 use serde_json::{Value, json};
@@ -117,7 +117,8 @@ impl RemoteMedia {
             for remote in idle.iter().filter_map(|mine| table.held.remove(mine)) {
                 release(remote.peer, remote.session, remote.handle);
             }
-            let room = table.held.len() + table.opening < MAX_HANDLES;
+            // The peer refuses past its MAX_OPEN anyway (`media.busy`).
+            let room = table.held.len() + table.opening < MAX_OPEN;
             table.opening += usize::from(room);
             room
         })
@@ -224,41 +225,5 @@ pub(super) async fn forward(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use base64::Engine;
-
-    /// A peer link that ends (the peer closes every handle it held for it) gives this
-    /// connection's places back at once, not after IDLE.
-    #[tokio::test]
-    async fn a_handle_of_an_ended_peer_link_holds_no_place() {
-        let (notices, _rx) = tokio::sync::mpsc::channel(8);
-        let peer = Peer::new("b", "ws://127.0.0.1:9", None, None, notices);
-        let media = RemoteMedia::default();
-        let epoch = peer.link_epoch();
-        media.with(|table| {
-            for n in 0..MAX_HANDLES {
-                let remote = Remote {
-                    peer: peer.clone(),
-                    session: "s".into(),
-                    handle: format!("theirs-{n}"),
-                    used: Instant::now(),
-                    epoch,
-                };
-                table.held.insert(format!("mine-{n}"), remote);
-            }
-        });
-        assert_eq!(media.reserve(), Some(false), "a full table has no room");
-        peer.link_ended();
-        assert_eq!(media.reserve(), Some(true), "the ended link's handles kept their places");
-        assert_eq!(media.with(|table| table.held.len()), Some(0));
-    }
-
-    #[test]
-    fn the_decoded_length_matches_the_bytes() {
-        for n in 0..10 {
-            let data = base64::engine::general_purpose::STANDARD.encode(vec![7u8; n]);
-            assert_eq!(decoded_len(&data), n as u64, "{data}");
-        }
-    }
-}
+#[path = "media_forward_tests.rs"]
+mod tests;

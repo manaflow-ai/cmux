@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { memberUpsert } from "../src/domains/team-members.ts"
 import { CHIEF_VM_MJS } from "../src/chief-brain-cc/chief-vm-source.ts"
+import { backgroundPoll } from "../src/providers/freestyle/background.ts"
 import { createHash } from "node:crypto"
 import { fakeCloud, machine, notes, type Started } from "./chief-brain-cc-fake.ts"
 import { CC_NOTICES, CC_PARTIAL, TURN_FAILED_NOTICE } from "../src/chief-brain/brain-gateway.ts"
@@ -496,6 +497,79 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     expect(JSON.stringify(seen)).not.toContain("idtok-secret")
   })
 
+  it("gives the Chief a computer it works on by sight, which only its owner watches and which never wakes for a look", async () => {
+    const seen: Record<string, any> = {}
+    const call = async (s: Started, vm: unknown) => {
+      const r = await notes(s, { run: s.run, vm })
+      return { status: r.status, body: await r.json().catch(() => null) }
+    }
+    const cloud = fakeCloud(
+      () => "computer",
+      async (s, n) => {
+        if (n !== 1) return
+        seen.a = await call(s, { action: "create" })
+        const id = seen.a.body?.vm?.id
+        seen.early = await call(s, { action: "computer", id, op: "screenshot" })
+        seen.setup = await call(s, { action: "computer", id, op: "setup" })
+        seen.click = await call(s, { action: "computer", id, op: "click", x: 10, y: 20, count: 2 })
+        seen.type = await call(s, { action: "computer", id, op: "type", text: "hello'; reboot; echo '" })
+        seen.key = await call(s, { action: "computer", id, op: "key", keys: "ctrl+l; reboot" })
+        seen.open = await call(s, { action: "computer", id, op: "open", url: "javascript:alert(1)" })
+        seen.browse = await call(s, { action: "computer", id, op: "open", url: "https://example.com/?q='x'" })
+        seen.off = await call(s, { action: "computer", id, op: "click", x: 5000, y: 1 })
+        seen.foreign = await call(s, { action: "computer", id: s.vm, op: "setup" })
+      }
+    )
+    const { token, chief } = await enabledChief("chief-cc-computer", "cc")
+    const stranger = await enabledChief("chief-cc-computer-stranger", "cc")
+    // No computer yet: the profile hides the section.
+    expect((await http("GET", `/v1/chiefs/${chief.id}/computer`, token)).json.value).toMatchObject({ used: false, computer: null })
+    expect((await send(token, chief.main_conversation, "k1", "use your computer")).ok).toBe(true)
+    await replies(token, chief.main_conversation, chief.id, 1)
+    const id = seen.a.body.vm.id as string
+    // A sandbox is not a computer until setup; then each action answers with the screen after it.
+    expect(seen.early.status).toBe(409)
+    expect(seen.setup, JSON.stringify(seen.setup)).toMatchObject({ status: 200, body: { computer: id, screen: { width: 1280, height: 800 } } })
+    expect(seen.click.status).toBe(200)
+    expect(seen.click.body.image).toMatch(/^\/9j\//)
+    expect(cloud.execs.some((e) => e.vm === id && e.command.includes("xdotool mousemove --sync 10 20 click --repeat 2"))).toBe(true)
+    // Typed text reaches the VM only as an environment value, and the desktop runs as chief, not root.
+    expect(seen.type.status).toBe(200)
+    const typed = cloud.execs.find((e) => e.env?.CHIEF_TEXT !== undefined)!
+    expect(typed.env!.CHIEF_TEXT).toBe("hello'; reboot; echo '")
+    expect(typed.command).not.toContain("reboot")
+    expect(typed.user).toBe("chief")
+    // Key names, URLs and coordinates are checked before anything runs.
+    expect([seen.key.status, seen.open.status, seen.off.status]).toEqual([400, 400, 400])
+    expect(cloud.execs.some((e) => e.command.includes("reboot") || JSON.stringify(e.env ?? {}).includes("javascript:"))).toBe(false)
+    // A page opens in Chrome, done once its window shows (no fixed sleep), the URL only in the environment.
+    expect(seen.browse.status).toBe(200)
+    const browsed = cloud.execs.find((e) => e.env?.CHIEF_URL !== undefined)!
+    expect(browsed.env!.CHIEF_URL).toBe("https://example.com/?q='x'")
+    expect(browsed.command).toContain("xdotool search --sync --onlyvisible --class google-chrome")
+    expect(browsed.command).not.toMatch(/sleep|example\.com/)
+    // Only its own sandboxes can become its computer.
+    expect(seen.foreign.status).toBe(404)
+    // The owner sees it and its screen; anyone else gets the same answer as for no Chief at all.
+    expect((await http("GET", `/v1/chiefs/${chief.id}/computer`, token)).json.value).toMatchObject({ used: true, acting: true, computer: { id, state: "running" } })
+    const screen = await worker.fetch(`https://api.test/v1/chiefs/${chief.id}/computer/screen`, { headers: { authorization: `Bearer ${token}` } })
+    expect(screen.status).toBe(200)
+    expect(screen.headers.get("content-type")).toBe("image/jpeg")
+    expect(new Uint8Array(await screen.arrayBuffer()).slice(0, 2)).toEqual(new Uint8Array([0xff, 0xd8]))
+    for (const path of ["computer", "computer/screen"]) expect((await http("GET", `/v1/chiefs/${chief.id}/${path}`, stranger.token)).status, path).toBe(404)
+    // Asleep: no screenshot and no start, so a look costs nothing.
+    cloud.states.set(id, "suspended")
+    const before = cloud.execs.length
+    const asleep = await http("GET", `/v1/chiefs/${chief.id}/computer/screen`, token)
+    expect(asleep.status).toBe(409)
+    expect(asleep.json.error.code).toBe("computer.asleep")
+    expect(cloud.execs.length).toBe(before)
+    expect(cloud.lifecycle).not.toContain(`${id} start`)
+    // Gone: the Chief has no computer, but its profile keeps the section (it has used one).
+    cloud.deleted.push(id)
+    expect((await http("GET", `/v1/chiefs/${chief.id}/computer`, token)).json.value).toMatchObject({ used: true, computer: null })
+  })
+
   it("gives the Chief the VM lifecycle, exec options, its cap and the cost per hour", async () => {
     const seen: Record<string, any> = {}
     const call = async (s: Started, vm: unknown) => {
@@ -512,6 +586,8 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
         seen.get = await call(s, { action: "get", id })
         seen.update = await call(s, { action: "update", id, name: "builder-2", idle_seconds: 900 })
         seen.exec = await call(s, { action: "exec", id, command: "printenv GREETING; cat", env: { GREETING: "hi" }, stdin: btoa("from stdin") })
+        // A command longer than the provider's edge holds a request (about 125 s) runs as a background request.
+        seen.long = await call(s, { action: "exec", id, command: "sleep past the edge", timeout_ms: 290_000 })
         seen.badEnv = await call(s, { action: "exec", id, command: "true", env: { "1BAD": "x" } })
         seen.bigStdin = await call(s, { action: "exec", id, command: "cat", stdin: "A".repeat(190_000) })
         // The identity is deleted at Freestyle behind the Worker's back: the next exec makes a new one and works.
@@ -530,6 +606,8 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     )
     const before = testEnv.CHIEF_CC_SANDBOX_CAPS
     const beforeCap = testEnv.CHIEF_CC_SANDBOX_CAP
+    const beforePoll = backgroundPoll.ms
+    backgroundPoll.ms = 1
     const { token, chief } = await enabledChief("chief-cc-sandbox-life", "cc")
     // An empty per-Chief entry and an empty global value fall back to the default cap of 2 (never 0).
     testEnv.CHIEF_CC_SANDBOX_CAPS = `agent_unrelated=9,${chief.id}=`
@@ -540,6 +618,7 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     } finally {
       before === undefined ? delete testEnv.CHIEF_CC_SANDBOX_CAPS : (testEnv.CHIEF_CC_SANDBOX_CAPS = before)
       beforeCap === undefined ? delete testEnv.CHIEF_CC_SANDBOX_CAP : (testEnv.CHIEF_CC_SANDBOX_CAP = beforeCap)
+      backgroundPoll.ms = beforePoll
     }
     const id = seen.made.body.vm.id
     const made = cloud.made.find((m) => m.id === id)!
@@ -552,6 +631,9 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     expect(seen.update.status).toBe(200)
     expect(cloud.patches).toContainEqual({ vm: id, body: { displayName: "builder-2", idleTimeoutSeconds: 900 } })
     expect(seen.exec).toMatchObject({ status: 200, body: { exit: 0, stdout: "hi\nfrom stdin" } })
+    expect(seen.long).toMatchObject({ status: 200, body: { exit: 0, stdout: "done\n" } })
+    expect(cloud.background.length).toBeGreaterThanOrEqual(2)
+    expect(cloud.execs.filter((e) => e.command === "sleep past the edge")).toHaveLength(1)
     expect(seen.badEnv.status).toBe(400)
     expect(seen.bigStdin.status).toBe(400)
     expect(seen.bigStdin.body.error).toMatch(/fs put/)

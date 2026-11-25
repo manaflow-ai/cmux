@@ -1064,7 +1064,7 @@ class PendingRecords(unittest.TestCase):
 class NotifyNeverLost(unittest.TestCase):
     """lw#5184 (cmux#43194 at 688722a2): run 43652238618 published tree cfb3790d at 23:41Z on 2026-11-14, its
     notify's marker read answered HTTP 403 (the installation's spent rate limit), the step only warned, and the
-    pull request's same-tree run was never dispatched; merge_hold held it for hours."""
+    pull request's same-tree run was never dispatched; land-judge held it for hours."""
 
     def test_a_rate_limited_call_moves_to_the_spare_token_once_without_sleeping(self):
         sent = []

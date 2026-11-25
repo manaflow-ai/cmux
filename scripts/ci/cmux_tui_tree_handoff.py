@@ -17,7 +17,14 @@ blocked every publish):
   re-run spends the same quota and fails the same way. The tree is published
   by the next push of the key, or by cmux-tui-tree-request.yml once the quota
   resets. One failed job that is not quota-only makes the run a real failure,
-  and the hand-off goes ahead.
+  and the hand-off goes ahead; and
+- an owner whose build leg failed on a Rust compile error hands nothing off
+  (compile_error_failure): the deferred run builds the same tree key, the same
+  source, and fails on the same rustc error. 2026-11-23 and 11-24, while
+  feat-cmux-next did not compile, re-runs rebuilt all three targets and the
+  daemon tests for about 75 runner-min each and failed on the same E0599 and
+  E0062. The run stays red and names the error; the next push of a new key
+  builds it.
 
 The hand-off is never silent (2026-11-13: an owner's hand-off read "API rate
 limit exceeded for installation" on its first call, ended as a warning in a
@@ -39,8 +46,17 @@ it. A re-run that finds the tree published never defers again, so the markers
 A run still in progress is left with its marker: its own adopt step, after its
 marker, reads the tree this run already published.
 
-The published path spends one artifact-list call, one page of this workflow's run list, and two calls per candidate
-(rerun plus marker deletion): 2+2N when candidates are on that page. A candidate missing from the page gets one
+Such a manifest re-run re-runs one job, not the run (rerun_manifest): the
+deferred run's "write the commit manifest from the published tree" job and the
+five jobs that need it. GitHub keeps every other job's attempt-1 outputs (the
+tree key, deferred), and the adopt job reads the tree again. A whole-run re-run
+also re-ran its preflight, channel pointers, nightly-next and Team-signed
+requests and the manifest sweep: 827 manifest re-runs on 2026-11-20 spent
+5,286 runner-min, 1,203 of them in the jobs a one-job re-run keeps. A run whose adopt job never ran
+(skipped, cancelled) or whose job list cannot be read is re-run whole, as before.
+
+The published path spends one artifact-list call, one page of this workflow's run list, and three calls per candidate
+(its job list, rerun, marker deletion): 2+3N when candidates are on that page. A candidate missing from the page gets one
 bounded run-by-id read, so the fallback is still fixed per candidate and never walks the repository's run history.
 
 usage: cmux_tui_tree_handoff.py --repo OWNER/NAME --run-id ID --key KEY [--published]
@@ -75,16 +91,33 @@ RATE_LIMIT_TEXT = re.compile(
 RATE_LIMIT_RESET = re.compile(r"(?:x[- ]?ratelimit[- ]?reset|reset(?:s)?(?: at)?)\s*[:=]?\s*(\d{10})", re.IGNORECASE)
 # gh's answer for an artifact that no longer exists.
 MARKER_GONE = re.compile(r"\bNot Found\b|\bHTTP 404\b")
+# The job a manifest re-run re-runs (adopt-commit-manifest's name), and the conclusions that say it ran in
+# that attempt: a skipped or cancelled job never read the tree, so its run is re-run whole.
+ADOPT_JOB_NAME = "write the commit manifest from the published tree"
+ADOPT_JOB_RAN = frozenset({"success", "failure"})
 # Jobs that only follow a failure: they never make an owner's failure their own.
 REPORTING_JOBS = frozenset({"report an unpublished cmux-tui tree to cmux-next"})
+# A build leg's job name ("build-linux / build x86_64-unknown-linux-musl", "build / build aarch64-apple-darwin").
+BUILD_LEG_MARK = " / build "
+# rustc's coded error and cargo's verdict on it: the source does not compile, and a re-run of the same tree fails the
+# same way.
+RUSTC_ERROR = re.compile(r"\berror\[E(\d{4})\]")
+COULD_NOT_COMPILE = re.compile(r"\berror: could not compile `")
+# Codes a broken cache or toolchain on the runner can raise (a crate or its metadata missing or unreadable): a re-run
+# on a clean runner can pass, so these are no evidence the source is broken.
+RUNNER_CODES = frozenset({"0460", "0461", "0462", "0463", "0464", "0514", "0519", "0523", "0786"})
+# rustc killed or starved by the runner: also ends in "could not compile", and a re-run can pass.
+RUNNER_FAULT = re.compile(r"signal: 9\b|SIGKILL|SIGSEGV|out of memory|No space left on device|\bKilled\b|"
+                          r"memory allocation of \d+ bytes failed", re.IGNORECASE)
 GLAEDA_BUDGET = Path(os.environ.get("GLAEDA_GH_DIR") or Path.home() / ".cache" / "glaeda" / "gh") / "budget.json"
 
 
 class QuotaRefused(RuntimeError):
     """The repo installation's API limit refused a hand-off call."""
 
-    def __init__(self, retry_before: str):
+    def __init__(self, retry_before: str, run_id: int | None = None):
         self.retry_before = retry_before
+        self.run_id = run_id
         super().__init__(retry_before)
 
 
@@ -172,6 +205,23 @@ def quota_only_failure(jobs: Sequence[Mapping[str, Any]], log_of: Callable[[Mapp
     return bool(failed) and all(job_quota_only(job, log_of(job)) for job in failed)
 
 
+def job_compile_error(job: Mapping[str, Any], log_text: str | None) -> bool:
+    """A failed build leg failed on a Rust compile error: rustc named a coded error that is not a runner's cache or
+    toolchain fault, cargo said it could not compile, and the runner did not kill or starve rustc. An unreadable log
+    (None) is no evidence."""
+    if log_text is None or BUILD_LEG_MARK not in (job.get("name") or ""):
+        return False
+    codes = set(RUSTC_ERROR.findall(log_text))
+    return (bool(codes - RUNNER_CODES) and bool(COULD_NOT_COMPILE.search(log_text))
+            and not RUNNER_FAULT.search(log_text))
+
+
+def compile_error_failure(jobs: Sequence[Mapping[str, Any]], log_of: Callable[[Mapping[str, Any]], str | None]) -> bool:
+    """True when a failed build leg failed on a Rust compile error. One is enough: the tree is published only with
+    every target, and that leg fails again on any re-run of the same source."""
+    return any(job_compile_error(job, log_of(job)) for job in failed_jobs(jobs) if BUILD_LEG_MARK in (job.get("name") or ""))
+
+
 def order_candidates(artifacts: Iterable[Mapping[str, Any]], self_run: int) -> list[tuple[int, int, str, Mapping[str, Any]]]:
     """(artifact id, run id, branch, embedded run record) of unexpired deferred markers left by other runs, feat-cmux-next
     pushes first, newest run first within each branch class."""
@@ -194,7 +244,7 @@ def may_rerun(run: Mapping[str, Any], cap: int = MAX_ATTEMPT) -> tuple[bool, str
     return True, f"attempt {attempt}"
 
 
-def _gh(*args: str) -> subprocess.CompletedProcess[str]:
+def _gh(*args: str, run_id: int | None = None) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(["gh", *args], capture_output=True, text=True)
     spare = os.environ.get("GH_TOKEN_SPARE")
     refused = f"{result.stderr}\n{result.stdout}"
@@ -206,15 +256,15 @@ def _gh(*args: str) -> subprocess.CompletedProcess[str]:
         result = subprocess.run(["gh", *args], capture_output=True, text=True)
         refused = f"{result.stderr}\n{result.stdout}"
     if result.returncode != 0 and RATE_LIMIT_TEXT.search(refused):
-        raise QuotaRefused(_rate_limit_retry_before(refused))
+        raise QuotaRefused(_rate_limit_retry_before(refused), run_id)
     return result
 
 
-def _list(path: str, key: str) -> list[dict]:
+def _list(path: str, key: str, *, run_id: int | None = None) -> list[dict]:
     """Every item of the `key` list of a paginated endpoint, one bounded `gh api` call per page
     (scripts/ci/gh_pages.py; the gh quota wrapper refuses an unbounded paginating call)."""
     def fetch(url: str) -> Any:
-        result = _gh("api", url)
+        result = _gh("api", url, run_id=run_id)
         if result.returncode != 0:
             raise RuntimeError(f"gh api {url} failed: {result.stderr.strip()}")
         return {key: json.loads(result.stdout)[key]}
@@ -224,10 +274,25 @@ def _list(path: str, key: str) -> list[dict]:
         raise RuntimeError(str(error)) from None
 
 
+def rerun_manifest(repo: str, run_id: int) -> tuple[subprocess.CompletedProcess[str], str]:
+    """Re-run what writes run `run_id`'s commit manifest: its adopt job alone (GitHub re-runs the jobs that need
+    it too), else the whole run. (the rerun's result, what was re-run)."""
+    try:
+        jobs = _list(f"repos/{repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100", "jobs", run_id=run_id)
+    except RuntimeError as error:
+        print(f"::notice::could not read the jobs of run {run_id} ({error}); re-running the whole run")
+        jobs = []
+    adopt = next((job for job in jobs if job.get("name") == ADOPT_JOB_NAME
+                  and job.get("conclusion") in ADOPT_JOB_RAN and job.get("id")), None)
+    if adopt is not None:
+        return _gh("run", "rerun", "--job", str(adopt["id"]), "--repo", repo, run_id=run_id), f"job {adopt['id']} ({ADOPT_JOB_NAME})"
+    return _gh("run", "rerun", str(run_id), "--repo", repo, run_id=run_id), "the whole run"
+
+
 def _delete_marker(repo: str, artifact: int, deferred: int) -> None:
     # Right after the re-run the delete can answer 404: the marker is gone already
     # (2026-11-13: run 43364473890 re-ran its deferred run and went red on that 404).
-    deleted = _gh("api", "-X", "DELETE", f"repos/{repo}/actions/artifacts/{artifact}")
+    deleted = _gh("api", "-X", "DELETE", f"repos/{repo}/actions/artifacts/{artifact}", run_id=deferred)
     if deleted.returncode != 0 and MARKER_GONE.search(deleted.stderr):
         print(f"Deferred marker {artifact} of run {deferred} was already gone.")
     elif deleted.returncode != 0:
@@ -243,13 +308,17 @@ def deferred_runs(repo: str, candidates: Sequence[tuple[int, int, str, Mapping[s
         return embedded
     # Artifact workflow_run objects do not include status/run_attempt/created_at. Read one page scoped to this
     # workflow, never the repository-wide run list (which is far past gh_pages.MAX_PAGES on this repository).
-    page = _gh("api", f"repos/{repo}/actions/workflows/cmux-tui-artifacts.yml/runs?per_page=100&page=1")
+    # If this shared metadata read is refused, name the first rerunnable candidate rather than the
+    # publishing run. The marker remains actionable: it identifies a deferred workflow to retry.
+    candidate_run = candidates[0][1] if candidates else None
+    page = _gh("api", f"repos/{repo}/actions/workflows/cmux-tui-artifacts.yml/runs?per_page=100&page=1",
+               run_id=candidate_run)
     if page.returncode == 0:
         runs = json.loads(page.stdout).get("workflow_runs", [])
         embedded.update({int(run["id"]): run for run in runs if run.get("id") is not None})
     still_missing = [row for row in missing if row[1] not in embedded]
     for _, deferred, _, _ in still_missing:
-        result = _gh("api", f"repos/{repo}/actions/runs/{deferred}")
+        result = _gh("api", f"repos/{repo}/actions/runs/{deferred}", run_id=deferred)
         if result.returncode == 0 and result.stdout.strip():
             embedded[deferred] = json.loads(result.stdout)
     return embedded
@@ -273,11 +342,11 @@ def rerun_published(repo: str, run_id: int, key: str) -> None:
         if not allowed:
             print(f"Not re-running run {deferred} ({branch}): {why}.")
             continue
-        rerun = _gh("run", "rerun", str(deferred), "--repo", repo)
+        rerun, what = rerun_manifest(repo, deferred)
         if rerun.returncode != 0:
             failed.append(f"could not re-run run {deferred} ({branch}): {rerun.stderr.strip()}")
             continue
-        print(f"Re-ran run {deferred} ({branch}, {why}): tree {key} is published, and that run writes its commit manifest from it.")
+        print(f"Re-ran run {deferred} ({branch}, {why}; {what}): tree {key} is published, and that run writes its commit manifest from it.")
         _delete_marker(repo, artifact, deferred)
     if failed:
         raise RuntimeError("; ".join(failed))
@@ -286,16 +355,25 @@ def rerun_published(repo: str, run_id: int, key: str) -> None:
 def handoff(repo: str, run_id: int, key: str) -> None:
     jobs = _list(f"repos/{repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100", "jobs")
 
+    logs: dict[Any, str | None] = {}
+
     def log_of(job: Mapping[str, Any]) -> str | None:
+        if job["id"] in logs:
+            return logs[job["id"]]
         result = _gh("api", f"repos/{repo}/actions/jobs/{job['id']}/logs")
         if result.returncode != 0:
             print(f"::warning::could not read the log of job {job['id']} ({job.get('name')}): {result.stderr.strip()}")
-            return None
-        return result.stdout
+        logs[job["id"]] = result.stdout if result.returncode == 0 else None
+        return logs[job["id"]]
 
     if quota_only_failure(jobs, log_of):
         print(f"::warning title=tree hand-off skipped::run {run_id} failed only on GitHub's rate limit or "
               f"attestation; a re-run would spend the same quota. Tree {key} is left for the next push of the key.")
+        return
+    if compile_error_failure(jobs, log_of):
+        print(f"::warning title=tree hand-off skipped::run {run_id} failed on a Rust compile error in a build leg; a "
+              f"run that deferred tree {key} builds the same source and fails the same way. The next push of a new "
+              "key builds it; a person can still re-run a run by hand (gh run rerun RUN).")
         return
     artifacts = _list(f"repos/{repo}/actions/artifacts?name=cmux-tui-tree-deferred-{key}&per_page=100", "artifacts")
     candidates = order_candidates(artifacts, run_id)
@@ -339,8 +417,9 @@ def main(argv: list[str]) -> int:
         try:
             rerun_published(args.repo, args.run_id, args.key)
         except QuotaRefused as error:
+            rerunnable = error.run_id or args.run_id
             print(f"::error title=deferred runs not re-run::[quota-only] deferred runs not re-run for the "
-                  f"published tree; run {args.run_id}; no attempt before {error.retry_before}; the repo "
+                  f"published tree; run {rerunnable}; no attempt before {error.retry_before}; the repo "
                   "installation's API limit refused its API call. Deferred markers remain for the next run.")
             return 1
         except Exception as error:  # the step fails its job: a deferred commit is left without its manifest

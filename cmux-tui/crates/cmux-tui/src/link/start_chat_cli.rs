@@ -83,7 +83,7 @@ use pick::{Candidate, Destination};
 const USAGE: &str = "usage: cmux link start-chat plan --request JSON\n       \
 cmux link start-chat pin --key KEY --account ACCOUNT --machine ID [--workspace ID]\n       \
 cmux link start-chat create-begin --key KEY --account ACCOUNT --name NAME --create-key CREATE_KEY\n       \
-cmux link start-chat create-sent --key KEY --account ACCOUNT --team TEAM --create-key CREATE_KEY\n       \
+cmux link start-chat create-sent --key KEY --account ACCOUNT --team TEAM --create-key CREATE_KEY [--route relay|direct]\n       \
 cmux link start-chat create-refused --key KEY --account ACCOUNT --create-key CREATE_KEY\n       \
 cmux link start-chat target-pane --key KEY --account ACCOUNT --machine ID --pane PANE\n       \
 cmux link start-chat strand --key KEY --account ACCOUNT --machine ID\n       \
@@ -139,9 +139,21 @@ pub(super) fn run(args: &[String]) -> i32 {
             }
         }
         "create-sent" => {
-            match (flags.key(), flags.account(), flags.one("--team"), flags.one("--create-key")) {
-                (Some(key), Some(account), Some(team), Some(create_key)) => {
-                    Some(create_sent(&ledger, &key, account, team, create_key))
+            // `--route relay|direct`: how the create goes out; not given, the relay.
+            let route = match flags.all("--route").as_slice() {
+                [] => Some(None),
+                [route] if ["relay", "direct"].contains(route) => Some(Some(*route)),
+                _ => None,
+            };
+            match (
+                flags.key(),
+                flags.account(),
+                flags.one("--team"),
+                flags.one("--create-key"),
+                route,
+            ) {
+                (Some(key), Some(account), Some(team), Some(create_key), Some(route)) => {
+                    Some(create_sent(&ledger, &key, account, team, create_key, route))
                 }
                 _ => None,
             }
@@ -231,8 +243,10 @@ impl Keys {
         }
     }
 
+    /// `create_routes`: this ledger keeps a sent create's route (`create-sent --route`), so the
+    /// App may send a person's own create direct; without it every create is the relay's.
     fn json(&self) -> Value {
-        json!({"create_key": self.create, "tab_key": self.tab, "remote_place": self.place})
+        json!({"create_key": self.create, "tab_key": self.tab, "remote_place": self.place, "create_routes": true})
     }
 }
 
@@ -415,6 +429,7 @@ fn plan_with_calls(
             if !pending.refused {
                 return json!({"ok": true, "machine": null, "new_name": pending.name,
             "create_team": pending.team, "create_sent": pending.sent, "create_key": keys.create,
+            "create_route": pending.route, "create_routes": true,
             "tab_key": keys.tab, "remote_place": keys.place});
             }
         }
@@ -826,9 +841,12 @@ impl Ensure {
         }
         let project_key = match optional("--project-key")? {
             Some(key) => Some(project::normalize_key(&key)?),
-            // Without a project key the ensure needs the repository.
+            // Without a project key the ensure needs the repository, or the cloud environment it boots in
+            // (`cloud new-machine --environment`: the platform injects its variables and runs its setup).
             None => {
-                repo.as_ref()?;
+                if repo.is_none() {
+                    environment.as_ref()?;
+                }
                 None
             }
         };
@@ -1121,9 +1139,16 @@ fn create_begin(ledger: &Path, key: &str, account: &str, name: &str, create_key:
     }
 }
 
-fn create_sent(ledger: &Path, key: &str, account: &str, team: &str, create_key: &str) -> Value {
+fn create_sent(
+    ledger: &Path,
+    key: &str,
+    account: &str,
+    team: &str,
+    create_key: &str,
+    route: Option<&str>,
+) -> Value {
     match Ledger::update(ledger, |pins| {
-        pins.mark_create_sent(&Send::new(key, account), team, create_key)
+        pins.mark_create_sent(&Send::new(key, account), team, create_key, route)
     }) {
         Ok(true) => json!({"ok": true}),
         Ok(false) => refused("not_found", "no pending create"),

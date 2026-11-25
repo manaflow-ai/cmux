@@ -29,6 +29,8 @@ package nonisolated struct SidebarWorkspaceSnapshot: Codable, Hashable, Sendable
     package var pullRequest: String?
     package var notificationText: String?
     package var lastActivity: Date?
+    /// The row's chat's last change (`SidebarWorkspace.chatActivity`); absent in older snapshots.
+    package var chatActivity: Date?
     /// The description's first line: an expanded row's second line.
     package var descriptionLine: String?
     /// `WorkspaceRowKind`'s raw value: which per-kind row settings apply.
@@ -128,6 +130,7 @@ package nonisolated struct SidebarWorkspaceSnapshot: Codable, Hashable, Sendable
         pullRequest = Self.cut(ws.pullRequest)
         notificationText = Self.cut(ws.notificationText)
         lastActivity = ws.lastActivity
+        chatActivity = ws.chatActivity
         descriptionLine = Self.cut(WorkspaceRowContent.descriptionLine(ws))
         rowKind = ws.rowKind == ws.kind.rowKind ? nil : ws.rowKind.rawValue
         if let bar = ws.progress, bar.value != nil || bar.isError {
@@ -150,9 +153,21 @@ package nonisolated struct SidebarWorkspaceSnapshot: Codable, Hashable, Sendable
                 ? SidebarProgress(value: progress, isError: progressIsError ?? false) : nil,
             rowState: .stale)
         row.notificationText = notificationText
+        row.chatActivity = chatActivity
         row.workspaceDescription = descriptionLine
         row.taskStatus = taskStatus.flatMap(SidebarTaskStatus.init(rawValue:))
         row.reported = reported?.status
+        return row
+    }
+
+    /// The row with only what places it: identity, title, icon, color, kind and Done fold. The second line's
+    /// facts, the status block and the progress bar go; the restored row draws one line until the live tree
+    /// arrives. What a snapshot over its file's size limit keeps (`SidebarSnapshotDocument.fitted`).
+    package var compacted: SidebarWorkspaceSnapshot {
+        var row = SidebarWorkspaceSnapshot(id: id, machineID: machineID, title: title, kind: kind, kindBrand: kindBrand,
+                                           icon: icon, iconTint: iconTint, color: color)
+        row.rowKind = rowKind
+        row.taskStatus = taskStatus
         return row
     }
 

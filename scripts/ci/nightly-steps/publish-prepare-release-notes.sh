@@ -12,6 +12,15 @@
 # nightly-next runs are pushes to nightly-next; their PRs merge into feat-cmux-next.
 set -euo pipefail
 read -ra feeds <<< "$NIGHTLY_FEEDS"
+# `prefetch` (nightly-next-one's one-job.sh deltas-start, in the background beside the bundle's checks, with no
+# token): only the git fetch of the span the notes cover, from the same live-feed commit as below, so this
+# step's own fetch finds it there. Run 44893172356 spent 30 s of this step's 91 s on it (2026-11-21).
+if [ "${1:-}" = prefetch ]; then
+  since="$(python3 "$PUBLISH_TOOLING/ci/nightly_version.py" published-source --feed "${NIGHTLY_NEXT_FEED_BASE}/${feeds[0]}")" \
+    || since="${PUBLISHED_SHA:-}"
+  [[ "$since" =~ ^[0-9a-f]{40}$ && "$since" != "$NOTES_HEAD" ]] || exit 0
+  exec ./scripts/cmux-next/fetch-release-notes-span.sh origin "$NOTES_HEAD" nightly-next "$since"
+fi
 # nightly-next: the previous published commit is the live feed's newest cmux:sourceCommit. The feed is written
 # by the publishing job itself (a compare-and-swap that only moves to a descendant source); the release body and
 # tag that decide read come from the previous run's tail, after its feed, and the push slot no longer waits for

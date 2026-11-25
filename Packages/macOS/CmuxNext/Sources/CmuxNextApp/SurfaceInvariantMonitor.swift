@@ -67,9 +67,9 @@ final class SurfaceInvariantMonitor {
             let status = row.status
             let surface = status.terminal.map { "\($0)" } ?? "none"
             #if DEBUG
-            logger.fault("blank pane \(status.paneKey, privacy: .public) selected=\(status.selectedTab ?? "-", privacy: .public) shown=\(status.shownTab ?? "-", privacy: .public) installed=\(status.contentInstalled) surface=\(surface, privacy: .public)")
+            logger.fault("blank pane \(status.paneKey, privacy: .public) reason=\(status.blankReason ?? "-", privacy: .public) selected=\(status.selectedTab ?? "-", privacy: .public) shown=\(status.shownTab ?? "-", privacy: .public) installed=\(status.contentInstalled) surface=\(surface, privacy: .public)")
             #else
-            logger.error("blank pane \(status.paneKey, privacy: .public) selected=\(status.selectedTab ?? "-", privacy: .public)")
+            logger.error("blank pane \(status.paneKey, privacy: .public) reason=\(status.blankReason ?? "-", privacy: .public) selected=\(status.selectedTab ?? "-", privacy: .public)")
             #endif
         }
         #if DEBUG

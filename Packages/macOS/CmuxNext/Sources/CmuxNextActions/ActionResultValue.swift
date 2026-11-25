@@ -17,3 +17,10 @@ public nonisolated indirect enum ActionResultValue: Sendable, Hashable {
 /// The asynchronous work of an action that produces a value: its fields on
 /// success, else the failure the caller reports.
 public typealias ActionResultWork = Task<Result<[String: ActionResultValue], ActionWorkFailure>, Never>
+
+extension Task where Success == Result<[String: ActionResultValue], ActionWorkFailure>, Failure == Never {
+    /// This work as ``ActionWork``: its failure, its fields dropped (a caller that awaits only whether it worked).
+    public var failureWork: ActionWork {
+        Task<ActionWorkFailure?, Never> { if case .failure(let failure) = await value { return failure }; return nil }
+    }
+}

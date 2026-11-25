@@ -13,7 +13,7 @@
 // matches and a selection keep a smaller, still clearly visible step from the surface, and every
 // highlight keeps its text at WCAG AA (4.5:1), or, for text already fainter than that on its surface,
 // all the contrast the fill's step leaves it.
-import { parseComputedColor, type RGBA } from "../backdrop";
+import { DESKTOP_LEVELS, parseComputedColor, type RGBA } from "../backdrop";
 import { contrast, fromOklch, toOklch, BLACK, WHITE, type RGB } from "../theme/color";
 import { readBackdrop } from "./glass/glassState";
 
@@ -240,10 +240,6 @@ function windowTint(doc: Document): RGBA {
   if (token && token.a > 0) return token.a < 1 ? token : { ...token, a: LEAST_WALLPAPER_TINT };
   return { r: 0, g: 0, b: 0, a: 0 };
 }
-
-/** The desktops a see-through window may show under its tint, as gray levels: black to white in
- * eighths, so a highlight that fits all of them sits off the whole range, never between two. */
-const DESKTOP_LEVELS = [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1];
 
 /**
  * What lies under the page's root, as the eye sees it: the page canvas (black in a dark page, else

@@ -3,6 +3,25 @@ use cmux_tui_machine_protocol::provider_action_id;
 use super::*;
 
 #[test]
+fn app_language_setting_wins_over_the_environment() {
+    let settings = |language: &str| serde_json::json!({ "app": { "language": language } });
+    let japanese = settings("ja");
+    assert!(catalog_for_settings(Some(&japanese), "en_US.UTF-8").is_japanese());
+    let english = settings("en");
+    assert!(!catalog_for_settings(Some(&english), "ja_JP.UTF-8").is_japanese());
+    // A shipped locale without a CLI catalog shows English.
+    let german = settings("de");
+    assert!(!catalog_for_settings(Some(&german), "ja_JP.UTF-8").is_japanese());
+    for keeps_env in [settings("system"), settings("klingon"), serde_json::json!({})] {
+        assert!(catalog_for_settings(Some(&keeps_env), "ja_JP.UTF-8").is_japanese());
+        assert!(!catalog_for_settings(Some(&keeps_env), "en_US.UTF-8").is_japanese());
+    }
+    assert!(catalog_for_settings(None, "ja_JP.UTF-8").is_japanese());
+    assert!(!catalog_for_settings(None, "C").is_japanese());
+    assert!(!catalog_for_settings(None, "").is_japanese());
+}
+
+#[test]
 fn locale_tags_select_complete_catalogs() {
     assert_eq!(catalog_for_locale("en_US.UTF-8"), &ENGLISH);
     assert_eq!(catalog_for_locale("ja_JP.UTF-8"), &JAPANESE);

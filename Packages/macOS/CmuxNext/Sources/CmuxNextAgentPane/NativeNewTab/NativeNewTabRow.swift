@@ -15,6 +15,8 @@ public nonisolated enum NativeNewTabRow: Sendable, Equatable, Identifiable {
     case workspace(AgentPaneOmnibar.Workspace)
     /// Open a visited page again.
     case page(AgentPaneOmnibar.Page)
+    /// Open a saved bookmark.
+    case bookmark(AgentPaneOmnibar.Page)
     /// Run a Commands palette (Cmd-Shift-P) action.
     case action(AgentPaneOmnibar.Action)
     /// Open a chat the device's chat index lists.
@@ -31,6 +33,7 @@ public nonisolated enum NativeNewTabRow: Sendable, Equatable, Identifiable {
         case .tab(let tab): "tab:\(tab.id)"
         case .workspace(let workspace): "workspace:\(workspace.id)"
         case .page(let page): "page:\(page.url)"
+        case .bookmark(let page): "bookmark:\(page.url)"
         case .action(let action): "action:\(action.id)"
         case .chat(let chat): "chat:\(chat.key)"
         case .start(let start): "start:\(start.harness):\(start.folder)"

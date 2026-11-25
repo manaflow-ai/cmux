@@ -53,6 +53,10 @@ pub struct TimeSpan {
     pub turn_seq: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<String>,
+    /// The prompt the turn answers (its record's `promptId`): a chat on the row store names a turn
+    /// by its prompt, not by `turnId`. None for a turn whose records carry no `promptId`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_id: Option<String>,
     pub category: String,
     pub start_at: u64,
     pub end_at: u64,
@@ -85,6 +89,9 @@ struct Segment {
 struct TurnState {
     seq: u64,
     id: Option<String>,
+    /// A turn saved before spans named their prompt has none.
+    #[serde(default)]
+    prompt_id: Option<String>,
     start_at: u64,
     last_at: u64,
     phase: Category,
@@ -98,10 +105,11 @@ struct TurnState {
 }
 
 impl TurnState {
-    fn new(seq: u64, id: Option<String>, at: u64) -> Self {
+    fn new(seq: u64, id: Option<String>, prompt_id: Option<String>, at: u64) -> Self {
         Self {
             seq,
             id,
+            prompt_id,
             start_at: at,
             last_at: at,
             phase: Category::Model,
@@ -157,8 +165,15 @@ pub(crate) struct State {
     pub(crate) backfill_asked: bool,
     /// The newest record the saved copy (`FILE`) covers: 0 when none was saved.
     pub(crate) saved_seq: u64,
+    /// What the last change row that carried the breakdown held ([`Self::row_snapshot`]): the
+    /// turns ended by then, and when. None until a row carried it.
+    rowed: Option<(u64, u64)>,
     reducer: Reducer,
 }
+
+/// The longest a running turn's time goes unsent on its chat's change rows
+/// ([`State::row_snapshot`]).
+pub(crate) const ROW_EVERY_MS: u64 = 5_000;
 
 /// The fold saved beside the chat's log (`<chat folder>/time-breakdown.json`), with the last
 /// `seq` it covers. A daemon restores it and folds only the records past that `seq`, so no open
@@ -225,6 +240,40 @@ impl State {
         self.reducer.last_seq
     }
 
+    /// Active wall time per finished turn. The reducer already survives a daemon swap.
+    /// Before the first reply its elapsed active turn is a lower bound on its service time.
+    pub(crate) fn reply_period_ms(&self, now: u64) -> Option<u64> {
+        let r = &self.reducer;
+        let waiting = r.totals.get(&Category::Person).copied().unwrap_or_default();
+        r.total_ms
+            .saturating_sub(waiting)
+            .checked_div(r.ended_turns)
+            .or_else(|| r.turn.as_ref().map(|turn| now.saturating_sub(turn.start_at)))
+            .filter(|period| *period > 0)
+    }
+
+    /// The breakdown for the chat's next change row (an attached `session_changed`), when that
+    /// row owes it: a turn ended since the last row that carried it, or a turn has run
+    /// [`ROW_EVERY_MS`] past that row. Every other row leaves it out and the reader keeps the
+    /// one it holds. It is up to [`MAX_SPANS`] spans, 60 to 78 KB of a row: sent with every
+    /// record, six rows a turn, each took 6.5 ms to build and went out ahead of the turn's first
+    /// token on the same connection, 50 ms later to a peer's view of the chat than to its own
+    /// (`tests/transfer_cli/view_latency.rs`).
+    pub(crate) fn row_snapshot(&mut self, now: u64) -> Option<TimeBreakdown> {
+        if !self.initialized {
+            return None;
+        }
+        let ended = self.reducer.ended_turns;
+        let owed = self.rowed.is_none_or(|(turns, at)| {
+            turns != ended
+                || (self.reducer.turn.is_some() && now.saturating_sub(at) >= ROW_EVERY_MS)
+        });
+        owed.then(|| {
+            self.rowed = Some((ended, now));
+            self.snapshot(now)
+        })
+    }
+
     pub(crate) fn snapshot(&self, now: u64) -> TimeBreakdown {
         let mut reducer = self.reducer.clone();
         if let Some(turn) = reducer.turn.as_mut() {
@@ -245,23 +294,28 @@ impl Reducer {
                 self.start_turn(
                     turn_seq(&record.msg).unwrap_or(record.seq),
                     turn_id(&record.msg),
+                    prompt_id(&record.msg),
                     at,
                 );
             }
             "turn_started" => {
                 let seq = turn_seq(&record.msg).unwrap_or(record.seq);
                 let id = turn_id(&record.msg);
+                let prompt = prompt_id(&record.msg);
                 if self.turn.as_ref().is_some_and(|turn| {
                     turn.end_marker || (turn.id.is_some() && id.is_some() && turn.id != id)
                 }) {
-                    self.start_turn(seq, id, at);
+                    self.start_turn(seq, id, prompt, at);
                 } else if let Some(turn) = self.turn.as_mut() {
                     turn.seq = seq;
                     if id.is_some() {
                         turn.id = id;
                     }
+                    if prompt.is_some() {
+                        turn.prompt_id = prompt;
+                    }
                 } else {
-                    self.start_turn(seq, id, at);
+                    self.start_turn(seq, id, prompt, at);
                 }
             }
             "tool_call" => {
@@ -386,12 +440,12 @@ impl Reducer {
         }
     }
 
-    fn start_turn(&mut self, seq: u64, id: Option<String>, at: u64) {
+    fn start_turn(&mut self, seq: u64, id: Option<String>, prompt_id: Option<String>, at: u64) {
         if let Some(mut turn) = self.turn.take() {
             turn.advance(at);
             self.finish(turn, None);
         }
-        self.turn = Some(TurnState::new(seq, id, at));
+        self.turn = Some(TurnState::new(seq, id, prompt_id, at));
     }
 
     fn ensure_turn(&mut self, record: &EventRecord) {
@@ -399,6 +453,7 @@ impl Reducer {
             self.start_turn(
                 turn_seq(&record.msg).unwrap_or(record.seq),
                 turn_id(&record.msg),
+                prompt_id(&record.msg),
                 record.at,
             );
         }
@@ -413,6 +468,7 @@ impl Reducer {
             self.spans.push(TimeSpan {
                 turn_seq: turn.seq,
                 turn_id: turn.id.clone(),
+                prompt_id: turn.prompt_id.clone(),
                 category: segment.category.id().to_owned(),
                 start_at: segment.start_at,
                 end_at: segment.end_at,
@@ -455,6 +511,7 @@ impl Reducer {
                 spans.push(TimeSpan {
                     turn_seq: turn.seq,
                     turn_id: turn.id.clone(),
+                    prompt_id: turn.prompt_id.clone(),
                     category: segment.category.id().to_owned(),
                     start_at: segment.start_at,
                     end_at: segment.end_at,
@@ -499,6 +556,10 @@ fn turn_seq(msg: &Value) -> Option<u64> {
 
 fn turn_id(msg: &Value) -> Option<String> {
     value(msg, "turnId").and_then(Value::as_str).map(str::to_owned)
+}
+
+fn prompt_id(msg: &Value) -> Option<String> {
+    value(msg, "promptId").and_then(Value::as_str).filter(|id| !id.is_empty()).map(str::to_owned)
 }
 
 fn tool_id(msg: &Value) -> Option<String> {

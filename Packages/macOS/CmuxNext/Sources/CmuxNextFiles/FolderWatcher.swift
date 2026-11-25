@@ -30,13 +30,21 @@ public struct FolderWatcher: FolderWatching {
     /// Changes held for a reader that lags; past this the oldest is dropped and a rescan follows.
     static let bufferLimit = 64
 
-    /// Makes a watcher. `latency` defaults to 50 ms.
-    public init(latency: CFTimeInterval = 0.05) { self.latency = latency }
+    /// Whether a stream watches the folder itself to follow it when it moves (asked off the main
+    /// thread when a stream starts). Without it nothing here opens the folder (``FolderWatchStream``).
+    public var watchesRoot: @Sendable () -> Bool
+
+    /// Makes a watcher. `latency` defaults to 50 ms; `watchesRoot` to always.
+    public init(latency: CFTimeInterval = 0.05, watchesRoot: @escaping @Sendable () -> Bool = { true }) {
+        self.latency = latency
+        self.watchesRoot = watchesRoot
+    }
 
     public func changes(in folder: URL) -> AsyncStream<FolderChange> {
         // Bounded: when the reader lags so far that a change is dropped, a rescan follows it.
         AsyncStream(bufferingPolicy: .bufferingNewest(Self.bufferLimit)) { continuation in
-            let box = FolderWatchStream(folder: Self.realFolder(folder), latency: latency, continuation: continuation)
+            let box = FolderWatchStream(folder: Self.realFolder(folder), latency: latency, watchesRoot: watchesRoot,
+                                        continuation: continuation)
             continuation.onTermination = { _ in box.stop() }
             box.start()
         }

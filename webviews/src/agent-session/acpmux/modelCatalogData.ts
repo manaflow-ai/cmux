@@ -16,7 +16,8 @@ import { agentBrand } from "../shared/agentBrands.generated";
 // reads only `PickerCatalog`; it never matches model ids itself.
 
 export type EffortValue = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
-export type ModelStatus = "preview" | "deprecated";
+/** `disabled`: the catalog withdrew the model; it never shows (see `readModelCatalog`). */
+export type ModelStatus = "preview" | "deprecated" | "disabled";
 
 export type ModelInfo = {
   name: string;
@@ -172,8 +173,20 @@ const EFFORT_ORDER: readonly EffortValue[] = ["none", "minimal", "low", "medium"
 export function readModelCatalog(value: unknown): ModelCatalog | undefined {
   if (!isRecord(value) || value.schemaVersion !== 1 || !Array.isArray(value.harnesses)) return undefined;
   if (!isRecord(value.models) || !isRecord(value.providers)) return undefined;
-  const harnesses = (value.harnesses as unknown[]).filter(isCatalogHarness);
+  const harnesses = (value.harnesses as unknown[]).filter(isCatalogHarness).map(withoutDisabled);
   return { ...(value as ModelCatalog), harnesses };
+}
+
+/** Drops the models the catalog disabled, and a default model that is one of them. */
+function withoutDisabled(harness: CatalogHarness): CatalogHarness {
+  const disabled = new Set(harness.models.filter((m) => m?.status === "disabled").map((m) => m.id));
+  if (disabled.size === 0) return harness;
+  const { defaultModel, ...rest } = harness;
+  return {
+    ...rest,
+    models: harness.models.filter((m) => !disabled.has(m.id)),
+    ...(defaultModel && !disabled.has(defaultModel) ? { defaultModel } : {}),
+  };
 }
 
 /** Applies cmux.json `agentPane.models` to a catalog. Bad entries are skipped and reported. */
@@ -462,7 +475,7 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
     if (hiddenReleases.has(probe.id)) continue;
     models.push(probedModel(probe, harness.id, join));
   }
-  addSessionModels(models, live, harness.id, listed, join, probed, hiddenReleases);
+  addSessionModels(models, live, harness.id, listed, join, probed, runs, hiddenReleases);
   const releases = models.filter((model) => listed.some((pinned) => pinned.id === model.id));
   const offered = foldAliases(models, releases, runs, reported, join, (release, alias) =>
     aliasRow(listed, release, alias, harness.id, probed, join),
@@ -531,7 +544,7 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
       continue;
     if (!models.some((row) => row.id === model.id)) models.push(listedModel(model, entry.id, entry.models, join));
   }
-  addSessionModels(models, live, entry.id, listed, join, entry.models, hiddenReleases, kin?.id);
+  addSessionModels(models, live, entry.id, listed, join, entry.models, runs, hiddenReleases, kin?.id);
   const releases = listed.map((model) => listedModel(model, entry.id, entry.models, join));
   const offered = kin
     ? foldAliases(models, releases, runs, reported, join, (release, alias) =>
@@ -745,16 +758,16 @@ function addSessionModels(
   listed: HarnessModel[],
   join: Join,
   probed: AcpmuxModel[],
+  current: string | undefined,
   hiddenReleases: Set<string> = new Set(),
   identityHarnessId = harnessId,
 ): void {
   const option = options?.find((candidate) => candidate.category === "model" || candidate.id === "model");
-  if (!option) return;
-  const choices: { id: string; name?: string }[] = (option.options ?? []).map((choice) => ({
+  const choices: { id: string; name?: string }[] = (option?.options ?? []).map((choice) => ({
     id: choice.value,
     name: choice.name || undefined,
   }));
-  if (option.currentValue) choices.push({ id: option.currentValue });
+  if (current) choices.push({ id: current });
   for (const choice of choices) {
     if (!choice.id || models.some((model) => model.id === choice.id)) continue;
     if (isHiddenByUser(harnessId, choice.id, join)) continue;

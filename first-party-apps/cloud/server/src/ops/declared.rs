@@ -190,10 +190,14 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
         ],
     ),
     ("cloud.plan.get", READ, &[]),
-    ("cloud.billing.checkout", MUTATION, &[]),
+    ("cloud.usage.current", READ, &[]),
+    ("cloud.billing.checkout", MUTATION, &["cloud.billing.off"]),
     ("cloud.shell.open", MUTATION, &["cloud.machine.not_found", "cloud.machine.paused"]),
     ("cloud.migration.status", READ, &[]),
     ("cloud.migration.start", MUTATION, &["cloud.migration.unavailable"]),
+    // A bounded capacity burst through the team's provider (#49766).
+    ("cloud.surge.preview", READ, &[]),
+    ("cloud.surge.create", MUTATION, &["cloud.surge.capacity", "cloud.surge.unavailable"]),
     // A VM calls these about itself; this server never does (listed so the
     // table is the whole CloudDO catalog).
     ("cloud.vm.self.get", VM_SELF, &["cloud.machine.not_found", "cloud.rate_limited"]),

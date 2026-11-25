@@ -1,6 +1,7 @@
 import type { ChiefBrainDO } from "../chief-brain/brain-do.ts"
 import { writeConfig } from "../chief-brain/brain-store.ts"
 import { CcError, freestyle } from "./vm.ts"
+import { BACKGROUND_AFTER, settleBackground } from "../providers/freestyle/background.ts"
 
 /**
  * Client sessions for the Chief's sandboxes (Lawrence, 2026-10-21; freestyle.sh/docs/vms/client-sessions): one
@@ -80,9 +81,10 @@ export const revokeGrant = async (b: ChiefBrainDO, vm: string): Promise<void> =>
 }
 
 /** A token with at least ROTATE_BEFORE_MS left: the stored one, or a new one (the old one is revoked). */
-const token = async (b: ChiefBrainDO): Promise<string> => {
+/** A token that stays valid for at least `needMs` more (a long exec polls its answer with it). */
+const token = async (b: ChiefBrainDO, needMs = 0): Promise<string> => {
   const a = await identity(b)
-  if (a.token && (a.expires_at ?? 0) - Date.now() > ROTATE_BEFORE_MS) return a.token
+  if (a.token && (a.expires_at ?? 0) - Date.now() > Math.max(ROTATE_BEFORE_MS, needMs + 60_000)) return a.token
   const expires = Date.now() + TOKEN_TTL_MS
   const res = await freestyle(b.doEnv, "POST", `/v5/identities/${encodeURIComponent(a.identity)}/tokens`, { expiresAt: new Date(expires).toISOString() })
   const body = (await res.json().catch(() => null)) as { id?: unknown; token?: unknown } | null
@@ -95,21 +97,37 @@ const token = async (b: ChiefBrainDO): Promise<string> => {
 
 const base = (b: ChiefBrainDO) => (b.doEnv.CHIEF_CC_FREESTYLE_API_URL || "https://api.freestyle.sh").replace(/\/+$/, "")
 
-/** One call on a granted VM's exec or terminal routes with this Chief's identity token (never the team key). */
-export const asChief = async (b: ChiefBrainDO, vm: string, method: string, path: string, body: unknown, ms: number): Promise<Response> => {
+/**
+ * One call on a granted VM's exec or terminal routes with this Chief's identity token (never the team key). An exec
+ * (`background`) past 60 s goes to the background, so the provider edge's ~125 s hold cannot cut a long one
+ * (background.ts); its answer is polled with the same token, and an answer lost after it ran is never sent again.
+ */
+export const asChief = async (b: ChiefBrainDO, vm: string, method: string, path: string, body: unknown, ms: number, background = false): Promise<Response> => {
   await grant(b, vm)
-  const t = await token(b)
+  const t = await token(b, ms)
+  const deadlineAt = Date.now() + ms
+  let sent: Response
   try {
-    return await fetch(`${base(b)}/v5/vms/${encodeURIComponent(vm)}${path}`, { method, redirect: "manual", signal: AbortSignal.timeout(ms), headers: { [HEADER]: t, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
+    sent = await fetch(`${base(b)}/v5/vms/${encodeURIComponent(vm)}${path}`, { method, redirect: "manual", signal: AbortSignal.timeout(ms), headers: { ...(background ? BACKGROUND_AFTER : {}), [HEADER]: t, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
   } catch {
     throw new CcError(`${method} ${path}: no answer`)
   }
+  if (!background) return sent
+  const settled = await settleBackground(sent, base(b), { [HEADER]: t }, deadlineAt).catch(() => {
+    throw new CcError(`${method} ${path}: no answer by the deadline (the command may have run)`)
+  })
+  // A stored answer the token can no longer read: the command ran, so it is not sent again with a new token.
+  if (settled.polled && (settled.res.status === 401 || settled.res.status === 403)) {
+    await drain(settled.res)
+    throw new CcError(`${method} ${path}: the answer was lost (${settled.res.status}); the command may have run`)
+  }
+  return settled.res
 }
 
 export type ExecIn = { command: string; timeout_ms: number; user: (typeof LINUX_USERS)[number]; env?: Record<string, string>; stdin?: string }
 /** exec-await on a sandbox as the Chief's identity: its exit code (124 when the timeout killed it), stdout and stderr. */
 export const execAs = async (b: ChiefBrainDO, vm: string, x: ExecIn, retried = false): Promise<{ exit: number; stdout: string; stderr: string }> => {
-  const res = await asChief(b, vm, "POST", "/exec-await", { command: x.command, timeoutMs: x.timeout_ms, linuxUser: x.user, ...(x.env ? { env: x.env } : {}), ...(x.stdin ? { stdin: x.stdin } : {}) }, x.timeout_ms + 15_000)
+  const res = await asChief(b, vm, "POST", "/exec-await", { command: x.command, timeoutMs: x.timeout_ms, linuxUser: x.user, ...(x.env ? { env: x.env } : {}), ...(x.stdin ? { stdin: x.stdin } : {}) }, x.timeout_ms + 15_000, true)
   // A token or grant Freestyle no longer has (revoked, expired, lost): forget both here and try once more.
   if ((res.status === 401 || res.status === 403) && !retried) {
     await drain(res)
