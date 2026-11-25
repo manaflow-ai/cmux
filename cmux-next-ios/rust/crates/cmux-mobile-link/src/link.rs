@@ -433,8 +433,17 @@ struct Queues {
     control: VecDeque<Frame>,
     input: VecDeque<Frame>,
     bulk: HashMap<u32, VecDeque<Frame>>,
-    /// Bulk channels with queued frames, in round-robin order.
+    /// Bulk channels with queued frames, in round-robin order. The channel
+    /// whose turn it is now is not in it but in `turn`.
     turns: VecDeque<u32>,
+    /// The bulk channel whose turn it is, with the bytes it may still send
+    /// in this turn. A turn is [`DATA_CHUNK`] bytes, not one frame: frames
+    /// smaller than a chunk (a terminal's echo, one key at a time) go
+    /// together in one turn, so a channel of small frames gets the same
+    /// share of the stream as a channel of full chunks. Counted by frames,
+    /// an echo got one key per 16 KiB of another channel's output, and on a
+    /// link slower than 16 KiB per key its backlog grew without end.
+    turn: Option<(u32, usize)>,
     /// Queued payload bytes per channel (input and bulk).
     bytes: HashMap<u32, usize>,
     shutdown: bool,
@@ -565,14 +574,7 @@ impl Outbox {
         }
         let frame = if let Some(frame) = queues.input.pop_front() {
             frame
-        } else if let Some(channel) = queues.turns.pop_front() {
-            let queue = queues.bulk.get_mut(&channel).expect("a turn has a queue");
-            let frame = queue.pop_front().expect("a turn has a frame");
-            if queue.is_empty() {
-                queues.bulk.remove(&channel);
-            } else {
-                queues.turns.push_back(channel);
-            }
+        } else if let Some(frame) = Self::pop_bulk(&mut queues) {
             frame
         } else if queues.shutdown {
             return Some(Next::Shutdown);
@@ -588,6 +590,36 @@ impl Outbox {
             self.room.notify_waiters();
         }
         Some(Next::Frame(frame))
+    }
+
+    /// The next bulk frame, round robin per channel by bytes: the channel
+    /// whose turn it is goes on while its next frame fits what is left of
+    /// its [`DATA_CHUNK`]; then the next channel's turn starts (its first
+    /// frame always goes).
+    fn pop_bulk(queues: &mut Queues) -> Option<Frame> {
+        if let Some((channel, left)) = queues.turn.take() {
+            let queue = queues.bulk.get_mut(&channel).expect("a turn has a queue");
+            let size = queue.front().expect("a turn has a frame").queue_bytes();
+            if size <= left {
+                let frame = queue.pop_front().expect("a turn has a frame");
+                if queue.is_empty() {
+                    queues.bulk.remove(&channel);
+                } else {
+                    queues.turn = Some((channel, left - size));
+                }
+                return Some(frame);
+            }
+            queues.turns.push_back(channel);
+        }
+        let channel = queues.turns.pop_front()?;
+        let queue = queues.bulk.get_mut(&channel).expect("a turn has a queue");
+        let frame = queue.pop_front().expect("a turn has a frame");
+        if queue.is_empty() {
+            queues.bulk.remove(&channel);
+        } else {
+            queues.turn = Some((channel, DATA_CHUNK.saturating_sub(frame.queue_bytes())));
+        }
+        Some(frame)
     }
 
     async fn next(&self, held: &AtomicBool) -> Next {
@@ -4423,6 +4455,39 @@ mod tests {
         eprintln!("one stream: input {input:?}, other {other:?}");
         assert!(input < Duration::from_millis(400), "input echo took {input:?}");
         assert!(other < Duration::from_millis(800), "other channel echo took {other:?}");
+    }
+
+    /// Bulk turns are by bytes: a channel of one-key echo frames sends all
+    /// it has queued (up to a chunk) in one turn, not one key per chunk of
+    /// another channel's output (the typing_echo lossy-3 starvation).
+    #[test]
+    fn a_bulk_turn_is_a_chunk_of_bytes_not_one_frame() {
+        let outbox = Outbox::default();
+        for _ in 0..4 {
+            outbox.push(Class::Bulk, Frame::new(1, FrameType::Data, vec![b'x'; DATA_CHUNK]));
+        }
+        for _ in 0..20 {
+            outbox.push(Class::Bulk, Frame::new(2, FrameType::Data, vec![b'k'; 8]));
+        }
+        let order: Vec<u32> = std::iter::from_fn(|| match outbox.pop(false) {
+            Some(Next::Frame(frame)) => Some(frame.channel),
+            _ => None,
+        })
+        .collect();
+        let mut expected = vec![1];
+        expected.extend([2; 20]);
+        expected.extend([1, 1, 1]);
+        assert_eq!(order, expected);
+        // Full chunks still alternate one per turn.
+        for channel in [1, 2, 1, 2] {
+            outbox.push(Class::Bulk, Frame::new(channel, FrameType::Data, vec![b'x'; DATA_CHUNK]));
+        }
+        let order: Vec<u32> = std::iter::from_fn(|| match outbox.pop(false) {
+            Some(Next::Frame(frame)) => Some(frame.channel),
+            _ => None,
+        })
+        .collect();
+        assert_eq!(order, [1, 2, 1, 2]);
     }
 
     /// With the input lane attached, input does not share the flooded

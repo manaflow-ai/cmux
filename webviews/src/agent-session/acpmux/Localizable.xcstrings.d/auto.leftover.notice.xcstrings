@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "auto.leftover.notice" : {
+      "comment" : "Agent pane: a notice under a chat's header. While this Mac slept the chat moved to the Cloud; file changes this Mac's agent made after that were not merged, they were set aside. Show, Apply and Discard buttons follow.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "أجرى هذا الـ Mac تغييرات بعد انتقال هذه الدردشة إلى السحابة. تم الاحتفاظ بها جانبًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ovaj Mac je napravio izmjene nakon što je ovaj chat prešao u Cloud. Sačuvane su sa strane."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne Mac lavede ændringer, efter at denne chat flyttede til Cloud. De er gemt til side."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dieser Mac hat Änderungen vorgenommen, nachdem dieser Chat in die Cloud gewechselt ist. Sie wurden beiseitegelegt."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This Mac made changes after this chat moved to the Cloud. They were kept aside."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Este Mac hizo cambios después de que este chat pasara a la nube. Se guardaron aparte."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ce Mac a effectué des modifications après le passage de cette discussion dans le Cloud. Elles ont été mises de côté."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Questo Mac ha apportato modifiche dopo che questa chat è passata al Cloud. Sono state messe da parte."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このチャットがクラウドに移った後に、この Mac が変更を加えました。変更は別に保管されています。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mac នេះបានធ្វើការផ្លាស់ប្ដូរ បន្ទាប់ពីការជជែកនេះផ្លាស់ទៅពពក។ ការផ្លាស់ប្ដូរទាំងនោះត្រូវបានរក្សាទុកដោយឡែក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 채팅이 클라우드로 옮겨진 뒤 이 Mac에서 변경이 있었습니다. 변경 사항은 따로 보관되었습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne Mac-en gjorde endringer etter at denne chatten flyttet til skyen. De er lagt til side."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ten Mac wprowadził zmiany po przeniesieniu tego czatu do chmury. Zostały odłożone na bok."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Este Mac fez alterações depois que este chat foi para a nuvem. Elas foram guardadas à parte."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Этот Mac внёс изменения после того, как чат перешёл в облако. Они сохранены отдельно."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mac เครื่องนี้ทำการเปลี่ยนแปลงหลังจากแชตนี้ย้ายไปคลาวด์ การเปลี่ยนแปลงถูกเก็บแยกไว้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu sohbet Buluta taşındıktan sonra bu Mac değişiklik yaptı. Değişiklikler ayrı tutuldu."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Цей Mac вніс зміни після того, як чат перейшов у хмару. Їх збережено окремо."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mac này đã thay đổi sau khi cuộc trò chuyện này chuyển lên đám mây. Các thay đổi được giữ riêng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此聊天移到云端后，这台 Mac 做了更改。这些更改已另行保留。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此聊天移到雲端後，這部 Mac 做了更動。這些更動已另行保留。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

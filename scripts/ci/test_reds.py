@@ -1685,6 +1685,12 @@ WEB_RETRY = "--- retry, alone ---"
 # guards_new_reds.py --label "Webview test": the tests a base replay charged to the change (errors) or found red on
 # the merge parent too (warnings), as GitHub prints the annotations.
 WEB_CHARGED = re.compile(r"^##\[(error|warning)\]" + WEB_FILE + r"(?: > (.+))?$")
+# guards_new_reds.py's `webview test red step (unknown): NAME`: a head red the base replay never reached (its first
+# replay stopped at CMUX_WEB_TEST_STOP_AT, webviews_test_results.py --mark-unreached), deferred to the merge gate. Its
+# annotation is a warning ("base result unavailable"), which WEB_CHARGED alone read as cleared on the merge parent:
+# cmux#54692's replay (job 138764620789) had 593 such tests, 0 charged, and the merge gate compared only its head
+# re-run's one file. An unknown test is compared with the base's runs here like a charged one, never cleared.
+WEB_UNKNOWN = re.compile(r"^webview test red step \(unknown\): " + WEB_FILE + r"(?: > (.+))?$")
 # A base replay's log is two runs (2026-11-08, ci-web.yml react-apps-base-check): first the merge parent's run of the
 # head's red files, then, after this line, the files it charged re-run alone on the head, and guards_new_reds.py's
 # verdict again with that re-run (a test that passed alone there is a warning now, no longer charged). Only the part
@@ -1727,6 +1733,7 @@ class WebFailures:
         self.crashed: set = set()
         self.charged: set = set()
         self.shared: set = set()
+        self.unknown: set = set()  # WEB_UNKNOWN: no base result, compared with the base like a charged test
         self.truncated: list = []
 
 
@@ -1766,6 +1773,9 @@ def web_failures(log: str | None) -> WebFailures:
                 if match := WEB_CHARGED.match(text):
                     (found.charged if match.group(1) == "error" else found.shared).add(
                         match.group(2) + (f" > {match.group(3)}" if match.group(3) else ""))
+                elif match := WEB_UNKNOWN.match(text):
+                    found.unknown.add(match.group(1) + (f" > {match.group(2)}" if match.group(2) else ""))
+            found.shared -= found.unknown
             return found
         texts = lines_of(web_head_part(log))
     for text in texts:
@@ -1799,6 +1809,9 @@ def web_failures(log: str | None) -> WebFailures:
         if match := WEB_CHARGED.match(text):
             (found.charged if match.group(1) == "error" else found.shared).add(
                 match.group(2) + (f" > {match.group(3)}" if match.group(3) else ""))
+            continue
+        if match := WEB_UNKNOWN.match(text):
+            found.unknown.add(match.group(1) + (f" > {match.group(2)}" if match.group(2) else ""))
             continue
         if current is None:
             continue
@@ -1846,7 +1859,7 @@ def web_failures(log: str | None) -> WebFailures:
                              and not text.startswith("(pass) ")), bun=False)
     found.crashed.update(runtime.crashes)
     found.truncated.extend(runtime.truncated)
-
+    found.shared -= found.unknown  # its "base result unavailable" warning is no base verdict
     return found
 
 
@@ -1862,6 +1875,7 @@ def merged_web(logs: list) -> WebFailures:
         out.crashed |= got.crashed
         out.charged |= got.charged
         out.shared |= got.shared
+        out.unknown |= got.unknown
         out.truncated.extend(got.truncated)
     return out
 
@@ -1873,14 +1887,16 @@ def web_head(head_logs: list, job: str = "", base: str = "the base"):
     if not head_logs or any(log is None for log in head_logs):
         return Verdict(True, [f"{job or 'the job'}: its log could not be read, so no test can be compared with {base}"])
     red = web_failures(head_logs[0])
-    names = sorted(red.charged) if red.charged else sorted(red.failed)
+    # The replay's verdict: what it charged, and what it had no base result for (WEB_UNKNOWN), both compared here.
+    replayed = red.charged | red.unknown
+    names = sorted(replayed) if replayed else sorted(red.failed)
     if not names and not red.timed_out and not red.crashed and not red.truncated:
         return None
     # A replay's own log holds the merge parent's runs of those files, never the head's: the head's errors come from
     # the head's other jobs then.
-    head = merged_web([log for log in (head_logs[1:] if red.charged else head_logs) if log is not None])
-    if red.charged:
-        files = {name.split(" > ", 1)[0] for name in red.charged}
+    head = merged_web([log for log in (head_logs[1:] if replayed else head_logs) if log is not None])
+    if replayed:
+        files = {name.split(" > ", 1)[0] for name in replayed}
         # Replay annotations need not name an unhandled error that the head emitted
         # outside a test. Every head diagnostic in the charged files must be compared.
         # A named test the final verdict cleared (a warning: red on the merge parent too, flaky there, or passed alone
