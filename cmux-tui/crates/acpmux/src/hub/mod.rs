@@ -26,6 +26,8 @@ mod auto_hold;
 pub(crate) use auto_hold::{AUTO_AWAY, AUTO_CLIENT};
 pub(crate) mod additional_dirs;
 pub(crate) mod admission;
+// The per-lane fan-out cap (`lane_fanout.rs`).
+pub(crate) mod lane_fanout;
 // A create with no room here starts on the peer placement picks.
 pub(crate) mod admission_redirect;
 // A create over the cap with nowhere to go asks the fleet for a machine.
@@ -34,6 +36,7 @@ mod adopted_fences;
 mod adoption;
 pub(crate) mod agent_hold;
 mod agent_pairs;
+pub(crate) mod agent_timer;
 pub(crate) mod agent_vm;
 mod away_recap;
 mod memory_inbox;
@@ -100,6 +103,7 @@ pub(crate) mod file_uploads;
 /// The windowed upload sender (`file_uploads/window.rs`), for the upload bench.
 pub use file_uploads::window as file_put_window;
 mod gemini_plan;
+pub(crate) mod queue_origin;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 #[cfg(test)]
 mod agent_messaging_tests;
@@ -111,6 +115,8 @@ mod forward_wait;
 #[cfg(test)]
 mod title_log_tests;
 pub use fork::Retarget;
+#[cfg(test)]
+mod admission_restore_tests;
 #[cfg(test)]
 mod forum_held_turn_tests;
 #[cfg(test)]
@@ -171,6 +177,7 @@ mod held_asks;
 mod host_level;
 pub(super) mod idle;
 mod idle_census;
+mod idle_governor;
 mod paused_fs;
 mod person_prompt_at;
 mod turn_rules;
@@ -306,6 +313,7 @@ mod prompt_sender;
 pub(crate) mod cold_wake;
 mod protected_hold;
 // The account's rate limit holds every turn of a chat until its reset.
+pub(crate) mod prompt_admission;
 mod queue;
 mod queue_admission;
 mod queue_edit;
@@ -324,7 +332,9 @@ pub(crate) mod require_asking;
 mod resolve;
 mod route_switch;
 mod stale_host_respawn;
-pub use pool::{PrewarmRequest, PrewarmShape, RssProbe, tree_rss_bytes};
+pub use pool::{
+    PrewarmRequest, PrewarmShape, RssProbe, parse_home_shapes, person_spare_shapes, tree_rss_bytes,
+};
 pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
 pub(crate) use turn_errors::is_limit_error;
@@ -426,6 +436,7 @@ pub use paging::{
 };
 pub use spawn::expand_env_value;
 pub mod approvers;
+pub(crate) mod dead_letters;
 mod former_names;
 mod harness_key;
 pub(crate) mod key_route;
@@ -445,6 +456,7 @@ mod peer_grace_tests;
 mod peer_lease;
 pub(crate) mod peer_snapshot;
 mod spoken_handles;
+mod successors;
 mod task_names;
 pub use peer_lease::PeerLease;
 /// Debug builds only: the next `n` reads of whether a copy of `peer` is ahead fail, as a timed
@@ -463,6 +475,7 @@ pub fn peer_snapshot_bound(n: usize) {
     peer_snapshot::BOUND_EVENTS.store(n, std::sync::atomic::Ordering::SeqCst);
 }
 mod moved_forward;
+mod moved_prompt_fence;
 pub use moved_forward::{MAX_MOVES_FOLLOWED, MOVED_HOPS_FIELD};
 mod peers;
 mod remote_rows;
@@ -481,6 +494,7 @@ pub mod presence;
 mod processes;
 pub(crate) mod pull_requests;
 pub(crate) mod purge_tombstones;
+pub mod synced;
 pub(crate) use crate::questions;
 mod remote_cwd;
 mod remote_floor;
@@ -516,6 +530,7 @@ pub(crate) mod outbox;
 mod outbox_open_tests;
 #[cfg(test)]
 pub(crate) mod outbox_oracle;
+pub(crate) mod outbox_stats;
 pub(crate) mod pause;
 /// Paused (acpmux continues it) or stranded (nothing will): a row's reading.
 pub(crate) mod pause_state;
@@ -523,6 +538,8 @@ pub mod plan_build;
 #[cfg(test)]
 mod refused_append_tests;
 pub(crate) mod release_to_watch;
+#[cfg(test)]
+mod reply_segment_tests;
 mod restore_point;
 pub mod rules;
 pub(crate) mod session_hold;
@@ -548,6 +565,7 @@ mod trigger_quiet_tests;
 mod trust_wait;
 mod turn_attestation;
 mod turn_cost;
+pub(crate) mod turn_frames;
 mod turn_git;
 pub(crate) mod turn_shots;
 mod turn_usage;
@@ -867,9 +885,10 @@ pub struct PromptOptions {
     /// it can only refuse a prompt, never admit one.
     #[doc(hidden)]
     pub race_guard: Option<Arc<dyn Fn() -> Result<(), RpcError> + Send + Sync>>,
-    /// Admission guard acquired by the RPC layer before it resolves prompt uploads.
+    /// The prompt's admission, taken by the RPC layer before it resolves prompt uploads
+    /// (`prompt_admission.rs`: bounded both ways).
     #[doc(hidden)]
-    pub prompt_admission: Option<tokio::sync::OwnedMutexGuard<()>>,
+    pub admission: Option<Arc<prompt_admission::Admission>>,
     /// Native-prepared Cloud turn capability; held in memory until claim/finish only.
     pub cloud_turn: Option<crate::cloud_rewind::CloudTurnEnvelope>,
     /// Client-chosen id (`_meta.acpmux.promptId`); generated when absent.
@@ -1341,6 +1360,8 @@ pub struct Hub {
     /// None: every harness.
     pub(super) probe_only: StdMutex<Option<std::collections::BTreeSet<String>>>,
     pub(super) idle_wake: Arc<Notify>,
+    /// Paces the host's background capacity continuations (`auto_resume/capacity_gate.rs`).
+    pub(super) capacity_gate: auto_resume::CapacityGate,
     pub(super) idle_reaper: AtomicBool,
     /// The clocks at the last gap check, and how many gaps were seen (`resume.rs`).
     pub(super) resume_watch: Arc<resume::ResumeState>,
@@ -1495,6 +1516,8 @@ pub struct Hub {
     pub presence: presence::Presence,
     /// Who is on this machine now, across devices, in memory only (`here.rs`).
     pub here: here::HereTable,
+    /// Chat titles and read marks as a sync replica, opened on first use (`synced.rs`).
+    pub synced: std::sync::OnceLock<synced::Synced>,
     /// How long a move may go without its client (`transfer_watch.rs`).
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
     /// The moves one watch ends, or whose begin still makes them (`transfer_watch.rs`).
@@ -1837,6 +1860,7 @@ impl Hub {
             bg_folders: bg_folder::BgFolders::default(),
             probe_only: StdMutex::new(None),
             idle_wake: Arc::new(Notify::new()),
+            capacity_gate: auto_resume::CapacityGate::default(),
             idle_reaper: AtomicBool::new(false),
             resume_watch: resume::new_watch(),
             resumes: tokio::sync::watch::channel(0).0,
@@ -1918,6 +1942,7 @@ impl Hub {
             person: Default::default(),
             presence: Default::default(),
             here: Default::default(),
+            synced: std::sync::OnceLock::new(),
             workflow_index: Default::default(),
             suggestion_gate,
             page_replies: Default::default(),
@@ -1981,6 +2006,10 @@ impl Hub {
             // runtime-backed hubs; tests that construct one outside Tokio retain a unique Arc so
             // they can configure fields before entering their runtime.
             let _ = hub.hub_ref.set(Arc::downgrade(&hub));
+            // Chats read at start get the synced winners kept for them (`synced.rs`).
+            if !loading {
+                hub.synced_after_start();
+            }
             // Chats made before it read their inboxes through it from now on (`Session::inbox`).
             for session in hub.sessions.lock().unwrap_or_else(|e| e.into_inner()).values() {
                 let _ = session.hub_ref.set(Arc::downgrade(&hub));
@@ -2471,6 +2500,7 @@ impl Hub {
             input_since: AtomicU64::new(0),
             wait_reason: StdMutex::new(None),
             work_below_since: StdMutex::new(0),
+            loop_timers: StdMutex::new(None),
             asks_below: StdMutex::new((0, 0)),
             held_messages: StdMutex::new(std::collections::VecDeque::new()),
             unread_after_work: AtomicBool::new(false),
@@ -3098,6 +3128,8 @@ impl Hub {
         }
         // Off the append lock: it reads the disk.
         tool_paths::add_canonical_paths(session, kind, &mut msg);
+        // A finished UI edit or shell call asks for a frame of the page (`turn_frames.rs`).
+        turn_frames::record(&session.id, kind, &msg);
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.catch_up_locked(session);
         self.append_at_locked(session, dir, kind, msg, host_seq, at, false, true)
@@ -3410,6 +3442,12 @@ impl Hub {
         // Answered once the draft is saved: "the one durable shared draft". A kept change: saved
         // when written, synced with the next acked change or within a second (`meta_save.rs`).
         self.save_meta_kept(session)?;
+        // One edit of the person's synced draft (`hub/synced.rs`); the value already there (a
+        // remote winner applied through here) is none.
+        self.synced_record(
+            synced::draft_key(&session.id),
+            draft.clone().map_or(serde_json::Value::Null, serde_json::Value::String),
+        );
         Ok(draft)
     }
 

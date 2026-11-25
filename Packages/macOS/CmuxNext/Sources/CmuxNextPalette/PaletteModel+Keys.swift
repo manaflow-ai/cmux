@@ -44,8 +44,9 @@ extension PaletteModel {
         case .toggleActions:
             // The footer's Actions button (or a user key): on an action it edits
             // its shortcut; Tab keeps the Actions menu (which lists Edit
-            // Keyboard Shortcut… too).
-            if let id = selectedItem?.actionID, onEditShortcut?(id) == true { return true }
+            // Keyboard Shortcut… too). The preview look's Cmd-K and its pill's Actions
+            // always open the Actions menu, which keeps Edit Keyboard Shortcut… reachable.
+            if !experiments.preview, let id = selectedItem?.actionID, onEditShortcut?(id) == true { return true }
             _ = openActionsMenu()
         case .openActions:
             // Tab: a tree page enters the selected row; a keyword, a scope

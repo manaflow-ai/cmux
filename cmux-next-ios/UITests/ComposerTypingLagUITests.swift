@@ -18,7 +18,7 @@ import XCTest
 ///   measure the field's height for the key.
 ///
 /// The gate: commit p95 under 16 ms, and the text laid out per key bounded by
-/// the field's size (it holds 14 lines), not the draft's length: the cost of a
+/// the field's size (it holds 6 lines), not the draft's length: the cost of a
 /// key is the same for 500, 5,000 and 20,000 characters. A phone in Low Power
 /// Mode runs at a fraction of the simulator Mac's speed, so a per-key cost that
 /// grows with the draft is the failure even where the Mac hides it.
@@ -27,7 +27,7 @@ import XCTest
 ///       --arg test --arg ui=ComposerTypingLagUITests --artifact artifacts/ios-sim/evidence.zip
 final class ComposerTypingLagUITests: XCTestCase {
     static let field = "terminal.composer.field"
-    /// Text laid out per key may cover the field's 14 lines and some slack, never the draft.
+    /// Text laid out per key may cover the field's lines and some slack, never the draft.
     static let maxLayoutUnitsPerKey = 4_096.0
     /// SwiftUI asks a field's size a few times per pass (several widths); a key is one pass.
     static let maxSizeQuestionsPerKey = 8.0
@@ -59,6 +59,14 @@ final class ComposerTypingLagUITests: XCTestCase {
     /// The simulator script runs this suite once with duress=off and once with duress=heavy.
     @MainActor func testLongTextMatrixAfter() throws { try matrix(wholeDraft: false) }
     @MainActor func testLongTextMatrixBefore() throws { try matrix(wholeDraft: true) }
+    /// The after side on TextKit 2 (`-cmux-mobile-composer-textkit2`, the system default the
+    /// composers ran on before they took TextKit 1): 100 and 10k, prose and one paragraph.
+    @MainActor func testLongTextMatrixTextKit2() throws {
+        for surface in ["chat", "terminal"] {
+            for chars in [100, 10_000] { try matrixCell(surface: surface, chars: chars, wholeDraft: false, textKit2: true) }
+            try matrixCell(surface: surface, chars: 10_000, wholeDraft: false, oneParagraph: true, textKit2: true)
+        }
+    }
 
     @MainActor
     private func matrix(wholeDraft: Bool) throws {
@@ -75,7 +83,8 @@ final class ComposerTypingLagUITests: XCTestCase {
     }
 
     @MainActor
-    private func matrixCell(surface: String, chars: Int, wholeDraft: Bool, oneParagraph: Bool = false) throws {
+    private func matrixCell(surface: String, chars: Int, wholeDraft: Bool, oneParagraph: Bool = false,
+                            textKit2: Bool = false) throws {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchEnvironment["CMUX_MOBILE_INPUT_LATENCY"] = "1"
@@ -88,6 +97,7 @@ final class ComposerTypingLagUITests: XCTestCase {
             app.launchArguments += ["-cmux-mobile-demo", "ws-terminal-composer"]
         }
         if wholeDraft { app.launchArguments.append("-cmux-mobile-composer-measure-whole") }
+        if textKit2 { app.launchArguments.append("-cmux-mobile-composer-textkit2") }
         app.launch()
         // The chat card's identifier (`chat.composer.card`) can stand in for the field's own in
         // the accessibility tree, so the chat field is either; the trace keys follow the view's.
@@ -122,6 +132,7 @@ final class ComposerTypingLagUITests: XCTestCase {
         let report: [String: Any] = [
             "surface": surface,
             "one_paragraph": oneParagraph,
+            "textkit2": textKit2,
             "chars": chars,
             "before": wholeDraft,
             "keys": hitches["n"] ?? 0,
@@ -134,9 +145,28 @@ final class ComposerTypingLagUITests: XCTestCase {
         ]
         let data = try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys])
         print("TYPINGMATRIX \(String(decoding: data, as: UTF8.self))")
-        if let file = InputLatencyUITests.traceFile(), let text = try? String(contentsOf: file, encoding: .utf8) {
+        let cell = "\(surface)\(oneParagraph ? "1p" : "")-\(chars)-\(textKit2 ? "tk2" : wholeDraft ? "before" : "after")"
+        // The board's own numbers, kept with the run (stdout is not): the trace below can come
+        // up short if its writer ever falls behind again.
+        let boardJSON = (try? JSONSerialization.data(withJSONObject: ["report": report, "board": board], options: [.sortedKeys]))
+            .map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+        let boardLog = XCTAttachment(string: boardJSON)
+        boardLog.name = "typing-board-\(cell).json"
+        boardLog.lifetime = .keepAlways
+        add(boardLog)
+        // Wait, bounded, for the trace to hold every key the board counted before reading it.
+        let marker = #""kind":"\#(identifier)_key_frame""#
+        let wanted = Int(hitches["n"] ?? 0)
+        var text: String?
+        let deadline = Date().addingTimeInterval(15)
+        repeat {
+            if let file = InputLatencyUITests.traceFile() { text = try? String(contentsOf: file, encoding: .utf8) }
+            if let text, text.components(separatedBy: marker).count - 1 >= wanted { break }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        } while Date() < deadline
+        if let text {
             let log = XCTAttachment(string: text)
-            log.name = "typing-matrix-\(surface)\(oneParagraph ? "1p" : "")-\(chars)-\(wholeDraft ? "before" : "after").jsonl"
+            log.name = "typing-matrix-\(cell).jsonl"
             log.lifetime = .keepAlways
             add(log)
             for row in text.split(separator: "\n").filter({ $0.contains(#""type":"hitch""#) }).prefix(8) {

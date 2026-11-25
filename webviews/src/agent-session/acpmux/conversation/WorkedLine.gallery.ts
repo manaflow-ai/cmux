@@ -151,11 +151,11 @@ export default agentPaneEntry({
   ],
   keywords: ["worked", "fold", "outcome", "counts", "failed", "tests", "pr", "beyer"],
   variants: {
-    now: variant("time", "Before: Worked for 36s, the time alone."),
+    now: variant("time", "Shipped: Worked for 36s, the time alone; the counts are inside the fold."),
     counts: variant("counts", "Counts only: Worked for 36s · 4 commands · 2 files."),
     outcome: variant(
       "outcome",
-      "Shipped: counts and outcome, the run's sentence, then failures in the failure red, the tests' result and the PR it opened.",
+      "Counts and outcome (shipped once, #49934): the run's sentence, then failures in the failure red, the tests' result and the PR it opened.",
     ),
     sentence: variant("sentence", "One sentence: what it did, then how it came out, the time last and quieter."),
   },

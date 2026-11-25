@@ -91,6 +91,10 @@ final class WorkspaceRowView: SidebarRowView {
     /// A muted workspace (`notifications.mutedWorkspaces`): a quiet bell-slash
     /// in the trailing cluster, in the tertiary text color; hidden otherwise.
     let mutedMark = DecorativeImageView()
+    /// A workspace pinned inside its group (`SidebarWorkspace.isPinnedInGroup`): a small filled pin in the trailing
+    /// cluster, in the tertiary text color, beside the row's own icon and status (#56146: a grouped pinned row drew no
+    /// pin at rest, so it read as unpinned).
+    let pinMark = DecorativeImageView()
     /// A workspace on a Cloud machine (``WorkspaceRowContent/runsInCloud``): a small muted cloud in the trailing status cluster.
     let cloudMark = DecorativeImageView()
     /// A runaway agent chat in the workspace (`SidebarWorkspace.usageWarnings`: no autocompact
@@ -222,13 +226,16 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.imageScaling = .scaleProportionallyDown
         mutedMark.isHidden = true
         mutedMark.setAccessibilityElement(false)
+        pinMark.imageScaling = .scaleProportionallyDown
+        pinMark.isHidden = true
+        pinMark.setAccessibilityElement(false) // the row's label says Pinned
         cloudMark.imageScaling = .scaleProportionallyDown
         cloudMark.isHidden = true
         cloudMark.setAccessibilityElement(false) // the row's label says Cloud
         usageWarningMark.imageScaling = .scaleProportionallyDown
         usageWarningMark.isHidden = true
         usageWarningMark.setAccessibilityElement(false)
-        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, cloudMark, usageWarningMark, badge, rowBadge, presenceDots, driveIndicator, tabCount, prBadge, placeholderBar, statusBlock,
+        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, pinMark, mutedMark, cloudMark, usageWarningMark, badge, rowBadge, presenceDots, driveIndicator, tabCount, prBadge, placeholderBar, statusBlock,
          treeLine, pullRequests, keycap, rollUp, subagentsView].forEach(addSubview)
         headFill.isHidden = true
         layer?.insertSublayer(headFill, at: 0)
@@ -418,6 +425,9 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.image = ws.muted && !isShowingPlaceholder
             ? NSImage.icon(symbol: "bell.slash", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)) : nil
         mutedMark.isHidden = mutedMark.image == nil
+        pinMark.image = ws.isPinnedInGroup && !isShowingPlaceholder
+            ? NSImage.icon(.statePinned, size: SidebarStyle.indicatorSize, style: .solid) : nil
+        pinMark.isHidden = pinMark.image == nil
         cloudMark.image = shown.runsInCloud && !isShowingPlaceholder ? NSImage.icon(.cloud, size: Self.cloudMarkSide) : nil
         cloudMark.isHidden = cloudMark.image == nil
         // The bell-slash alone does not say what is muted: notifications, not the tabs' sound. The row's hover card
