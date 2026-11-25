@@ -31,6 +31,7 @@ mod cloud_repo_tools;
 mod cloud_tools;
 mod code_mode;
 mod config;
+mod customize_kit_tools;
 mod customize_library_tool;
 mod customize_tools;
 mod device_tools;
@@ -1284,6 +1285,9 @@ impl<B: Backend> Server<B> {
             return Ok(tool.call(&self.backend, &arguments));
         }
         if let Some(result) = automation_tools::call(&self.backend, name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(result) = customize_kit_tools::call(name, &arguments) {
             return Ok(result);
         }
         if let Some(result) = customize_library_tool::call(&self.backend, name, &arguments) {
