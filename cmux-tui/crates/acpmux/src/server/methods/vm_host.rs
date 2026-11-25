@@ -1,17 +1,17 @@
 //! `_acpmux/vm_host {name?, on?}`: read or set whether a machine is a
 //! dedicated agent VM (`hub/vm_host.rs`). Without `name` it is this machine;
 //! with `name`, that connected peer, asked over its link (where it arrives as
-//! the owner's peer daemon). Without `on` it only reads. Part of the request
-//! handler (`requests.rs`).
+//! the owner's peer daemon). Without `on` it only reads. One file of the request
+//! handler's methods (`methods/mod.rs`).
 //!
 //! Never from a Web client, or a peer forwarding for one (`REMOTE_REFUSED`),
 //! and turned on only by the person's own clients (`vm_boundary::owner`): not
 //! a paired machine's credential. A peer's connection is never relayed on to
 //! another peer.
 
-use super::{Conn, Origin};
 use crate::hub::{Control, Hub, vm_host};
 use crate::rpc::RpcError;
+use crate::server::{Conn, Origin};
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -20,7 +20,7 @@ use std::sync::Arc;
 pub(super) const METHOD: &str = "_acpmux/vm_host";
 
 pub(super) async fn handle(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
-    if super::remote_guard::control_of(conn.origin, conn.auth, params) == Control::Web {
+    if crate::server::remote_guard::control_of(conn.origin, conn.auth, params) == Control::Web {
         return Err(RpcError::new(
             -32000,
             "vmHost is changed only from this machine, its cmux app, or its owner's own machine",
@@ -35,7 +35,7 @@ pub(super) async fn handle(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Resul
     // Turning it back on lets the owner's boundary in again: only the person's own clients,
     // never a paired machine's credential or a peer forwarding one (`hub/vm_boundary.rs`).
     // Off only narrows.
-    let control = super::remote_guard::control_of(conn.origin, conn.auth, params);
+    let control = crate::server::remote_guard::control_of(conn.origin, conn.auth, params);
     if on == Some(true) && !crate::hub::vm_boundary::owner(conn.auth, control, params) {
         return Err(RpcError::new(
             -32000,

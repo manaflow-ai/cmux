@@ -3,15 +3,15 @@
 //! server adds one after it resizes the machine ("Machine grew to 4 vCPU /
 //! 8 GiB (it ran out of memory)"). Each live (not closed) session's journal gets
 //! a mux `host_notice` record `{text, source: "cloud"}`, a transcript kind
-//! (`hub/paging.rs`) a chat client draws as a notice row. Part of the request
-//! handler (`requests.rs`).
+//! (`hub/paging.rs`) a chat client draws as a notice row. One file of the request
+//! handler's methods (`methods/mod.rs`).
 //!
 //! Never from a Web client, or a peer forwarding for one: only this machine
 //! (its socket, its app, the provider exec that runs the CLI) adds lines.
 
-use super::Conn;
 use crate::hub::{Control, Hub};
 use crate::rpc::RpcError;
+use crate::server::Conn;
 use crate::store::SessionStatus;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -49,7 +49,7 @@ pub fn append_all(hub: &Hub, text: &str) -> usize {
 }
 
 pub(super) async fn handle(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
-    if super::remote_guard::control_of(conn.origin, conn.auth, params) == Control::Web {
+    if crate::server::remote_guard::control_of(conn.origin, conn.auth, params) == Control::Web {
         return Err(RpcError::new(-32000, "a host notice is added only from this machine"));
     }
     let Some(text) = params.get("text").and_then(Value::as_str) else {

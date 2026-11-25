@@ -88,7 +88,7 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     // (`policy_mode.rs`): the chat says so where it happened.
     "policy_unenforced",
     // A line from outside any chat, such as cmux Cloud's after it resized the machine
-    // (`server/host_notice.rs`).
+    // (`server/methods/host_notice.rs`).
     "host_notice",
     // A model name read as its catalog id, or a turn retried under it (`model_alias.rs`).
     "model_rewrite",

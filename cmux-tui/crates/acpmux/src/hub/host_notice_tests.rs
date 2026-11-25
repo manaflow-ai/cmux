@@ -1,5 +1,5 @@
-//! `_acpmux/host_notice` (`server/host_notice.rs`): the line lands in every live chat's journal,
-//! as a transcript record a chat client reads, and never in a closed chat.
+//! `_acpmux/host_notice` (`server/methods/host_notice.rs`): the line lands in every live chat's
+//! journal, as a transcript record a chat client reads, and never in a closed chat.
 
 use super::*;
 use crate::server::host_notice::{KIND, append_all};
