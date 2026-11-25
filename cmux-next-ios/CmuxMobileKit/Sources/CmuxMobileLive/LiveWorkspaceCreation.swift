@@ -589,8 +589,14 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         let terminals = sync.tree?.terminalsEndedByClosing([tab.id]) ?? []
         do {
             try WorkspaceSync.check(await client.request("close-surface", params: ["surface": surface]))
-            await end(terminals, on: client)
-            _ = try? await sync.listNow()
+            // The Mac confirmed the close: the tab leaves the phone now. Ending its terminal and
+            // re-reading the list don't change what the person sees, so they run after it,
+            // not before it (each was a round trip the close waited on).
+            let sync = self.sync
+            Task { @MainActor in
+                await self.end(terminals, on: client)
+                _ = try? await sync.listNow()
+            }
         } catch let error as DaemonReplyError {
             throw WorkspaceCreationError(error.message)
         }

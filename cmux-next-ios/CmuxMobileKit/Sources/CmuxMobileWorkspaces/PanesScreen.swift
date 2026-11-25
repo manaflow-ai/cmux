@@ -66,8 +66,14 @@ struct PanesScreen: View {
             List {
                 if let screen = layout.activeScreen, let root = screen.root, screen.panes.count > 1 {
                     Section {
-                        PaneLayoutDiagram(root: root, screen: screen, layout: layout)
-                            .frame(height: 150)
+                        PaneLayoutDiagram(root: root, screen: screen, layout: layout,
+                                          onDrop: source.canEditPanes ? { id, pane in
+                                              theme.haptics.selection()
+                                              withAnimation(theme.motion.smooth.animation.unlessReduceMotion) {
+                                                  _ = source.dropTab(id, into: pane, at: source.tabs(of: pane).count)
+                                              }
+                                          } : nil)
+                            .frame(height: 200)
                             .listRowInsets(EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12))
                     }
                 }
@@ -364,12 +370,15 @@ struct PaneLayoutDiagram: View {
     let root: WorkspaceLayout.Node
     let screen: WorkspaceLayout.Screen
     let layout: WorkspaceLayout
+    /// Prototype: a tab row dropped on a pane's box moves it to that pane's end (nil: a picture only).
+    var onDrop: ((String, WorkspaceLayout.Pane) -> Void)? = nil
+    @State private var targeted: Int?
 
     var body: some View {
         GeometryReader { proxy in
             node(root, size: proxy.size)
         }
-        .accessibilityElement(children: .ignore)
+        .accessibilityElement(children: onDrop == nil ? .ignore : .contain)
         .accessibilityLabel(summary)
         .accessibilityIdentifier("panes.diagram")
     }
@@ -408,8 +417,22 @@ struct PaneLayoutDiagram: View {
     }
 
     private func cell(_ id: Int) -> some View {
+        box(id)
+            .dropDestination(for: String.self) { ids, _ in
+                guard let onDrop, let tab = ids.first, let pane = layout.pane(id) else { return false }
+                onDrop(tab, pane)
+                return true
+            } isTargeted: { over in
+                targeted = over ? id : (targeted == id ? nil : targeted)
+            }
+            .scaleEffect(targeted == id ? 1.04 : 1)
+            .animation(.snappy(duration: 0.15), value: targeted)
+            .accessibilityIdentifier("panes.diagram.\(id)")
+    }
+
+    private func box(_ id: Int) -> some View {
         let pane = layout.pane(id)
-        let focused = pane?.isFocused == true
+        let focused = pane?.isFocused == true || targeted == id
         return RoundedRectangle(cornerRadius: 6, style: .continuous)
             .fill(Color.primary.opacity(focused ? 0.16 : 0.07))
             .overlay {
