@@ -1,37 +1,66 @@
 // The History page (plans/cmux-next/react-pages.md 2.4; behavior of the Swift page in
 // plans/cmux-next/history.md 5.1). State lives in `HistoryStore`; this file only renders it and
 // turns plain keys and clicks into store intents. Cmd/Ctrl chords never reach page handlers.
-import { useRef, useState, useSyncExternalStore, type KeyboardEvent, type MouseEvent } from "react";
+// The list is windowed: up to PAGE_LIMIT entries (and the page asks again), but only the headers and
+// rows near the viewport are mounted, plus the selected and the focused row so Up/Down and keys never
+// lose them. Rows are memoized on their entry, selection and offset, so a selection draws two rows,
+// not the list.
+import {
+  memo,
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type KeyboardEvent,
+  type MouseEvent,
+} from "react";
+import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
+import { useStableHandlers } from "../../agent-session/acpmux/stableHandlers";
 import { PageMenu, type PageMenuItem } from "../shared/PageMenu";
 import type { Strings } from "../shared/i18n";
-import { useLasting } from "../../ui/lasting";
+import { ConnectionChip } from "../../ui/ConnectionChip";
+import { useConnectionQuiet } from "../../ui/lasting";
 import { CookieBackupsPanel } from "./CookieBackups";
 import { KindIcon } from "./KindIcon";
 import {
   BadgeLabel,
   canOpen,
   FilterLabel,
-  flatten,
   groupTitle,
   GroupingLabel,
   HISTORY_FILTERS,
   HISTORY_GROUPINGS,
+  type ListItem,
+  listModel,
   menuItems,
-  moveSelection,
+  moved,
   RangeLabel,
-  returnTarget,
   rowBadge,
   rowDetail,
   rowTime,
+  target,
 } from "./model";
 import type { HistoryStore } from "./store";
 import { HISTORY_RANGES, type HistoryEntry } from "./types";
 
 type OpenMenu = { session: number; x: number; y: number; items: PageMenuItem[]; returnFocus: HTMLElement | null };
 
-// Stable callback refs: React calls them only when the node mounts (or the ref is attached).
+/** Row and group-header heights before the first of their kind is measured (styles.css). */
+const ROW_ESTIMATE = 36;
+const HEADER_ESTIMATE = 36;
+
+/** The kinds of item whose heights differ: a group header, a row with a detail line, a row without. */
+type SizeKind = "group" | "detail" | "plain";
+const rowSize = (entry: HistoryEntry): SizeKind => (rowDetail(entry) ? "detail" : "plain");
+const itemSize = (item: ListItem | undefined): SizeKind =>
+  item?.kind === "group" ? "group" : item ? rowSize(item.entry) : "plain";
+/** About one viewport of rows above and below the visible ones. */
+const OVERSCAN = 20;
+
+// A stable callback ref: React calls it only when the node mounts.
 const focusOnMount = (node: HTMLInputElement | null) => node?.focus();
-const revealOnSelect = (node: HTMLDivElement | null) => node?.scrollIntoView({ block: "nearest" });
 
 /** A plain key: no Cmd, Ctrl or Option (those belong to the app's key dispatcher). */
 function plain(event: KeyboardEvent): boolean {
@@ -52,11 +81,67 @@ export function HistoryPage({
   // Even when two native menus open before the first reply, each owns its own actions.
   const menuSession = useRef(0);
   const { t, language } = strings;
-  // A lost history owner shows nothing until it lasts past the grace (a launch, a daemon restart:
-  // the store re-reads once the link is back); then the disconnected line.
+  // A lost history owner keeps the rows it had and says so only once it lasts (a launch, a daemon
+  // restart: the store re-reads once the link is back), as a corner mark that takes no room.
   const down = snap.connection === "disconnected";
-  const downLasting = useLasting(down);
-  const flat = flatten(snap.groups);
+  const downLasting = useConnectionQuiet(down);
+  const list = useMemo(() => listModel(snap.groups), [snap.groups]);
+  const selectedItem = snap.selection === undefined ? -1 : (list.place.get(snap.selection)?.item ?? -1);
+  // The row that holds focus (a click focuses it) stays mounted too, however far Up/Down move.
+  const [focusedRow, setFocusedRow] = useState<string | undefined>(undefined);
+  const focusedItem = focusedRow === undefined ? -1 : (list.place.get(focusedRow)?.item ?? -1);
+  const scroller = useRef<HTMLDivElement | null>(null);
+  // One function per list: TanStack measures every item again when it changes.
+  const itemKey = useCallback(
+    (index: number) => {
+      const item = list.items[index]!;
+      return item.kind === "group" ? `group:${item.group.id}` : item.entry.id;
+    },
+    [list],
+  );
+  // The first mounted item of each kind sizes every one not yet mounted, so the rows a scroll brings
+  // in measure as estimated: TanStack places all N items again whenever a measure differs.
+  const sizes = useRef(new Map<SizeKind, number>());
+  const virtualizer = useVirtualizer({
+    count: list.items.length,
+    getScrollElement: () => scroller.current,
+    estimateSize: (index) => {
+      const kind = itemSize(list.items[index]);
+      return sizes.current.get(kind) ?? (kind === "group" ? HEADER_ESTIMATE : ROW_ESTIMATE);
+    },
+    getItemKey: itemKey,
+    overscan: OVERSCAN,
+    // The list's own top and bottom space (styles.css pads only its sides).
+    paddingStart: 4,
+    paddingEnd: 18,
+    // The selected and the focused rows stay mounted: Up/Down move from one, keys arrive at the other.
+    rangeExtractor: (range: Range) => {
+      const indexes = defaultRangeExtractor(range);
+      for (const kept of [selectedItem, focusedItem])
+        if (kept >= 0 && !indexes.includes(kept)) {
+          indexes.push(kept);
+          indexes.sort((a, b) => a - b);
+        }
+      return indexes;
+    },
+  });
+  const measure = useCallback(
+    (node: HTMLElement | null) => {
+      const kind = node?.dataset.size as SizeKind | undefined;
+      if (node && kind && !sizes.current.has(kind) && node.offsetHeight > 0) sizes.current.set(kind, node.offsetHeight);
+      virtualizer.measureElement(node);
+    },
+    [virtualizer],
+  );
+  // A new selection, or a new grouping, scrolls the selected row into view (each row did this as it
+  // mounted selected when every row was mounted).
+  const revealed = useRef<string | undefined>(undefined);
+  useLayoutEffect(() => {
+    const key = snap.selection === undefined ? undefined : `${snap.grouping}:${snap.selection}`;
+    if (key === revealed.current) return;
+    revealed.current = key;
+    if (selectedItem >= 0) virtualizer.scrollToIndex(selectedItem, { align: "auto" });
+  });
 
   const open = (entry: HistoryEntry | undefined, newTab = false) => {
     if (entry && canOpen(entry)) void store.open(entry, newTab);
@@ -64,9 +149,9 @@ export function HistoryPage({
 
   const listKeys = (event: KeyboardEvent) => {
     if (!plain(event)) return;
-    if (event.key === "ArrowDown") store.select(moveSelection(flat, snap.selection, 1));
-    else if (event.key === "ArrowUp") store.select(moveSelection(flat, snap.selection, -1));
-    else if (event.key === "Enter") open(returnTarget(flat, snap.selection));
+    if (event.key === "ArrowDown") store.select(moved(list, snap.selection, 1));
+    else if (event.key === "ArrowUp") store.select(moved(list, snap.selection, -1));
+    else if (event.key === "Enter") open(target(list, snap.selection));
     else return;
     event.preventDefault();
   };
@@ -106,6 +191,13 @@ export function HistoryPage({
     });
   };
 
+  // One function per handler for every render: a memo row draws again only when its own props change.
+  const rowHandlers = useStableHandlers({
+    onSelect: (entry: HistoryEntry) => store.select(entry.id),
+    onOpen: (entry: HistoryEntry) => open(entry),
+    onMenu: rowMenu,
+  });
+
   const headerMenu = (event: MouseEvent<HTMLButtonElement>, items: PageMenuItem[]) => {
     const rect = event.currentTarget.getBoundingClientRect();
     setMenu({
@@ -124,6 +216,13 @@ export function HistoryPage({
       run: () => store.setGrouping(grouping),
     }));
 
+  const rangeItems = (): PageMenuItem[] =>
+    HISTORY_RANGES.map((range) => ({
+      id: range,
+      label: t(RangeLabel[range]),
+      run: () => store.setRange(range),
+    }));
+
   const clearItems = (): PageMenuItem[] =>
     HISTORY_RANGES.map((range) => ({
       id: range,
@@ -138,6 +237,15 @@ export function HistoryPage({
         <div className="history-title-row">
           <h1 className="history-title">{t("page.title")}</h1>
           <div className="history-title-actions">
+            {/* How far back the list reaches; the search's `since:` and `before:` narrow it further. */}
+            <button
+              type="button"
+              className={`history-menu-button history-range${snap.range === "all" ? "" : " selected"}`}
+              // A range or a search typed while the link is down is kept; the reconnect's read uses it.
+              onClick={(event) => headerMenu(event, rangeItems())}
+            >
+              {t(RangeLabel[snap.range])}
+            </button>
             <button
               type="button"
               className="history-menu-button"
@@ -164,7 +272,7 @@ export function HistoryPage({
           placeholder={t("page.search")}
           aria-label={t("page.search")}
           value={snap.text}
-          disabled={snap.connection === "disconnected"}
+          // Stays live while the link comes back (Leo, 2026-11-24 11:57Z): the reconnect reads what was typed.
           ref={focusOnMount}
           onChange={(event) => store.setText(event.target.value)}
           onKeyDown={searchKeys}
@@ -195,8 +303,10 @@ export function HistoryPage({
       {snap.pending && !down && snap.groups.length > 0 ? (
         <output className="history-pending">{t("page.stillLoading")}</output>
       ) : null}
-      {down && !downLasting ? null : down ? (
-        <output className="history-empty">{t("page.disconnected")}</output>
+      {downLasting ? <ConnectionChip text={t("page.disconnected")} /> : null}
+      {down && snap.groups.length === 0 ? (
+        // Nothing read yet and the link is down: blank, and no false "No history" either.
+        <div className="history-empty" />
       ) : snap.groups.length === 0 && snap.pending ? (
         // A list that is not complete is never "No history": the page says so (a status region, as the
         // line above the rows is) and asks again by itself.
@@ -204,30 +314,47 @@ export function HistoryPage({
       ) : snap.groups.length === 0 ? (
         <div className="history-empty">{snap.loading ? "" : t(snap.text ? "page.emptySearch" : "page.empty")}</div>
       ) : (
-        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-        <div id="history-list" className="history-list" role="listbox" tabIndex={0} onKeyDown={listKeys}>
-          {snap.groups.map((group) => (
-            <section
-              key={group.id}
-              className="history-group"
-              aria-label={groupTitle(group, snap.grouping, t, language, now())}
-            >
-              <h2 className="history-group-title">{groupTitle(group, snap.grouping, t, language, now())}</h2>
-              {group.entries.map((entry) => (
-                <HistoryRow
-                  key={entry.id}
-                  entry={entry}
-                  selected={entry.id === snap.selection}
-                  badge={rowBadge(entry)}
-                  badgeText={(badge) => t(BadgeLabel[badge])}
-                  language={language}
-                  onSelect={() => store.select(entry.id)}
-                  onOpen={() => open(entry)}
-                  onMenu={(event) => rowMenu(entry, event)}
+        <div
+          id="history-list"
+          ref={scroller}
+          className="history-list"
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+          role="listbox"
+          tabIndex={0}
+          onKeyDown={listKeys}
+          onFocus={(event) => setFocusedRow((event.target as HTMLElement).dataset.entry)}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget)) setFocusedRow(undefined);
+          }}
+        >
+          <div className="history-list-space" style={{ height: virtualizer.getTotalSize() }}>
+            {virtualizer.getVirtualItems().map(({ index, start }) => {
+              const item = list.items[index]!;
+              return item.kind === "group" ? (
+                <GroupHeader
+                  key={`group:${item.group.id}`}
+                  index={index}
+                  top={start}
+                  title={groupTitle(item.group, snap.grouping, t, language, now())}
+                  measure={measure}
                 />
-              ))}
-            </section>
-          ))}
+              ) : (
+                <HistoryRow
+                  key={item.entry.id}
+                  index={index}
+                  top={start}
+                  entry={item.entry}
+                  position={item.row + 1}
+                  count={list.entries.length}
+                  selected={item.entry.id === snap.selection}
+                  language={language}
+                  t={t}
+                  measure={measure}
+                  {...rowHandlers}
+                />
+              );
+            })}
+          </div>
         </div>
       )}
       {snap.cookieBackups.open && <CookieBackupsPanel store={store} state={snap.cookieBackups} strings={strings} />}
@@ -245,19 +372,56 @@ export function HistoryPage({
   );
 }
 
-interface RowProps {
-  entry: HistoryEntry;
-  selected: boolean;
-  badge: ReturnType<typeof rowBadge>;
-  badgeText: (badge: NonNullable<ReturnType<typeof rowBadge>>) => string;
-  language: string;
-  onSelect: () => void;
-  onOpen: () => void;
-  onMenu: (event: MouseEvent) => void;
+/** Where a windowed item sits: its index (TanStack measures it by `data-index`) and offset. */
+interface Placed {
+  index: number;
+  top: number;
+  measure: (element: HTMLElement | null) => void;
 }
 
-function HistoryRow({ entry, selected, badge, badgeText, language, onSelect, onOpen, onMenu }: RowProps) {
+const GroupHeader = memo(function GroupHeader({ index, top, title, measure }: Placed & { title: string }) {
+  return (
+    <div
+      ref={measure}
+      data-index={index}
+      data-size="group"
+      className="history-group"
+      style={{ transform: `translateY(${top}px)` }}
+    >
+      <h2 className="history-group-title">{title}</h2>
+    </div>
+  );
+});
+
+interface RowProps extends Placed {
+  entry: HistoryEntry;
+  /** 1-based place among every entry, and their count: the screen reader's "3 of 1000". */
+  position: number;
+  count: number;
+  selected: boolean;
+  language: string;
+  t: Strings["t"];
+  onSelect: (entry: HistoryEntry) => void;
+  onOpen: (entry: HistoryEntry) => void;
+  onMenu: (entry: HistoryEntry, event: MouseEvent) => void;
+}
+
+const HistoryRow = memo(function HistoryRow({
+  index,
+  top,
+  measure,
+  entry,
+  position,
+  count,
+  selected,
+  language,
+  t,
+  onSelect,
+  onOpen,
+  onMenu,
+}: RowProps) {
   const detail = rowDetail(entry);
+  const badge = rowBadge(entry);
   return (
     // The listbox owns Up/Down; a row takes Return when it has focus itself.
     <div
@@ -266,17 +430,23 @@ function HistoryRow({ entry, selected, badge, badgeText, language, onSelect, onO
       tabIndex={-1}
       aria-selected={selected}
       aria-disabled={entry.available ? undefined : true}
+      aria-posinset={position}
+      aria-setsize={count}
       className={`history-row${selected ? " selected" : ""}${entry.available ? "" : " unavailable"}`}
-      ref={selected ? revealOnSelect : undefined}
-      onClick={onSelect}
-      onDoubleClick={onOpen}
+      ref={measure}
+      data-index={index}
+      data-size={rowSize(entry)}
+      data-entry={entry.id}
+      style={{ transform: `translateY(${top}px)` }}
+      onClick={() => onSelect(entry)}
+      onDoubleClick={() => onOpen(entry)}
       onKeyDown={(event) => {
         if (event.key !== "Enter" || event.metaKey || event.ctrlKey || event.altKey) return;
         event.preventDefault();
         event.stopPropagation();
-        onOpen();
+        onOpen(entry);
       }}
-      onContextMenu={onMenu}
+      onContextMenu={(event) => onMenu(entry, event)}
     >
       <span className="history-row-icon">
         <KindIcon kind={entry.kind} />
@@ -285,8 +455,8 @@ function HistoryRow({ entry, selected, badge, badgeText, language, onSelect, onO
         <span className="history-row-title">{entry.title}</span>
         {detail && <span className="history-row-detail">{detail}</span>}
       </span>
-      {badge && <span className="history-row-badge">{badgeText(badge)}</span>}
+      {badge && <span className="history-row-badge">{t(BadgeLabel[badge])}</span>}
       <span className="history-row-time">{rowTime(entry, language)}</span>
     </div>
   );
-}
+});

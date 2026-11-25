@@ -14,7 +14,8 @@ lists `needs = ["bun"]` also gets that `[tools]` command run first (bun, node: a
 routed steps that need it pay for), all of them at once after the setup, each in `$CI_TOOLS`. A
 setup or tool that fails fails the job. It exits 1 only when a step with `blocks = true` failed. A step with
 `blocks = false` that fails or runs past its timeout is a warning annotation: an advisory
-step never turns its job red. `--label NAME` says the event is a label change of NAME;
+step never turns its job red. A step with `alone = true` runs by itself, after the others, in table order.
+`--label NAME` says the event is a label change of NAME;
 then only the steps that list NAME in `labels` run. `--only NAMES` (comma or space separated)
 runs only those of the routed steps; empty means every routed step. A name the table does
 not have is a notice and is skipped, never an error: the pull request that adds a step runs
@@ -77,6 +78,7 @@ class Step:
     title: str = ""
     about: str = ""
     needs: tuple[str, ...] = ()
+    alone: bool = False
 
 
 @dataclass
@@ -147,11 +149,14 @@ def parse(doc: dict) -> Table:
             title=raw.get("title", ""),
             about=raw.get("about", ""),
             needs=tuple(raw.get("needs", ())),
+            alone=raw.get("alone", False),
         )
         if step.job not in jobs:
             raise TableError(f"step {name}: job {step.job!r} is not one of [jobs] {sorted(jobs)}")
         if not isinstance(step.blocks, bool):
             raise TableError(f"step {name}: `blocks` is true or false")
+        if not isinstance(step.alone, bool):
+            raise TableError(f"step {name}: `alone` is true or false")
         if step.klass not in CLASSES:
             raise TableError(f"step {name}: class {step.klass!r} is not one of {CLASSES}")
         if not step.blocks and (step.job != ADVISORY_JOB or step.klass != "idle"):
@@ -266,8 +271,17 @@ def run_job(table: Table, job: str, paths: list[str] | None, label: str | None =
         print(f"No step of job {job} is routed for this change.", file=out)
         return 0
     results: list[Result] = []
-    with tempfile.TemporaryDirectory(prefix="ci-tools-", dir=os.environ.get("RUNNER_TEMP") or None) as tools:
+    # A tool a step leaves unremovable (a root-owned install) must not turn a job of green steps red at cleanup.
+    with tempfile.TemporaryDirectory(prefix="ci-tools-", dir=os.environ.get("RUNNER_TEMP") or None,
+                                     ignore_cleanup_errors=True) as tools:
         env = dict(os.environ, CI_TOOLS=tools, PATH=f"{tools}/bin{os.pathsep}{os.environ.get('PATH', '')}")
+        # The change's paths, one a line, for a step whose own router is finer than path globs (a web subarea):
+        # unset when the change is unknown, which a step reads as "everything changed".
+        env.pop("CI_PATHS_FILE", None)
+        if paths is not None:
+            listed = Path(tools) / "changed-paths.txt"
+            listed.write_text("".join(f"{p}\n" for p in paths), encoding="utf-8")
+            env["CI_PATHS_FILE"] = str(listed)
         ready = True
         if job in table.setup:
             setup = run_step(Step(name=f"setup ({job})", job=job, run=table.setup[job], timeout=SETUP_TIMEOUT,
@@ -297,7 +311,9 @@ def run_job(table: Table, job: str, paths: list[str] | None, label: str | None =
                     result = run_step(step, env)
                     print_log(result, out)
                     return result
-                results += pool.map(run_and_print, steps)
+                results += pool.map(run_and_print, [s for s in steps if not s.alone])
+            # An `alone` step takes the whole machine: it runs by itself, after the others, in table order.
+            results += [run_and_print(s) for s in steps if s.alone]
     summary = report(results, job, out, logs=False)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:

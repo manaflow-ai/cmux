@@ -7,8 +7,8 @@ import UIKit
 /// attached: the page as last seen on this phone, as it was (never dimmed,
 /// never covered), or, for a terminal never opened on this phone, a skeleton
 /// of terminal lines with the shimmer (SPEC 7.1). Never made-up output, and
-/// never a status pill over the content: the connection's state is one quiet
-/// line by the composer, and only after ``QuietStatusGate/threshold``
+/// never a status pill over the content: the connection's state is the title
+/// pill's subtitle, and only after ``QuietStatusGate/threshold``
 /// (``TerminalModel/connectionLine``).
 ///
 /// Leo, 2026-11-12, on LTE: "wack reconnection state / just show the cache".
@@ -21,23 +21,31 @@ public struct TerminalConnectingView: View {
     /// Whether a page with no frame draws the skeleton (a warm surface that
     /// keeps its own live rows draws nothing over them).
     let showsPlaceholder: Bool
+    /// The Mac's screen as text, as its `tabs` service last pushed it: drawn as it is (never
+    /// dimmed) where there is no frame, for a tab not opened on this phone yet.
+    let screenText: String?
 
-    public init(topInset: CGFloat = 0, lastFrame: UIImage? = nil, showsPlaceholder: Bool = true) {
+    public init(topInset: CGFloat = 0, lastFrame: UIImage? = nil, showsPlaceholder: Bool = true,
+                screenText: String? = nil) {
         self.topInset = topInset
         self.lastFrame = lastFrame
         self.showsPlaceholder = showsPlaceholder
+        self.screenText = screenText
     }
 
     /// What the view draws: the cached frame wins; the skeleton only with no
     /// cache at all.
     enum Content: Equatable {
         case lastFrame
+        case screenText
         case skeleton
         case nothing
     }
 
-    static func content(hasLastFrame: Bool, showsPlaceholder: Bool) -> Content {
+    static func content(hasLastFrame: Bool, showsPlaceholder: Bool, hasScreenText: Bool = false) -> Content {
         if hasLastFrame { return .lastFrame }
+        // Only where the skeleton would be: a warm surface keeps its own live rows.
+        if hasScreenText, showsPlaceholder { return .screenText }
         return showsPlaceholder ? .skeleton : .nothing
     }
 
@@ -63,7 +71,8 @@ public struct TerminalConnectingView: View {
 
     public var body: some View {
         ZStack(alignment: .top) {
-            switch Self.content(hasLastFrame: lastFrame != nil, showsPlaceholder: showsPlaceholder) {
+            switch Self.content(hasLastFrame: lastFrame != nil, showsPlaceholder: showsPlaceholder,
+                                hasScreenText: screenText?.isEmpty == false) {
             case .lastFrame:
                 if let lastFrame {
                     GeometryReader { proxy in
@@ -77,6 +86,13 @@ public struct TerminalConnectingView: View {
                     }
                     .accessibilityHidden(true)
                 }
+            case .screenText:
+                GeometryReader { proxy in
+                    // Not dimmed: a grayed-out page reads as one that takes no input (Leo,
+                    // 2026-11-24: "the entire thing is somehow grayed out").
+                    TerminalCardScreenText(text: screenText ?? "", topInset: topInset, width: proxy.size.width)
+                }
+                .accessibilityHidden(true)
             case .skeleton:
                 skeleton
             case .nothing:

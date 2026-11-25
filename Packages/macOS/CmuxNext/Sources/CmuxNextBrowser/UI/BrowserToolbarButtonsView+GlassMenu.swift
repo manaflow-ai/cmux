@@ -22,7 +22,6 @@ extension BrowserToolbarButtonsView {
         guard parts.count == 3 else { return nil }
         let row = GlassMenuStepperItem(title: BrowserToolbarButton.zoomRowTitle, decrement: parts[0], increment: parts[1],
                                        reset: parts[2]) { [weak self] in "\(BrowserZoom.percent(self?.tab?.state.zoom ?? 1))%" }
-        row.image = NSImage.menuSymbol("magnifyingglass")
         row.identifier = NSUserInterfaceItemIdentifier("cmux.browser.more.zoom")
         return row
     }
@@ -42,6 +41,7 @@ extension BrowserToolbarButtonsView {
         weak var focused = window.firstResponder
         glass.onClose = { [weak self, weak window, weak glass] in
             pressed?.isMenuOpen = false
+            pressed?.pressTracker = nil
             if let self, self.openGlassMenu === glass { self.openGlassMenu = nil }
             guard let window, let focused, window.firstResponder !== focused else { return }
             if let view = focused as? NSView, view.window !== window { return }
@@ -49,6 +49,8 @@ extension BrowserToolbarButtonsView {
         }
         guard showGlassMenu(glass, anchor) else { return }
         pressed?.isMenuOpen = true
+        // Opened by a press still held: its drag and its release pick a row, as on an NSMenu.
+        if let pressed, pressed.holdsPress { pressed.pressTracker = { [weak glass] in glass?.trackPress($0) } }
         openGlassMenu = glass
     }
 }

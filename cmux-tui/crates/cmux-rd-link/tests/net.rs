@@ -1,7 +1,7 @@
 //! Two drivers over real UDP sockets on loopback: the handshake runs, a
 //! control record and datagrams cross, and the peer's close ends the session.
 
-use cmux_rd_link::net::{Candidate, CandidateKind, Net, NetConfig, NetEvent};
+use cmux_rd_link::net::{Candidate, CandidateKind, ConnectPhase, Net, NetConfig, NetEvent};
 use cmux_rd_link::{EndpointEvent, Event, KeyPair, Role};
 use std::time::{Duration, Instant};
 
@@ -64,6 +64,103 @@ fn a_session_runs_over_real_udp_sockets() {
     drop(host);
     assert!(wait(&viewer, &mut at_viewer, |e| e
         .contains(&NetEvent::Endpoint(EndpointEvent::Link(Event::Closed)))));
+}
+
+/// The wired-pair connect on real sockets: the host's STUN server never answers
+/// and the viewer is also offered a tailnet address nothing listens on. The
+/// session is up long before the first STUN retry (300 ms): connect waits on
+/// neither gathering nor a dead candidate, every candidate is tried at once.
+#[test]
+fn connect_waits_on_neither_stun_nor_a_dead_candidate() {
+    let (v, h) = (KeyPair::generate().unwrap(), KeyPair::generate().unwrap());
+    let host = Net::start(NetConfig {
+        role: Role::Responder,
+        session: b"loopback-session".to_vec(),
+        local: h.clone(),
+        expected_remote: v.public,
+        stun: vec!["192.0.2.1:3478".parse().unwrap()], // TEST-NET-1: never answers
+        bind: "127.0.0.1:0".parse().unwrap(),
+        turn: Vec::new(),
+        relay_only: false,
+    })
+    .unwrap();
+    let viewer = start(Role::Initiator, &v, h.public);
+    let t0 = Instant::now();
+    viewer.add_remote_candidate(Candidate {
+        kind: CandidateKind::Host,
+        addr: "100.127.99.33:50100".parse().unwrap(),
+    });
+    viewer.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: host.local_addr() });
+    let established =
+        |e: &[NetEvent]| e.contains(&NetEvent::Endpoint(EndpointEvent::Link(Event::Established)));
+    let mut at_host = Vec::new();
+    assert!(wait(&host, &mut at_host, established));
+    let took = t0.elapsed();
+    assert!(took < Duration::from_millis(250), "host connected after {took:?}");
+}
+
+/// Each side reports where its connect time went, once per phase, in order:
+/// the lines `cmux rd serve` and `bench --link` print for a rig to time.
+#[test]
+fn each_side_reports_its_connect_phases_in_order() {
+    let (v, h) = (KeyPair::generate().unwrap(), KeyPair::generate().unwrap());
+    let host = start(Role::Responder, &h, v.public);
+    let viewer = start(Role::Initiator, &v, h.public);
+    viewer.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: host.local_addr() });
+    let established =
+        |e: &[NetEvent]| e.contains(&NetEvent::Endpoint(EndpointEvent::Link(Event::Established)));
+    let (mut at_host, mut at_viewer) = (Vec::new(), Vec::new());
+    assert!(wait(&host, &mut at_host, established));
+    assert!(wait(&viewer, &mut at_viewer, established));
+    // The selector nominates on the first probe answer after the handshake.
+    let nominated = |e: &[NetEvent]| {
+        e.iter().any(|e| matches!(e, NetEvent::Phase { phase: ConnectPhase::Nominated, .. }))
+    };
+    assert!(wait(&host, &mut at_host, nominated));
+    assert!(wait(&viewer, &mut at_viewer, nominated));
+    for (side, seen) in [("viewer", &at_viewer), ("host", &at_host)] {
+        let phases: Vec<(ConnectPhase, u64)> = seen
+            .iter()
+            .filter_map(|e| match e {
+                NetEvent::Phase { phase, at_us, .. } => Some((*phase, *at_us)),
+                _ => None,
+            })
+            .collect();
+        let names: Vec<_> = phases.iter().map(|(p, _)| p.name()).collect();
+        for phase in [
+            ConnectPhase::GatherDone,
+            ConnectPhase::FirstCheckSent,
+            ConnectPhase::FirstCheckAnswered,
+            ConnectPhase::HandshakeStart,
+            ConnectPhase::HandshakeDone,
+            ConnectPhase::Nominated,
+        ] {
+            assert_eq!(
+                phases.iter().filter(|(p, _)| *p == phase).count(),
+                1,
+                "{side}: {} once in {names:?}",
+                phase.name()
+            );
+        }
+        let at = |want: ConnectPhase| phases.iter().find(|(p, _)| *p == want).unwrap().1;
+        assert!(at(ConnectPhase::HandshakeStart) <= at(ConnectPhase::HandshakeDone), "{side}");
+        assert!(at(ConnectPhase::FirstCheckAnswered) <= at(ConnectPhase::HandshakeDone), "{side}");
+        let line = seen.iter().find_map(|e| match e {
+            NetEvent::Phase { phase: ConnectPhase::FirstCheckAnswered, .. } => e.phase_line(),
+            _ => None,
+        });
+        let line = line.unwrap();
+        for e in seen.iter() {
+            if let Some(l) = e.phase_line() {
+                eprintln!("{side} {l}");
+            }
+        }
+        assert!(
+            line.starts_with(r#"{"phase":"first_check_answered","ms":"#)
+                && line.contains(r#","route":"127.0.0.1:"#),
+            "{side}: {line}"
+        );
+    }
 }
 
 #[test]
@@ -161,6 +258,72 @@ fn a_stun_server_that_resolves_after_start_still_gives_the_reflexive_candidate()
     let late =
         NetEvent::Candidate(Candidate { kind: CandidateKind::ServerReflexive, addr: reflexive });
     assert!(wait(&net, &mut seen, |e| e.contains(&late)), "the late STUN server is queried");
+}
+
+#[test]
+fn a_record_sent_just_before_the_close_still_reaches_the_peer() {
+    let (v, h) = (KeyPair::generate().unwrap(), KeyPair::generate().unwrap());
+    let host = start(Role::Responder, &h, v.public);
+    let viewer = start(Role::Initiator, &v, h.public);
+    viewer.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: host.local_addr() });
+    host.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: viewer.local_addr() });
+    viewer.send_control(b"hello".to_vec());
+    let established =
+        |e: &[NetEvent]| e.contains(&NetEvent::Endpoint(EndpointEvent::Link(Event::Established)));
+    let (mut at_host, mut at_viewer) = (Vec::new(), Vec::new());
+    assert!(wait(&host, &mut at_host, established));
+    assert!(wait(&viewer, &mut at_viewer, established));
+
+    // As `cmux-rd serve` ends a session: its `ended` reason, then the link dropped at once.
+    host.send_control(b"ended: failed: no grant".to_vec());
+    drop(host);
+    let closed = NetEvent::Endpoint(EndpointEvent::Link(Event::Closed));
+    assert!(wait(&viewer, &mut at_viewer, |e| e.contains(&closed)));
+    let ended = NetEvent::Endpoint(EndpointEvent::Link(Event::Control(
+        b"ended: failed: no grant".to_vec(),
+    )));
+    let ended_at = at_viewer.iter().position(|e| *e == ended);
+    let closed_at = at_viewer.iter().position(|e| *e == closed);
+    assert!(ended_at.is_some(), "the last record crosses before the close: {at_viewer:?}");
+    assert!(ended_at < closed_at, "the record comes before the close");
+}
+
+/// A send the system refuses (here a broadcast address without SO_BROADCAST; on a Mac, a LAN
+/// address while the app has no Local Network access) used to be dropped without a word, so
+/// the failure read only "heard 0" (cmuxterm-hq CMUX-572). The reason now counts it.
+#[test]
+fn a_link_whose_sends_are_refused_says_so_when_it_fails() {
+    let (v, h) = (KeyPair::generate().unwrap(), KeyPair::generate().unwrap());
+    let viewer = Net::start(NetConfig {
+        role: Role::Initiator,
+        session: b"refused-session".to_vec(),
+        local: v,
+        expected_remote: h.public,
+        stun: Vec::new(),
+        bind: "0.0.0.0:0".parse().unwrap(),
+        turn: Vec::new(),
+        relay_only: false,
+    })
+    .unwrap();
+    viewer.add_remote_candidate(Candidate {
+        kind: CandidateKind::Host,
+        addr: "255.255.255.255:9".parse().unwrap(),
+    });
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let mut failed = None;
+    while failed.is_none() && Instant::now() < deadline {
+        let mut fd = libc::pollfd { fd: viewer.event_fd(), events: libc::POLLIN, revents: 0 };
+        // SAFETY: one valid pollfd.
+        unsafe { libc::poll(&mut fd, 1, 100) };
+        failed = viewer.events().into_iter().find_map(|e| match e {
+            NetEvent::Failed(reason) => Some(reason),
+            _ => None,
+        });
+    }
+    let reason = failed.expect("the handshake times out");
+    assert!(reason.contains("heard 0"), "{reason}");
+    assert!(reason.contains("sends refused: "), "{reason}");
+    assert!(reason.contains("os error"), "{reason}");
 }
 
 fn receipt_datagram(frame: u32, index: u16, seq: u16) -> Vec<u8> {

@@ -27,7 +27,8 @@ use session_guard::{
     SessionCoordinatorWaiter, prepare_session_guard_dir, session_guard_coordinator_path,
 };
 pub(crate) use session_guard::{
-    SessionLease, SessionOwnerProbe, probe_session_owner, session_owner_mark,
+    SessionLease, SessionOwnerPeek, SessionOwnerProbe, peek_session_owner, probe_session_owner,
+    session_owner_last_active, session_owner_mark, stored_terminal_references,
 };
 
 pub(crate) use schema::{AutoVacuumMigration, first_state_foreign_key_violation};
@@ -41,13 +42,14 @@ use schema::{
     normalized_workspace_resource_deltas, require_resource_effect_pepper_id,
     resource_agent_hook_state_has_ended_at_column, terminal_hosts_has_on_exit_column,
     terminal_hosts_has_workspace_foreign_key, upsert_workspace_resource,
-    vacuum_with_file_temp_store,
+    vacuum_with_file_temp_store, workspace_upsert_delta,
 };
 mod terminal_snapshot_read;
 use session_reset::*;
 
 pub(crate) use open::{
     open_registry_database, open_registry_database_read_only, open_registry_database_with_flags,
+    truncate_wal_after_delete,
 };
 use std::borrow::Cow;
 #[cfg(test)]
@@ -126,9 +128,12 @@ mod workspace_commit_intent;
 mod workspace_rows_commit;
 use workspace_rows_commit::{
     commit_workspace_registry_in_transaction, commit_workspace_rows_in_transaction,
+    insert_workspace_row_in_transaction,
 };
 pub(crate) mod workspace_name_store;
-pub(crate) use workspace_commit_intent::{WorkspaceCommitIntent, WorkspaceCommitReceipt};
+pub(crate) use workspace_commit_intent::{
+    WorkspaceCommitIntent, WorkspaceCommitReceipt, WorkspaceInsert,
+};
 pub(crate) mod relaunch_store;
 mod resource_effect_commit;
 pub(crate) mod resource_store;
@@ -291,6 +296,12 @@ const JOURNAL_AUTO_VACUUM_META_KEY: &str = "journal_auto_vacuum_migrated";
 const RESOURCE_EFFECT_PEPPER_ID_DOMAIN: &[u8] = b"cmux.resource-effect-pepper-id.v1";
 const RESOURCE_INPUT_RECEIPT_DOMAIN: &[u8] = b"cmux.resource-input-receipt.v2";
 pub(crate) const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
+/// The first part and the last part of the name that a reset gives a session
+/// folder before it deletes it: `.reset-NAME-KIND-UUID.deleting`, a direct
+/// child of the state root (session_reset.rs). The rollback check reads each
+/// folder with such a name (store_schemas.rs).
+pub(crate) const RESET_DIR_HEAD: &str = ".reset-";
+pub(crate) const RESET_DIR_TAIL: &str = ".deleting";
 
 /// An extra write that runs inside a workspace-registry commit transaction.
 pub(crate) type RegistryTransactionWrite<'a> = &'a dyn Fn(&Transaction<'_>) -> anyhow::Result<()>;

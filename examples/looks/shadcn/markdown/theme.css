@@ -1,0 +1,11 @@
+/* The Markdown viewer, as the system's prose styles: semibold headings, the second level over a hairline,
+   code on the muted fill with the 10 px radius, quotes on a 2 px border.
+   Only --cmux-md-* custom properties on :root; every color is mixed from the page's own, so
+   this one file reads over the light and the dark theme file alike. */
+:root {
+  --cmux-md-code-background: color-mix(in srgb, var(--page-text) 4%, transparent);
+  --cmux-md-code-radius: 10px;
+  --cmux-md-heading-weight: 600;
+  --cmux-md-heading-rule: 1px solid var(--cmux-md-border-color);
+  --cmux-md-quote-border: 2px solid var(--cmux-md-border-color);
+}

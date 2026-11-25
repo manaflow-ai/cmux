@@ -147,7 +147,8 @@ def to_workspace():
     """Leaves a top page (Home shows at first launch; a page has no tabs) for a workspace with a pane."""
     rpc("action.run", {"action": "workspace.selectFirst"})
     rpc("action.run", {"action": "newTab", "origin": "script", "focus": True})
-    time.sleep(1)  # the workspace's pane comes up
+    # The workspace's pane is up once the topology has a focused pane.
+    wait_for(lambda: ((rpc("snapshot.get").get("topology") or {}).get("focus") or {}).get("pane"), "the workspace's pane", 20)
 
 
 def at(engine, path, scrolled=None):

@@ -20,6 +20,10 @@ export interface Native {
   paletteDone?(reqId: number, ok: boolean, json: string): void
   /** An IANA zone's offset at `atMs`: `{offsetMinutes, abbreviation}` or `{error}` (ABI.md). Hosts with Intl may omit it. */
   zone?(name: string, atMs: number): string
+  /** Joins the daemon's signals cache entry of (name, params) for `mountId` ("" outside a mount); states arrive at `__cmuxAppWatch` (ABI.md, Signals). */
+  watch?(name: string, paramsJSON: string, mountId: string, everySeconds: number): number
+  /** Leaves a watch, or with `refresh` asks its entry for a read now. */
+  unwatch?(watchId: number, refresh: boolean): void
 }
 
 export class CmuxError extends Error {
@@ -72,6 +76,8 @@ export const state = {
   app: { id: "", version: "" },
   /** The active mount's context while its render or event handler runs. */
   context: null as Record<string, unknown> | null,
+  /** The active mount's id while its render or event handler runs (a watch's visibility follows it). */
+  mount: null as string | null,
   apiVersion: "0.0.0",
   allowedOps: null as Set<string> | null,
   knownOps: null as Set<string> | null,
@@ -309,7 +315,7 @@ export const theme = Object.freeze({
 export interface ToastOptions {
   title: string
   message?: string
-  /** `success`, `warning` or `danger`; omitted is a plain notice. */
+  /** `success`, `warning`, `danger` or `working` (a spinner until the app's next toast replaces it in place); omitted is a plain notice. */
   tone?: string
 }
 

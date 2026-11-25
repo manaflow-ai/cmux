@@ -7,11 +7,88 @@ use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use cmux_mobile_link::dial::{self, SessionEvents, wireguard};
-use cmux_mobile_link::testing::{FakeOptions, FakeSignaling, TestTurn};
+use cmux_mobile_link::testing::{
+    FakeOptions, FakeSignaling, LinkProfile, TestTurn, set_link_profile, shape_by_profile, shaped_counts,
+};
 use cmux_mobile_link::{ChannelEvent, DialOptions, LinkConfig, LinkPath, SignalingClient, TransportKind};
 
 fn options() -> DialOptions {
     DialOptions { include_loopback: true, timeout: Duration::from_secs(20), ..DialOptions::default() }
+}
+
+/// What a measurement puts the link under besides its blackout, named in
+/// every line it prints.
+#[derive(Clone, Copy, Debug, Default)]
+struct Duress {
+    /// Every datagram either tunnel receives goes through the link profile
+    /// set by `testing::set_link_profile` (cmux-fault's `link-profiles.json`,
+    /// the profiles cmux#49310's `UdpShaper` plays).
+    shaped: bool,
+    /// The Mac streams terminal rows to the phone the whole run
+    /// ([`STREAM_ROWS_PER_SECOND`]).
+    stream: bool,
+}
+
+/// [`options`], with the tunnel's received datagrams on the link profile
+/// when `duress.shaped`.
+fn duress_options(duress: Duress) -> DialOptions {
+    if !duress.shaped {
+        return options();
+    }
+    // A lost handshake message costs WireGuard a 5 s retry: room for a few.
+    DialOptions { impair_inbound: Some(shape_by_profile), timeout: Duration::from_secs(40), ..options() }
+}
+
+/// A long streaming session: the Mac writes this many terminal rows a
+/// second (a build log, `cat` of a large file), in frames of
+/// [`STREAM_ROWS_PER_FRAME`], about 2 Mbit/s with framing.
+const STREAM_ROWS_PER_SECOND: u64 = 2000;
+const STREAM_ROWS_PER_FRAME: u64 = 20;
+/// One row: 120 bytes, as a wide terminal line.
+const STREAM_ROW_BYTES: usize = 120;
+
+/// The Mac's side of a `stream` channel: rows at [`STREAM_ROWS_PER_SECOND`]
+/// until the channel closes. A send that waits (the link backed up, a
+/// blackout) holds the producer, as a pty's reader would; it never catches
+/// up in a burst.
+async fn stream_rows(channel: cmux_mobile_link::Channel) {
+    let (sender, _receiver) = channel.split();
+    let interval = Duration::from_micros(1_000_000 * STREAM_ROWS_PER_FRAME / STREAM_ROWS_PER_SECOND);
+    let mut tick = tokio::time::interval(interval);
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut row = 0u64;
+    loop {
+        tick.tick().await;
+        let mut frame = Vec::with_capacity(STREAM_ROW_BYTES * STREAM_ROWS_PER_FRAME as usize);
+        for _ in 0..STREAM_ROWS_PER_FRAME {
+            let line = format!("{row:010} ");
+            frame.extend_from_slice(line.as_bytes());
+            frame.resize(frame.len() + STREAM_ROW_BYTES - line.len() - 2, b'x');
+            frame.extend_from_slice(b"\r\n");
+            row += 1;
+        }
+        if sender.send(Bytes::from(frame)).await.is_err() {
+            return;
+        }
+    }
+}
+
+/// The phone's side of a `stream` channel: counts rows; the arrival times
+/// of every frame go to `arrivals`.
+fn read_rows(
+    channel: cmux_mobile_link::Channel,
+    rows: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    arrivals: Option<std::sync::Arc<std::sync::Mutex<Vec<Instant>>>>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let (_sender, mut receiver) = channel.split();
+        while let Some(ChannelEvent::Data(bytes)) = receiver.recv().await {
+            if let Some(arrivals) = &arrivals {
+                arrivals.lock().unwrap().push(Instant::now());
+            }
+            rows.fetch_add((bytes.len() / STREAM_ROW_BYTES) as u64, std::sync::atomic::Ordering::Relaxed);
+        }
+    })
 }
 
 /// Bytes `[start, start + len)` of the endless test pattern.
@@ -481,4 +558,931 @@ async fn wireguard_replaces_a_dead_turn_tls_stream() {
 #[should_panic(expected = "bytes lost")]
 async fn wireguard_without_roaming_never_recovers() {
     let _ = stream_across_a_change(options(), options(), None, Duration::from_secs(5)).await;
+}
+
+/// What a blackout run measured.
+#[derive(Debug)]
+struct Blackout {
+    /// From the network coming back to the first app frame the Mac read
+    /// (phone to Mac) and the first echo the phone read (Mac to phone), on
+    /// the link dialed before the blackout. `None`: none arrived.
+    first_frame_up: Option<Duration>,
+    first_frame_down: Option<Duration>,
+    /// Why either end of the link closed, if it did.
+    phone_closed: Option<String>,
+    mac_closed: Option<String>,
+    /// Sessions the Mac answered (1: no redial).
+    sessions: usize,
+    /// From the blackout's start to the phone's link turning suspect.
+    phone_suspect: Option<Duration>,
+    sent: usize,
+    echoed: usize,
+    /// With a stream: from the network coming back to the first row the
+    /// phone read, and every row it read.
+    first_row_down: Option<Duration>,
+    rows: u64,
+}
+
+/// A full blackout of the phone's network for `dark` (nothing it sends
+/// leaves, nothing reaches it, on its socket and its TURN allocation),
+/// then the network back on the same socket and addresses. With
+/// `network_changed`, the OS reports the path back as it returns (the app
+/// roams the session). A small app frame goes each way every 100 ms all
+/// along, on one channel of the one link.
+async fn blackout(dark: Duration, network_changed: bool) -> Blackout {
+    blackout_with(LinkConfig::default(), dark, network_changed, Duress::default()).await
+}
+
+/// [`blackout`] with both ends on `config`, under `duress`.
+async fn blackout_with(
+    config: LinkConfig,
+    dark: Duration,
+    network_changed: bool,
+    duress: Duress,
+) -> Blackout {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_test_writer()
+        .try_init();
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+    let sessions = Arc::new(AtomicUsize::new(0));
+    let mac_arrivals = Arc::new(Mutex::new(Vec::<Instant>::new()));
+    let mac_link = Arc::new(Mutex::new(None::<cmux_mobile_link::Link>));
+    {
+        let (sessions, mac_arrivals, mac_link) =
+            (Arc::clone(&sessions), Arc::clone(&mac_arrivals), Arc::clone(&mac_link));
+        let config = LinkConfig { foreground_probe: false, ..config.clone() };
+        tokio::spawn(async move {
+            while let Some(session) = mac.next_session().await {
+                sessions.fetch_add(1, Ordering::SeqCst);
+                let events = SessionEvents {
+                    backend: mac.events(),
+                    session_id: session.first.session_id.clone(),
+                    session: session.events,
+                };
+                let mac = mac.clone();
+                let (mac_arrivals, mac_link) = (Arc::clone(&mac_arrivals), Arc::clone(&mac_link));
+                let config = config.clone();
+                tokio::spawn(async move {
+                    let connected =
+                        dial::answer(&mac, session.first, events, &duress_options(duress), config)
+                            .await
+                            .unwrap();
+                    *mac_link.lock().unwrap() = Some(connected.link.clone());
+                    while let Some(mut incoming) = connected.link.accept().await {
+                        if incoming.service == "stream" {
+                            tokio::spawn(stream_rows(incoming.channel));
+                            continue;
+                        }
+                        let mac_arrivals = Arc::clone(&mac_arrivals);
+                        tokio::spawn(async move {
+                            while let Some(ChannelEvent::Data(bytes)) = incoming.channel.recv().await {
+                                mac_arrivals.lock().unwrap().push(Instant::now());
+                                let _ = incoming.channel.send(bytes).await;
+                            }
+                        });
+                    }
+                });
+            }
+        });
+    }
+    let phone_id = uuid::Uuid::new_v4().to_string();
+    let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
+    let connected =
+        dial::connect(&phone, &mac_id, TransportKind::WireGuard, &duress_options(duress), config.clone())
+            .await
+            .expect("dial");
+    let session_id = connected.session_id.clone();
+    let rows = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let row_arrivals = Arc::new(Mutex::new(Vec::<Instant>::new()));
+    let row_reader = if duress.stream {
+        let channel = connected.link.open("stream", serde_json::json!({})).await.unwrap();
+        Some(read_rows(channel, Arc::clone(&rows), Some(Arc::clone(&row_arrivals))))
+    } else {
+        None
+    };
+    let channel = connected.link.open("echo", serde_json::json!({})).await.unwrap();
+    let (sender, mut receiver) = channel.split();
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let sent = Arc::new(AtomicUsize::new(0));
+    let writer = {
+        let (stop, sent) = (Arc::clone(&stop), Arc::clone(&sent));
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_millis(100));
+            while !stop.load(Ordering::Relaxed) {
+                tick.tick().await;
+                let n = sent.load(Ordering::Relaxed);
+                if sender.send(Bytes::from(format!("frame {n:08}"))).await.is_err() {
+                    break;
+                }
+                sent.fetch_add(1, Ordering::Relaxed);
+            }
+            sender
+        })
+    };
+    let phone_arrivals = Arc::new(Mutex::new(Vec::<Instant>::new()));
+    let reader = {
+        let phone_arrivals = Arc::clone(&phone_arrivals);
+        tokio::spawn(async move {
+            while let Some(ChannelEvent::Data(_)) = receiver.recv().await {
+                phone_arrivals.lock().unwrap().push(Instant::now());
+            }
+        })
+    };
+    // The worst moment: just before the phone's next keepalive ping (one
+    // interval after its last pong), so the link's keepalive deadline is
+    // closest to the start of the blackout.
+    let mut rtt = connected.link.rtt();
+    rtt.borrow_and_update();
+    let interval = config.keepalive.unwrap();
+    tokio::time::timeout(interval + Duration::from_secs(5), rtt.changed()).await.unwrap().unwrap();
+    tokio::time::sleep(interval.saturating_sub(Duration::from_millis(100))).await;
+    assert_eq!(wireguard::simulate_blackout(Some(&session_id), true, true), 1);
+    let went_dark = Instant::now();
+    let suspect_watch = {
+        let mut suspect = connected.link.suspect_state();
+        tokio::spawn(async move {
+            suspect.wait_for(|suspect| *suspect).await.ok()?;
+            Some(went_dark.elapsed())
+        })
+    };
+    tokio::time::sleep(dark).await;
+    let back = Instant::now();
+    // 0 once the session is gone (the link closed in the dark).
+    wireguard::simulate_blackout(Some(&session_id), true, false);
+    if network_changed {
+        let session_id = session_id.clone();
+        tokio::spawn(async move { wireguard::roam_session(&session_id, true).await });
+    }
+    // Watch for the first frame each way, up to 10 s.
+    let first_after = |arrivals: &Mutex<Vec<Instant>>| {
+        arrivals.lock().unwrap().iter().find(|at| **at >= back).map(|at| at.duration_since(back))
+    };
+    let deadline = back + Duration::from_secs(10);
+    while Instant::now() < deadline
+        && (first_after(&mac_arrivals).is_none() || first_after(&phone_arrivals).is_none())
+    {
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let (first_frame_up, first_frame_down) = (first_after(&mac_arrivals), first_after(&phone_arrivals));
+    let first_row_down = first_after(&row_arrivals);
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    stop.store(true, Ordering::Relaxed);
+    let _sender = tokio::time::timeout(Duration::from_secs(5), writer).await;
+    let sent = sent.load(Ordering::Relaxed);
+    let all = tokio::time::timeout(Duration::from_secs(10), async {
+        while phone_arrivals.lock().unwrap().len() < sent {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    let _ = all;
+    let echoed = phone_arrivals.lock().unwrap().len();
+    let phone_closed = connected.link.closed_state().borrow().clone();
+    let mac_closed = mac_link.lock().unwrap().as_ref().and_then(|link| link.closed_state().borrow().clone());
+    connected.link.close("done");
+    reader.abort();
+    if let Some(row_reader) = row_reader {
+        row_reader.abort();
+    }
+    suspect_watch.abort();
+    let phone_suspect = suspect_watch.await.ok().flatten();
+    Blackout {
+        first_frame_up,
+        first_frame_down,
+        phone_closed,
+        mac_closed,
+        sessions: sessions.load(Ordering::SeqCst),
+        phone_suspect,
+        sent,
+        echoed,
+        first_row_down,
+        rows: rows.load(std::sync::atomic::Ordering::Relaxed),
+    }
+}
+
+fn check_blackout(name: &str, run: &Blackout) {
+    let ms = |d: Option<Duration>| d.map(|d| d.as_millis() as i64).unwrap_or(-1);
+    eprintln!(
+        "BLACKOUT {name}: first_frame_up_ms={} first_frame_down_ms={} phone_suspect_ms={} phone_closed={:?} mac_closed={:?} sessions={} sent={} echoed={}",
+        ms(run.first_frame_up),
+        ms(run.first_frame_down),
+        ms(run.phone_suspect),
+        run.phone_closed,
+        run.mac_closed,
+        run.sessions,
+        run.sent,
+        run.echoed
+    );
+    assert_eq!(run.phone_closed, None, "the phone's link closed: {run:?}");
+    assert_eq!(run.mac_closed, None, "the Mac's link closed: {run:?}");
+    assert_eq!(run.sessions, 1, "redialed: {run:?}");
+    let bound = Duration::from_millis(1500);
+    assert!(run.first_frame_up.is_some_and(|d| d < bound), "phone to Mac: {run:?}");
+    assert!(run.first_frame_down.is_some_and(|d| d < bound), "Mac to phone: {run:?}");
+    assert_eq!(run.echoed, run.sent, "frames lost: {run:?}");
+    // Detection is apart from teardown: a busy link is suspect in about 5 s.
+    assert!(
+        run.phone_suspect.is_some_and(|d| d <= Duration::from_secs(10)),
+        "not suspect within 10 s: {run:?}"
+    );
+}
+
+/// An elevator: the phone's network goes dark for 8 s and comes back on
+/// the same socket with no OS event. The same link carries frames again
+/// within about a second, both ways, with no redial.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_link_survives_an_8s_blackout() {
+    check_blackout("8s", &blackout(Duration::from_secs(8), false).await);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_link_survives_a_10s_blackout() {
+    check_blackout("10s", &blackout(Duration::from_secs(10), false).await);
+}
+
+/// 30 s dark: past the link's old 20 s keepalive timeout.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_link_survives_a_30s_blackout() {
+    check_blackout("30s", &blackout(Duration::from_secs(30), false).await);
+}
+
+/// 30 s dark, and the OS reports the path as it comes back (the app roams).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_link_survives_a_30s_blackout_then_network_changed() {
+    check_blackout("30s+network_changed", &blackout(Duration::from_secs(30), true).await);
+}
+
+/// 60 s dark: past the link's keepalive timeout (`KEEPALIVE_TIMEOUT`), so
+/// the link closes on both ends and the app redials (its own probes noticed
+/// long before). The bound is the timeout, not sooner.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_link_closes_after_a_60s_blackout() {
+    let run = blackout(Duration::from_secs(60), false).await;
+    eprintln!("BLACKOUT 60s: {run:?}");
+    assert!(cmux_mobile_link::KEEPALIVE_TIMEOUT < Duration::from_secs(60));
+    assert_eq!(run.phone_closed.as_deref(), Some("keepalive timed out"), "{run:?}");
+}
+
+static PHONE_SENDS: std::sync::Mutex<Vec<std::time::Instant>> = std::sync::Mutex::new(Vec::new());
+static MAC_SENDS: std::sync::Mutex<Vec<std::time::Instant>> = std::sync::Mutex::new(Vec::new());
+
+fn count_phone(_: &std::net::SocketAddr) -> bool {
+    PHONE_SENDS.lock().unwrap().push(std::time::Instant::now());
+    false
+}
+
+fn count_mac(_: &std::net::SocketAddr) -> bool {
+    MAC_SENDS.lock().unwrap().push(std::time::Instant::now());
+    false
+}
+
+/// Datagrams one side sent in `[from, to)`, and its wakeups: bursts of
+/// sends a second or more apart (a ping and its WireGuard keepalive in the
+/// same moment wake the radio once).
+fn sends_between(
+    sends: &std::sync::Mutex<Vec<std::time::Instant>>,
+    from: std::time::Instant,
+    to: std::time::Instant,
+) -> (usize, usize) {
+    let sends = sends.lock().unwrap();
+    let window: Vec<_> = sends.iter().filter(|at| **at >= from && **at < to).collect();
+    let wakes =
+        window.windows(2).filter(|pair| pair[1].duration_since(*pair[0]) >= Duration::from_secs(1)).count()
+            + usize::from(!window.is_empty());
+    (window.len(), wakes)
+}
+
+/// One idle minute on a direct link with both ends on `config`: datagrams
+/// and wakeups (phone, Mac).
+async fn idle_minute(config: LinkConfig) -> ((usize, usize), (usize, usize)) {
+    idle_minute_with(config.clone(), false, config, false).await
+}
+
+/// One idle minute on a direct link, the phone on `phone_config` (and, with
+/// `phone_aligned_keepalives`, its tunnel sending no WireGuard keepalive of
+/// its own, as the app dials with Align Keepalives on), the Mac on
+/// `mac_config`: datagrams and wakeups (phone, Mac).
+async fn idle_minute_with(
+    phone_config: LinkConfig,
+    phone_aligned_keepalives: bool,
+    mac_config: LinkConfig,
+    shaped: bool,
+) -> ((usize, usize), (usize, usize)) {
+    let base = duress_options(Duress { shaped, stream: false });
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+    {
+        let config = mac_config.clone();
+        let base = base.clone();
+        tokio::spawn(async move {
+            while let Some(session) = mac.next_session().await {
+                let events = SessionEvents {
+                    backend: mac.events(),
+                    session_id: session.first.session_id.clone(),
+                    session: session.events,
+                };
+                let (mac, config, base) = (mac.clone(), config.clone(), base.clone());
+                tokio::spawn(async move {
+                    let options = DialOptions { drop_udp_to: Some(count_mac), ..base };
+                    let connected =
+                        dial::answer(&mac, session.first, events, &options, config).await.unwrap();
+                    while connected.link.accept().await.is_some() {}
+                });
+            }
+        });
+    }
+    let phone_id = uuid::Uuid::new_v4().to_string();
+    let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
+    let phone_options =
+        DialOptions { drop_udp_to: Some(count_phone), aligned_keepalives: phone_aligned_keepalives, ..base };
+    let connected = dial::connect(&phone, &mac_id, TransportKind::WireGuard, &phone_options, phone_config)
+        .await
+        .expect("dial");
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    let from = std::time::Instant::now();
+    tokio::time::sleep(Duration::from_secs(60)).await;
+    let to = std::time::Instant::now();
+    assert!(!connected.link.is_closed());
+    connected.link.close("done");
+    (sends_between(&PHONE_SENDS, from, to), sends_between(&MAC_SENDS, from, to))
+}
+
+/// The cost of staying ready for a blackout: plain UDP datagrams and
+/// wakeups each side sends in one idle minute on a direct link (keepalives
+/// and probes; no app traffic), before (base) and after. The suspect
+/// watchdog sends only after a ping or data goes unanswered, so a healthy
+/// idle link costs the same; a longer keepalive timeout sends nothing more.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn blackout_cost_of_an_idle_minute() {
+    let before = idle_minute(base_config()).await;
+    let after = idle_minute(LinkConfig::default()).await;
+    eprintln!(
+        "BLACKOUT idle minute: before phone={:?} mac={:?} | after phone={:?} mac={:?} (datagrams, wakeups)",
+        before.0, before.1, after.0, after.1
+    );
+    // One keepalive exchange of slack for where the minute's edges fall.
+    assert!(after.0.0 <= before.0.0 + 2 && after.1.0 <= before.1.0 + 2, "before {before:?} after {after:?}");
+}
+
+/// What Align Keepalives (Settings, off by default) would cost if the
+/// phone's link took its 10 s beat: one idle minute with the phone dialed as
+/// the app dials today (`LinkConfig::default`, the tunnel's own WireGuard
+/// keepalive) and as it dials with the setting on (`LinkConfig::aligned`,
+/// no tunnel keepalive), the Mac on its default both times. A measurement
+/// for the PR body, not a gate: run it alone with
+/// `cargo test -p cmux-mobile-link --test roaming aligned_beat -- --ignored --nocapture`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "measurement: two idle minutes; run on its own"]
+async fn aligned_beat_cost_of_an_idle_minute() {
+    let today = idle_minute_with(LinkConfig::default(), false, LinkConfig::default(), false).await;
+    let aligned = idle_minute_with(LinkConfig::aligned(), true, LinkConfig::default(), false).await;
+    eprintln!(
+        "ALIGNED idle minute: today phone={:?} mac={:?} | aligned phone={:?} mac={:?} (datagrams, wakeups)",
+        today.0, today.1, aligned.0, aligned.1
+    );
+}
+
+/// The link as it was on base: the 15 s ping, a 20 s keepalive timeout and
+/// no suspect signal (detection was teardown). The "before" column.
+fn base_config() -> LinkConfig {
+    LinkConfig { keepalive_timeout: Duration::from_secs(20), suspect_after: None, ..LinkConfig::default() }
+}
+
+/// Which end's network goes dark in a detection run.
+#[derive(Clone, Copy, Debug)]
+enum DarkSide {
+    /// The phone's (an elevator): a hard blackout at the phone.
+    Phone,
+    /// The Mac's (asleep, its network gone): a silent peer to the phone.
+    Mac,
+}
+
+/// When each end noticed, from the moment the network went dark: its link
+/// turned suspect or closed, whichever came first. `None`: not within the
+/// window.
+#[derive(Debug, Clone, Copy)]
+struct Detection {
+    phone: Option<Duration>,
+    mac: Option<Duration>,
+    /// Times either end turned suspect before the network went dark (a
+    /// false alarm on a lossy link), and the rows the phone read.
+    false_suspects: u32,
+    rows: u64,
+}
+
+/// What the app does on the link while it goes dark.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Load {
+    /// Nothing: the phone backgrounded, the link's own keepalive only.
+    Idle,
+    /// The app in the foreground with nothing on screen moving: its
+    /// heartbeat (`LinkController`) probes a link quiet for 2.5 s, 1.5 s
+    /// timeout.
+    Foreground,
+    /// An app frame each way every 100 ms (a terminal scrolling).
+    Busy,
+    /// `Busy`, and the Mac streams terminal rows to the phone
+    /// ([`STREAM_ROWS_PER_SECOND`]): a long streaming session.
+    Stream,
+}
+
+/// One link on `config` (both ends) under `load`; `phase` after the
+/// phone's first pong, `side`'s network goes dark for good; how long until
+/// each end noticed (up to `window`).
+async fn detect(
+    config: LinkConfig,
+    side: DarkSide,
+    load: Load,
+    phase: Duration,
+    window: Duration,
+    shaped: bool,
+) -> Detection {
+    let duress = Duress { shaped, stream: load == Load::Stream };
+    use std::sync::{Arc, Mutex};
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+    let mac_link = Arc::new(Mutex::new(None::<cmux_mobile_link::Link>));
+    {
+        // The foreground probe is the phone app's; the Mac never runs it.
+        let (mac_link, config) =
+            (Arc::clone(&mac_link), LinkConfig { foreground_probe: false, ..config.clone() });
+        tokio::spawn(async move {
+            while let Some(session) = mac.next_session().await {
+                let events = SessionEvents {
+                    backend: mac.events(),
+                    session_id: session.first.session_id.clone(),
+                    session: session.events,
+                };
+                let (mac, mac_link, config) = (mac.clone(), Arc::clone(&mac_link), config.clone());
+                tokio::spawn(async move {
+                    let connected =
+                        dial::answer(&mac, session.first, events, &duress_options(duress), config)
+                            .await
+                            .unwrap();
+                    *mac_link.lock().unwrap() = Some(connected.link.clone());
+                    while let Some(mut incoming) = connected.link.accept().await {
+                        if incoming.service == "stream" {
+                            tokio::spawn(stream_rows(incoming.channel));
+                            continue;
+                        }
+                        tokio::spawn(async move {
+                            while let Some(ChannelEvent::Data(bytes)) = incoming.channel.recv().await {
+                                let _ = incoming.channel.send(bytes).await;
+                            }
+                        });
+                    }
+                });
+            }
+        });
+    }
+    let phone_id = uuid::Uuid::new_v4().to_string();
+    let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
+    let connected =
+        dial::connect(&phone, &mac_id, TransportKind::WireGuard, &duress_options(duress), config.clone())
+            .await
+            .expect("dial");
+    let link = connected.link.clone();
+    let mut traffic = None;
+    let rows = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let mut row_reader = None;
+    if load == Load::Stream {
+        let channel = link.open("stream", serde_json::json!({})).await.unwrap();
+        row_reader = Some(read_rows(channel, Arc::clone(&rows), None));
+    }
+    if load == Load::Foreground {
+        let link = link.clone();
+        traffic = Some(tokio::spawn(async move {
+            const QUIET: Duration = Duration::from_millis(2500);
+            loop {
+                tokio::time::sleep(QUIET.saturating_sub(link.received_ago())).await;
+                if link.received_ago() >= QUIET && link.probe(Duration::from_millis(1500)).await.is_err() {
+                    break;
+                }
+            }
+        }));
+    }
+    if matches!(load, Load::Busy | Load::Stream) {
+        let channel = link.open("echo", serde_json::json!({})).await.unwrap();
+        let (sender, mut receiver) = channel.split();
+        tokio::spawn(async move { while receiver.recv().await.is_some() {} });
+        traffic = Some(tokio::spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_millis(100));
+            loop {
+                tick.tick().await;
+                if sender.send(Bytes::from_static(b"frame")).await.is_err() {
+                    break;
+                }
+            }
+        }));
+    }
+    let mut rtt = link.rtt();
+    rtt.borrow_and_update();
+    tokio::time::timeout(Duration::from_secs(20), rtt.changed()).await.unwrap().unwrap();
+    let mac_end = mac_link.lock().unwrap().clone().expect("the Mac's link");
+    // False alarms: suspect turns while the network is still up.
+    let alarms = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let count_suspects = |link: cmux_mobile_link::Link| {
+        let alarms = Arc::clone(&alarms);
+        tokio::spawn(async move {
+            let mut suspect = link.suspect_state();
+            while suspect.changed().await.is_ok() {
+                if *suspect.borrow_and_update() {
+                    alarms.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
+            }
+        })
+    };
+    let watchers = [count_suspects(link.clone()), count_suspects(mac_end.clone())];
+    tokio::time::sleep(phase).await;
+    for watcher in watchers {
+        watcher.abort();
+    }
+    let false_suspects = alarms.load(std::sync::atomic::Ordering::Relaxed);
+    let dialer = matches!(side, DarkSide::Phone);
+    assert_eq!(wireguard::simulate_blackout(Some(&connected.session_id), dialer, true), 1);
+    let began = tokio::time::Instant::now();
+    let noticed = |link: cmux_mobile_link::Link| async move {
+        let mut suspect = link.suspect_state();
+        let mut closed = link.closed_state();
+        tokio::time::timeout_at(began + window, async {
+            tokio::select! {
+                _ = suspect.wait_for(|suspect| *suspect) => {}
+                _ = closed.wait_for(Option::is_some) => {}
+            }
+        })
+        .await
+        .ok()?;
+        Some(began.elapsed())
+    };
+    let (phone_at, mac_at) = tokio::join!(noticed(link.clone()), noticed(mac_end.clone()));
+    if let Some(traffic) = traffic {
+        traffic.abort();
+    }
+    if let Some(row_reader) = row_reader {
+        row_reader.abort();
+    }
+    link.close("done");
+    mac_end.close("done");
+    Detection {
+        phone: phone_at,
+        mac: mac_at,
+        false_suspects,
+        rows: rows.load(std::sync::atomic::Ordering::Relaxed),
+    }
+}
+
+fn percentile(samples: &[Option<Duration>], p: f64) -> String {
+    let mut ms: Vec<f64> =
+        samples.iter().map(|d| d.map_or(f64::INFINITY, |d| d.as_secs_f64() * 1000.0)).collect();
+    ms.sort_by(f64::total_cmp);
+    if ms.is_empty() {
+        return "n/a".into();
+    }
+    let at = ((ms.len() as f64 - 1.0) * p).round() as usize;
+    let value = ms[at];
+    if value.is_finite() { format!("{:.1} s", value / 1000.0) } else { "none".into() }
+}
+
+/// Time to detect a dead link, before (base: detection was the keepalive
+/// closing the link) and after (the suspect signal), over 20 runs per
+/// case, the blackout's start spread evenly over the 15 s keepalive
+/// interval. Each end's network in turn goes dark (a hard blackout at the
+/// phone; a silent Mac), idle, foreground and busy. Runs of a case go at
+/// once.
+/// `cargo test -p cmux-mobile-link --test roaming detection_matrix -- --ignored --nocapture`
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+#[ignore = "timed matrix (about 8 minutes): run by hand for the PR's numbers"]
+async fn detection_matrix() {
+    const RUNS: u32 = 20;
+    let window = Duration::from_secs(40);
+    for (label, config) in [("before", base_config()), ("after", LinkConfig::default())] {
+        for side in [DarkSide::Phone, DarkSide::Mac] {
+            for load in [Load::Idle, Load::Foreground, Load::Busy] {
+                let runs = (0..RUNS).map(|i| {
+                    let phase = Duration::from_millis(15_000 * u64::from(i) / u64::from(RUNS));
+                    tokio::spawn(detect(config.clone(), side, load, phase, window, false))
+                });
+                let mut results = Vec::new();
+                for run in runs.collect::<Vec<_>>() {
+                    results.push(run.await.unwrap());
+                }
+                let phone: Vec<_> = results.iter().map(|r| r.phone).collect();
+                let mac: Vec<_> = results.iter().map(|r| r.mac).collect();
+                eprintln!(
+                    "DETECT {label} dark={side:?} {load:?}: phone p50={} p95={} max={} | mac p50={} p95={} max={}",
+                    percentile(&phone, 0.5),
+                    percentile(&phone, 0.95),
+                    percentile(&phone, 1.0),
+                    percentile(&mac, 0.5),
+                    percentile(&mac, 0.95),
+                    percentile(&mac, 1.0),
+                );
+            }
+        }
+    }
+}
+
+/// Blackout survival before (base config) and after, same harness as the
+/// blackout tests above: 8, 10, 30 and 60 s.
+/// `cargo test -p cmux-mobile-link --test roaming blackout_matrix -- --ignored --nocapture`
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+#[ignore = "timed matrix (about 2 minutes): run by hand for the PR's numbers"]
+async fn blackout_matrix() {
+    let mut runs = Vec::new();
+    for (label, config) in [("before", base_config()), ("after", LinkConfig::default())] {
+        for secs in [8u64, 10, 30, 60] {
+            let config = config.clone();
+            runs.push((
+                label,
+                secs,
+                tokio::spawn(blackout_with(config, Duration::from_secs(secs), false, Duress::default())),
+            ));
+        }
+    }
+    for (label, secs, run) in runs {
+        let run = run.await.unwrap();
+        let ms = |d: Option<Duration>| d.map_or("none".to_owned(), |d| d.as_millis().to_string());
+        eprintln!(
+            "SURVIVE {label} {secs}s: link={} up_ms={} down_ms={} suspect_ms={} frames={}/{} sessions={}",
+            match (&run.phone_closed, &run.mac_closed) {
+                (None, None) => "same link".to_owned(),
+                (phone, mac) => format!("closed (phone {phone:?}, mac {mac:?})"),
+            },
+            ms(run.first_frame_up),
+            ms(run.first_frame_down),
+            ms(run.phone_suspect),
+            run.echoed,
+            run.sent,
+            run.sessions,
+        );
+    }
+}
+
+/// Detection, blackout survival and idle cost under a phone link profile,
+/// before (base config) and after: Leo's "testing under duress", offline.
+/// Each profile in `DURESS_PROFILES` (comma-separated cmux-fault profile
+/// names, `none` for loopback; default `lte,lossy-3,lossy-10`) shapes every
+/// datagram both tunnels receive (`testing::shape_by_profile`, the
+/// `UdpShaper` model). Detection: 20 runs a case, the blackout's start
+/// spread over the 15 s keepalive, idle and under a long stream (the Mac
+/// writing [`STREAM_ROWS_PER_SECOND`] rows, the phone echoing a frame every
+/// 100 ms). Survival: the 8, 10, 30 and 60 s blackouts under the stream.
+/// Idle cost: one idle minute each, shaped, scaled to an hour.
+/// `DURESS_SURVIVE_ONLY=1` runs only the survival part, and
+/// `DURESS_SURVIVE_IDLE=1` runs it without the stream.
+/// `DURESS_FOREGROUND=1` gives the "after" phone its foreground probe
+/// (`Link::set_foreground_probe`: the app in front with a terminal or chat
+/// on screen); the Mac stays on the default.
+/// `DURESS_PROFILES=lte cargo test -p cmux-mobile-link --test roaming duress_matrix -- --ignored --nocapture`
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+#[ignore = "timed matrix (about 9 minutes a profile): run by hand for the PR's numbers"]
+async fn duress_matrix() {
+    const RUNS: u32 = 20;
+    let window = Duration::from_secs(40);
+    let names = std::env::var("DURESS_PROFILES").unwrap_or_else(|_| "lte,lossy-3,lossy-10".into());
+    // `DURESS_SURVIVE_ONLY=1`: only the survival runs.
+    let survive_only = std::env::var_os("DURESS_SURVIVE_ONLY").is_some();
+    // `DURESS_SURVIVE_IDLE=1`: the survival runs without the stream.
+    let survive_stream = std::env::var_os("DURESS_SURVIVE_IDLE").is_none();
+    // `DURESS_FOREGROUND=1`: the "after" phone runs its foreground probe.
+    let after_config = || LinkConfig {
+        foreground_probe: std::env::var_os("DURESS_FOREGROUND").is_some(),
+        ..LinkConfig::default()
+    };
+    for name in names.split(',').map(str::trim).filter(|name| !name.is_empty()) {
+        let profile = (name != "none").then(|| LinkProfile::named(name));
+        eprintln!("DURESS profile={name} {profile:?}");
+        set_link_profile(profile, 0x4934_2000);
+        let configs =
+            if survive_only { vec![] } else { vec![("before", base_config()), ("after", after_config())] };
+        for (label, config) in configs {
+            for side in [DarkSide::Phone, DarkSide::Mac] {
+                for load in [Load::Idle, Load::Stream] {
+                    let runs = (0..RUNS).map(|i| {
+                        let phase = Duration::from_millis(15_000 * u64::from(i) / u64::from(RUNS));
+                        tokio::spawn(detect(config.clone(), side, load, phase, window, true))
+                    });
+                    // A run that never set up (no dial, or no ping round trip in 20 s) under
+                    // the profile counts, not aborts.
+                    let mut results = Vec::new();
+                    let mut failed = 0;
+                    for run in runs.collect::<Vec<_>>() {
+                        match run.await {
+                            Ok(detection) => results.push(detection),
+                            Err(_) => failed += 1,
+                        }
+                    }
+                    let phone: Vec<_> = results.iter().map(|r| r.phone).collect();
+                    let mac: Vec<_> = results.iter().map(|r| r.mac).collect();
+                    let false_suspects: u32 = results.iter().map(|r| r.false_suspects).sum();
+                    let rows = results.iter().map(|r| r.rows).min().unwrap_or(0);
+                    eprintln!(
+                        "DETECT profile={name} {label} dark={side:?} {load:?}: phone p50={} p95={} max={} | mac p50={} p95={} max={} | false_suspects={false_suspects} over {:.0} s up | min_rows={rows} | runs={} setup_failed={failed} (no dial or no first ping round trip in 20 s)",
+                        percentile(&phone, 0.5),
+                        percentile(&phone, 0.95),
+                        percentile(&phone, 1.0),
+                        percentile(&mac, 0.5),
+                        percentile(&mac, 0.95),
+                        percentile(&mac, 1.0),
+                        7.5 * f64::from(RUNS),
+                        results.len(),
+                    );
+                }
+            }
+        }
+        let mut runs = Vec::new();
+        for (label, config) in [("before", base_config()), ("after", after_config())] {
+            for secs in [8u64, 10, 30, 60] {
+                let duress = Duress { shaped: true, stream: survive_stream };
+                let run = blackout_with(config.clone(), Duration::from_secs(secs), false, duress);
+                runs.push((label, secs, tokio::spawn(run)));
+            }
+        }
+        for (label, secs, run) in runs {
+            let Ok(run) = run.await else {
+                eprintln!(
+                    "SURVIVE profile={name} {label} {secs}s: setup failed (no dial or no first ping round trip)"
+                );
+                continue;
+            };
+            let ms = |d: Option<Duration>| d.map_or("none".to_owned(), |d| d.as_millis().to_string());
+            eprintln!(
+                "SURVIVE profile={name} {label} {secs}s: link={} up_ms={} down_ms={} first_row_ms={} suspect_ms={} frames={}/{} rows={} sessions={}",
+                match (&run.phone_closed, &run.mac_closed) {
+                    (None, None) => "same link".to_owned(),
+                    (phone, mac) => format!("closed (phone {phone:?}, mac {mac:?})"),
+                },
+                ms(run.first_frame_up),
+                ms(run.first_frame_down),
+                ms(run.first_row_down),
+                ms(run.phone_suspect),
+                run.echoed,
+                run.sent,
+                run.rows,
+                run.sessions,
+            );
+        }
+        if survive_only {
+            continue;
+        }
+        let before = idle_minute_with(base_config(), false, base_config(), true).await;
+        let after = idle_minute_with(after_config(), false, LinkConfig::default(), true).await;
+        eprintln!(
+            "WAKEUPS profile={name} idle, per hour (one minute x 60): before phone={} mac={} | after phone={} mac={} (datagrams before {}/{}, after {}/{})",
+            before.0.1 * 60,
+            before.1.1 * 60,
+            after.0.1 * 60,
+            after.1.1 * 60,
+            before.0.0 * 60,
+            before.1.0 * 60,
+            after.0.0 * 60,
+            after.1.0 * 60,
+        );
+        let (delivered, dropped) = shaped_counts();
+        eprintln!("SHAPED profile={name}: delivered={delivered} dropped={dropped}");
+    }
+    set_link_profile(None, 0);
+}
+
+static COST_PHONE: std::sync::Mutex<Vec<(std::time::Instant, usize)>> = std::sync::Mutex::new(Vec::new());
+static COST_PHONE_TARGETS: std::sync::Mutex<Vec<(std::time::Instant, std::net::SocketAddr, usize)>> =
+    std::sync::Mutex::new(Vec::new());
+static COST_MAC: std::sync::Mutex<Vec<(std::time::Instant, usize)>> = std::sync::Mutex::new(Vec::new());
+
+fn cost_phone(target: &std::net::SocketAddr, len: usize) {
+    COST_PHONE_TARGETS.lock().unwrap().push((std::time::Instant::now(), *target, len));
+    COST_PHONE.lock().unwrap().push((std::time::Instant::now(), len));
+}
+
+fn cost_mac(_: &std::net::SocketAddr, len: usize) {
+    COST_MAC.lock().unwrap().push((std::time::Instant::now(), len));
+}
+
+/// Bytes, datagrams and wakeups (bursts a second or more apart) one side
+/// handed the OS in `[from, to)`.
+fn cost_between(
+    sends: &std::sync::Mutex<Vec<(std::time::Instant, usize)>>,
+    from: std::time::Instant,
+    to: std::time::Instant,
+) -> (usize, usize, usize) {
+    let sends = sends.lock().unwrap();
+    let window: Vec<_> = sends.iter().filter(|(at, _)| *at >= from && *at < to).collect();
+    let wakes = window
+        .windows(2)
+        .filter(|pair| pair[1].0.duration_since(pair[0].0) >= Duration::from_secs(1))
+        .count()
+        + usize::from(!window.is_empty());
+    (window.iter().map(|(_, len)| len).sum(), window.len(), wakes)
+}
+
+/// One idle minute, one link alone in the process: the phone on
+/// `LinkConfig::default` with `foreground_probe`, the Mac on the default.
+/// (phone, Mac) as (bytes, datagrams, wakeups).
+async fn cost_minute(foreground: bool) -> ((usize, usize, usize), (usize, usize, usize)) {
+    let base = duress_options(Duress { shaped: true, stream: false });
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+    {
+        let base = base.clone();
+        tokio::spawn(async move {
+            while let Some(session) = mac.next_session().await {
+                let events = SessionEvents {
+                    backend: mac.events(),
+                    session_id: session.first.session_id.clone(),
+                    session: session.events,
+                };
+                let (mac, base) = (mac.clone(), base.clone());
+                tokio::spawn(async move {
+                    let options = DialOptions { on_udp_sent: Some(cost_mac), ..base };
+                    let connected =
+                        dial::answer(&mac, session.first, events, &options, LinkConfig::default())
+                            .await
+                            .unwrap();
+                    while connected.link.accept().await.is_some() {}
+                });
+            }
+        });
+    }
+    let phone_id = uuid::Uuid::new_v4().to_string();
+    let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
+    let phone_options = DialOptions { on_udp_sent: Some(cost_phone), ..base };
+    let config = LinkConfig { foreground_probe: foreground, ..LinkConfig::default() };
+    let connected =
+        dial::connect(&phone, &mac_id, TransportKind::WireGuard, &phone_options, config).await.expect("dial");
+    // Past the handshake and the first exchanges.
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    let from = std::time::Instant::now();
+    tokio::time::sleep(Duration::from_secs(60)).await;
+    let to = std::time::Instant::now();
+    assert!(!connected.link.is_closed());
+    connected.link.close("done");
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    if std::env::var_os("COST_BREAKDOWN").is_some() {
+        let mut by: std::collections::BTreeMap<(std::net::SocketAddr, usize), usize> = Default::default();
+        for (at, target, len) in COST_PHONE_TARGETS.lock().unwrap().iter() {
+            if *at >= from && *at < to {
+                *by.entry((*target, *len)).or_default() += 1;
+            }
+        }
+        eprintln!("COST breakdown foreground={foreground} (target, len) -> count: {by:?}");
+    }
+    (cost_between(&COST_PHONE, from, to), cost_between(&COST_MAC, from, to))
+}
+
+/// What the foreground probe costs a minute, under each link profile: one
+/// link at a time (the matrix's counts share statics with concurrent runs),
+/// off then on, three minutes each, the median printed.
+/// `COST_PROFILES=lte cargo test --release -p cmux-mobile-link --test roaming foreground_probe_cost -- --ignored --nocapture`
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "measurement: six idle minutes a profile; run on its own"]
+async fn foreground_probe_cost() {
+    let names = std::env::var("COST_PROFILES").unwrap_or_else(|_| "lte,lossy-3,lossy-10".into());
+    let median = |mut v: Vec<usize>| {
+        v.sort_unstable();
+        v[v.len() / 2]
+    };
+    for name in names.split(',').map(str::trim).filter(|name| !name.is_empty()) {
+        set_link_profile(Some(LinkProfile::named(name)), 0x5064_1000);
+        let mut cols = Vec::new();
+        for foreground in [false, true] {
+            let mut runs = Vec::new();
+            for _ in 0..std::env::var("COST_ROUNDS").ok().and_then(|n| n.parse().ok()).unwrap_or(3) {
+                runs.push(cost_minute(foreground).await);
+            }
+            type Run = ((usize, usize, usize), (usize, usize, usize));
+            let pick = |f: fn(&Run) -> usize| median(runs.iter().map(f).collect());
+            let row = [
+                pick(|r| r.0.0),
+                pick(|r| r.1.0),
+                pick(|r| r.0.0 + r.1.0),
+                pick(|r| r.0.1),
+                pick(|r| r.1.1),
+                pick(|r| r.0.2),
+                pick(|r| r.1.2),
+            ];
+            eprintln!(
+                "COST profile={name} foreground={foreground}: per minute phone_bytes={} mac_bytes={} both_bytes={} phone_datagrams={} mac_datagrams={} phone_wakeups={} mac_wakeups={} runs={runs:?}",
+                row[0], row[1], row[2], row[3], row[4], row[5], row[6]
+            );
+            cols.push(row);
+        }
+        let d = |i: usize| cols[1][i] as i64 - cols[0][i] as i64;
+        eprintln!(
+            "COST profile={name} delta: both_bytes={:+} phone_bytes={:+} mac_bytes={:+} phone_datagrams={:+} phone_wakeups={:+} mac_wakeups={:+}",
+            d(2),
+            d(0),
+            d(1),
+            d(3),
+            d(5),
+            d(6)
+        );
+    }
 }
