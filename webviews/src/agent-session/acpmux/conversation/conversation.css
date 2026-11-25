@@ -3154,6 +3154,14 @@ body {
     mask-image: linear-gradient(90deg, transparent 0%, #000 20% 30%, transparent 50% 100%);
     transform: translateX(-50%);
   }
+  /* A running call's own clock (RunningTime.tsx) sits after the words in the row, with no lit copy of
+     its time: the band would span the row, so its lit words ran on under the clock and the clock drew
+     over their cut end while the glimmer crossed (Leo, 2026-11-25: "when the glimmer happens ... there's
+     a timer number that appears at the end and overlaps?"). The band takes the words' box instead, so
+     the words cut with their ellipsis before the clock and the clock keeps its own slot. */
+  :root:not([data-status-indicators="static"]) .cv-shimmer__row:has(> .cv-command__elapsed) > .cv-thinking.is-shimmer {
+    position: relative;
+  }
   :root:not([data-status-indicators="static"]) .cv-shimmer__lit {
     display: flex;
     min-width: 0;
