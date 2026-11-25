@@ -30,7 +30,7 @@ else process.stdout.write(json);
 console.error(
   `cloud ergonomics: ${report.errors_with_next_step}/${report.errors_total} errors say what to do next in the pane ` +
     `(${report.errors_out_of_app} point out of it, ${report.errors_dead_end} dead ends); ` +
-    `${report.waits_with_reason_and_eta}/${report.waits_total} waits give a reason and an ETA` +
+    `${report.waits_with_reason_and_time}/${report.waits_total} waits give a reason and a time (an ETA or a live clock)` +
     (confirms ? `; ${confirms.confirms_guarding_nothing}/${confirms.confirms_total} confirms guard nothing` : "") +
     (report.missing.length ? `; did not render: ${report.missing.join(", ")}` : ""),
 );

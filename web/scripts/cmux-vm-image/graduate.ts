@@ -104,6 +104,7 @@ export const GRADUATED_APT_CHECKS: Readonly<Record<string, string>> = {
   zip: "zip -v >/dev/null",
   file: "file --version >/dev/null",
   tree: "tree --version >/dev/null",
+  bc: "echo 1+1 | bc >/dev/null",
 };
 
 /**

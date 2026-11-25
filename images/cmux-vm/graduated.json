@@ -1,5 +1,6 @@
 {
   "apt": [
+    "bc",
     "fd-find",
     "ffmpeg",
     "file",
