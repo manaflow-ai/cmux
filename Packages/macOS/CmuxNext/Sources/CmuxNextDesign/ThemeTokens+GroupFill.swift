@@ -19,10 +19,23 @@ extension ThemeTokens {
         let ground = surface.withAlpha(1)
         let secondary = textSecondary.composited(over: ground)
         let floor = min(ThemeTokens.minimumTextContrast, secondary.contrast(with: ground))
-        var alpha = isDark ? 0.08 : 0.06
+        var alpha = groupFillTarget
         while alpha > 0, secondary.contrast(with: textPrimary.withAlpha(alpha).composited(over: ground)) < floor {
             alpha -= 0.005
         }
         return textPrimary.withAlpha(max(alpha, 0))
     }
+
+    /// The edge of a grouped form's rows (``Palette/groupStroke``): a hairline (``separator``) where 4.5:1
+    /// held ``groupFill`` under its 8% or 6%, so the group still reads as one; clear where the fill is whole.
+    ///
+    /// A dark popup is lifted until secondary text on a hovered row just keeps 4.5:1
+    /// (``opaqueOverlayFill(lift:)``), so its groups take about 5%, weaker than a group should read; the
+    /// hairline sets them apart without taking any contrast from their text.
+    nonisolated public var groupStroke: ThemeRGB {
+        groupFill.alpha < groupFillTarget - 0.001 ? separator : separator.withAlpha(0)
+    }
+
+    /// The group fill's alpha when text contrast allows it: 8% of the text color dark, 6% light.
+    nonisolated var groupFillTarget: Double { isDark ? 0.08 : 0.06 }
 }
