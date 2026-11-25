@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.tasks.layout.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يعرض صندوق الوارد ما يحتاجك أولًا، مع المهمة بجانبه. تُطبَّق التغييرات فورًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Inbox prvo prikazuje ono što traži vašu pažnju, sa zadatkom pored. Promjene se odmah primjenjuju."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Indbakke viser først det, der kræver dig, med opgaven ved siden af. Ændringer træder i kraft med det samme."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Der Eingang zeigt zuerst, was dich braucht, mit der Aufgabe daneben. Änderungen gelten sofort."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inbox lists what needs you first, with the task beside it. Changes apply at once."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La bandeja muestra primero lo que te necesita, con la tarea al lado. Los cambios se aplican al instante."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La boîte de réception affiche d’abord ce qui vous attend, avec la tâche à côté. Les changements s’appliquent aussitôt."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La posta in arrivo mostra prima ciò che richiede te, con l’attività accanto. Le modifiche si applicano subito."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "受信箱は対応が必要なものを先に並べ、横にタスクを表示します。変更はすぐに反映されます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ប្រអប់ទទួលបង្ហាញអ្វីដែលត្រូវការអ្នកមុនគេ ដោយមានកិច្ចការនៅក្បែរ។ ការផ្លាស់ប្ដូរមានប្រសិទ្ធភាពភ្លាមៗ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "받은 편지함은 내가 처리할 항목을 먼저 보여 주고 옆에 작업을 표시합니다. 변경 사항은 바로 적용됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Innboks viser først det som trenger deg, med oppgaven ved siden av. Endringer gjelder med en gang."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Skrzynka pokazuje najpierw to, co czeka na Ciebie, z zadaniem obok. Zmiany działają od razu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A caixa de entrada mostra primeiro o que precisa de você, com a tarefa ao lado. As mudanças valem na hora."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Входящие сначала показывают то, что ждёт вас, с задачей рядом. Изменения применяются сразу."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "กล่องเข้าแสดงสิ่งที่รอคุณก่อน พร้อมงานอยู่ข้าง ๆ การเปลี่ยนแปลงมีผลทันที"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gelen kutusu önce sizi bekleyenleri, yanında görevle gösterir. Değişiklikler hemen uygulanır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вхідні спершу показують те, що чекає на вас, із завданням поруч. Зміни діють одразу."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hộp thư đến hiện trước những gì cần bạn, kèm tác vụ bên cạnh. Thay đổi áp dụng ngay."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "收件箱先列出需要你处理的事项，并在旁边显示任务。更改立即生效。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "收件匣先列出需要你處理的事項，並在旁邊顯示任務。變更立即生效。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
