@@ -16,7 +16,7 @@ import UIKit
             names.append(name)
             waiter?.resume()
             waiter = nil
-            try await Task.sleep(for: .hours(1))
+            try await Task.sleep(for: .seconds(3600))
             return "/tmp/\(name)"
         }
 
@@ -30,24 +30,27 @@ import UIKit
         ComposerAttachment(kind: .video, name: name, data: Data("video".utf8))
     }
 
-    @Test func largeStaticImagesUseA2048PixelTransferCopy() throws {
-        let source = UIGraphicsImageRenderer(size: CGSize(width: 4096, height: 2048)).image { context in
+    @Test func largeStaticImagesUseA2048PixelTransferCopy() async throws {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let source = UIGraphicsImageRenderer(size: CGSize(width: 4096, height: 2048), format: format).image { context in
             UIColor.systemBlue.setFill()
             context.fill(CGRect(x: 0, y: 0, width: 4096, height: 2048))
         }
         let original = try #require(source.jpegData(compressionQuality: 0.9))
         let attachment = ComposerAttachment(kind: .image, name: "photo.heic", data: original)
-        let transfer = try attachment.transferPayload()
+        let transfer = try await attachment.transferPayload()
         guard case .data(let data) = transfer.payload else { Issue.record("image transfer was not data"); return }
         #expect(transfer.name == "photo.jpg")
         let resized = try #require(UIImage(data: data))
         #expect(max(resized.size.width * resized.scale, resized.size.height * resized.scale) <= 2048)
     }
 
-    @Test func undecodableImageKeepsItsOriginalBytes() throws {
+    @Test func undecodableImageKeepsItsOriginalBytes() async throws {
         let original = Data("not an image".utf8)
         let attachment = ComposerAttachment(kind: .image, name: "photo.bin", data: original)
-        let transfer = try attachment.transferPayload()
+        let transfer = try await attachment.transferPayload()
         #expect(transfer.name == "photo.bin")
         #expect(transfer.payload == .data(original))
     }
@@ -64,6 +67,22 @@ import UIKit
         let entry = try #require(claimed[file.id])
         entry.task.cancel()
         await #expect(throws: CancellationError.self) { try await entry.task.value }
+    }
+
+    @Test func sendReusesThePickedFilesMacPath() async throws {
+        let prestager = ComposerAttachmentPrestager()
+        let file = attachment()
+        var uploads = 0
+        let upload: ComposerAttachmentPrestager.Upload = { _, name in
+            uploads += 1
+            return "/workspace/" + name
+        }
+        prestager.sync([file], upload: upload)
+        let entry = try #require(prestager.claim([file])[file.id])
+        prestager.sync([file], upload: upload)
+        #expect(prestager.entries.isEmpty)
+        #expect(try await entry.task.value == "/workspace/clip.mov")
+        #expect(uploads == 1)
     }
 
     @Test func cancellingClaimedUploadCancelsTheOriginalTask() async throws {

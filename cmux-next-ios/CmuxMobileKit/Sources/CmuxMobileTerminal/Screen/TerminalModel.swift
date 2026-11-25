@@ -106,7 +106,11 @@ public final class TerminalModel {
     /// link's `upload` service). Nil hides the attachment menu: without a
     /// Mac to receive them there is nothing honest to attach.
     public var uploader: (@MainActor (_ payload: LinkUpload.Payload, _ name: String) async throws -> String)? {
-        didSet { syncAttachmentUploads() }
+        didSet {
+            cancelAttachmentSend()
+            attachmentPrestager.cancelAll()
+            syncAttachmentUploads()
+        }
     }
     @ObservationIgnored private let attachmentPrestager = ComposerAttachmentPrestager()
     /// The composer shows its `+` menu: a Mac can receive attachments, or
@@ -935,17 +939,19 @@ public final class TerminalModel {
                         } catch is CancellationError {
                             throw CancellationError()
                         } catch {
-                            let transfer = try attachment.transferPayload()
+                            let transfer = try await attachment.transferPayload()
+                            try Task.checkCancellation()
                             paths.append(try await uploader(transfer.payload, transfer.name))
                         }
                     } else {
-                        let transfer = try attachment.transferPayload()
+                        let transfer = try await attachment.transferPayload()
+                        try Task.checkCancellation()
                         paths.append(try await uploader(transfer.payload, transfer.name))
                     }
                 } catch {
                     guard let self else { return }
                     guard self.uploadAttemptID == attemptID else { return }
-                    self.attachmentPrestager.releaseClaimed()
+                    self.attachmentPrestager.cancelClaimed()
                     self.isUploading = false
                     self.uploadTask = nil
                     if error is CancellationError { return }
@@ -982,7 +988,6 @@ public final class TerminalModel {
         uploadTask?.cancel()
         uploadTask = nil
         isUploading = false
-        attachmentPrestager.sync(attachments, upload: uploader)
     }
 
     static func message(_ error: any Error) -> String {
@@ -1010,7 +1015,7 @@ public final class TerminalModel {
 
     func clearAttachmentError() { attachmentError = nil }
 
-    fileprivate func syncAttachmentUploads() {
+    func syncAttachmentUploads() {
         guard connectionState.isAttached else {
             attachmentPrestager.cancelAll()
             return
