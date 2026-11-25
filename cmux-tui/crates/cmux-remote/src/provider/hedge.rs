@@ -24,8 +24,10 @@ use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::LazyLock;
+use std::task::{Context, Poll, Waker};
 
-use cmux_braid_path::LastGood;
+use cmux_braid_path::{Family, LastGood, Standby};
+use tokio::io::ReadBuf;
 use tokio::net::TcpStream;
 
 /// When to start another socket and how many to keep (Braid's race policy, RFD 0164).
@@ -62,17 +64,38 @@ where
 /// last-good route, RFD 0164 slice B1). `CMUX_BRAID_LAST_GOOD=0` turns it off.
 static LAST_GOOD: LazyLock<LastGood<(String, u16), SocketAddr>> = LazyLock::new(LastGood::from_env);
 
+/// A race's losers that connected after the winner, one per `(host, port)` and address family,
+/// for the whole process (Braid's standby pool, RFD 0164 slice B3). `CMUX_BRAID_STANDBY=0`
+/// turns it off.
+type StandbyPool<T> = Standby<(String, u16), Family, (SocketAddr, T)>;
+static STANDBY: LazyLock<StandbyPool<TcpStream>> = LazyLock::new(Standby::from_env);
+
 /// A TCP connect to `host:port` over its resolved `addresses`: IPv6 first ([`v6_first`]), but
 /// the address that won last time goes first and the next socket starts after 1.5 times its
 /// connect time (at least 100 ms, at most `policy`'s stagger). A reconnect on a network whose
 /// IPv6 is black-holed goes straight to IPv4 instead of waiting out the dead attempt again.
+///
+/// A socket the last race connected after its winner is kept warm ([`STANDBY`]); the next
+/// connect to `host:port` takes it at once when it is still open, so a reconnect after the
+/// live path dies skips the race.
 pub async fn connect_tcp(
     host: &str,
     port: u16,
     addresses: &[SocketAddr],
     policy: HedgePolicy,
 ) -> io::Result<TcpStream> {
-    connect_remembered(&LAST_GOOD, host, port, addresses, 0, policy, TcpStream::connect).await
+    connect_remembered(
+        &LAST_GOOD,
+        &STANDBY,
+        tcp_alive,
+        host,
+        port,
+        addresses,
+        0,
+        policy,
+        TcpStream::connect,
+    )
+    .await
 }
 
 /// [`connect_tcp`] with the first `preferred_len` addresses kept ahead of the RFC 8305 order
@@ -85,12 +108,40 @@ pub async fn connect_tcp_preferring(
     preferred_len: usize,
     policy: HedgePolicy,
 ) -> io::Result<TcpStream> {
-    connect_remembered(&LAST_GOOD, host, port, addresses, preferred_len, policy, TcpStream::connect)
-        .await
+    connect_remembered(
+        &LAST_GOOD,
+        &STANDBY,
+        tcp_alive,
+        host,
+        port,
+        addresses,
+        preferred_len,
+        policy,
+        TcpStream::connect,
+    )
+    .await
 }
 
+/// A held socket is still open: no error queued, no FIN or reset read. Bytes the peer sent
+/// first (an SSH banner) are only peeked, so the caller still reads them.
+fn tcp_alive(stream: &TcpStream) -> bool {
+    if !matches!(stream.take_error(), Ok(None)) {
+        return false;
+    }
+    let mut byte = [0_u8; 1];
+    let mut buf = ReadBuf::new(&mut byte);
+    match stream.poll_peek(&mut Context::from_waker(Waker::noop()), &mut buf) {
+        Poll::Pending => true,
+        Poll::Ready(Ok(read)) => read > 0,
+        Poll::Ready(Err(_)) => false,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn connect_remembered<T, F, Fut>(
     memory: &LastGood<(String, u16), SocketAddr>,
+    standby: &'static StandbyPool<T>,
+    alive: fn(&T) -> bool,
     host: &str,
     port: u16,
     addresses: &[SocketAddr],
@@ -99,19 +150,41 @@ async fn connect_remembered<T, F, Fut>(
     connect: F,
 ) -> io::Result<T>
 where
+    T: Send + 'static,
     F: FnMut(SocketAddr) -> Fut,
-    Fut: Future<Output = io::Result<T>>,
+    Fut: Future<Output = io::Result<T>> + Send + 'static,
 {
     let key = (host.to_ascii_lowercase(), port);
-    cmux_braid_path::race_remembered(
+    let ordered = v6_first_after_prefix(addresses, preferred_len);
+    if let Some((_, (_, value))) =
+        standby.take(&key, |_, (address, value)| ordered.contains(address) && alive(value))
+    {
+        return Ok(value);
+    }
+    let (_, won, mut losers) = cmux_braid_path::race_remembered_keeping_losers(
         memory,
-        key,
-        &v6_first_after_prefix(addresses, preferred_len),
+        key.clone(),
+        &ordered,
         policy,
         connect,
     )
-    .await
-    .map(|(_, won)| won.value)
+    .await?;
+    if standby.enabled()
+        && !losers.is_empty()
+        && let Ok(runtime) = tokio::runtime::Handle::try_current()
+    {
+        // Each loser but the last has its own attempt timeout; this bounds the last one too.
+        let grace = policy.attempt_timeout;
+        runtime.spawn(async move {
+            let _ = tokio::time::timeout(grace, async {
+                while let Some(lost) = losers.next().await {
+                    standby.put(key.clone(), Family::of(&lost.target), (lost.target, lost.value));
+                }
+            })
+            .await;
+        });
+    }
+    Ok(won.value)
 }
 
 #[cfg(test)]

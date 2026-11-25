@@ -324,22 +324,14 @@ fn queued(i: usize, text: &str) -> Value {
            "prompt": [{"type": "text", "text": text}], "control": "local", "trustGate": false})
 }
 
-/// Appends the records `write` makes to a new session's log, as the daemons that ran them
-/// would have, restarts the daemon and returns the prompt ids its restored queue holds and the
-/// CPU time the daemon used until the logs were read and the queues restored.
-async fn restore_long_log(
-    name: &str,
-    write: impl FnOnce(&mut dyn FnMut(&str, Value)),
-) -> (Vec<String>, Duration) {
-    let mut daemon = Daemon::new(name, "approve-all");
-    let session = new_session(&daemon).await;
-    daemon.sigterm();
-    let dir = daemon.home.join("sessions").join(&session).join("events");
+/// Append records to the stopped test daemon's last journal segment.
+fn append_records(daemon: &Daemon, session: &str, write: impl FnOnce(&mut dyn FnMut(&str, Value))) {
+    let dir = daemon.home.join("sessions").join(session).join("events");
     let mut segments: Vec<PathBuf> =
         std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok().map(|e| e.path())).collect();
     segments.sort();
     let segment = segments.last().expect("the new session's log segment").clone();
-    let mut seq = daemon.events(&session).iter().filter_map(|e| e["seq"].as_u64()).max().unwrap();
+    let mut seq = daemon.events(session).iter().filter_map(|e| e["seq"].as_u64()).max().unwrap();
     let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
         as u64;
     let mut lines = String::new();
@@ -353,6 +345,121 @@ async fn restore_long_log(
     let mut file = std::fs::OpenOptions::new().append(true).open(&segment).unwrap();
     std::io::Write::write_all(&mut file, lines.as_bytes()).unwrap();
     drop(file);
+}
+
+/// A retry of a restored delivery can arrive before the workers that run the restored queue.
+/// The duplicate waits for its original's result. That wait must leave admission free for the
+/// original and for new deliveries, even if the adopted harness is still doing background work.
+#[tokio::test]
+async fn restored_notices_and_a_retried_delivery_admit_a_fresh_prompt() {
+    const COUNT: usize = 66;
+    let mut daemon = Daemon::new("qbgdup", "approve-all");
+    let session = new_session(&daemon).await;
+    let request = |id: &str, text: &str| {
+        json!({"sessionId": session, "text": text,
+        "_meta": {"acpmux": {"promptId": id}}})
+    };
+    let background =
+        daemon.rpc().await.call("session/prompt", request("bg", "background-subagent")).await;
+    assert_eq!(background["stopReason"], "end_turn");
+    let host = daemon.host_record(&session)["host_pid"].as_i64().unwrap();
+    daemon.sigterm();
+    let title = |i| format!("Background command finished: task-{i:02} (exit 0)");
+    let prompt_id = |i| format!("bg-done-task-{i:02}");
+    append_records(&daemon, &session, |record| {
+        for i in 0..COUNT {
+            let notice = json!({"sender": "acpmux", "title": title(i), "severity": "info"});
+            let provenance = acpmux::prompt_provenance::notice(&notice, &session);
+            let mut q = queued(i, &acpmux::prompt_provenance::notice_text(&notice, ""));
+            q["promptId"] = json!(prompt_id(i));
+            q["fromAgent"] = json!("acpmux");
+            q["class"] = json!("result");
+            record("queued", acpmux::prompt_provenance::marked(q, Some(&provenance)));
+        }
+    });
+    hold_startup(&daemon);
+    daemon.start();
+    let mut fresh = daemon.rpc().await;
+    let attached = fresh.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    assert_eq!(attached["session"]["queued"], COUNT, "all notices must survive restart");
+    daemon.wait_event(&session, "adoption of the running host", |e| e["kind"] == "host_adopted");
+    let mut retry = daemon.rpc().await;
+    let last = prompt_id(COUNT - 1);
+    let mut same = request(&last, &title(COUNT - 1));
+    same["_meta"]["acpmux"]["resend"] = json!(true);
+    let retried = retry.send("session/prompt", same).await;
+    let ack = wait_for_acceptance(&mut retry, &last).await;
+    assert_eq!(ack["duplicate"], true, "{ack}");
+    assert_eq!(ack["queued"], true, "{ack}");
+
+    // The duplicate's RPC is still open when the original workers start.
+    std::fs::write(daemon.home.join("go"), b"").unwrap();
+    fresh.send("session/prompt", request("fresh", "a new delivery")).await;
+    wait_for_acceptance(&mut fresh, "fresh").await;
+
+    let reply = tokio::time::timeout(Duration::from_secs(30), async {
+        loop {
+            let line = retry.lines.next_line().await.unwrap().unwrap();
+            let v: Value = serde_json::from_str(&line).unwrap();
+            if v["id"] == retried {
+                break v;
+            }
+        }
+    })
+    .await
+    .expect("the restored queue did not drain");
+    assert_eq!(reply["result"]["stopReason"], "end_turn", "{reply}");
+    daemon
+        .wait_event(&session, "the fresh delivery's answer", |e| chunk(e, "echo: a new delivery"));
+    let events = daemon.events(&session);
+    let replies: Vec<_> = events
+        .iter()
+        .filter_map(|e| {
+            let update = &e["msg"]["params"]["update"];
+            (update["sessionUpdate"] == "agent_message_chunk")
+                .then(|| update["content"]["text"].as_str())
+                .flatten()
+        })
+        .collect();
+    for i in 0..COUNT {
+        assert_eq!(
+            replies.iter().map(|r| r.matches(&title(i)).count()).sum::<usize>(),
+            1,
+            "notice {i} must reach the harness exactly once (including notices in a digest)"
+        );
+    }
+    let after = fresh.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    assert_eq!(after["session"]["queued"], 0);
+    assert_eq!(daemon.host_record(&session)["host_pid"], host, "the background agent was replaced");
+}
+
+async fn wait_for_acceptance(rpc: &mut Rpc, prompt_id: &str) -> Value {
+    tokio::time::timeout(Duration::from_secs(4), async {
+        loop {
+            let line = rpc.lines.next_line().await.unwrap().expect("daemon closed the socket");
+            let v: Value = serde_json::from_str(&line).unwrap();
+            if v["method"] == acpmux::rpc::method::MUX_PROMPT_ACCEPTED
+                && v["params"]["promptId"] == prompt_id
+            {
+                break v["params"].clone();
+            }
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("no acceptance for {prompt_id} within four seconds"))
+}
+
+/// Appends the records `write` makes to a new session's log, as the daemons that ran them
+/// would have, restarts the daemon and returns the prompt ids its restored queue holds and the
+/// CPU time the daemon used until the logs were read and the queues restored.
+async fn restore_long_log(
+    name: &str,
+    write: impl FnOnce(&mut dyn FnMut(&str, Value)),
+) -> (Vec<String>, Duration) {
+    let mut daemon = Daemon::new(name, "approve-all");
+    let session = new_session(&daemon).await;
+    daemon.sigterm();
+    append_records(&daemon, &session, write);
 
     // The restored prompts wait for the test (`hold_startup`).
     hold_startup(&daemon);

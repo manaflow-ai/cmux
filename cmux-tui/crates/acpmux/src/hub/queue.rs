@@ -823,7 +823,7 @@ impl Hub {
         turn_id: &str,
         limits: QueueLimits,
     ) -> Result<(Waits, u64), Answer> {
-        self.enqueue(session, p, turn_id, limits, |_, waits| waits).map_err(Err)
+        self.enqueue(session, p, turn_id, limits, false, |_, waits| waits).map_err(Err)
     }
 
     /// Why the chat takes no new prompt now, if it takes none: [`Self::queue_slot`] and a
@@ -862,6 +862,7 @@ impl Hub {
         p: &Slot<'_>,
         turn_id: &str,
         limits: QueueLimits,
+        claimed_turn: bool,
         register: impl FnOnce(&mut QueuedPrompt, Waits) -> T,
     ) -> Result<(T, u64), RpcError> {
         // Measured before the lock: under it only sizes measured already are added up.
@@ -964,6 +965,7 @@ impl Hub {
         // (`cancel.rs` `hold_agent_messages`); a digest then waits held in its place.
         let stop_held = p.agent.is_some() && (session.stop_hold.load(Ordering::SeqCst) != 0);
         let at = match p.agent {
+            _ if claimed_turn && !stop_held => Some(0),
             Some(_) if super::digest::inbox_digest::is_digest(p.provenance) => {
                 Some(super::digest::inbox_digest::place(&queue))
             }
