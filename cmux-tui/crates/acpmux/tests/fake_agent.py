@@ -2284,6 +2284,9 @@ def wire_log(msg):
         os.close(fd)
 
 
+KEY_SIGNED_IN = False
+
+
 def main():
     global LAST_MCP_SERVERS, LAST_DIRS
     # `--fake-login` (the terminal sign-in): sign in and exit.
@@ -2461,6 +2464,21 @@ def main():
         if m == "session/new" and os.environ.get("FAKE_CWD_LOG"):
             with open(os.environ["FAKE_CWD_LOG"], "a") as log:
                 log.write(json.dumps({"process": os.getcwd(), "session": params.get("cwd")}) + "\n")
+        # FAKE_REQUIRE_KEY_AUTH=1: an agent that signs in with an API key (Antigravity's `agy acp`):
+        # it lists "gemini-api-key" and starts, loads or resumes a session only after an
+        # authenticate with it, and only when GEMINI_API_KEY is set.
+        key_auth = os.environ.get("FAKE_REQUIRE_KEY_AUTH") == "1"
+        if m == "authenticate" and key_auth and params.get("methodId") == "gemini-api-key":
+            global KEY_SIGNED_IN
+            if os.environ.get("GEMINI_API_KEY", "").strip():
+                KEY_SIGNED_IN = True
+                send({"jsonrpc": "2.0", "id": rid, "result": {}})
+            else:
+                send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32000, "message": "GEMINI_API_KEY is not set"}})
+            continue
+        if key_auth and not KEY_SIGNED_IN and m in ("session/new", "session/load", "session/resume"):
+            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32000, "message": "Authentication required"}})
+            continue
         if m == "authenticate":
             # FAKE_AUTH_FILE: "fake-login" signs in (writes the file).
             if params.get("methodId") == "fake-login" and os.environ.get("FAKE_AUTH_FILE"):
@@ -2495,7 +2513,7 @@ def main():
                                       # only from a harness entry of its config); FAKE_ASK_CLAIM=0
                                       # says nothing, as an agent acpmux cannot trust to ask.
                                       **({} if os.environ.get("FAKE_ASK_CLAIM") == "0" else {"_meta": {"acpmux": {"asksBeforeTools": True}}})},
-                "authMethods": [] if not os.environ.get("FAKE_AUTH_FILE") else [
+                "authMethods": [{"id": "gemini-api-key", "name": "Gemini API key"}] if key_auth else [] if not os.environ.get("FAKE_AUTH_FILE") else [
                     {"id": "fake-login", "name": "Fake login", "description": "opens a browser"},
                     {"id": "fake-terminal", "name": "Terminal login", "type": "terminal", "args": ["--fake-login"]},
                     {"id": "fake-key", "name": "API key", "type": "env_var", "varName": "FAKE_API_KEY"},
