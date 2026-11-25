@@ -53,6 +53,7 @@ pub mod chat_size_fixture;
 pub mod chatgpt;
 pub mod chats;
 pub mod claude_auth;
+pub mod claude_token;
 mod claude_cloud_auth;
 pub mod claude_inbox_relay;
 pub mod claude_peers;
