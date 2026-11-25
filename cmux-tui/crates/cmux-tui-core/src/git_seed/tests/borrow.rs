@@ -168,7 +168,7 @@ fn mirror_and_promisors_are_refused_where_they_cannot_apply() {
         ("mirror", json!("/a\nb")),
         ("promisors", json!(["https://github.com/o/other.git"])),
         ("promisors", json!([URL, URL])),
-        ("promisors", json!(["/p"; 9])),
+        ("promisors", Value::from(vec!["/p"; 9])),
     ] {
         let mut params = world.start_params(&folder, &snapshot);
         params[key] = value.clone();
@@ -182,8 +182,8 @@ fn the_configured_mirror_folder_is_laid_out_as_wt_keeps_it() {
     let root = world.home.join("mirrors");
     std::fs::create_dir_all(root.join("o/n.git")).unwrap();
     let root = root.to_str().unwrap();
-    let found = super::super::borrow::mirror_under(root, URL);
+    let found = super::super::run::borrow::mirror_under(root, URL);
     assert_eq!(found, Some(format!("{root}/o/n.git")));
-    assert_eq!(super::super::borrow::mirror_under(root, "https://github.com/o/m.git"), None);
-    assert_eq!(super::super::borrow::mirror_under("relative", URL), None);
+    assert_eq!(super::super::run::borrow::mirror_under(root, "https://github.com/o/m.git"), None);
+    assert_eq!(super::super::run::borrow::mirror_under("relative", URL), None);
 }

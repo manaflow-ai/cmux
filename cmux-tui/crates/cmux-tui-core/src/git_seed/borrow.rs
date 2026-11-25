@@ -60,7 +60,7 @@ fn configured_mirror(url: &str) -> Option<String> {
 
 /// The mirror of `url` (`https://github.com/OWNER/NAME.git`, checked) under `root`, when it is
 /// a folder.
-pub(super) fn mirror_under(root: &str, url: &str) -> Option<String> {
+pub(crate) fn mirror_under(root: &str, url: &str) -> Option<String> {
     if !root.starts_with('/') {
         return None;
     }
@@ -154,7 +154,9 @@ impl Seed {
                 &[&git_dir_arg, "rev-parse", "--verify", "--quiet", &verify],
             ) {
                 let sha = String::from_utf8_lossy(&sha).trim().to_owned();
-                if super::params::check_sha("upstream", &sha).is_ok() && self.has_commit(&sha) {
+                if super::super::params::check_sha("upstream", &sha).is_ok()
+                    && self.has_commit(&sha)
+                {
                     self.git(&["update-ref", "-m", "cmux seed: mirror", &upstream, &sha])?;
                 }
             }
