@@ -1,7 +1,8 @@
 //! A send never blocks on the link (`wait_for_prompt_link`, `capabilities::PROMPT_LINK_WAIT`): a
-//! prompt that asks to wait for its chat's link (`waitForLink`) hears `_acpmux/prompt_held` and is
-//! held up to `PROMPT_HELD_WAIT` while the peer is down, and goes once it is back; one that does
-//! not ask (an older client) gets the short wait of `prompt_link_wait_tests.rs` and no notice.
+//! prompt that asks (`waitForLink`) hears `_acpmux/prompt_held` at once when it is held or kept for
+//! its chat's link; one that does not ask (an older client), or a sender refused at the end of the
+//! live wait (`LinkWait::Brief`), hears no notice. How long it waits is `LinkWait`'s
+//! (`prompt_link_wait_tests.rs`).
 
 use super::*;
 use crate::config::{Config, StoreMode};
@@ -35,16 +36,16 @@ fn prompt(wait: bool) -> Value {
     })
 }
 
-/// A unix-socket connection that has sent `session/prompt` with `params` as request 2.
+/// A connection from `origin` that has sent `session/prompt` with `params` as request 2.
 struct Sent {
     _input: mpsc::Sender<String>,
     output: mpsc::Receiver<String>,
 }
 
-async fn send(hub: &Arc<Hub>, params: Value) -> Sent {
+async fn send(hub: &Arc<Hub>, origin: Origin, params: Value) -> Sent {
     let (input, incoming) = mpsc::channel(8);
     let (out, output) = mpsc::channel(64);
-    tokio::spawn(serve_connection_with(hub.clone(), incoming, out, Origin::Local));
+    tokio::spawn(serve_connection_with(hub.clone(), incoming, out, origin));
     let hello = json!({"protocolVersion": 1, "clientCapabilities": {}});
     for line in [
         Message::request(1, method::INITIALIZE, hello),
@@ -75,29 +76,31 @@ fn reason(v: &Value) -> Option<&str> {
     v.pointer("/error/data/reason").and_then(Value::as_str)
 }
 
-/// The old contract, which an older client still gets: no `waitForLink`, no notice, and the
-/// short wait (`PROMPT_LINK_WAIT`) before it is refused as unreachable.
-#[tokio::test(start_paused = true)]
-async fn a_prompt_that_does_not_ask_to_wait_hears_no_notice_and_gets_the_short_wait() {
-    let (hub, _peer) = hub_with_peer();
-    let mut sent = send(&hub, prompt(false)).await;
-    let first = sent.next(PROMPT_LINK_WAIT + Duration::from_secs(5)).await.expect("an answer");
-    assert_eq!(first.get("id"), Some(&json!(2)), "no prompt_held first: {first}");
-    assert_eq!(reason(&first), Some("peer_unreachable"), "{first}");
-}
-
-/// The new contract: held with a notice, unanswered while the link is down, and sent on once the
-/// link is back (it then waits on the peer, which has no transport here).
-#[tokio::test(start_paused = true)]
-async fn a_prompt_that_asks_to_wait_is_held_until_the_link_is_back() {
-    let (hub, peer) = hub_with_peer();
-    let mut sent = send(&hub, prompt(true)).await;
-    let held = sent.next(Duration::from_secs(20)).await.expect("a notice");
+fn assert_held_notice(held: &Value) {
     assert_eq!(held["method"], method::MUX_PROMPT_HELD, "{held}");
     assert_eq!(held["params"]["promptId"], "p-held-1");
     assert_eq!(held["params"]["peer"], "far");
-    let past_short_wait = PROMPT_LINK_WAIT + Duration::from_secs(30);
-    assert!(sent.next(past_short_wait).await.is_none(), "held past the short wait");
+    assert_eq!(held["params"]["sessionId"], CHAT);
+}
+
+/// An older client (no `waitForLink`): held as `LinkWait` holds it, with no notice.
+#[tokio::test(start_paused = true)]
+async fn a_prompt_that_does_not_ask_hears_no_notice() {
+    let (hub, _peer) = hub_with_peer();
+    let mut sent = send(&hub, Origin::LocalApp, prompt(false)).await;
+    assert!(sent.next(PROMPT_LINK_WAIT + Duration::from_secs(5)).await.is_none(), "no notice");
+}
+
+/// The app's pane (held on its request): the notice at once, unanswered while the link is down,
+/// and sent on once the link is back (it then waits on the peer, which has no transport here).
+#[tokio::test(start_paused = true)]
+async fn the_apps_prompt_that_asks_hears_held_at_once_and_goes_once_the_link_is_back() {
+    let (hub, peer) = hub_with_peer();
+    let mut sent = send(&hub, Origin::LocalApp, prompt(true)).await;
+    let held = sent.next(Duration::from_secs(1)).await.expect("a notice at once");
+    assert_held_notice(&held);
+    let past_live_wait = PROMPT_LINK_WAIT + Duration::from_secs(30);
+    assert!(sent.next(past_live_wait).await.is_none(), "held past the live wait");
     assert_eq!(peer.pending_requests().await, 0, "nothing went to the peer while down");
     // As a finished handshake leaves it: the link open, the peer back, the Connected notice.
     peer.open_link_for_tests();
@@ -105,9 +108,7 @@ async fn a_prompt_that_asks_to_wait_is_held_until_the_link_is_back() {
     hub.peer_snapshots.seed_restored(&peer);
     let notice = (peer.name.clone(), peer.generation, crate::peer::PeerNotice::Connected);
     let _ = hub.peer_notices.send(notice).await;
-    // With no transport the peer's request fails or waits; either way it was tried, not refused
-    // as unreachable.
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(40);
     loop {
         if peer.pending_requests().await > 0
             || peer.queued_for_tests(method::SESSION_PROMPT).await > 0
@@ -127,19 +128,20 @@ async fn a_prompt_that_asks_to_wait_is_held_until_the_link_is_back() {
     }
 }
 
-/// A link that never comes back: refused as unreachable once the hold's bound is spent.
+/// A unix-socket client (kept in the outbox past the live wait): the notice at once, then the
+/// queued answer.
 #[tokio::test(start_paused = true)]
-async fn a_held_prompt_is_refused_once_its_bound_is_spent() {
+async fn a_socket_prompt_that_asks_hears_held_then_queued() {
     let (hub, _peer) = hub_with_peer();
-    let mut sent = send(&hub, prompt(true)).await;
-    let held = sent.next(Duration::from_secs(20)).await.expect("a notice");
-    assert_eq!(held["method"], method::MUX_PROMPT_HELD, "{held}");
-    let reply = sent.next(PROMPT_HELD_WAIT + Duration::from_secs(60)).await.expect("refused");
-    assert_eq!(reason(&reply), Some("peer_unreachable"), "{reply}");
+    let mut sent = send(&hub, Origin::Local, prompt(true)).await;
+    let held = sent.next(Duration::from_secs(1)).await.expect("a notice at once");
+    assert_held_notice(&held);
+    let reply = sent.next(PROMPT_QUEUED_AFTER + Duration::from_secs(10)).await.expect("queued");
+    assert_eq!(reply["result"]["stopReason"], "queued", "{reply}");
 }
 
 #[test]
-fn only_an_explicit_true_asks_to_wait() {
+fn only_an_explicit_true_asks() {
     assert!(waits_for_peer_link(&prompt(true)));
     assert!(!waits_for_peer_link(&prompt(false)));
     assert!(!waits_for_peer_link(&json!({"_meta": {"acpmux": {"waitForLink": "yes"}}})));

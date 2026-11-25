@@ -499,6 +499,12 @@ pub mod method {
     pub const MUX_DETACH: &str = "_acpmux/detach";
     pub const MUX_WATCH: &str = "_acpmux/watch";
     pub const MUX_RENAME: &str = "_acpmux/rename";
+    /// `acpmux succeed OLD...`: a session takes over sessions that died or moved; a message to
+    /// one of them reaches it (`hub/successors.rs`).
+    pub const MUX_SUCCEED: &str = "_acpmux/succeed";
+    /// `acpmux role claim|release|ls`: role addresses (`goal:SLUG`, `area:NAME`, `topic:NAME`)
+    /// a session answers to (`hub/successors.rs`).
+    pub const MUX_ROLE: &str = "_acpmux/role";
     /// `acpmux register NAME`: the session the caller's shell runs in takes a stable name
     /// (`hub/register.rs`). Local unix socket only.
     pub const MUX_REGISTER: &str = "_acpmux/register";
@@ -1176,9 +1182,9 @@ pub mod method {
     /// recorded, before the turn ends: `{sessionId, promptId, turnId, queued}`.
     pub const MUX_PROMPT_ACCEPTED: &str = "_acpmux/prompt_accepted";
     /// Sent to the prompting connection when a `session/prompt` that asked to wait for its
-    /// chat's link (`_meta.acpmux.waitForLink`) is held because the peer it lives on is down:
-    /// `{sessionId, promptId, peer}`. The prompt goes once the link is back, on the same
-    /// connection (`server/peer_forward.rs` `wait_for_prompt_link`).
+    /// chat's link (`_meta.acpmux.waitForLink`) is held or kept for the link because the peer it
+    /// lives on is down: `{sessionId, promptId, peer}`. It goes once the link is back
+    /// (`server/peer_forward.rs` `wait_for_prompt_link`, `LinkWait`).
     pub const MUX_PROMPT_HELD: &str = "_acpmux/prompt_held";
     /// To a peer daemon's link, for a record of an attached session it is not sent live (an
     /// agent request or answer, `server/mod.rs` `deliver`): `{sessionId, seq}`, so the owner's

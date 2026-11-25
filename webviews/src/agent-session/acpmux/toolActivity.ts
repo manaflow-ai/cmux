@@ -10,5 +10,6 @@ export {
   shellCommand,
   textFromContent,
   appendThought,
+  withRecipient,
 } from "./direct/toolItems";
 export { backgroundTask, type BackgroundUpdate } from "./direct/sessionUpdates";

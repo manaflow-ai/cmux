@@ -73,9 +73,9 @@ pub const TRANSFER_LIVE: &str = "transfer-live-v1";
 /// A chat move whose history follows the chat as a session pack (`hub/transfer_history.rs`).
 pub const TRANSFER_HISTORY_LATER: &str = "transfer-history-later-v1";
 
-/// A `session/prompt` with `_meta.acpmux.waitForLink: true` for a chat on a peer that is down is
-/// held, with `_acpmux/prompt_held`, until the link is back, instead of refused as unreachable
-/// (`server/peer_forward.rs` `wait_for_prompt_link`). Older daemons ignore the field and give it the short wait.
+/// A `session/prompt` with `_meta.acpmux.waitForLink: true` for a chat on a peer that is down hears
+/// `_acpmux/prompt_held` at once when it is held or kept for the link instead of refused
+/// (`server/peer_forward.rs` `wait_for_prompt_link`). Older daemons ignore the field.
 pub const PROMPT_LINK_WAIT: &str = "prompt-link-wait-v1";
 
 /// A move's receive here takes `composers.json`, each surface's unsent text and the queue's
