@@ -121,7 +121,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { appendFileSync, closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { constants as osConstants, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -2311,6 +2311,35 @@ export function dialDetail(d: { connectMs: number; replyMs: number; retries: num
     + `${d.phases.length ? `; phases: ${d.phases.join("; ")}` : ""}: ${d.reply.slice(0, 160)}`;
 }
 
+/** cmux-autocloud's plain transcript (RFD 0139): null when readiness reached 100 and an agent line (not the
+ * `> ` prompt, a `  · ` tool, a `  ! ` note or a `[` status line) names `word` (any agent line when `word` is null:
+ * the model stub's reply); else what is missing. */
+export function autocloudTuiVerdict(out: string, word: string | null): string | null {
+  const ready = /readiness 100\b/.test(out);
+  const agent = out.split("\n").filter((l) => l.trim() && !/^(> |  [·!] |\[)/.test(l));
+  const said = word === null ? agent.length > 0 : agent.some((l) => new RegExp(`\\b${word}\\b`, "i").test(l));
+  if (ready && said) return null;
+  return [ready ? "" : "readiness never reached 100", said ? "" : word === null ? "no agent line" : `no agent line says ${word}`].filter(Boolean).join("; ");
+}
+
+/** `cmux-autocloud --machine` (RFD 0139's terminal client) on this machine: a new chat over the carrier's acpmux
+ * service, one prompt, until the agent's turn ends. `cmux` is put on PATH as the cmux-tui this run built. */
+export function autocloudTuiChat(tui: string, cmux: string, api: Pick<Api, "origin" | "bearer" | "team">, machine: string, agent: string, word: string | null): string {
+  const bin = mkdtempSync(path.join(tmpdir(), "cmux-autocloud-bin-"));
+  symlinkSync(path.resolve(cmux), path.join(bin, "cmux"));
+  const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
+  const env = { ...inherited, PATH: `${bin}:${process.env.PATH ?? ""}`, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer, ...(api.team ? { CMUX_CLOUD_TEAM: api.team } : {}) };
+  const started = Date.now();
+  const r = spawnSync(tui, ["--machine", machine, "-m", agent, "--plain", "--until-idle", "Reply with the single word pong."], { env, encoding: "utf8", timeout: 300_000, stdio: ["ignore", "pipe", "pipe"] });
+  rmSync(bin, { recursive: true, force: true });
+  const out = r.stdout ?? "";
+  const tail = (s: string) => s.trim().split("\n").slice(-6).join(" | ").slice(0, 600);
+  if (r.error) throw new Error(`cmux-autocloud: ${r.error.message}; stdout: ${tail(out)}; stderr: ${tail(r.stderr ?? "")}`);
+  const problem = autocloudTuiVerdict(out, word);
+  if (r.status !== 0 || problem) throw new Error(`cmux-autocloud exit ${r.status}${problem ? `, ${problem}` : ""}; stdout: ${tail(out)}; stderr: ${tail(r.stderr ?? "")}`);
+  return `${Date.now() - started} ms: ${tail(out)}`;
+}
+
 export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "bearer" | "team">, machine: string, deadlineMs = 45_000): Promise<{ connectMs: number; replyMs: number; retries: number; failed: string[]; phases: string[]; reply: string }> {
   const started = performance.now();
   // The dial's own state dir, so its connect log holds only this dial's lines (the device key is not kept there).
@@ -4310,6 +4339,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const preclaimLoginCmux = argValue("--preclaim-login", argv);
   // --desktop-link: the desktop's UDP link readback instead of the chat (needs --cmux for the dial).
   const desktopLink = argv.includes("--desktop-link");
+  // --autocloud-tui PATH: after the carrier dial, a chat through cmux-autocloud --machine (RFD 0139), needs --cmux.
+  const autocloudTui = argValue("--autocloud-tui", argv);
+  if (autocloudTui && !cmux) throw new Error("--autocloud-tui needs --cmux PATH: cmux-autocloud dials with that cmux");
   if (desktopLink && !cmux) throw new Error("--desktop-link needs --cmux PATH: the readback is the CLI's own dial");
   const keep = argv.includes("--keep") || Boolean(reuse);
   const seed = argValue("--seed", argv) ?? "auto";
@@ -5753,6 +5785,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const d = await carrierDial(cmux, api, created.id);
         return { value: null, detail: dialDetail(d) };
       });
+      if (autocloudTui) {
+        await J.step("autocloud TUI chat (cmux-autocloud --machine)", async () => ({ value: null, detail: autocloudTuiChat(autocloudTui, cmux, api, created.id, agent, modelStub ? null : "pong") }));
+      }
     } else {
       // Without a cmux binary (the production journeys) the dial cannot run; its platform half still can: the
       // ticket, grant and daemon key it asks for, checked by the dial's own rules.
