@@ -1095,12 +1095,22 @@ mod agent_messaging {
         assert!(controls(&meta, Some("s-coord")));
         assert!(!controls(&meta, Some("s-other")));
         assert!(!controls(&meta, None), "a sender with no session controls nothing");
-        assert!(wakes_as(&meta, PromptClass::Result, false, Some("s-coord")));
-        assert!(!wakes_as(&meta, PromptClass::Result, false, Some("s-other")));
-        assert!(wakes_as(&meta, PromptClass::Question, false, Some("s-other")), "a question wakes");
-        assert!(!wakes_as(&meta, PromptClass::Fyi, false, Some("s-coord")), "an fyi never does");
+        assert!(wakes_as(&meta, PromptClass::Result, false, false, Some("s-coord")));
+        assert!(!wakes_as(&meta, PromptClass::Result, false, false, Some("s-other")));
         assert!(
-            wakes_as(&meta, PromptClass::Result, true, Some("s-other")),
+            wakes_as(&meta, PromptClass::Question, false, false, Some("s-other")),
+            "a question wakes"
+        );
+        assert!(
+            !wakes_as(&meta, PromptClass::Fyi, false, false, Some("s-coord")),
+            "an fyi does not"
+        );
+        assert!(
+            wakes_as(&meta, PromptClass::Fyi, false, true, Some("s-other")),
+            "an fyi that waited for this machine does"
+        );
+        assert!(
+            wakes_as(&meta, PromptClass::Result, true, false, Some("s-other")),
             "a report of its work"
         );
     }
@@ -1243,10 +1253,13 @@ fn a_peers_forward_of_an_unclassified_relay_message_goes_to_the_inbox_and_wakes_
     meta.delegator = Some("s-leo".into());
     let class = default_notice_class(None);
     assert_eq!(class, PromptClass::Fyi);
-    assert!(!wakes_as(&meta, class, is_report(Some(&provenance)), None), "an idle chat sleeps on");
+    assert!(
+        !wakes_as(&meta, class, is_report(Some(&provenance)), false, None),
+        "an idle chat sleeps on"
+    );
     // A block or a question from the same relay still wakes it at once.
     for urgent in [PromptClass::Block, PromptClass::Question] {
-        assert!(wakes_as(&meta, urgent, false, None), "{urgent:?}");
+        assert!(wakes_as(&meta, urgent, false, false, None), "{urgent:?}");
     }
 }
 
@@ -1970,4 +1983,21 @@ async fn a_thread_read_at_ten_thousand_threads_takes_under_200_ms() {
     );
     assert!(read_ms < 200, "thread read {read_ms} ms");
     assert!(list_ms < 200, "list page {list_ms} ms");
+}
+
+#[test]
+fn the_ls_row_counts_new_messages_past_their_deadline_and_names_the_soonest() {
+    let min = 60 * 1000;
+    let fyi = item("p1", "t", "a", PromptClass::Fyi, 0, "x");
+    let mut seen = item("p2", "t", "a", PromptClass::Result, 0, "x");
+    seen.noticed = true;
+    let result = item("p3", "t", "a", PromptClass::Result, 50 * min, "x");
+    let soonest = fyi.due().min(result.due());
+    let items = vec![fyi, seen, result];
+    // At 61 min: the fyi (60 min) is past due, the result sent at 50 min (15 min) is not, and
+    // the noticed one counts for neither.
+    let (overdue, due_at) = deadline_counts(&items, 61 * min);
+    assert_eq!(overdue, 1);
+    assert_eq!(due_at, Some(soonest));
+    assert_eq!(deadline_counts(&[], 61 * min), (0, None));
 }
