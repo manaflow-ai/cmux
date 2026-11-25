@@ -1297,6 +1297,9 @@ impl Hub {
             // Each session scope's memory, CPU, IO and disk budget and its use, versioned
             // (`session_budget.rs`, `hub/session_budget_watch.rs`).
             "sessionBudgets": super::session_budget_watch::status(),
+            // The fleet hold while it holds (`session_hold.rs`): who set it, until when, how
+            // many chats it holds. A hold nobody saw idled a host's chats (2026-11-25).
+            "fleetHold": self.fleet_hold_shown(),
         })
     }
 }
