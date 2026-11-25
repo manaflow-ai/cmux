@@ -99,6 +99,11 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if args.first().is_some_and(|a| a == crate::god_fixture::SEED_CHAT_ARG) {
         return crate::god_fixture::seed_chat_main(args.get(1..).unwrap_or_default());
     }
+    // A shared MCP server's relay for a harness (`mcp_pool.rs`): no runtime, stdout is MCP's.
+    #[cfg(unix)]
+    if args.first().is_some_and(|a| a == crate::mcp_pool::SHIM_ARG) {
+        return crate::mcp_pool::shim_main(args.get(1..).unwrap_or_default());
+    }
     // Claude Code's PreToolUse hook for background shells (`bg_hook.rs`).
     if args.first().is_some_and(|a| a == crate::bg_hook::HOOK_ARG) {
         return crate::bg_hook::main(args.get(1).map(std::path::PathBuf::from));
