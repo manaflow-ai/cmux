@@ -47,9 +47,11 @@ restore_lock() { cmp -s "$work/Cargo.lock" "$rust_dir/Cargo.lock" || cp "$work/C
 trap 'restore_lock; rm -rf "$work"' EXIT
 
 cd "$rust_dir"
+# Ask cargo where it builds: CI sets CARGO_TARGET_DIR (or a config file does), so target/ is a guess.
+target_dir="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
 cargo build --release -j "$jobs" -p cmux-mobile-link-ffi --lib >&2
 cargo run --release -j "$jobs" -p cmux-mobile-link-ffi --features bindgen --bin uniffi-bindgen -- \
-  generate --library "target/release/$lib" --language swift --out-dir "$work/out" >&2
+  generate --library "$target_dir/release/$lib" --language swift --out-dir "$work/out" >&2
 generated="$work/out/CmuxMobileLinkFFI.swift"
 [[ -s "$generated" ]] || { echo "error: uniffi-bindgen wrote no CmuxMobileLinkFFI.swift" >&2; exit 1; }
 
