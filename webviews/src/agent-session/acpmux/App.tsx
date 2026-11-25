@@ -7379,10 +7379,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         void callNative("chat.new", { cwd, peer }).catch(() => undefined);
         return Promise.resolve();
       }
-      // Fresh or started is read when the folder is used (an answer can come later).
-      return requestFolder(
+      // Fresh or started is read when the folder is used (an answer can come later). Until the host answers, a
+      // Cloud send waits (PaneComposer `cloudSourceWaiting`): a Return right after the pick started the Cloud
+      // chat with no folder, the picked one not granted yet (cmux#53226).
+      const asked = requestFolder(
         cwd,
         (folder) => {
+          setCloudSourceWaiting(false);
           pickedProject.current = folder;
           if (freshRef.current) setProjectDraft(folder);
           else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
@@ -7390,9 +7393,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         },
         // Only the host's refusal of the path is `refused`; a request a newer one replaced is not.
         (refusal) => {
+          setCloudSourceWaiting(false);
           if (refusal !== undefined) refused?.();
         },
       );
+      // Set after requestFolder ended the pick it replaces, whose end clears it.
+      setCloudSourceWaiting(true);
+      return asked;
     },
     [folderContinuation, requestFolder, dropDeferredGitHub],
   );
