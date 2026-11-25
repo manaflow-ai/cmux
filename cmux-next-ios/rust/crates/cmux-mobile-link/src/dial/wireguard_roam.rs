@@ -959,6 +959,15 @@ impl Session {
         lock(&self.signaling).clone()
     }
 
+    /// The signaling socket this session follows now.
+    pub(super) fn signaling_client(&self) -> SignalingClient {
+        self.signaling()
+    }
+
+    pub(super) fn id(&self) -> &str {
+        &self.session_id
+    }
+
     /// Watch `events` for the peer's `bye`, replacing the subscription of
     /// an earlier signaling socket.
     pub(super) fn follow(&self, mut events: mpsc::UnboundedReceiver<SessionEvent>) {
