@@ -1,8 +1,8 @@
 //! cmux-next.json keys that are not Settings rows but that cmux's own tools
 //! read: `schemas/settings/file-keys.json` (hand-edited), embedded here. The
 //! customize doctor checks this table before it calls a key unknown, so a key
-//! a daemon or the Chief host reads (`agents.desktopBridge`, `chief.turnHooks`)
-//! is never named a typo (Leo, 2026-11-25, of a toast naming them: "will this
+//! the Chief host or a page reads (`chief.turnHooks`, `actions`) is never named
+//! a typo (Leo, 2026-11-25, of a toast naming them: "will this
 //! be fixed soon?").
 
 use std::sync::OnceLock;
@@ -64,11 +64,14 @@ mod tests {
 
     #[test]
     fn a_key_a_tool_reads_and_everything_under_it_is_owned() {
-        assert!(file_key(&path("agents.desktopBridge")).is_some());
-        assert!(file_key(&path("agents.desktopBridge.enabled")).is_some());
         assert!(file_key(&path("chief.turnHooks")).is_some());
-        assert!(file_key(&path("agents")).is_none(), "the section is not owned, only the key");
-        assert!(file_key(&path("agents.desktopBridgeX")).is_none());
+        assert!(file_key(&path("chief.turnHooks.0")).is_some());
+        assert!(file_key(&path("shortcuts.bindings.palette")).is_some());
+        assert!(file_key(&path("chief")).is_none(), "the section is not owned, only the key");
+        assert!(file_key(&path("chief.turnHooksX")).is_none());
+        // The bridge's two keys are listed exactly in cmux-config's schema, so a typo under it
+        // is still named.
+        assert!(file_key(&path("agents.desktopBridge.entrypoint")).is_none());
     }
 
     #[test]
