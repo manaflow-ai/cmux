@@ -233,13 +233,6 @@ async fn timed_open(
     Ok(Some(Timed { fetch_ms, open_ms, bytes: envelope.len(), plaintext: opened.plaintext.len() }))
 }
 
-/// What a shaped TCP connect costs on this path, measured on its own connection after the run.
-async fn connect_ms(rig: &Rig) -> f64 {
-    let began = Instant::now();
-    let _ = tokio::net::TcpStream::connect(rig.shaper.addr()).await;
-    began.elapsed().as_secs_f64() * 1000.0
-}
-
 /// The profile's rate, for the bytes-on-air share of a breakdown.
 fn air_ms(bytes: usize) -> f64 {
     let profile = ProfileFile::builtin().get(PROFILE).cloned().expect("lte profile");
@@ -269,8 +262,8 @@ fn spawn_others(rig: &Rig, phone: &RelayCache, load: &Load) -> Vec<tokio::task::
 /// Arms: `before` (the relay holds nothing), `after` (the measured chat's whole snapshot, fetched
 /// alongside every other chat's), `after-first-screen` (the measured chat's first-screen snapshot
 /// first, alone; then every chat's whole snapshot at once). Each content run also prints where the
-/// time went: `connect_ms` (a shaped TCP connect, measured apart), `fetch_ms` (connect + GET + all
-/// bytes), `air_ms` (the envelope's bytes at the profile's rate), `open_ms` (verify and decrypt).
+/// time went: `fetch_ms` (the shaped TCP handshake's round trip, the GET's round trip and every
+/// byte; the shaper charges the handshake on the first data, so it is not timed apart), `air_ms` (the envelope's bytes at the profile's rate), `open_ms` (verify and decrypt).
 async fn cold_open(load: &Load, arm: &str, n: usize) {
     let cache_on = arm != "before";
     let first_screen = arm == "after-first-screen";
@@ -317,11 +310,10 @@ async fn cold_open(load: &Load, arm: &str, n: usize) {
                 if let Some(w) = whole_ms {
                     whole_samples.push(w);
                 }
-                let connect = connect_ms(&rig).await;
                 let round = |v: f64| (v * 10.0).round() / 10.0;
                 (
                     Some(ms),
-                    json!({"bytes": t.bytes, "plaintext": t.plaintext, "connect_ms": round(connect),
+                    json!({"bytes": t.bytes, "plaintext": t.plaintext, 
                            "fetch_ms": round(t.fetch_ms), "air_ms": round(air_ms(t.bytes)), "open_ms": round(t.open_ms),
                            "whole_ms": whole_ms.map(round)}),
                 )
