@@ -43,6 +43,8 @@ pub mod media;
 pub mod names;
 pub mod path_report;
 pub mod reconnect;
+pub mod relay_cache;
+pub mod relay_hold;
 pub mod reliable;
 pub mod route_literals;
 mod send_queue;
