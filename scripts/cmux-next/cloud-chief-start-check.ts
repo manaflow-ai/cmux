@@ -97,7 +97,7 @@ const rowText = (m: any): string =>
   (Array.isArray(m?.parts) ? m.parts : []).filter((p: any) => p?.type === "text").map((p: any) => String(p.text ?? "")).join("\n") || String(m?.text ?? "");
 
 /** The Chief's first message in its conversation not seen before (the snapshot's newest 50), or null by the deadline. */
-async function chiefReply(api: Api, conversation: string, chief: string, seen: Set<string>, deadlineMs: number): Promise<{ text: string } | null> {
+async function chiefReply(api: Api, conversation: string, chief: string, seen: Set<string>, expected: string, deadlineMs: number): Promise<{ text: string } | null> {
   const until = Date.now() + deadlineMs;
   for (;;) {
     const snap = await api.read("conversation.snapshot", { conversation, tail: 50 });
@@ -108,6 +108,7 @@ async function chiefReply(api: Api, conversation: string, chief: string, seen: S
       if (who !== chief || !id || seen.has(id)) continue;
       const text = rowText(m);
       if (!text.trim()) continue;
+      if (!text.includes(expected)) continue;
       seen.add(id);
       return { text };
     }
@@ -258,7 +259,7 @@ async function main(): Promise<number> {
       await seedChiefRows(api, conversation, chief, seen);
       const sentAt = Date.now();
       await api.op("message.send", { conversation, client_msg_id: `chief-start-${run}-app`, parts: [{ type: "text", text: `Reply with only the word ${word}` }] }, `chief-start-${run}-app`);
-      const reply = await chiefReply(api, conversation, chief, seen, REPLY_DEADLINE_MS);
+      const reply = await chiefReply(api, conversation, chief, seen, word, REPLY_DEADLINE_MS);
       if (!reply) throw new Error(`no reply from ${chief} in ${REPLY_DEADLINE_MS / 1000} s; newest rows ${await rowsSeen(api, conversation)}\n${await journal(exec)}`);
       if (/not signed in|not logged in/i.test(reply.text)) throw new Error(`the Chief answered without a model: ${reply.text.slice(0, 300)}`);
       if (!reply.text.includes(word)) throw new Error(`the Chief reply did not echo ${word}: ${reply.text.slice(0, 300)}`);
@@ -272,8 +273,9 @@ async function main(): Promise<number> {
       // serve it to a bearer, the step says so and the reply check above stands.
       if (r.status === 404) return { value: null, detail: `POST /v1/chief/messages is not deployed on ${backend.api} (404)` };
       if (r.status !== 200 || r.body?.ok !== true) throw new Error(`POST /v1/chief/messages: HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 400)}`);
-      const reply = await chiefReply(api, conversation, chief, seen, REPLY_DEADLINE_MS);
+      const reply = await chiefReply(api, conversation, chief, seen, "again", REPLY_DEADLINE_MS);
       if (!reply) throw new Error(`no reply from ${chief} in ${REPLY_DEADLINE_MS / 1000} s`);
+      if (/not signed in|not logged in/i.test(reply.text)) throw new Error(`the Chief answered without a model: ${reply.text.slice(0, 300)}`);
       return { value: null, detail: `reply in ${Math.round((Date.now() - sentAt) / 1000)} s: ${JSON.stringify(reply.text.slice(0, 200))}` };
     });
     return J.steps.some((s) => s.status === "fail") ? 1 : 0;
