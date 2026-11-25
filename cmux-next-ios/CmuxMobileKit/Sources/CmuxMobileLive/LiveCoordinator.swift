@@ -141,6 +141,8 @@ public final class LiveCoordinator {
     /// (`followForegroundNotification`): the scene's `.active` a frame or more later is a repeat.
     @ObservationIgnored private var foregroundedEarly = false
     @ObservationIgnored private var foregroundObserver: NSObjectProtocol?
+    /// Pre-wakes the focused Mac's link as the keyboard comes up (``followKeyboard()``).
+    @ObservationIgnored private var keyboardObserver: NSObjectProtocol?
     /// The Mac whose link a call (a Chief call, voice mode) uses (`setCallMac`).
     @ObservationIgnored var callMacID: String?
     /// The hold that keeps that link out of the park, and the link it is on.
@@ -1304,6 +1306,30 @@ public final class LiveCoordinator {
         incidents.followApplicationState()
         LinkController.useApplicationBackgroundTasks()
         followForegroundNotification()
+        followKeyboard()
+    }
+
+    /// The keyboard coming up means a key follows in a few hundred ms: wake the one link it
+    /// goes to now (RFD 0142 T2, ``typingLink``). Only that one: every listed Mac is on
+    /// screen on the Workspaces list, and a rename sheet there is not typing to all of them.
+    func followKeyboard() {
+        #if canImport(UIKit)
+        guard keyboardObserver == nil else { return }
+        keyboardObserver = NotificationCenter.default.addObserver(
+            forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.typingLink.prewake() }
+        }
+        #endif
+    }
+
+    /// The link a key typed now goes to: the one Mac on screen (a workspace's terminal or
+    /// chat), else the focused Mac's.
+    var typingLink: LinkController {
+        if let shown = showingMacs, shown.count == 1, let id = shown.first, let session = sessions[id] {
+            return session.link
+        }
+        return focused.link
     }
 
     /// The return to the app starts the reconnect at UIKit's `willEnterForeground`, before

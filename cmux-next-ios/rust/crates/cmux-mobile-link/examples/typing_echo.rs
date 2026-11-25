@@ -287,7 +287,11 @@ async fn main() {
                 in_burst = 0;
                 burst_at += Duration::from_secs_f64(every);
                 next = next.max(burst_at);
-                prewake_at = args.prewake_lead_ms.map(|lead| burst_at - Duration::from_millis(lead));
+                // None for a burst past the end: the loop sends none of its keys.
+                prewake_at = args
+                    .prewake_lead_ms
+                    .filter(|_| burst_at < end)
+                    .map(|lead| burst_at - Duration::from_millis(lead));
             }
         }
         let now = Instant::now();
