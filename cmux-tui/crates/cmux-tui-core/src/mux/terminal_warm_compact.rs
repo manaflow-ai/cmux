@@ -38,7 +38,7 @@
 //! fires once at its deadline and goes; the thread ends with the mux (its channel closes).
 
 use super::Mux;
-use crate::TerminalPublicId;
+use crate::resource::TerminalPublicId;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
