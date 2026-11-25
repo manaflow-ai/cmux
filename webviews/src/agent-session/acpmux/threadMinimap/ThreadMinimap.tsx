@@ -1639,7 +1639,8 @@ function ThreadMinimapView({
     if (event.currentTarget.hasPointerCapture?.(state.pointer))
       event.currentTarget.releasePointerCapture(state.pointer);
   };
-  const fades = railFades(onScreen, turns.length, height, listTop, rowPitch);
+  const browsing = railBrowsing.current && railBrowsing.current.sessionId === sessionId;
+  const fades = railFades(browsing ? undefined : onScreen, turns.length, height, listTop, rowPitch);
   const fadeReach = railFadeReach(turns.length, height, listTop, rowPitch);
   const inTickContent = (event: React.PointerEvent<HTMLElement>, node: HTMLElement) => {
     const y = event.clientY - node.getBoundingClientRect().top + node.scrollTop;
@@ -1762,7 +1763,7 @@ function ThreadMinimapView({
             ref={list}
             className="acpmux-minimap__list"
             {...{ [HIDDEN_SCROLLER_ATTRIBUTE]: "" }}
-            // The edge fades: 2.5rem, a quarter of a short rail, and never over the band (railFades).
+            // The edge fades: 2.5rem, a quarter of a short rail, and clear of the band when following the transcript.
             data-fade-top={fades.top || undefined}
             data-fade-bottom={(overflow && fades.bottom) || undefined}
             // A list longer than its room scrolls itself, and the wheel over it is the rail's (railWheel.ts).
