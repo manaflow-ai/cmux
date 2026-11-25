@@ -69,15 +69,15 @@ const context = {
 };
 const notFound = () => Object.assign(new Error('Not Found'), { status: 404 });
 // scenario.runs (main nightly runs, each with a status) and scenario.jobs (by run id)
-// answer the in-flight read; without them that read fails, and a failed read builds.
-const actions = scenario.runs ? {
+// answer the in-flight read; an omitted list means the API answered with no runs.
+const actions = {
   listWorkflowRuns: async ({ status, branch }) => {
     if (branch !== 'main') throw new Error(`expected main's runs, got ${branch}`);
     if (scenario.failStatus === status) throw new Error(`failed listing ${status} runs`);
-    return { data: scenario.runs.filter((run) => run.status === status) };
+    return { data: (scenario.runs || []).filter((run) => run.status === status) };
   },
   listJobsForWorkflowRun: async ({ run_id }) => ({ data: scenario.jobs[String(run_id)] || [] }),
-} : undefined;
+};
 const github = { paginate: async (fn, params, mapFn) => {
   const page = await fn(params);
   const mapped = mapFn ? mapFn(page, 0) : page.data;
@@ -435,6 +435,18 @@ def test_a_partial_in_flight_read_skips_the_tick() -> None:
         runs=[],
         comparison=APP_CHANGE,
         fail_after_first_page_status="in_progress",
+    )
+    assert not should_build(result)
+    assert "finish enumerating main nightly runs" in result["warnings"][0]
+
+
+def test_a_first_page_in_flight_read_skips_the_tick() -> None:
+    result = run_decide(
+        event="schedule",
+        schedule="2,17,32,47 * * * *",
+        runs=[],
+        comparison=APP_CHANGE,
+        fail_status="in_progress",
     )
     assert not should_build(result)
     assert "finish enumerating main nightly runs" in result["warnings"][0]

@@ -372,16 +372,14 @@ jobs:
             // The same read counts main app builds in flight. Leo, 2026-11-25: "shouldnt we have
             // like a 10 or 15 or 20 or 30 minute timer per?". A tick starts at most one build every
             // 15 minutes, and while MAX_IN_FLIGHT main runs are already building, the tick builds
-            // nothing: the next tick takes the newest commit. A failure before
-            // the first page keeps the old fail-open behavior. A partial read
-            // skips this tick so it cannot undercount the cap.
+            // nothing: the next tick takes the newest commit. Any incomplete
+            // read skips this tick so it cannot undercount the cap.
             const mainTickSchedule = context.eventName === 'schedule' &&
               ['2,17,32,47 * * * *', '5 8 * * *'].includes(context.payload?.schedule);
             const dailyBackstopSchedule = context.payload?.schedule === '5 8 * * *';
             let duplicateOfRun = null;
             const inFlight = [];
             let inFlightUnknown = false;
-            let inFlightReadStarted = false;
             const maxInFlight = Number(process.env.MAX_IN_FLIGHT);
             if (
               mainTickSchedule &&
@@ -393,9 +391,6 @@ jobs:
                   const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
                     owner, repo, workflow_id: 'nightly.yml', branch: 'main', status, per_page: 100,
                   }, (response) => {
-                    // Mark the read after a page arrives, before paginate requests
-                    // the next page. A later-page failure must fail closed too.
-                    inFlightReadStarted = true;
                     return response.data;
                   });
                   for (const run of runs) {
@@ -413,8 +408,8 @@ jobs:
                   }
                 }
               } catch (error) {
-                inFlightUnknown = inFlightReadStarted;
-                core.warning(`Could not ${inFlightUnknown ? 'finish enumerating main nightly runs for the timer cap; skipping this tick' : 'start enumerating main nightly runs; building'}: ${error.message}`);
+                inFlightUnknown = true;
+                core.warning(`Could not finish enumerating main nightly runs for the timer cap; skipping this tick: ${error.message}`);
               }
             }
             let shouldBuild = !seedOnly && !alreadyPublished && (buildOnly || !isMainRef || forceBuild || nightlySha !== headSha);
