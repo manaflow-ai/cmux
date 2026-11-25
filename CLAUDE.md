@@ -3,7 +3,8 @@
 The rules every agent needs in every session here. Everything else lives on the page that owns it (the
 [table below](#where-the-rest-lives)); read the matching skill or page before changing an area.
 
-Maintainers: team-specific workflow notes live in the maintainers' private docs.
+Maintainers: team-specific workflow notes live in private docs; the commands below are for contributors, while
+maintainer agents use that workflow.
 
 **On your own machine** (Claude, Codex or another agent a contributor runs): the code rules below all apply to
 you. Run checks this way:
@@ -18,8 +19,6 @@ you. Run checks this way:
   watch loop. Say under Testing what you ran and what you couldn't.
 - Leave classic paths ([`.github/classic-frozen.txt`](.github/classic-frozen.txt)) alone and keep new logic in
   the language the boundaries file names.
-
-These commands describe the contributor path; maintainer agents use the maintainer workflow for equivalent worktree, check, and merge operations.
 
 The person path, with the 5-minute build, test and land steps and a map of the tree: [docs/start-here.md](docs/start-here.md).
 
