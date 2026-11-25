@@ -51,7 +51,7 @@ nonisolated struct MacScreenShareStatusProbe: Sendable {
 
     /// Runs the probe and gives its stdout once it exits; nil when it failed to start, exited non-zero
     /// or ran past `deadline` (then it is ended). Never blocks the caller's thread.
-    private static func run(_ binary: URL, _ arguments: [String], deadline: Duration) async -> Data? {
+    @concurrent private static func run(_ binary: URL, _ arguments: [String], deadline: Duration) async -> Data? {
         let process = Process()
         process.executableURL = binary
         process.arguments = arguments
