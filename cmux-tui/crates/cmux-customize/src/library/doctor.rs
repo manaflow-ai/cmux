@@ -38,7 +38,7 @@ use super::web_top;
 use crate::tree::{self, SETTINGS, STYLE_SURFACES};
 use crate::{Customize, Error, validate};
 
-mod defaults;
+mod menus;
 mod recover;
 mod scan;
 mod stray;
@@ -66,7 +66,6 @@ pub enum FindingKind {
     UnknownKey,
     WrongFolder,
     Override,
-    NotDefault,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -89,9 +88,6 @@ pub enum FixKind {
     /// Put back the file's newest version a generation holds that loads
     /// ([`recover`]); the broken one is moved aside first.
     Restore,
-    /// Take the setting out of the settings file, so its default applies.
-    #[serde(rename = "follow-default")]
-    FollowDefault,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -145,10 +141,11 @@ pub struct Finding {
 pub struct Report {
     /// Warnings first, then by kind and id.
     pub findings: Vec<Finding>,
-    /// `2 customization problems: pr-45206 is still on; ...`; `None` when
-    /// nothing that is not dismissed is left.
+    /// `2 customization problems: pr-45206 is still on; ...`: the warnings
+    /// not dismissed; `None` when nothing is broken (info findings never count).
     pub line: Option<String>,
-    /// With `announce`: the line for the findings not announced before.
+    /// With `announce`: the line for the warnings not announced before (the
+    /// app's toast); info findings never toast.
     pub announce: Option<String>,
     /// Back to a setup that loads, in one step ([`Customize::doctor_recover`]);
     /// `None` when there is nothing to recover from.
@@ -172,10 +169,6 @@ struct State {
     announced: BTreeMap<String, String>,
     #[serde(default)]
     dismissed: BTreeMap<String, String>,
-    /// For each setting the person sets, the default when the doctor first
-    /// saw it set: a default that changes since is said ([`defaults`]).
-    #[serde(default)]
-    seen_defaults: BTreeMap<String, Value>,
 }
 
 impl Customize {
@@ -188,7 +181,7 @@ impl Customize {
             finding.dismissed =
                 state.dismissed.get(&finding.id).is_some_and(|print| *print == finding.fingerprint);
         }
-        let line = line_of(findings.iter().filter(|finding| !finding.dismissed));
+        let line = line_of(findings.iter().filter(|finding| problem(finding)));
         Report { findings, line, announce: None, recover: self.recover_plan(expiry) }
     }
 
@@ -198,17 +191,15 @@ impl Customize {
         let mut report = self.doctor(expiry);
         let mut state = self.read_doctor_state();
         report.announce = line_of(report.findings.iter().filter(|finding| {
-            !finding.dismissed && state.announced.get(&finding.id) != Some(&finding.fingerprint)
+            problem(finding) && state.announced.get(&finding.id) != Some(&finding.fingerprint)
         }));
         let announced: BTreeMap<String, String> = report
             .findings
             .iter()
             .map(|finding| (finding.id.clone(), finding.fingerprint.clone()))
             .collect();
-        let seen = self.note_defaults(&state.seen_defaults);
-        if announced != state.announced || seen != state.seen_defaults {
+        if announced != state.announced {
             state.announced = announced;
-            state.seen_defaults = seen;
             self.write_doctor_state(&state)?;
         }
         Ok(report)
@@ -299,12 +290,13 @@ impl Customize {
                     kept: Some(kept.display().to_string()),
                 })
             }
-            (FixKind::FollowDefault, "not-default") => {
-                let said = self.follow_default(subject, expiry.now_ms)?;
-                Ok(Fixed { id: finding.id, kind, kept: None, said })
-            }
             (FixKind::Restore, "broken") => {
                 let (_, said) = self.restore_file(subject, expiry.now_ms)?;
+                Ok(Fixed { id: finding.id, kind, kept: None, said })
+            }
+            // A menu entry cmux skips: the settings file's newest version whose menus all load.
+            (FixKind::Restore, "ignored") if subject.starts_with("menu:") => {
+                let (_, said) = self.restore_settings_menus(expiry.now_ms)?;
                 Ok(Fixed { id: finding.id, kind, kept: None, said })
             }
             _ => Err(Error::Library(format!("{id} has no {} fix", kind_word(kind)))),
@@ -325,7 +317,6 @@ impl Customize {
         self.file_findings(&mut out);
         self.folder_findings(&mut out);
         self.stray_findings(&mut out);
-        self.default_findings(&mut out);
         let mut findings = out.0;
         findings.sort_by(|a, b| (a.level, a.kind, &a.id).cmp(&(b.level, b.kind, &b.id)));
         findings.dedup_by(|a, b| a.id == b.id);
@@ -608,6 +599,9 @@ impl Customize {
             .and_then(|bytes| std::str::from_utf8(bytes).ok())
             .map(str::to_owned);
         let settings = settings_text.as_deref().and_then(|text| jsonc::parse(text).ok());
+        if let (Some(text), Some(root)) = (settings_text.as_deref(), &settings) {
+            self.menu_findings(text, root, out);
+        }
         if let (Some(text), Some(Value::Object(object))) = (settings_text.as_deref(), &settings) {
             let mut unknown = Vec::new();
             unknown_keys(object, &mut Vec::new(), &prefixes(), &mut unknown);
@@ -864,7 +858,6 @@ fn kind_name(kind: FindingKind) -> &'static str {
         FindingKind::UnknownKey => "unknown-key",
         FindingKind::WrongFolder => "wrong-folder",
         FindingKind::Override => "override",
-        FindingKind::NotDefault => "not-default",
     }
 }
 
@@ -874,7 +867,6 @@ fn kind_word(kind: FixKind) -> &'static str {
         FixKind::Remove => "remove",
         FixKind::Open => "open",
         FixKind::Restore => "restore",
-        FixKind::FollowDefault => "follow-default",
     }
 }
 
@@ -884,26 +876,29 @@ pub fn fix_kind(word: &str) -> Option<FixKind> {
         "off" => Some(FixKind::Off),
         "remove" | "rm" => Some(FixKind::Remove),
         "restore" => Some(FixKind::Restore),
-        "default" | "follow-default" => Some(FixKind::FollowDefault),
         _ => None,
     }
 }
 
-/// `2 customization problems: a; b`, or one: `Customization: a`.
-fn line_of<'a>(findings: impl Iterator<Item = &'a Finding>) -> Option<String> {
-    let findings: Vec<&Finding> = findings.collect();
-    let warnings: Vec<&&Finding> = findings.iter().filter(|f| f.level == Level::Warning).collect();
-    let shown: Vec<&str> = if warnings.is_empty() {
-        findings.iter().take(2).map(|f| f.title.as_str()).collect()
-    } else {
-        warnings.iter().take(2).map(|f| f.title.as_str()).collect()
-    };
+/// A finding that counts as a problem: a warning (it breaks something now)
+/// the person has not dismissed. Info findings are listed, never counted or
+/// announced (Leo, 2026-11-25, on "Customization: presence is not a setting"
+/// and "50 things change your customization": "what is this and why is it so
+/// ugly").
+fn problem(finding: &Finding) -> bool {
+    finding.level == Level::Warning && !finding.dismissed
+}
+
+/// `2 customization problems: a; b`, or one: `Customization: a`; `None` for none.
+fn line_of<'a>(problems: impl Iterator<Item = &'a Finding>) -> Option<String> {
+    let problems: Vec<&Finding> = problems.collect();
+    let shown: Vec<&str> = problems.iter().take(2).map(|f| f.title.as_str()).collect();
     let first = *shown.first()?;
-    let rest = findings.len() - shown.len();
-    let mut line = if findings.len() == 1 {
+    let rest = problems.len() - shown.len();
+    let mut line = if problems.len() == 1 {
         format!("Customization: {first}")
     } else {
-        format!("{} things change your customization: {}", findings.len(), shown.join("; "))
+        format!("{} customization problems: {}", problems.len(), shown.join("; "))
     };
     if rest > 0 {
         line.push_str(&format!(" and {rest} more"));

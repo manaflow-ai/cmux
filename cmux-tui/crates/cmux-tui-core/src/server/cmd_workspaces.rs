@@ -49,14 +49,18 @@ pub(super) struct KnownTree {
 ///
 /// With `known` (`list-workspaces-known-v1`), `{"unchanged": true, ...}` when the client's tree is
 /// current. With `limit` (`list-workspaces-limit-v1`), the first `limit` workspaces in sidebar
-/// order and `total`. Without either, the reply is the same as before they existed, byte for byte.
+/// order and `total`, up to a byte budget, from `after` with `next` (`list-workspaces-page-v1`).
+/// Without either, the reply is the same as before they existed, byte for byte.
 pub(super) fn list_workspaces(
     mux: &Arc<Mux>,
     client: u64,
     lines_written: Option<u64>,
     known: Option<&KnownTree>,
     limit: Option<usize>,
+    after: Option<usize>,
 ) -> anyhow::Result<Value> {
+    // `after` pages only with `limit` (`list-workspaces-page-v1`).
+    let after = if limit.is_some() { after.unwrap_or(0) } else { 0 };
     // A client that sends no `known` holds no tree and asks no second time: its reply reads each
     // stale git HEAD itself (git_heads.rs). A `known` request leaves them to the refresh.
     if known.is_none() {
@@ -67,13 +71,33 @@ pub(super) fn list_workspaces(
     // the others, all read with one view of them.
     let mut reply = match (known, limit) {
         (Some(known), limit) => super::incognito_remote::list_with_one_view(mux, client, |view| {
-            list_workspaces_reply_since(mux, known, limit, view)
+            list_workspaces_reply_since(mux, known, limit, after, view)
         })?,
         (None, Some(limit)) => super::incognito_remote::list_with_one_view(mux, client, |view| {
-            Ok(list_workspaces_reply_first(mux, limit, view)?.0)
+            Ok(list_workspaces_reply_first(mux, limit, after, view)?.0)
         })?,
         (None, None) => list_workspaces_reply(mux)?,
     };
+    if let Some(lines) = lines_written {
+        reply.set("lines_written_before_read", json!(lines));
+    }
+    Ok(reply)
+}
+
+/// `list-workspaces {since}` (`workspace-list-delta-v1`, list_workspaces_delta.rs): the
+/// entries that changed past the client's cursor, or the whole tree with a fresh cursor. A
+/// remote device that must not see some workspaces gets its whole pruned tree with no cursor
+/// (the ring is the daemon's whole tree), so it never holds one to send.
+pub(super) fn list_workspaces_delta(
+    mux: &Arc<Mux>,
+    client: u64,
+    lines_written: Option<u64>,
+    since: &super::list_workspaces_delta::DeltaCursor,
+) -> anyhow::Result<Value> {
+    let mut reply = super::incognito_remote::list_with_one_view(mux, client, |view| match view {
+        Some(_) => list_workspaces_reply(mux),
+        None => super::list_workspaces_delta::list_workspaces_reply_delta(mux, since),
+    })?;
     if let Some(lines) = lines_written {
         reply.set("lines_written_before_read", json!(lines));
     }
@@ -119,6 +143,7 @@ pub(super) fn create_workspace(
     name: Option<String>,
     key: Option<String>,
     first_tab: Option<frontend_browser_history::FirstTabParams>,
+    explicit_name: bool,
     mutation: MutationRequest,
 ) -> anyhow::Result<Value> {
     if let Some(key) = key.as_deref()
@@ -136,6 +161,7 @@ pub(super) fn create_workspace(
         mutation.expected_generation.as_deref(),
         mutation.expected_revision,
         &workspace_mutation,
+        explicit_name,
     )?;
     // `workspace-first-tab-v1`: the first tab in the same request. A replayed
     // create replays a keyed tab and makes no second unkeyed one; a tab that
@@ -507,6 +533,13 @@ pub(super) fn rename_workspace(
         "registry_id": registry_id,
         "generation": generation,
     }))
+}
+
+/// `release-workspace-names`: every user-owned workspace name goes back to the
+/// automatic namer in one call. Idempotent: a second call releases nothing.
+pub(super) fn release_workspace_names(mux: &Arc<Mux>, actor: Actor) -> anyhow::Result<Value> {
+    let (released, still_pinned) = mux.release_workspace_names(&actor)?;
+    Ok(json!({"released": released, "still_pinned": still_pinned}))
 }
 
 pub(super) fn rename_provider_managed_workspace(

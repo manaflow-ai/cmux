@@ -102,3 +102,91 @@ test("every pick from the field opens in the page's tab, never a split; Option-R
     { kind: "browser", text: "cmux docs", search: true, beside: true },
   ]);
 });
+
+test("onAsk asks the hold first, and a held send starts nothing (the screen keeps the prompt: NewTabScreen.test)", async () => {
+  const calls: string[] = [];
+  const asked: string[] = [];
+  const actions = newTabScreenActions({
+    callNative: async (method) => {
+      calls.push(method);
+      return { sessionId: "s1" };
+    },
+    leave: () => calls.push("leave"),
+    selectSession: () => {},
+    showAllChats: () => {},
+    runShell: () => {},
+    holdsSend: (text, here) => {
+      asked.push(`${here ? "here" : "elsewhere"}: ${text}`);
+      return true;
+    },
+  });
+  const sent = actions.onAsk("claude", "open the settings app with @computer-use", undefined, undefined, true);
+  await expect(sent).rejects.toBeDefined();
+  expect(asked).toEqual(["here: open the settings app with @computer-use"]);
+  expect(calls).toEqual([]);
+});
+
+test("a send to a chat on another machine is asked about too, as not here (#48541)", async () => {
+  const calls: string[] = [];
+  const asked: string[] = [];
+  const deps = {
+    callNative: async (method: string) => {
+      calls.push(method);
+      return { sessionId: "s1" };
+    },
+    leave: () => calls.push("leave"),
+    selectSession: () => {},
+    showAllChats: () => {},
+    runShell: () => {},
+    holdsSend: (text: string, here: boolean) => {
+      asked.push(`${here ? "here" : "elsewhere"}: ${text}`);
+      return !here;
+    },
+  };
+  const text = "open the settings app with @computer-use";
+  // A saved environment on a peer.
+  const onPeer = newTabScreenActions(deps).onAsk("claude", text, undefined, undefined, true, undefined, {
+    peer: "studio",
+  });
+  await expect(onPeer).rejects.toBeDefined();
+  // The page's chats run on another machine.
+  const elsewhere = newTabScreenActions({ ...deps, startsHere: () => false }).onAsk(
+    "claude",
+    text,
+    undefined,
+    undefined,
+    true,
+  );
+  await expect(elsewhere).rejects.toBeDefined();
+  expect(asked).toEqual([`elsewhere: ${text}`, `elsewhere: ${text}`]);
+  expect(calls).toEqual([]);
+});
+
+// CMUX-682: a folder question can take long enough for Computer Use to change; the chat's start asks again.
+test("the hold is asked again when the chat starts after the folder question, and a held start opens nothing", async () => {
+  const calls: string[] = [];
+  let answers = 0;
+  let startLater: (() => void) | undefined;
+  const actions = newTabScreenActions({
+    callNative: async (method) => {
+      calls.push(method);
+      return { sessionId: "s1" };
+    },
+    leave: () => calls.push("leave"),
+    selectSession: () => {},
+    showAllChats: () => {},
+    runShell: () => {},
+    requestFolder: (cwd, start) => {
+      startLater = () => start(cwd);
+    },
+    holdsSend: () => ++answers > 1,
+  });
+  const sent = actions.onAsk("claude", "open Notes with @computer-use", "/Users/you/src/app");
+  expect(answers).toBe(1);
+  expect(startLater).toBeDefined();
+  startLater!();
+  await expect(sent).rejects.toBeDefined();
+  expect(answers).toBe(2);
+  expect(calls).not.toContain("chat.new");
+  expect(calls).not.toContain("chat.send");
+});
