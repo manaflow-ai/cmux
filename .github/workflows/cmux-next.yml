@@ -805,6 +805,8 @@ concurrency:
 jobs:
   # Why: 2026-11-24-workflow-1.md
   pure-checks-coalesce:
+    permissions:
+      actions: read
     uses: ./.github/workflows/base-coalesce.yml
     with:
       key: cmux-next-pure-checks
