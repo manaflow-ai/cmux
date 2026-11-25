@@ -231,7 +231,7 @@ function Card({
             type="button"
             className="acpmux-edited-toggle acpmux-edited-chevron"
             aria-expanded={fold.open}
-            aria-label={fold.open ? t("edited.hideFiles") : t("edited.showFiles")}
+            aria-label={fold.open ? t("edited.hideFiles") : single ? t("edited.view") : t("edited.showFiles")}
             onClick={fold.toggle}
           >
             <ChevronDown width={14} height={14} style={fold.open ? { transform: "rotate(180deg)" } : undefined} />
@@ -253,7 +253,7 @@ function Card({
             {files.map((file) => {
               const markdown = single ? undefined : markdownPath(file);
               return (
-                <div className="acpmux-edited-section" key={file.path}>
+                <div className="acpmux-edited-section" key={file.path} data-path={file.path}>
                   <EditDiff
                     file={file}
                     whole
