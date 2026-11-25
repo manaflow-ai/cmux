@@ -2265,6 +2265,13 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
     func resume()  -> Bool
     
     /**
+     * How long a resumed parked link may stay silent before the app races a
+     * fresh dial against it: three smoothed round trips plus 100 ms, within
+     * 250 ms and 1.5 s (500 ms before any round trip was measured).
+     */
+    func resumeHedgeMs()  -> UInt32
+    
+    /**
      * The latest WireGuard roam of this link (`network_changed`,
      * `roam_reasserted`, `roam_first_packet`, `roam_direct` or `roam_turn`,
      * ...), in milliseconds since the network changed; empty before any.
@@ -2660,6 +2667,19 @@ open func receivedAgoMs() -> UInt64  {
 open func resume() -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_resume(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * How long a resumed parked link may stay silent before the app races a
+     * fresh dial against it: three smoothed round trips plus 100 ms, within
+     * 250 ms and 1.5 s (500 ms before any round trip was measured).
+     */
+open func resumeHedgeMs() -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_resume_hedge_ms(
             self.uniffiCloneHandle(),$0
     )
 })
@@ -11516,6 +11536,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_resume() != 43166) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_resume_hedge_ms() != 7041) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_roam_timings() != 26202) {

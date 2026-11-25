@@ -285,16 +285,29 @@ public struct WorkspacesList: View {
         return "Its workspaces stay open on \(name)."
     }
 
-    /// Filtered: the Mac's name. Else "2 need you", or nothing. No presence or link words and no
-    /// "2 of 3 Macs online": each Mac's red or green dot in the filter menu says it (Leo, 2026-11-24:
-    /// "greyed out workspaces + x of x macs online is... hm. idk if we need to show that on the top per
-    /// se ... red dot green dot when you switch between your computers' stuff"). A refresh adds no
-    /// words either: the rows update in place, and a dropped link reconnects on its own.
-    private var subtitle: String {
-        if let mac = scopedMac { return displayName(mac) }
-        let waiting = inbox.needsYouCount
-        if waiting > 0 { return waiting == 1 ? "1 needs you" : "\(waiting) need you" }
-        return ""
+    /// The header: a green or red dot and the name of the computer shown by default (the
+    /// filtered one, else the one the current workspace lives on), then "2 need you" when no
+    /// computer is chosen. No presence or link words, the dot says them (#55034), and never
+    /// "x of x Macs online" (Leo, 2026-11-24: "red dot green dot when you switch between your
+    /// computers' stuff ... i dont need to see the others"). A
+    /// refresh adds no words: the rows update in place, and a failed one retries on its own
+    /// (Leo, 2026-11-16: "this needs to shut up").
+    var header: ComputerDots.Header {
+        let workspaceMacID = rememberedWorkspaceID.flatMap { store.workspace(id: $0)?.macID }
+        let linkedMacID = linking.flatMap { linking in macs.first { linking.isLinkTarget($0.id) }?.id }
+        return ComputerDots.header(macs: macs, scopedMacID: scopedMac?.id, workspaceMacID: workspaceMacID, linkedMacID: linkedMacID,
+                                   needsYou: inbox.needsYouCount,
+                                   name: { displayName($0) }, reach: { store.macReachability($0) })
+    }
+
+    /// The header as the navigation subtitle: the dot, then its text.
+    private var subtitle: Text {
+        let header = header
+        guard let dot = header.dot else { return Text(verbatim: header.text) }
+        let circle = Text(Image(systemName: "circle.fill")).font(.system(size: 7))
+            .foregroundStyle(dot.isUp ? theme.colors.success.color : theme.colors.danger.color)
+            .accessibilityLabel(dot.isUp ? "online" : "offline")
+        return Text("\(circle) \(header.text)")
     }
 
     private func isPresented<T>(_ item: Binding<T?>) -> Binding<Bool> {
@@ -1121,7 +1134,8 @@ public struct WorkspacesList: View {
         let macs = macs
         let entries = macs.count > 1 ? macText.entries(MacFilterMemo.Input(macs: macs, accountMacs: accountMacs, connection: store.macConnection,
                                                                            linkStatus: store.macLinkStatus, live: store.tracksMacData,
-                                                                           now: MinuteClock.shared.now)) : []
+                                                                           now: MinuteClock.shared.now, failure: store.macFailure,
+                                                                           phoneOffline: store.isOffline)) : []
         let filterValue = scopedMac.map { mac in
             [displayName(mac), entries.first { $0.id == mac.id }?.detail].compactMap(\.self).filter { !$0.isEmpty }.joined(separator: ", ")
         } ?? "All Macs"
