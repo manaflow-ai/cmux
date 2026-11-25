@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
+import CmuxNextWakeups
 
 /// A Chromium page that lies out of sight in its window: a New Tab spare in its off-screen parking, a kept
 /// closed chat, the reserved Cmd-N workspace's page, a moved page held outside the window. Its child window
@@ -13,6 +14,12 @@ public import CmuxNextDesign
 /// before it is adopted, so a Cmd-T shows a page already drawn), while a frame wait or a picture of it runs,
 /// and while its owner holds it away until it shows (``PageWebView/drawsWhileAway``). Then it reports
 /// hidden, like a chat behind another tab, and keeps the frame it drew.
+///
+/// A page that has not painted draws out of sight for ``unpaintedBound`` at most: a New Tab spare whose renderer
+/// hung or whose document never paints otherwise reported visible for as long as it stayed parked, keeping the GPU
+/// process drawing a page nobody sees, and out of reach of the hidden hung page bound (`BrowserHiddenHangBound`,
+/// which acts only on a hidden page). Past the bound it reports hidden; shown on screen, held, or a new document, it
+/// draws again.
 @MainActor
 final class PageAwayDrawing {
     /// Frame waits and pictures in flight (``PageWebView/afterNextFrame(_:)``, ``PageWebView/afterFrame(at:_:)``,
@@ -22,6 +29,27 @@ final class PageAwayDrawing {
     var drawnSize: CGSize?
     /// The size a frame wait of its own runs for now (``PageWebView/drawAwayIfNeeded()``).
     var drawing: CGSize?
+    /// How long a page that has not painted draws out of sight (a first paint takes well under 1 s; a cold page
+    /// under load, a few).
+    static let unpaintedBound: Duration = .seconds(10)
+    /// The clock ``unpaintedBound`` runs on (tests end it at once).
+    var clock: any Clock<Duration> = ContinuousClock()
+    /// The page out of sight drew ``unpaintedBound`` without painting: it reports hidden until it shows, a hold
+    /// takes it, or a new document starts.
+    var unpaintedExpired = false
+    private(set) lazy var unpaintedTimer = DemandTimer(owner: "page.away-unpainted", clock: clock)
+
+    /// Starts the bound once per stay out of sight.
+    func armUnpaintedBound(_ expire: @escaping @MainActor @Sendable () -> Void) {
+        guard !unpaintedExpired, !unpaintedTimer.isScheduled else { return }
+        unpaintedTimer.schedule(after: Self.unpaintedBound) { @MainActor in expire() }
+    }
+
+    /// The page shows, painted, or a new document starts: the next stay out of sight gets the whole bound.
+    func resetUnpaintedBound() {
+        unpaintedTimer.cancel()
+        unpaintedExpired = false
+    }
 }
 
 /// The reserved Cmd-N workspace shows (`WorkspaceContentView.setParked(false)`): it moves into the window
@@ -39,8 +67,21 @@ extension PageWebView {
 
     /// Whether a page out of sight draws now: until it painted and drew at the size it waits at, while
     /// a frame wait or picture of it runs, and while its owner holds it away (``drawsWhileAway``).
+    /// A page that has not painted draws for ``PageAwayDrawing/unpaintedBound`` at most.
     var drawsAway: Bool {
-        !hasPainted || drawsWhileAway || awayDrawing.holds > 0 || awayDrawing.drawnSize != bounds.size
+        if drawsWhileAway || awayDrawing.holds > 0 { return true }
+        guard hasPainted else { return !awayDrawing.unpaintedExpired }
+        return awayDrawing.drawnSize != bounds.size
+    }
+
+    /// A page out of sight that draws before it painted: past ``PageAwayDrawing/unpaintedBound`` it reports hidden.
+    func boundUnpaintedAwayDrawing() {
+        guard !hasPainted, !drawsWhileAway, awayDrawing.holds == 0 else { return }
+        awayDrawing.armUnpaintedBound { [weak self] in
+            guard let self, !hasPainted else { return }
+            awayDrawing.unpaintedExpired = true
+            setChromiumVisibility(true)
+        }
     }
 
     /// A painted page out of sight that has not drawn at its size there: one frame wait at that size, after

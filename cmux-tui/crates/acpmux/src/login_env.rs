@@ -64,7 +64,8 @@ fn run_marker() -> String {
 }
 // Older caches could contain machine declarations imported through a shell hook;
 // version 3 caches lack the provider keys (`PROVIDER_KEYS`), so the shell runs once more.
-const CACHE_VERSION: u32 = 4;
+// version 4 caches lack AZURE_* (Foundry's Entra ID sign-in).
+const CACHE_VERSION: u32 = 5;
 
 #[derive(Debug, Default, Clone)]
 struct Imported {
@@ -847,6 +848,24 @@ fn vertex_allowed(key: &str, value: &str, profile: Option<&BTreeMap<String, Stri
         || (profile_switch("CLAUDE_CODE_USE_VERTEX", profile) && !is_secret(key, value))
 }
 
+/// The Azure names a profile's Foundry switch may unlock: the tenant, the client id and the
+/// cloud, never a secret (`AZURE_CLIENT_SECRET`, a certificate password).
+const AZURE_PUBLIC: [&str; 4] =
+    ["AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_AUTHORITY_HOST", "AZURE_CONFIG_DIR"];
+
+/// Claude Code on Microsoft Foundry without `ANTHROPIC_FOUNDRY_API_KEY` signs in with Entra ID
+/// through Azure's default credential chain, which reads `AZURE_*` (a service principal's
+/// `AZURE_CLIENT_ID`/`AZURE_TENANT_ID`/`AZURE_CLIENT_SECRET`, a workload identity's
+/// `AZURE_FEDERATED_TOKEN_FILE`). Codex's `AZURE_OPENAI_API_KEY` stays Codex's.
+fn azure_allowed(key: &str, value: &str, profile: Option<&BTreeMap<String, String>>) -> bool {
+    key.starts_with("AZURE_")
+        && key != "AZURE_OPENAI_API_KEY"
+        && (person_switch("CLAUDE_CODE_USE_FOUNDRY")
+            || (AZURE_PUBLIC.contains(&key)
+                && !is_secret(key, value)
+                && profile_switch("CLAUDE_CODE_USE_FOUNDRY", profile)))
+}
+
 /// The allow-list: which login-shell variables a child of `family`
 /// (`claude`, `codex`, `gemini`, `muse`, a `PROVIDER_FAMILIES` one, else none) gets. Every other variable stays in the
 /// daemon (GITHUB_TOKEN, GH_TOKEN, NPM_TOKEN, ...), unless the person adds
@@ -864,7 +883,9 @@ fn vertex_allowed(key: &str, value: &str, profile: Option<&BTreeMap<String, Stri
 ///   AWS_SHARED_CREDENTIALS_FILE. With the person's own
 ///   CLAUDE_CODE_USE_VERTEX: GOOGLE_*, CLOUDSDK_*, GCLOUD_*, CLOUD_ML_REGION,
 ///   VERTEX_REGION_* (not secret); with only a profile's switch, the
-///   non-secret ones of those.
+///   non-secret ones of those. With the person's own CLAUDE_CODE_USE_FOUNDRY:
+///   AZURE_* but AZURE_OPENAI_API_KEY (Entra ID sign-in); with only a profile's switch,
+///   AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_AUTHORITY_HOST, AZURE_CONFIG_DIR.
 /// - Codex: OPENAI_*, CODEX_*.
 /// - Gemini: GEMINI_* and GOOGLE_* (the CLI/API and Vertex credentials).
 /// - Muse: MUSE_* and META_* (the official CLI and API credentials).
@@ -936,9 +957,11 @@ pub fn allowed_with(
                 || key.ends_with("_TELEMETRY")
                 || aws_allowed(key, profile)
                 || vertex_allowed(key, value, profile)
+                || azure_allowed(key, value, profile)
         }
         Some("codex") => key.starts_with("OPENAI_") || key.starts_with("CODEX_"),
-        Some("gemini") => key.starts_with("GEMINI_") || key.starts_with("GOOGLE_"),
+        // Antigravity (`agy`) reads Gemini's key and base URL (`acp_key_auth.rs`).
+        Some("gemini" | "antigravity") => key.starts_with("GEMINI_") || key.starts_with("GOOGLE_"),
         Some("muse") => key.starts_with("MUSE_") || key.starts_with("META_"),
         Some(f) if PROVIDER_FAMILIES.contains(&f) => PROVIDER_KEYS.contains(&key),
         _ => false,
@@ -1017,7 +1040,7 @@ const INTERNAL: [&str; 5] = [
 ];
 
 /// Whether a login variable is kept at all (memory and cache): allowed for
-/// some family (its Bedrock or Vertex condition aside), or read by the daemon.
+/// some family (its Bedrock, Vertex or Foundry condition aside), or read by the daemon.
 fn storable(key: &str, value: &str) -> bool {
     INTERNAL.contains(&key)
         || delivered(key)
@@ -1029,6 +1052,7 @@ fn storable(key: &str, value: &str) -> bool {
             "CLAUDE_",
             "DISABLE_",
             "AWS_",
+            "AZURE_",
             "GOOGLE_",
             "CLOUDSDK_",
             "GCLOUD_",
@@ -1568,9 +1592,8 @@ fn save_cache(fingerprint: &str, login: &[(String, String)], login_path: Option<
         saved_at: Some(now_secs()),
     };
     let Ok(bytes) = serde_json::to_vec_pretty(&cache) else { return };
-    if let Err(e) = crate::config::write_atomic(&cache_path(), &bytes) {
-        tracing::warn!("login env cache: {e:#}");
-    }
+    // A cache: the disk writer (`disk_writer.rs`) writes it and logs a failure.
+    crate::config::write_atomic_later(&cache_path(), bytes);
 }
 
 /// Files created by cloud apply-machine-config and deliver-secrets. Their

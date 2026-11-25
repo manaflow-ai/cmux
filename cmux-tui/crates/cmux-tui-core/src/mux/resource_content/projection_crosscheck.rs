@@ -33,7 +33,7 @@ impl Mux {
     /// daemon with `CMUX_TUI_PROJECTION_CROSSCHECK=1`); `None` in any other build. A compare
     /// that fails is a difference. One line on stderr for a difference.
     pub(crate) fn session_journal_crosscheck(&self) -> Option<JournalCheck> {
-        if !scoped_projection::crosscheck_enabled() {
+        if !crosscheck_enabled() {
             return None;
         }
         let check = self.session_journal_check().unwrap_or_else(|error| JournalCheck {

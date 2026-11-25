@@ -94,9 +94,18 @@ impl Hub {
     /// Mac 5,000 of 6,043 records had one (2026-11-11).
     pub(super) fn bg_notify_resume(self: &Arc<Self>) {
         let root = crate::config::home().join("bg");
+        // Only this hub's chats: an end goes nowhere but a chat it holds (`bg_notify`), and the
+        // first live watch of a lock keeps it (`Watcher::watch`), so a watch taken for another
+        // hub's chat (hubs of one home in one process) would swallow the end that hub owes.
+        let held: std::collections::HashSet<String> =
+            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
         for entry in std::fs::read_dir(&root).into_iter().flatten().flatten() {
             // `.purged` and the like are no chat's.
             if entry.file_name().to_string_lossy().starts_with('.') {
+                continue;
+            }
+            // A chat's folder is named by its id (`bg_run`): another hub's is not read at all.
+            if !held.contains(entry.file_name().to_string_lossy().as_ref()) {
                 continue;
             }
             let dir = entry.path();
@@ -113,6 +122,7 @@ impl Hub {
                     continue;
                 }
                 if let Some(record) = bg_run::read_record(&dir, id)
+                    && held.contains(&record.session_id)
                     && record.generation == generation
                     && record.notify
                     && !bg_run::notified_path(&dir, &record.id).exists()
@@ -158,6 +168,9 @@ impl Hub {
         }
         let session = self.session_get(session_id);
         let Some(session) = session else { return };
+        // The task no longer holds its chat's idle period up (`idle_governor.rs`): the reaper
+        // takes the new deadline.
+        self.idle_wake.notify_one();
         if session.closing.load(Ordering::SeqCst)
             || session.purged.load(Ordering::SeqCst)
             || session.status() == SessionStatus::Closed
