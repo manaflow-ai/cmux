@@ -24,7 +24,8 @@ on:
       - "rc/**"
   schedule:
     - cron: "17 */6 * * *"
-    - cron: "47 8 * * *"
+    # Hourly at :17, the only main app build: one evenly spaced cutover per hour (see `decide`).
+    - cron: "17 * * * *"
   workflow_dispatch:
     inputs:
       force:
@@ -121,19 +122,23 @@ env:
 jobs:
   decide:
     permissions:
-      # actions: read lets the 08:47 catch-up see another run already building this commit.
+      # actions: read lets the hourly :17 tick see another run already building this commit.
       actions: read
       contents: write
       attestations: write
       id-token: write
     if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '')
-    # Main metadata bootstrap, and NEXT's first push attempt: use the shared
-    # owned nightly pool even when routing metadata is absent or still names a
-    # paid runner. A retry is not proof of a fleet no-start, so it does not
-    # authorize paid overflow.
+    # Main's decide is a keyless metadata job, so it runs on a Linux JIT
+    # runner, never a nightly mini: queued there behind a build, every push's
+    # decide waited for the mini and the runs drained in a burst when it freed
+    # (2026-11-25: nothing for hours, then four within three minutes).
+    # NEXT's first push attempt on nightly-next keeps the shared owned nightly
+    # pool even when routing metadata is absent or still names a paid runner.
+    # A retry is not proof of a fleet no-start, so it does not authorize paid
+    # overflow.
     # There is no preceding picker; bounded overflow needs controller admission.
     # The nightly slot refuses RC/dogfood refs; keep their existing route.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && vars.CI_CLASSIC_NIGHTLY_MINI || github.ref == 'refs/heads/main' && (startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && github.run_attempt == 1 && (startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref == 'refs/heads/main' && 'cmux-gcp-nightly-jit-x64' || github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && github.run_attempt == 1 && (startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
       head_sha: ${{ steps.decide.outputs.head_sha }}
@@ -202,6 +207,8 @@ jobs:
           # Minimum age, in hours, of the commit NIGHTLY last published before
           # a push to main builds again. `0` restores publish-every-push.
           PUSH_MIN_INTERVAL_HOURS: ${{ vars.NIGHTLY_PUSH_MIN_INTERVAL_HOURS || '2' }}
+          # `1` lets a main push build again; unset, main publishes only on the hourly tick.
+          MAIN_PUSH_BUILDS: ${{ vars.NIGHTLY_MAIN_PUSH_BUILDS || '0' }}
         with:
           script: |
             if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
@@ -335,7 +342,7 @@ jobs:
 
             const alreadyPublished = !buildOnly && !forceBuild && (isMainRef || isRcRef) && publishedSha === headSha;
             // Leo, 2026-11-21 00:51Z: "1 2 3 4 5 go ahead and do whatever pause" (item 5, duplicate
-            // nightlies). The 08:47 UTC catch-up schedule does not start a second app build of a main
+            // nightlies). The hourly :17 UTC app tick does not start a second app build of a main
             // commit while another push or scheduled run of the same commit has a build-nightly-app job
             // queued, running or done: that run publishes it. Nothing is cancelled; this run only builds
             // nothing. Force, manual dispatch and the six-hour cache warmup are unaffected. Any lookup
@@ -392,12 +399,14 @@ jobs:
               nightlySha &&
               !forceBuild &&
               !buildOnly &&
-              // A person asking for this revision by hand gets it, and the
-              // 08:47 UTC catch-up still publishes main HEAD every day. That
-              // keeps one daily build as a backstop, so a path this check
-              // wrongly classifies costs at most a day of staleness.
+              // A person asking for this revision by hand gets it. The hourly
+              // :17 tick is judged like a push, except at 08:17 UTC, which
+              // still publishes main HEAD every day. That keeps one daily
+              // build as a backstop, so a path this check wrongly classifies
+              // costs at most a day of staleness.
               context.eventName !== 'workflow_dispatch' &&
-              context.eventName !== 'schedule'
+              (context.eventName !== 'schedule' ||
+                (context.payload?.schedule === '17 * * * *' && new Date(Date.now()).getUTCHours() !== 8))
             ) {
               try {
                 const { data } = await github.rest.repos.compareCommitsWithBasehead({
@@ -443,8 +452,7 @@ jobs:
             // most builds are replaced within the hour. A push to main skips
             // while the published commit is younger than the interval. Only
             // `push` events on main are throttled: RC branches, manual
-            // dispatches, and both schedules decide exactly as before, and the
-            // 08:47 UTC schedule still publishes whatever main HEAD is then.
+            // dispatches, and both schedules decide exactly as before.
             // Any lookup failure builds.
             const minIntervalHours = Number(process.env.PUSH_MIN_INTERVAL_HOURS);
             let publishedCommitAgeHours = null;
@@ -472,11 +480,20 @@ jobs:
                 core.warning(`Could not read the published ${channelIdentity.releaseTag} commit; building: ${error.message}`);
               }
             }
+            // Leo, 2026-11-25, on NIGHTLY landing several at once after hours of
+            // nothing: space them evenly at meaningful cutovers. A main push
+            // builds nothing; the hourly :17 tick publishes main HEAD when its
+            // app inputs changed, so NIGHTLY moves at most once an hour, on the
+            // clock, however merges bunch up. vars.NIGHTLY_MAIN_PUSH_BUILDS=1
+            // restores building on push (with the throttle above).
+            const hourlyOnly = shouldBuild && !forceBuild && context.eventName === 'push' && isMainRef &&
+              process.env.MAIN_PUSH_BUILDS !== '1';
+            if (hourlyOnly) pushThrottled = true;
             let decisionReason;
             if (seedOnly) {
               decisionReason = 'Manual cache-only run: refresh compilation caches without building or publishing an app.';
             } else if (scheduledCacheOnly) {
-              decisionReason = 'Scheduled cache warmup: refresh compilation caches only. The daily 08:47 UTC schedule is the app catch-up run.';
+              decisionReason = 'Scheduled cache warmup: refresh compilation caches only. The hourly :17 UTC schedule is the app run.';
             } else if (unchangedBuildInputs) {
               decisionReason =
                 `Skipping this build: nothing that reaches the app changed since ${nightlySha.slice(0, 7)} ` +
@@ -491,11 +508,15 @@ jobs:
                 'Use force=true in Run workflow to rebuild the same commit.';
             } else if (!shouldBuild) {
               decisionReason = 'This main commit is already published. Use force=true in Run workflow to rebuild the same commit; manual runs already bypass the push throttle.';
+            } else if (hourlyOnly) {
+              decisionReason =
+                'Skipping this push: main publishes on the hourly :17 UTC tick, which builds main HEAD ' +
+                'when its app inputs changed. Run workflow builds this commit now.';
             } else if (pushThrottled) {
               decisionReason =
                 `Skipping this push: ${channelIdentity.releaseTag} published ${nightlySha.slice(0, 7)}, ` +
                 `committed ${publishedCommitAgeHours.toFixed(2)}h ago (minimum ${minIntervalHours}h). ` +
-                'A later eligible push or the 08:47 UTC catch-up can publish an updated main revision. Run workflow bypasses this throttle; force is only needed to rebuild an already published commit.';
+                'A later eligible push or the hourly :17 UTC tick can publish an updated main revision. Run workflow bypasses this throttle; force is only needed to rebuild an already published commit.';
             } else if (buildOnly) {
               decisionReason = 'Manual build-only measurement: build the unsigned app without publishing.';
             } else if (fastBuild) {
@@ -1257,7 +1278,7 @@ jobs:
       attestations: write
       id-token: write
     needs: decide
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '17 * * * *') && needs.decide.outputs.build_only != 'true'
     # Zig 0.15.2 cannot link the real helper on macOS 26. Match the stable
     # release workflow by building and verifying it on macOS 15 instead.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || contains(fromJSON('["blacksmith-6vcpu-macos-15"]'), fromJSON(vars.RUNNER_POOLS || '{}').macos_15) && fromJSON(vars.RUNNER_POOLS || '{}').macos_15 || 'blacksmith-6vcpu-macos-15' }}
@@ -1326,7 +1347,7 @@ jobs:
   # PR runs (run 44627211268). The key-free Linux control jobs take cmux-gcp-nightly-x64. A re-run takes Blacksmith.
   pick-nightly-app-runner:
     needs: decide
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '17 * * * *')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
@@ -1398,7 +1419,7 @@ jobs:
       daemon_version: ${{ steps.remote_daemon.outputs.version }}
     # !cancelled(): a failed or skipped picker leaves its outputs empty and the build takes the
     # literal label below; it never skips the build.
-    if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')"
+    if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '17 * * * *')"
     # Owned minis first. Attempt 1 of a push or schedule run on main takes one
     # trusted owned mini while CI_PR_POOL_OWNED is 1 and both variables below
     # are set: runs-on asks for the trusted pool label (vars.CI_SEED_TRUSTED_POOL,
@@ -1795,7 +1816,7 @@ jobs:
   # compile (runs 36044415287, 36051668491); here it overlaps the compile.
   resolve-nightly-cmux-tui-client:
     needs: decide
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '17 * * * *') && needs.decide.outputs.build_only != 'true'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && vars.CI_CLASSIC_NIGHTLY_MINI || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
     permissions:
       contents: read
@@ -1831,7 +1852,7 @@ jobs:
   # stays on Blacksmith: never an owned label. Every step continues on error, so the job ends green.
   pick-classic-sign-runner:
     needs: [decide, build-nightly-app]
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '17 * * * *') && needs.decide.outputs.build_only != 'true'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && vars.CI_CLASSIC_NIGHTLY_MINI || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: ${{ vars.CI_CLASSIC_NIGHTLY_MINI != '' && 126 || 6 }}
     permissions:
@@ -1874,7 +1895,7 @@ jobs:
   # included, keeps Blacksmith. Signing and verify stay on Blacksmith (pick-classic-sign-runner).
   pick-classic-prepare-runner:
     needs: [decide, build-nightly-app]
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '17 * * * *') && needs.decide.outputs.build_only != 'true'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 6
     permissions:
@@ -1935,7 +1956,7 @@ jobs:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, pick-classic-sign-runner, pick-classic-prepare-runner]
     # !cancelled() and each original need's success, not the implicit success(): a failed or timed-out
     # pick-classic-sign-runner then leaves its outputs empty and the runs-on literal takes the job.
-    if: "!cancelled() && needs.decide.result == 'success' && needs.build-nightly-ghostty-cli-helper.result == 'success' && needs.build-nightly-app.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'"
+    if: "!cancelled() && needs.decide.result == 'success' && needs.build-nightly-ghostty-cli-helper.result == 'success' && needs.build-nightly-app.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '17 * * * *') && needs.decide.outputs.build_only != 'true'"
     # actions:read lets the parallel artifact download resolve the blob URL.
     permissions:
       contents: read
@@ -2188,7 +2209,7 @@ jobs:
     needs: [decide, build-nightly-app, prepare-nightly-variant, pick-classic-sign-runner]
     # !cancelled() and each original need's success, not the implicit success(): a failed or timed-out
     # pick-classic-sign-runner then leaves its outputs empty and the runs-on literal takes the job.
-    if: "!cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.prepare-nightly-variant.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'"
+    if: "!cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.prepare-nightly-variant.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '17 * * * *') && needs.decide.outputs.build_only != 'true'"
     # Sign and notarize on the same macOS 26 lane proven by stable releases.
     permissions:
       contents: read
@@ -3036,7 +3057,7 @@ jobs:
     # Published paths are completed by auto-resume-nightly-notarization after
     # Apple accepts every exact DMG. This job remains only for private branch
     # artifacts, where no Apple ticket or release publication is involved.
-    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.should_publish != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
+    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.should_publish != 'true' && (github.event_name != 'schedule' || github.event.schedule == '17 * * * *')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     env:
