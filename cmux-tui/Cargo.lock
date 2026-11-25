@@ -2128,6 +2128,8 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "bytes",
+ "cmux-process",
+ "cmux-scope",
  "flate2",
  "futures-util",
  "hex",
