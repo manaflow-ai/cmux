@@ -76,6 +76,37 @@ fn set_style(out: &mut String, style: &mut Option<Style>, want: Style) {
     }
 }
 
+/// The bytes that print `history` (rows of cells, oldest first) on a fresh primary-screen
+/// terminal of `rows` rows so that every one of them ends up in its scrollback, the screen left
+/// blank with the cursor home: what goes before a keyframe whose screen sits below those rows.
+pub fn history_bytes(history: &[Vec<crate::Cell>], rows: u16) -> Vec<u8> {
+    let mut out = String::from("\x1b[0m\x1b[H\x1b[2J");
+    let mut style = None;
+    for row in history {
+        let mut skip = false;
+        for cell in row {
+            if std::mem::take(&mut skip) && cell.text.is_empty() {
+                continue;
+            }
+            set_style(&mut out, &mut style, cell.style);
+            if cell.text.is_empty() {
+                out.push(' ');
+            } else {
+                out.push_str(&cell.text);
+                skip = crate::str_width(&cell.text) > 1;
+            }
+        }
+        out.push_str("\x1b[0m\r\n");
+        style = None;
+    }
+    if !history.is_empty() {
+        // Blank lines until the last history row has left the screen.
+        out.push_str(&"\r\n".repeat(usize::from(rows)));
+    }
+    out.push_str("\x1b[H");
+    out.into_bytes()
+}
+
 /// The bytes that apply `frame` to a terminal of `rows` rows showing the frame's base (a
 /// blank one for a keyframe), then put the cursor at `cursor`. `None` when `frame.data` is
 /// not a delta.

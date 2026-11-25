@@ -1067,6 +1067,8 @@ fn dispatch_command(
             replay_history_start,
             hybrid_stream,
             hybrid_frame,
+            view_cols,
+            view_rows,
             resume_offset,
             resume_generation,
             resume_max_bytes,
@@ -1090,7 +1092,7 @@ fn dispatch_command(
                 replay_history_rows,
                 output_coalesce_ms,
                 replay_history_start,
-                (hybrid_stream, hybrid_frame),
+                (hybrid_stream, hybrid_frame, view_cols.zip(view_rows)),
                 (resume_offset, resume_generation, resume_max_bytes),
                 snapshot,
             )

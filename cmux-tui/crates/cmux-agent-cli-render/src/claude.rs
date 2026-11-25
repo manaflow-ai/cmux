@@ -168,6 +168,17 @@ fn items(records: &[Value]) -> (Vec<Item>, bool) {
 /// Draws Claude Code's screen for `records` (acpmux log records: `{kind, msg, at}`) on a
 /// `cols` x `rows` terminal.
 pub fn render(records: &[Value], chrome: &Chrome, cols: u16, rows: u16) -> Grid {
+    render_with_history(records, chrome, cols, rows).1
+}
+
+/// [`render`], and the rows above the screen, oldest first: what a viewer on the primary
+/// screen keeps in its own scrollback (the phone's agent terminal scrolls natively).
+pub fn render_with_history(
+    records: &[Value],
+    chrome: &Chrome,
+    cols: u16,
+    rows: u16,
+) -> (Vec<Vec<Cell>>, Grid) {
     let width = usize::from(cols);
     let (items, running) = items(records);
     let mut lines: Vec<Line> = Vec::new();
@@ -196,10 +207,12 @@ pub fn render(records: &[Value], chrome: &Chrome, cols: u16, rows: u16) -> Grid 
     input_box(&mut lines, chrome, running, width);
     let skip = lines.len().saturating_sub(usize::from(rows));
     let mut grid = Grid::blank(cols, rows);
-    for (slot, line) in grid.cells.iter_mut().zip(lines.into_iter().skip(skip)) {
+    let mut lines = lines.into_iter();
+    let history = lines.by_ref().take(skip).map(|line| line.into_row(width)).collect();
+    for (slot, line) in grid.cells.iter_mut().zip(lines) {
         *slot = line.into_row(width);
     }
-    grid
+    (history, grid)
 }
 
 /// Claude Code from 2.1.320 draws full-screen (the alternate screen): a blank first row, the
@@ -219,7 +232,7 @@ fn fullscreen_grid(
     fresh: bool,
     cols: u16,
     rows: u16,
-) -> Grid {
+) -> (Vec<Vec<Cell>>, Grid) {
     let width = usize::from(cols);
     let mut top = vec![Line::new()];
     top.extend(content);
@@ -227,14 +240,17 @@ fn fullscreen_grid(
     let avail = usize::from(rows).saturating_sub(bottom.len());
     let skip = top.len().saturating_sub(avail);
     let mut grid = Grid::blank(cols, rows);
-    for (slot, line) in grid.cells.iter_mut().zip(top.into_iter().skip(skip)) {
+    let mut top = top.into_iter();
+    let mut history: Vec<Vec<Cell>> =
+        top.by_ref().take(skip).map(|line| line.into_row(width)).collect();
+    for (slot, line) in grid.cells.iter_mut().zip(top) {
         *slot = line.into_row(width);
     }
     let first = usize::from(rows).saturating_sub(bottom.len());
     for (slot, line) in grid.cells.iter_mut().skip(first).zip(bottom) {
         *slot = line.into_row(width);
     }
-    for row in &mut grid.cells {
+    for row in grid.cells.iter_mut().chain(history.iter_mut()) {
         for cell in row.iter_mut() {
             if cell.text == "●" {
                 cell.text = "⏺".to_owned();
@@ -255,7 +271,7 @@ fn fullscreen_grid(
             cell.style.bg = truecolor(cell.style.bg);
         }
     }
-    grid
+    (history, grid)
 }
 
 /// The 24-bit color 2.1.332's dark theme draws for each 256-color index the 2.1.310 look uses.
