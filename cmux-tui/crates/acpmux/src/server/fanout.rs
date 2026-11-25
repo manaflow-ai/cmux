@@ -114,8 +114,14 @@ pub(super) fn start(
     let mut presence = hub.presence.subscribe();
     tokio::spawn(async move {
         loop {
+            let rows_due = conn.held_rows.due();
             let ev = tokio::select! {
                 ev = rx.recv() => ev,
+                // The rows held behind a turn's first output go at their bound (`held_rows.rs`).
+                () = super::held_rows::wait(rows_due), if rows_due.is_some() => {
+                    super::held_rows::flush(&hub, &conn);
+                    continue;
+                }
                 // A turn's answer waits for the events queued before it (`Flush`).
                 Some(ask) = flushes.asked() => {
                     loop {
@@ -127,6 +133,7 @@ pub(super) fn start(
                             Err(_) => break,
                         }
                     }
+                    super::held_rows::flush(&hub, &conn);
                     flushes.served(ask);
                     continue;
                 }
@@ -204,7 +211,9 @@ pub(super) fn start(
 /// with the same raw id); never to a peer daemon's link, which does not carry presence
 /// (`hub/presence.rs`).
 fn send_presence(conn: &Conn, note: &serde_json::Value) {
-    if conn.origin == super::Origin::Peer {
+    if conn.origin == super::Origin::Peer
+        || !conn.client_features.hears_any(&[crate::capabilities::CHAT_PRESENCE])
+    {
         return;
     }
     let attached = note

@@ -19,7 +19,7 @@ export type AutomationHost = {
   ready?(method: string): Promise<void>;
   /// The sidebar row's selection path.
   selectSession(sessionId: string): void;
-  /// The edited-files card's "View changes" path.
+  /// The changes pane path: the edited-files card's Open in Changes (in its opened diff).
   openDiff(rowId: string): void;
   /// The location row's folder pick (startFolder.tsx: the host takes it or asks first).
   pickFolder?(cwd: string): void;
@@ -40,6 +40,8 @@ export type AutomationCompose = {
   /// Why Send is held now, or undefined: the sign-in notice's words, else `folder_question`,
   /// `cloud_start_out` or `sandbox_holds_chat`.
   blocked?(): string | undefined;
+  /// What decides whether the run row is offered now (sandboxOfferable), for the debug `chat_state` verb.
+  runPlace?(): Record<string, unknown>;
 };
 
 /// How long an automation verb waits for the chat's own action (pageAction).
@@ -314,7 +316,7 @@ export function models(host: AutomationHost) {
   };
 }
 
-/// Opens the changes view of the latest turn that edited files, as its "View changes" does.
+/// Opens the changes view of the latest turn that edited files, as its card's Open in Changes does.
 export function openChanges(host: AutomationHost) {
   const rows = host.snapshot().rows;
   const edited = [...rows]

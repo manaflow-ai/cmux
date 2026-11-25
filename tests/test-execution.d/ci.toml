@@ -74,6 +74,10 @@ path = "tests/test_ci_cargo_affected.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_cdn_user_agent.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_change_areas.py"
 lane = "linux-guard"
 
@@ -119,6 +123,11 @@ path = "tests/test_ci_cmux_next_compile_status.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_cmux_tui_channel_heal.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_cmux_tui_channel_heal.py"
+
+[[test]]
 path = "tests/test_ci_cmux_tui_fat_warm_target.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Checks that the shipped fat-LTO cmux-tui legs of cmux-tui-build-package.yml mount their own warm sticky disks (keys apart from the thin ones), restore before their builds and record (prune) only in the Record the warm target step after Stage binary, that the warm bound stays above measured use, and that the script empties a disk whose toolchain stamp changed; run python3 tests/test_ci_cmux_tui_fat_warm_target.py yourself after changing those steps, macos-cross.sh all or the script (about 2 s, no build)."
@@ -161,6 +170,10 @@ path = "tests/test_ci_edit_events_start_no_runner.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_entry_logs.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_ephemeral_pool_readers.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_ci_ephemeral_pool_readers.py yourself after changing the pool readers it reads."
@@ -198,6 +211,11 @@ path = "tests/test_ci_fast_checks_rust_nextest.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_fast_tier_current_base.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_fast_tier_current_base.py"
+
+[[test]]
 path = "tests/test_ci_fetch_complexity_base.py"
 lane = "linux-guard"
 
@@ -212,6 +230,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_fleet_rule_lints.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fleet_test_products.py"
 lane = "linux-guard"
 
 [[test]]
@@ -291,6 +313,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_ios_conventions_diff.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_ios_kit_base_red.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_ios_loading_placeholders.py"
 lane = "linux-guard"
 
 [[test]]
@@ -521,6 +551,10 @@ path = "tests/test_ci_parallel_artifact_transport.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_persisted_formats.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_piece_swap.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_piece_swap.py"
@@ -569,6 +603,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_production_secrets_protected_env.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_protocol_skew_check.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_protocol_skew_check.py"
 
 [[test]]
 path = "tests/test_ci_prune_media_derived_data.py"
@@ -707,6 +746,11 @@ lane = "linux-guard"
 path = "tests/test_ci_routed_jobs_check_needs.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_routed_jobs_check_needs.py"
+
+[[test]]
+path = "tests/test_ci_router_checkout_mirror.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_router_checkout_mirror.py"
 
 [[test]]
 path = "tests/test_ci_run_guards.py"
@@ -912,6 +956,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_upload_artifact_retention.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_vm_image_qcow2.py"
 lane = "linux-guard"
 
 [[test]]
