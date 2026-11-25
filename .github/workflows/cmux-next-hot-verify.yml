@@ -602,6 +602,7 @@ jobs:
         env:
           CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
           CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_PERMISSIONS: '{"actions":"write"}'  # one more look's dispatch (the plan job's dispatch the same)
         run: python3 scripts/ci/ci_pool_tokens.py
       # The cmux-bot App's installation has an hour of its own (the plan job's dispatch uses it the same way): a
       # read refused on github.token moves to it at once instead of sleeping (gh_budget_wait.sh GH_TOKEN_SPARE).
@@ -685,10 +686,14 @@ jobs:
             echo "needs_build=false" >> "$GITHUB_OUTPUT"
             ls "$RUNNER_TEMP/hv/media" 2>/dev/null | sed 's/^/staged: /' || true
           fi
+      # A CI pool App first, then github.token, like the plan job's dispatch: on github.token alone a spent hour
+      # held this runner asleep in gh_budget_wait.sh (2026-11-25: 2,100-2,800 s at the median, about 1,300
+      # runner-minutes in 14 h for one `gh workflow run`).
       - name: Dispatch one more look
         if: ${{ steps.check.outputs.ok == 'true' && (steps.result.outputs.tar == 'false' || steps.stage.outputs.again == 'true') && inputs.attempt != '1' }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
+          GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}
           PR: ${{ inputs.pr }}
           HEAD_SHA: ${{ inputs.head }}
           LAYERS: ${{ inputs.layers }}
@@ -703,7 +708,8 @@ jobs:
         id: gallery
         if: ${{ steps.stage.outputs.needs_build == 'false' }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
+          GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}
           HEAD_SHA: ${{ inputs.head }}
         run: |
           set -uo pipefail
