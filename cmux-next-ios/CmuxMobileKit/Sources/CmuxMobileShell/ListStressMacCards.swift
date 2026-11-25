@@ -15,7 +15,7 @@ import UIKit
 enum ListStressMacCards {
     /// Waits for a signed-in account (the cache is keyed by it), seeds, then waits until the
     /// rows and every blob are on disk and tells the face probe.
-    static func seed(tabs: [WorkspaceTab], macID: String) async {
+    static func seed(tabs: [WorkspaceTab], macID: String, drops: Bool = false) async {
         for _ in 0 ..< 60 {
             if let account = TabCardSnapshots.shared.accountID?(), !account.isEmpty { break }
             try? await Task.sleep(for: .milliseconds(500))
@@ -59,6 +59,25 @@ enum ListStressMacCards {
             try? await Task.sleep(for: .milliseconds(250))
         }
         TabCardFaceProbe.macSeeded(cards: listed.count)
+        guard drops else { return }
+        // A newer row of every tab with no picture, and the blobs no row names: what a Mac sends of
+        // tabs it hibernated or after its daemon restarted.
+        try? await Task.sleep(for: .seconds(4))
+        let bare = listed.map { row in
+            (tabID: row.tabID, info: MacCardInfo(title: "dropped-" + row.info.title, kind: row.info.kind,
+                                                 capturedAtMs: row.info.capturedAtMs + 1000))
+        }
+        cards.cards(bare, macID: macID)
+        cards.remove(blobs: held.map(\.hash), macID: macID)
+        for _ in 0 ..< 40 {
+            let onDisk = await Task.detached {
+                let rows = store.macCards(accountID: account, macID: macID)
+                return rows.count == bare.count && rows.values.allSatisfy { $0.title.hasPrefix("dropped-") }
+            }.value
+            if onDisk { break }
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+        TabCardFaceProbe.macDropped()
     }
 
     /// A flat colored picture, a different color for each tab.

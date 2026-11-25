@@ -100,10 +100,10 @@ pub struct TaskListSummary {
     pub done: u32,
     /// Every step.
     pub total: u32,
-    /// The first step in progress; null when none is.
+    /// The first step in progress, by its title (`step_title`); null when none is.
     pub current: Option<String>,
     /// The first step still pending after the current one (or the first pending one when none is
-    /// in progress); null when none is left.
+    /// in progress), by its title; null when none is left.
     pub next: Option<String>,
     pub items: Vec<TaskItem>,
     /// When it last changed, Unix ms.
@@ -130,12 +130,21 @@ impl TaskList {
             source: self.source,
             done: u32::try_from(done).unwrap_or(u32::MAX),
             total: u32::try_from(self.items.len()).unwrap_or(u32::MAX),
-            current: at.and_then(|at| self.items.get(at)).map(|i| i.content.clone()),
-            next: next.map(|i| i.content.clone()),
+            current: at.and_then(|at| self.items.get(at)).map(|i| step_title(&i.content)),
+            next: next.map(|i| step_title(&i.content)),
             items: self.items.clone(),
             updated_at: self.updated_at,
         }
     }
+}
+
+/// A step's title: its first line with words, trimmed. A step written as several lines (an ops
+/// note: a title, then its detail) names itself by that line wherever one line names it: the
+/// summary's `current` and `next`, which the sidebar's hover card and the TUI draw. The chat's list
+/// draws the rest as muted detail from `items`. Leo, 2026-11-22, on a two-line note drawn as a
+/// plan's step: "these shouldn't have been shown like that."
+pub fn step_title(content: &str) -> String {
+    content.lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or("").to_owned()
 }
 
 /// One step's words as kept: masked, then cut; None when nothing is left.
@@ -255,6 +264,26 @@ mod tests {
         let none_running = TaskList { items: list.items[..2].to_vec(), ..list };
         assert_eq!(none_running.summary().current, None);
         assert_eq!(none_running.summary().next.as_deref(), Some("a"));
+    }
+
+    #[test]
+    fn summary_names_a_multi_line_step_by_its_first_line() {
+        let list = TaskList {
+            items: vec![
+                item(
+                    "\n  Restart the relay  \nthen read its log for the 403s",
+                    TaskStatus::InProgress,
+                ),
+                item("Rerun the lane\nfrom its last green head", TaskStatus::Pending),
+            ],
+            source: TaskListSource::Harness,
+            updated_at: 7,
+            turn: 1,
+        };
+        let s = list.summary();
+        assert_eq!(s.current.as_deref(), Some("Restart the relay"));
+        assert_eq!(s.next.as_deref(), Some("Rerun the lane"));
+        assert!(s.items[0].content.contains("403s"), "the whole step stays in items");
     }
 
     #[test]
