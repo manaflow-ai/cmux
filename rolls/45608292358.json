@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45608292358",
+  "recorded_at": "2026-11-25T11:58:23Z",
+  "reason": "image inputs changed in 7b13c841c24008fbd53515f4bd61b218c5c13704..1fba6b74deb7a73977872eea315cacf68588e1c3",
+  "dry_run": false,
+  "cmux_tui": "67d01201b152cf703af3a9adab5bba27544acf99",
+  "fixes": [
+    {
+      "sha": "1fba6b74deb7a73977872eea315cacf68588e1c3",
+      "mergedAt": "2026-11-25T11:51:20Z",
+      "subject": "cmux-vm smoke: the daemon-uptime journal filter reads the file into its first grep (#56248)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-25T11:58:23Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
