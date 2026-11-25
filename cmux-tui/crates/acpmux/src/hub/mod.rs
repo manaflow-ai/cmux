@@ -305,7 +305,6 @@ mod prompt_sender;
 pub(crate) mod cold_wake;
 mod protected_hold;
 // The account's rate limit holds every turn of a chat until its reset.
-pub(crate) mod prompt_admission;
 mod queue;
 mod queue_admission;
 mod queue_edit;
@@ -866,10 +865,9 @@ pub struct PromptOptions {
     /// it can only refuse a prompt, never admit one.
     #[doc(hidden)]
     pub race_guard: Option<Arc<dyn Fn() -> Result<(), RpcError> + Send + Sync>>,
-    /// The prompt's admission, taken by the RPC layer before it resolves prompt uploads
-    /// (`prompt_admission.rs`: bounded both ways).
+    /// Admission guard acquired by the RPC layer before it resolves prompt uploads.
     #[doc(hidden)]
-    pub admission: Option<Arc<prompt_admission::Admission>>,
+    pub prompt_admission: Option<tokio::sync::OwnedMutexGuard<()>>,
     /// Native-prepared Cloud turn capability; held in memory until claim/finish only.
     pub cloud_turn: Option<crate::cloud_rewind::CloudTurnEnvelope>,
     /// Client-chosen id (`_meta.acpmux.promptId`); generated when absent.
