@@ -57,7 +57,7 @@ def unsafe_skips(condition: str) -> list[str]:
     ]
 
 
-def offenders() -> list[str]:
+def offenders(seen: list[str] | None = None) -> list[str]:
     found = []
     for path in sorted(WORKFLOWS.glob("*.y*ml")):
         document = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -69,6 +69,8 @@ def offenders() -> list[str]:
             name = str(job.get("name") or "")
             if "${{" not in name or not any(f"'{check}'" in name for check in MAIN_REQUIRED):
                 continue
+            if seen is not None:
+                seen.append(f"{path.name}:{job_id}")
             for clause in unsafe_skips(str(job.get("if") or "")):
                 found.append(f"{path.name}:{job_id}: {clause}")
     return found
@@ -76,7 +78,10 @@ def offenders() -> list[str]:
 
 class RequiredGateNeverSkipsIntoMainTests(unittest.TestCase):
     def test_workflows_have_no_main_skip_on_expression_named_required_jobs(self) -> None:
-        self.assertEqual(offenders(), [])
+        seen: list[str] = []
+        self.assertEqual(offenders(seen), [])
+        # A renamed gate must not turn this into a test of nothing.
+        self.assertIn("backend-migrations.yml:gate", seen)
 
     def test_unscoped_no_change_skip_is_caught(self) -> None:
         condition = "always() && !(needs.plan.result == 'success' && needs.plan.outputs.migrations != 'true')"
