@@ -135,26 +135,29 @@ pub fn is_env_name(name: &str) -> bool {
 pub fn shell_refs(value: &str) -> Vec<String> {
     let mut refs = Vec::new();
     let bytes = value.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'$' {
-            if bytes.get(i + 1) == Some(&b'$') {
-                i += 2;
+    let mut i = 0usize;
+    while let Some(&byte) = bytes.get(i) {
+        if byte == b'$' {
+            if bytes.get(i.saturating_add(1)) == Some(&b'$') {
+                i = i.saturating_add(2);
                 continue;
             }
-            let braced = bytes.get(i + 1) == Some(&b'{');
-            let start = if braced { i + 2 } else { i + 1 };
-            let mut end = start;
-            while end < bytes.len() && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_') {
-                end += 1;
-            }
-            let name = &value[start..end];
+            let braced = bytes.get(i.saturating_add(1)) == Some(&b'{');
+            let start = i.saturating_add(if braced { 2 } else { 1 });
+            let len = bytes
+                .get(start..)
+                .unwrap_or_default()
+                .iter()
+                .take_while(|b| b.is_ascii_alphanumeric() || **b == b'_')
+                .count();
+            let end = start.saturating_add(len);
+            let name = value.get(start..end).unwrap_or_default();
             if is_env_name(name) && !refs.iter().any(|r| r == name) {
                 refs.push(name.to_owned());
             }
-            i = end.max(i + 1);
+            i = end.max(i.saturating_add(1));
         } else {
-            i += 1;
+            i = i.saturating_add(1);
         }
     }
     refs
@@ -192,6 +195,13 @@ pub fn rel(root: &Path, path: &Path) -> String {
     if parts.is_empty() { ".".into() } else { parts.join("/") }
 }
 
+/// The value at `path` (object keys, outermost first), or `null` when any key is missing or a
+/// step is not an object: `value["a"]["b"]` without the indexing.
+pub fn at<'a>(value: &'a serde_json::Value, path: &[&str]) -> &'a serde_json::Value {
+    static NULL: serde_json::Value = serde_json::Value::Null;
+    path.iter().try_fold(value, |v, key| v.get(*key)).unwrap_or(&NULL)
+}
+
 /// JSON with comments and trailing commas (devcontainer.json, devbox.json) as plain JSON.
 pub fn parse_jsonc(text: &str) -> Result<serde_json::Value, String> {
     serde_json::from_str(&strip_jsonc(text)).map_err(|e| e.to_string())
@@ -201,57 +211,57 @@ pub fn parse_jsonc(text: &str) -> Result<serde_json::Value, String> {
 pub fn strip_jsonc(text: &str) -> String {
     let chars: Vec<char> = text.chars().collect();
     let mut out = String::with_capacity(text.len());
-    let mut i = 0;
-    while i < chars.len() {
-        let c = chars[i];
+    let mut i = 0usize;
+    while let Some(&c) = chars.get(i) {
         if c == '"' {
             out.push(c);
-            i += 1;
-            while i < chars.len() {
-                let c = chars[i];
+            i = i.saturating_add(1);
+            while let Some(&c) = chars.get(i) {
                 out.push(c);
-                i += 1;
+                i = i.saturating_add(1);
                 if c == '\\' {
                     if let Some(&next) = chars.get(i) {
                         out.push(next);
-                        i += 1;
+                        i = i.saturating_add(1);
                     }
                 } else if c == '"' {
                     break;
                 }
             }
-        } else if c == '/' && chars.get(i + 1) == Some(&'/') {
-            while i < chars.len() && chars[i] != '\n' {
-                i += 1;
+        } else if c == '/' && chars.get(i.saturating_add(1)) == Some(&'/') {
+            while chars.get(i).is_some_and(|&c| c != '\n') {
+                i = i.saturating_add(1);
             }
-        } else if c == '/' && chars.get(i + 1) == Some(&'*') {
-            i += 2;
-            while i < chars.len() && !(chars[i] == '*' && chars.get(i + 1) == Some(&'/')) {
-                if chars[i] == '\n' {
+        } else if c == '/' && chars.get(i.saturating_add(1)) == Some(&'*') {
+            i = i.saturating_add(2);
+            while let Some(&c) = chars.get(i) {
+                if c == '*' && chars.get(i.saturating_add(1)) == Some(&'/') {
+                    break;
+                }
+                if c == '\n' {
                     out.push('\n');
                 }
-                i += 1;
+                i = i.saturating_add(1);
             }
-            i += 2;
+            i = i.saturating_add(2);
         } else {
             out.push(c);
-            i += 1;
+            i = i.saturating_add(1);
         }
     }
     // Trailing commas: a comma followed only by whitespace and then `}` or `]` (strings are
     // skipped again so a literal ",]" inside one stays).
     let chars: Vec<char> = out.chars().collect();
     let mut clean = String::with_capacity(out.len());
-    let mut i = 0;
+    let mut i = 0usize;
     let mut in_string = false;
-    while i < chars.len() {
-        let c = chars[i];
+    while let Some(&c) = chars.get(i) {
         if in_string {
             clean.push(c);
             if c == '\\' {
-                if let Some(&next) = chars.get(i + 1) {
+                if let Some(&next) = chars.get(i.saturating_add(1)) {
                     clean.push(next);
-                    i += 1;
+                    i = i.saturating_add(1);
                 }
             } else if c == '"' {
                 in_string = false;
@@ -260,17 +270,14 @@ pub fn strip_jsonc(text: &str) -> String {
             in_string = true;
             clean.push(c);
         } else if c == ',' {
-            let mut j = i + 1;
-            while j < chars.len() && chars[j].is_whitespace() {
-                j += 1;
-            }
-            if !matches!(chars.get(j), Some('}') | Some(']')) {
+            let next = chars.iter().skip(i.saturating_add(1)).find(|c| !c.is_whitespace());
+            if !matches!(next, Some('}') | Some(']')) {
                 clean.push(c);
             }
         } else {
             clean.push(c);
         }
-        i += 1;
+        i = i.saturating_add(1);
     }
     clean
 }

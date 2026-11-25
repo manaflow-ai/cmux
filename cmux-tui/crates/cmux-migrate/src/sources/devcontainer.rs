@@ -15,7 +15,7 @@ use serde_json::Value;
 
 use super::compose;
 use super::project_files::{
-    ENSURE_DOCKER, ENSURE_MISE, apt_install, checkout_source, folder_name, is_env_name,
+    ENSURE_DOCKER, ENSURE_MISE, apt_install, at, checkout_source, folder_name, is_env_name,
     looks_secret, mise_use, parse_jsonc, rel, repo_at, sh_quote, value_has_login,
 };
 use crate::plan::{MachineConfig, Plan, Project, SourceKind, Unsupported, machine_name};
@@ -113,11 +113,11 @@ pub fn read_file(root: &Path, file: &Path, many: bool) -> Result<Read, String> {
 
     // A compose-based config: the compose reader gives the project, with `service` as the app.
     let compose_files: Vec<PathBuf> =
-        strings(&json["dockerComposeFile"]).iter().map(|f| config_dir.join(f)).collect();
+        strings(at(&json, &["dockerComposeFile"])).iter().map(|f| config_dir.join(f)).collect();
     let mut project = if compose_files.is_empty() {
         Project { repo: Some(repo_at(root)), checked: true, ..Project::default() }
     } else {
-        let service = json["service"].as_str();
+        let service = at(&json, &["service"]).as_str();
         let run_services: Option<Vec<String>> =
             json.get("runServices").map(strings).filter(|v| !v.is_empty());
         let r = compose::read_files(root, &compose_files, service, run_services.as_deref())?;
@@ -131,33 +131,37 @@ pub fn read_file(root: &Path, file: &Path, many: bool) -> Result<Read, String> {
     };
     project.key = shown.clone();
     project.name = machine_name(&name);
-    if let Some(title) = json["name"].as_str() {
+    if let Some(title) = at(&json, &["name"]).as_str() {
         project.notes.push(format!("devcontainer \"{title}\" ({shown})"));
     }
     let mut machine = std::mem::take(&mut project.machine);
 
     // The container the source ran in.
-    if let Some(image) = json["image"].as_str() {
+    if let Some(image) = at(&json, &["image"]).as_str() {
         project.image = Some(image.to_owned());
         project.notes.push(format!(
             "ran in image {image}; the machine is a full VM, so [setup] installs what the config's features and commands add"
         ));
     }
-    let dockerfile = json["build"]["dockerfile"].as_str().or(json["dockerFile"].as_str());
+    let dockerfile =
+        at(&json, &["build", "dockerfile"]).as_str().or(at(&json, &["dockerFile"]).as_str());
     if let Some(dockerfile) = dockerfile {
-        let context = json["build"]["context"].as_str().or(json["context"].as_str()).unwrap_or(".");
+        let context = at(&json, &["build", "context"])
+            .as_str()
+            .or(at(&json, &["context"]).as_str())
+            .unwrap_or(".");
         let dockerfile_path = rel(root, &config_dir.join(dockerfile));
         let context_path = rel(root, &config_dir.join(context));
         let tag = format!("{}-devcontainer", machine_name(&name));
         let mut build = format!("docker build -f {} -t {tag}", sh_quote(&dockerfile_path));
-        if let Value::Object(args) = &json["build"]["args"] {
+        if let Value::Object(args) = at(&json, &["build", "args"]) {
             for (k, v) in args {
                 if let Some(v) = v.as_str() {
                     build.push_str(&format!(" --build-arg {}", sh_quote(&format!("{k}={v}"))));
                 }
             }
         }
-        if let Some(target) = json["build"]["target"].as_str() {
+        if let Some(target) = at(&json, &["build", "target"]).as_str() {
             build.push_str(&format!(" --target {}", sh_quote(target)));
         }
         build.push(' ');
@@ -170,7 +174,7 @@ pub fn read_file(root: &Path, file: &Path, many: bool) -> Result<Read, String> {
     }
 
     // Features, in the file's order.
-    if let Value::Object(features) = &json["features"] {
+    if let Value::Object(features) = at(&json, &["features"]) {
         for (id, options) in features {
             match feature_steps(id, options) {
                 Some(steps) => {
@@ -187,14 +191,14 @@ pub fn read_file(root: &Path, file: &Path, many: bool) -> Result<Read, String> {
     }
 
     // Lifecycle commands, in the order a container runs them.
-    if !json["initializeCommand"].is_null() {
+    if !at(&json, &["initializeCommand"]).is_null() {
         project.notes.push(
             "initializeCommand runs on the person's own computer before the container; it is not replayed on the machine".into(),
         );
     }
     for hook in ["onCreateCommand", "updateContentCommand", "postCreateCommand", "postStartCommand"]
     {
-        let commands = lifecycle(&json[hook]);
+        let commands = lifecycle(at(&json, &[hook]));
         if hook == "postStartCommand" && !commands.is_empty() {
             project.notes.push(
                 "postStartCommand ran on every container start; [setup] runs it when the config changes".into(),
@@ -202,28 +206,28 @@ pub fn read_file(root: &Path, file: &Path, many: bool) -> Result<Read, String> {
         }
         machine.setup.extend(commands);
     }
-    if !json["postAttachCommand"].is_null() {
+    if !at(&json, &["postAttachCommand"]).is_null() {
         project.notes.push(format!(
             "postAttachCommand ran on every attach and is not replayed: {}",
-            lifecycle(&json["postAttachCommand"]).join("; ")
+            lifecycle(at(&json, &["postAttachCommand"])).join("; ")
         ));
     }
 
     // Environment.
     for key in ["containerEnv", "remoteEnv"] {
-        if let Value::Object(env) = &json[key] {
+        if let Value::Object(env) = at(&json, &[key]) {
             for (k, v) in env {
                 let Some(v) = v.as_str() else { continue };
                 env_entry(k, v, &mut machine);
             }
         }
     }
-    if let Value::Object(secrets) = &json["secrets"] {
+    if let Value::Object(secrets) = at(&json, &["secrets"]) {
         machine.secret_names.extend(secrets.keys().filter(|k| is_env_name(k)).cloned());
     }
 
     // Ports.
-    for v in array(&json["forwardPorts"]).into_iter().chain(array(&json["appPort"])) {
+    for v in array(at(&json, &["forwardPorts"])).into_iter().chain(array(at(&json, &["appPort"]))) {
         let port = match v {
             Value::Number(n) => n.as_u64().and_then(|n| u16::try_from(n).ok()),
             Value::String(s) => s.rsplit(':').next().and_then(|p| p.trim().parse().ok()),
@@ -237,12 +241,12 @@ pub fn read_file(root: &Path, file: &Path, many: bool) -> Result<Read, String> {
     }
 
     // What a person should know.
-    let extensions = strings(&json["customizations"]["vscode"]["extensions"]);
+    let extensions = strings(at(&json, &["customizations", "vscode", "extensions"]));
     if !extensions.is_empty() {
         project.notes.push(format!("VS Code extensions: {}", extensions.join(", ")));
     }
     for key in ["remoteUser", "containerUser"] {
-        if let Some(user) = json[key].as_str() {
+        if let Some(user) = at(&json, &[key]).as_str() {
             project
                 .notes
                 .push(format!("{key} was {user}; on the machine commands run as its own user"));
@@ -256,12 +260,12 @@ pub fn read_file(root: &Path, file: &Path, many: bool) -> Result<Read, String> {
         ("runArgs", "docker run options do not apply to a VM"),
         ("workspaceMount", "the checkout is cloned onto the machine"),
     ] {
-        if !json[key].is_null() {
+        if !at(&json, &[key]).is_null() {
             read.unsupported.push(Unsupported { what: format!("{shown}: {key}"), why: why.into() });
         }
     }
-    if json["hostRequirements"]["gpu"].as_bool() == Some(true)
-        || json["hostRequirements"]["gpu"].as_str().is_some_and(|g| g != "optional")
+    if at(&json, &["hostRequirements", "gpu"]).as_bool() == Some(true)
+        || at(&json, &["hostRequirements", "gpu"]).as_str().is_some_and(|g| g != "optional")
     {
         read.unsupported.push(Unsupported {
             what: format!("{shown}: hostRequirements.gpu"),
@@ -294,10 +298,9 @@ fn env_entry(name: &str, value: &str, machine: &mut MachineConfig) {
 pub fn local_env_refs(value: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut rest = value;
-    while let Some(i) = rest.find("${localEnv:") {
-        rest = &rest[i + "${localEnv:".len()..];
-        let end = rest.find(['}', ':']).unwrap_or(rest.len());
-        let name = &rest[..end];
+    while let Some((_, after)) = rest.split_once("${localEnv:") {
+        rest = after;
+        let name = rest.split(['}', ':']).next().unwrap_or_default();
         if is_env_name(name) && !out.iter().any(|n| n == name) {
             out.push(name.to_owned());
         }
@@ -308,16 +311,14 @@ pub fn local_env_refs(value: &str) -> Vec<String> {
 fn container_env_to_shell(value: &str) -> String {
     let mut out = String::new();
     let mut rest = value;
-    while let Some(i) = rest.find("${containerEnv:") {
-        out.push_str(&rest[..i]);
-        rest = &rest[i + "${containerEnv:".len()..];
-        let end = rest.find('}').unwrap_or(rest.len());
-        let inner = &rest[..end];
+    while let Some((before, after)) = rest.split_once("${containerEnv:") {
+        out.push_str(before);
+        let (inner, next) = after.split_once('}').unwrap_or((after, ""));
         match inner.split_once(':') {
             Some((name, default)) => out.push_str(&format!("${{{name}:-{default}}}")),
             None => out.push_str(&format!("${{{inner}}}")),
         }
-        rest = rest.get(end + 1..).unwrap_or("");
+        rest = next;
     }
     out.push_str(rest);
     out

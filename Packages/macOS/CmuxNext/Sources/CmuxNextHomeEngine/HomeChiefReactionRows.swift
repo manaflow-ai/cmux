@@ -24,8 +24,6 @@ final class HomeChiefReactionRows: NSStackView {
     var onResize: () -> Void = {}
     /// The harness, model and instructions rows, in the card only while the disclosure is open.
     private var classifierRows: [NSView] = []
-    /// The note under the block, which the opened rows go above.
-    private var note: NSView?
     /// What each field showed at the last `show`, so leaving it unchanged writes nothing.
     private var shown: [ObjectIdentifier: String] = [:]
 
@@ -54,10 +52,6 @@ final class HomeChiefReactionRows: NSStackView {
             row.translatesAutoresizingMaskIntoConstraints = false
             classifierRows.append(row)
         }
-        let note = HomeChiefSettingsView.footnote(HomeEngineStrings.reactionsNote)
-        note.preferredMaxLayoutWidth = width
-        add(note)
-        self.note = note
     }
 
     /// Whether the classifier's fields show; setting it adds or removes their rows.
@@ -67,9 +61,8 @@ final class HomeChiefReactionRows: NSStackView {
             guard newValue != showsClassifier else { return }
             classifierToggle.state = newValue ? .on : .off
             if newValue {
-                let at = note.flatMap { arrangedSubviews.firstIndex(of: $0) } ?? arrangedSubviews.count
-                for (offset, row) in classifierRows.enumerated() {
-                    insertArrangedSubview(row, at: at + offset)
+                for row in classifierRows {
+                    addArrangedSubview(row)
                     row.widthAnchor.constraint(equalTo: widthAnchor).isActive = true
                 }
             } else {

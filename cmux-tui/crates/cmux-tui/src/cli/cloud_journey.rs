@@ -664,7 +664,7 @@ async fn journey(global: &GlobalArgs, args: &Args) -> Result<i32, String> {
         Duration::from_secs(120),
     )
     .map_err(|e| e.to_string())?;
-    let exec_client = reqwest::Client::builder()
+    let exec_client = cmux_egress::client_builder("cmux_tui::cli::cloud_journey")
         .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(ua)

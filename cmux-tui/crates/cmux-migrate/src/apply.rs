@@ -136,13 +136,13 @@ pub fn machine_path(path: &str) -> String {
 pub fn chat_destination(chat: &str, checkout: &str) -> String {
     let parts: Vec<&str> = chat.split('/').collect();
     if let Some(i) = parts.iter().position(|p| *p == "projects")
-        && i > 0
-        && parts[i - 1] == ".claude"
-        && parts.len() > i + 2
+        && i.checked_sub(1).and_then(|before| parts.get(before)) == Some(&".claude")
+        && let Some(rest) = parts.get(i.saturating_add(2)..)
+        && !rest.is_empty()
     {
         let slug: String =
             checkout.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
-        let file = parts[i + 2..].join("/");
+        let file = rest.join("/");
         return format!("{MACHINE_HOME}/.claude/projects/{slug}/{file}");
     }
     machine_path(chat)
@@ -189,9 +189,9 @@ pub fn apply(
     let mut checkouts: std::collections::BTreeMap<String, String> = Default::default();
     let mut emit = |event: Event, outcome: &mut Outcome| {
         match &event {
-            Event::Done { .. } => outcome.done += 1,
-            Event::Skipped { .. } => outcome.skipped += 1,
-            Event::Failed { .. } => outcome.failed += 1,
+            Event::Done { .. } => outcome.done = outcome.done.saturating_add(1),
+            Event::Skipped { .. } => outcome.skipped = outcome.skipped.saturating_add(1),
+            Event::Failed { .. } => outcome.failed = outcome.failed.saturating_add(1),
         }
         report(&event);
     };
@@ -253,7 +253,8 @@ pub fn apply(
                         checkouts.insert(project.clone(), checkout.clone());
                         let entry = ledger.entry_mut(&source, &project);
                         entry.machine_id = Some(created.machine_id.clone());
-                        entry.first_chat_ms = created.first_chat_ms.map(|ms| started + ms);
+                        entry.first_chat_ms =
+                            created.first_chat_ms.map(|ms| started.saturating_add(ms));
                         entry.stage = Stage::Done;
                         Ok(format!("machine {} ({checkout})", created.machine_id))
                     }
@@ -278,7 +279,7 @@ pub fn apply(
                     } else {
                         format!(
                             "{} delivered; not on this computer yet (cmux cloud secret set NAME): {}",
-                            names.len() - missing.len(),
+                            names.len().saturating_sub(missing.len()),
                             missing.join(", ")
                         )
                     }
@@ -374,8 +375,11 @@ fn carry_worktree(
         )?;
         said.push(format!(
             "{} changed file(s)",
-            patch.work.matches("\ndiff --git ").count()
-                + usize::from(patch.work.starts_with("diff --git "))
+            patch
+                .work
+                .matches("\ndiff --git ")
+                .count()
+                .saturating_add(usize::from(patch.work.starts_with("diff --git ")))
         ));
     }
     Ok(format!("{} in {checkout}", said.join(" and ")))
@@ -388,12 +392,12 @@ fn move_chats(
     chats: &[String],
     checkout: &str,
 ) -> Result<String, String> {
-    let (mut moved, mut left) = (0, Vec::new());
+    let (mut moved, mut left) = (0usize, Vec::new());
     for chat in chats {
         match local.read_text(chat, MAX_CHAT_BYTES) {
             Some(text) => {
                 cloud.write_file(machine, &chat_destination(chat, checkout), &text)?;
-                moved += 1;
+                moved = moved.saturating_add(1);
             }
             None => left.push(chat.clone()),
         }
@@ -417,19 +421,22 @@ fn carry_files(
     let (mut sent, mut total, mut left) = (0usize, 0u64, 0usize);
     for path in paths {
         for (file, size) in local.files(path) {
-            if is_secret_file(&file) || size > MAX_FILE_BYTES || total + size > MAX_CARRY_BYTES {
-                left += 1;
+            if is_secret_file(&file)
+                || size > MAX_FILE_BYTES
+                || total.saturating_add(size) > MAX_CARRY_BYTES
+            {
+                left = left.saturating_add(1);
                 continue;
             }
             let Some(text) = local.read_text(&file, MAX_FILE_BYTES) else {
-                left += 1;
+                left = left.saturating_add(1);
                 continue;
             };
             for machine in machines {
                 cloud.write_file(machine, &machine_path(&file), &text)?;
             }
-            total += size;
-            sent += 1;
+            total = total.saturating_add(size);
+            sent = sent.saturating_add(1);
         }
     }
     let mut detail = format!("{sent} file(s) to {} machine(s)", machines.len());
@@ -454,7 +461,7 @@ pub fn undo(
                 let entry = ledger.entry_mut(source_id, &step.key);
                 entry.stage = Stage::Undone;
                 entry.done.clear();
-                outcome.done += 1;
+                outcome.done = outcome.done.saturating_add(1);
                 Event::Done {
                     step: "delete-machine".into(),
                     project: step.key.clone(),
@@ -462,7 +469,7 @@ pub fn undo(
                 }
             }
             Err(error) => {
-                outcome.failed += 1;
+                outcome.failed = outcome.failed.saturating_add(1);
                 Event::Failed { step: "delete-machine".into(), project: step.key.clone(), error }
             }
         };

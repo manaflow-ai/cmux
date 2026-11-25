@@ -370,7 +370,7 @@ fn short_port(spec: &str, side: PortSide) -> Vec<u16> {
 fn range(spec: &str) -> Vec<u16> {
     match spec.split_once('-') {
         Some((a, b)) => match (a.trim().parse::<u16>(), b.trim().parse::<u16>()) {
-            (Ok(a), Ok(b)) if a <= b && b - a < 100 => (a..=b).collect(),
+            (Ok(a), Ok(b)) if b.checked_sub(a).is_some_and(|span| span < 100) => (a..=b).collect(),
             (Ok(a), _) => vec![a],
             _ => Vec::new(),
         },

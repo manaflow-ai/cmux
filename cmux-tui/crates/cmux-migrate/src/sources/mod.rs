@@ -36,7 +36,7 @@ pub fn merge_ci_and_secrets(root: &std::path::Path, plan: &mut crate::Plan) -> b
             ..Default::default()
         });
     }
-    let project = &mut plan.projects[0];
+    let Some(project) = plan.projects.first_mut() else { return true };
     ci_config::merge(&ci, project);
     secrets_refs::merge(&secrets, project);
     true

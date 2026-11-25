@@ -111,7 +111,7 @@ fn collect(root: &Path, dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
                 )
                 || depth > 0 && depth < 3 && !name.starts_with('.');
             if !skip && wanted {
-                collect(root, &path, depth + 1, out);
+                collect(root, &path, depth.saturating_add(1), out);
             }
             continue;
         }
@@ -148,12 +148,15 @@ fn secret_name(raw: &str) -> Option<String> {
 /// resolves to.
 fn one_password(text: &str, shown: &str, read: &mut Read) {
     for line in text.lines() {
-        let Some(at) = line.find("op://") else { continue };
-        let reference: String = line[at..]
+        let Some((before, from)) = line.find("op://").and_then(|at| line.split_at_checked(at))
+        else {
+            continue;
+        };
+        let reference: String = from
             .chars()
             .take_while(|c| !c.is_whitespace() && !matches!(c, '"' | '\'' | '}' | ')'))
             .collect();
-        let before = line[..at].trim().trim_start_matches("export ");
+        let before = before.trim().trim_start_matches("export ");
         let key = before.split_once('=').map(|(k, _)| k.trim()).filter(|k| is_env_name(k));
         let name = match key {
             Some(k) => Some(k.to_owned()),
@@ -200,9 +203,11 @@ fn vault_and_aws(text: &str, shown: &str, read: &mut Read) {
                     .entry(clean.to_owned())
                     .or_insert_with(|| format!("{shown} Vault variable"));
             }
-            if *w == "vault" && words.get(i + 1) == Some(&"kv") && words.get(i + 2) == Some(&"get")
+            if *w == "vault"
+                && words.get(i.saturating_add(1)) == Some(&"kv")
+                && words.get(i.saturating_add(2)) == Some(&"get")
             {
-                let args = &words[i + 3..];
+                let args = words.get(i.saturating_add(3)..).unwrap_or_default();
                 let field = args.iter().find_map(|a| a.strip_prefix("-field="));
                 let path = args.iter().find(|a| !a.starts_with('-'));
                 if let Some(path) = path.filter(|p| !p.contains('$')) {
@@ -217,7 +222,8 @@ fn vault_and_aws(text: &str, shown: &str, read: &mut Read) {
                 }
             }
             if *w == "aws" {
-                let (service, verb) = (words.get(i + 1), words.get(i + 2));
+                let (service, verb) =
+                    (words.get(i.saturating_add(1)), words.get(i.saturating_add(2)));
                 let (flag, label) = match (service, verb) {
                     (Some(&"secretsmanager"), Some(&"get-secret-value")) => {
                         ("--secret-id", "AWS Secrets Manager")
@@ -227,11 +233,13 @@ fn vault_and_aws(text: &str, shown: &str, read: &mut Read) {
                     }
                     _ => continue,
                 };
-                let args = &words[i + 3..];
+                let args = words.get(i.saturating_add(3)..).unwrap_or_default();
                 let value = args.iter().enumerate().find_map(|(j, a)| {
                     match a.strip_prefix(&format!("{flag}=")) {
                         Some(v) => Some(v),
-                        None => (*a == flag).then(|| args.get(j + 1).copied()).flatten(),
+                        None => {
+                            (*a == flag).then(|| args.get(j.saturating_add(1)).copied()).flatten()
+                        }
                     }
                 });
                 let Some(id) =

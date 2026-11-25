@@ -134,7 +134,7 @@ impl Ledger {
         let mut times: Vec<i64> = self
             .projects
             .values()
-            .filter_map(|e| Some(e.first_chat_ms? - e.started_ms?))
+            .filter_map(|e| e.first_chat_ms?.checked_sub(e.started_ms?))
             .filter(|ms| *ms >= 0)
             .collect();
         times.sort_unstable();
