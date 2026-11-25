@@ -1,4 +1,5 @@
 import { composerPickerEntries } from "./composerPickerEntries";
+import { useLiveSummary, useLiveSummaryValue } from "./liveSummary";
 import { acpmuxPerf } from "./perf";
 import React, {
   useCallback,
@@ -150,6 +151,12 @@ const browserSettleTimer: SettleTimer = (run, ms) => {
   return () => clearTimeout(timer);
 };
 
+/// The share of the context window the chat has used, in whole percent; none before a report.
+function contextPercentOf(summary: AcpmuxSnapshot["summary"]): number | undefined {
+  const usage = compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
+  return usage && usage.size > 0 ? Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) : undefined;
+}
+
 type Props = {
   snapshot: AcpmuxSnapshot;
   onModel(modelId: string): void;
@@ -248,6 +255,9 @@ export function ComposerPickers({
   // With no Claude connection that serves Cloud, the Claude section's Connect row and its dialog.
   const claudeConnect = useClaudeConnectFlow();
   const summary = snapshot.summary;
+  // A usage update reaches the chip's context note without the pane (liveSummary.ts): the pickers
+  // render only when its whole percent moves.
+  const contextPercent = useLiveSummaryValue(summary, contextPercentOf);
   // The rail lists the harnesses set up here (Leo 2026-10-11): one whose launcher check failed (not
   // installed, not signed in) stays behind the rail's +, unless this chat runs it. A failed model
   // probe alone (a timeout) keeps it.
@@ -1266,10 +1276,9 @@ export function ComposerPickers({
     ? undefined
     : (effortLabel ?? (awaiting ? (heldChoice?.name ?? pendingEffort) : undefined));
   const quickShort = studioEffort ? undefined : effortLabel ? effortShort : awaiting ? heldShort : undefined;
-  const usage = compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
   const usageNote =
-    showContextUsage && usage && usage.size > 0
-      ? t(PICKER_LABELS.context, { percent: Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) })
+    showContextUsage && contextPercent !== undefined
+      ? t(PICKER_LABELS.context, { percent: contextPercent })
       : undefined;
 
   // A held pick of another harness's model: the chip names it, with its effort (the typed one, else
@@ -1827,6 +1836,29 @@ const CONTEXT_RING_LOOKS: Record<
     roundEnds: false,
   },
 };
+
+/// The composer's ring for `summary` as it is now: a usage update renders this ring alone, never
+/// the composer around it (liveSummary.ts).
+export function LiveContextRing({
+  summary: drawn,
+  ...props
+}: { summary: AcpmuxSnapshot["summary"] } & Omit<
+  Parameters<typeof ContextRing>[0],
+  "used" | "size" | "setup" | "cacheExpiresAt" | "breakdown"
+>) {
+  const summary = useLiveSummary(drawn);
+  const usage = compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
+  return (
+    <ContextRing
+      {...props}
+      used={usage?.used}
+      size={usage?.size}
+      setup={usage?.setup}
+      cacheExpiresAt={usage?.cacheExpiresAt}
+      breakdown={summary?.contextBreakdown}
+    />
+  );
+}
 
 /// How much of the context window the session has used, as a neutral ring that fills. Resting the pointer
 /// on it, or focusing it, shows the context card with no click (ContextCard.tsx; Leo 2026-10-21,
