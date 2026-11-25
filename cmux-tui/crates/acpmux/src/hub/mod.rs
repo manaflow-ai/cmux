@@ -34,6 +34,7 @@ mod adopted_fences;
 mod adoption;
 pub(crate) mod agent_hold;
 mod agent_pairs;
+pub(crate) mod agent_timer;
 pub(crate) mod agent_vm;
 mod away_recap;
 mod memory_inbox;
@@ -173,6 +174,7 @@ mod held_asks;
 mod host_level;
 pub(super) mod idle;
 mod idle_census;
+mod idle_governor;
 mod paused_fs;
 mod person_prompt_at;
 mod turn_rules;
@@ -327,7 +329,9 @@ pub(crate) mod require_asking;
 mod resolve;
 mod route_switch;
 mod stale_host_respawn;
-pub use pool::{PrewarmRequest, PrewarmShape, RssProbe, tree_rss_bytes};
+pub use pool::{
+    PrewarmRequest, PrewarmShape, RssProbe, parse_home_shapes, person_spare_shapes, tree_rss_bytes,
+};
 pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
 pub(crate) use turn_errors::is_limit_error;
@@ -468,6 +472,7 @@ pub fn peer_snapshot_bound(n: usize) {
     peer_snapshot::BOUND_EVENTS.store(n, std::sync::atomic::Ordering::SeqCst);
 }
 mod moved_forward;
+mod moved_prompt_fence;
 pub use moved_forward::{MAX_MOVES_FOLLOWED, MOVED_HOPS_FIELD};
 mod peers;
 mod remote_rows;
@@ -486,6 +491,7 @@ pub mod presence;
 mod processes;
 pub(crate) mod pull_requests;
 pub(crate) mod purge_tombstones;
+pub mod synced;
 pub(crate) use crate::questions;
 mod remote_cwd;
 mod remote_floor;
@@ -1503,6 +1509,8 @@ pub struct Hub {
     pub presence: presence::Presence,
     /// Who is on this machine now, across devices, in memory only (`here.rs`).
     pub here: here::HereTable,
+    /// Chat titles and read marks as a sync replica, opened on first use (`synced.rs`).
+    pub synced: std::sync::OnceLock<synced::Synced>,
     /// How long a move may go without its client (`transfer_watch.rs`).
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
     /// The moves one watch ends, or whose begin still makes them (`transfer_watch.rs`).
@@ -1926,6 +1934,7 @@ impl Hub {
             person: Default::default(),
             presence: Default::default(),
             here: Default::default(),
+            synced: std::sync::OnceLock::new(),
             workflow_index: Default::default(),
             suggestion_gate,
             page_replies: Default::default(),
@@ -2479,6 +2488,7 @@ impl Hub {
             input_since: AtomicU64::new(0),
             wait_reason: StdMutex::new(None),
             work_below_since: StdMutex::new(0),
+            loop_timers: StdMutex::new(None),
             asks_below: StdMutex::new((0, 0)),
             held_messages: StdMutex::new(std::collections::VecDeque::new()),
             unread_after_work: AtomicBool::new(false),

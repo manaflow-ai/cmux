@@ -74,7 +74,7 @@ final class AgentTabStore {
     /// Adaptive, or in Debug builds fixed by `CMUX_NEXT_AGENT_PANE_FULL_RATE`
     /// (`1` full, `0` capped) for measuring either rate.
     private let renderRate: AgentPaneRenderRate
-    /// `~/.config/cmux/agent-pane/` hot reload, watched while any agent tab
+    /// `~/.config/cmux-next/agent-pane/` hot reload, watched while any agent tab
     /// has a view.
     let customization: AgentPaneCustomizationWatcher
     /// The store record of agent tab `key` and the tree that lists it; nil for any other tab
@@ -381,7 +381,8 @@ final class AgentTabStore {
     /// Where a started chat's tab can move (the composer's and the title menu's Move to…). The page
     /// receives only the current live list; it never invents or persists machine ids.
     /// The chat's place for the header (`place`), as JSON bytes (``CloudPlaceFlows/placeJSON(session:onCloud:cloudName:)``); set by the app.
-    var placeState: @MainActor (_ record: AgentSessionRef?) -> Data? = { _ in nil }
+    /// Nil for a chat the place actions cannot move (``AppServices/placeEligible(_:session:on:)``), so no control offers what does nothing.
+    var placeState: @MainActor (_ tab: AgentTabKey) -> Data? = { _ in nil }
     /// The running Evacuate or Bring Back All, for the header's `evacuate`.
     var evacuateState: @MainActor () -> Data? = { nil }
     var machineTargets: @MainActor (_ tab: AgentTabKey) -> [AgentPaneMoveTarget] = { _ in [] }
