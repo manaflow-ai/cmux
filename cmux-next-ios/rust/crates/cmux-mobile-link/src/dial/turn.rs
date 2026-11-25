@@ -336,7 +336,6 @@ impl std::fmt::Display for AllocFailure {
     }
 }
 
-/// So a carrier that speaks `io::Error` (the braid ladder) can carry it whole.
 impl std::error::Error for AllocFailure {}
 
 /// An allocation, or why the stream one was refused.
@@ -1426,10 +1425,10 @@ async fn until_silent(silent: Option<watch::Receiver<bool>>) {
 /// An allocation task's answer ([`TurnCarrier::spawn_on`]).
 type Attempt = tokio::sync::oneshot::Receiver<Result<TurnCarrier, AllocFailure>>;
 
-/// `attempt`'s carrier, or why not once it failed or `limit` passed. Past
-/// `limit` the attempt goes on: kept in `late` (when given) its grant can
-/// still be taken; otherwise its answer is dropped and it releases what it
-/// opens.
+/// `attempt`'s carrier, or why there is none: its own failure (a proxy's
+/// refusal among them), the task's end, or `limit` passing. Past `limit` the
+/// attempt goes on: kept in `late` (when given) its grant can still be
+/// taken; otherwise its answer is dropped and it releases what it opens.
 async fn bounded(
     limit: Duration,
     mut attempt: Attempt,
