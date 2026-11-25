@@ -1547,6 +1547,8 @@ impl Hub {
             }
             // Agent messages a failed turn held before the restart go in again by themselves.
             self.retry_held_agent_messages(session);
+            // Subagents a restart cut off from their retry wait get their next attempt planned.
+            self.rearm_subagent_retries(session);
             self.start_restored(session);
         }
     }
