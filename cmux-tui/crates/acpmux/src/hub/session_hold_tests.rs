@@ -37,7 +37,7 @@ fn notice_opts(id: &str) -> PromptOptions {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_notice_to_a_held_chat_starts_no_turn() {
     let (hub, s) = chat().await;
-    let held = hub.set_session_hold(&s, true).await.unwrap();
+    let held = hub.set_session_hold(&s, true, &json!({})).await.unwrap();
     assert_eq!(held["held"], true);
     assert!(hub.session_held(&s));
 
@@ -65,7 +65,7 @@ async fn a_notice_to_a_held_chat_starts_no_turn() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_persons_prompt_releases_a_held_chat() {
     let (hub, s) = chat().await;
-    hub.set_session_hold(&s, true).await.unwrap();
+    hub.set_session_hold(&s, true, &json!({})).await.unwrap();
     let opts = PromptOptions {
         prompt_id: Some("p-1".into()),
         human_authenticated: true,
@@ -81,8 +81,8 @@ async fn the_persons_prompt_releases_a_held_chat() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_released_chat_runs_notices() {
     let (hub, s) = chat().await;
-    hub.set_session_hold(&s, true).await.unwrap();
-    hub.set_session_hold(&s, false).await.unwrap();
+    hub.set_session_hold(&s, true, &json!({})).await.unwrap();
+    hub.set_session_hold(&s, false, &json!({})).await.unwrap();
     assert!(!hub.session_held(&s));
     let receipt = hub.prompt_with(&s, text("merged"), "test", false, notice_opts("n-2")).await;
     assert!(receipt.unwrap().pointer("/_meta/acpmux/sessionHeld").is_none());
@@ -147,8 +147,71 @@ async fn released_under_a_fleet_hold_stays_released() {
     hub.set_fleet_hold(&json!({"on": true})).unwrap();
     hub.release_session_hold_for_person(&s);
     assert!(!hub.session_held(&s));
-    hub.set_session_hold(&s, true).await.unwrap();
+    hub.set_session_hold(&s, true, &json!({})).await.unwrap();
     assert!(hub.session_held(&s));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_expired_session_hold_lifts_and_clears_its_metadata() {
+    let (hub, s) = chat().await;
+    let expires_at = crate::store::now_ms() + 1_000;
+    let answer = hub
+        .set_session_hold(
+            &s,
+            true,
+            &json!({"owner": "rescue", "reason": "test", "expiresAt": expires_at}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(answer["owner"], "rescue");
+    assert_eq!(answer["reason"], "test");
+    assert_eq!(answer["expiresAt"], expires_at);
+    assert!(hub.session_held(&s));
+
+    crate::store::test_clock::advance(1_001);
+    assert!(!hub.session_held(&s));
+    let tags = s.meta().tags;
+    assert!(!tags.contains_key(TAG));
+    assert!(!tags.contains_key("acpmux.sessionHoldOwner"));
+    assert!(!tags.contains_key("acpmux.sessionHoldReason"));
+    crate::store::test_clock::reset();
+}
+
+#[test]
+fn an_expired_fleet_hold_lifts_even_when_the_file_did_not_change() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(FILE);
+    let mut cache = FleetHoldCache { path: Some(path), ..FleetHoldCache::default() };
+    cache
+        .put(&FleetHold {
+            on: true,
+            owner: Some("rescue".into()),
+            expires_at: Some(crate::store::now_ms() + 1_000),
+            ..FleetHold::default()
+        })
+        .unwrap();
+    assert!(cache.get().on);
+    crate::store::test_clock::advance(1_001);
+    assert!(!cache.get().on);
+    assert!(!cache.get().on);
+    crate::store::test_clock::reset();
+}
+
+#[test]
+fn a_legacy_fleet_hold_gets_a_two_hour_expiry() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(FILE);
+    std::fs::write(
+        &path,
+        serde_json::to_vec(&FleetHold { on: true, ..FleetHold::default() }).unwrap(),
+    )
+    .unwrap();
+    let mut cache = FleetHoldCache { path: Some(path.clone()), ..FleetHoldCache::default() };
+    let before = crate::store::now_ms();
+    let hold = cache.get();
+    assert!(hold.expires_at.unwrap() >= before + DEFAULT_EXPIRY_MS);
+    let saved: FleetHold = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    assert_eq!(saved.expires_at, hold.expires_at);
 }
 
 #[test]

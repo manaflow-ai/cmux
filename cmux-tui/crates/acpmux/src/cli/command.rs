@@ -908,9 +908,12 @@ pub enum Command {
         session: Option<String>,
         held: bool,
         fleet: bool,
+        on: bool,
         allow: Vec<String>,
         set_allow: Option<Vec<String>>,
         reason: Option<String>,
+        hold_for: Option<String>,
+        until: Option<String>,
         status: bool,
     },
     #[command(hide = true)]
@@ -1435,6 +1438,9 @@ pub enum SessionCmd {
         /// Hold this machine's whole fleet of sessions.
         #[arg(long)]
         fleet: bool,
+        /// With `--fleet --allow`: explicitly activate a hold when none is active.
+        #[arg(long)]
+        on: bool,
         /// With `--fleet`: names added to the allowlist (it keeps the ones already there),
         /// comma-separated: `NAME`, `PREFIX*` or `*TERM*`.
         #[arg(long, value_delimiter = ',')]
@@ -1446,6 +1452,12 @@ pub enum SessionCmd {
         /// With `--fleet`: why, shown in each refusal.
         #[arg(long)]
         reason: Option<String>,
+        /// Hold duration, such as `2m` or `1h` (defaults to two hours).
+        #[arg(long = "for")]
+        hold_for: Option<String>,
+        /// Unix milliseconds at which the hold lifts.
+        #[arg(long)]
+        until: Option<String>,
         /// With `--fleet`: print the fleet hold, change nothing.
         #[arg(long)]
         status: bool,
@@ -2033,24 +2045,38 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Route { facts } => Command::RouteDeath { facts },
             SessionCmd::Pause { session } => Command::PauseAgent { session },
             SessionCmd::Wake { session } => Command::WakeAgent { session },
-            SessionCmd::Hold { session, fleet, allow, set_allow, reason, status } => {
-                Command::SessionHold {
-                    session,
-                    held: true,
-                    fleet,
-                    allow,
-                    set_allow,
-                    reason,
-                    status,
-                }
-            }
+            SessionCmd::Hold {
+                session,
+                fleet,
+                on,
+                allow,
+                set_allow,
+                reason,
+                hold_for,
+                until,
+                status,
+            } => Command::SessionHold {
+                session,
+                held: true,
+                fleet,
+                on,
+                allow,
+                set_allow,
+                reason,
+                hold_for,
+                until,
+                status,
+            },
             SessionCmd::Release { session, fleet } => Command::SessionHold {
                 session,
                 held: false,
                 fleet,
+                on: false,
                 allow: Vec::new(),
                 set_allow: Some(Vec::new()),
                 reason: None,
+                hold_for: None,
+                until: None,
                 status: false,
             },
             SessionCmd::Icon { session, icon } => Command::Icon { session, icon },

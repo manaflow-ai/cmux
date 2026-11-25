@@ -4059,7 +4059,7 @@ async fn dispatch_request_with_identity(
         method::MUX_SESSION_HOLD => {
             let s = hub.resolve(session_key(&params)?)?;
             let held = params.get("held").and_then(Value::as_bool).unwrap_or(true);
-            heap(|| hub.set_session_hold(&s, held)).await
+            heap(|| hub.set_session_hold(&s, held, &params)).await
         }
         method::MUX_FLEET_HOLD => hub.set_fleet_hold(&params),
         method::MUX_WATCH_TAKE_OVER => super::chats::watch_take_over(hub, &params).await,

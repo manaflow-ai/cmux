@@ -3,6 +3,33 @@
 use super::*;
 use anyhow::Context;
 
+fn hold_duration_ms(value: &str) -> anyhow::Result<u64> {
+    let value = value.trim();
+    let split = value.find(|c: char| !c.is_ascii_digit()).unwrap_or(value.len());
+    let (number, unit) = value.split_at(split);
+    let number: u64 = number.parse().context("hold duration must start with seconds")?;
+    let multiplier = match unit {
+        "" | "s" => 1_000,
+        "m" => 60_000,
+        "h" => 3_600_000,
+        "d" => 86_400_000,
+        _ => anyhow::bail!("hold duration unit must be s, m, h or d"),
+    };
+    Ok(number.saturating_mul(multiplier))
+}
+
+fn hold_expiry(for_duration: Option<&str>, until: Option<&str>) -> anyhow::Result<Option<u64>> {
+    if for_duration.is_some() && until.is_some() {
+        anyhow::bail!("--for and --until cannot be combined");
+    }
+    if let Some(until) = until {
+        return Ok(Some(until.parse().context("--until must be Unix milliseconds")?));
+    }
+    Ok(for_duration
+        .map(|value| hold_duration_ms(value).map(|ms| crate::store::now_ms().saturating_add(ms)))
+        .transpose()?)
+}
+
 fn peer_add_params(name: &str, url: &str, token: Option<&str>) -> Value {
     let mut params = json!({"name": name, "url": url, "wait": false});
     if let Some(token) = token {
@@ -214,7 +241,18 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::SessionHold { session, held, fleet, allow, set_allow, reason, status } => {
+        Command::SessionHold {
+            session,
+            held,
+            fleet,
+            on,
+            allow,
+            set_allow,
+            reason,
+            hold_for,
+            until,
+            status,
+        } => {
             let client = connect(true).await?;
             if !client.daemon_lists(crate::hub::session_hold::FEATURE) {
                 return Err(crate::cli::errors::AppError::new(
@@ -249,8 +287,23 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     return Ok(());
                 }
                 let was = allow_of(&before);
+                if held
+                    && !before.pointer("/fleetHold/on").and_then(Value::as_bool).unwrap_or(false)
+                    && !on
+                    && !allow.is_empty()
+                {
+                    anyhow::bail!(
+                        "--allow cannot activate a fleet hold that is off; pass --on explicitly"
+                    );
+                }
                 let next = crate::hub::session_hold::next_allow(&was, set_allow.as_deref(), &allow);
                 let mut p = json!({"on": held, "allow": next});
+                if on {
+                    p["on"] = json!(true);
+                }
+                if let Some(expires_at) = hold_expiry(hold_for.as_deref(), until.as_deref())? {
+                    p["expiresAt"] = json!(expires_at);
+                }
                 let reason = reason.or_else(|| {
                     held.then(|| before.pointer("/fleetHold/reason").and_then(Value::as_str))
                         .flatten()
@@ -287,9 +340,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 anyhow::bail!("name a session, or pass --fleet");
             };
             let id = resolve_id(&client, &session).await?;
-            let v = client
-                .request(method::MUX_SESSION_HOLD, json!({"sessionId": id, "held": held}))
-                .await?;
+            let mut p = json!({"sessionId": id, "held": held, "owner": session.clone()});
+            if let Some(reason) = reason {
+                p["reason"] = json!(reason);
+            }
+            if let Some(expires_at) = hold_expiry(hold_for.as_deref(), until.as_deref())? {
+                p["expiresAt"] = json!(expires_at);
+            }
+            let v = client.request(method::MUX_SESSION_HOLD, p).await?;
             if json_out {
                 print_json(&v);
             } else if held {
