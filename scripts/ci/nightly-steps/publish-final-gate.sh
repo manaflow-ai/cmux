@@ -52,10 +52,15 @@ if [ "$TRACK" = nightly-next ]; then
   # TS2448 broke every agent pane and was published on 2026-11-02. A refusal publishes nothing; a later green tip does.
   status=0
   verdict=""
-  if [ -n "${WEBVIEW_CHECK:-}" ]; then
-  verdict="$(python3 "$PUBLISH_TOOLING/ci/nightly_publish_guard.py" webview-verdict --source "$SOURCE" \
+  # publish-nightly no longer needs check-nightly-webviews; it reads the check only under NIGHTLY_COMPONENT_GATES=block,
+  # from this run (WEBVIEW_SOURCE=run), waiting for it. The one-Mac publisher passes its own WEBVIEW_CHECK.
+  if [ -n "${WEBVIEW_CHECK:-}" ] || [ "${NIGHTLY_COMPONENT_GATES:-}" = block ]; then
+  web_source="$SOURCE" web_run="${RECOVERED_RUN_ID:-}"
+  if [ -z "${WEBVIEW_CHECK:-}" ] && [ "$SOURCE" = own ]; then web_source=run web_run="${WEBVIEW_RUN_ID:-}"; fi
+  verdict="$(python3 "$PUBLISH_TOOLING/ci/nightly_publish_guard.py" webview-verdict --source "$web_source" \
     --result "${WEBVIEW_CHECK:-}" --checked-sha "${WEBVIEW_CHECK_SHA:-}" --build-sha "$BUILD_SHA" \
-    --run-id "${RECOVERED_RUN_ID:-}" --repo "$GITHUB_REPOSITORY")" || status=$?
+    --run-id "$web_run" --wait-seconds "${WEBVIEW_WAIT_SECONDS:-1800}" \
+    --repo "$GITHUB_REPOSITORY")" || status=$?
   # Leo, 2026-11-25: "are we able to decouple". A red webview check no longer holds the publish: the build
   # ships with a "Nightly stale part" warning NOW shows. NIGHTLY_COMPONENT_GATES=block restores the hold.
   if [ "$status" != 0 ] && [ "${NIGHTLY_COMPONENT_GATES:-}" != block ]; then

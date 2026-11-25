@@ -3260,7 +3260,7 @@ jobs:
             const { owner, repo } = context.repo;
             const title = 'NIGHTLY App Store shelf is red';
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
-            const body = `The App Store shelf check (every Discover listing installs and shows something) failed on ${process.env.BUILD_SHA}: ${runUrl}\n\nThe NIGHTLY published anyway; this is a fix-forward issue for the App Store shelf lane.`;
+            const body = `The App Store shelf check (every Discover listing installs and shows something) failed on ${process.env.BUILD_SHA}: ${runUrl}\n\nThis check does not block NIGHTLY publication; this is a fix-forward issue for the App Store shelf lane.`;
             const open = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: 'open', per_page: 100 });
             const existing = open.find((issue) => issue.title === title && !issue.pull_request);
             if (existing) {
@@ -5841,6 +5841,7 @@ jobs:
           # The webview and App Store shelf checks run beside the build and report after it (report-nightly-fix-forward,
           # report-nightly-shelf-red); the publish waits on neither (Leo, 2026-11-25).
           NIGHTLY_COMPONENT_GATES: ${{ vars.NIGHTLY_COMPONENT_GATES }}
+          WEBVIEW_RUN_ID: ${{ github.run_id }}
           RECOVERED_RUN_ID: ${{ steps.source.outputs.run_id }}
         run: bash .publish-tooling/scripts/ci/nightly-steps/publish-final-gate.sh
 
