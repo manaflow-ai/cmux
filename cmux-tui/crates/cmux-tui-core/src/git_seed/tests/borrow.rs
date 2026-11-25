@@ -235,7 +235,10 @@ fn a_clone_only_seed_borrows_a_stale_mirror_and_fetches_the_rest() {
 /// A clone-only seed whose mirror is another repository's, or absent, clones as before.
 #[test]
 fn a_clone_only_seed_without_a_usable_mirror_clones() {
-    let world = World::new("borrow-clone-other");
+    let mut world = World::new("borrow-clone-other");
+    // The `wt` mirror's fallback is a direct clone here, not the machine's warm mirror
+    // (`tests/mirror.rs`), whose alternates would be in the folder too.
+    world.mirrors = None;
     let other = mirror(&world, "other.git", "https://github.com/o/other.git");
     for (name, mirror) in [("other", other), ("absent", world.home.join("absent.git"))] {
         let folder = world.home.join(name);
