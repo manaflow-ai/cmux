@@ -150,7 +150,7 @@ export class MockOnboardingProvider implements PageClient {
       case OPS.walk: {
         const choices = state.makeItYours;
         if (!choices) return {} as R;
-        const walk = { ...(choices.walk ?? {}) };
+        const walk = { ...choices.walk };
         const next = { ...choices };
         for (const { path, value } of (input.writes ?? []) as {
           path: string;
