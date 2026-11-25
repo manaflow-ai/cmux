@@ -448,9 +448,14 @@ export class TeamHub extends DurableObject<Env> {
       const att = this.attach(ws)
       if (!att || att.kind !== "mac" || att.replaced || ws.readyState !== WebSocket.OPEN) continue
       const pinged = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime()
-      if (pinged === undefined && this.recordedPing(att.deviceId) === null) continue
       const heard = Math.max(att.connectedAt ?? 0, pinged ?? 0)
       if (!heard) continue
+      if (pinged === undefined && this.recordedPing(att.deviceId) === null) {
+        // No ping yet, none on record: a new host before its first ping (15 s), or one that predates them. Look again
+        // when it would be due, so an alarm that came first does not end the chain and leave it never reaped.
+        if (now - heard < GONE_MS) next = Math.min(next ?? Infinity, heard + GONE_MS)
+        continue
+      }
       if (now - heard < GONE_MS) {
         next = Math.min(next ?? Infinity, heard + GONE_MS)
         continue

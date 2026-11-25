@@ -1128,6 +1128,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextWindowRules",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CCmuxAppFFI",
+                "CmuxNextCompat",
                 "CmuxNextDaemon",
             ],
             swiftSettings: daemonSwiftSettings
@@ -2081,8 +2082,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .copy("Resources/WhatsNew"),
                 // The keys a web update pointer may be signed with (plans/cmux-next/web-ota.md).
                 .copy("Resources/web-update-keys.json"),
-                // The relaunch's afterimage, run by /usr/bin/osascript (RelaunchAfterimage).
-                .copy("Resources/relaunch-afterimage.js"),
             ],
             swiftSettings: uiSwiftSettings
         ),
