@@ -34,6 +34,15 @@ on:
           label that started no job; any other value is ignored
         default: ''
 
+# Base-mode callers reuse the same tested commit across many PRs. Keep one run
+# active and one newest run waiting for each exact check. The command, setup,
+# and directory stay in the key so unrelated checks never replace one another.
+# A running check is allowed to finish. GitHub replaces only an older pending
+# duplicate, preserving one verdict for the tested tree.
+concurrency:
+  group: ${{ format('fast-checks-{0}-{1}-{2}-{3}', inputs.tested_sha || inputs.source_sha, inputs.command, inputs.directory, inputs.setup) }}
+  cancel-in-progress: false
+
 # Same read-only checkout scope as the existing Linux test jobs. No secrets,
 # environment, provider credentials or write token is passed to test commands.
 permissions:
@@ -469,16 +478,16 @@ jobs:
           retention-days: 3
 
   # setup=kernel-free: `cmux-ci test --setup kernel-free -- CMD` for a command that needs no Linux kernel, apt or
-  # Docker (Python, git, shell, macOS tools such as scripts/measure). It runs on the org's lent side-light minis,
-  # the owned pool cmux PR jobs already run on; every other setup stays on the Linux job above. Who can run what is
-  # the same as for that job and for the PR jobs on this pool: only a writer can dispatch this workflow or push the
+  # Docker (Python, git, shell, macOS tools such as scripts/measure). It runs on cmux-mac, the one own-branch Mac
+  # label (vars.CI_OVERFLOW_MAC is its overflow switch); every other setup stays on the Linux job above. Who can run what is
+  # the same as for that job and for the PR jobs on these runners: only a writer can dispatch this workflow or push the
   # scratch snapshot it checks out, the runner hook refuses fork events on these minis, the token is read-only and
   # never persisted, and no secret, environment or provider credential reaches the command. The mini persists
   # (unlike the Linux job's VM), so the old .git goes before each checkout. A run that no mini starts stays queued
   # until the cmux-ci client's fallback moves it to the build fleet, whose Linux pool may take it.
   checks-mac:
     if: github.repository == 'manaflow-ai/cmux' && inputs.setup == 'kernel-free'
-    runs-on: ${{ vars.CI_LIGHT_LANE_RUNNER || 'glaeda-side-light-xcode-26.6' }}
+    runs-on: ${{ vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
     permissions:
       contents: read
     timeout-minutes: 195

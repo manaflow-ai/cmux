@@ -1,3 +1,4 @@
+#if canImport(LocalAuthentication)
 import Foundation
 import LocalAuthentication
 import Security
@@ -15,3 +16,4 @@ enum KeychainNoPromptContext {
         return query
     }
 }
+#endif

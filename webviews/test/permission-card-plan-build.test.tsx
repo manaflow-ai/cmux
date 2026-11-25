@@ -3,7 +3,7 @@
 // people would think \"wow this is awesome\"". Approve plan is now a split button: the filled half
 // approves here with ⌘↩ as before, and its chevron offers Build here, Build in a new worktree and
 // Build on two agents and compare (`_acpmux/plan/build`).
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -186,3 +186,61 @@ test("a build refused before anything started says acpmux's reason on the card",
   );
   act(() => root.unmount());
 });
+
+// Hold to approve (permissions/holdToApprove.experiment.ts): every plan target approves the plan, so
+// with the experiment on none answers from the menu. A pick only says where the held Approve plan
+// builds; the build or the answer goes out after the hold, once. The hold's time is the behavior: a fake
+// clock moves it.
+afterEach(() => void jest.useRealTimers());
+for (const target of ["here", "worktree", "compare"] as const)
+  test(`under hold, the menu's ${target} answers nothing; the held Approve plan builds there`, async () => {
+    jest.useFakeTimers();
+    const { createRoot } = await import("react-dom/client");
+    const host = dom.window.document.getElementById("root")!;
+    const root = createRoot(host);
+    const built: PlanBuildElsewhere[] = [];
+    const answered: string[] = [];
+    await act(async () => {
+      root.render(
+        <PermissionCard
+          permission={plan}
+          harness="claude"
+          hold={{ scope: "all", durationMs: 40 }}
+          onAnswer={(optionId) => answered.push(optionId)}
+          onBuildPlan={async (picked) => {
+            built.push(picked);
+          }}
+        />,
+      );
+    });
+    const chevron = host.querySelector<HTMLButtonElement>('button[data-menu="plan-build"]')!;
+    await act(async () => {
+      chevron.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    });
+    const item = [...dom.window.document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+      (element) => element.dataset.value === target,
+    )!;
+    await act(async () => {
+      item.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => void jest.advanceTimersByTime(120));
+    expect(built).toEqual([]);
+    expect(answered).toEqual([]);
+    const approve = host.querySelector<HTMLButtonElement>(".acpmux-permission-primary[data-hold]")!;
+    expect(approve.getAttribute("data-plan-target")).toBe(target);
+    // A click on it answers nothing either.
+    await act(async () => {
+      approve.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, detail: 1 }));
+    });
+    expect([built, answered]).toEqual([[], []]);
+    await act(async () => {
+      approve.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true, button: 0 }));
+    });
+    await act(async () => void jest.advanceTimersByTime(120));
+    await act(async () => {
+      approve.dispatchEvent(new dom.window.MouseEvent("pointerup", { bubbles: true, button: 0 }));
+    });
+    if (target === "here") expect([built, answered]).toEqual([[], ["allow_once"]]);
+    else expect([built, answered]).toEqual([[target], []]);
+    act(() => root.unmount());
+  });

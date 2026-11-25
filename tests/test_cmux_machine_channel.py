@@ -132,6 +132,40 @@ class Payload(unittest.TestCase):
             channel.main(["x", "payload", "--manifest", "m", "--binaries-dir", "b", "--commit", COMMIT,
                           "--committed-at", "1", "--download-dir", "d", "--out", "o"])
 
+    def test_the_x86_64_point_signs_x86_64_alone_and_the_full_point_completes_it(self):
+        # LINUX_X86_64_FIRST: point-machine-channel-early signs the x86_64 leg's file before the aarch64
+        # leg is done; only x86_64 artifacts are downloaded.
+        (self.built / "cmux-tui-aarch64-unknown-linux-musl").unlink()
+        (self.built / "cmux-tui-hook-aarch64-unknown-linux-musl").unlink()
+        early = self.run_payload(["--binaries-dir", str(self.built), "--machine-path",
+                                  "--target", "x86_64-unknown-linux-musl"])
+        self.assertEqual(list(early["targets"]), ["x86_64-unknown-linux-musl"])
+        for name in ("cmux-tui-aarch64-unknown-linux-musl", "cmux-tui-hook-aarch64-unknown-linux-musl"):
+            data = f"{name} bytes".encode()
+            (self.built / name).write_bytes(data)
+        full = self.run_payload(["--binaries-dir", str(self.built), "--machine-path"])
+        late = self.run_payload(["--binaries-dir", str(self.built)])  # point-machine-channel: the fat path
+        for current in (early,):
+            current = {**current, "purpose": channel.PURPOSE}
+            for new in (full, late):
+                self.assertTrue(pointer.completes({**new, "purpose": channel.PURPOSE}, current))
+        purpose = {"purpose": channel.PURPOSE}
+        # Never backwards (fewer targets), never the same set, never another commit or other bytes.
+        self.assertFalse(pointer.completes({**early, **purpose}, {**full, **purpose}))
+        self.assertFalse(pointer.completes({**full, **purpose}, {**full, **purpose}))
+        self.assertFalse(pointer.completes({**full, **purpose, "commit": "b" * 40}, {**early, **purpose}))
+        other = json.loads(json.dumps(full))
+        other["targets"]["x86_64-unknown-linux-musl"]["cmux-tui"]["sha256"] = "0" * 64
+        self.assertFalse(pointer.completes({**other, **purpose}, {**early, **purpose}))
+        # Only the Cloud machine channel's files.
+        self.assertFalse(pointer.completes({**full, "purpose": "cmux-linux-release"}, {**early, **purpose}))
+
+    def test_the_target_flag_is_cloud_machine_only(self):
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()) as err:
+            self.run_payload(["--binaries-dir", str(self.built), "--purpose", "linux-release", "--channel",
+                              "feat-cmux-next", "--target", "x86_64-unknown-linux-musl"])
+        self.assertIn("--target is for the cloud-machine payload", err.getvalue())
+
 
 sys.path.insert(0, str(ROOT / "tests"))
 import test_cmux_tui_republish_same_commit as republish  # noqa: E402
@@ -450,6 +484,35 @@ class LinuxReleasePayload(unittest.TestCase):
             self.run_payload(*RELEASE)
         self.assertIn("no sha256 for cmux-tui-hook-aarch64-unknown-linux-gnu", err.getvalue())
 
+    def test_the_tree_key_names_the_trees_copies_of_this_runs_build(self):
+        key = "e" * 40
+        with mock.patch.object(channel.time, "time", return_value=PUBLISHED_AT):
+            value = self.run_payload(*RELEASE, "--cargo-version", "1.0.0", "--tree-key", key)
+        self.assertEqual(value["tree_key"], key)
+        self.assertEqual((value["commit"], value["version"]), (RELEASE_COMMIT, "1.0.0+20261122110500.cccccccccccc"))
+        for target, files in value["targets"].items():
+            for name, entry in files.items():
+                self.assertEqual(entry["url"], f"https://files.cmux.com/cmux-tui/tree/{key}/{name}-{target}")
+                self.assertEqual(entry["sha256"], self.sha[f"{name}-{target}"])
+        self.assertTrue(self.downloads)
+        self.assertTrue(all(url.startswith(f"https://files.cmux.com/cmux-tui/tree/{key}/") for url in self.downloads))
+        # The tree's copies are still checked against this run's build: other bytes are refused.
+        (self.served / "cmux-tui-hook-x86_64-unknown-linux-gnu").write_bytes(b"another run's build")
+        (self.tmp / "payload.json").unlink()
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()) as err:
+            self.run_payload(*RELEASE, "--tree-key", key)
+        self.assertIn("does not have the expected sha256", err.getvalue())
+        self.assertFalse((self.tmp / "payload.json").exists())
+
+    def test_tree_key_refusals(self):
+        for extra, message in ((("--tree-key", "e" * 40), "--purpose linux-release"),
+                               ((*RELEASE, "--tree-key", "E" * 40), "tree key"),
+                               ((*RELEASE, "--tree-key", "e" * 39), "tree key")):
+            with self.subTest(extra=extra), self.assertRaises(SystemExit), \
+                    contextlib.redirect_stderr(io.StringIO()) as err:
+                self.run_payload(*extra)
+            self.assertIn(message, err.getvalue())
+
 
 # The real uploader's write modes: --write-once takes identical bytes and refuses others,
 # --replace-sha256 replaces only the bytes it read (compare-and-swap); a refusal exits
@@ -729,6 +792,18 @@ class MacLivePayload(unittest.TestCase):
             with self.subTest(daemon=str(daemon)[:60]), self.assertRaises(SystemExit):
                 self.run_payload()
 
+    def test_the_tree_key_is_named_for_the_team_signed_set(self):
+        # A Team-signed NIGHTLY's daemon updater takes cmux-tui/tree/<key>/team-signed/, bound to these bytes by
+        # each file's unsigned_sha256; the payload's urls stay the commit's ad-hoc files every older CLI reads.
+        self.assertNotIn("tree_key", self.run_payload())
+        value = self.run_payload("--tree-key", "c" * 40)
+        self.assertEqual(value["tree_key"], "c" * 40)
+        self.assertEqual(value["targets"]["aarch64-apple-darwin"]["cmux-tui"]["url"],
+                         f"{channel.FILES}/{MAC_COMMIT}/cmux-tui-aarch64-apple-darwin")
+        for bad in ("C" * 40, "c" * 39, "nope"):
+            with self.subTest(bad=bad), self.assertRaises(SystemExit):
+                self.run_payload("--tree-key", bad)
+
     def test_refusals(self):
         (self.served / "cmux-tui-host-aarch64-apple-darwin").write_bytes(b"other bytes")
         with self.assertRaises(SystemExit):
@@ -785,6 +860,159 @@ class MacLivePayload(unittest.TestCase):
                 self.run_payload("--screen-sharing-helper", str(path))
 
 
+TREE_KEY = "e" * 40
+
+
+class LinuxReleaseTree(unittest.TestCase):
+    """A payload naming a tree_key: cmux-machine-channel-point.sh writes tree/<key>/release.json once, then the
+    commit's file, then the channel; `alias` retells a verified tree file for another commit of the tree."""
+
+    setUp, point, served, verified, assert_ok = (LinuxReleasePoint.setUp, LinuxReleasePoint.point,
+                                                 LinuxReleasePoint.served, LinuxReleasePoint.verified,
+                                                 LinuxReleasePoint.assert_ok)
+    TREE = f"cmux-tui/tree/{TREE_KEY}/release.json"
+    POINTER = LinuxReleasePoint.POINTER
+
+    def tree_payload(self, commit=RELEASE_COMMIT, committed_at=COMMITTED_AT, sequence=20261122110500, sha="d" * 64):
+        value = {"schema": 1, "purpose": "cmux-linux-release", "channel": "feat-cmux-next",
+                 "version": f"1.0.0+{sequence}.{commit[:12]}", "sequence": sequence, "commit": commit,
+                 "committed_at": committed_at, "tree_key": TREE_KEY, "published_at": int(time.time()),
+                 "expires_at": int(time.time()) + 86400,
+                 "targets": {target: {n: {"url": f"https://files.cmux.com/cmux-tui/tree/{TREE_KEY}/{n}-{target}",
+                                          "sha256": sha, "size": 5} for n in channel.NAMES}
+                             for target in channel.LINUX_RELEASE_TARGETS}}
+        path = self.tmp / f"payload-{len(list(self.tmp.iterdir()))}.json"
+        path.write_bytes(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
+        return path
+
+    def alias(self, commit, committed_at, tree_key=TREE_KEY, tree_release=None, min_sequence=0):
+        out = self.tmp / f"alias-{len(list(self.tmp.iterdir()))}.json"
+        channel.main(["cmux-machine-channel.py", "alias", "--tree-release", str(tree_release or self.r2 / self.TREE),
+                      "--keys", str(self.repo / KEYS_PATH), "--tree-key", tree_key, "--channel", "feat-cmux-next",
+                      "--commit", commit, "--committed-at", str(committed_at), "--out", str(out),
+                      "--min-sequence", str(min_sequence)])
+        return out
+
+    def test_the_tree_run_writes_the_tree_file_the_commit_file_and_the_channel(self):
+        result = self.point(self.tree_payload())
+        self.assert_ok(result)
+        signed = self.served(self.TREE)
+        self.assertIsNotNone(signed)
+        self.assertEqual(self.served(f"cmux-tui/{RELEASE_COMMIT}/release.json"), signed)
+        self.assertEqual(self.served(self.POINTER), signed)
+        value = self.verified(self.POINTER, "feat-cmux-next", "cmux-linux-release")
+        self.assertEqual(value["tree_key"], TREE_KEY)  # the signed channel names the tree
+        # The tree file is written before the commit's file and the channel.
+        log = (self.tmp / "uploads.log").read_text().split()
+        self.assertLess(log.index(self.TREE), log.index(f"cmux-tui/{RELEASE_COMMIT}/release.json"))
+        self.assertLess(log.index(self.TREE), log.index(self.POINTER))
+
+    def test_another_build_of_the_tree_keeps_the_tree_file_and_fails_loud(self):
+        self.assert_ok(self.point(self.tree_payload()))
+        first = self.served(self.TREE)
+        result = self.point(self.tree_payload(commit="f" * 40, committed_at=COMMITTED_AT + 60,
+                                              sequence=20261122110600, sha="f" * 64), run_id="2")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.served(self.TREE), first)
+        self.assertIsNone(self.served(f"cmux-tui/{'f' * 40}/release.json"))
+
+    def test_an_alias_keeps_the_tree_file_and_signs_the_commits_own(self):
+        self.assert_ok(self.point(self.tree_payload()))
+        tree = self.served(self.TREE)
+        other = "f" * 40
+        with mock.patch.object(channel.time, "time", return_value=PUBLISHED_AT + 120):
+            payload = self.alias(other, COMMITTED_AT + 60, min_sequence=20261122110501)
+        value = json.loads(payload.read_bytes())
+        source = self.verified(self.TREE, "feat-cmux-next", "cmux-linux-release", False)
+        self.assertEqual((value["commit"], value["committed_at"], value["tree_key"]), (other, COMMITTED_AT + 60, TREE_KEY))
+        self.assertEqual(value["targets"], source["targets"])
+        self.assertEqual(value["sequence"], 20261122110700)
+        self.assertEqual(value["version"], "1.0.0+20261122110700.ffffffffffff")
+        self.assertEqual(value["expires_at"] - value["published_at"], 30 * 24 * 3600)
+        self.assert_ok(self.point(payload, run_id="2"))
+        self.assertEqual(self.served(self.TREE), tree)  # the tree file is kept: same tree, same targets
+        mine = self.served(f"cmux-tui/{other}/release.json")
+        self.assertNotEqual(mine, tree)
+        self.assertEqual(self.verified(f"cmux-tui/{other}/release.json", None, "cmux-linux-release", False)["commit"], other)
+        self.assertEqual(self.served(self.POINTER), mine)  # a later commit of the tree moves the channel
+
+    def test_alias_refusals(self):
+        self.assert_ok(self.point(self.tree_payload()))
+        tampered = self.tmp / "tampered.json"
+        envelope = json.loads(self.served(self.TREE))
+        body = json.loads(base64.b64decode(envelope["payload"]))
+        body["targets"]["x86_64-unknown-linux-gnu"]["cmux-tui"]["sha256"] = "0" * 64
+        envelope["payload"] = base64.b64encode(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).decode()
+        tampered.write_text(json.dumps(envelope))
+        cases = [({"tree_key": "a" * 40}, "release file of tree"),
+                 ({"tree_release": tampered}, "does not verify"),
+                 ({"tree_key": "E" * 40}, "bad tree key"),
+                 ({"commit": "xyz"}, "bad commit")]
+        for change, message in cases:
+            kwargs = {"commit": "f" * 40, "committed_at": COMMITTED_AT + 60, **change}
+            with self.subTest(change=change), self.assertRaises(SystemExit), \
+                    contextlib.redirect_stderr(io.StringIO()) as err:
+                self.alias(**kwargs)
+            self.assertIn(message, err.getvalue())
+
+
+class LinuxReleaseAliases(unittest.TestCase):
+    """scripts/ci/cmux-linux-release-aliases.sh (mark-tree-commits) in a git repo against a fake R2: the
+    window's commits that share a signed tree and have no release file get an alias; the rest are left."""
+
+    point, served, verified, assert_ok = (LinuxReleasePoint.point, LinuxReleasePoint.served,
+                                          LinuxReleasePoint.verified, LinuxReleasePoint.assert_ok)
+    tree_payload = LinuxReleaseTree.tree_payload
+
+    def setUp(self):
+        LinuxReleasePoint.setUp(self)
+        for name in ("cmux-linux-release-aliases.sh", "cmux-machine-channel.py", "nightly_version.py",
+                     "screen_sharing_helper_release.py"):
+            shutil.copy(ROOT / "scripts/ci" / name, self.repo / "scripts/ci/")
+        republish.Sandbox._exe(self.repo / "scripts/ci/cmux_tui_tree_key.py", FAKE_TREE_KEY)
+        (self.repo / "scripts/cmux-next/cmux-tui-tree-inputs.txt").write_text("cmux-tui/\n")
+        git = lambda *a: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *a], cwd=self.repo,
+                                         check=True, capture_output=True, text=True).stdout.strip()
+        git("init", "-q")
+        self.commits = []
+        for n in range(4):  # oldest first; each its own commit time
+            (self.repo / "n.txt").write_text(str(n))
+            git("add", "-A")
+            subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", str(n)],
+                           cwd=self.repo, check=True, capture_output=True,
+                           env={**os.environ, "GIT_COMMITTER_DATE": f"{COMMITTED_AT + 60 * n} +0000",
+                                "GIT_AUTHOR_DATE": f"{COMMITTED_AT + 60 * n} +0000"})
+            self.commits.append(git("rev-parse", "HEAD"))
+
+    def walk(self, trees):
+        scratch = pathlib.Path(tempfile.mkdtemp(dir=self.tmp))
+        env = {"PATH": f"{self.bin}:{os.environ['PATH']}", "HOME": str(self.tmp), "FAKE_R2": str(self.r2),
+               "FAKE_UPLOAD_LOG": str(self.tmp / "uploads.log"), "SIGNING_KEY": self.pem,
+               "R2_ENDPOINT": "https://r2.invalid", "GITHUB_RUN_ID": "9", "FAKE_TREE_KEYS": json.dumps(trees)}
+        result = subprocess.run(["bash", "scripts/ci/cmux-linux-release-aliases.sh", str(scratch), "--window", "4"],
+                                cwd=self.repo, env=env, text=True, capture_output=True)
+        self.assert_ok(result)
+        return result.stdout
+
+    def test_commits_of_a_signed_tree_get_an_alias_and_the_rest_are_left(self):
+        c0, c1, c2, head = self.commits
+        # c0 built tree T and signed it; c1 and HEAD share T (they adopted it); c2 has tree U, unsigned.
+        self.assert_ok(self.point(self.tree_payload(commit=c0, committed_at=COMMITTED_AT)))
+        tree = self.served(LinuxReleaseTree.TREE)
+        out = self.walk({c0: TREE_KEY, c1: TREE_KEY, c2: "9" * 40, head: TREE_KEY})
+        self.assertIn("1 signed", out)
+        value = self.verified(f"cmux-tui/{c1}/release.json", "feat-cmux-next", "cmux-linux-release", False)
+        self.assertEqual((value["commit"], value["committed_at"], value["tree_key"]), (c1, COMMITTED_AT + 60, TREE_KEY))
+        self.assertEqual(self.served(LinuxReleaseTree.TREE), tree)
+        self.assertEqual(self.verified(LinuxReleaseTree.POINTER)["commit"], c1)  # later than c0: the channel moves
+        self.assertIsNone(self.served(f"cmux-tui/{c2}/release.json"))  # its tree has no signed release file
+        self.assertIsNone(self.served(f"cmux-tui/{head}/release.json"))  # HEAD is its own run's (or the next walk's)
+        # A second walk signs nothing new: every commit with a signed tree has its file.
+        before = (self.tmp / "uploads.log").read_text()
+        self.assertIn("0 signed", self.walk({c0: TREE_KEY, c1: TREE_KEY, c2: "9" * 40, head: TREE_KEY}))
+        self.assertEqual((self.tmp / "uploads.log").read_text(), before)
+
+
 class MacLivePoint(LinuxReleasePoint):
     """cmux-machine-channel-point.sh with a Mac live update payload: the per-commit file is written once, the
     channel moves forward only, and a Linux release or Cloud machine file never stands in for it."""
@@ -820,6 +1048,18 @@ class MacLivePoint(LinuxReleasePoint):
         self.assertEqual(self.verified(self.RELEASE, None, "cmux-mac-live-update", False)["commit"], RELEASE_COMMIT)
         self.assertEqual(self.verified(self.POINTER)["commit"], newer)
 
+    def test_a_tree_key_is_signed_in_but_writes_no_tree_release_file(self):
+        path = self.payload()
+        value = json.loads(path.read_text())
+        value["tree_key"] = "c" * 40
+        path.write_bytes(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
+        self.assert_ok(self.point(path))
+        self.assertEqual(self.verified(self.POINTER, "nightly-live", "cmux-mac-live-update")["tree_key"], "c" * 40)
+        self.assertIsNone(self.served(f"cmux-tui/tree/{'c' * 40}/release.json"))
+        value["tree_key"] = "C" * 40
+        path.write_bytes(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
+        self.assertNotEqual(self.point(path, run_id="2").returncode, 0)
+
     def test_a_pr_head_writes_its_own_file_and_leaves_the_channel(self):
         # `cmux app try PR` reads cmux-tui/<head>/mac-live.json; a PR head never moves nightly-live.
         self.assert_ok(self.point(self.payload()))
@@ -847,6 +1087,95 @@ class MacLivePoint(LinuxReleasePoint):
         self.assertIsNone(self.served(self.RELEASE))
         self.assert_ok(self.point(self.payload(), run_id="2"))
         self.assertEqual(self.verified(self.POINTER)["purpose"], "cmux-mac-live-update")
+
+
+class MacAppPayload(unittest.TestCase):
+    """--purpose mac-app: cmux-tui/<sha>/mac-app.json, the full app build `cmux app try` installs in place."""
+
+    def setUp(self):
+        self.tmp = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.zip = self.tmp / "app.zip"
+        self.zip.write_bytes(b"app zip bytes")
+
+    def run_payload(self, **change):
+        args = {"commit": MAC_COMMIT, "zip": str(self.zip), "run_id": "12345",
+                "url": f"{channel.FILES}/{MAC_COMMIT}/mac-app-release.zip", **change}
+        out = self.tmp / "payload.json"
+        argv = ["cmux-machine-channel.py", "payload", "--purpose", "mac-app", "--out", str(out)]
+        for key, value in args.items():
+            argv += [f"--{key.replace('_', '-')}", value]
+        channel.main(argv)
+        return out.read_bytes()
+
+    def test_the_payload_is_the_contract_the_installer_reads(self):
+        raw = self.run_payload()
+        self.assertEqual(json.loads(raw), {
+            "schema": 1, "purpose": "cmux-mac-app-build", "commit": MAC_COMMIT, "configuration": "release",
+            "arch": "arm64", "run_id": "12345",
+            "app": {"url": f"https://files.cmux.com/cmux-tui/{MAC_COMMIT}/mac-app-release.zip",
+                    "sha256": hashlib.sha256(b"app zip bytes").hexdigest(), "size": len(b"app zip bytes")}})
+        self.assertEqual(raw, self.run_payload())  # no time field: two signings of a build are the same bytes
+
+    def test_refusals(self):
+        cases = [({"commit": "abc"}, "bad commit"), ({"run_id": "x1"}, "bad run id"),
+                 ({"url": "https://files.cmux.com/cmux-tui/other/mac-app-release.zip"}, "--url must be"),
+                 ({"zip": str(self.tmp / "missing.zip")}, "is not a file")]
+        for change, message in cases:
+            with self.subTest(change=change), self.assertRaises(SystemExit), \
+                    contextlib.redirect_stderr(io.StringIO()) as err:
+                self.run_payload(**change)
+            self.assertIn(message, err.getvalue())
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()) as err:
+            channel.main(["cmux-machine-channel.py", "payload", "--purpose", "mac-app", "--commit", MAC_COMMIT,
+                          "--out", str(self.tmp / "p.json")])
+        self.assertIn("needs --zip", err.getvalue())
+
+    def test_the_other_purposes_refuse_the_mac_app_flags(self):
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()) as err:
+            channel.main(["cmux-machine-channel.py", "payload", "--manifest", "m.json", "--commit", MAC_COMMIT,
+                          "--committed-at", "1", "--download-dir", str(self.tmp), "--zip", "z", "--out", "o"])
+        self.assertIn("for --purpose mac-app", err.getvalue())
+
+
+class MacAppPoint(unittest.TestCase):
+    """cmux-machine-channel-point.sh with a Mac app build payload: its file is written once and no channel
+    is ever created or moved, with or without --commit-only."""
+
+    setUp, point, served, verified, assert_ok = (LinuxReleasePoint.setUp, LinuxReleasePoint.point,
+                                                 LinuxReleasePoint.served, LinuxReleasePoint.verified,
+                                                 LinuxReleasePoint.assert_ok)
+    RELEASE = f"cmux-tui/{RELEASE_COMMIT}/mac-app.json"
+
+    def payload(self, commit=RELEASE_COMMIT, sha="d" * 64, purpose="cmux-mac-app-build", run_id="1"):
+        value = {"schema": 1, "purpose": purpose, "commit": commit, "configuration": "release", "arch": "arm64",
+                 "app": {"url": f"https://files.cmux.com/cmux-tui/{commit}/mac-app-release.zip",
+                         "sha256": sha, "size": 5}, "run_id": run_id}
+        path = self.tmp / f"payload-{len(list(self.tmp.iterdir()))}.json"
+        path.write_bytes(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
+        return path
+
+    def test_a_build_writes_its_file_once_and_no_channel(self):
+        self.assert_ok(self.point(self.payload()))
+        value = self.verified(self.RELEASE, None, "cmux-mac-app-build", False)
+        self.assertEqual((value["commit"], value["arch"], value["configuration"]), (RELEASE_COMMIT, "arm64", "release"))
+        for mode in ("--commit-only", None):
+            with self.subTest(mode=mode):
+                head = "e" * 40 if mode else "f" * 40
+                self.assert_ok(self.point(self.payload(commit=head), *([mode] if mode else []), run_id="2"))
+                self.assertEqual(self.verified(f"cmux-tui/{head}/mac-app.json", None, "cmux-mac-app-build",
+                                               False)["commit"], head)
+        self.assertEqual(sorted(p.name for p in (self.r2 / "cmux-tui").iterdir()),
+                         sorted([RELEASE_COMMIT, "e" * 40, "f" * 40]))  # no channels/ directory
+
+    def test_a_rerun_of_the_same_build_keeps_the_file_and_another_build_fails(self):
+        self.assert_ok(self.point(self.payload()))
+        before = self.served(self.RELEASE)
+        self.assert_ok(self.point(self.payload(), run_id="2"))
+        self.assertEqual(self.served(self.RELEASE), before)
+        result = self.point(self.payload(sha="e" * 64), run_id="3")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.served(self.RELEASE), before)
 
 
 # Stands in for scripts/ci/cmux_tui_tree_key.py: FAKE_TREE_KEYS maps a commit to its v2 tree key; a
