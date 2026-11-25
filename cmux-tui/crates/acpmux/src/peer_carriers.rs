@@ -38,6 +38,16 @@ const PROBE_CONNECT: Duration = Duration::from_secs(10);
 /// connect budget still accommodates a first handshake or a slow ssh login.
 const DIRECT_REDIAL_CONNECT: Duration = Duration::from_secs(4);
 
+/// Who a dial is for. Only the link's own dial carries its `initialize` behind the upgrade
+/// (`Peer::early_initialize`). A probe's socket greets the peer with its observer `probe_hello`;
+/// a full `initialize` ahead of it made the hub probe a second full client of the peer, and its
+/// dual send stopped delivering (#54052: mac-mac direct failover 2.4-2.9 s became 7.9 s).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum For {
+    Link,
+    Probe,
+}
+
 pub(crate) trait Duplex: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Duplex for T {}
 pub(crate) type BoxDuplex = Box<dyn Duplex>;
@@ -550,11 +560,12 @@ impl Peer {
         }
     }
 
-    /// Open the peer's WebSocket on direct path `via`.
+    /// Open the peer's WebSocket on direct path `via`, for the link or for a probe (`For`).
     async fn open_direct(
         &self,
         via: Via,
         ssh_tokens: Option<&(tokens::Tokens, bool)>,
+        dialer: For,
     ) -> Result<Opened, String> {
         let (token, peer_token) = self
             .direct_credentials(ssh_tokens)
@@ -568,8 +579,9 @@ impl Peer {
         };
         // The first request goes out with the upgrade (`Peer::early_initialize`); a peer whose
         // listener predates that refuses the upgrade ("junk after client request"), which is
-        // remembered (`early_refused`) and dialed again without it.
-        let mut use_early = !self.early_refused.load(Ordering::SeqCst);
+        // remembered (`early_refused`) and dialed again without it. A probe sends none: its
+        // socket is the observer `probe_hello`'s, never the link's (`For`).
+        let mut use_early = dialer == For::Link && !self.early_refused.load(Ordering::SeqCst);
         loop {
             let heard = Heard::default();
             let early = use_early.then(|| self.early_initialize()).flatten();
@@ -612,8 +624,9 @@ impl Peer {
         }
     }
 
-    /// Open the peer's WebSocket on the configured `ws://`/`wss://` URL.
-    async fn open_url(&self) -> Result<Opened, String> {
+    /// Open the peer's WebSocket on the configured `ws://`/`wss://` URL, for the link or for a
+    /// probe (`For`).
+    async fn open_url(&self, dialer: For) -> Result<Opened, String> {
         // The peer token never crosses a network in clear.
         let peer_token = match self.peer_token.as_deref() {
             Some(_) if !super::carries_peer_token(&self.url) => {
@@ -626,10 +639,13 @@ impl Peer {
         };
         let req = self.ws_request(&self.url, self.token.as_deref(), peer_token)?;
         let heard = Heard::default();
-        // Over TLS the upgrade is written inside the stream this would wrap: no early frame.
-        let early = (self.url.starts_with("ws://") && !self.early_refused.load(Ordering::SeqCst))
-            .then(|| self.early_initialize())
-            .flatten();
+        // Over TLS the upgrade is written inside the stream this would wrap: no early frame. A
+        // probe sends none either (`For`).
+        let early = (dialer == For::Link
+            && self.url.starts_with("ws://")
+            && !self.early_refused.load(Ordering::SeqCst))
+        .then(|| self.early_initialize())
+        .flatten();
         let early_id = early.as_ref().map(|(id, _)| *id);
         let token_said_no = AtomicBool::new(false);
         // `connect_async`'s steps, with the TCP stream's reads counted (`Heard`).
@@ -664,7 +680,7 @@ impl Peer {
             // A listener that predates the early request refuses the upgrade: dial without.
             Ok(Err(_)) if early_id.is_some() && !token_said_no.load(Ordering::SeqCst) => {
                 self.early_refused.store(true, Ordering::SeqCst);
-                return Box::pin(self.open_url()).await;
+                return Box::pin(self.open_url(dialer)).await;
             }
             Ok(Err(error)) => return Err(error),
             Err(_) => return Err(connect_timed_out(self.timings.connect)),
@@ -801,9 +817,13 @@ impl Peer {
     ) -> Result<Opened, String> {
         let opened = match via {
             Via::Ssh => self.open_ssh(ssh_tokens).await,
-            Via::Url => self.open_url().await,
-            Via::Wireguard | Via::Link => self.open_direct(via, ssh_tokens.as_ref()).await,
-            Via::Hub if via.streams() => self.open_direct(via, ssh_tokens.as_ref()).await,
+            Via::Url => self.open_url(For::Link).await,
+            Via::Wireguard | Via::Link => {
+                self.open_direct(via, ssh_tokens.as_ref(), For::Link).await
+            }
+            Via::Hub if via.streams() => {
+                self.open_direct(via, ssh_tokens.as_ref(), For::Link).await
+            }
             Via::Hub => Err("the hub relay carries no live link yet".to_owned()),
         }?;
         // Unproven until the daemon's `initialize` answer on this connection says it is the
@@ -1003,17 +1023,17 @@ impl Peer {
     async fn open_probe(&self, via: Via) -> Result<(OpenedWs, Option<ProbeTunnel>), String> {
         match via {
             Via::Wireguard | Via::Link => {
-                let opened = self.open_direct(via, None).await?;
+                let opened = self.open_direct(via, None, For::Probe).await?;
                 self.note_token_path(via, false);
                 Ok((opened.ws, None))
             }
             Via::Hub if via.streams() => {
-                let opened = self.open_direct(via, None).await?;
+                let opened = self.open_direct(via, None, For::Probe).await?;
                 self.note_token_path(via, false);
                 Ok((opened.ws, None))
             }
             Via::Url => {
-                let ws = self.open_url().await?.ws;
+                let ws = self.open_url(For::Probe).await?.ws;
                 self.note_token_path(via, false);
                 Ok((ws, None))
             }

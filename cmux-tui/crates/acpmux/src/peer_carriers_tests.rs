@@ -56,7 +56,10 @@ async fn a_direct_redial_has_its_own_deadline_through_the_websocket_upgrade() {
         peer.set_link_host("inst_b".into());
         peer.set_link_socket(socket);
         peer.linked_once.store(true, Ordering::SeqCst);
-        let dial = tokio::spawn(async move { peer.open_direct(Via::Link, None).await.map(|_| ()) });
+        let dial =
+            tokio::spawn(
+                async move { peer.open_direct(Via::Link, None, For::Link).await.map(|_| ()) },
+            );
         stalled.await.unwrap();
         tokio::time::pause();
         tokio::time::advance(Duration::from_secs(5)).await;
