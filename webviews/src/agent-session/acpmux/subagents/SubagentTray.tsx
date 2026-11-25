@@ -132,7 +132,6 @@ import { earlierPlanHat } from "./earlierPlanHat.experiment";
 import { trayHeadKindsLook } from "./trayHeadKinds.experiment";
 import { trayHead, trayHeadParts, type TrayHeadPart, trayHeadGroups } from "./trayHeadKinds";
 import { HeadSummary } from "./HeadSummary";
-import { trayColumnLook } from "./trayColumn.experiment";
 import { trayHeadHeightLook } from "./trayHeadHeight.experiment";
 import { COMMAND_KIND_ICON, commandKind } from "./trayCommandKinds";
 import { KIND_LINE_SEPARATOR, trayKindLineLook } from "./trayKindLine.experiment";
@@ -328,7 +327,6 @@ export const SubagentTray = memo(function SubagentTray({
   const [foldHead] = useState(() => experimentArm(trayFoldHeadLook));
   const [facesArm] = useState(() => experimentArm(hatFacesLook));
   const [headHeight] = useState(() => experimentArm(trayHeadHeightLook));
-  const [column] = useState(() => experimentArm(trayColumnLook));
   const [stopLook] = useState(() => experimentArm(trayStopLook));
   const [opensArm] = useState(() => experimentArm(trayOpenLook));
   // An earlier turn's plan is a collapsed chip, never opened by default (earlierPlanHat.experiment.ts;
@@ -863,7 +861,6 @@ export const SubagentTray = memo(function SubagentTray({
       data-narrow={narrow || undefined}
       data-head={head}
       data-head-height={headHeight}
-      data-column={column}
       data-stop={stopLook}
       data-opens={(headed && opensPanel) || undefined}
       data-tucks={onTuck ? tuckSide : undefined}
