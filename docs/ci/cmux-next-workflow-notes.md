@@ -5147,3 +5147,27 @@ fast-tier-cargo writes the merge commit's first-parent diff and adds its hash to
 feat-cmux-next still run every entry.
 
 The switch: `vars.CI_FAST_TIER_PR_SCOPE` set to `0` runs every entry on the pull request again (both jobs).
+
+## note-560
+
+Above fast-tier-fleet and fast-tier-fleet-mac in `.github/workflows/cmux-next.yml`, their consumers' verdict
+reads, and `scripts/ci/fleet_fast_tier_result.py`.
+
+Leo, 2026-11-25: "i need us to be defo making sure it runs on our scheduler, which has far more capabilities
+than github actions. github actions is just there at the start and end or whatever maybe i guess, but we own the
+in-between. all of it". fast-tier-fleet held a gateway Mac for up to 50 minutes only to submit two light steps
+and wait on them. The controller now submits those same steps itself when the job is queued (cmuxterm-hq
+`cmux_next_fast_tier_check.go`, hooked on the job name) and judges them, so the job runs on `cmux-linux` and
+reads one verdict: `GET /compile-checks/v1/<sha>?repo=...&phase=fast-tier[&ffi_repin=1]`.
+
+The reader trusts a 200 only when it names phase `fast-tier`, this sha and repo, the asked number of steps, and
+steps that ran this head. A controller that predates the phase answers its tip compile receipt, which the reader
+turns into `unavailable`, so the two sides merge in either order. `queued` past 20 minutes hands back as the
+client's exit 75 did; `unavailable` (no record after 5 minutes, an outage past 2 minutes, a step with no
+verdict, still running at 45 minutes) exits 0 and leaves the decision to fast-tier-fleet-mac.
+
+fast-tier-fleet-mac is the old gateway client, unchanged but for its `::warning title=mac fallback::`, and runs
+only on `unavailable` while the placement still names a gateway runner for this attempt. Its name differs, so
+the controller's hook never fires on it. Consumers read `fast-tier-fleet-mac`'s verdict and result when it ran,
+else fast-tier-fleet's; an `unavailable` with no fallback leaves cmux-next fast tier to run the suites itself,
+as when no fleet job ran.
