@@ -250,9 +250,9 @@ import {
   ARRIVAL_PASS_MS,
   arrivedAtTail,
   TokenRows,
-  newestPromptId,
   noReplyCame,
   broughtSentPrompt,
+  newestPromptIndex,
 } from "./transcript/arrivals";
 import {
   scrollRangeIn,
@@ -4000,6 +4000,7 @@ function TranscriptView({
   // (https://github.com/manaflow-ai/cmux/pull/47801) scrolled the whole history out of view on send.
   // The last pass's rows (its layout effect writes them), read once for this pass.
   const placedRows = previousRows.current;
+  const keptAt = following && !sessionSwitched ? newestPromptIndex(rows) : -1;
   const under = roomUnder({
     following,
     sessionSwitched,
@@ -4020,7 +4021,10 @@ function TranscriptView({
     liftedBefore: liftedBefore.current,
     deadband: FOLLOW_BOTTOM_DEADBAND_PX,
     held: heldRoom.current,
-    prompt: following && !sessionSwitched ? newestPromptId(rows) : undefined,
+    prompt: keptAt >= 0 ? rows[keptAt]!.id : undefined,
+    // From the prompt's top, so a page of older history landing above it takes none of the room.
+    promptTail: () =>
+      measured.layout.totalHeight - (keptAt >= 0 ? layoutGeometry(measured.layout).topAt(keptAt) : 0) + tailGap,
     foldRoom,
     newerRoom,
     dragged: draggedHeight,
