@@ -496,6 +496,10 @@ pub mod method {
     pub const MUX_HERE_BEAT: &str = "_acpmux/here/beat";
     /// Every person and agent on this machine now, across devices (`hub/here.rs`).
     pub const MUX_HERE: &str = "_acpmux/here";
+    /// The chat titles and read marks a replica lacks since its version vector (`hub/synced.rs`).
+    pub const MUX_SYNC_PULL: &str = "_acpmux/sync/pull";
+    /// Another replica's title and read-mark edits, merged here (`hub/synced.rs`).
+    pub const MUX_SYNC_PUSH: &str = "_acpmux/sync/push";
     pub const MUX_DETACH: &str = "_acpmux/detach";
     pub const MUX_WATCH: &str = "_acpmux/watch";
     pub const MUX_RENAME: &str = "_acpmux/rename";

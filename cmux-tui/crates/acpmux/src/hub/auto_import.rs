@@ -57,7 +57,7 @@ impl Hub {
         // (`hold`): it is only prepared until the holder loop accepts it (`auto_activate`), so
         // a copy that lost the chat meanwhile runs nothing.
         let own = arrival.own_agent;
-        let plain = (false, None, own, false, None);
+        let plain = (super::transfer::Live::No, None, own, false, None);
         let session = self.import_placing(bundle, None, plain, own, true).await?;
         self.settle_arrived(&session, arrival.cut, arrival.in_flight.as_ref());
         self.restore_queue(&session);

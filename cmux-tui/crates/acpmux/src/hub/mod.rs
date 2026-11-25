@@ -491,6 +491,7 @@ pub mod presence;
 mod processes;
 pub(crate) mod pull_requests;
 pub(crate) mod purge_tombstones;
+pub mod synced;
 pub(crate) use crate::questions;
 mod remote_cwd;
 mod remote_floor;
@@ -1507,6 +1508,8 @@ pub struct Hub {
     pub presence: presence::Presence,
     /// Who is on this machine now, across devices, in memory only (`here.rs`).
     pub here: here::HereTable,
+    /// Chat titles and read marks as a sync replica, opened on first use (`synced.rs`).
+    pub synced: std::sync::OnceLock<synced::Synced>,
     /// How long a move may go without its client (`transfer_watch.rs`).
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
     /// The moves one watch ends, or whose begin still makes them (`transfer_watch.rs`).
@@ -1930,6 +1933,7 @@ impl Hub {
             person: Default::default(),
             presence: Default::default(),
             here: Default::default(),
+            synced: std::sync::OnceLock::new(),
             workflow_index: Default::default(),
             suggestion_gate,
             page_replies: Default::default(),
