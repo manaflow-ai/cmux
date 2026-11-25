@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.diagnostic.value" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-next.json: تم تجاهل %1$@ = %2$@: %3$@."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-next.json: %1$@ = %2$@ je zanemaren: %3$@."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-next.json: %1$@ = %2$@ blev ignoreret: %3$@."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-next.json: %1$@ = %2$@ wurde ignoriert: %3$@."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-next.json: %1$@ = %2$@ was ignored: %3$@."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-next.json: se ignoró %1$@ = %2$@: %3$@."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-next.json : %1$@ = %2$@ a été ignoré : %3$@."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-next.json: %1$@ = %2$@ è stato ignorato: %3$@."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-next.json: %1$@ = %2$@ は無視されました: %3$@。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-next.json៖ %1$@ = %2$@ ត្រូវបានមិនអើពើ៖ %3$@។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-next.json: %1$@ = %2$@이(가) 무시되었습니다: %3$@."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-next.json: %1$@ = %2$@ ble ignorert: %3$@."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-next.json: zignorowano %1$@ = %2$@: %3$@."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-next.json: %1$@ = %2$@ foi ignorado: %3$@."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-next.json: %1$@ = %2$@ проигнорирован: %3$@."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-next.json: ละเว้น %1$@ = %2$@: %3$@"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-next.json: %1$@ = %2$@ yok sayıldı: %3$@."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-next.json: %1$@ = %2$@ проігноровано: %3$@."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-next.json: %1$@ = %2$@ đã bị bỏ qua: %3$@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-next.json：已忽略 %1$@ = %2$@：%3$@。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-next.json：已忽略 %1$@ = %2$@：%3$@。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

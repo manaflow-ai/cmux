@@ -132,8 +132,8 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// listed: the others, and this Mac with `sidebar.showLocalMachine`. Empty with one machine,
     /// where a mark would tell nothing.
     public var machines: [MachineID: SidebarMachine] = [:]
-    /// The Cloud machines listed: their rows draw a small muted cloud in the trailing status cluster (``WorkspaceRowContent/runsInCloud``)
-    /// and never their machine's name.
+    /// The Cloud machines listed: their rows never draw their machine's name, and no cloud either (cmux#55668: the cloud
+    /// belongs only to a Cloud chat's tab, never to a sidebar row).
     public var cloudMachines: Set<MachineID> = []
     /// Keep the active workspace visible beneath a collapsed group so the
     /// current destination remains anchored while the other members fold away.
@@ -218,7 +218,6 @@ nonisolated extension SidebarLayoutOptions {
         var content = baseRowContent(ws, machine: machine)
         content.detailedStatus = detailedStatus
         content.statusLeads = workspaceRow.statusPlacement == .leading
-        content.runsInCloud = cloudMachines.contains(ws.machineID) || ws.startsInCloud
         content.machine = cloudMachines.contains(ws.machineID) ? nil : machines[ws.machineID].map(SidebarMachineMark.init)
         // Every mode (each density, workspaces as tabs), mark drawn or not: VoiceOver says the
         // computer and its status when it cannot connect, as no line does (review of #28510 at 58ee6d24).
@@ -260,8 +259,6 @@ nonisolated extension SidebarLayoutOptions {
         if content.titleParts == nil, content.detail != nil, let step = ws.agentStep {
             (content.now, content.detail) = (step, step)
         }
-        // Steps left in the agent's task list (`ws.taskProgress`) show in the hover card only: a workspace
-        // row draws no "3/7" count (https://github.com/manaflow-ai/cmux/issues/52977).
         return content
     }
 
