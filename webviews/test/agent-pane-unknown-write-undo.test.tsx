@@ -98,8 +98,7 @@ test("once the checkpoint gives the file counts, the confirmation still says Und
     ]),
     load,
   );
-  const notes = dom.host().querySelector(`.acpmux-edited-path[data-path="${NOTES}"]`)?.closest(".acpmux-edited-file");
-  expect(notes?.querySelector(".acpmux-diff-counts")?.textContent).toBe("+1-1");
+  expect((await dom.rows()).find(([path]) => path === NOTES)?.[1]).toBe("+1-1");
   expect(asked).toEqual([[SETUP]]);
   expect(dom.text(".acpmux-edited-confirm-kept")).toBe("Undo can't restore notes.txt.");
 });

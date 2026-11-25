@@ -179,16 +179,19 @@ extension CloudWait {
     /// flight too, up to `limit`, never answered as "This machine is pausing" (ask-259986a6c4, Leo 2026-11-25: "whoa
     /// what happened here"). A paused machine proceeds: the caller's attach resumes it. Logs one
     /// `cloud machine settle:` line when it waited. Only the host loop; the rule is Rust's.
+    /// `waking` is told Rust's `waking` before each wait and false once the loop ends after one: the start card's
+    /// "Waking machine" line.
     public static func settle(of status: @escaping @MainActor @Sendable () -> CloudMachine.Status, within limit: Duration,
-                              log: ((String) -> Void)? = nil,
+                              log: ((String) -> Void)? = nil, waking: (@MainActor (Bool) -> Void)? = nil,
                               read: @escaping @MainActor @Sendable () async -> Void) async -> Settled {
         struct Look: Encodable { var status: CloudMachine.Status, waitedMs: UInt64, resumes: UInt32, limitMs: UInt64 }
-        struct Act: Decodable { var act: String, reason: String? }
+        struct Act: Decodable { var act: String, reason: String?, waking: Bool? }
         let clock = ContinuousClock(), began = clock.now
         let limitMs = UInt64(max(0, limit.components.seconds)) * 1000 + UInt64(limit.components.attoseconds / 1_000_000_000_000_000)
         var waited: [String] = []
         defer {
             if !waited.isEmpty {
+                waking?(false)
                 let ms = began.duration(to: clock.now).components
                 let line = "cloud machine settle: waited \(waited.joined(separator: ",")) \(ms.seconds * 1000 + ms.attoseconds / 1_000_000_000_000_000) ms, now \(status().rawValue)"
                 if let log { log(line) } else { settleLogger.notice("\(line, privacy: .public)") }
@@ -203,6 +206,7 @@ extension CloudWait {
             // No answer from Rust: the old rule (a pause or resume in flight is the caller's to refuse).
             guard let act = CloudMoveCore().call("settle", look, as: Act.self) else { return .proceed }
             let left = max(.zero, limit - elapsed)
+            if act.waking == true { waking?(true) }
             switch act.act {
             case "waitPausing":
                 waited.append("pausing")
