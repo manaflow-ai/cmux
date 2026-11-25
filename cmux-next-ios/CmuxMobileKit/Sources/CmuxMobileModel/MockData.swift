@@ -5,18 +5,19 @@ import Foundation
 extension AppStore {
     /// Sample data for previews, UI verification and first-run demos.
     public static func mock(now: Date = Date(), tabMemory: TabMemory = .standard) -> AppStore {
+        let persona = MockPersona.current
         let teams = [
             // Two Macs, one asleep: the Workspaces list's realistic mix.
-            Team(id: "team-manaflow", name: "Manaflow", macs: [
-                MacDevice(id: "mac-studio", name: "Aziz's Mac Studio", isOnline: true),
+            Team(id: "team-manaflow", name: persona.teamName, macs: [
+                MacDevice(id: "mac-studio", name: persona.mac("Mac Studio"), isOnline: true),
                 MacDevice(id: "mbp", name: "MacBook Pro", isOnline: false, lastSeenAt: now.addingTimeInterval(-2 * 3600)),
             ]),
             Team(id: "personal-mock", name: "Personal", appearance: TeamAppearance(colorHex: "#30D158", emoji: "🌵"), macs: [
                 MacDevice(id: "mbp-home", name: "Home MacBook", isOnline: false),
                 // Two Macs that share a name (a reinstall, or two laptops):
                 // the lists tag each with its id ending.
-                MacDevice(id: "8c41e0d2-3f2a", name: "Aziz's MacBook Pro", isOnline: true),
-                MacDevice(id: "5b97a6f1-91c7", name: "Aziz's MacBook Pro", isOnline: false, lastSeenAt: now.addingTimeInterval(-3 * 86400)),
+                MacDevice(id: "8c41e0d2-3f2a", name: persona.mac("MacBook Pro"), isOnline: true),
+                MacDevice(id: "5b97a6f1-91c7", name: persona.mac("MacBook Pro"), isOnline: false, lastSeenAt: now.addingTimeInterval(-3 * 86400)),
             ]),
             Team(id: "team-fleet", name: "Build Fleet", macs: (1...8).map {
                 MacDevice(id: "mini-\($0)", name: "mini \($0)", isOnline: $0 % 3 != 0)
@@ -65,9 +66,10 @@ extension AppStore {
             ),
             // The waiting agent is the second tab: a tap still lands on it.
             Workspace(
-                id: "ws-ghostty", macID: "mac-studio", title: "ghostty", directory: "~/Development/ghostty", branch: "sync-upstream",
+                id: "ws-ghostty", macID: "mac-studio", title: persona.sideProject, directory: "~/Development/\(persona.sideProject)",
+                branch: "sync-upstream",
                 tabs: [
-                    WorkspaceTab(id: "t-gh-zsh", kind: .terminal, title: "zsh", subtitle: "~/Development/ghostty"),
+                    WorkspaceTab(id: "t-gh-zsh", kind: .terminal, title: "zsh", subtitle: "~/Development/\(persona.sideProject)"),
                     WorkspaceTab(id: "t-gh-codex", kind: .agent, title: "Codex", subtitle: "Resolve merge conflicts", harness: "codex",
                                  agentStatus: .waiting),
                 ],
@@ -167,8 +169,30 @@ extension AppStore {
             Workspace(id: "ws-bare-2", macID: "mac-studio", title: "notes to self", directory: "",
                       tabs: [WorkspaceTab(id: "t-bare-2", kind: .terminal, title: "zsh")], lastActivityAt: ago(20)),
         ] : []
-        return AppStore(teams: teams, activeTeamID: "team-manaflow", workspaces: (terminalAgents + workspaces + bare).enumerated().map { Self.mockLinkIDs($1, index: $0) }, feed: feed,
+        // CMUX_MOBILE_MOCK_PANES=1: first, a workspace of five terminals in two panes side by
+        // side (build, server, logs | tests, git), for the Panes page's drag (PaneDragMoveUITests).
+        let panes = ProcessInfo.processInfo.environment["CMUX_MOBILE_MOCK_PANES"] == "1" ? [Self.mockPanesWorkspace(now: now)] : []
+        return AppStore(teams: teams, activeTeamID: "team-manaflow", workspaces: (panes + terminalAgents + workspaces + bare).enumerated().map { Self.mockLinkIDs($1, index: $0) }, feed: feed,
                         tabMemory: tabMemory)
+    }
+
+    /// `ws-panes`: build, server and logs in the left pane, tests and git in the right one.
+    static func mockPanesWorkspace(now: Date) -> Workspace {
+        let folder = "~/Development/panes"
+        func terminal(_ id: String, _ title: String) -> WorkspaceTab {
+            WorkspaceTab(id: id, kind: .terminal, title: title, subtitle: folder)
+        }
+        var workspace = Workspace(
+            id: "ws-panes", macID: "mac-studio", title: "panes", directory: folder, branch: "main",
+            tabs: [terminal("t-pane-build", "build"), terminal("t-pane-server", "server"), terminal("t-pane-logs", "logs"),
+                   terminal("t-pane-tests", "tests"), terminal("t-pane-git", "git")],
+            lastActivityAt: now.addingTimeInterval(-30), activeTabID: "t-pane-build"
+        )
+        workspace.layout = WorkspaceLayout(screens: [WorkspaceLayout.Screen(id: 1, isActive: true, panes: [
+            WorkspaceLayout.Pane(id: 1, tabIDs: ["t-pane-build", "t-pane-server", "t-pane-logs"], activeTabID: "t-pane-build", isFocused: true),
+            WorkspaceLayout.Pane(id: 2, tabIDs: ["t-pane-tests", "t-pane-git"], activeTabID: "t-pane-tests"),
+        ], root: .split(id: 9, axis: .horizontal, ratio: 0.5, first: .pane(1), second: .pane(2)))])
+        return workspace
     }
 
     /// Mac-style public ids for the samples, so cmux links resolve in mock mode

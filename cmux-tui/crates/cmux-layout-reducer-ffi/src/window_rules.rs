@@ -211,6 +211,7 @@ fn respond_tabs(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
         b"window_panes_split" => value(&panes::split(&read(request)?))?,
         b"window_panes_auto_direction" => value(&panes::auto_direction(read(request)?))?,
         b"window_panes_tab_bar" => value(&panes::tab_bar(read(request)?))?,
+        b"window_tabs_plus_menu" => value(&tabs::plus_menu::rows(&read(request)?))?,
         b"window_panes_terminal_bindings" => json!({ "bindings": panes::TERMINAL_BINDINGS }),
         b"window_panes_clear_failure" => {
             let request: Text = read(request)?;

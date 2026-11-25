@@ -7,7 +7,8 @@ import { copyTextResult } from "../conversation/clipboard";
 import type { WatchedAsk } from "../needsYou/model";
 import { answerAnotherChat } from "../needsYou/useNeedsYou";
 import type { AsksScreen } from "../asks/AsksScreen";
-import type { LedgerScreen } from "../ledger/LedgerScreen";
+import type { LedgerScreen, LedgerSaveOutcome } from "../ledger/LedgerScreen";
+import type { LedgerExportKind } from "../ledger/ledgerModel";
 import type { TeamAuditScreen } from "../teamAudit/TeamAuditScreen";
 import type { QueueScreen } from "./QueueScreen";
 import { auditEntries, needsYouItem, QUEUE_LIMIT, verdictParams, type QueueItem } from "./queueModel";
@@ -114,6 +115,18 @@ export function historyPages({
     const session = itemSession(item, sessions);
     if (session) selectSession(session);
   };
+  // The host's save panel, as a side panel document's Save (`pane.saveFile`); a host that
+  // cannot save it (one that predates the kind, or a failed write) copies it instead.
+  const save = async (text: string, suggestedName: string, kind: LedgerExportKind): Promise<LedgerSaveOutcome> => {
+    try {
+      const saved = await callNative<boolean>("pane.saveFile", { text, suggestedName, kind });
+      return saved === true ? "saved" : "cancelled";
+    } catch {
+      // l10n-allow: a rejection reason for the wire log only; the page shows its own localized failure text
+      if (!(await copy(text))) throw new Error("clipboard refused");
+      return "copied";
+    }
+  };
   return {
     queue: {
       refreshKey: queueKey(asks, sessions),
@@ -160,21 +173,10 @@ export function historyPages({
       load: async (params) => connected().ledger(params),
       openSession: selectSession,
       copy,
-      // The host's save panel, as a side panel document's Save (`pane.saveFile`); a host that
-      // cannot save it (one that predates the kind, or a failed write) copies it instead.
-      save: async (text, suggestedName, kind) => {
-        try {
-          const saved = await callNative<boolean>("pane.saveFile", { text, suggestedName, kind });
-          return saved === true ? "saved" : "cancelled";
-        } catch {
-          // l10n-allow: a rejection reason for the wire log only; the page shows its own localized failure text
-          if (!(await copy(text))) throw new Error("clipboard refused");
-          return "copied";
-        }
-      },
+      save,
     },
     // History shows it only while the `team-audit` experiment is on (newtab/HistoryScreen.tsx).
-    team: { load: async (params) => connected().teamAudit(params) },
+    team: { load: async (params) => connected().teamAudit(params), save },
     // Your asks: acpmux's Ask ledger; a chat opens in this tab, a pull request in a browser tab.
     yourAsks: {
       load: async (params) => {

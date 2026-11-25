@@ -82,6 +82,11 @@ pub(crate) struct HolderService {
     /// ([`RELINK_HEALTHY`]): a holder that takes every link and drops it
     /// at once is not reconnected in a tight loop.
     relink: Mutex<crate::backoff::Backoff>,
+    /// The holder could not be reached or started ([`Self::available`]):
+    /// until then a new terminal runs on a host of its own without asking
+    /// again, so a broken holder costs one start timeout per window and not
+    /// one per terminal.
+    unavailable_until: Mutex<Option<Instant>>,
 }
 
 /// A link that stayed up this long was healthy: when it ends, the next link
@@ -93,6 +98,9 @@ const RELINK_MAX: Duration = Duration::from_secs(5);
 /// How long a connect waits for the holder's answer when its caller gives no
 /// bound of its own.
 const CONNECT_WAIT: Duration = Duration::from_secs(10);
+/// After the holder failed to start or answer, new terminals run on hosts of
+/// their own this long before a create asks the holder again.
+const UNAVAILABLE_RETRY: Duration = Duration::from_secs(30);
 
 /// What one ask of the holder found ([`HolderService::reach`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -143,6 +151,7 @@ impl HolderService {
             superseded: AtomicBool::new(false),
             standalone_failed: AtomicBool::new(false),
             relink: Mutex::new(crate::backoff::Backoff::new(RELINK_INITIAL, RELINK_MAX)),
+            unavailable_until: Mutex::default(),
         }
     }
 
@@ -181,6 +190,45 @@ impl HolderService {
     /// made after a lost one hands every live terminal to the new holder.
     pub(crate) fn link(self: &Arc<Self>) -> io::Result<Arc<HolderLink>> {
         self.link_or_launch(true)
+    }
+
+    /// Whether a new terminal can run on this holder: its link is open, or a
+    /// connect or start made one. `false` when the holder failed to start or
+    /// answer, or another daemon of the session took it: the caller then
+    /// runs the terminal on a host of its own (the per-terminal fallback),
+    /// so a holder that cannot start never costs a terminal. After a failure
+    /// the holder is not asked again for [`UNAVAILABLE_RETRY`].
+    pub(crate) fn available(self: &Arc<Self>) -> bool {
+        if self.open_link().is_some() {
+            return true;
+        }
+        if self.superseded.load(Ordering::Acquire) {
+            return false;
+        }
+        if self
+            .unavailable_until
+            .lock()
+            .recover_poison()
+            .is_some_and(|until| Instant::now() < until)
+        {
+            return false;
+        }
+        match self.link() {
+            Ok(_) => {
+                *self.unavailable_until.lock().recover_poison() = None;
+                true
+            }
+            Err(error) => {
+                eprintln!(
+                    "cmux-tui: the terminal holder is not available ({error}); new terminals \
+                     run on hosts of their own for {}s",
+                    UNAVAILABLE_RETRY.as_secs()
+                );
+                *self.unavailable_until.lock().recover_poison() =
+                    Some(Instant::now() + UNAVAILABLE_RETRY);
+                false
+            }
+        }
     }
 
     /// The link when one is open. Never connects, launches or waits for a

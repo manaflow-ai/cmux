@@ -20,6 +20,12 @@ fix, anything the person listed). Skip it for a one-command answer or plain talk
   7 words), one item in progress, the rest pending.
 - Mark an item done when it is done, in the same step that starts the next one.
   Rewrite the whole list when the plan changes, so it never shows abandoned work.
+- Keep it current, as Claude Code expects: delete an item you drop, and when the person's
+  new message changes the work, rewrite the list for it or clear it. A list with steps
+  left stays in sight for one message only ("From before your last message"); after
+  that it folds into the turn that wrote it. A list whose items are all done clears.
+- It is this task's plan, never a standing to-do list: a coordinator's duties, other
+  sessions' work and things to check later go in notes, goals or issues, not here.
 - Never also write the plan as a numbered list in your reply: the checklist is the plan.
 
 ## Side sessions, sub-sessions and subagents
@@ -39,8 +45,8 @@ harness's own subagent (Claude Code's Task/Agent tool), whose result comes back 
   `send_message`.
 - `offer_session` (`cmux.sessions_offer_session`): one suggestion mid-turn for work you noticed
   outside the task (a bug, a cleanup). The person starts it or not; do not do that work here.
-- `suggest_tasks` (`cmux.sessions_suggest_tasks`): at the end of a turn, up to 5 follow-ups the
-  person may want, drawn as one card.
+- `suggest_tasks` (`cmux.sessions_suggest_tasks`): at the end of a turn, a few follow-ups
+  (usually 2 to 5) the person may want, drawn as one card.
 - Not for: quick lookups, a handful of tool calls, or pieces of one change. Never start a
   session the person did not ask for; offer it instead.
 - To show a session's chat, `app_agent_open` (server `cmux`) with its sessionId.
@@ -50,7 +56,7 @@ harness's own subagent (Claude Code's Task/Agent tool), whose result comes back 
 When you mention another session (one you started, one that messaged you, one in a PR
 footer), write a reference cmux turns into a clickable chip, in inline code:
 
-- its `HOST/NAME`, as `list_sessions` or `acpmux ls` shows it (`huge-blue/tests`), or
+- its `HOST/NAME`, as `list_sessions` or `cmux agent ls` shows it (`huge-blue/tests`), or
 - its agent link: `cmux://agent/<harness>/<sessionId>` or the
   `https://cmux.com/deeplink/agent?...` link a PR footer carries.
 

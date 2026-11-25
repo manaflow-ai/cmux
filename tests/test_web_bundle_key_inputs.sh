@@ -23,6 +23,7 @@ src="$TMP/src"
 mkdir -p "$src"
 
 git -C "$ROOT" archive HEAD webviews web/data clients/ts/cloud Resources/markdown-viewer config schemas release-notes/next/highlights \
+  examples/gallery examples/looks \
   Packages/Shared/CmuxAgentQuestion \
   scripts/cmux-next/web-bundle-key.py scripts/webviews_bun_version.py README.md | tar -x -C "$src"
 cp "$KEY" "$src/scripts/cmux-next/web-bundle-key.py"

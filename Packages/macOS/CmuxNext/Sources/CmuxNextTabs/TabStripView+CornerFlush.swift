@@ -32,8 +32,9 @@ extension TabStripView: TabStripCorner {
         // Bottom tabs have no card under them (`CornerFlushChrome.apply`): the selected tab stays a pill.
         // A strip inside the card (a lower split pane's) runs into its pane's content too while the top row's
         // tabs are folders (``setTonedInCard(_:)``), on its own toned row, so every selected tab joins the content.
+        // `appearance.tabShape` rounded keeps every selected tab a capsule on its row, never a folder.
         let runsDown = isPaneTabRow && (runsIntoCard || tonedInCard) && CornerFlush.current.isOn
-            && DesignSettings.shared.tabBarPosition != .bottom
+            && DesignSettings.shared.tabBarPosition != .bottom && DesignSettings.shared.tabShape.runsIntoCard
         let foot = runsDown ? max(0, bounds.height - (tabY + tabHeight)) : 0
         for cell in cells.values { cell.cornerFoot = foot }
         reportCornerLead()

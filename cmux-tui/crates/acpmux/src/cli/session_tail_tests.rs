@@ -125,6 +125,28 @@ async fn session_tail_last_reads_older_pages_forward() {
     drop(dir);
 }
 
+/// The same passive request a coordinator makes: first visit, then a delta spanning several pages.
+#[tokio::test]
+async fn session_tail_since_seen_reads_only_new_records_without_marking_them_seen() {
+    let (hub, client, _dir) = daemon().await;
+    let id = chat_with_output(&hub, &client, 12, 256 << 10).await;
+    let session = hub.resolve(&id).unwrap();
+    let end = session.meta().last_seq;
+    let mut buf = Vec::new();
+    stream_seen(&client, &id, &mut Out::new(&id, false, &mut buf)).await.unwrap();
+    assert!(buf.is_empty());
+    let cursor = end - 10;
+    client.request(method::MUX_SEEN, json!({"sessionId": id, "seq": cursor})).await.unwrap();
+    stream_seen(&client, &id, &mut Out::new(&id, false, &mut buf)).await.unwrap();
+    let seqs: Vec<_> = std::str::from_utf8(&buf)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap()["seq"].as_u64().unwrap())
+        .collect();
+    assert_eq!(seqs, (cursor + 1..=end).collect::<Vec<_>>());
+    assert_eq!(hub.read_through(&session, crate::hub::reader_of(None)), Some(cursor));
+}
+
 struct ClosedPipe;
 
 impl Write for ClosedPipe {
@@ -148,17 +170,20 @@ fn session_tail_stops_on_a_closed_pipe() {
 #[cfg(unix)]
 #[test]
 fn session_tail_sees_a_pipe_whose_reader_closed() {
-    let mut fds = [0 as libc::c_int; 2];
-    // SAFETY: a two-element array for pipe's out fds.
-    assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
-    let [read, write] = fds;
-    assert_eq!(fd_kind(write), Stdout::Read);
-    assert!(!fd_reader_gone(write, Duration::from_millis(50)), "an open pipe");
-    // SAFETY: our own fds.
-    unsafe { libc::close(read) };
-    assert!(fd_reader_gone(write, Duration::from_millis(50)), "a pipe with no reader");
-    // SAFETY: our own fd.
-    unsafe { libc::close(write) };
+    use std::os::fd::AsRawFd as _;
+    // `std::io::pipe` opens both ends close-on-exec: a child another test spawns keeps no copy of
+    // the read end past its exec (a bare `libc::pipe` kept one for the child's whole life).
+    let (read, write) = std::io::pipe().unwrap();
+    let fd = write.as_raw_fd();
+    assert_eq!(fd_kind(fd), Stdout::Read);
+    assert!(!fd_reader_gone(fd, Duration::from_millis(50)), "an open pipe");
+    drop(read);
+    // Between its fork and its exec, a child another test spawns still holds a copy of the read
+    // end, and on a loaded runner that window outlasted a 50 ms poll. The watch's job is to wake
+    // when the last reader goes, so wait for that event: poll returns as soon as it arrives, and
+    // the bound only keeps a watch that never wakes from hanging the suite.
+    assert!(fd_reader_gone(fd, Duration::from_secs(60)), "a pipe with no reader");
+    drop(write);
     assert!(!parent_gone(crate::parent_watch::parent_pid()));
     let null = std::fs::OpenOptions::new().write(true).open("/dev/null").unwrap();
     assert_eq!(fd_kind(std::os::fd::AsRawFd::as_raw_fd(&null)), Stdout::Unread);

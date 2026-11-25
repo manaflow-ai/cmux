@@ -13,11 +13,24 @@
 // when the watch starts late. A frame here is a frame of the page's script, not a frame on the screen.
 
 import { chatSnapshotReport } from "./chatSnapshot/live";
+import { SNAPSHOT_HOST_TAG } from "./chatSnapshot/shared";
 
 export type LayoutWatchOptions = { ms?: number; tolerance?: number };
 
 type Box = { x: number; y: number; w: number; h: number };
-type Frame = { at: number; boxes: Map<string, Box>; scrollTop: number; empty: boolean };
+type Frame = {
+  at: number;
+  boxes: Map<string, Box>;
+  scrollTop: number;
+  empty: boolean;
+  copy: boolean;
+  /// The transcript's scroll height and its last rows' names and heights: what grew when it grew.
+  scrollHeight: number;
+  tail: string[];
+  /// The scroller's parts (each child's class and height, the rows' drawn translate, the stack under
+  /// them): read only for frames the report keeps (the first, the swap, a height change).
+  parts: () => Record<string, unknown>;
+};
 
 const ROWS = ".cv-message, .cv-worked, .cv-tool, .cv-turn-actions";
 const MAX_ROWS = 40;
@@ -46,7 +59,7 @@ const NEW_TAB_PARTS = [
 /// The default New Tab page's parts inside `.nt-screen` (newtab/NewTabScreen.tsx and its blocks), each by its
 /// class: the composer with the strip above its box, the box, the input, the field's slot, the field, the
 /// pickers and the foot; the toolbar; the room that the composer keeps in the list layout; the stage with its
-/// cards; the starters, the player, the open tabs, the chats with their cards, and the list of all chats. A
+/// cards; the player, the open tabs, the chats with their cards, and the list of all chats. A
 /// second node of a class is `NAME:1`. The list of suggestions (`nt-rows`) is drawn in a layer of the
 /// document, outside the root (ui/Popover.tsx): it is read in the whole document while the root is there.
 export const NEW_TAB_SCREEN_PARTS = [
@@ -64,7 +77,6 @@ export const NEW_TAB_SCREEN_PARTS = [
   "nt-stage",
   "nt-stage-cards",
   "nt-stage-card",
-  "nt-starters",
   "nt-player",
   "nt-open-tabs",
   "nt-chats",
@@ -74,17 +86,33 @@ export const NEW_TAB_SCREEN_PARTS = [
   "nt-rows",
 ];
 
-/// Stable names for elements across frames: the same node keeps its name.
-const names = new WeakMap<Element, string>();
-let nextName = 0;
-function nameOf(node: Element, kind: string): string {
-  let name = names.get(node);
-  if (!name) {
-    nextName += 1;
-    name = `${kind}#${nextName}`;
-    names.set(node, name);
+/// Row names that match between the drawn copy and the live page (chatSnapshot/), so the swap from one
+/// to the other scores as what the person sees: a row is its kind and text, counted from the
+/// transcript's end among rows that read the same. The copy leaves out-of-view rows out and the live
+/// page renders more above, so counting from the end keeps the names on screen the same in both.
+function rowNames(rows: Element[]): string[] {
+  const seen = new Map<string, number>();
+  const named = Array.from<string>({ length: rows.length });
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index]!;
+    const kind = ROW_KINDS.find((name) => row.classList.contains(name)) ?? "row";
+    const text = (row.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 48);
+    const key = `${kind}:${text}`;
+    const count = (seen.get(key) ?? 0) + 1;
+    seen.set(key, count);
+    named[index] = count > 1 ? `row#${key}~${count}` : `row#${key}`;
   }
-  return name;
+  return named;
+}
+const ROW_KINDS = ["cv-message", "cv-worked", "cv-tool", "cv-turn-actions"];
+
+/// What the person sees: the drawn copy's shadow root while it shows (the live page under it is at
+/// opacity 0 and lays out unseen), else the page.
+function shownScope(): { scope: ParentNode; copy: boolean } {
+  const host = document.querySelector<HTMLElement>(SNAPSHOT_HOST_TAG);
+  const root = host?.shadowRoot;
+  if (host && root && host.style.visibility !== "hidden") return { scope: root, copy: true };
+  return { scope: document, copy: false };
 }
 
 function boxOf(node: Element): Box | undefined {
@@ -94,8 +122,8 @@ function boxOf(node: Element): Box | undefined {
 }
 
 /// The transcript's scroller: the tallest scrollable element holding a row.
-function scroller(): Element | undefined {
-  const row = document.querySelector(ROWS);
+function scroller(scope: ParentNode): Element | undefined {
+  const row = scope.querySelector(ROWS);
   for (let node = row?.parentElement; node; node = node.parentElement) {
     if (node.scrollHeight > node.clientHeight + 1 && getComputedStyle(node).overflowY !== "visible") return node;
   }
@@ -103,18 +131,25 @@ function scroller(): Element | undefined {
 }
 
 function read(start: number): Frame {
+  const { scope, copy } = shownScope();
   const boxes = new Map<string, Box>();
   const add = (name: string, node: Element | null | undefined) => {
     const box = node && boxOf(node);
     if (box) boxes.set(name, box);
   };
-  add("composer", document.querySelector(".acpmux-composer"));
-  for (const chip of document.querySelectorAll<HTMLElement>("button[data-menu]"))
-    add(`chip:${chip.dataset.menu}`, chip);
-  add("header", document.querySelector("header, [role=banner]"));
-  const rows = [...document.querySelectorAll(ROWS)];
+  add("composer", scope.querySelector(".acpmux-composer"));
+  for (const chip of scope.querySelectorAll<HTMLElement>("button[data-menu]")) add(`chip:${chip.dataset.menu}`, chip);
+  add("header", scope.querySelector("header, [role=banner]"));
+  const rows = [...scope.querySelectorAll(ROWS)];
+  const named = rowNames(rows);
   // The newest rows are the ones on screen when a chat opens at its latest message.
-  for (const row of rows.slice(-MAX_ROWS)) add(nameOf(row, "row"), row);
+  const from = Math.max(0, rows.length - MAX_ROWS);
+  for (let index = from; index < rows.length; index += 1) add(named[index]!, rows[index]);
+  const list = scroller(scope);
+  const tail = rows.slice(-3).map((row, index) => {
+    const box = boxOf(row);
+    return `${named[rows.length - Math.min(3, rows.length) + index]!.slice(0, 40)} h${box ? box.h : 0}`;
+  });
   const newTab = document.querySelector(".acpmux-newtab");
   add("newtab", newTab);
   for (const part of NEW_TAB_PARTS) {
@@ -131,16 +166,35 @@ function read(start: number): Frame {
   return {
     at: performance.now() - start,
     boxes,
-    scrollTop: Math.round(scroller()?.scrollTop ?? 0),
-    empty: emptyChat(),
+    scrollTop: Math.round(list?.scrollTop ?? 0),
+    empty: emptyChat(scope),
+    copy,
+    scrollHeight: Math.round(list?.scrollHeight ?? 0),
+    tail,
+    parts: partsOf(list, scope),
   };
+}
+
+/// A snapshot of the scroller's parts now, read when the report asks (the frame's own boxes are read at once).
+function partsOf(list: Element | undefined, scope: ParentNode): () => Record<string, unknown> {
+  const children = list
+    ? [...list.children].slice(0, 6).map((child) => {
+        const style = getComputedStyle(child);
+        return `${(child.className || child.tagName).toString().split(" ")[0]} h${Math.round(child.getBoundingClientRect().height)} t${style.translate} p${style.paddingBottom}`;
+      })
+    : [];
+  const dock = scope.querySelector(".acpmux-composer")?.parentElement;
+  const dockBox = dock && boxOf(dock);
+  const view = list && boxOf(list);
+  return () => ({ children, dock: dockBox, view });
 }
 
 const shown = (frame: Frame) =>
   (frame.boxes.has("composer") && ([...frame.boxes.keys()].some((name) => name.startsWith("row#")) || frame.empty)) ||
   (frame.boxes.has("newtab-box") && frame.boxes.has("newtab-field")) ||
   (frame.boxes.has("nt-box") && frame.boxes.has("nt-field"));
-const emptyChat = () => document.querySelectorAll(ROWS).length === 0 && document.body.innerText.trim().length > 0;
+const emptyChat = (scope: ParentNode) =>
+  scope.querySelectorAll(ROWS).length === 0 && document.body.innerText.trim().length > 0;
 
 export async function layoutWatch(options: LayoutWatchOptions = {}): Promise<Record<string, unknown>> {
   const ms = Math.max(100, Math.min(options.ms ?? 1500, 10_000));
@@ -204,10 +258,30 @@ export async function layoutWatch(options: LayoutWatchOptions = {}): Promise<Rec
       }
     }
   }
-  const scrollJumps = frames
-    .slice(first + 1)
-    .filter((frame, index, list) => Math.abs(frame.scrollTop - (index ? list[index - 1]! : base).scrollTop) > tolerance)
+  // A scroll offset compares within one document only: the copy's scroller and the live page's are two
+  // elements, and their rows' boxes already score the swap.
+  const later = frames.slice(first + 1);
+  const scrollJumps = later
+    .filter((frame, index) => {
+      const before = index ? later[index - 1]! : base;
+      return before.copy === frame.copy && Math.abs(frame.scrollTop - before.scrollTop) > tolerance;
+    })
     .map((frame) => ({ at_ms: Math.round(frame.at), scroll_top: frame.scrollTop }));
+  // What the transcript's end was when its height changed: a row that came or grew late shows here.
+  const grew = later
+    .filter((frame, index) => {
+      const before = index ? later[index - 1]! : base;
+      return before.copy === frame.copy && Math.abs(frame.scrollHeight - before.scrollHeight) > tolerance;
+    })
+    .slice(0, 8)
+    .map((frame) => ({
+      at_ms: Math.round(frame.at),
+      scroll_height: frame.scrollHeight,
+      scroll_top: frame.scrollTop,
+      tail: frame.tail,
+      parts: frame.parts(),
+    }));
+  const swappedAt = later.find((frame, index) => (index ? later[index - 1]! : base).copy && !frame.copy)?.at;
   return {
     frames: frames.length,
     started_wall_ms: startedWallMs,
@@ -223,9 +297,17 @@ export async function layoutWatch(options: LayoutWatchOptions = {}): Promise<Rec
     // The chat's drawn copy (chatSnapshot/): when it painted and when the live page took over, in
     // the page's own clock (ms since the document began), or why none drew, and the page's writes.
     snapshot: chatSnapshotReport(),
+    first_from_copy: base.copy,
+    swap_ms: swappedAt === undefined ? null : Math.round(swappedAt),
+    first_parts: { scroll_top: base.scrollTop, scroll_height: base.scrollHeight, ...base.parts() },
+    swap_parts: (() => {
+      const frame = later.find((each, index) => (index ? later[index - 1]! : base).copy && !each.copy);
+      return frame ? { scroll_top: frame.scrollTop, scroll_height: frame.scrollHeight, ...frame.parts() } : null;
+    })(),
     shifts,
     appeared,
     scroll_jumps: scrollJumps,
+    grew,
   };
 }
 

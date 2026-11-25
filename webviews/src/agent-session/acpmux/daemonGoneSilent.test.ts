@@ -1,5 +1,5 @@
 // After acpmux restarts, the pane's socket can stay open while nothing behind it answers. The pane
-// waited for its requests, said "Waiting for the agent service (m:ss)" and gave the socket up only
+// waited for its requests, showed the wait and gave the socket up only
 // after two minutes without a frame, though the new daemon was up long before (ask-34b8c4ef25).
 // A daemon that is only slow still answers a probe, and its socket is kept.
 import { afterEach, expect, jest, test } from "bun:test";
@@ -45,6 +45,12 @@ class SilenceableSocket {
   }
   release(): void {
     for (const raw of this.held.splice(0)) this.daemon.send(raw);
+  }
+  refuseBusy(method: string): void {
+    const index = this.held.findIndex((raw) => JSON.parse(raw).method === method);
+    if (index < 0) throw new Error(`No held ${method} request`);
+    const { id } = JSON.parse(this.held.splice(index, 1)[0]);
+    this.reply({ jsonrpc: "2.0", id, error: { code: -32000, message: "busy", data: { reason: "connection.busy" } } });
   }
   send(raw: string): void {
     this.sent.push(raw);
@@ -98,15 +104,18 @@ async function connecting(holds: string[], remote = false) {
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   const socket = new SilenceableSocket(new MockAcpmuxSocket(() => Promise.resolve()), new Set(holds), remote);
   let lost = 0;
+  let snapshot: { daemonWaitingSince?: number } = {};
   const client = AcpmuxDirectClient.connect(
     mockHost,
-    () => undefined,
+    (next) => {
+      snapshot = next;
+    },
     () => {
       lost += 1;
     },
     () => socket as unknown as WebSocket,
   );
-  return { client, socket, lost: () => lost, mockHost };
+  return { client, socket, lost: () => lost, mockHost, snapshot: () => snapshot };
 }
 
 /// Lets the microtasks a timer queued (the mock's replies, a close's onclose) run.
@@ -127,8 +136,8 @@ test("a socket whose daemon went silent is given up within 20 s, so the pane ask
       await settle();
     }
     // The lost path ran: the host is asked for a fresh handshake, which finds the restarted daemon.
-    // Before, the pane kept the dead socket for DAEMON_LIVENESS_GRACE_MS (two minutes) and counted
-    // "Waiting for the agent service" meanwhile.
+    // Before, the pane kept the dead socket for DAEMON_LIVENESS_GRACE_MS (two minutes) and showed
+    // the wait meanwhile.
     expect(lost()).toBe(1);
     await expect(read).rejects.toMatchObject({ interrupted: true });
   } finally {
@@ -146,14 +155,48 @@ test("a slow daemon that still answers keeps its socket and its long read", asyn
       () => (settled = true),
       () => (settled = true),
     );
+    // Each second as the pane draws it: whether it would say "Waiting for the agent service".
+    let saidWaiting = 0;
     for (let second = 0; second < 60; second++) {
       jest.advanceTimersByTime(1_000);
       await settle();
+      if ((client as unknown as { daemonWaitingSince?: number }).daemonWaitingSince !== undefined) saidWaiting++;
     }
-    // The daemon answered the pane's probe, so the long read is a slow one, never a lost socket.
+    // The daemon answered the pane's probe, so the long read is a slow one, never a lost socket,
+    // and never a service that is down: a long chat's slow read says nothing about the service.
+    expect(saidWaiting).toBe(0);
     expect(lost()).toBe(0);
     expect(settled).toBe(false);
     expect(socket.readyState).toBe(1);
+  } finally {
+    client.close();
+  }
+});
+
+test("busy replies prove liveness even while a probe is held, then silence still reconnects", async () => {
+  const { client, socket, request, lost, mockHost } = await connected(["_acpmux/events", "_acpmux/peers"]);
+  try {
+    jest.useFakeTimers();
+    const read = request("_acpmux/events", { sessionId: mockHost.sessionId, afterSeq: 0, limit: 1 }, 1_000);
+    read.catch(() => undefined);
+    for (let round = 0; round < 3; round++) {
+      for (let second = 0; second < 10; second++) {
+        jest.advanceTimersByTime(1_000);
+        await settle();
+      }
+      expect(socket.sent.some((raw) => JSON.parse(raw).method === "_acpmux/peers")).toBe(true);
+      socket.refuseBusy("_acpmux/events");
+      await settle();
+      expect((client as unknown as { daemonWaitingSince?: number }).daemonWaitingSince).toBeUndefined();
+      expect(lost()).toBe(0);
+    }
+    socket.silence();
+    for (let second = 0; second < 25 && lost() === 0; second++) {
+      jest.advanceTimersByTime(1_000);
+      await settle();
+    }
+    expect(lost()).toBe(1);
+    await expect(read).rejects.toMatchObject({ interrupted: true });
   } finally {
     client.close();
   }
@@ -276,6 +319,84 @@ test("a turn's session/prompt, which stays open while the agent works, never cou
     expect(waited).toBe(false);
     expect(lost()).toBe(0);
     expect(socket.readyState).toBe(1);
+  } finally {
+    client.close();
+  }
+});
+
+// A loaded daemon answers its probe late while it still streams a chat's events. The pane read the
+// late probe as a dead daemon, ended the socket and paid a full re-attach (up to 99 s on a loaded
+// Mac), again and again: the GUI coordinators "dying" (ask-0e0d5a479b). Starved is slow, never dead.
+test("a daemon that streams events while its probe answer is late keeps its socket and clears the waiting state", async () => {
+  const { client, socket, request, lost, mockHost, snapshot } = await connected(["_acpmux/events", "_acpmux/peers"]);
+  try {
+    jest.useFakeTimers();
+    const read = request("_acpmux/events", { sessionId: mockHost.sessionId, afterSeq: 0, limit: 1 }, 1_000);
+    read.catch(() => undefined);
+    const hasProbe = () => (client as unknown as { daemonProbe?: unknown }).daemonProbe !== undefined;
+    let retired = 0;
+    for (let second = 0; second < 60; second++) {
+      const hadProbe = hasProbe();
+      // The daemon's own frames: a chat's events, every 3 s.
+      if (second % 3 === 0)
+        socket.onmessage?.({
+          data: JSON.stringify({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              sessionId: mockHost.sessionId,
+              update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "." } },
+            },
+          }),
+        });
+      jest.advanceTimersByTime(1_000);
+      await settle();
+      if (hadProbe && !hasProbe()) {
+        retired++;
+        expect(snapshot().daemonWaitingSince).toBeUndefined();
+      }
+    }
+    expect(retired).toBeGreaterThan(0);
+    expect(socket.sent.some((raw) => raw.includes('"_acpmux/peers"'))).toBe(true);
+    expect(lost()).toBe(0);
+    expect(socket.readyState).toBe(1);
+  } finally {
+    client.close();
+  }
+});
+
+test("a daemon that sends nothing while its probe is out is still given up within 25 s", async () => {
+  const { client, request, lost, mockHost } = await connected(["_acpmux/events", "_acpmux/peers"]);
+  try {
+    jest.useFakeTimers();
+    const read = request("_acpmux/events", { sessionId: mockHost.sessionId, afterSeq: 0, limit: 1 }, 1_000);
+    read.catch(() => undefined);
+    for (let second = 0; second < 25 && lost() === 0; second++) {
+      jest.advanceTimersByTime(1_000);
+      await settle();
+    }
+    expect(lost()).toBe(1);
+  } finally {
+    client.close();
+  }
+});
+
+// The app's host writes some notifications itself: its lag notice when its own queue to the page
+// fills, and its question key requests. Neither is the daemon speaking, so a dead daemon behind a
+// busy host must still be given up, not kept open by the host's own frames.
+test("notifications the app's host makes itself do not keep a silent daemon's socket", async () => {
+  const { client, request, lost, mockHost, socket } = await connected(["_acpmux/events", "_acpmux/peers"]);
+  try {
+    jest.useFakeTimers();
+    const read = request("_acpmux/events", { sessionId: mockHost.sessionId, afterSeq: 0, limit: 1 }, 1_000);
+    read.catch(() => undefined);
+    for (let second = 0; second < 25 && lost() === 0; second++) {
+      // A question key request the host writes itself (AgentPaneTransport+QuestionKeys.swift).
+      socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method: "_cmux/questionKeys", params: {} }) });
+      jest.advanceTimersByTime(1_000);
+      await settle();
+    }
+    expect(lost()).toBe(1);
   } finally {
     client.close();
   }

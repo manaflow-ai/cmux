@@ -1,6 +1,7 @@
 import Foundation
 import Security
 import Testing
+import CmuxNextCompat
 @testable import CmuxNextAgentPane
 
 struct AcpmuxLaunchSecurityTests {
@@ -24,6 +25,21 @@ struct AcpmuxLaunchSecurityTests {
 
         #expect(!arguments.contains("--person-key-fd"))
         #expect(!arguments.contains(String(AcpmuxDaemonLauncher.personKeyDescriptor)))
+    }
+
+    @Test func aDevBuildRunsTheDaemonUnderCmuxFiles() throws {
+        let environment = try Self.environment()
+        let app = URL(fileURLWithPath: "/App/cmux DEV one.app", isDirectory: true)
+        let host = try #require(FilesHost(bundleURL: app, bundleIdentifier: "com.cmuxterm.app.debug.one",
+                                          environment: [:], isExecutable: { _ in true }))
+
+        let plain = AcpmuxDaemonLauncher.arguments(for: environment)
+        let hosted = AcpmuxDaemonLauncher.arguments(for: environment, filesHost: host)
+
+        #expect(Array(plain.prefix(4)) == ["-c", AcpmuxDaemonLauncher.script, "acpmux-launch", environment.executable.path])
+        #expect(Array(hosted.prefix(7)) == ["-c", AcpmuxDaemonLauncher.script, "acpmux-launch",
+                                            host.executable.path, "run", "--", environment.executable.path])
+        #expect(Array(hosted.dropFirst(7)) == Array(plain.dropFirst(4)))
     }
 
     /// The retired cmux-cua socket variables never reach acpmux, signed or not: Computer Use's

@@ -14,6 +14,9 @@ ENV_FILE = os.path.join(CONF, "machine.env")
 SECRETS_FILE = os.path.join(CONF, "machine-secrets.env")
 HOOK = 'if [ -f "$HOME/.config/cmux/machine.env" ] && [ ! -L "$HOME/.config/cmux/machine.env" ]; then . "$HOME/.config/cmux/machine.env"; fi # cmux-machine-env'
 NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}\Z")
+ROLE = re.compile(r"[a-z][a-z0-9-]{0,31}\Z")
+# The lane role's window (machine_config/idle.rs LANE_IDLE_SECONDS): 5 minutes after the last activity, then pause.
+LANE_IDLE_SECONDS = 300
 # Names the shell owns or evaluates (bash expands arithmetic variables such as OPTIND, and prompts,
 # when it reads them: `OPTIND='a[$(cmd)]'` runs cmd even single-quoted), and names cmux owns.
 RESERVED = {"PATH", "HOME", "USER", "LOGNAME", "SHELL", "IFS", "ENV", "BASH_ENV", "PROMPT_COMMAND", "PWD", "OLDPWD", "TERM",
@@ -103,9 +106,22 @@ def parse(text):
         raise Refused(f"not TOML: {e}") from None
     if type(doc.get("version")) is not int or doc["version"] != 1:
         raise Refused("version must be 1")
-    unknown = set(doc) - {"version", "env", "secrets", "setup"}
+    unknown = set(doc) - {"version", "env", "secrets", "setup", "role", "idle"}
     if unknown:
         raise Refused(f"unknown keys: {', '.join(sorted(unknown))}")
+    # role and [idle] as machine_config/idle.rs parses them (cmux-host reads applied.toml with it).
+    role = doc.get("role")
+    if role is not None and not (isinstance(role, str) and ROLE.match(role)):
+        raise Refused("role must match [a-z][a-z0-9-]{0,31}")
+    idle = doc.get("idle", {})
+    if not isinstance(idle, dict):
+        raise Refused("idle must be a table")
+    if set(idle) - {"minutes"}:
+        raise Refused("[idle] takes only minutes")
+    minutes = idle.get("minutes")
+    if minutes is not None and (type(minutes) is not int or not 1 <= minutes <= 1439):
+        raise Refused("idle.minutes must be 1 to 1439")
+    idle_seconds = minutes * 60 if minutes is not None else (LANE_IDLE_SECONDS if role == "lane" else None)
     env = doc.get("env", {})
     if not isinstance(env, dict) or not all(isinstance(v, str) for v in env.values()):
         raise Refused("[env] values must be strings")
@@ -133,7 +149,7 @@ def parse(text):
     if both:
         raise Refused(f"names in both [env] and [secrets]: {', '.join(sorted(both))}")
     return {"env": dict(sorted(env.items())), "secrets": sorted(set(names)), "run": commands(setup, "run"),
-            "check": commands(setup, "check"), "timeout_minutes": timeout}
+            "check": commands(setup, "check"), "timeout_minutes": timeout, "role": role, "idle_seconds": idle_seconds}
 
 
 def checkout():
@@ -669,6 +685,10 @@ def apply_once(request):
         except UnicodeDecodeError:
             raise Refused(f"{path} is not UTF-8") from None
         report["config_sha"] = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()
+        # The file this apply took, for cmux-host's idle window (machine_config/idle.rs read): the Cloud pauses the
+        # machine that long after its last activity. Written before setup runs: a failed setup keeps the window.
+        write(os.path.join(D, "applied.toml"), data.decode("utf-8"))
+        report["idle"] = {"role": config["role"], "seconds": config["idle_seconds"]}
         private_folder(CONF)
         lines = ["# cmux machine env (cmux cloud apply-machine-config; source in ~/.cmux/machine-config/status.json), rewritten on every apply"]
         # Secret values first, for shells and agents, never [setup] (whose output is logged, and its tail

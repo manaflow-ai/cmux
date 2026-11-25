@@ -6,6 +6,7 @@ import "./ui/popupSurface.css";
 import { onInterfaceScaleChange } from "./ui/interfaceScale";
 import { computePopoverStyle, type PopoverStyle } from "./branchBasePopover";
 import { Icon } from "./icons";
+import { Spinner } from "./agent-session/acpmux/conversation/Spinner";
 import type { DiffViewerLabelResolver, DiffViewerLabelKey } from "./labels";
 import type { DiffTransport } from "./diff/transport";
 import type { BranchListResult, BranchPickerGroup, BranchPickerRow, SessionOpened } from "./diff/generated/protocol";
@@ -386,7 +387,7 @@ export function BranchBasePicker({
       >
         {generatingRef != null ? (
           <>
-            <span className="base-picker-spinner" aria-hidden="true" />
+            <Spinner loading size={12} className="base-picker-spinner" />
             <span className="base-picker-text">{buttonText}</span>
           </>
         ) : (
@@ -398,6 +399,9 @@ export function BranchBasePicker({
             <div
               ref={popoverRef}
               className="base-picker-popover ui-popup ui-glass"
+              // "results": it opens on "Loading" and the branches (the answer to the typed filter)
+              // arrive with no input to the popup (ui/popupSettle.ts).
+              data-popup-settle="results"
               // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
               role="dialog"
               aria-label={label("branchPickerOpen")}

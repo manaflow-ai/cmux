@@ -173,9 +173,7 @@ function PersonRow({
       >
         <Face person={person(row.account)} size={28} />
         <span className="share-dialog__who">
-          <span className="share-dialog__name" title={row.account}>
-            {row.account}
-          </span>
+          <span className="share-dialog__name">{row.account}</span>
           {row.joined && <span className="share-dialog__hint">{t("share.inChatNow")}</span>}
         </span>
         <span className="share-dialog__role-value">{roles.find((role) => role.value === row.role)?.label}</span>

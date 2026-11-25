@@ -101,7 +101,7 @@ final class ComposeInlineRemoveButton: NSImageView {
         image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: CmuxStrings.removeAttachment)
         contentTintColor = NSColor(white: 1, alpha: 0.95)
         imageScaling = .scaleProportionallyUpOrDown
-        toolTip = CmuxStrings.removeAttachment
+        setHomeToolTip(CmuxStrings.removeAttachment)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(CmuxStrings.removeAttachment)

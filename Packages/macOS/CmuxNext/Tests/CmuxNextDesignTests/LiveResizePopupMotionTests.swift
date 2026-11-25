@@ -98,29 +98,6 @@ import Testing
     }
 
     @Test(.enabled("needs an awake display that can advance animations") { await GUIAnimationTestSupport.animatesHere() })
-    func aTooltipDoesNotGrowInWhileItsWindowIsInALiveResize() throws {
-        try Self.animating {
-            let parent = Self.appWindow()
-            let (panel, layer) = try Self.popup(of: parent)
-            defer { parent.removeChildWindow(panel); panel.closeAfterTest(); parent.closeAfterTest() }
-            try Self.tracked { center in
-                panel.alphaValue = 0
-                panel.openTooltipWithEntrance(pivot: Self.pivot)
-                try #require(layer.animation(forKey: "sublayerTransform") != nil, "the tooltip does not grow in on this host; the test proves nothing")
-                panel.showPopupAtOnce()
-
-                center.post(name: NSWindow.willStartLiveResizeNotification, object: parent)
-                panel.alphaValue = 0
-                panel.openTooltipWithEntrance(pivot: Self.pivot)
-                #expect(layer.animation(forKey: "sublayerTransform") == nil, "the tooltip grows on a spring while its window is resized")
-                #expect(CATransform3DIsIdentity(layer.sublayerTransform), "the tooltip is not at its size")
-                #expect(panel.alphaValue == 1)
-                center.post(name: NSWindow.didEndLiveResizeNotification, object: parent)
-            }
-        }
-    }
-
-    @Test(.enabled("needs an awake display that can advance animations") { await GUIAnimationTestSupport.animatesHere() })
     func aResizeOfAnotherWindowDoesNotStopAPopupsShrink() throws {
         try Self.animating {
             let parent = Self.appWindow()

@@ -117,26 +117,26 @@ final class HomeVoiceDictation: HomeVoiceInput {
     static func deniedMessage(_ permission: DictationPermission) -> String {
         switch permission {
         case .microphone:
-            String(localized: "home.voice.microphoneDenied", defaultValue: "Dictation needs microphone access. Turn it on for cmux in System Settings.", bundle: .module)
+            String(localized: "home.voice.microphoneDenied", defaultValue: "Dictation needs microphone access. Turn it on for cmux in System Settings.", bundle: .localizedModule)
         case .speechRecognition:
-            String(localized: "home.voice.speechDenied", defaultValue: "Dictation in this language needs speech recognition. Turn it on for cmux in System Settings.", bundle: .module)
+            String(localized: "home.voice.speechDenied", defaultValue: "Dictation in this language needs speech recognition. Turn it on for cmux in System Settings.", bundle: .localizedModule)
         }
     }
 
     static var openSettingsTitle: String {
-        String(localized: "home.voice.openSettings", defaultValue: "Open System Settings", bundle: .module)
+        String(localized: "home.voice.openSettings", defaultValue: "Open System Settings", bundle: .localizedModule)
     }
 
     static func failureMessage(_ failure: DictationFailure) -> String {
         switch failure {
         case .onDeviceRecognitionUnavailable:
-            String(localized: "home.voice.languageUnavailable", defaultValue: "On-device dictation is not available for this language.", bundle: .module)
+            String(localized: "home.voice.languageUnavailable", defaultValue: "On-device dictation is not available for this language.", bundle: .localizedModule)
         case .modelDownloadFailed:
-            String(localized: "home.voice.modelDownloadFailed", defaultValue: "The speech model could not be downloaded. Try again when you are online.", bundle: .module)
+            String(localized: "home.voice.modelDownloadFailed", defaultValue: "The speech model could not be downloaded. Try again when you are online.", bundle: .localizedModule)
         case .audioCaptureFailed:
-            String(localized: "home.voice.noMicrophone", defaultValue: "No microphone is available.", bundle: .module)
+            String(localized: "home.voice.noMicrophone", defaultValue: "No microphone is available.", bundle: .localizedModule)
         case .microphoneAccessDenied, .speechRecognitionAccessDenied, .transcriptionFailed:
-            String(localized: "home.voice.failed", defaultValue: "Dictation stopped unexpectedly.", bundle: .module)
+            String(localized: "home.voice.failed", defaultValue: "Dictation stopped unexpectedly.", bundle: .localizedModule)
         }
     }
 }

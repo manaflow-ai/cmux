@@ -8,6 +8,7 @@ export { List, type ListProps } from "./List";
 export { Pill, type PillProps, type PillSize, type PillTone } from "./Pill";
 export { Avatar, type AvatarProps, type AvatarSize } from "./Avatar";
 export { Field, type FieldProps } from "./Field";
+export { Glass, type GlassLevel, type GlassProps } from "./Glass";
 export { GlassMenu, type GlassMenuItem, type GlassMenuProps } from "./GlassMenu";
 export { PopoverButton, type PopoverButtonProps } from "./PopoverButton";
 export { Button, type ButtonProps, type ButtonSize, type ButtonVariant } from "../ui/Button";

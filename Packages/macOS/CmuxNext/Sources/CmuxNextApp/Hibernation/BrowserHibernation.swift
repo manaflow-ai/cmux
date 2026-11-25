@@ -535,8 +535,6 @@ final class BrowserHibernation {
         let threshold = setting.freezeSeconds
         var recheck: Double?
         let candidates = hidden.filter { candidate in
-            // A command thawed it outside this planner (`WebKitTab.resumeIfSuspended`): it freezes again.
-            if let tab = cache.browsers[candidate.key]?.tab, (freezer(tab) as? any BrowserFreezeReporting)?.isFrozen == false { frozen.remove(candidate.key) }
             guard !frozen.contains(candidate.key), !freezeProbing.contains(candidate.key),
                   let tab = cache.browsers[candidate.key]?.tab, let page = freezer(tab), !page.freezeDropsExtensionEvents else { return false }
             if let kept = freezeKeptAt[candidate.key], let threshold {
@@ -605,13 +603,13 @@ final class BrowserHibernation {
             return
         }
         frozen.insert(key)
-        (page as? any BrowserFreezeReporting)?.onFrozenPageLost = { [weak self] in self?.frozenPageLost(key) }
+        (page as? any BrowserFreezeReporting)?.onFrozenPageChange = { [weak self] change in self?.frozenPageChanged(key, change) }
         cache?.trace(key, "frozen")
     }
 
-    /// A frozen page's process ended: WebKit keeps it suspended for good and raises on every call into it
-    /// (#44019), so it is discarded with the history it holds and restores in a new page when shown.
-    private func frozenPageLost(_ key: String) {
+    /// Woken by a command (issue 51079): asked again after `freezeSeconds`. Lost (#44019): discarded, restored when shown.
+    private func frozenPageChanged(_ key: String, _ change: BrowserFrozenPageChange) {
+        guard change == .lost else { if frozen.remove(key) != nil { freezeKeptAt[key] = now(); replan() }; return }
         guard frozen.remove(key) != nil, let cache, cache.lifecycle.phase(key) == .mountedHidden, !probing.contains(key),
               let state = (cache.browsers[key]?.tab as? any BrowserHibernationSource)?.hibernationState() else { return }
         prepared[key] = (state, nil, "frozen-page-lost")
@@ -792,9 +790,8 @@ final class BrowserHibernation {
     }
 
     /// The `release` effect: swaps the page for a `HibernatedBrowserTab`
-    /// holding its history, and closes the engine page. Its snapshot lives in a bounded store
-    /// only (`keep`): each placeholder used to keep its own full-size picture (about 7 MB of
-    /// app memory per hibernated tab in the 2026-10-14 audit).
+    /// holding its history, and closes the engine page. Its snapshot lives in `snapshots` only (a
+    /// file on disk); the placeholder asks the store for it when a pane shows it.
     func release(_ key: String, token: ContentLifecycle<String>.Token) {
         guard let cache, let entry = cache.browsers[key], let saved = prepared.removeValue(forKey: key) else {
             logger.error("hibernate \(key, privacy: .public): nothing prepared")
@@ -803,15 +800,15 @@ final class BrowserHibernation {
         let page = entry.tab
         let placeholder = HibernatedBrowserTab(
             id: page.id, engine: page.engineKind, profile: page.profileID, state: page.state,
-            favicon: page.favicon, restoreState: saved.state, snapshot: { [weak self] in self?.snapshotImage(key) }
+            favicon: page.favicon, restoreState: saved.state, snapshot: { [weak self] in self?.snapshots.image(for: key) }
         )
         placeholder.onWake = { [weak self] wake in self?.wakeForNavigation(key, wake) }
-        if let snapshot = saved.snapshot { keep(snapshot, for: key) }
+        placeholder.onPictureShown = { [weak self] in self?.wakeLog.pictureShown(key) }
+        if let snapshot = saved.snapshot { snapshots.insert(snapshot, for: key); cache.phonePictures?.offerThumbnail(snapshot.image, tab: key); cache.keepFrameOnDisk(snapshot.image, for: key) } // also the phones' picture (a page never shown sent none), and on disk for the next run's card and first frame
         cache.swapPage(key, with: placeholder)
         cache.dormantTabs.set(key, true)
         hiddenAt[key] = nil
-        // A probe that kept the page before no longer applies (`debug.surfaces`).
-        exemptions[key] = nil
+        exemptions[key] = nil // a probe that kept the page before no longer applies (`debug.surfaces`)
         hoverRestores.drop(key)
         hibernatedCount += 1
         // Notice, not info: the field log keeps it, so a page that reloads on its next show can be traced.
@@ -869,7 +866,7 @@ final class BrowserHibernation {
             guard case .string(let json) = value, let data = json.data(using: .utf8),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Bool] else { return unanswered(tab) }
             // The recorder knows the person's edits (`BrowserPageBusy`); a page loaded before it compares every field.
-            return PageProbe(playingMedia: PageProbe.tabPlays(tab.state.media, muted: tab.state.isAudioMuted) || (object["media"] ?? true), editedForm: busy.editedForm ?? object["form"] ?? true,
+            return PageProbe(playingMedia: PageProbe.tabPlays(tab.state.media, muted: tab.state.isAudioMuted) || (object["media"] ?? true), mediaSession: PageProbe.resumable(tab.state.media), editedForm: busy.editedForm ?? object["form"] ?? true,
                              capturing: busy.capturing, webAudio: busy.audio, beforeUnload: busy.beforeUnload,
                              unloadHandler: busy.unloadHandler, webRTC: busy.webRTC,
                              connectedDevice: busy.connectedDevice, unreadableFrame: busy.unreadableFrame)

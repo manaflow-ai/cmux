@@ -10,6 +10,7 @@ import {
   type HeaderPress,
 } from "../file-header-toggle";
 import { FileIcon } from "../file-icons";
+import { diffStatParts } from "../file-tree-stats";
 import { Icon } from "../icons";
 import { FileMenuButton } from "../DiffToolbar";
 import { type FileKind } from "../fileKinds";
@@ -74,7 +75,7 @@ export function FileHeader({
   const directory = slash >= 0 ? path.slice(0, slash + 1) : "";
   const baseName = path.slice(slash + 1);
   const previousPath = typeof fileDiff.prevName === "string" && fileDiff.prevName !== path ? fileDiff.prevName : null;
-  const stats = fileStats(fileDiff);
+  const statParts = diffStatParts(fileStats(fileDiff));
   const collapsed = Boolean(item.collapsed);
   const caretLabel = (collapsed ? label("expandFile") : label("collapseFile")).replace("{file}", baseName);
   const press = useRef<HeaderPress | null>(null);
@@ -161,11 +162,14 @@ export function FileHeader({
           {label(FILE_KIND_LABELS[kind])}
         </span>
       ) : null}
-      <span className="file-header-stats" aria-label={label("diffStats")}>
-        <span className="file-header-additions">+{stats.added}</span>
-        <span className="file-header-deletions">-{stats.deleted}</span>
-        <DiffStatBar added={stats.added} deleted={stats.deleted} />
-      </span>
+      {/* Only the counts that are not zero, as the files list shows them: a rename, a binary file
+          or a mode change has none. */}
+      {statParts ? (
+        <span className="file-header-stats" aria-label={label("diffStats")}>
+          {statParts.added ? <span className="file-header-additions">{statParts.added}</span> : null}
+          {statParts.deleted ? <span className="file-header-deletions">{statParts.deleted}</span> : null}
+        </span>
+      ) : null}
       {stage ? (
         <button
           type="button"
@@ -251,45 +255,6 @@ export function FileHeader({
         ]}
       />
     </div>
-  );
-}
-
-/** Blocks in a file's change bar, GitHub's five. */
-const STAT_BAR_BLOCKS = 5;
-
-/**
- * The added and removed shares of a file's changed lines as five blocks (GitHub's diffstat):
- * a block per fifth, rounded so any change shows at least one block of its kind.
- */
-export function diffStatBlocks(added: number, deleted: number): ("added" | "deleted" | "neutral")[] {
-  const total = added + deleted;
-  if (total <= 0) return Array.from({ length: STAT_BAR_BLOCKS }, () => "neutral");
-  let addedBlocks = Math.round((added / total) * STAT_BAR_BLOCKS);
-  let deletedBlocks = Math.round((deleted / total) * STAT_BAR_BLOCKS);
-  if (added > 0 && addedBlocks === 0) addedBlocks = 1;
-  if (deleted > 0 && deletedBlocks === 0) deletedBlocks = 1;
-  // Over by a rounding: take from the larger side, from both on a tie (an even split stays even,
-  // with a neutral block left over).
-  while (addedBlocks + deletedBlocks > STAT_BAR_BLOCKS) {
-    if (addedBlocks === deletedBlocks) {
-      addedBlocks -= 1;
-      deletedBlocks -= 1;
-    } else if (addedBlocks > deletedBlocks) addedBlocks -= 1;
-    else deletedBlocks -= 1;
-  }
-  return Array.from({ length: STAT_BAR_BLOCKS }, (_, index) =>
-    index < addedBlocks ? "added" : index < addedBlocks + deletedBlocks ? "deleted" : "neutral",
-  );
-}
-
-function DiffStatBar({ added, deleted }: { added: number; deleted: number }) {
-  return (
-    <span className="file-header-bar" aria-hidden="true">
-      {diffStatBlocks(added, deleted).map((kind, index) => (
-        // oxlint-disable-next-line react/no-array-index-key -- five fixed slots, never reordered.
-        <span key={index} data-kind={kind} />
-      ))}
-    </span>
   );
 }
 

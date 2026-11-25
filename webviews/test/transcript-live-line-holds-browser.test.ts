@@ -2,14 +2,17 @@
 // The running turn's live line holds still while the transcript follows the latest row (Leo, softened: "too much
 // render shift when the thing restarts... stuff appears in succession causing shifts"). A running turn alternates
 // between a reply and a finished run (live-turn-work `runs`, the default since #41213, keeps each finished run in
-// sight over the line). Every painted frame is read with the view at the latest row: the line's box keeps one
-// height and its words one distance from the view's bottom, whichever row is over it. Its box is the footer's 32
-// slot and, under a run, the run gap (16) sits over it (Leo chose 32/16 on 2026-11-16, on #43627; transcriptGrid.ts
-// TRANSCRIPT_LIVE_STEP_BOX `slot` and TRANSCRIPT_LIVE_STEP_GAP_TOKEN). First written for #43627.
+// sight over the line). Every painted frame is read with the view at the latest row: the line's row keeps one
+// height, and its drawn box (its top) and its words one distance from the view's bottom, whichever row is over it.
+// Its row is the footer's 32 slot; its words are drawn in a 22 box at the slot's top, 8 under a run (the footer gap),
+// so its words sit 30 under a step row's centre (Leo, 2026-11-21 05:23Z: "see the space/gap between tool calls and
+// the current shimmer? this isnt great."; transcriptGrid.ts LIVE_GAP_LOOKS `shipped`). First written for #43627.
 //
 // Before (cmux#24569): under a run the line was one tool row tall (22), under a reply the footer's slot (32), so
 // each change of the row over it moved the line's top 10 px and its words 5 px. The perf cron's
-// transcript_replay.live.cls read 1.39 at babcb18cd89 against 0.0013 before #41213, all of it from that line.
+// transcript_replay.live.cls read 1.39 at babcb18cd89 against 0.0013 before #41213, all of it from that line. The
+// `jumps` look (<html data-live-gap="jumps">, the 8 gap over a bare 22 row) is played too and must still move: it is
+// what flipping TRANSCRIPT_LIVE_STEP_BOX to `line` alone does, so this file goes red on it.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -48,7 +51,19 @@ await requireBrowserLane("transcript-live-line-holds-browser.test.ts", async () 
     await vite?.close();
   });
 
-  test("a run or a reply landing over the live line moves neither its box nor its words", async () => {
+  type Rested = {
+    step: string;
+    over: string;
+    height: number;
+    box: number;
+    top: number;
+    fromBottom: number;
+    atEnd: number;
+    spare: number;
+    gap: number;
+    footerGap: number;
+  };
+  async function playSwitches(look: string): Promise<Rested[]> {
     const { port } = vite!.httpServer!.address() as { port: number };
     // FAST_CHECKS_OUT (a cmux-ci run): a video of the whole play, for the PR.
     const out = process.env.FAST_CHECKS_OUT;
@@ -57,6 +72,12 @@ await requireBrowserLane("transcript-live-line-holds-browser.test.ts", async () 
       ...(out ? { recordVideo: { dir: out, size: { width: 900, height: 640 } } } : {}),
     });
     const page = await context.newPage();
+    // Before the transcript's scripts run, as the gallery's documentAttributes do.
+    await page.addInitScript((value) => {
+      document.addEventListener("readystatechange", () => {
+        document.documentElement.dataset.liveGap = value;
+      });
+    }, look);
     await installPaintedFrames(page);
     await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
     await page.waitForFunction(() => "__showLiveRows" in window);
@@ -69,11 +90,13 @@ await requireBrowserLane("transcript-live-line-holds-browser.test.ts", async () 
             step: string;
             over: string;
             height: number;
+            box: number;
+            top: number;
             fromBottom: number;
             atEnd: number;
             spare: number;
             gap: number;
-            runGap: number;
+            footerGap: number;
           }>
         >((done) => {
           type Row = Record<string, unknown>;
@@ -135,11 +158,13 @@ await requireBrowserLane("transcript-live-line-holds-browser.test.ts", async () 
             step: string;
             over: string;
             height: number;
+            box: number;
+            top: number;
             fromBottom: number;
             atEnd: number;
             spare: number;
             gap: number;
-            runGap: number;
+            footerGap: number;
           }> = [];
           let frame = 0;
           let step = -1;
@@ -149,25 +174,29 @@ await requireBrowserLane("transcript-live-line-holds-browser.test.ts", async () 
               const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
               const line = document.querySelector<HTMLElement>('[data-row-id="thinking-live"]');
               const words = line?.querySelector<HTMLElement>(".cv-thinking");
-              if (scroller && line && words && step >= 0) {
+              const drawn = line?.querySelector<HTMLElement>(".cv-worked");
+              if (scroller && line && words && drawn && step >= 0) {
                 const view = scroller.getBoundingClientRect();
                 const box = line.getBoundingClientRect();
+                const drawnBox = drawn.getBoundingClientRect();
                 const above = (line.previousElementSibling as HTMLElement | null)?.getBoundingClientRect();
-                // The run-gap token as the transcript resolves it, Interface Size included.
+                // The footer-gap token as the transcript resolves it, Interface Size included.
                 const probe = document.createElement("span");
-                probe.style.cssText = "position:absolute;visibility:hidden;width:0;height:var(--grid-gap-run)";
+                probe.style.cssText = "position:absolute;visibility:hidden;width:0;height:var(--grid-gap-footer)";
                 scroller.append(probe);
-                const runGap = probe.getBoundingClientRect().height;
+                const footerGap = probe.getBoundingClientRect().height;
                 probe.remove();
                 out.push({
                   step: `${step} ${steps[step]![0]}`,
                   over: (line.previousElementSibling as HTMLElement | null)?.dataset.rowId ?? "?",
                   height: Math.round(box.height * 10) / 10,
+                  box: Math.round(drawnBox.height * 10) / 10,
+                  top: Math.round((view.bottom - drawnBox.top) * 10) / 10,
                   fromBottom: Math.round((view.bottom - words.getBoundingClientRect().bottom) * 10) / 10,
                   atEnd: Math.round(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop),
                   spare: Math.round(scroller.scrollHeight - scroller.clientHeight),
                   gap: above ? Math.round((box.top - above.bottom) * 10) / 10 : Number.NaN,
-                  runGap,
+                  footerGap,
                 });
               }
               frame += 1;
@@ -189,12 +218,13 @@ await requireBrowserLane("transcript-live-line-holds-browser.test.ts", async () 
 
     console.log(
       [
-        "step | row over the line | line height | words from the view's bottom | px from the end | px it scrolls | gap over it",
+        `look ${look}`,
+        "step | row over the line | row height | line box | line top from the view's bottom | words from the view's bottom | px from the end | px it scrolls | gap over it",
       ]
         .concat(
           trace.map(
             (row) =>
-              `${row.step} | ${row.over} | ${row.height} | ${row.fromBottom} | ${row.atEnd} | ${row.spare} | ${row.gap}`,
+              `${row.step} | ${row.over} | ${row.height} | ${row.box} | ${row.top} | ${row.fromBottom} | ${row.atEnd} | ${row.spare} | ${row.gap}`,
           ),
         )
         .join("\n"),
@@ -207,13 +237,32 @@ await requireBrowserLane("transcript-live-line-holds-browser.test.ts", async () 
     // The column overflows the view at every step, so the view sits at the latest row rather than at the top.
     for (const row of rested) expect(row.spare).toBeGreaterThan(100);
     expect(new Set(rested.map((row) => row.over))).toEqual(new Set(["a0", "r0", "a1", "r1", "a2", "r2", "a3"]));
-    // One box and one place for its words, whichever row is over it.
+    return rested;
+  }
+  const spread = (values: number[]) => Math.max(...values) - Math.min(...values);
+
+  test("a run or a reply landing over the live line moves neither its box, its top nor its words", async () => {
+    const rested = await playSwitches("shipped");
+    // One row, one drawn box, one top and one place for its words, whichever row is over it.
     expect(new Set(rested.map((row) => row.height)).size).toBe(1);
-    const places = rested.map((row) => row.fromBottom);
-    expect(Math.max(...places) - Math.min(...places)).toBeLessThanOrEqual(0.5);
-    // That box is the footer's 32 slot, with the run gap over it under each run.
+    expect(new Set(rested.map((row) => row.box)).size).toBe(1);
+    expect(spread(rested.map((row) => row.top)), "the line's top across the switches").toBeLessThanOrEqual(0.5);
+    expect(spread(rested.map((row) => row.fromBottom)), "its words across the switches").toBeLessThanOrEqual(0.5);
+    // Its row is the footer's 32 slot, its words in a one-line row's 22 at the slot's top, the footer gap (8) over it
+    // under each run and each reply: 30 from a step row's centre to its words' centre.
     for (const row of rested) expect(row.height).toBe(32);
+    for (const row of rested) expect(row.box).toBe(22);
+    for (const row of rested)
+      expect(Math.abs(row.gap - row.footerGap), `gap over the line at step ${row.step}`).toBeLessThanOrEqual(0.5);
     for (const row of rested.filter((each) => each.step.endsWith("run")))
-      expect(Math.abs(row.gap - row.runGap), `gap over the line at step ${row.step}`).toBeLessThanOrEqual(0.5);
+      expect(22 / 2 + row.gap + row.box / 2, `centre to centre at step ${row.step}`).toBe(30);
+  });
+
+  // The same play with TRANSCRIPT_LIVE_STEP_BOX flipped to `line` alone: the row under a run is 22 with the composer
+  // gap under it, under a reply the 32 slot with the block gap, so each switch moves the line's top 18 and its words 13.
+  test("the bare flip to a 22 row (the `jumps` look) moves the line at each switch", async () => {
+    const rested = await playSwitches("jumps");
+    expect(spread(rested.map((row) => row.top))).toBeGreaterThan(5);
+    expect(spread(rested.map((row) => row.fromBottom))).toBeGreaterThan(5);
   });
 });

@@ -5,7 +5,7 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { foldOwnLog, needsOwnLog, subagentPaneView, type OwnLogRecord } from "./subagentOwnLog";
-import { SUBAGENT_EMPTY, SUBAGENT_OF } from "./subagentRows";
+import { SUBAGENT_EMPTY } from "./subagentRows";
 import { shownSubagentFacts } from "./subagentShown";
 
 const update = (seq: number, sessionId: string, mux: Record<string, unknown>, body: Record<string, unknown>) =>
@@ -140,16 +140,16 @@ for (const [harness, id, records, words, name] of [
     const log = foldOwnLog(id, records, { session: CHAT, harness });
     expect(log.agent?.state).toBe("completed");
     expect(log.agent?.name).toBe(name);
-    const rows = subagentPaneView(id, { rows: chatRows, views: {} }, { log, loading: false }, new Set(), "coordinator");
+    const rows = subagentPaneView(id, { rows: chatRows, views: {} }, { log, loading: false }, new Set());
     expect(parentRow(rows)).toBe(false);
-    expect(rows[0]?.kind).toBe(SUBAGENT_OF);
-    expect(rows[0]?.subagents?.[0]?.state).toBe("completed");
-    expect(texts(rows.slice(1))).toContain(words);
+    // Its own rows from the first: no line naming the chat it came from (Leo, 2026-11-22).
+    expect(rows[0]?.kind).not.toBe(SUBAGENT_EMPTY);
+    expect(texts(rows)).toContain(words);
   });
 }
 
 test("a subagent whose own records are still being read shows loading, then empty, never the chat's rows", () => {
-  const loading = subagentPaneView(CLAUDE, { rows: chatRows, views: {} }, { loading: true }, new Set(), "coordinator");
+  const loading = subagentPaneView(CLAUDE, { rows: chatRows, views: {} }, { loading: true }, new Set());
   expect(parentRow(loading)).toBe(false);
   expect(loading).toHaveLength(1);
   expect(loading[0]?.kind).toBe(SUBAGENT_EMPTY);
@@ -157,7 +157,7 @@ test("a subagent whose own records are still being read shows loading, then empt
 
   // The read found nothing (or failed): an empty transcript of the subagent, in the same place.
   const none = foldOwnLog(CLAUDE, [], { session: CHAT, harness: "claude" });
-  const empty = subagentPaneView(CLAUDE, { rows: chatRows, views: {} }, { log: none, loading: false }, new Set(), "x");
+  const empty = subagentPaneView(CLAUDE, { rows: chatRows, views: {} }, { log: none, loading: false }, new Set());
   expect(parentRow(empty)).toBe(false);
   expect(empty[0]?.kind).toBe(SUBAGENT_EMPTY);
   expect(empty[0]?.status).toBeUndefined();
@@ -166,9 +166,9 @@ test("a subagent whose own records are still being read shows loading, then empt
 
 test("a subagent the chat's rows hold draws from them, as before", () => {
   const log = foldOwnLog(CODEX, codexLog, { session: CHAT, harness: "codex" });
-  const rows = subagentPaneView(CODEX, { rows: log.rows, views: log.views }, { loading: true }, new Set(), "chat");
-  expect(rows[0]?.kind).toBe(SUBAGENT_OF);
-  expect(texts(rows.slice(1))).toContain("42");
+  const rows = subagentPaneView(CODEX, { rows: log.rows, views: log.views }, { loading: true }, new Set());
+  expect(rows[0]?.kind).not.toBe(SUBAGENT_EMPTY);
+  expect(texts(rows)).toContain("42");
 });
 
 test("a subagent pane's tab gets its subagent's own state, since when and model, not its chat's", () => {
@@ -199,9 +199,9 @@ test("a stopped subagent whose chat page holds only its start and stop reads and
   const page = foldOwnLog(CLAUDE, stopped("cancelled"), { session: CHAT, harness: "claude" });
   const chat = { rows: [...chatRows, ...page.rows], views: page.views };
   expect(needsOwnLog(CLAUDE, chat)).toBe(true);
-  // Before its records arrive: its pill and loading, never "No messages yet".
-  const loading = subagentPaneView(CLAUDE, chat, { loading: true }, new Set(), "coordinator");
-  expect(loading[0]?.kind).toBe(SUBAGENT_OF);
+  // Before its records arrive: loading, never "No messages yet".
+  const loading = subagentPaneView(CLAUDE, chat, { loading: true }, new Set());
+  expect(loading).toHaveLength(1);
   expect(loading.at(-1)?.kind).toBe(SUBAGENT_EMPTY);
   expect(loading.at(-1)?.status).toBe("loading");
   // Its own records: its tool call and its words.
@@ -209,10 +209,10 @@ test("a stopped subagent whose chat page holds only its start and stop reads and
     session: CHAT,
     harness: "claude",
   });
-  const rows = subagentPaneView(CLAUDE, chat, { log, loading: false }, new Set(), "coordinator");
+  const rows = subagentPaneView(CLAUDE, chat, { log, loading: false }, new Set());
   expect(parentRow(rows)).toBe(false);
   expect(rows.some((row) => row.kind === SUBAGENT_EMPTY)).toBe(false);
-  expect(texts(rows.slice(1))).toContain("There are 42 entries in /tmp.");
+  expect(texts(rows)).toContain("There are 42 entries in /tmp.");
 });
 
 test("a finished subagent reads its own records; a running one the chat holds draws live from the chat", () => {
@@ -230,6 +230,18 @@ test("a finished subagent draws the fuller of the chat's page and its own record
   const tail = foldOwnLog(CLAUDE, [claudeLog[0]!, claudeLog[3]!, claudeLog[4]!], { session: CHAT, harness: "claude" });
   const whole = foldOwnLog(CLAUDE, claudeLog, { session: CHAT, harness: "claude" });
   const chat = { rows: tail.rows, views: tail.views };
-  const rows = subagentPaneView(CLAUDE, chat, { log: whole, loading: false }, new Set(), "coordinator");
-  expect(rows.length).toBeGreaterThan(subagentPaneView(CLAUDE, chat, { loading: false }, new Set(), "c").length);
+  const rows = subagentPaneView(CLAUDE, chat, { log: whole, loading: false }, new Set());
+  expect(rows.length).toBeGreaterThan(subagentPaneView(CLAUDE, chat, { loading: false }, new Set()).length);
+});
+
+test("a finished subagent the chat's page holds whole draws from the chat, with no read that swaps its rows", () => {
+  const whole = foldOwnLog(CLAUDE, claudeLog, { session: CHAT, harness: "claude" });
+  expect(whole.agent?.state).not.toBe("running");
+  // The page's first record is the subagent's own first: its earlier records may be on an older page.
+  expect(needsOwnLog(CLAUDE, { rows: whole.rows, views: whole.views })).toBe(true);
+  // A row older than its first record: the page runs on from there, so it holds the subagent whole.
+  const older: AcpmuxRow = { id: "turn-1", version: 1, at: 1_000, kind: "turnSummary", seq: 10 };
+  expect(needsOwnLog(CLAUDE, { rows: [older, ...whole.rows], views: whole.views })).toBe(false);
+  // The chat's whole history is loaded: no older page.
+  expect(needsOwnLog(CLAUDE, { rows: whole.rows, views: whole.views, wholeHistory: true })).toBe(false);
 });

@@ -12,6 +12,7 @@ mod fsx;
 mod json;
 #[cfg(test)]
 mod tests;
+mod warm;
 
 use json::{Obj, Val};
 use std::collections::{HashMap, HashSet};
@@ -28,7 +29,10 @@ const USAGE: &str = "usage:
   wsfactory destroy  --root R --job ID
   wsfactory reconcile --root R
   wsfactory usage PATH...
-  wsfactory statfs PATH";
+  wsfactory statfs PATH
+  wsfactory warm save --store S --seat P [--keep N]
+  wsfactory warm use  --store S --seat P --ref REV [--git DIR] [--always] [--no-checkout]
+  wsfactory warm list --store S";
 
 enum Error {
     Usage(String),
@@ -182,6 +186,39 @@ fn run(args: &[String]) -> Result<Obj, Error> {
                 .with("path", p.as_str())
                 .with("free_bytes", free)
                 .with("total_bytes", total))
+        }
+        "warm" => {
+            let (sub, rest) = rest
+                .split_first()
+                .ok_or_else(|| Error::Usage("warm needs a subcommand".into()))?;
+            let a = Args::parse(
+                rest,
+                &["store", "seat", "keep", "ref", "git"],
+                &["always", "no-checkout"],
+            )?;
+            a.no_pos()?;
+            let store = PathBuf::from(a.req("store")?);
+            match sub.as_str() {
+                "save" => {
+                    let keep = match a.flags.get("keep") {
+                        Some(k) => k
+                            .parse()
+                            .map_err(|_| Error::Usage(format!("bad --keep {k}")))?,
+                        None => 4,
+                    };
+                    Ok(warm::save(&store, Path::new(a.req("seat")?), keep)?)
+                }
+                "use" => Ok(warm::use_tree(&warm::Use {
+                    store: &store,
+                    seat: Path::new(a.req("seat")?),
+                    rev: a.req("ref")?,
+                    git_dir: a.flags.get("git").map(Path::new),
+                    always: a.switches.contains("always"),
+                    no_checkout: a.switches.contains("no-checkout"),
+                })?),
+                "list" => Ok(warm::list(&store)?),
+                s => Err(Error::Usage(format!("unknown warm subcommand {s}"))),
+            }
         }
         "help" | "--help" | "-h" => {
             println!("{USAGE}");
