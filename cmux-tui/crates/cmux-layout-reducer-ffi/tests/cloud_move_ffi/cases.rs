@@ -185,6 +185,11 @@ fn the_rest_answer_in_the_shapes_the_app_reads() {
     );
     assert_eq!(ok(c"cloud_move_start_redial", json!({})), json!({"redial": "nothing"}));
     assert_eq!(
+        ok(c"cloud_move_rereads_record", json!({"running": true, "answeredAgoMs": 12})),
+        json!({"rereads": false})
+    );
+    assert_eq!(ok(c"cloud_move_rereads_record", json!({})), json!({"rereads": true}));
+    assert_eq!(
         ok(c"cloud_move_new_workspace_route", json!({"signedIn": false, "hasWindow": true})),
         json!({"route": "thisMac", "refusal": {"kind": "signedOut"}})
     );

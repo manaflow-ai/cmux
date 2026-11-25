@@ -22,6 +22,9 @@ struct ChatComposerField: UIViewRepresentable {
     /// The draft gained or lost a line (typed, or set from outside): the bottom stack's next
     /// height change moves on `ComposerLineMotion`, not the stack's slower spring.
     var onLineChange: (() -> Void)?
+    /// Points of the card over the field taken by the attachment strip: the field gives them up
+    /// (`ComposerReturnTextView.shareCard`), so attaching never makes the card taller than its tallest.
+    var reservedTop: CGFloat = 0
 
     static let maxLines = ComposerFieldHeight.defaultMaxLines
     static let accessibilityIdentifier = "chat.composer.field"
@@ -59,6 +62,10 @@ struct ChatComposerField: UIViewRepresentable {
     }
 
     func updateUIView(_ view: ChatComposerTextView, context: Context) {
+        ComposerKeyStamp.viewUpdate(view) { update(view, context: context) }
+    }
+
+    private func update(_ view: ChatComposerTextView, context: Context) {
         context.coordinator.parent = self
         markReadyIfShown()
         view.onPasteAttachments = onPasteAttachments == nil ? nil : { [weak coordinator = context.coordinator] in
@@ -70,11 +77,12 @@ struct ChatComposerField: UIViewRepresentable {
             view.refreshPlaceholderFont()
             view.invalidateIntrinsicContentSize()
         }
-        if view.text != text {
-            view.text = text
+        if view.differs(from: text) {
+            view.takeDraft(text)
             if view.lineCountChangePending { onLineChange?() }
             view.invalidateIntrinsicContentSize()
         }
+        view.shareCard(reserved: reservedTop, baseMaxLines: Self.maxLines)
         if view.placeholder != placeholder { view.placeholder = placeholder }
         // Focus follows the binding both ways; the change waits for the
         // current update (a responder change inside it re-enters SwiftUI), and
@@ -98,6 +106,9 @@ struct ChatComposerField: UIViewRepresentable {
     private func markReadyIfShown() {
         guard !faceHidden else { return }
         LaunchMarks.shared.markNextFrame("chat_composer_ready")
+        #if DEBUG
+        OpenMarks.shared?.noteNextFrame("chat_composer_ready")
+        #endif
     }
 
     /// A field torn down while focused (the permission bar replaced it) leaves no focus behind.
@@ -129,13 +140,19 @@ struct ChatComposerField: UIViewRepresentable {
                 // A line came or went: the field grows (or shrinks) on the same short spring the
                 // stack and the transcript above it take, one motion (`ComposerLineMotion`).
                 parent.onLineChange?()
-                withAnimation(ComposerLineMotion.animation.unlessReduceMotion) { parent.text = textView.text }
+                withAnimation(ComposerLineMotion.animation.unlessReduceMotion) { parent.text = Self.draft(of: textView) }
             } else {
-                parent.text = textView.text
+                parent.text = Self.draft(of: textView)
             }
             (textView as? ComposerReturnTextView)?.updatePlaceholder()
-            textView.invalidateIntrinsicContentSize()
+            // The height is settled once per edit, and SwiftUI asked again only when it changed.
+            (textView as? ComposerReturnTextView)?.settleAfterEdit()
             (textView as? ComposerReturnTextView)?.followCaret()
+        }
+
+        /// A native copy, so a long draft compares as a buffer downstream (`draftText()`).
+        static func draft(of textView: UITextView) -> String {
+            (textView as? ComposerReturnTextView)?.draftText() ?? textView.text
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) { if !parent.isFocused { parent.isFocused = true } }

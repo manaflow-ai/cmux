@@ -1,3 +1,4 @@
+import CmuxEgress
 import CryptoKit
 import Foundation
 import ImageIO
@@ -170,7 +171,7 @@ final class HomeTablePictures: Sendable {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 20
         config.timeoutIntervalForResource = 60
-        let session = URLSession(configuration: config)
+        let session = CmuxEgress.session(site: "MessagesLabHome.HomeTablePictures", configuration: config)
         defer { session.finishTasksAndInvalidate() }
         let (file, response) = try await session.download(from: url)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200,

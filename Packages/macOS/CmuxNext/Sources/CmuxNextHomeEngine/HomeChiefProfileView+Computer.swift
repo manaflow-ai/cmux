@@ -5,6 +5,9 @@ import AppKit
 extension HomeChiefProfileView {
     /// The note for `gate` (nil: the screen shows).
     func showGate(_ gate: Gate?) {
+        // Upgrade is the popover's one primary action (it opens the plans page): the default button, only while the
+        // Computer tab shows, so Return in the name field on Details never presses it.
+        gateButton.keyEquivalent = gate == .paywall && settings != nil && tabs.selected == .computer ? "\r" : ""
         gateMoveButton.isHidden = gate != .noComputer || provisionAsk == .unavailable || provisionAsk == .asking || computer.provisioning
         switch gate {
         case .paywall:

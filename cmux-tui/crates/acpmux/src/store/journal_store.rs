@@ -1286,6 +1286,9 @@ impl Store for JournalStore {
     fn on_segment_sealed(&self, hook: SealHook) {
         Store::on_segment_sealed(&self.inner.local, hook)
     }
+    fn on_log_grown(&self, hook: SealHook) {
+        Store::on_log_grown(&self.inner.local, hook)
+    }
     /// The `forget` record under the appends' lock, then the folder's removal off it, without a
     /// wait for the record: the replay never makes a folder that is gone again. Then the chat's
     /// repair file, if its repair failed at the open (after the folder: a crash between the two

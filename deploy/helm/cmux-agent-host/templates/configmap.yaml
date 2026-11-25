@@ -1,0 +1,85 @@
+{{- $slotImage := .Values.slot.image | default (include "cmux-agent-host.image" .) -}}
+# What the agent reads: lease defaults, warm pool size and the template it renders per agent slot.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cmux-agent-host.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cmux-agent-host.labels" . | nindent 4 }}
+data:
+  config.json: |
+    {{- dict
+      "driver" "pod"
+      "namespace" .Release.Namespace
+      "platformUrl" .Values.agent.platformUrl
+      "hostCredentialSecret" (include "cmux-agent-host.hostCredentialSecret" .)
+      "leases" .Values.leases
+      "warmPool" .Values.warmPool
+      "slot" (dict
+        "image" $slotImage
+        "runtimeClassName" .Values.slot.runtimeClassName
+        "vmBoundary" (eq (include "cmux-agent-host.vmBoundary" .) "true")
+        "podTemplate" "slot-pod.yaml"
+        "pvcTemplate" "slot-pvc.yaml")
+      | toPrettyJson | nindent 4 }}
+  slot-pvc.yaml: |
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      labels:
+        {{- include "cmux-agent-host.slotSelector" . | nindent 8 }}
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      {{- with .Values.slot.disk.storageClassName }}
+      storageClassName: {{ . | quote }}
+      {{- end }}
+      resources:
+        requests:
+          storage: {{ .Values.slot.disk.size }}
+  slot-pod.yaml: |
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      labels:
+        {{- include "cmux-agent-host.slotSelector" . | nindent 8 }}
+    spec:
+      {{- with .Values.slot.runtimeClassName }}
+      runtimeClassName: {{ . | quote }}
+      {{- end }}
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.slot.podSecurityContext | nindent 8 }}
+      {{- with .Values.slot.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.slot.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: guest
+          image: {{ $slotImage | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: CMUX_VM_BOUNDARY
+              value: {{ include "cmux-agent-host.vmBoundary" . | quote }}
+          securityContext:
+            {{- toYaml .Values.slot.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.slot.resources | nindent 12 }}
+          volumeMounts:
+            - name: disk
+              mountPath: /home/cmux
+      volumes:
+        # The agent sets claimName to the slot's PVC (slot-pvc.yaml).
+        - name: disk
+          persistentVolumeClaim:
+            claimName: ""

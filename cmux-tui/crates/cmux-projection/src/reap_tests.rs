@@ -298,7 +298,8 @@ fn a_projections_cache_stays_under_its_cap() {
     let machine = Machine::new();
     let at = machine.chat_folder("ca9e");
     let (_, overlay) = machine.project("p-cap", &at);
-    let overlay = overlay.with_cache_max(12);
+    // No content store under it (RFD 0065): an evicted blob is gone from the disk.
+    let overlay = overlay.with_cache_max(12).with_content_floor(u64::MAX);
     let root = overlay.root();
     let src = overlay.lookup(root, "src").unwrap().ino;
     let readme = overlay.lookup(root, "README.md").unwrap().ino;
