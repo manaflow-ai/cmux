@@ -94,8 +94,6 @@ jobs:
             packages: Packages/Shared/CmuxEgress
           - group: CmuxIrohTransport
             packages: Packages/Shared/CmuxIrohTransport
-          - group: CmuxIrxTransport
-            packages: Packages/Shared/CmuxIrxTransport
           - group: CmuxVNC
             packages: Packages/Shared/CmuxVNC
           - group: CmuxVisibleRows
