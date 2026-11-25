@@ -190,8 +190,43 @@ jobs:
           path: ${{ steps.marker.outputs.path }}
           retention-days: 1
 
-  protocol:
+  # Which jobs a pull request can affect. The protocol cells run the Rust workspace only, so a
+  # pull request that changes nothing but the phone's Swift sources and tests (CmuxMobileKit/)
+  # skips them: they measured 6.5-11 runner-minutes a run on changes that cannot reach them.
+  # Every other event (push, nightly, dispatch) runs everything.
+  scope:
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
+    timeout-minutes: 3
+    outputs:
+      protocol: ${{ steps.scope.outputs.protocol }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+          sparse-checkout: .github
+          sparse-checkout-cone-mode: false
+      - name: Does the protocol suite see this change
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -uo pipefail
+          protocol=true
+          # A pull request's checkout is the merge commit: HEAD^1 is the base, so the diff is the change.
+          if [ "$EVENT" = pull_request ] && files="$(git diff --name-only HEAD^1 HEAD 2>/dev/null)" && [ -n "$files" ]; then
+            # Anything the workflow's path filter admits that is not the phone's Swift (CmuxMobileKit/) can reach the Rust workspace.
+            if ! printf '%s\n' "$files" | grep -qvE '^cmux-next-ios/CmuxMobileKit/'; then
+              protocol=false
+            fi
+          fi
+          echo "protocol=$protocol" >> "$GITHUB_OUTPUT"
+          echo "protocol cells: $protocol"
+
+  protocol:
+    needs: [scope]
+    if: ${{ !cancelled() && needs.scope.outputs.protocol != 'false' && (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0')) }}
     name: protocol cells (Linux)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
     timeout-minutes: 45
