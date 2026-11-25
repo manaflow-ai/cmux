@@ -32,6 +32,12 @@ harness = false
 name = "turn_overhead"
 harness = false
 
+# Instruction counts of the hot paths under Callgrind, checked against
+# benches/icount_baseline.json (ci/steps.toml step acpmux-icount).
+[[bench]]
+name = "icount"
+harness = false
+
 [features]
 default = ["build-id"]
 # The stamped build id (acpmux-build-id) as the default of `hub::build()`.
@@ -88,6 +94,9 @@ cmux-felt.workspace = true
 cmux-cloud-start-core.workspace = true
 cmux-sync.workspace = true
 cmux-session-cloud.workspace = true
+# The opt-in tailnet carrier's path read: tailscaled's LocalAPI first, the CLI when it is
+# unavailable (peer_tailnet.rs).
+cmux-tailnet-local.workspace = true
 acpmux-book = { path = "../acpmux-book" }
 # The model catalog, RPC schema, secret rules and web page compiled in compressed.
 cmux-embed.workspace = true
