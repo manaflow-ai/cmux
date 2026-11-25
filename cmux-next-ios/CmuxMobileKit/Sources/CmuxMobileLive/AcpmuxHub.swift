@@ -2103,11 +2103,14 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             "sessionId": .string(sessionID), "afterSeq": .number(Double(max(0, followUp.firstSeq - 1))),
             "limit": .number(Double(Self.pageSize)), "kinds": .array(Self.elevationKinds),
         ]
+        // Immutable copies go into the `async let`s: sending the main-actor `var` races.
+        let widenParams: JSONValue = .object(widen)
+        let cardsValue: JSONValue = .object(cardsParams)
         cardsTask?.cancel()
         cardsTask = Task { [weak self] in
             do {
-                async let widened = hub.request("_acpmux/attach", .object(widen), timeout: Self.pageTimeout)
-                async let cards = hub.request("_acpmux/events", .object(cardsParams), timeout: Self.pageTimeout)
+                async let widened = hub.request("_acpmux/attach", widenParams, timeout: Self.pageTimeout)
+                async let cards = hub.request("_acpmux/events", cardsValue, timeout: Self.pageTimeout)
                 let after = (try await widened)["events"]?.arrayValue ?? []
                 let records = (try await cards)["events"]?.arrayValue ?? []
                 guard let self, !Task.isCancelled, self.generation == generation else { return }
