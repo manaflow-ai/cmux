@@ -12,8 +12,9 @@
 #     runs it and the autofix bot commits the result.
 # cmux-next-ios-kit.yml's drift check (build-xcframework.sh on a Mac) still compares the copy
 # with a Mac build; this script mirrors its bindgen step exactly (the host library in release,
-# then `uniffi-bindgen generate --library`), and uniffi's Swift output does not depend on the
-# host it reads the library's metadata on.
+# then `uniffi-bindgen generate --library`). uniffi's Swift output has the same declarations on
+# either host, in the library's symbol order (ELF here, Mach-O there), so that check
+# (scripts/ci/ios-ffi-drift.sh) passes a reorder.
 #
 # Usage: scripts/ios-ffi-bindings.sh [--check]
 #   (none)   rewrite the file when it differs; prints "fixed: ..." or "unchanged: ..."

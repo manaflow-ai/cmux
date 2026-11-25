@@ -499,13 +499,9 @@ jobs:
 
       - name: Checked-in bindings match the generated ones
         run: |
-          set -euo pipefail
-          # The xcframework and target/ are gitignored; the script rewrites the bindings
-          # and restores Cargo.lock, so any tracked change is drift.
-          if ! git diff --exit-code -- cmux-next-ios/; then
-            echo "::error::build-xcframework.sh changed tracked files (CmuxMobileLinkFFI.swift or Cargo.lock). The base autofix regenerates the bindings (scripts/ios-ffi-bindings.sh, base-autofix.sh --ios-ffi); a pull request's autofix re-run does too"
-            exit 1
-          fi
+          # Any tracked change is drift, but a reorder of the bindings (the Mac library's
+          # symbol order; the file is written on Linux) is not.
+          bash scripts/ci/ios-ffi-drift.sh
 
       - name: Save CmuxMobileLinkFFI.xcframework
         if: ${{ success() && steps.xcf-key.outputs.key != '' && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' && steps.xcf-fleet.outputs.hit != 'true' }}

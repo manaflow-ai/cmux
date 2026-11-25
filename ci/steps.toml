@@ -1580,6 +1580,7 @@ inputs = [
   "scripts/ci/ios_link_ffi_key.py",
   "scripts/ci/ios_sim_udid.py",
   "scripts/ci/ios-kit-sim-pool.sh",
+  "scripts/ci/ios-ffi-drift.sh",
   ".github/actions/setup-cmux-tui-rust/**",
   ".github/actions/runner-cargo-home/**",
   "cmux-tui/rust-toolchain.toml",
@@ -1597,12 +1598,9 @@ needs = ["rust"]
 run = '''
 (cd cmux-next-ios/rust && rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal)
 JOBS=8 bash cmux-next-ios/rust/scripts/build-xcframework.sh
-# The xcframework and target/ are gitignored; the script rewrites the bindings and restores Cargo.lock, so any
-# tracked change is drift.
-if ! git diff --exit-code -- cmux-next-ios/; then
-  echo "::error::build-xcframework.sh changed tracked files (CmuxMobileLinkFFI.swift or Cargo.lock); run it and commit the result"
-  exit 1
-fi
+# Any tracked change is drift, but a reorder of the bindings (the Mac library's symbol order; the file is written on
+# Linux) is not.
+bash scripts/ci/ios-ffi-drift.sh
 status=0
 # The suites that bound wall-clock time or the process footprint run alone after the rest (among 2580 parallel tests
 # in one process they measured their neighbours). The Instant list bench stays in the kit workflow's push runs.
