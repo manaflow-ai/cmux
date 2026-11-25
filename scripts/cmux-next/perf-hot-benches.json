@@ -161,6 +161,11 @@
       "bench": "cd webviews && PAIRED=1 CLOCK=cpu bun bench/transcript-replay.bench.ts --only long (god/small p95 ratio of token and thought), and FIXTURE=god PROFILE=1 for the steps that grow with rows",
       "owner": "agent chat (CMUX-571)"
     },
+    "composer-typing": {
+      "what": "one printable key in the agent chat composer (Composer.tsx edit and draftView): the draft and caret go to the prompt store and the composer renders only when what it draws of the draft changed (empty or not, a steer-blocking command, a recalled prompt, a dismissed menu, the @ and : words)",
+      "bench": "cd webviews && bun bench/composer-typing.bench.ts --lengths 60,1500 --keys 60 (renders per key: composer, composer:box, composer:queue; to_work_p95, script_ms; --engine webkit on a Mac)",
+      "owner": "agent chat composer"
+    },
     "composer-draft-typing": {
       "what": "one key in the agent chat composer: the prompt's markdown written from each top-level block's kept markdown (MarkdownField.tsx blockwiseMarkdown), so only the block the key changed is serialized",
       "bench": "CMUX_LATENCY_DRAFTS=1 bun webviews/scripts/latency/run.ts --page \"chat draft typing\" (10k and 200k-character drafts, 3,000-turn chat)",
