@@ -101,6 +101,8 @@ mod race;
 mod send;
 #[path = "acpmux_mcp_send_status.rs"]
 mod send_status;
+#[path = "acpmux_mcp_settings_ask.rs"]
+mod settings_ask;
 #[path = "acpmux_mcp_start.rs"]
 mod start;
 #[path = "acpmux_mcp_watch.rs"]
@@ -119,6 +121,7 @@ pub(crate) fn tools() -> Value {
         list.push(pr::tool());
         list.push(pr::wait_tool());
         list.push(wrap_up::tool());
+        list.push(settings_ask::tool());
         list.push(who_else::tool());
         list.push(look::tool());
         list.extend(goal::tools());
@@ -304,6 +307,9 @@ fn instructions(tools: &Value) -> Option<String> {
     if crate::mcp_hint::names(tools).any(|n| n == wrap_up::NAME) {
         parts.push(wrap_up::STEER);
     }
+    if crate::mcp_hint::names(tools).any(|n| n == settings_ask::NAME) {
+        parts.push(settings_ask::STEER);
+    }
     if crate::mcp_hint::names(tools).any(|n| n == who_else::NAME) {
         parts.push(who_else::STEER);
     }
@@ -417,6 +423,9 @@ fn served_with(
                 }
                 if name == wrap_up::NAME {
                     return wrap_up::call(&args);
+                }
+                if name == settings_ask::NAME {
+                    return settings_ask::call(&args);
                 }
                 if name == send_status::NAME {
                     return send_status::call(&daemon, &session, &args).await;
