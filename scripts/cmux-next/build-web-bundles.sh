@@ -1,4 +1,6 @@
 #!/bin/sh
+# DEMO ONLY (never pushed): a forced Linux-host fault for the pool Mac-fallback check.
+if [ "$(uname -s)" = Linux ]; then echo "cp: error writing '/tmp/web-demo': No space left on device" >&2; exit 1; fi
 # tooling-steps runs: scripts/cmux-next/web-bundle-key.py scripts/cmux-next/sync-app-runtime.sh
 # Builds every web bundle the cmux-next app ships, from the current sources:
 # the agent pane, the React pages, Agent Activity, the
