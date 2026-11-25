@@ -68,9 +68,20 @@ public final class TerminalModel {
             guard composerText != oldValue else { return }
             let hasText = !composerText.isEmpty
             if composerHasText != hasText { composerHasText = hasText }
-            composerEdited()
+            if !puttingComposerText { composerEdited() }
             onDraftChange?()
         }
+    }
+    /// Set while the model itself writes the draft (``putComposerText(_:)``): that is not the
+    /// person editing it, so a notice set with it stays.
+    @ObservationIgnored private var puttingComposerText = false
+    /// The model's own write of the draft (a dropped send coming back, a sent one cleared):
+    /// unlike the person's edit, it keeps the composer's notice. Since #52667 every write of
+    /// `composerText` counted as an edit and cleared the "not sent" notice it came back with.
+    func putComposerText(_ text: String) {
+        puttingComposerText = true
+        defer { puttingComposerText = false }
+        composerText = text
     }
     /// Whether the draft has any text: changes on the first key and on clearing, not per key.
     public private(set) var composerHasText = false
@@ -392,7 +403,7 @@ public final class TerminalModel {
                 composerSendRefused = true
             } else if let held = heldComposerSend, composerText.isEmpty,
                ProcessInfo.processInfo.systemUptime - held.at <= Self.heldComposerSendWindow {
-                composerText = held.text
+                putComposerText(held.text)
             }
             heldComposerSend = nil
         case .inputHeld(let bytes):
@@ -730,7 +741,7 @@ public final class TerminalModel {
         if composerSending {
             composerSendRefused = true
         } else if composerText.isEmpty {
-            composerText = text
+            putComposerText(text)
         }
     }
 
@@ -744,7 +755,7 @@ public final class TerminalModel {
         if composerSending {
             composerSendRefused = false
         } else if composerText == text {
-            composerText = ""
+            putComposerText("")
         }
     }
 
@@ -766,7 +777,7 @@ public final class TerminalModel {
         if composerSendRefused {
             composerSendRefused = false
         } else {
-            composerText = ""
+            putComposerText("")
         }
     }
 
