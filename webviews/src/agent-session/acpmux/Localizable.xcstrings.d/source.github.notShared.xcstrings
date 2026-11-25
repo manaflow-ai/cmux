@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "source.github.notShared" : {
+      "comment" : "New chat project source picker: the GitHub repository the person wanted ({repo}, owner/name) is not one the cmux GitHub App can see yet; the row above the message opens GitHub to add it.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لم تتم مشاركة {repo} مع cmux بعد. أضفه على GitHub من الخيار أعلاه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{repo} još nije podijeljen s cmuxom. Dodajte ga na GitHubu pomoću opcije iznad."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{repo} er ikke delt med cmux endnu. Tilføj det på GitHub med valgmuligheden ovenfor."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{repo} ist noch nicht für cmux freigegeben. Füge es mit der Option oben auf GitHub hinzu."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{repo} isn’t shared with cmux yet. Add it on GitHub with the option above."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{repo} aún no está compartido con cmux. Añádelo en GitHub con la opción de arriba."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{repo} n’est pas encore partagé avec cmux. Ajoutez-le sur GitHub avec l’option ci-dessus."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{repo} non è ancora condiviso con cmux. Aggiungilo su GitHub con l’opzione qui sopra."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{repo} はまだ cmux と共有されていません。上のオプションから GitHub で追加してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{repo} មិនទាន់បានចែករំលែកជាមួយ cmux នៅឡើយទេ។ បន្ថែមវានៅលើ GitHub ដោយប្រើជម្រើសខាងលើ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{repo}은(는) 아직 cmux와 공유되지 않았습니다. 위 옵션으로 GitHub에서 추가하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{repo} er ikke delt med cmux ennå. Legg det til på GitHub med valget ovenfor."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{repo} nie jest jeszcze udostępnione cmux. Dodaj je na GitHubie za pomocą opcji powyżej."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{repo} ainda não está compartilhado com o cmux. Adicione-o no GitHub pela opção acima."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{repo} ещё не открыт для cmux. Добавьте его на GitHub с помощью варианта выше."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{repo} ยังไม่ได้แชร์กับ cmux เพิ่มบน GitHub ด้วยตัวเลือกด้านบน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{repo} henüz cmux ile paylaşılmadı. Yukarıdaki seçenekle GitHub’da ekle."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{repo} ще не надано cmux. Додайте його на GitHub за допомогою варіанта вище."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{repo} chưa được chia sẻ với cmux. Thêm nó trên GitHub bằng tùy chọn bên trên."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{repo} 尚未与 cmux 共享。使用上方的选项在 GitHub 上添加它。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{repo} 尚未與 cmux 共用。使用上方的選項在 GitHub 上加入。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
