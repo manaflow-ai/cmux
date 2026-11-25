@@ -226,6 +226,11 @@ pub struct Chat {
     pub renew_at: Option<u64>,
     /// The renewal or registration that has no answer yet. Any other answer is ignored.
     pub awaiting: Option<Sent>,
+    /// The last renewal went unanswered or was answered slowly: the next ones go
+    /// [`RENEW_RETRY_MS`](crate::consts::RENEW_RETRY_MS) apart until one is answered in time.
+    /// Absent from a chat saved before it was added, which renews at the usual pace.
+    #[serde(default)]
+    pub renew_soon: bool,
     /// The last request number issued.
     pub requests: u64,
     /// The last copy number issued (`UploadSnapshot.copy`).
@@ -265,6 +270,7 @@ impl Chat {
             fresh_at: now,
             renew_at: None,
             awaiting: None,
+            renew_soon: false,
             requests: 0,
             copies: 0,
             copy: CopyState::Stored,

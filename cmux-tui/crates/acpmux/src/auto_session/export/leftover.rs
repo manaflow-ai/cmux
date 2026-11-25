@@ -17,15 +17,33 @@ use crate::hub::{Hub, Session};
 /// The most patch text `show` answers; a larger patch is listed by its files only.
 const SHOW_MAX_BYTES: usize = 1 << 20;
 
-/// Where the chat's leftover patch written at `now` goes: beside its record, or in the system's
-/// scratch folder for a store that keeps nothing on disk. The time is in the name, so a patch
-/// the person has not settled yet is never written over.
-fn file_of(hub: &Hub, session: &Session, now: u64) -> PathBuf {
+/// Where the chat's leftover patch written at `now` goes, and whether that is the system's
+/// shared scratch folder: beside its record, or there for a store that keeps nothing on disk.
+/// The time is in the name, so a patch the person has not settled yet is never written over.
+fn file_of(hub: &Hub, session: &Session, now: u64) -> (PathBuf, bool) {
     let name = format!("auto-leftover-{now}.patch");
     match hub.session_dir(&session.id) {
-        Some(dir) => dir.join(name),
-        None => std::env::temp_dir().join(format!("acpmux-{}-{name}", session.id)),
+        Some(dir) => (dir.join(name), false),
+        None => (std::env::temp_dir().join(format!("acpmux-{}-{name}", session.id)), true),
     }
+}
+
+/// Writes the patch. Beside the record it is written as every store file is. In the shared
+/// scratch folder anyone can make a file first, so there it is made new and owner-only
+/// (`create_new`, mode 0600, which follows no link): a path made first is refused, never
+/// written through (security review of cmux#52931, item 5).
+fn put(file: &Path, patch: &[u8], scratch: bool) -> anyhow::Result<()> {
+    use anyhow::Context as _;
+    use std::io::Write as _;
+    if !scratch {
+        return crate::config::write_atomic(file, patch);
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut out = options.open(file).with_context(|| format!("making {}", file.display()))?;
+    out.write_all(patch).with_context(|| format!("writing {}", file.display()))
 }
 
 /// Writes what the chat's folder holds beyond the snapshot whose tree is `anchor`. None when
@@ -37,12 +55,12 @@ pub(crate) async fn write(
     now: u64,
 ) -> Result<Option<Leftover>, String> {
     let cwd = session.meta().cwd;
-    let file = file_of(hub, session, now);
+    let (file, scratch) = file_of(hub, session, now);
     let anchor = anchor.to_owned();
     let cut = tokio::task::spawn_blocking(move || -> anyhow::Result<Option<Leftover>> {
         let Some(top) = folder::top_of(&cwd) else { return Ok(None) };
         let Some((files, patch)) = folder::since(&top, &anchor)? else { return Ok(None) };
-        crate::config::write_atomic(&file, &patch)?;
+        put(&file, &patch, scratch)?;
         Ok(Some(Leftover {
             files,
             at: now,
@@ -95,3 +113,7 @@ pub(crate) async fn discard(leftover: &Leftover) {
     let path = Path::new(&leftover.path).to_path_buf();
     let _ = tokio::task::spawn_blocking(move || std::fs::remove_file(path)).await;
 }
+
+#[cfg(all(test, unix))]
+#[path = "leftover_tests.rs"]
+mod tests;

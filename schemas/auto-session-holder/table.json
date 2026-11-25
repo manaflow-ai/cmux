@@ -477,7 +477,7 @@
       "turn_ended_idle": "holding: upload_events, upload_snapshot",
       "turn_started": "holding: renew(needs_run)",
       "turn_stopped": "-",
-      "unanswered": "-",
+      "unanswered": "holding: schedule_at",
       "wake": "stopped_wake: stop_tree, renew",
       "wished_cloud": "giving_stopping: stop_turn",
       "wished_local": "giving_stopping: stop_turn"
@@ -918,7 +918,7 @@
       "turn_ended_idle": "-",
       "turn_started": "-",
       "turn_stopped": "-",
-      "unanswered": "-",
+      "unanswered": "stopped_offline: schedule_at",
       "wake": "stopped_offline: renew",
       "wished_cloud": "-",
       "wished_local": "-"
@@ -967,7 +967,7 @@
       "turn_ended_idle": "-",
       "turn_started": "-",
       "turn_stopped": "-",
-      "unanswered": "stopped_offline: show_blocked(offline)",
+      "unanswered": "stopped_offline: show_blocked(offline), schedule_at",
       "wake": "stopped_wake: renew",
       "wished_cloud": "-",
       "wished_local": "-"

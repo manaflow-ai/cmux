@@ -162,6 +162,8 @@ pub(super) struct Store {
     pub chat_max: u64,
     /// The held requests to wake when something changes.
     pub wakers: Vec<Waker>,
+    /// Which install each chat's `device:` holders belong to, by (chat, holder) (devices.rs).
+    pub devices: BTreeMap<(String, String), String>,
 }
 
 impl Store {
@@ -175,6 +177,7 @@ impl Store {
             calls: Vec::new(),
             chat_max: SNAPSHOT_MAX_BYTES,
             wakers: Vec::new(),
+            devices: BTreeMap::new(),
         }
     }
 

@@ -53,21 +53,16 @@ impl Hub {
         // copy is the chat: its agent's own files replace those this chat left here
         // (`the_chat`), and so does cmux-harness's journal (`replace_durable`). Only this
         // chat's own: for a conversation this chat did not run here, a file that is here is
-        // another's and stays as it is, as after a move by hand.
+        // another's and stays as it is, as after a move by hand. Published frozen and kept so
+        // (`hold`): it is only prepared until the holder loop accepts it (`auto_activate`), so
+        // a copy that lost the chat meanwhile runs nothing.
         let own = arrival.own_agent;
         let plain = (false, None, own, false, None);
-        let session = self.import_placing(bundle, None, plain, own).await?;
-        // Held as a chat still arriving while its open turn is settled and its queue comes
-        // back, so no new prompt runs ahead of the continuation.
-        *session.moving.lock().unwrap_or_else(|e| e.into_inner()) =
-            Some(transfer_out::IMPORTING.to_owned());
+        let session = self.import_placing(bundle, None, plain, own, true).await?;
         self.settle_arrived(&session, arrival.cut, arrival.in_flight.as_ref());
         self.restore_queue(&session);
         self.drop_unsent_subagent_retries(&session);
-        // Its queued prompts run now, the continuation first (`queue.rs` `resume_queues`, as
-        // after a move in).
-        self.end_move(&session);
-        self.resume_queues();
+        // Its queued prompts wait for `auto_activate`, the continuation first.
         if !arrival.draft.trim().is_empty() {
             let _ = self.set_composer_draft(&session, &arrival.draft);
         }

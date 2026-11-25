@@ -177,8 +177,36 @@ impl Hub {
         defer_finalize: bool,
         staged: Option<&transfer_out::transfer_precopy::StagedPrefix>,
     ) -> Result<Arc<Session>, RpcError> {
+        self.import_into_held(
+            bundle,
+            name,
+            live,
+            guarded,
+            replace_durable,
+            defer_finalize,
+            staged,
+            false,
+        )
+        .await
+    }
+
+    /// `import_into`; a `hold`ing one (Auto's, `auto_import.rs`) is published frozen by Auto and
+    /// stays so with no gap: it does not end the freeze when it is done. Whoever asked frees it
+    /// when the holder loop accepts the import (`auto_hold.rs` `auto_activate`).
+    #[allow(clippy::too_many_arguments)]
+    pub(super) async fn import_into_held(
+        self: &Arc<Self>,
+        bundle: &Path,
+        name: Option<String>,
+        live: bool,
+        guarded: Option<super::transfer_guard::GuardedImport<'_>>,
+        replace_durable: bool,
+        defer_finalize: bool,
+        staged: Option<&transfer_out::transfer_precopy::StagedPrefix>,
+        hold: bool,
+    ) -> Result<Arc<Session>, RpcError> {
         let (the_chat, plain) = (false, (live, guarded, replace_durable, defer_finalize, staged));
-        self.import_placing(bundle, name, plain, the_chat).await
+        self.import_placing(bundle, name, plain, the_chat, hold).await
     }
 
     /// [`Self::import_into`] with its `(live, guarded, replace_durable, defer_finalize, staged)`.
@@ -190,6 +218,7 @@ impl Hub {
         name: Option<String>,
         plain: ImportOptions<'_>,
         the_chat: bool,
+        hold: bool,
     ) -> Result<Arc<Session>, RpcError> {
         let (live, guarded, replace_durable, defer_finalize, staged) = plain;
         let meta_text = std::fs::read_to_string(bundle.join("session.json"))
@@ -394,7 +423,7 @@ impl Hub {
         // failed one removes it), so no prompt starts before that. Its log's `transfer_out` is
         // the source's move, not one of this daemon's.
         *session.moving.lock().unwrap_or_else(|e| e.into_inner()) =
-            Some(transfer_out::IMPORTING.to_owned());
+            Some(if hold { super::AUTO_AWAY } else { transfer_out::IMPORTING }.to_owned());
         // The source's subagent retries stayed there (`subagent_retry.rs`).
         self.settle_subagent_retries(&session);
         self.sessions.lock().unwrap().insert(meta.id.clone(), session.clone());
@@ -420,7 +449,9 @@ impl Hub {
             return Err(RpcError::internal("import: could not durably record imported"));
         }
         // Its queued prompts run now (`end_move` follows its policy, then wakes the queue).
-        self.end_move(&session);
+        if !hold {
+            self.end_move(&session);
+        }
         self.save_meta(&session);
         if !defer_finalize && let Err(error) = self.finalize_harness_state(&session.meta()) {
             self.recover_staged_replacements();

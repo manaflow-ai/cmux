@@ -147,6 +147,13 @@ private struct CloudDirectoryList: View {
         let revision: Int
     }
 
+    /// The existing place to make a Cloud machine: Settings → Cloud Machines.
+    private func openCloudMachines() {
+        shell.cloudChats = nil
+        shell.tab = .settings
+        shell.settingsPath = [.cloudMachines]
+    }
+
     /// Capture the account's handle before awaiting the Mac. Only a complete, authenticated reply
     /// replaces this particular Mac's directory, even when a push searched several Macs.
     private func readDirectory(on id: String, live: LiveCoordinator) async throws -> [CloudChatMachine] {

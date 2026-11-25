@@ -157,6 +157,8 @@ mod fork_at;
 pub(crate) mod fork_before;
 pub(crate) mod fork_cancel;
 mod fork_replay;
+mod fork_request;
+mod fork_start;
 pub mod fork_subagent;
 mod fork_transcript_auth;
 pub mod forum;
@@ -729,8 +731,9 @@ pub struct HubEvent {
 }
 
 /// A [`HubEvent`]'s cells its receivers share: its row without its tools, with them, and with
-/// them but no time breakdown (a client that draws none, `omitTimeBreakdown`), and the clock of
-/// its fan-out to the connections (`gauges::FanoutClock`).
+/// them but no time breakdown (a client that draws none: its `initialize`'s `omitTimeBreakdown`,
+/// or an attach's, `SubOpts::omit_time_breakdown`), and the clock of its fan-out to the
+/// connections (`gauges::FanoutClock`).
 #[derive(Debug, Default)]
 pub struct EventRow {
     pub cells: [SharedRow; 3],
@@ -1225,7 +1228,16 @@ pub struct Hub {
     /// The ACP lists kept on disk by earlier probes (`live_models::AcpCache`), read once at
     /// start: by harness, the profile key it was probed under and the list. Each fills
     /// `known_models` for a profile with the same key until its probe answers (`model_probe.rs`).
-    pub(super) acp_cached: StdMutex<HashMap<String, (String, Vec<(String, String)>)>>,
+    /// The probe's choices (`probed_choices`) ride along, so a restart needs no probe for them.
+    pub(super) acp_cached: StdMutex<
+        HashMap<String, (String, Vec<(String, String)>, Option<crate::live_models::AcpChoices>)>,
+    >,
+    /// When each ACP harness's list was last probed (this run, or the kept file's time): a
+    /// models read probes one older than `live_ages::ACP_MAX_AGE` again (`model_probe.rs`).
+    pub(super) acp_ages: StdMutex<live_ages::LiveAges>,
+    /// The program each live list kept on disk was listed by, as loaded at start: an unchanged
+    /// program is not probed at start (`hub/live_models.rs`).
+    pub(super) live_disk_keys: StdMutex<HashMap<String, crate::live_models::CacheKey>>,
     /// The harnesses whose `known_models` entry is that disk copy, not a report of this
     /// daemon's: the probe still runs for them.
     pub(super) acp_from_disk: StdMutex<std::collections::HashSet<String>>,
@@ -1781,6 +1793,8 @@ impl Hub {
             cache_test_save_every_ms: AtomicU64::new(peer_cache::SAVE_EVERY_MS),
             known_models: StdMutex::new(HashMap::new()),
             acp_cached: StdMutex::new(HashMap::new()),
+            acp_ages: StdMutex::new(live_ages::LiveAges::default()),
+            live_disk_keys: StdMutex::new(HashMap::new()),
             acp_from_disk: StdMutex::new(std::collections::HashSet::new()),
             probed_choices: StdMutex::new(HashMap::new()),
             live_models: StdMutex::new(HashMap::new()),
@@ -2227,6 +2241,7 @@ impl Hub {
         if let Some(link) = meta.subsession.as_ref() {
             self.subsessions.note_status(&link.started_by, &meta.id, meta.status);
         }
+        let cut_off = fork_start::close_cut_off(&mut meta);
         let session = self.make_session(meta);
         if let Some(meta) = saved_meta {
             session.meta_writer.note_saved(&meta);
@@ -2238,6 +2253,10 @@ impl Hub {
         session.log_loaded.store(false, Ordering::SeqCst);
         sessions.insert(session.id.clone(), session.clone());
         drop(sessions);
+        // Closed for good: the next start finds it closed and says nothing again.
+        if cut_off {
+            self.save_meta(&session);
+        }
         self.update_live_session_index(&session);
         Some(session)
     }
@@ -2368,10 +2387,21 @@ impl Hub {
         let backgrounds_work = crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
         // A chat that moved away stays frozen after a restart: every prompt, queue, draft and
         // policy change refuses it as while it moved (`queue::moving_error`).
-        let moving = meta.moved_to.as_ref().map(|_| transfer_out::MOVED_AWAY.to_owned());
+        let moving =
+            meta.moved_to.as_ref().map(|_| transfer_out::MOVED_AWAY.to_owned()).or_else(|| {
+                // A saved Auto chat is frozen from the moment it exists: the store, not this copy,
+                // says whether it is this machine's, and the holder loop frees it when it is
+                // (`auto_session/runtime/run.rs` `resume`). Until then nothing runs it.
+                meta.auto_session
+                    .as_ref()
+                    .filter(|record| record.auto)
+                    .map(|_| AUTO_AWAY.to_owned())
+            });
         // Every start of a session whose creator asked waits on its harness (`SessionMeta::wait_start`).
         let wait_start = meta.wait_start;
         let parent_print = views::parent_print_of(&meta);
+        // A fork whose agent had not started before a restart starts as the first daemon's would.
+        let (fork_from, rehydrate, rehydrate_note) = fork_start::restored(&meta);
         let session = Arc::new(Session {
             id: meta.id.clone(),
             seq: AtomicU64::new(meta.last_seq),
@@ -2452,10 +2482,10 @@ impl Hub {
             unread_after_work: AtomicBool::new(false),
             asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
             asks_landed: Notify::new(),
-            rehydrate: AtomicBool::new(false),
+            rehydrate: AtomicBool::new(rehydrate),
             resume_cut_ask: AtomicBool::new(false),
             resumed_cut: AtomicBool::new(false),
-            rehydrate_note: StdMutex::new(None),
+            rehydrate_note: StdMutex::new(rehydrate_note),
             forum_retell: AtomicBool::new(false),
             forum_retold: std::sync::Mutex::default(),
             forum_telling: std::sync::Mutex::default(),
@@ -2477,7 +2507,7 @@ impl Hub {
             wait_start: AtomicBool::new(wait_start),
             steer_now: Default::default(),
             steer_end: tokio::sync::watch::channel(None).0,
-            fork_from: StdMutex::new(None),
+            fork_from: StdMutex::new(fork_from),
             applied: Default::default(),
             purged: Arc::new(AtomicBool::new(false)),
             replaced: AtomicBool::new(false),

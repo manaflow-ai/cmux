@@ -324,6 +324,8 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_AUTO_SESSION_MOVE, Run(json!({"sessionId": "$S", "to": "cloud"}))),
         (method::MUX_AUTO_SESSION_LEFTOVER, Run(json!({"sessionId": "$S", "action": "show"}))),
         (method::MUX_AUTO_SESSION_WAKE, Run(json!({}))),
+        // No holder loop: the chat's own log is its transcript (`projection: null`).
+        (method::MUX_AUTO_SESSION_TRANSCRIPT, Run(json!({"sessionId": "$S"}))),
         (method::MUX_SIDE, Run(json!({"sessionId": "$S", "chat": "lso-no-such-chat"}))),
         (
             method::MUX_HARNESS_ENABLE,

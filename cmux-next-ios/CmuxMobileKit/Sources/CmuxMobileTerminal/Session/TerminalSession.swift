@@ -259,6 +259,18 @@ public protocol TerminalSession: AnyObject {
     /// ``TerminalScrollPlace``), so a session that attaches with the latest
     /// screen first asks for at least that much history at once. Others ignore it.
     func requestHistoryRows(_ rows: Int)
+    /// One page of Find over the Mac's whole history for this terminal (`terminal-find`,
+    /// newest match first). Nil: this session cannot (no Mac daemon, or one without the
+    /// command, or the mirror's rows are not the Mac's rows, as in a projection): the screen
+    /// searches its mirror instead.
+    func findPage(_ request: TerminalFindRequest) async throws -> TerminalFindPage?
+    /// How much of the Mac's history the mirror holds (``TerminalFindRowMap``). Nil with no Mac daemon.
+    var findMirror: TerminalFindMirror? { get }
+    /// The mirror should hold the Mac's history row `daemonRow`, `rowsFromBottom` rows above its
+    /// bottom row, which it does not now (a Find match older than the mirror): a replay with that
+    /// history follows, as for ``loadOlderHistory()``. Returns whether it asked.
+    @discardableResult
+    func loadHistory(aroundDaemonRow daemonRow: Int, rowsFromBottom: Int) -> Bool
     /// The phone projects this terminal itself (``TerminalProjectingSession``):
     /// the session claims a size only when told to, and never holds the
     /// Mac's own grid back from the screen while the primary screen shows.
@@ -363,6 +375,13 @@ extension TerminalSession {
     public func loadNewerHistory(toTheScreen: Bool) -> Bool { false }
 
     public func requestHistoryRows(_ rows: Int) {}
+
+    public func findPage(_ request: TerminalFindRequest) async throws -> TerminalFindPage? { nil }
+
+    public var findMirror: TerminalFindMirror? { nil }
+
+    @discardableResult
+    public func loadHistory(aroundDaemonRow daemonRow: Int, rowsFromBottom: Int) -> Bool { false }
 
     public func setProjectsLocally(_ projects: Bool) {}
 

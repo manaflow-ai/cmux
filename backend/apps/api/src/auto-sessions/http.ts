@@ -22,6 +22,8 @@ const STATUS: Record<string, number> = {
   "auto.chunk_mismatch": 400,
   "auto.too_large": 413,
   "auto.closed": 409,
+  "auto.wrong_device": 403,
+  "auto.not_a_laptop": 403,
   "auto.off": 409,
   "auto.no_laptop": 409,
   "auto.no_move": 409,

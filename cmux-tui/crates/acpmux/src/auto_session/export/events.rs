@@ -33,12 +33,15 @@ pub(crate) async fn upload<C: AutoCloud>(
         let (reader, chat) = (hub.clone(), session.clone());
         let from = after;
         let page = tokio::task::spawn_blocking(move || {
-            reader.auto_events(
+            let mut page = reader.auto_events(
                 &chat,
                 from,
                 EVENTS_MAX_PER_APPEND,
                 EVENTS_MAX_BYTES.saturating_sub(BODY_MARGIN),
-            )
+            )?;
+            // Masked here, off the turn's path, so a secret's plain text never leaves.
+            page.iter_mut().for_each(|(_, record)| super::redact::redact(record));
+            anyhow::Ok(page)
         })
         .await
         .map_err(|error| AutoCloudError::decoding(format!("reading the chat's log: {error}")))?

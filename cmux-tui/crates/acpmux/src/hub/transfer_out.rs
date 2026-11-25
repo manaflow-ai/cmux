@@ -284,6 +284,9 @@ pub(super) fn moving_begin_token(transfer_id: &str) -> Option<String> {
 }
 
 #[cfg(test)]
+#[path = "auto_startup_tests.rs"]
+mod auto_startup_tests;
+#[cfg(test)]
 #[path = "restore_freeze_tests.rs"]
 mod restore_freeze_tests;
 #[path = "transfer_history.rs"]
@@ -465,6 +468,20 @@ impl Hub {
             "forget" => self.transfer_forget(params).await,
             _ => Err(RpcError::method_not_found(m)),
         }
+    }
+
+    /// This machine's route back as the owner of its agent memory, for a chat leaving it
+    /// (`memory_follow::route_back`): its `remoteDaemon` through its hub carrier. A config being
+    /// written right now reads as no route, as a machine with none does.
+    fn memory_route_back(&self) -> Option<crate::memory_follow::Followed> {
+        #[cfg(feature = "hub-carrier")]
+        {
+            let remote_daemon = self.config.try_read().ok()?.remote_daemon.clone();
+            let key = self.hub_carrier.get().map(|c| c.public_key());
+            crate::memory_follow::route_back(remote_daemon.as_deref(), key.as_deref())
+        }
+        #[cfg(not(feature = "hub-carrier"))]
+        None
     }
 
     /// Freezes the chat for its move and makes its bundle. With `after_turn` (how long to wait), a
@@ -810,8 +827,11 @@ impl Hub {
         }
         // The chat's agent memory goes with it (`memory_follow.rs`).
         let settings = crate::user_settings::text();
-        let memory =
-            crate::memory_follow::outgoing(settings.as_deref(), &session.meta().session_env);
+        let memory = crate::memory_follow::outgoing(
+            settings.as_deref(),
+            &session.meta().session_env,
+            self.memory_route_back(),
+        );
         if let Some(memory) = memory {
             answer.set(crate::memory_follow::MANIFEST_FIELD, memory);
         }

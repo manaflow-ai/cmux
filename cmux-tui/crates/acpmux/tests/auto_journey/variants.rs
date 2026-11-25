@@ -103,3 +103,78 @@ async fn a_chat_started_with_no_laptop_runs_on_the_machine_and_shows_up_on_the_l
     comes_home(&world, &laptop, &second, 2).await;
     assert_eq!(times(&log_of(&laptop.hub, &second), "another one"), 1);
 }
+
+/// After the move a tool runs where the chat runs: the shell of a tool the machine's turn
+/// starts is a child of the machine daemon's agent, not of the laptop's. Both daemons are
+/// in this process, so the agent is told apart by the id the machine's agents carry
+/// (`world::World::new`).
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_tool_after_the_move_runs_under_the_machine_daemon() {
+    use cmux_auto_session::consts::RENEW_MS;
+    use cmux_auto_session::wire::InboxPost;
+
+    let _hermetic = &crate::HERMETIC;
+    let world = World::new().await;
+    let laptop = world.start_laptop();
+    let machine = &world.machine;
+    let id = auto_chat(&world, &laptop, None).await;
+
+    let cut = cut_mid_tool(&world, &laptop, &id).await;
+    let laptop_agent = parent(cut.pid);
+    assert_eq!(parent(laptop_agent), std::process::id(), "the laptop's agent is its hub's child");
+    assert_ne!(agent_id(laptop_agent).as_deref(), Some(ON_THE_MACHINE), "the laptop's own agent");
+    log_when(&machine.hub, &id, "the machine goes on", |log| answered(log, SECOND)).await;
+    world.machine_at_rest(&id).await;
+
+    // A tool the phone asks for now runs in the machine's turn.
+    let out = world.dir.path().join("cloud-build.log");
+    let run = InboxPost { id: "phone-run".into(), text: format!("auto-run: {}", out.display()) };
+    world.phone.post_inbox(&id, &run).await.unwrap();
+    world.pass_while_laptop_sleeps(RENEW_MS);
+    let pid_file = std::path::PathBuf::from(format!("{}.pid", out.display()));
+    super::logs::until("the machine's tool shell runs", || pid_file.exists()).await;
+    let shell: u32 = std::fs::read_to_string(&pid_file).unwrap().trim().parse().unwrap();
+    let agent = parent(shell);
+    let ended = scopeguard(shell);
+    assert_ne!(agent, laptop_agent);
+    assert_eq!(parent(agent), std::process::id(), "the machine's agent is its hub's child");
+    assert_eq!(agent_id(agent).as_deref(), Some(ON_THE_MACHINE), "spawned by the machine daemon");
+    assert_eq!(world.view(&id).holder, vm());
+    drop(ended);
+}
+
+/// The id the machine daemon's agents carry in their environment (`world::World::new`).
+#[cfg(target_os = "linux")]
+const ON_THE_MACHINE: &str = "on-the-cloud-machine";
+
+/// A process's parent, from `/proc/<pid>/stat` (the field after the parenthesized name).
+#[cfg(target_os = "linux")]
+fn parent(pid: u32) -> u32 {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).expect("the process runs");
+    let rest = &stat[stat.rfind(')').expect("a stat line") + 2..];
+    rest.split(' ').nth(1).and_then(|ppid| ppid.parse().ok()).expect("a parent pid")
+}
+
+/// `ACPMUX_SESSION_ID` in a process's environment.
+#[cfg(target_os = "linux")]
+fn agent_id(pid: u32) -> Option<String> {
+    let environ = std::fs::read(format!("/proc/{pid}/environ")).ok()?;
+    environ.split(|byte| *byte == 0).find_map(|entry| {
+        let entry = std::str::from_utf8(entry).ok()?;
+        entry.strip_prefix("ACPMUX_SESSION_ID=").map(str::to_owned)
+    })
+}
+
+/// Kills the tool's shell (ten minutes of `sleep`, started by this test) when it drops.
+#[cfg(target_os = "linux")]
+fn scopeguard(pid: u32) -> impl Drop {
+    struct Kill(i32);
+    impl Drop for Kill {
+        fn drop(&mut self) {
+            // SAFETY: a plain signal to the shell this test's turn started.
+            unsafe { libc::kill(self.0, libc::SIGKILL) };
+        }
+    }
+    Kill(i32::try_from(pid).expect("a pid"))
+}

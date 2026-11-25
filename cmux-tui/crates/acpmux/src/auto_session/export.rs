@@ -17,9 +17,15 @@
 pub(crate) mod apply;
 pub(crate) mod events;
 pub(crate) mod folder;
+mod ignore;
 pub(crate) mod leftover;
+mod redact;
 pub(crate) mod native;
 pub(crate) mod snapshot;
+
+#[cfg(test)]
+#[path = "export/ignore_tests.rs"]
+mod ignore_tests;
 
 use std::sync::Arc;
 

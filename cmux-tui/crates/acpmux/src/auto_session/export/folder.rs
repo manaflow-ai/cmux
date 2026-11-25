@@ -229,6 +229,9 @@ fn walk(top: &Path, under: &Path, found: &mut Vec<PathBuf>) -> Result<()> {
         let entry = entry?;
         let relative = under.join(entry.file_name());
         let kind = entry.file_type()?;
+        if super::ignore::ignored(Path::new(&entry.file_name()), kind.is_dir()) {
+            continue;
+        }
         if kind.is_dir() {
             if entry.file_name() != ".git" {
                 walk(top, &relative, found)?;

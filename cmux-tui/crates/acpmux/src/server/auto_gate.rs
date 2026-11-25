@@ -10,7 +10,7 @@
 //!   behind it. This is the line `_acpmux/set_turn_cap` draws.
 //! - `wake` stops every Auto chat's processes until the store answers, so an agent's connection
 //!   never sends it.
-//! - `leftover` with `show` only reads, and any local connection may.
+//! - `leftover` with `show` only reads, and any local connection may; so does `transcript`.
 
 use std::sync::Arc;
 
@@ -45,6 +45,10 @@ pub(super) async fn request(
             return Err(conn.person_only("telling the daemon that this machine woke"));
         }
         return Ok(crate::auto_session::surface::wake(hub));
+    }
+    if m == method::MUX_AUTO_SESSION_TRANSCRIPT {
+        let s = hub.resolve(session_key(params)?)?;
+        return crate::auto_session::surface::transcript(hub, &s, params);
     }
     let (ask, what) = match m {
         method::MUX_AUTO_SESSION_SET => (Ask::Set, "switching Auto mode"),
