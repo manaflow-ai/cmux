@@ -140,7 +140,8 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 
-func makeClient(_ hub: StubHub, identity: DeviceIdentity = .software(), token: String = "stack-token") -> DeviceHubClient {
+func makeClient(_ hub: StubHub, identity: DeviceIdentity = .software(), token: String = "stack-token",
+                buildSpace: DeviceHubBuildSpace = .nightly) -> DeviceHubClient {
     DeviceHubClient(baseURL: hub.baseURL, identity: identity, tokens: DeviceHubAccountToken { token },
-                    session: StubHub.session, now: fixedNow)
+                    buildSpace: buildSpace, session: StubHub.session, now: fixedNow)
 }

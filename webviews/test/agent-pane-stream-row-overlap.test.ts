@@ -346,8 +346,8 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
           }
         }
         // The old words a line's change leaves drawn while they go (Thinking.tsx `cv-roll-out`,
-        // useTextSwap's copy): inert, but the reader sees them while they show.
-        for (const ghost of row.querySelectorAll<HTMLElement>(".cv-roll-out, .ui-text-swap__ghost")) {
+        // the text roll's copy, ui/motion/TextRoll.tsx): inert, but the reader sees them while they show.
+        for (const ghost of row.querySelectorAll<HTMLElement>(".cv-roll-out, .ui-text-roll__out")) {
           const style = getComputedStyle(ghost);
           if (style.display === "none" || drawnOpacity(ghost, row) < 0.05) continue;
           const rect = ghost.getBoundingClientRect();
