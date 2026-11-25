@@ -155,7 +155,7 @@ pub(crate) fn panic_point_with(point: &str, text: impl FnOnce() -> String) {
 #[inline(always)]
 pub(crate) fn panic_point_with(_point: &str, _text: impl FnOnce() -> String) {}
 
-#[cfg(debug_assertions)]
+#[cfg(any(test, debug_assertions))]
 #[derive(Default)]
 struct Armed {
     point: String,
@@ -164,13 +164,13 @@ struct Armed {
     passes: usize,
 }
 
-#[cfg(debug_assertions)]
+#[cfg(any(test, debug_assertions))]
 struct PanicSeam {
     read_env: bool,
     armed: Vec<Armed>,
 }
 
-#[cfg(debug_assertions)]
+#[cfg(any(test, debug_assertions))]
 static PANIC_SEAM: std::sync::Mutex<PanicSeam> =
     std::sync::Mutex::new(PanicSeam { read_env: false, armed: Vec::new() });
 
