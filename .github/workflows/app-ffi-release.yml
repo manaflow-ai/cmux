@@ -53,6 +53,7 @@ on:
       - "cmux-tui/crates/cmux-bookmarks-core/**"
       - "cmux-tui/crates/cmux-build-space/**"
       - "cmux-tui/crates/cmux-cloud-config/**"
+      - "cmux-tui/crates/cmux-cloud-disk/**"
       - "cmux-tui/crates/cmux-cloud-environment/**"
       - "cmux-tui/crates/cmux-cloud-handlers/**"
       - "cmux-tui/crates/cmux-cloud-machine/**"
