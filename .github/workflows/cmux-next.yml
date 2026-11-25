@@ -2131,6 +2131,7 @@ jobs:
         run: |
           python3 tests/test_app_store_rules.py
           python3 tests/test_cmux_next_ios_test_notes_retry.py
+          python3 tests/test_testflight_build_checkers.py
           python3 -I scripts/cmux-next/check-app-store-rules.py --source .
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-435
