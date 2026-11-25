@@ -24,7 +24,7 @@ pub static ACTIONS: &[Action] = &[
         category: "cloud",
         symbol: "cloud",
         surfaces: KEYBOARD | MENU | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "create", 200).folder("new")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarNew", "create", 1)], ..SurfacePlan::DEFAULT },
         targets: &["machine"],
         cli_name: "cloud new-workspace",
         main_menu: Some("file"),
