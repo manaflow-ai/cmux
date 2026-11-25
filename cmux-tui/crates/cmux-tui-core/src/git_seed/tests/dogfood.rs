@@ -50,7 +50,7 @@ fn dogfood_a_chat_works_before_the_checkout_lands() {
             let _ = std::fs::remove_file(mac.join(path));
         }
     }
-    let world = World { home, remote: PathBuf::new(), mac, base: base.clone() };
+    let world = World { home, remote: PathBuf::new(), mac, base: base.clone(), mirrors: None };
     let snapshot = world.snapshot("dogfood", &[&base]);
     let folder = world.home.join("project");
     let mut params = world.start_params(&folder, &snapshot);
