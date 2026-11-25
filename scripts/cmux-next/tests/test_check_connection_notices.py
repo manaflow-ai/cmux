@@ -284,16 +284,6 @@ class WebShapes(unittest.TestCase):
         code, out = tree.check()
         self.assertEqual(code, 0, out)
 
-    def test_retry_line_with_a_button_component_passes(self):
-        """A unit that draws its own button component (`<ConnectButton onConnect={...}>` in
-        GitHubConnectCard.tsx) carries the person's action, as a bare `<button>` does."""
-        tree = Tree(self)
-        tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
-        tree.write(f"{WEB}/AutoResumeNotice.tsx", ACTION_NOTICE.replace(
-            '<button type="button" onClick={onRetry}>{t("page.retry")}</button>', "<RetryButton onRetry={onRetry} />"))
-        code, out = tree.check()
-        self.assertEqual(code, 0, out)
-
     def test_a_literal_grace_under_the_bound_is_no_bound(self):
         tree = Tree(self)
         tree.write("schemas/notice-timing/notice-timing.json", json.dumps({"connectionQuietMs": 10000}))
@@ -475,6 +465,22 @@ class NativeShapes(unittest.TestCase):
         code, out = tree.check()
         self.assertEqual(code, 1, out)
         self.assertIn("GitHubStatus shows a connection state", out)
+
+    def test_a_web_button_component_is_an_action(self):
+        """The Connect GitHub card ("GitHub isn't connected for this repo") draws its own `<ConnectButton>` with the
+        tap handler inside it (GitHubConnectCard.tsx); the same line with no button component does not pass."""
+        button = ('export function ConnectCard() {\n'
+                  '  return <div>Reconnecting to GitHub<ConnectButton onConnect={go} /></div>;\n}\n')
+        bare = ('export function ConnectLine() {\n'
+                '  return <div>Reconnecting to GitHub<ConnectIcon /></div>;\n}\n')
+        tree = Tree(self)
+        tree.write(f"{WEB}/ConnectCard.tsx", button)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        tree.write(f"{WEB}/ConnectLine.tsx", bare)
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("ConnectLine shows a connection state", out)
 
     def test_a_scheduler_signature_is_not_a_run_action(self):
         """`run: () => void` is a timer's parameter type, not a row the person clicks."""
