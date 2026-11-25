@@ -88,7 +88,7 @@ struct RemoteTmuxCredentialPromptAttachTests {
             "mux_client_request_session: session request failed: Session open refused by peer\n")
         connection.ingest(Data("Password: ".utf8))
         #expect(!connection.isAwaitingCredentials)
-        #expect(connection.initialTopologyState == .pending, "the attempt retries, so the attach keeps waiting")
+        #expect(connection.connectionState == .ended, "a refused first attach ends instead of waiting at the prompt")
     }
 
     /// The two pipes are read by separate tasks, so the prompt on stdout can be read before the
@@ -112,7 +112,7 @@ struct RemoteTmuxCredentialPromptAttachTests {
         await connection.credentialPromptCheck?.value
 
         #expect(!connection.isAwaitingCredentials)
-        #expect(connection.initialTopologyState == .pending, "the attempt retries, so the attach keeps waiting")
+        #expect(connection.connectionState == .ended, "a refused first attach ends instead of waiting at the prompt")
     }
 
     /// With nothing on stderr, a prompt still parks for the sign-in and ends the attach's wait.

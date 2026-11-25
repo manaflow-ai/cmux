@@ -403,11 +403,10 @@ final class RemoteTmuxControlConnection {
     /// until the stderr reader has delivered everything already in its pipe.
     private func noteCredentialPromptIfSeen() {
         guard !enterReceived, !sawUnansweredCredentialPrompt, credentialPromptCheck == nil,
-              !RemoteTmuxSSHTransport.indicatesMasterRefusedSession(stderrBuffer),
               RemoteTmuxSSHTransport.indicatesUnansweredCredentialPrompt(
                   preControlOutputBuffer + parser.unterminatedTail) else { return }
         guard let stderrPipeReader else {
-            parkForCredentialPrompt()
+            decideOnCredentialPrompt()
             return
         }
         let generation = processGeneration
@@ -416,15 +415,36 @@ final class RemoteTmuxControlConnection {
             guard let self, self.processGeneration == generation else { return }
             self.credentialPromptCheck = nil
             guard !self.enterReceived,
-                  self.connectionState == .connecting || self.connectionState == .reconnecting,
-                  !RemoteTmuxSSHTransport.indicatesMasterRefusedSession(self.stderrBuffer) else { return }
-            self.parkForCredentialPrompt()
+                  self.connectionState == .connecting || self.connectionState == .reconnecting else { return }
+            self.decideOnCredentialPrompt()
         }
     }
 
-    private func parkForCredentialPrompt() {
-        sawUnansweredCredentialPrompt = true
-        parkForInteractiveAuth(reason: "credential-prompt")
+    /// A prompt waits for an answer, so the process will not exit and the stream-end path will not
+    /// run. Either the attempt parks for the sign-in, or, when the master refused it, it ends here.
+    private func decideOnCredentialPrompt() {
+        guard RemoteTmuxSSHTransport.indicatesMasterRefusedSession(stderrBuffer) else {
+            sawUnansweredCredentialPrompt = true
+            parkForInteractiveAuth(reason: "credential-prompt")
+            return
+        }
+        switch connectionState {
+        case .reconnecting:
+            // The same retry a refused attempt that exits gets.
+            record("reconnect-refused-at-prompt")
+            teardownProcessHandles()
+            scheduleReconnectAttempt()
+        case .connecting:
+            // The same end a refused first attach that exits gets: a first attach that never
+            // reached control mode reports instead of retrying.
+            record("refused-at-prompt-before-connect")
+            connectionState = .ended
+            cancelScheduledWork()
+            teardownProcessHandles()
+            observers.notifyExit()
+        case .connected, .ended:
+            return
+        }
     }
 
     /// Returns once the stderr consumer has appended every byte that was in `reader`'s pipe when
