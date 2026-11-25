@@ -1587,6 +1587,7 @@ async fn dispatch_request_with_identity(
                         method::MUX_TAILNET_LOGIN,
                         method::MUX_TAILNET_STATE,
                         method::MUX_TAILNET_LOGOUT,
+                        method::MUX_TAILNET_PLACEMENT,
                         method::MUX_TAILNET_JOIN,
                     ]
                     .map(Value::from),
@@ -2486,6 +2487,7 @@ async fn dispatch_request_with_identity(
                 agent,
                 class,
                 after_turn: None,
+                fired: None,
                 supersede,
                 display_parts: {
                     let parts = crate::hub::prompt_images::validated_display_parts(
@@ -2802,6 +2804,20 @@ async fn dispatch_request_with_identity(
                 Err(RpcError::new(-32000, "tailnet support is not built")
                     .with_data(json!({"reason": "not_built"})))
             }
+        }
+        // The stable tailnet node's placements: the local app (or CLI) says where each
+        // workspace runs; the front reads the table at each new connection.
+        method::MUX_TAILNET_PLACEMENT => {
+            if !matches!(conn.origin, Origin::Local | Origin::LocalApp) {
+                return Err(RpcError::invalid_params(
+                    "only the local app or unix socket may move tailnet placements",
+                ));
+            }
+            let message: cmux_tailnet_front::PlacementMessage = serde_json::from_value(params)
+                .map_err(|e| RpcError::invalid_params(format!("placement: {e}")))?;
+            let applied = hub.tailnet_placements.apply(&message);
+            let reply = cmux_tailnet_front::PlacementReply::from(&applied);
+            serde_json::to_value(reply).map_err(|e| RpcError::internal(e.to_string()))
         }
         method::MUX_STATUS => Ok(hub.status().await),
         // The felt-latency histograms (`cmux-felt`): names and numbers only, but this machine's

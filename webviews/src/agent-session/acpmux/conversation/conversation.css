@@ -7913,22 +7913,19 @@ a.cv-sha:focus-visible {
 }
 .acpmux-scroll[data-fade-top],
 .acpmux-scroll[data-fade-bottom],
-.acpmux-scroll[data-docked],
-.acpmux-scroll[data-pinned-top] {
+.acpmux-scroll[data-docked] {
   --acpmux-view-foot: calc(100% - var(--acpmux-dock-space, 0px));
-  /* --acpmux-view-top: a pinned line over the top (a subagent's "Subagent of" pill, App.tsx
-     VirtualTranscript): rows are out of sight under it, and the soft edge starts below it. */
   --acpmux-view-mask: linear-gradient(
     to bottom,
-    transparent var(--acpmux-view-top, 0px),
-    rgb(0 0 0 / 0.043) calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.125),
-    rgb(0 0 0 / 0.156) calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.25),
-    rgb(0 0 0 / 0.316) calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.375),
-    rgb(0 0 0 / 0.5) calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.5),
-    rgb(0 0 0 / 0.684) calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.625),
-    rgb(0 0 0 / 0.844) calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.75),
-    rgb(0 0 0 / 0.957) calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.875),
-    #000 calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 1),
+    transparent 0px,
+    rgb(0 0 0 / 0.043) calc(var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.125),
+    rgb(0 0 0 / 0.156) calc(var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.25),
+    rgb(0 0 0 / 0.316) calc(var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.375),
+    rgb(0 0 0 / 0.5) calc(var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.5),
+    rgb(0 0 0 / 0.684) calc(var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.625),
+    rgb(0 0 0 / 0.844) calc(var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.75),
+    rgb(0 0 0 / 0.957) calc(var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach) * 0.875),
+    #000 calc(var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach)),
     #000 calc(var(--acpmux-view-foot) - var(--acpmux-fade-bottom, 0px) * var(--acpmux-fade-bottom-reach)),
     transparent var(--acpmux-view-foot) var(--acpmux-dock-holes,)
   );
