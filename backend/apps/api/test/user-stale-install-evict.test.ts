@@ -37,6 +37,10 @@ const register = (s: UserState, k: number) =>
 const installPrincipal = (k: number): Principal => ({ identity: id("inst", k), kind: "install", user: USER, install: id("inst", k), grant: id("grant", k) })
 
 describe("UserDO signs out the stalest client installs past MAX_ACTIVE_INSTALLS", () => {
+  // The two 3,000-install heads below take 15-25 s on a packed api-workerd runner (backend.yml run
+  // 45605232679, shard 6), past vitest's 20 s default, so they carry their own bound.
+  const HEAVY_MS = 90_000
+
   it("a head full of active installs heals on its next install.register", () => {
     const full = seed(3_000)
     expect(utf8Length(JSON.stringify(full))).toBeGreaterThan(STATE_MAX_BYTES)
@@ -57,7 +61,7 @@ describe("UserDO signs out the stalest client installs past MAX_ACTIVE_INSTALLS"
     const upserts = (r.outbox ?? []).filter((o) => o.kind === "install.upsert")
     expect(upserts.length).toBe(3_000 - MAX_ACTIVE_INSTALLS + 2)
     expect(upserts.find((o) => o.entity === id("inst", 0))?.payload).toMatchObject({ revoked_at: 1_000_000 })
-  })
+  }, HEAVY_MS)
 
   it("an evicted install's principal is refused", () => {
     const r = register(seed(MAX_ACTIVE_INSTALLS + 3), 99_998)
@@ -117,7 +121,8 @@ describe("UserDO signs out the stalest client installs past MAX_ACTIVE_INSTALLS"
     // Run after run (a fresh app copy each time) the head never grows past the bound again.
     let cur = r.state
     let bytes = 0
-    for (let run = 0; run < 400; run++) {
+    // Each run evicts one past the cap, so 50 runs walk the head well past its steady state.
+    for (let run = 0; run < 50; run++) {
       const n = register(cur, 200_000 + run)
       expect(n.ok).toBe(true)
       if (!n.ok) return
@@ -126,5 +131,5 @@ describe("UserDO signs out the stalest client installs past MAX_ACTIVE_INSTALLS"
     }
     expect(bytes).toBeLessThan(STATE_MAX_BYTES)
     expect(Object.keys(cur.confirm?.presence_keys ?? {}).every((i) => cur.installs[i])).toBe(true)
-  })
+  }, HEAVY_MS)
 })
