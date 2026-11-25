@@ -29,7 +29,7 @@ class HistoryAdmission(unittest.TestCase):
         # tells them apart as strings: '0' for zero, 'null' for missing.
         self.assertEqual(
             history["if"],
-            "${{ toJSON(github.event.pull_request.deletions) != '0' }}",
+            "steps.reuse.outputs.verdict == '' && (toJSON(github.event.pull_request.deletions) != '0')",
         )
         self.assertIn('git -C "$history" fetch', history["run"])
         self.assertIn('echo "BASE_HISTORY=$history"', history["run"])
@@ -37,14 +37,16 @@ class HistoryAdmission(unittest.TestCase):
     def test_the_risk_gate_and_all_its_reads_still_run_on_every_event(self):
         # A skipped JOB can be mistaken for a passed required risk evidence
         # check. Restrict the optimization to history, keeping the check itself
-        # and its classification, signoff and labels untouched.
+        # and its classification, signoff and labels untouched. The grade's one
+        # condition is the label reuse (tests/test_ci_risk_tier_label_reuse.py):
+        # a label the grade does not read repeats this head's last pass.
         self.assertNotIn("if", self.job)
         for name in ("Checkout the classifier at the tip of the pull request's base branch",
                      "Grade the pull request", "Set the risk label",
                      "Hold only an unowned takeback"):
             self.assertIn(name, self.steps)
         grade = self.steps["Grade the pull request"]
-        self.assertNotIn("if", grade)
+        self.assertEqual(grade["if"], "steps.reuse.outputs.verdict == ''")
         self.assertIn('${BASE_HISTORY:+--repo-dir "$BASE_HISTORY"}', grade["run"])
         self.assertIn('ready=true', grade["run"])
 

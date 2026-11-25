@@ -46,14 +46,46 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks the Blacksmith size
     timeout-minutes: 8
     permissions:
+      checks: read
       contents: read
       pull-requests: write
       issues: write
     steps:
+      # A label nothing in the grade reads (ready-to-land, full-ci, dev-build and the rest) cannot change
+      # the verdict: red means an unowned takeback, which comes from the head's diff, the base and the
+      # description; only the sign-off labels (risk:human-ok, risk:waived) are read, and they change a
+      # warning. So such a label event repeats this head's last finished grade instead of grading again
+      # (checkout, a 9-day base fetch and the reads took 2 to 4 min a run, about 3,800 runner-min per 4 h
+      # on 2026-11-25). The run still ends as a real pass or fail, never a skip, so the newest
+      # `risk evidence` check is always a verdict. Only a pass is repeated: a red, or no finished grade, or
+      # a failed read (continue-on-error) grades as before, so a rerun of a red always grades again.
+      - name: Reuse this head's verdict on a label the grade does not read
+        id: reuse
+        if: github.event.action == 'labeled' || github.event.action == 'unlabeled'
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          LABEL: ${{ github.event.label.name }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          case "$LABEL" in risk:human-ok|risk:waived) echo "$LABEL is a sign-off label: grading"; exit 0;; esac
+          prior=$(gh api "repos/$REPO/commits/$HEAD_SHA/check-runs?check_name=risk%20evidence&filter=all&per_page=100" \
+            --jq "[.check_runs[] | select(.status == \"completed\" and (.conclusion == \"success\" or .conclusion == \"failure\"))
+                   | select((.details_url // \"\") | contains(\"/runs/$RUN_ID/\") | not)] | sort_by(.completed_at) | last | .conclusion // \"\"") || prior=
+          if [ "$prior" = success ]; then
+            echo "verdict=pass" >> "$GITHUB_OUTPUT"
+            echo "$LABEL changed, which the grade does not read: this head's last grade passed, so this run passes"
+          else
+            echo "this head's last finished grade is '${prior:-none}': grading"
+          fi
       # The tip of feat-cmux-next (the branch filter makes base.ref that branch), not base.sha: base.sha
       # is the base as of the pull request's last push, so a label or description event on an older pull
       # request would grade it with an older classifier, or find none from before #21718.
       - name: Checkout the classifier at the tip of the pull request's base branch
+        if: steps.reuse.outputs.verdict == ''
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.base.ref }}
@@ -79,7 +111,7 @@ jobs:
       # Missing metadata still fetches, so event drift cannot waive the takeback check. The condition goes
       # through toJSON: an expression compares null as 0, so `deletions == null` is true for zero too.
       - name: Fetch the base's recent history
-        if: ${{ toJSON(github.event.pull_request.deletions) != '0' }}
+        if: steps.reuse.outputs.verdict == '' && (toJSON(github.event.pull_request.deletions) != '0')
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           REPO: ${{ github.repository }}
@@ -108,7 +140,7 @@ jobs:
         # controller's routing App (5067688 read 0 remaining at 02:17Z and
         # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h).
         id: glaeda-token-bot
-        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8'))
+        if: steps.reuse.outputs.verdict == '' && ((vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8')))
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -124,7 +156,7 @@ jobs:
 
       - name: Mint the glaeda-route token
         id: glaeda-token
-        if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.glaeda-token-bot.outputs.token == ''
+        if: steps.reuse.outputs.verdict == '' && ((vars.GLAEDA_ROUTE_APP_ID != '') && steps.glaeda-token-bot.outputs.token == '')
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -141,7 +173,7 @@ jobs:
       # rate_limit read): the installation is shared, so the delta between `before`
       # and `after` is this step's reads plus whatever else ran meanwhile.
       - name: Log the glaeda-route App budget before
-        if: ${{ (steps.glaeda-token.outputs.token) != '' }}
+        if: steps.reuse.outputs.verdict == '' && ((steps.glaeda-token.outputs.token) != '')
         continue-on-error: true
         timeout-minutes: 1
         env:
@@ -153,6 +185,7 @@ jobs:
 
       - name: Grade the pull request
         id: grade
+        if: steps.reuse.outputs.verdict == ''
         env:
           READ_TOKEN: ${{ (steps.glaeda-token-bot.outputs.token || steps.glaeda-token.outputs.token) }}
           GH_TOKEN: ${{ github.token }}
@@ -186,6 +219,7 @@ jobs:
       # run spent four GITHUB_TOKEN calls on 422s. The read goes on the App's budget; writes stay on
       # GITHUB_TOKEN, whose label events start no workflow (this one would re-grade itself otherwise).
       - name: Set the risk label
+        if: steps.reuse.outputs.verdict == ''
         continue-on-error: true
         env:
           READ_TOKEN: ${{ (steps.glaeda-token-bot.outputs.token || steps.glaeda-token.outputs.token) }}
@@ -235,7 +269,7 @@ jobs:
       # "risk:$TIER is held before merge", so a risk:normal takeback (#50477) read as a person hold.
       # ENFORCE_FROM stays for gh-merge-green, which reads it from the base's copy.
       - name: Hold only an unowned takeback
-        if: steps.grade.outputs.ready != 'true'
+        if: steps.reuse.outputs.verdict == '' && (steps.grade.outputs.ready != 'true')
         env:
           TIER: ${{ steps.grade.outputs.tier }}
           TAKES_BACK: ${{ steps.grade.outputs.takes_back }}
