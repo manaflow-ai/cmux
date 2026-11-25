@@ -49,7 +49,8 @@ import {
   newIdempotencyKey,
   wireError,
   type AccountsRun,
-  type AccountsRunReply,
+  type AllotmentSet,
+  type AllotmentView,
   type AccountsState,
   type AgentsRun,
   type AgentsState,
@@ -61,6 +62,7 @@ import {
   type LibraryRun,
   type SharesState,
   type TailnetState,
+  type TailnetVMReply,
   type DevicesRun,
   type DevicesRunResult,
   type DevicesState,
@@ -91,6 +93,8 @@ import {
   type AgentToolsCardState,
   type McpServersRun,
   type McpServersState,
+  type HubRun,
+  type HubState,
   type RowNoteData,
   type AgentSkillsRun,
   type AgentSkillsState,
@@ -100,16 +104,16 @@ import {
   type AgentHooksState,
   type AgentConfigAnswer,
   type AgentConfigRun,
-  type AllotmentSet,
-  type AllotmentView,
-  type ArchivedRun,
-  type ArchivedState,
+  type AccountsRunReply,
   type DoctorReport,
   type DoctorRun,
-  type HubRun,
-  type HubState,
+  type AutocloudAction,
+  type AutocloudAnswer,
+  type AutocloudState,
   type ConnectionsRun,
   type ConnectionsState,
+  type ArchivedRun,
+  type ArchivedState,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -893,6 +897,23 @@ export class SettingsStore {
     return this.hubState();
   }
 
+  /** Settings > Automations (Cloud automations); null when the host has none. */
+  async autocloudState(): Promise<AutocloudState | null> {
+    const reply = await this.request("cmux.settings.autocloud.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Automations action: the CLI's answer (a preview, a run log, a saved automation and a new
+   * webhook's secret, once) and the card as it is after it. A refused call answers `{ok: false}`
+   * with the host's words. */
+  async runAutocloud(run: AutocloudAction): Promise<{ answer: AutocloudAnswer; state: AutocloudState | null }> {
+    const reply = await this.request("cmux.settings.autocloud.run", run);
+    const answer: AutocloudAnswer = reply.ok
+      ? (reply.value ?? { ok: false })
+      : { ok: false, error: { code: "host.refused", message: reply.error.message } };
+    return { answer, state: await this.autocloudState() };
+  }
+
   /** Settings > Connections (hosted MCP servers); null when the host has none. */
   async connectionsState(): Promise<ConnectionsState | null> {
     const reply = await this.request("cmux.settings.connections.state", {});
@@ -1160,6 +1181,18 @@ export class SettingsStore {
   async tailnet(verb: "state" | "start" | "login" | "logout"): Promise<TailnetState | null> {
     const reply = await this.request(`cmux.settings.tailnet.${verb}`, {});
     return reply.ok ? reply.value : null;
+  }
+
+  /** Adds one Cloud machine to the person's tailnet. The key is sent once and the page drops it after this call. */
+  async joinTailnetVM(params: SettingsOps["cmux.settings.tailnet.joinVM"][0]): Promise<TailnetVMReply> {
+    const reply = await this.request("cmux.settings.tailnet.joinVM", params);
+    return reply.ok ? reply.value : { ok: false, error: userMessage(reply.error, SETTINGS_SENTENCES) };
+  }
+
+  /** Removes one Cloud machine from the person's tailnet. */
+  async leaveTailnetVM(vm: string): Promise<TailnetVMReply> {
+    const reply = await this.request("cmux.settings.tailnet.leaveVM", { vm });
+    return reply.ok ? reply.value : { ok: false, error: userMessage(reply.error, SETTINGS_SENTENCES) };
   }
 
   /** Revokes each share in `ids` in turn (one for Revoke, every live one for Revoke All); the first

@@ -1,6 +1,10 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "capacity.live": {"comment":"Agent pane: the live line while the agent's harness retries a model that is full or rate limited; the retry count and countdown follow it. Never an error.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"بانتظار توفر السعة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Čeka se kapacitet"}},"da":{"stringUnit":{"state":"needs_review","value":"Venter på kapacitet"}},"de":{"stringUnit":{"state":"needs_review","value":"Warten auf Kapazität"}},"en":{"stringUnit":{"state":"translated","value":"Waiting for capacity"}},"es":{"stringUnit":{"state":"needs_review","value":"Esperando capacidad"}},"fr":{"stringUnit":{"state":"needs_review","value":"En attente de capacité"}},"it":{"stringUnit":{"state":"needs_review","value":"In attesa di capacità"}},"ja":{"stringUnit":{"state":"needs_review","value":"空きを待っています"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងរង់ចាំសមត្ថភាព"}},"ko":{"stringUnit":{"state":"needs_review","value":"용량 대기 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Venter på kapasitet"}},"pl":{"stringUnit":{"state":"needs_review","value":"Czekanie na dostępność"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Aguardando capacidade"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ожидание мощностей"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังรอความจุ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kapasite bekleniyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Очікування потужностей"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang chờ dung lượng"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在等待容量"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在等待容量"}}}},
+    "capacity.wait.about": {"comment":"Agent pane: where a turn's answer would be while the model it uses is full or its limit is spent and cmux goes on by itself; {time} is a short live countdown such as 40s or 3m 15s. Never an error.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"بانتظار توفر السعة، حوالي {time}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Čeka se kapacitet, oko {time}"}},"da":{"stringUnit":{"state":"needs_review","value":"Venter på kapacitet, cirka {time}"}},"de":{"stringUnit":{"state":"needs_review","value":"Warten auf Kapazität, etwa {time}"}},"en":{"stringUnit":{"state":"translated","value":"Waiting for capacity, about {time}"}},"es":{"stringUnit":{"state":"needs_review","value":"Esperando capacidad, unos {time}"}},"fr":{"stringUnit":{"state":"needs_review","value":"En attente de capacité, environ {time}"}},"it":{"stringUnit":{"state":"needs_review","value":"In attesa di capacità, circa {time}"}},"ja":{"stringUnit":{"state":"needs_review","value":"空きを待っています（約 {time}）"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងរង់ចាំសមត្ថភាព ប្រហែល {time}"}},"ko":{"stringUnit":{"state":"needs_review","value":"용량 대기 중, 약 {time}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Venter på kapasitet, omtrent {time}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Czekanie na dostępność, około {time}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Aguardando capacidade, cerca de {time}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ожидание мощностей, около {time}"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังรอความจุ ประมาณ {time}"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kapasite bekleniyor, yaklaşık {time}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Очікування потужностей, близько {time}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang chờ dung lượng, khoảng {time}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在等待容量，约 {time}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在等待容量，約 {time}"}}}},
+    "capacity.wait.soon": {"comment":"Agent pane: the capacity wait's line once its resume time has come or while it is not known yet; cmux goes on by itself any moment.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"بانتظار توفر السعة، في أي لحظة الآن"}},"bs":{"stringUnit":{"state":"needs_review","value":"Čeka se kapacitet, svakog trenutka"}},"da":{"stringUnit":{"state":"needs_review","value":"Venter på kapacitet, når som helst nu"}},"de":{"stringUnit":{"state":"needs_review","value":"Warten auf Kapazität, jeden Moment"}},"en":{"stringUnit":{"state":"translated","value":"Waiting for capacity, any moment now"}},"es":{"stringUnit":{"state":"needs_review","value":"Esperando capacidad, en cualquier momento"}},"fr":{"stringUnit":{"state":"needs_review","value":"En attente de capacité, d'un instant à l'autre"}},"it":{"stringUnit":{"state":"needs_review","value":"In attesa di capacità, a momenti"}},"ja":{"stringUnit":{"state":"needs_review","value":"空きを待っています（まもなく）"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងរង់ចាំសមត្ថភាព នៅពេលឆាប់ៗនេះ"}},"ko":{"stringUnit":{"state":"needs_review","value":"용량 대기 중, 곧 재개"}},"nb":{"stringUnit":{"state":"needs_review","value":"Venter på kapasitet, når som helst nå"}},"pl":{"stringUnit":{"state":"needs_review","value":"Czekanie na dostępność, za chwilę"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Aguardando capacidade, a qualquer momento"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ожидание мощностей, вот-вот"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังรอความจุ อีกไม่นาน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kapasite bekleniyor, her an"}},"uk":{"stringUnit":{"state":"needs_review","value":"Очікування потужностей, ось-ось"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang chờ dung lượng, sắp xong"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在等待容量，马上就好"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在等待容量，馬上就好"}}}},
+    "capacity.wait.goesOn": {"comment":"Agent pane: a quiet note under the capacity wait's line in its card look: nothing to do, the chat continues by itself.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"ستتابع المحادثة من تلقاء نفسها."}},"bs":{"stringUnit":{"state":"needs_review","value":"Razgovor će se sam nastaviti."}},"da":{"stringUnit":{"state":"needs_review","value":"Chatten fortsætter af sig selv."}},"de":{"stringUnit":{"state":"needs_review","value":"Der Chat geht von selbst weiter."}},"en":{"stringUnit":{"state":"translated","value":"The chat goes on by itself."}},"es":{"stringUnit":{"state":"needs_review","value":"El chat continuará solo."}},"fr":{"stringUnit":{"state":"needs_review","value":"La conversation reprendra d'elle-même."}},"it":{"stringUnit":{"state":"needs_review","value":"La chat riprende da sola."}},"ja":{"stringUnit":{"state":"needs_review","value":"チャットは自動で再開します。"}},"km":{"stringUnit":{"state":"needs_review","value":"ការជជែកនឹងបន្តដោយខ្លួនឯង។"}},"ko":{"stringUnit":{"state":"needs_review","value":"채팅은 자동으로 이어집니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Chatten fortsetter av seg selv."}},"pl":{"stringUnit":{"state":"needs_review","value":"Czat wznowi się sam."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O chat continua sozinho."}},"ru":{"stringUnit":{"state":"needs_review","value":"Чат продолжится сам."}},"th":{"stringUnit":{"state":"needs_review","value":"แชทจะดำเนินต่อเอง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sohbet kendiliğinden devam edecek."}},"uk":{"stringUnit":{"state":"needs_review","value":"Чат продовжиться сам."}},"vi":{"stringUnit":{"state":"needs_review","value":"Cuộc trò chuyện sẽ tự tiếp tục."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"聊天会自动继续。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"聊天會自動繼續。"}}}},
     "composer.auto": {"comment":"Environment picker: the Auto row and chip. Auto lets this machine's daemon choose where a new chat runs (this Mac or Cloud) from measured headroom.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"تلقائي"}},"bs":{"stringUnit":{"state":"translated","value":"Auto"}},"da":{"stringUnit":{"state":"translated","value":"Auto"}},"de":{"stringUnit":{"state":"translated","value":"Auto"}},"en":{"stringUnit":{"state":"translated","value":"Auto"}},"es":{"stringUnit":{"state":"translated","value":"Auto"}},"fr":{"stringUnit":{"state":"translated","value":"Auto"}},"it":{"stringUnit":{"state":"translated","value":"Auto"}},"ja":{"stringUnit":{"state":"translated","value":"自動"}},"km":{"stringUnit":{"state":"translated","value":"ស្វ័យប្រវត្តិ"}},"ko":{"stringUnit":{"state":"translated","value":"자동"}},"nb":{"stringUnit":{"state":"translated","value":"Auto"}},"pl":{"stringUnit":{"state":"translated","value":"Auto"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Auto"}},"ru":{"stringUnit":{"state":"translated","value":"Авто"}},"th":{"stringUnit":{"state":"translated","value":"อัตโนมัติ"}},"tr":{"stringUnit":{"state":"translated","value":"Otomatik"}},"uk":{"stringUnit":{"state":"translated","value":"Авто"}},"vi":{"stringUnit":{"state":"translated","value":"Tự động"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"自动"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"自動"}}}},
     "composer.autoRunDetail": {"comment":"Environment picker: the hover card of the Auto row.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"يعمل على جهاز Mac هذا، أو على Cloud عندما يكون Mac مشغولًا. أعده في أي وقت."}},"bs":{"stringUnit":{"state":"translated","value":"Radi na ovom Macu ili na Cloudu kada je ovaj Mac zauzet. Vratite ga bilo kada."}},"da":{"stringUnit":{"state":"translated","value":"Kører på denne Mac, eller i Cloud når denne Mac er optaget. Hent den tilbage når som helst."}},"de":{"stringUnit":{"state":"translated","value":"Läuft auf diesem Mac oder in der Cloud, wenn dieser Mac ausgelastet ist. Jederzeit zurückholbar."}},"en":{"stringUnit":{"state":"translated","value":"Runs on this Mac, or on Cloud when this Mac is busy. Bring it back any time."}},"es":{"stringUnit":{"state":"translated","value":"Se ejecuta en este Mac, o en Cloud cuando este Mac está ocupado. Tráelo de vuelta cuando quieras."}},"fr":{"stringUnit":{"state":"translated","value":"S’exécute sur ce Mac, ou dans le Cloud quand ce Mac est occupé. Ramenez-la à tout moment."}},"it":{"stringUnit":{"state":"translated","value":"Viene eseguita su questo Mac, o nel Cloud quando questo Mac è occupato. Riportala indietro quando vuoi."}},"ja":{"stringUnit":{"state":"translated","value":"この Mac で実行し、この Mac が混んでいるときは Cloud で実行します。いつでも戻せます。"}},"km":{"stringUnit":{"state":"translated","value":"ដំណើរការលើ Mac នេះ ឬលើ Cloud ពេល Mac នេះរវល់។ នាំវាត្រឡប់មកវិញបានគ្រប់ពេល។"}},"ko":{"stringUnit":{"state":"translated","value":"이 Mac에서 실행하고, 이 Mac이 바쁘면 Cloud에서 실행합니다. 언제든 다시 가져올 수 있습니다."}},"nb":{"stringUnit":{"state":"translated","value":"Kjører på denne Macen, eller i Cloud når denne Macen er opptatt. Hent den tilbake når som helst."}},"pl":{"stringUnit":{"state":"translated","value":"Działa na tym Macu albo w Cloud, gdy ten Mac jest zajęty. Możesz go w każdej chwili przywrócić."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Roda neste Mac, ou no Cloud quando este Mac está ocupado. Traga de volta quando quiser."}},"ru":{"stringUnit":{"state":"translated","value":"Работает на этом Mac или в Cloud, когда этот Mac занят. Верните его в любой момент."}},"th":{"stringUnit":{"state":"translated","value":"ทำงานบน Mac เครื่องนี้ หรือบน Cloud เมื่อ Mac เครื่องนี้ไม่ว่าง นำกลับมาได้ทุกเมื่อ"}},"tr":{"stringUnit":{"state":"translated","value":"Bu Mac’te, bu Mac meşgulken Cloud’da çalışır. İstediğiniz zaman geri getirin."}},"uk":{"stringUnit":{"state":"translated","value":"Працює на цьому Mac або в Cloud, коли цей Mac зайнятий. Поверніть його будь-коли."}},"vi":{"stringUnit":{"state":"translated","value":"Chạy trên máy Mac này, hoặc trên Cloud khi máy Mac này bận. Mang về bất cứ lúc nào."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"在这台 Mac 上运行，这台 Mac 繁忙时在 Cloud 上运行。随时可以带回来。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"在這台 Mac 上執行，這台 Mac 忙碌時在 Cloud 上執行。隨時可以帶回來。"}}}},
     "auto.deciding": {"comment":"Agent chat: the line under a new Auto chat's first message while this machine's daemon chooses where it runs.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"يختار الوضع التلقائي مكان تشغيل هذه الدردشة…"}},"bs":{"stringUnit":{"state":"translated","value":"Auto bira gdje će se ovaj chat pokrenuti…"}},"da":{"stringUnit":{"state":"translated","value":"Auto vælger, hvor denne chat kører …"}},"de":{"stringUnit":{"state":"translated","value":"Auto wählt aus, wo dieser Chat läuft …"}},"en":{"stringUnit":{"state":"translated","value":"Auto is choosing where this chat runs…"}},"es":{"stringUnit":{"state":"translated","value":"Auto está eligiendo dónde se ejecuta este chat…"}},"fr":{"stringUnit":{"state":"translated","value":"Auto choisit où cette discussion s’exécute…"}},"it":{"stringUnit":{"state":"translated","value":"Auto sta scegliendo dove eseguire questa chat…"}},"ja":{"stringUnit":{"state":"translated","value":"自動でこのチャットの実行場所を選んでいます…"}},"km":{"stringUnit":{"state":"translated","value":"ស្វ័យប្រវត្តិកំពុងជ្រើសកន្លែងដំណើរការជជែកនេះ…"}},"ko":{"stringUnit":{"state":"translated","value":"자동으로 이 채팅을 실행할 곳을 고르는 중…"}},"nb":{"stringUnit":{"state":"translated","value":"Auto velger hvor denne chatten kjører …"}},"pl":{"stringUnit":{"state":"translated","value":"Auto wybiera, gdzie uruchomić ten czat…"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Auto está escolhendo onde este chat roda…"}},"ru":{"stringUnit":{"state":"translated","value":"Авто выбирает, где запустить этот чат…"}},"th":{"stringUnit":{"state":"translated","value":"อัตโนมัติกำลังเลือกที่สำหรับแชตนี้…"}},"tr":{"stringUnit":{"state":"translated","value":"Otomatik, bu sohbetin nerede çalışacağını seçiyor…"}},"uk":{"stringUnit":{"state":"translated","value":"Авто вибирає, де запустити цей чат…"}},"vi":{"stringUnit":{"state":"translated","value":"Tự động đang chọn nơi chạy cuộc trò chuyện này…"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"自动正在选择此对话的运行位置…"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"自動正在選擇此對話的執行位置…"}}}},
@@ -63,6 +67,11 @@
     "help.key.folder": {"comment":"/help sheet: the composer's Choose folder shortcut.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"اختيار مجلد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odaberi mapu"}},"da":{"stringUnit":{"state":"needs_review","value":"Vælg mappe"}},"de":{"stringUnit":{"state":"needs_review","value":"Ordner wählen"}},"en":{"stringUnit":{"state":"translated","value":"Choose folder"}},"es":{"stringUnit":{"state":"needs_review","value":"Elegir carpeta"}},"fr":{"stringUnit":{"state":"needs_review","value":"Choisir un dossier"}},"it":{"stringUnit":{"state":"needs_review","value":"Scegli cartella"}},"ja":{"stringUnit":{"state":"needs_review","value":"フォルダを選択"}},"km":{"stringUnit":{"state":"needs_review","value":"ជ្រើសថត"}},"ko":{"stringUnit":{"state":"needs_review","value":"폴더 선택"}},"nb":{"stringUnit":{"state":"needs_review","value":"Velg mappe"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wybierz folder"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Escolher pasta"}},"ru":{"stringUnit":{"state":"needs_review","value":"Выбрать папку"}},"th":{"stringUnit":{"state":"needs_review","value":"เลือกโฟลเดอร์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Klasör seç"}},"uk":{"stringUnit":{"state":"needs_review","value":"Вибрати теку"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chọn thư mục"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"选择文件夹"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"選擇檔案夾"}}}},
     "help.key.dictation": {"comment":"/help sheet: the dictation shortcut.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إملاء"}},"bs":{"stringUnit":{"state":"needs_review","value":"Diktiraj"}},"da":{"stringUnit":{"state":"needs_review","value":"Diktér"}},"de":{"stringUnit":{"state":"needs_review","value":"Diktieren"}},"en":{"stringUnit":{"state":"translated","value":"Dictate"}},"es":{"stringUnit":{"state":"needs_review","value":"Dictar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Dicter"}},"it":{"stringUnit":{"state":"needs_review","value":"Detta"}},"ja":{"stringUnit":{"state":"needs_review","value":"音声入力"}},"km":{"stringUnit":{"state":"needs_review","value":"និយាយសរសេរ"}},"ko":{"stringUnit":{"state":"needs_review","value":"받아쓰기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Dikter"}},"pl":{"stringUnit":{"state":"needs_review","value":"Dyktuj"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ditar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Диктовать"}},"th":{"stringUnit":{"state":"needs_review","value":"พิมพ์ด้วยเสียง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Dikte et"}},"uk":{"stringUnit":{"state":"needs_review","value":"Диктувати"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đọc chính tả"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"听写"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"聽寫"}}}},
     "help.key.newChat": {"comment":"/help sheet: the New chat shortcut.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"محادثة جديدة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Novi chat"}},"da":{"stringUnit":{"state":"needs_review","value":"Ny chat"}},"de":{"stringUnit":{"state":"needs_review","value":"Neuer Chat"}},"en":{"stringUnit":{"state":"translated","value":"New chat"}},"es":{"stringUnit":{"state":"needs_review","value":"Nuevo chat"}},"fr":{"stringUnit":{"state":"needs_review","value":"Nouveau chat"}},"it":{"stringUnit":{"state":"needs_review","value":"Nuova chat"}},"ja":{"stringUnit":{"state":"needs_review","value":"新規チャット"}},"km":{"stringUnit":{"state":"needs_review","value":"ការជជែកថ្មី"}},"ko":{"stringUnit":{"state":"needs_review","value":"새 채팅"}},"nb":{"stringUnit":{"state":"needs_review","value":"Ny chat"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nowy czat"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Novo chat"}},"ru":{"stringUnit":{"state":"needs_review","value":"Новый чат"}},"th":{"stringUnit":{"state":"needs_review","value":"แชตใหม่"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yeni sohbet"}},"uk":{"stringUnit":{"state":"needs_review","value":"Новий чат"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cuộc trò chuyện mới"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"新聊天"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"新聊天"}}}},
+    "turn.failure.useAnotherAgent": {"comment":"Agent pane: a failed turn's button when the agent's account is out of usage or turned off (cmux#55066): opens the model picker to move the chat to another agent, such as Codex.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"استخدام وكيل آخر"}},"bs":{"stringUnit":{"state":"needs_review","value":"Koristi drugog agenta"}},"da":{"stringUnit":{"state":"needs_review","value":"Brug en anden agent"}},"de":{"stringUnit":{"state":"needs_review","value":"Anderen Agenten nutzen"}},"en":{"stringUnit":{"state":"translated","value":"Use another agent"}},"es":{"stringUnit":{"state":"needs_review","value":"Usar otro agente"}},"fr":{"stringUnit":{"state":"needs_review","value":"Utiliser un autre agent"}},"it":{"stringUnit":{"state":"needs_review","value":"Usa un altro agente"}},"ja":{"stringUnit":{"state":"needs_review","value":"別のエージェントを使う"}},"km":{"stringUnit":{"state":"needs_review","value":"ប្រើភ្នាក់ងារផ្សេង"}},"ko":{"stringUnit":{"state":"needs_review","value":"다른 에이전트 사용"}},"nb":{"stringUnit":{"state":"needs_review","value":"Bruk en annen agent"}},"pl":{"stringUnit":{"state":"needs_review","value":"Użyj innego agenta"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Usar outro agente"}},"ru":{"stringUnit":{"state":"needs_review","value":"Другой агент"}},"th":{"stringUnit":{"state":"needs_review","value":"ใช้เอเจนต์อื่น"}},"tr":{"stringUnit":{"state":"needs_review","value":"Başka ajan kullan"}},"uk":{"stringUnit":{"state":"needs_review","value":"Інший агент"}},"vi":{"stringUnit":{"state":"needs_review","value":"Dùng agent khác"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"使用其他智能体"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"使用其他智慧代理"}}}},
+    "turn.failure.usageLimitUntil": {"comment":"Agent pane: a failed turn's note when the agent's account used up a usage limit (Claude Code's weekly or session limit, Codex's usage limit; cmux#55066) and the refusal says when it resets; {harness} is the agent's name, {time} the reset as the agent or the local clock says it (\"Nov 27, 7am (UTC)\").","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"وصل حساب {harness} إلى حد الاستخدام. يُعاد تعيينه {time}؛ وحتى ذلك الحين تفشل كل رسالة بالطريقة نفسها. استخدم وكيلًا آخر للمتابعة الآن، أو سجّل الدخول بحساب آخر."}},"bs":{"stringUnit":{"state":"needs_review","value":"Račun za {harness} je dostigao ograničenje korištenja. Resetuje se {time}; do tada svaka poruka ne uspijeva na isti način. Koristi drugog agenta da nastaviš odmah ili se prijavi drugim računom."}},"da":{"stringUnit":{"state":"needs_review","value":"{harness}-kontoen har nået sin forbrugsgrænse. Den nulstilles {time}; indtil da mislykkes hver besked på samme måde. Brug en anden agent for at fortsætte nu, eller log ind med en anden konto."}},"de":{"stringUnit":{"state":"needs_review","value":"Das Konto von {harness} hat sein Nutzungslimit erreicht. Es wird {time} zurückgesetzt; bis dahin scheitert jede Nachricht auf dieselbe Weise. Nutze einen anderen Agenten, um jetzt weiterzumachen, oder melde dich mit einem anderen Konto an."}},"en":{"stringUnit":{"state":"translated","value":"{harness}'s account hit its usage limit. It resets {time}; until then every message fails the same way. Use another agent to keep going now, or sign in with another account."}},"es":{"stringUnit":{"state":"needs_review","value":"La cuenta de {harness} alcanzó su límite de uso. Se restablece {time}; hasta entonces cada mensaje falla igual. Usa otro agente para seguir ahora o inicia sesión con otra cuenta."}},"fr":{"stringUnit":{"state":"needs_review","value":"Le compte {harness} a atteint sa limite d’utilisation. Elle se réinitialise {time} ; d’ici là, chaque message échoue de la même façon. Utilisez un autre agent pour continuer maintenant, ou connectez-vous avec un autre compte."}},"it":{"stringUnit":{"state":"needs_review","value":"L’account di {harness} ha raggiunto il limite di utilizzo. Si azzera {time}; fino ad allora ogni messaggio fallisce allo stesso modo. Usa un altro agente per continuare subito o accedi con un altro account."}},"ja":{"stringUnit":{"state":"needs_review","value":"{harness} のアカウントが使用上限に達しました。リセットは {time} です。それまではどのメッセージも同じように失敗します。今すぐ続けるには別のエージェントを使うか、別のアカウントでサインインしてください。"}},"km":{"stringUnit":{"state":"needs_review","value":"គណនី {harness} បានដល់ដែនកំណត់ប្រើប្រាស់។ វានឹងកំណត់ឡើងវិញ {time}; រហូតដល់ពេលនោះ សារនីមួយៗនឹងបរាជ័យដូចគ្នា។ ប្រើភ្នាក់ងារផ្សេងដើម្បីបន្តឥឡូវ ឬចូលដោយគណនីផ្សេង។"}},"ko":{"stringUnit":{"state":"needs_review","value":"{harness} 계정이 사용 한도에 도달했습니다. {time}에 초기화되며, 그때까지는 모든 메시지가 같은 방식으로 실패합니다. 지금 계속하려면 다른 에이전트를 사용하거나 다른 계정으로 로그인하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"{harness}-kontoen har nådd bruksgrensen. Den nullstilles {time}; frem til da mislykkes hver melding på samme måte. Bruk en annen agent for å fortsette nå, eller logg inn med en annen konto."}},"pl":{"stringUnit":{"state":"needs_review","value":"Konto {harness} osiągnęło limit użycia. Zresetuje się {time}; do tego czasu każda wiadomość zakończy się tak samo. Użyj innego agenta, aby kontynuować teraz, albo zaloguj się innym kontem."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"A conta do {harness} atingiu o limite de uso. Ele é redefinido {time}; até lá, toda mensagem falha do mesmo jeito. Use outro agente para continuar agora ou entre com outra conta."}},"ru":{"stringUnit":{"state":"needs_review","value":"Аккаунт {harness} исчерпал лимит использования. Он сбросится {time}; до этого каждое сообщение будет завершаться так же. Используйте другого агента, чтобы продолжить сейчас, или войдите в другой аккаунт."}},"th":{"stringUnit":{"state":"needs_review","value":"บัญชี {harness} ใช้งานถึงขีดจำกัดแล้ว จะรีเซ็ต {time} ระหว่างนี้ทุกข้อความจะล้มเหลวแบบเดียวกัน ใช้เอเจนต์อื่นเพื่อทำต่อตอนนี้ หรือลงชื่อเข้าใช้ด้วยบัญชีอื่น"}},"tr":{"stringUnit":{"state":"needs_review","value":"{harness} hesabı kullanım sınırına ulaştı. Sınır {time} sıfırlanır; o zamana kadar her mesaj aynı şekilde başarısız olur. Şimdi devam etmek için başka bir ajan kullanın veya başka bir hesapla giriş yapın."}},"uk":{"stringUnit":{"state":"needs_review","value":"Обліковий запис {harness} вичерпав ліміт використання. Він скинеться {time}; до того кожне повідомлення завершуватиметься так само. Скористайтеся іншим агентом, щоб продовжити зараз, або увійдіть в інший обліковий запис."}},"vi":{"stringUnit":{"state":"needs_review","value":"Tài khoản {harness} đã chạm giới hạn sử dụng. Giới hạn sẽ đặt lại {time}; đến lúc đó mọi tin nhắn đều thất bại như vậy. Dùng agent khác để tiếp tục ngay, hoặc đăng nhập bằng tài khoản khác."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{harness} 的账户已达到用量上限，将于 {time} 重置；在此之前每条消息都会以同样方式失败。现在要继续，请使用其他智能体，或用另一个账户登录。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{harness} 的帳戶已達到用量上限，將於 {time} 重設；在此之前每則訊息都會以同樣方式失敗。現在要繼續，請使用其他智慧代理，或以另一個帳戶登入。"}}}},
+    "turn.failure.usageLimit": {"comment":"Agent pane: a failed turn's note when the agent's account used up a usage limit and the refusal names no reset (cmux#55066); {harness} is the agent's name.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"وصل حساب {harness} إلى حد الاستخدام؛ وتفشل كل رسالة بالطريقة نفسها حتى يُعاد تعيينه. استخدم وكيلًا آخر للمتابعة الآن، أو سجّل الدخول بحساب آخر."}},"bs":{"stringUnit":{"state":"needs_review","value":"Račun za {harness} je dostigao ograničenje korištenja; svaka poruka ne uspijeva na isti način dok se ne resetuje. Koristi drugog agenta da nastaviš odmah ili se prijavi drugim računom."}},"da":{"stringUnit":{"state":"needs_review","value":"{harness}-kontoen har nået sin forbrugsgrænse; hver besked mislykkes på samme måde, indtil den nulstilles. Brug en anden agent for at fortsætte nu, eller log ind med en anden konto."}},"de":{"stringUnit":{"state":"needs_review","value":"Das Konto von {harness} hat sein Nutzungslimit erreicht; bis zum Zurücksetzen scheitert jede Nachricht auf dieselbe Weise. Nutze einen anderen Agenten, um jetzt weiterzumachen, oder melde dich mit einem anderen Konto an."}},"en":{"stringUnit":{"state":"translated","value":"{harness}'s account hit its usage limit; every message fails the same way until it resets. Use another agent to keep going now, or sign in with another account."}},"es":{"stringUnit":{"state":"needs_review","value":"La cuenta de {harness} alcanzó su límite de uso; cada mensaje falla igual hasta que se restablezca. Usa otro agente para seguir ahora o inicia sesión con otra cuenta."}},"fr":{"stringUnit":{"state":"needs_review","value":"Le compte {harness} a atteint sa limite d’utilisation ; chaque message échoue de la même façon jusqu’à sa réinitialisation. Utilisez un autre agent pour continuer maintenant, ou connectez-vous avec un autre compte."}},"it":{"stringUnit":{"state":"needs_review","value":"L’account di {harness} ha raggiunto il limite di utilizzo; ogni messaggio fallisce allo stesso modo finché non si azzera. Usa un altro agente per continuare subito o accedi con un altro account."}},"ja":{"stringUnit":{"state":"needs_review","value":"{harness} のアカウントが使用上限に達しました。リセットされるまで、どのメッセージも同じように失敗します。今すぐ続けるには別のエージェントを使うか、別のアカウントでサインインしてください。"}},"km":{"stringUnit":{"state":"needs_review","value":"គណនី {harness} បានដល់ដែនកំណត់ប្រើប្រាស់; សារនីមួយៗនឹងបរាជ័យដូចគ្នា រហូតដល់វាកំណត់ឡើងវិញ។ ប្រើភ្នាក់ងារផ្សេងដើម្បីបន្តឥឡូវ ឬចូលដោយគណនីផ្សេង។"}},"ko":{"stringUnit":{"state":"needs_review","value":"{harness} 계정이 사용 한도에 도달했습니다. 초기화될 때까지 모든 메시지가 같은 방식으로 실패합니다. 지금 계속하려면 다른 에이전트를 사용하거나 다른 계정으로 로그인하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"{harness}-kontoen har nådd bruksgrensen; hver melding mislykkes på samme måte til den nullstilles. Bruk en annen agent for å fortsette nå, eller logg inn med en annen konto."}},"pl":{"stringUnit":{"state":"needs_review","value":"Konto {harness} osiągnęło limit użycia; każda wiadomość zakończy się tak samo, dopóki się nie zresetuje. Użyj innego agenta, aby kontynuować teraz, albo zaloguj się innym kontem."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"A conta do {harness} atingiu o limite de uso; toda mensagem falha do mesmo jeito até ele ser redefinido. Use outro agente para continuar agora ou entre com outra conta."}},"ru":{"stringUnit":{"state":"needs_review","value":"Аккаунт {harness} исчерпал лимит использования; до сброса каждое сообщение будет завершаться так же. Используйте другого агента, чтобы продолжить сейчас, или войдите в другой аккаунт."}},"th":{"stringUnit":{"state":"needs_review","value":"บัญชี {harness} ใช้งานถึงขีดจำกัดแล้ว ทุกข้อความจะล้มเหลวแบบเดียวกันจนกว่าจะรีเซ็ต ใช้เอเจนต์อื่นเพื่อทำต่อตอนนี้ หรือลงชื่อเข้าใช้ด้วยบัญชีอื่น"}},"tr":{"stringUnit":{"state":"needs_review","value":"{harness} hesabı kullanım sınırına ulaştı; sıfırlanana kadar her mesaj aynı şekilde başarısız olur. Şimdi devam etmek için başka bir ajan kullanın veya başka bir hesapla giriş yapın."}},"uk":{"stringUnit":{"state":"needs_review","value":"Обліковий запис {harness} вичерпав ліміт використання; до скидання кожне повідомлення завершуватиметься так само. Скористайтеся іншим агентом, щоб продовжити зараз, або увійдіть в інший обліковий запис."}},"vi":{"stringUnit":{"state":"needs_review","value":"Tài khoản {harness} đã chạm giới hạn sử dụng; mọi tin nhắn đều thất bại như vậy cho đến khi giới hạn đặt lại. Dùng agent khác để tiếp tục ngay, hoặc đăng nhập bằng tài khoản khác."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{harness} 的账户已达到用量上限；在重置之前每条消息都会以同样方式失败。现在要继续，请使用其他智能体，或用另一个账户登录。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{harness} 的帳戶已達到用量上限；在重設之前每則訊息都會以同樣方式失敗。現在要繼續，請使用其他智慧代理，或以另一個帳戶登入。"}}}},
+    "turn.failure.signInAnotherAccount": {"comment":"Agent pane: a failed turn's button when the agent's account is out of usage or turned off (cmux#55066): runs the agent's sign-in so another account can be used.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تسجيل الدخول بحساب آخر"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prijavi se drugim računom"}},"da":{"stringUnit":{"state":"needs_review","value":"Log ind med en anden konto"}},"de":{"stringUnit":{"state":"needs_review","value":"Mit anderem Konto anmelden"}},"en":{"stringUnit":{"state":"translated","value":"Sign in with another account"}},"es":{"stringUnit":{"state":"needs_review","value":"Iniciar sesión con otra cuenta"}},"fr":{"stringUnit":{"state":"needs_review","value":"Se connecter avec un autre compte"}},"it":{"stringUnit":{"state":"needs_review","value":"Accedi con un altro account"}},"ja":{"stringUnit":{"state":"needs_review","value":"別のアカウントでサインイン"}},"km":{"stringUnit":{"state":"needs_review","value":"ចូលដោយគណនីផ្សេង"}},"ko":{"stringUnit":{"state":"needs_review","value":"다른 계정으로 로그인"}},"nb":{"stringUnit":{"state":"needs_review","value":"Logg inn med en annen konto"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zaloguj się innym kontem"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Entrar com outra conta"}},"ru":{"stringUnit":{"state":"needs_review","value":"Войти в другой аккаунт"}},"th":{"stringUnit":{"state":"needs_review","value":"ลงชื่อเข้าใช้ด้วยบัญชีอื่น"}},"tr":{"stringUnit":{"state":"needs_review","value":"Başka hesapla giriş yap"}},"uk":{"stringUnit":{"state":"needs_review","value":"Увійти в інший обліковий запис"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đăng nhập bằng tài khoản khác"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"用另一个账户登录"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"以另一個帳戶登入"}}}},
+    "turn.failure.accountDisabled": {"comment":"Agent pane: a failed turn's note when the agent's provider disabled, suspended or banned its account (\"This organization has been disabled.\"; cmux#55066); {harness} is the agent's name.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أوقف مزوّد {harness} هذا الحساب (معطّل أو موقوف)، فلا يمكن تشغيل أي رسالة عليه. استخدم وكيلًا آخر، أو سجّل الدخول بحساب آخر."}},"bs":{"stringUnit":{"state":"needs_review","value":"Pružalac za {harness} je isključio ovaj račun (onemogućen ili suspendovan), pa nijedna poruka ne može raditi na njemu. Koristi drugog agenta ili se prijavi drugim računom."}},"da":{"stringUnit":{"state":"needs_review","value":"{harness}-udbyderen har slået denne konto fra (deaktiveret eller suspenderet), så ingen besked kan køre på den. Brug en anden agent, eller log ind med en anden konto."}},"de":{"stringUnit":{"state":"needs_review","value":"Der Anbieter von {harness} hat dieses Konto abgeschaltet (deaktiviert oder gesperrt), daher kann keine Nachricht darauf laufen. Nutze einen anderen Agenten oder melde dich mit einem anderen Konto an."}},"en":{"stringUnit":{"state":"translated","value":"{harness}'s provider turned this account off (disabled or suspended), so no message can run on it. Use another agent, or sign in with another account."}},"es":{"stringUnit":{"state":"needs_review","value":"El proveedor de {harness} desactivó esta cuenta (deshabilitada o suspendida), así que ningún mensaje puede ejecutarse con ella. Usa otro agente o inicia sesión con otra cuenta."}},"fr":{"stringUnit":{"state":"needs_review","value":"Le fournisseur de {harness} a désactivé ce compte (désactivé ou suspendu) : aucun message ne peut s’y exécuter. Utilisez un autre agent, ou connectez-vous avec un autre compte."}},"it":{"stringUnit":{"state":"needs_review","value":"Il fornitore di {harness} ha disattivato questo account (disabilitato o sospeso), quindi nessun messaggio può essere eseguito. Usa un altro agente o accedi con un altro account."}},"ja":{"stringUnit":{"state":"needs_review","value":"{harness} のプロバイダーがこのアカウントを停止しました（無効化または一時停止）。このアカウントではメッセージを実行できません。別のエージェントを使うか、別のアカウントでサインインしてください。"}},"km":{"stringUnit":{"state":"needs_review","value":"អ្នកផ្តល់សេវា {harness} បានបិទគណនីនេះ (បិទ ឬផ្អាក) ដូច្នេះគ្មានសារណាអាចដំណើរការបានទេ។ ប្រើភ្នាក់ងារផ្សេង ឬចូលដោយគណនីផ្សេង។"}},"ko":{"stringUnit":{"state":"needs_review","value":"{harness} 제공업체가 이 계정을 사용 중지했습니다(비활성화 또는 정지). 이 계정으로는 메시지를 실행할 수 없습니다. 다른 에이전트를 사용하거나 다른 계정으로 로그인하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"{harness}-leverandøren har slått av denne kontoen (deaktivert eller suspendert), så ingen melding kan kjøre på den. Bruk en annen agent, eller logg inn med en annen konto."}},"pl":{"stringUnit":{"state":"needs_review","value":"Dostawca {harness} wyłączył to konto (dezaktywowane lub zawieszone), więc żadna wiadomość nie może na nim działać. Użyj innego agenta albo zaloguj się innym kontem."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O provedor do {harness} desativou esta conta (desativada ou suspensa), então nenhuma mensagem pode rodar nela. Use outro agente ou entre com outra conta."}},"ru":{"stringUnit":{"state":"needs_review","value":"Провайдер {harness} отключил этот аккаунт (деактивирован или заблокирован), поэтому ни одно сообщение не может в нём выполниться. Используйте другого агента или войдите в другой аккаунт."}},"th":{"stringUnit":{"state":"needs_review","value":"ผู้ให้บริการ {harness} ปิดบัญชีนี้แล้ว (ปิดใช้งานหรือระงับ) จึงไม่มีข้อความใดทำงานได้ ใช้เอเจนต์อื่น หรือลงชื่อเข้าใช้ด้วยบัญชีอื่น"}},"tr":{"stringUnit":{"state":"needs_review","value":"{harness} sağlayıcısı bu hesabı kapattı (devre dışı veya askıya alınmış), bu yüzden hiçbir mesaj çalışamaz. Başka bir ajan kullanın veya başka bir hesapla giriş yapın."}},"uk":{"stringUnit":{"state":"needs_review","value":"Постачальник {harness} вимкнув цей обліковий запис (деактивовано або призупинено), тож жодне повідомлення не може в ньому виконатися. Скористайтеся іншим агентом або увійдіть в інший обліковий запис."}},"vi":{"stringUnit":{"state":"needs_review","value":"Nhà cung cấp {harness} đã tắt tài khoản này (vô hiệu hóa hoặc tạm ngưng), nên không tin nhắn nào chạy được. Dùng agent khác, hoặc đăng nhập bằng tài khoản khác."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{harness} 的服务提供方已停用此账户（已禁用或暂停），因此无法在其上运行任何消息。请使用其他智能体，或用另一个账户登录。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{harness} 的服務提供方已停用此帳戶（已停用或暫停），因此無法在其上執行任何訊息。請使用其他智慧代理，或以另一個帳戶登入。"}}}},
     "turn.forkLatestOnly": {
       "comment": "Agent pane: the Fork button's tooltip on an earlier message of a chat whose agent forks only at its end",
       "extractionState": "manual",
@@ -64910,138 +64919,6 @@
         }
       }
     },
-    "turn.live.retry.busy": {
-      "comment": "Agent pane: the running turn's live line while its harness retries a model request the provider refused as busy or rate limited (The model is busy · retrying (2 of 10) · 529 overloaded)",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "النموذج مشغول"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Model je zauzet"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Modellen er optaget"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Modell ist ausgelastet"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The model is busy"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "El modelo está ocupado"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le modèle est occupé"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Il modello è occupato"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "モデルが混雑しています"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ម៉ូដែលកំពុងរវល់"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "모델이 사용 중임"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Modellen er opptatt"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Model jest zajęty"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O modelo está ocupado"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Модель занята"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "โมเดลไม่ว่าง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Model meşgul"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Модель зайнята"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mô hình đang bận"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "模型繁忙"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "模型忙碌中"
-          }
-        }
-      }
-    },
     "turn.live.retry.attempt": {
       "comment": "Agent pane: after the cause on a running turn's live line, which retry of a failed model request this is. {attempt} and {max} are numbers (retrying (7 of 10))",
       "extractionState": "manual",
@@ -98654,9 +98531,6 @@
         }
       }
     },
-    "composer.copying": {"comment":"Agent pane: progress while a large composer selection streams to the local clipboard; percent is the completed percentage","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ النسخ {percent}%"}},"bs":{"stringUnit":{"state":"needs_review","value":"Kopiranje {percent}%"}},"da":{"stringUnit":{"state":"needs_review","value":"Kopierer {percent}%"}},"de":{"stringUnit":{"state":"needs_review","value":"Kopieren {percent}%"}},"en":{"stringUnit":{"state":"translated","value":"Copying {percent}%"}},"es":{"stringUnit":{"state":"needs_review","value":"Copiando {percent}%"}},"fr":{"stringUnit":{"state":"needs_review","value":"Copie {percent}%"}},"it":{"stringUnit":{"state":"needs_review","value":"Copia {percent}%"}},"ja":{"stringUnit":{"state":"needs_review","value":"コピー中 {percent}%"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងចម្លង {percent}%"}},"ko":{"stringUnit":{"state":"needs_review","value":"복사 중 {percent}%"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kopierer {percent}%"}},"pl":{"stringUnit":{"state":"needs_review","value":"Kopiowanie {percent}%"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Copiando {percent}%"}},"ru":{"stringUnit":{"state":"needs_review","value":"Копирование {percent}%"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังคัดลอก {percent}%"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kopyalanıyor {percent}%"}},"uk":{"stringUnit":{"state":"needs_review","value":"Копіювання {percent}%"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang sao chép {percent}%"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在复制 {percent}%"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在複製 {percent}%"}}}},
-    "composer.copyFailed": {"comment":"Agent pane: a composer clipboard copy failed; Retry is beside this message","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تعذّر نسخ المرفقات"}},"bs":{"stringUnit":{"state":"needs_review","value":"Priloge nije moguće kopirati"}},"da":{"stringUnit":{"state":"needs_review","value":"Kunne ikke kopiere vedhæftninger"}},"de":{"stringUnit":{"state":"needs_review","value":"Anhänge konnten nicht kopiert werden"}},"en":{"stringUnit":{"state":"translated","value":"Couldn’t copy attachments"}},"es":{"stringUnit":{"state":"needs_review","value":"No se pudieron copiar los archivos adjuntos"}},"fr":{"stringUnit":{"state":"needs_review","value":"Impossible de copier les pièces jointes"}},"it":{"stringUnit":{"state":"needs_review","value":"Impossibile copiare gli allegati"}},"ja":{"stringUnit":{"state":"needs_review","value":"添付ファイルをコピーできませんでした"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនអាចចម្លងឯកសារភ្ជាប់បានទេ"}},"ko":{"stringUnit":{"state":"needs_review","value":"첨부 파일을 복사할 수 없습니다"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kunne ikke kopiere vedlegg"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie można skopiować załączników"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não foi possível copiar os anexos"}},"ru":{"stringUnit":{"state":"needs_review","value":"Не удалось скопировать вложения"}},"th":{"stringUnit":{"state":"needs_review","value":"คัดลอกไฟล์แนบไม่ได้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ekler kopyalanamadı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Не вдалося скопіювати вкладення"}},"vi":{"stringUnit":{"state":"needs_review","value":"Không thể sao chép tệp đính kèm"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"无法复制附件"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"無法複製附件"}}}},
-    "composer.copyIncomplete": {"comment":"Agent pane: some attachments were unavailable during a composer clipboard copy; the available contents were copied","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"تعذّر نسخ بعض المرفقات."}},"bs":{"stringUnit":{"state":"translated","value":"Neki prilozi nisu mogli biti kopirani."}},"da":{"stringUnit":{"state":"translated","value":"Nogle vedhæftninger kunne ikke kopieres."}},"de":{"stringUnit":{"state":"translated","value":"Einige Anhänge konnten nicht kopiert werden."}},"en":{"stringUnit":{"state":"translated","value":"Some attachments couldn’t be copied."}},"es":{"stringUnit":{"state":"translated","value":"No se pudieron copiar algunos archivos adjuntos."}},"fr":{"stringUnit":{"state":"translated","value":"Certaines pièces jointes n’ont pas pu être copiées."}},"it":{"stringUnit":{"state":"translated","value":"Impossibile copiare alcuni allegati."}},"ja":{"stringUnit":{"state":"translated","value":"一部の添付ファイルをコピーできませんでした。"}},"km":{"stringUnit":{"state":"translated","value":"ឯកសារភ្ជាប់មួយចំនួនមិនអាចចម្លងបានទេ។"}},"ko":{"stringUnit":{"state":"translated","value":"일부 첨부 파일을 복사하지 못했습니다."}},"nb":{"stringUnit":{"state":"translated","value":"Noen vedlegg kunne ikke kopieres."}},"pl":{"stringUnit":{"state":"translated","value":"Nie udało się skopiować niektórych załączników."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Não foi possível copiar alguns anexos."}},"ru":{"stringUnit":{"state":"translated","value":"Некоторые вложения не удалось скопировать."}},"th":{"stringUnit":{"state":"translated","value":"ไม่สามารถคัดลอกไฟล์แนบบางไฟล์ได้"}},"tr":{"stringUnit":{"state":"translated","value":"Bazı ekler kopyalanamadı."}},"uk":{"stringUnit":{"state":"translated","value":"Деякі вкладення не вдалося скопіювати."}},"vi":{"stringUnit":{"state":"translated","value":"Không thể sao chép một số tệp đính kèm."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"部分附件无法复制。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"部分附件無法複製。"}}}},
     "composer.cancelAttachment": {
       "comment": "Agent pane: the × of an attachment still loading in the composer",
       "extractionState": "manual",
@@ -110434,138 +110308,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "{agent} 請求 {name}"
-          }
-        }
-      }
-    },
-    "secret.keep": {
-      "comment": "Agent pane: an agent's secret card (cx-ncc.42): also store the value in Keys under the asked name",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "احتفظ به كمفتاح {name}"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sačuvaj kao ključ {name}"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gem som nøgle {name}"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Als Schlüssel {name} behalten"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Keep as key {name}"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Guardar como clave {name}"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Garder comme clé {name}"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conserva come chiave {name}"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キー {name} として保存"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "រក្សាទុកជាគន្លឹះ {name}"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "키 {name}(으)로 보관"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Behold som nøkkel {name}"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zachowaj jako klucz {name}"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Guardar como chave {name}"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сохранить как ключ {name}"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เก็บเป็นคีย์ {name}"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{name} anahtarı olarak sakla"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Зберегти як ключ {name}"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Giữ làm khóa {name}"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保存为密钥 {name}"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保存為金鑰 {name}"
           }
         }
       }
@@ -456805,6 +456547,141 @@
           "stringUnit": {
             "state": "translated",
             "value": "完成後，你的訊息會自動傳送。"
+          }
+        }
+      }
+    },
+    "composer.copying": {"comment":"Agent pane: progress while a large composer selection streams to the local clipboard; percent is the completed percentage","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ النسخ {percent}%"}},"bs":{"stringUnit":{"state":"needs_review","value":"Kopiranje {percent}%"}},"da":{"stringUnit":{"state":"needs_review","value":"Kopierer {percent}%"}},"de":{"stringUnit":{"state":"needs_review","value":"Kopieren {percent}%"}},"en":{"stringUnit":{"state":"translated","value":"Copying {percent}%"}},"es":{"stringUnit":{"state":"needs_review","value":"Copiando {percent}%"}},"fr":{"stringUnit":{"state":"needs_review","value":"Copie {percent}%"}},"it":{"stringUnit":{"state":"needs_review","value":"Copia {percent}%"}},"ja":{"stringUnit":{"state":"needs_review","value":"コピー中 {percent}%"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងចម្លង {percent}%"}},"ko":{"stringUnit":{"state":"needs_review","value":"복사 중 {percent}%"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kopierer {percent}%"}},"pl":{"stringUnit":{"state":"needs_review","value":"Kopiowanie {percent}%"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Copiando {percent}%"}},"ru":{"stringUnit":{"state":"needs_review","value":"Копирование {percent}%"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังคัดลอก {percent}%"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kopyalanıyor {percent}%"}},"uk":{"stringUnit":{"state":"needs_review","value":"Копіювання {percent}%"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang sao chép {percent}%"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在复制 {percent}%"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在複製 {percent}%"}}}},
+    "composer.copyFailed": {"comment":"Agent pane: a composer clipboard copy failed; Retry is beside this message","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تعذّر نسخ المرفقات"}},"bs":{"stringUnit":{"state":"needs_review","value":"Priloge nije moguće kopirati"}},"da":{"stringUnit":{"state":"needs_review","value":"Kunne ikke kopiere vedhæftninger"}},"de":{"stringUnit":{"state":"needs_review","value":"Anhänge konnten nicht kopiert werden"}},"en":{"stringUnit":{"state":"translated","value":"Couldn’t copy attachments"}},"es":{"stringUnit":{"state":"needs_review","value":"No se pudieron copiar los archivos adjuntos"}},"fr":{"stringUnit":{"state":"needs_review","value":"Impossible de copier les pièces jointes"}},"it":{"stringUnit":{"state":"needs_review","value":"Impossibile copiare gli allegati"}},"ja":{"stringUnit":{"state":"needs_review","value":"添付ファイルをコピーできませんでした"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនអាចចម្លងឯកសារភ្ជាប់បានទេ"}},"ko":{"stringUnit":{"state":"needs_review","value":"첨부 파일을 복사할 수 없습니다"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kunne ikke kopiere vedlegg"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie można skopiować załączników"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não foi possível copiar os anexos"}},"ru":{"stringUnit":{"state":"needs_review","value":"Не удалось скопировать вложения"}},"th":{"stringUnit":{"state":"needs_review","value":"คัดลอกไฟล์แนบไม่ได้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ekler kopyalanamadı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Не вдалося скопіювати вкладення"}},"vi":{"stringUnit":{"state":"needs_review","value":"Không thể sao chép tệp đính kèm"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"无法复制附件"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"無法複製附件"}}}},
+    "composer.copyIncomplete": {"comment":"Agent pane: some attachments were unavailable during a composer clipboard copy; the available contents were copied","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"تعذّر نسخ بعض المرفقات."}},"bs":{"stringUnit":{"state":"translated","value":"Neki prilozi nisu mogli biti kopirani."}},"da":{"stringUnit":{"state":"translated","value":"Nogle vedhæftninger kunne ikke kopieres."}},"de":{"stringUnit":{"state":"translated","value":"Einige Anhänge konnten nicht kopiert werden."}},"en":{"stringUnit":{"state":"translated","value":"Some attachments couldn’t be copied."}},"es":{"stringUnit":{"state":"translated","value":"No se pudieron copiar algunos archivos adjuntos."}},"fr":{"stringUnit":{"state":"translated","value":"Certaines pièces jointes n’ont pas pu être copiées."}},"it":{"stringUnit":{"state":"translated","value":"Impossibile copiare alcuni allegati."}},"ja":{"stringUnit":{"state":"translated","value":"一部の添付ファイルをコピーできませんでした。"}},"km":{"stringUnit":{"state":"translated","value":"ឯកសារភ្ជាប់មួយចំនួនមិនអាចចម្លងបានទេ។"}},"ko":{"stringUnit":{"state":"translated","value":"일부 첨부 파일을 복사하지 못했습니다."}},"nb":{"stringUnit":{"state":"translated","value":"Noen vedlegg kunne ikke kopieres."}},"pl":{"stringUnit":{"state":"translated","value":"Nie udało się skopiować niektórych załączników."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Não foi possível copiar alguns anexos."}},"ru":{"stringUnit":{"state":"translated","value":"Некоторые вложения не удалось скопировать."}},"th":{"stringUnit":{"state":"translated","value":"ไม่สามารถคัดลอกไฟล์แนบบางไฟล์ได้"}},"tr":{"stringUnit":{"state":"translated","value":"Bazı ekler kopyalanamadı."}},"uk":{"stringUnit":{"state":"translated","value":"Деякі вкладення не вдалося скопіювати."}},"vi":{"stringUnit":{"state":"translated","value":"Không thể sao chép một số tệp đính kèm."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"部分附件无法复制。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"部分附件無法複製。"}}}},
+    "secret.keep": {
+      "comment": "Agent pane: an agent's secret card (cx-ncc.42): also store the value in Keys under the asked name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "احتفظ به كمفتاح {name}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sačuvaj kao ključ {name}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gem som nøgle {name}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als Schlüssel {name} behalten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep as key {name}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardar como clave {name}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Garder comme clé {name}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conserva come chiave {name}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キー {name} として保存"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រក្សាទុកជាគន្លឹះ {name}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "키 {name}(으)로 보관"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Behold som nøkkel {name}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zachowaj jako klucz {name}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardar como chave {name}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохранить как ключ {name}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เก็บเป็นคีย์ {name}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} anahtarı olarak sakla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зберегти як ключ {name}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giữ làm khóa {name}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存为密钥 {name}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存為金鑰 {name}"
           }
         }
       }
