@@ -259,6 +259,8 @@ futures-util.workspace = true
 rusqlite.workspace = true
 # `cmux machine add|list`: the platform's RFC 3339 times; already in the graph via acpmux.
 cmux-chat-index.workspace = true
+# `cmux repro` (cmuxterm-hq#23808): repro capsules, replayed on a Cloud machine by the journey.
+cmux-repro = { path = "../cmux-repro" }
 
 [target.'cfg(windows)'.dependencies]
 tokio.workspace = true
