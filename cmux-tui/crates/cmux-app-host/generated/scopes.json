@@ -501,6 +501,10 @@
       "scope": "cloud:execute",
       "class": "mutation"
     },
+    "cloud.vm.machine.request": {
+      "scope": "cloud:execute",
+      "class": "mutation"
+    },
     "cloud.vm.network_policy": {
       "scope": "cloud:read",
       "class": "read"

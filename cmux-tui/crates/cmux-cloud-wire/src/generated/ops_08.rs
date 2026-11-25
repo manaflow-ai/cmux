@@ -5,6 +5,78 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationListParams {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationListResultProvidersItem {
+    pub provider: IntegrationProvider,
+    pub configured: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationListResult {
+    pub connections: Vec<Connection>,
+    pub providers: Vec<IntegrationListResultProvidersItem>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes integration.list declares.
+    IntegrationListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Read the team's integration policy (allowed providers, GitHub repository scope).
+    IntegrationPolicyGetOp {
+        name: "integration.policy.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:ConnectionDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: IntegrationPolicyGetParams,
+        result: TeamIntegrationPolicy,
+        error: IntegrationPolicyGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationPolicyGetParams {}
+
+wire_errors! {
+    /// The error codes integration.policy.get declares.
+    IntegrationPolicyGetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Change the team's integration policy (team admins; refused while an SSO or MDM policy locks it).
+    IntegrationPolicySetOp {
+        name: "integration.policy.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConnectionDO",
+        risk: "mutate-shared",
+        principals: [Session],
+        params: IntegrationPolicySetParams,
+        result: TeamIntegrationPolicy,
+        error: IntegrationPolicySetError,
+    }
+}
+
+wire_enum! {
+    IntegrationPolicySetParamsGithubScope {
+        LinkingUserRepos = "linking_user_repos",
+        Installation = "installation",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct IntegrationPolicySetParamsGithub {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<IntegrationPolicySetParamsGithubScope>,
@@ -816,91 +888,6 @@ wire_errors! {
         IdempotencyConflict = "idempotency.conflict",
         InvalidParams = "invalid_params",
         RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// List the caller-owned private Cloud networks.
-    NetworkListOp {
-        name: "network.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:UserDO",
-        risk: "read",
-        principals: [Session],
-        params: NetworkListParams,
-        result: NetworkListResult,
-        error: NetworkListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct NetworkListParams {}
-
-wire_enum! {
-    NetworkListResultNetworksItemScope {
-        User = "user",
-        Team = "team",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct NetworkListResultNetworksItem {
-    pub id: String,
-    pub cidr: Option<String>,
-    #[serde(rename = "cidrV6")]
-    pub cidr_v6: Option<String>,
-    pub scope: NetworkListResultNetworksItemScope,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct NetworkListResult {
-    pub networks: Vec<NetworkListResultNetworksItem>,
-}
-
-wire_errors! {
-    /// The error codes network.list declares.
-    NetworkListError {
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Hand a group to another current person (the owner only). You stay as an admin.
-    OwnershipTransferOp {
-        name: "ownership.transfer",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "destructive",
-        principals: [Session],
-        params: OwnershipTransferParams,
-        result: HomeConversationCommit,
-        error: OwnershipTransferError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct OwnershipTransferParams {
-    pub conversation: ConversationId,
-    pub participant: ParticipantId,
-}
-
-wire_errors! {
-    /// The error codes ownership.transfer declares.
-    OwnershipTransferError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidParticipant = "invalid_participant",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        UnknownParticipant = "unknown_participant",
         ValidationInvalid = "validation.invalid",
     }
 }

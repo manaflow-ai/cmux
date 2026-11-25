@@ -126,6 +126,7 @@
     "cloud.usage.current",
     "cloud.vm.attention.emit",
     "cloud.vm.event.emit",
+    "cloud.vm.machine.request",
     "cloud.vm.network_policy",
     "cloud.vm.receiver.lifecycle",
     "cloud.vm.self.get",

@@ -43,6 +43,95 @@ wire_errors! {
 }
 
 wire_op! {
+    /// Ask for more capacity for the work this machine runs: grows it live within the creator's plan, or says what it takes (over the plan, a fan-out past one machine, a kind not offered). Never waits for the machine. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine).
+    CloudVmMachineRequestOp {
+        name: "cloud.vm.machine.request",
+        class: Mutation,
+        idempotency: None,
+        owner: "cloud:CloudDO",
+        risk: "execute",
+        principals: [Install],
+        params: CloudVmMachineRequestParams,
+        result: CloudVmMachineRequestResult,
+        error: CloudVmMachineRequestError,
+    }
+}
+
+wire_enum! {
+    CloudVmMachineRequestParamsKind {
+        Linux = "linux",
+        Mac = "mac",
+        Gpu = "gpu",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmMachineRequestParams {
+    pub machine: MachineId,
+    pub vcpu: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mem_gib: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fanout: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<CloudVmMachineRequestParamsKind>,
+    pub r#for: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until: Option<String>,
+}
+
+wire_enum! {
+    CloudVmMachineRequestResultOutcome {
+        Fits = "fits",
+        Grow = "grow",
+        OverPlan = "over_plan",
+        Fanout = "fanout",
+        Unavailable = "unavailable",
+        Refused = "refused",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmMachineRequestResultSize {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub vcpu: WireNumber,
+    pub mem_gib: WireNumber,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmMachineRequestResultFanout {
+    pub width: WireNumber,
+    pub each: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmMachineRequestResult {
+    pub outcome: CloudVmMachineRequestResultOutcome,
+    pub message: String,
+    pub machine: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<CloudVmMachineRequestResultSize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fanout: Option<CloudVmMachineRequestResultFanout>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upgrade_plan: Option<String>,
+}
+
+wire_errors! {
+    /// The error codes cloud.vm.machine.request declares.
+    CloudVmMachineRequestError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        CloudRateLimited = "cloud.rate_limited",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 120 seconds and never outlives an included grant; admit_until, when present, lets the receiver keep this policy through a failed renewal for at most one hour after checked_at. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine).
     CloudVmNetworkPolicyOp {
         name: "cloud.vm.network_policy",
@@ -811,80 +900,4 @@ wire_op! {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DomainReleaseParams {
     pub domain: EmailDomain,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct DomainReleaseResult {
-    pub domain: EmailDomain,
-}
-
-wire_errors! {
-    /// The error codes domain.release declares.
-    DomainReleaseError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Check the TXT record through two DNS-over-HTTPS resolvers and, when both see it, make the team the domain's owner (owners and admins).
-    DomainVerifyOp {
-        name: "domain.verify",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: DomainVerifyParams,
-        result: TeamDomain,
-        error: DomainVerifyError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct DomainVerifyParams {
-    pub domain: EmailDomain,
-}
-
-wire_errors! {
-    /// The error codes domain.verify declares.
-    DomainVerifyError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        DomainNotVerified = "domain.not_verified",
-        DomainTaken = "domain.taken",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Handoff: a daemon's local feed owner moves one of its items (same id) to the cloud owner after a reconnect.
-    FeedAdoptOp {
-        name: "feed.adopt",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:FeedDO",
-        risk: "mutate-own",
-        principals: [Install],
-        params: FeedAdoptParams,
-        result: FeedAdoptResult,
-        error: FeedAdoptError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedAdoptParams {
-    pub item: FeedItem,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedAdoptResult {
-    pub item: FeedItem,
 }

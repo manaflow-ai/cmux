@@ -544,6 +544,13 @@
       "class": "read",
       "digest": "0304aec0e3361028"
     },
+    "cloud.vm.machine.request": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "execute",
+      "digest": "490f3eb545a67997"
+    },
     "cloud.vm.network_policy": {
       "source": "cloud",
       "owner": "cloud:CloudDO",

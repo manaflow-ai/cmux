@@ -122,4 +122,33 @@ export const CloudVmAttentionEmit = vmDef(
   false
 )
 
-export const cloudVmOps = [CloudVmSelfGet, CloudVmNetworkPolicy, CloudVmReceiverLifecycle, CloudVmStatusReport, CloudVmEventEmit, CloudVmAttentionEmit] as const
+/**
+ * `cmux machine request` from the agent on the machine (cmuxterm-hq RFD draft agent-work-placement, 9 and 13; Leo,
+ * 2026-11-25: "how can an agent know/ask for more capacity?"). Answers at once (MachineRequest.ts): fits, grow (a live
+ * resize within the creator's plan), over_plan, fanout or unavailable, with the words the agent reads back.
+ */
+export const CloudVmMachineRequest = vmDef(
+  "cloud.vm.machine.request",
+  "mutation",
+  Schema.Struct({
+    machine: MachineId,
+    vcpu: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 4096 })),
+    mem_gib: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 16384 }))),
+    fanout: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 64 }))),
+    kind: Schema.optionalKey(Schema.Literals(["linux", "mac", "gpu"])),
+    for: Short(500),
+    until: Schema.optionalKey(Short(32))
+  }),
+  Schema.Struct({
+    outcome: Schema.Literals(["fits", "grow", "over_plan", "fanout", "unavailable", "refused"]),
+    message: Schema.String,
+    machine: Schema.String,
+    size: Schema.optionalKey(Schema.Struct({ name: Schema.optionalKey(Schema.String), vcpu: Schema.Number, mem_gib: Schema.Number })),
+    code: Schema.optionalKey(Schema.String),
+    fanout: Schema.optionalKey(Schema.Struct({ width: Schema.Number, each: Schema.String })),
+    upgrade_plan: Schema.optionalKey(Schema.String)
+  }),
+  "Ask for more capacity for the work this machine runs: grows it live within the creator's plan, or says what it takes (over the plan, a fan-out past one machine, a kind not offered). Never waits for the machine."
+)
+
+export const cloudVmOps = [CloudVmSelfGet, CloudVmNetworkPolicy, CloudVmReceiverLifecycle, CloudVmStatusReport, CloudVmEventEmit, CloudVmAttentionEmit, CloudVmMachineRequest] as const
