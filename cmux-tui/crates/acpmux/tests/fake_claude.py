@@ -178,6 +178,10 @@ def is_cmux_guidance(block):
     """Identify hidden cmux guidance in the stream-json content Claude receives."""
     if not isinstance(block, dict):
         return False
+    # The files acpmux prefetched into the prompt (`hub/prefetch.rs`): left out of fixture
+    # commands and echoes unless FAKE_ECHO_PREFETCH=1.
+    if os.environ.get("FAKE_ECHO_PREFETCH") != "1" and str(block.get("text", "")).lstrip().startswith("<cmux-prefetch-context>"):
+        return True
     source = (block.get("_meta") or {}).get("acpmux", {}).get("contextSource")
     if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance"}:
         return True
@@ -873,6 +877,8 @@ while True:
             found.append("vertex")
         if env.get("CLAUDE_CODE_USE_BEDROCK") == "1":
             found.append("bedrock")
+        if env.get("CLAUDE_CODE_USE_FOUNDRY") == "1":
+            found.append("foundry")
         helper = settings.get("apiKeyHelper")
         if helper:
             run = subprocess.run(["/bin/sh", "-c", helper], capture_output=True, text=True)
@@ -892,6 +898,7 @@ while True:
                                "vertexRegions": sorted(k for k in os.environ if k.startswith("VERTEX_REGION_")),
                                "awsKeys": sorted(k for k in os.environ if k.startswith("AWS_")),
                                "googleKeys": sorted(k for k in os.environ if k.startswith("GOOGLE_")),
+                               "azureKeys": sorted(k for k in os.environ if k.startswith("AZURE_")),
                                "promptCache": {k: v for k, v in os.environ.items()
                                                if k.startswith(("DISABLE_PROMPT_CACHING", "ENABLE_PROMPT_CACHING_1H"))
                                                or k == "FORCE_PROMPT_CACHING_5M"},

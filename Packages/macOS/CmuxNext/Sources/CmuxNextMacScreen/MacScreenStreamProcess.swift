@@ -64,8 +64,8 @@ nonisolated final class MacScreenStreamProcess: Sendable {
         follow(stdout: stdout, stderr: stderr)
         let pid: pid_t
         do { pid = try spawn(stdin, stdout, stderr) } catch {
-            stdout.fileHandleForReading.readabilityHandler = nil
-            stderr.fileHandleForReading.readabilityHandler = nil
+            // No child holds the other ends: close all six, or the readers wait for an end of file that never comes.
+            ChildOutputEnds.closeNow(pipes: [stdin, stdout, stderr])
             continuation.finish()
             throw error
         }

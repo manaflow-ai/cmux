@@ -50,13 +50,16 @@ public nonisolated struct SidebarSubagentStrip: Hashable, Sendable {
     /// The most marks the stacked line draws.
     public static let stackMarks = 4
 
+    /// Failed subagents of a row that lists none (folded, or the tree off): its title line's failed mark counts them.
+    public static func failedCount(_ subagents: SidebarSubagents?) -> Int {
+        subagents?.items.filter { $0.state == .failed }.count ?? 0
+    }
+
     /// Lines the strip takes under the row's name.
     public var lineCount: Int { mode == .stack ? 1 : rows.count + (more > 0 ? 1 : 0) }
 
     /// The strip for `subagents` under a row. `tree`: the session tree is on (`sidebar.sessionTree`);
-    /// `folded`: the person folded this row there. With the tree off a row draws no subagent line at all:
-    /// its working indicator already says the agent runs, and a "✧ 1 running" line under one row read as
-    /// a stray line above the next (https://github.com/manaflow-ai/cmux/issues/52977).
+    /// `folded`: the person folded this row there. Folded or with the tree off a row lists none (nil).
     public static func make(_ subagents: SidebarSubagents?, tree: Bool, folded: Bool,
                             look: SidebarSubagentLook = .both) -> SidebarSubagentStrip? {
         guard tree, let subagents, !subagents.isEmpty else { return nil }
@@ -74,8 +77,11 @@ public nonisolated struct SidebarSubagentStrip: Hashable, Sendable {
             return SidebarSubagentStrip(mode: .rows, rows: rows, more: max(0, subagents.total - shown.count), marks: [],
                                         running: subagents.running, done: 0, failed: failed, tab: shown.first?.tab ?? subagents.chat)
         }
-        // Folded with nothing running under the rows look: only work that runs shows.
-        if look == .rows && subagents.running == 0 { return nil }
+        // Folded, or off the tree: no line under the row. Leo 2026-11-23 on "◇◇◇◇◇ 4 running · 3 failed" there: "this is
+        // weird and bad and unncessary"; 05:08Z: "there's no point in even saying it's running. it's running or it's
+        // failed or it's done." What may need a look, a failed subagent, is the title line's one failed mark instead
+        // (`failedCount`, the roll-up's failed chip). Only the Debug `stack` look still draws the stacked line.
+        guard look == .stack else { return nil }
         let order: [SidebarSubagent.State] = [.running, .failed, .done, .stopped]
         let marks = items.sorted { (order.firstIndex(of: $0.state) ?? 0) < (order.firstIndex(of: $1.state) ?? 0) }
             .prefix(stackMarks).map(\.state)

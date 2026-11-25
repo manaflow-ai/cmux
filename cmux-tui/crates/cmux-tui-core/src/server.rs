@@ -127,6 +127,9 @@ mod admission;
 #[path = "server/list_workspaces_page.rs"]
 mod list_workspaces_page;
 use list_workspaces_page::*;
+#[path = "server/list_workspaces_delta.rs"]
+pub(crate) mod list_workspaces_delta;
+use list_workspaces_delta::WORKSPACE_LIST_DELTA_CAPABILITY;
 #[cfg(unix)]
 mod agent_cli_intents;
 #[cfg(unix)]
@@ -1187,11 +1190,13 @@ enum Command {
         title: String,
     },
     ClearWindowTitle,
-    /// `known`, `limit` and `after`: server/list_workspaces_page.rs.
+    /// `known`, `limit` and `after`: server/list_workspaces_page.rs; `since`:
+    /// server/list_workspaces_delta.rs.
     ListWorkspaces {
         known: Option<cmd_workspaces::KnownTree>,
         limit: Option<usize>,
         after: Option<usize>,
+        since: Option<list_workspaces_delta::DeltaCursor>,
     },
     GetFrontendProjection {
         frontend: String,
