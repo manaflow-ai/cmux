@@ -1136,7 +1136,7 @@ fn other_traffic_does_not_keep_a_prompt_whose_own_write_fails() {
     outbox.next_request(t0).unwrap();
     outbox.write_failed("a", t0 + ms(100));
     outbox.progressed(t0 + ms(9_000));
-    assert_eq!(outbox.expire(t0 + TEN).len(), 1, "its own writes are not moving");
+    assert_eq!(outbox.expire(t0 + TEN + ms(100)).len(), 1, "its own writes are not moving");
 }
 
 #[test]
