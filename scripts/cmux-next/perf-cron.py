@@ -304,6 +304,11 @@ PARTS = [
     # 4 GB chat and 12 launches are not timed on a fleet Mac yet, so it takes workspace-scaling's 60-minute cap.
     {"name": "chat-size", "args": [*MEASURE, "--vdisplay-hold=3600", "--config=bench", "--suite=chat-size"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "chat-size", "run_seconds": 3600},
+    # Leo 2026-11-25 "when you press enter, the stuff should just start playing": the agent chat's Enter to the sent
+    # row's frame, its reserved turn in that frame, layout shifts per send, first token and chat switch, plain, in a
+    # 1000-turn chat, with 12 other chats open and offline (scripts/measure/snappy-bench.py; chat_snappy.<duress>.*).
+    {"name": "chat-snappy", "args": [*MEASURE, "--config=bench", "--suite=chat-snappy"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "chat-snappy", "run_seconds": 1800},
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
@@ -430,7 +435,7 @@ ROW_PARTS = [
     (r"^terminal\.throughput\.", "throughput"), (r"^typing\.", "typing-load"),
     (r"^terminal\.throughput\.", "throughput"), (r"^cef_resize\.", "cef-resize"), (r"^terminal\.scroll\.", "terminal-scroll"),
     (r"^power\.", "power"),
-    (r"^chat_size\.", "chat-size"),
+    (r"^chat_size\.", "chat-size"), (r"^chat_snappy\.", "chat-snappy"),
     (r"^terminal\.key_to_echo\.", "typing"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
@@ -1477,7 +1482,13 @@ def supersede_for_unread(state, t, newest, supported_parts):
     # Only a measurement a day old gives way: parts land most days, so giving way at once restarted every Mac pass
     # before it finished (tip 12aa19c2, 2026-11-22: 4 Mac parts done, 17 superseded for tabs and typing 12 h in,
     # chat-size among them). Wall time, not active_hours: the stall this fixes was yielding to the fleet.
-    if hours_between(parse_iso(cur["started_at"]), t) < SUPERSEDE_AFTER_HOURS:
+    # The hold protects a Mac pass that is making headway. One that finished no Mac part (the build aside) has none to
+    # lose, so it gives way at once (tip b76703549055, 2026-11-24: 23 h in, 20 of them yielded to the fleet, its only
+    # Mac part launch-dock yielded, while web-ui-orchestrator, merged after it, kept NOW's
+    # competitive.orchestrator.p99_frame_ms_16_children unknown).
+    mac_done = any(name != "build" and not is_linux_part(name) and (rec or {}).get("state") == "done"
+                   for name, rec in cur.get("parts", {}).items())
+    if mac_done and hours_between(parse_iso(cur["started_at"]), t) < SUPERSEDE_AFTER_HOURS:
         return None
     have = [p for p in missing if p in supported_parts(newest)]
     if not have:
@@ -2580,7 +2591,8 @@ def supported_parts_at(sha):
             bench = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/bench-startup.py"],
                                    capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = "--suite=launch" in text and '"--fresh-copy"' in bench and '"--ready-mark"' in bench
-        elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake", "power", "chat-size", "cef-resize"):
+        elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake", "power", "chat-size", "cef-resize",
+                      "chat-snappy"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = f"--suite={need}" in text
@@ -4603,8 +4615,14 @@ def store_part_rows(state, cur, name, p, report, mod, budgets, run_url, t):
     instead of only when the whole measurement ends: a part that finishes keeps its rows when another part fails, the
     host goes quiet or the tip is replaced (rows and comparison at the end of the measurement are unchanged: this
     store feeds neither row_history nor any regression). A complete part only (an incomplete one is judged at the
-    finish); a bisect step measures an old commit, not the tip. Returns the number of rows stored."""
-    if cur.get("kind") != "tip" or report_is_incomplete(PART_BY_NAME[name], report):
+    finish); a bisect step measures an old commit, not the tip. Returns the number of rows stored.
+
+    An incomplete part (a bench of it failed or timed out) stores the rows its finished benches measured: its report
+    carries no row of the failed bench, whose own rows keep their older date. On 2026-11-24 web-ui-god's
+    transcript-replay-god timed out at 420 s and the 87 rows its four other benches measured (the rest-wakeup rows
+    among them) were dropped, so those rows read 3 days old while each tick measured them. part_stored names what
+    was missing, and its date still moves, so a part that keeps failing one bench does not take every Linux turn."""
+    if cur.get("kind") != "tip":
         return 0
     named, _ = part_rows_named(cur, name, p, report, mod, budgets, p.get("worker"))
     store = state.setdefault("part_rows", {})
@@ -4613,7 +4631,10 @@ def store_part_rows(state, cur, name, p, report, mod, budgets, run_url, t):
         if isinstance(row, dict) and isinstance(row.get("p95"), (int, float)):
             store[row_name] = {**{k: v for k, v in row.items() if k in keep},
                                "sha": cur["sha"], "at": iso(t), "run_url": run_url, "part": name}
-    state.setdefault("part_stored", {})[name] = {"sha": cur["sha"], "at": iso(t), "run_url": run_url, "rows": len(named)}
+    stored = {"sha": cur["sha"], "at": iso(t), "run_url": run_url, "rows": len(named)}
+    if report_is_incomplete(PART_BY_NAME[name], report):
+        stored["incomplete"] = incomplete_why(report)
+    state.setdefault("part_stored", {})[name] = stored
     return len(named)
 
 
