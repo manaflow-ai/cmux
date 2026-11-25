@@ -1885,7 +1885,7 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         # (tests/test_ci_label_events_skip_full_ci.py).
         label_guard = (" && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == "
                        "'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') "
-                       "&& github.event.label.name != 'full-ci') }}")
+                       "&& !contains(fromJSON('[\"full-ci\",\"ready-to-land\"]'), github.event.label.name)) }}")
         self.assertTrue(mac["if"].endswith(label_guard), mac["if"])
         # The Mac half runs a pull request's fast tier in pr-pipeline.yml's `mac` job (note-556); the cargo half
         # stays here on both events.
