@@ -131,6 +131,27 @@ describe("an image builder create the provider answers with a server error", () 
     expect(h.waits).toEqual([]);
   });
 
+  test("a refusal after a server error still deletes the VM the earlier attempt made", async () => {
+    const h = harness(["500", "400"], { 2: [{ id: "vm-late-ghost", metadata: { [CREATE_ATTEMPT_KEY]: "run-0" } }] });
+    await expect(createVmRetrying(h.fs, h.ledger, { name: NAME, snapshotId: "sh-agents" }, h.deps)).rejects.toThrow("snapshot not found");
+    expect(h.deleted).toEqual(["vm-late-ghost"]);
+    expect(h.ledger.live()).toEqual([]);
+  });
+
+  test("a VM a sweep deleted that the provider still lists is not deleted again", async () => {
+    const h = harness(["500", "500", "ok"]);
+    const ghost = { id: "vm-slow-ghost", metadata: { [CREATE_ATTEMPT_KEY]: "run-0" } };
+    // The provider is slow to drop a deleted VM from its list.
+    (h.fs.vms as unknown as { list: (o: { metadata?: string }) => Promise<unknown> }).list = async (options) => ({
+      vms: options.metadata === `${CREATE_ATTEMPT_KEY}:run-0` ? [ghost] : [],
+      totalCount: 0,
+    });
+    const created = await createVmRetrying(h.fs, h.ledger, { name: NAME, snapshotId: "sh-agents" }, h.deps);
+    expect(created.vmId).toBe("vm-3");
+    expect(h.deleted).toEqual(["vm-slow-ghost"]);
+    expect(await deleteLiveVms()).toEqual(["vm-3"]);
+  });
+
   test("the budget stays a couple of minutes, so a real outage still fails the bake", () => {
     const total = CREATE_SERVER_ERROR_RETRY_DELAYS_MS.reduce((a, b) => a + b, 0);
     expect(total).toBeGreaterThanOrEqual(30_000);

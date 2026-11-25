@@ -171,11 +171,12 @@ export const CREATE_ATTEMPT_KEY = "cmux-image-create-attempt";
  * createVmRetrying for when it looks). A failed lookup is logged; the VM's idle
  * timeout pauses it and the ledger row (when it was found) lets cleanup.ts delete it.
  */
-async function deleteAttemptVms(fs: Freestyle, ledger: Ledger, name: string, attemptId: string, log: (line: string) => void): Promise<void> {
+async function deleteAttemptVms(fs: Freestyle, ledger: Ledger, name: string, attemptId: string, log: (line: string) => void, swept: Set<string>): Promise<void> {
   try {
     const { vms } = await fs.vms.list({ metadata: `${CREATE_ATTEMPT_KEY}:${attemptId}`, limit: 100 });
     for (const vm of vms) {
-      if (vm.metadata?.[CREATE_ATTEMPT_KEY] !== attemptId || liveVms.has(vm.id)) continue;
+      // swept: a VM an earlier sweep deleted that the list still shows is not deleted again.
+      if (vm.metadata?.[CREATE_ATTEMPT_KEY] !== attemptId || liveVms.has(vm.id) || swept.has(vm.id)) continue;
       ledger.record(vm.id, "vm", name);
       try {
         await fs.vms.delete(vm.id);
@@ -183,6 +184,7 @@ async function deleteAttemptVms(fs: Freestyle, ledger: Ledger, name: string, att
         if ((error as { status?: unknown } | null)?.status !== 404) throw error;
       }
       ledger.record(vm.id, "vm", name, "deleted");
+      swept.add(vm.id);
       log(`PROVIDER ERROR: deleted ${vm.id}, a VM the failed create of ${name} made anyway`);
     }
   } catch (error) {
@@ -209,8 +211,9 @@ export async function createVmRetrying(
   // Every failed attempt's tag is checked again at each later lookup and once after the create that worked: a VM a
   // 502 or 504 still booted can show up after its own attempt's lookup.
   const failed: string[] = [];
+  const swept = new Set<string>();
   const sweep = async () => {
-    for (const id of failed) await deleteAttemptVms(fs, ledger, options.name, id, log);
+    for (const id of failed) await deleteAttemptVms(fs, ledger, options.name, id, log, swept);
   };
   for (let attempt = 0; ; attempt++) {
     const attemptId = `${run}-${attempt}`;
@@ -219,7 +222,11 @@ export async function createVmRetrying(
       created = await createVm(fs, ledger, { ...options, metadata: { [CREATE_ATTEMPT_KEY]: attemptId } });
     } catch (error) {
       const status = serverErrorStatus(error);
-      if (status === undefined) throw error;
+      if (status === undefined) {
+        // A refusal after a server error still deletes the VM an earlier attempt made.
+        await sweep();
+        throw error;
+      }
       failed.push(attemptId);
       if (attempt >= delays.length) {
         await sweep();
