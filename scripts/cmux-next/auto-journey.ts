@@ -44,7 +44,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Api, CHAT_START_SIZE, STACK, directExec, http, passwordSignIn, resolveBackend, scrub, sleep, waitMachine } from "./cloud-journey.ts";
+import { Api, CHAT_START_SIZE, STACK, directExec, http, listAllMachines, passwordSignIn, resolveBackend, scrub, sleep, staleJourneyInstalls, staleJourneyMachines, waitMachine } from "./cloud-journey.ts";
 
 type Step = { step: string; status: "pass" | "fail" | "skip"; ms: number; detail: string };
 type View = { id: string; holder: string; epoch: number; version: number; lastSeq: number; snapshot: number; standby: string[]; auto: boolean; move?: unknown };
@@ -280,8 +280,37 @@ async function main(): Promise<number> {
     });
 
     // 3. A Cloud machine of this run's own, as the owner's Auto machine, with the stand-in harness.
+    // Machines and installs that killed or timed-out runs left (each journey's own name only) hold the test team's
+    // 300-machine cap: run 45562698608's create got cloud.quota.vm_limit. A sweep error never fails the journey.
+    {
+      const t0 = Date.now();
+      const err = (e: unknown) => String((e as Error)?.message ?? e).slice(0, 300);
+      try {
+        const rows = await listAllMachines((params) => api.read("cloud.machine.list", params));
+        const stale = staleJourneyMachines(rows, Date.now());
+        const failed: string[] = [];
+        for (const m of stale) {
+          console.log(`sweep: deleting ${m.id} "${m.name}" status ${m.status} created ${m.created}`);
+          await api.deleteMachine(m.id, `${tag}-sweep-${m.id}`).catch((e) => failed.push(`${m.id}: ${err(e)}`));
+        }
+        const v = await api.read("install.list", {}).catch(() => null);
+        const installs = staleJourneyInstalls(Array.isArray(v?.installs) ? v.installs : [], Date.now());
+        let revoked = 0;
+        for (const id of installs) await api.op("install.revoke", { install: id }, `${tag}-sweep-install-${id}`).then(() => revoked++, (e) => failed.push(`${id}: ${err(e)}`));
+        J.record({ step: "sweep leaked journey machines and installs", status: failed.length ? "skip" : "pass", ms: Date.now() - t0, detail: `${stale.length} of ${rows.length} machines leaked, ${revoked} of ${installs.length} installs revoked${failed.length ? `; failed ${failed.join("; ")}` : ""}` });
+      } catch (e) {
+        J.record({ step: "sweep leaked journey machines and installs", status: "skip", ms: Date.now() - t0, detail: `list failed: ${err(e)}` });
+      }
+    }
     const machine = await J.step("Cloud machine for this run (create, running)", async () => {
-      const v = await api.op("cloud.machine.create", { name: `auto journey ${tag}`, size: CHAT_START_SIZE }, `${tag}-create`);
+      const name = `auto journey ${tag}`;
+      const v = await api.op("cloud.machine.create", { name, size: CHAT_START_SIZE }, `${tag}-create`).catch(async (e) => {
+        // A create that errored or timed out may still have made the machine: find it by this run's name so cleanup deletes it.
+        const rows = await listAllMachines((params) => api.read("cloud.machine.list", params)).catch(() => []);
+        const made = rows.find((r: any) => r?.name === name && r.status !== "deleted" && r.status !== "deleting");
+        if (made) { owned.machine = String(made.id ?? made.machine_id); keep(); }
+        throw e;
+      });
       owned.machine = v.machine.id as string;
       keep();
       const m = await waitMachine(api, owned.machine, (x) => x.status === "running" && Boolean(x.host), 300_000);
