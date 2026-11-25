@@ -800,7 +800,7 @@ class ScriptBehavior(unittest.TestCase):
                "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
                "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
         if barrier is not None:
-            env.update({"FAKE_BARRIER": str(barrier), "FAKE_BARRIER_COUNT": "5"})
+            env.update({"FAKE_BARRIER": str(barrier), "FAKE_BARRIER_COUNT": "6"})
         extra = []
         if budget is not None:
             extra += ["--budget-seconds", str(budget)]
@@ -1274,9 +1274,9 @@ class ScriptBehavior(unittest.TestCase):
         result = self.script(work, "run", "--base", self.tip, "--web", "true", "--checks", "true",
                              sleep=0.2, barrier=barrier)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        # The first batch cannot finish until all five markers exist. A serial implementation therefore fails
+        # The first batch cannot finish until all six markers exist. A serial implementation therefore fails
         # deterministically at the barrier instead of relying on a wall-clock threshold that flakes on loaded hosts.
-        self.assertEqual(len(list(barrier.glob("started-*"))), 5)
+        self.assertEqual(len(list(barrier.glob("started-*"))), 6)
         self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS))
 
     def test_a_zero_budget_stops_every_started_gate_and_still_names_a_critical_path_gate(self):
