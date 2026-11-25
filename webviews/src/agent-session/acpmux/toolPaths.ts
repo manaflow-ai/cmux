@@ -54,12 +54,6 @@ export function editedPaths(tool: Tool): string[] {
 /// Paths come from the same harness-aware reader as edited-file cards, so a Write whose content
 /// precedes `file_path` still reads as `Write gen.py`. A file inside `cwd` reads by its path from there.
 ///
-/// A shell call reads as what its command did (conversation/commandActions.ts: "Searched memory for
-/// “x”"; Leo, 2026-11-07: "you ran a specific thing"), read off the command itself; Claude Code's
-/// Bash `description` names only a command the table does not know, since the model's words could
-/// say one thing while the line does another (#36940). Anything else reads as its command without
-/// the plumbing after it (`commandLabel`). One with no command yet reads as `unnamedCommand` ("Ran a
-/// command"), never as the bare tool name ("Bash").
 /// A `$name` or `${name}` a title shows as written.
 const UNEXPANDED = /\$\{?[A-Za-z_]/;
 
@@ -69,9 +63,11 @@ export function toolLabel(
   commandLabel: (command: string) => string,
   cwd?: string,
   unnamedCommand?: string,
-  /// False for the live line, which names the command itself (#36940): only rows say what it did.
+  /// False only inside an explicit raw-command disclosure.
   saysWhatItDid = true,
 ): string {
+  const description = tool.description?.trim();
+  if (saysWhatItDid && description) return description;
   const title = readableName(tool.title);
   const fallbackName = readableName(fallback, tool.kind) || "Tool";
   const paths = editedPaths(tool);
@@ -83,7 +79,7 @@ export function toolLabel(
   // call heading that we have derived").
   if (command && (tool.kind === "execute" || UNEXPANDED.test(title))) {
     const look = commandLook();
-    const said = saysWhatItDid ? commandSaid(translatorFor(currentLanguage()), tool, look) : undefined;
+    const said = saysWhatItDid ? commandSaid(translatorFor(currentLanguage()), tool) : undefined;
     // Cleaning is for a finished row's label; a running row and the live line keep the line as written.
     const finished = saysWhatItDid && tool.status !== "pending" && tool.status !== "in_progress";
     return said ?? commandLabel(commandLine(command, look, finished));
@@ -157,6 +153,7 @@ function canonicalLabel(
       return own && title.includes(path) ? title : `${verb} ${fromFolder(path, cwd)}`;
     }
     case "search":
+      return call.input.pattern ? `Search for ${call.input.pattern}` : undefined;
     case "glob":
       return call.input.pattern ? `${verb} ${call.input.pattern}` : undefined;
     case "fetch":

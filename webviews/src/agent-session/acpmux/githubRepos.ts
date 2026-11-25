@@ -60,6 +60,14 @@ export type GitHubPickerState = {
   connecting?: boolean;
   rateLimited?: boolean;
   retryAfter?: number;
+  /// The repository the person wanted when Connect (or Choose more repositories…) started: what they typed, else the
+  /// chosen folder's (`owner/name`). Kept here only, never sent to the host. The next repository list after GitHub
+  /// changed answers it: `returned` when listed, `missing` when not (Leo 2026-11-25, github-setup-handoffs).
+  wanted?: string;
+  /// The wanted repository came back listed: the folder menu picks it once (``GitHubPicker/onTakeReturned``).
+  returned?: string;
+  /// The wanted repository is still not shared with the app: the GitHub step says how to add it.
+  missing?: string;
 };
 
 /// The folder menu's handle on the store (a gallery or test passes its own).
@@ -67,8 +75,11 @@ export type GitHubPicker = {
   state: GitHubPickerState;
   /// The menu opened: read the status (and the repositories, once it is ready).
   onOpen(): void;
-  /// Connect to GitHub, or Choose more repositories…: the host opens GitHub.
-  onConnect(): void;
+  /// Connect to GitHub, or Choose more repositories…: the host opens GitHub. `want`: the repository the person is
+  /// after (typed or chosen; `owner/name`, `github:owner/name` or a github.com URL), picked once it comes back.
+  onConnect(want?: string): void;
+  /// The folder menu picked `returned`: forget it.
+  onTakeReturned?(): void;
   /// Read the repositories again for `query` (Enter on a search the loaded page has no match for).
   onSearch(query: string | null): void;
   onRetry(): void;
@@ -215,6 +226,21 @@ export function createGitHubPicker(
     unwatch?.();
     unwatch = undefined;
   };
+  // A list read after GitHub changed (or the page came back from GitHub) answers `wanted`; a list read for any
+  // other reason (the menu opening before Connect) does not.
+  let checksWanted = false;
+  const settleWanted = (wanted: string, repos: readonly GitHubRepo[], truncated: boolean, query: string | null) => {
+    const found = repos.find((repo) => repo.fullName.toLowerCase() === wanted.toLowerCase());
+    if (found) {
+      checksWanted = false;
+      set({ wanted: undefined, missing: undefined, returned: found.fullName });
+    } else if (truncated && query !== wanted) {
+      listRepos(wanted); // a page that stops short: ask for the repository by name before saying it's missing
+    } else {
+      checksWanted = false;
+      set({ wanted: undefined, missing: wanted });
+    }
+  };
   const listRepos = (query: string | null) => {
     const turn = ++reposTurn;
     set({ loading: true, error: undefined, rateLimited: undefined, retryAfter: undefined, query });
@@ -223,6 +249,7 @@ export function createGitHubPicker(
         if (turn !== reposTurn) return;
         const { repos, truncated } = githubReposFromReply(reply);
         set({ repos, truncated, loading: false });
+        if (state.wanted && !state.waiting && checksWanted) settleWanted(state.wanted, repos, truncated, query);
       },
       (error: unknown) => {
         if (turn !== reposTurn) return;
@@ -283,7 +310,8 @@ export function createGitHubPicker(
   // The app finished a connection (or a Reconfigure changed it): a menu that read the status reads it again, and its
   // repositories with it, with no restart and no click.
   watchChanged(() => {
-    if (state.status !== undefined) readStatus(true);
+    if (state.wanted) checksWanted = true;
+    if (state.status !== undefined || state.wanted) readStatus(true);
     const runs = [...afterChanges];
     afterChanges.clear();
     for (const run of runs) run();
@@ -299,22 +327,31 @@ export function createGitHubPicker(
       if (state.connectError !== undefined) set({ connectError: undefined });
       if (!statusOut) readStatus();
     },
-    connect() {
+    connect(want?: string) {
       if (state.connecting) return;
-      set({ connectError: undefined, connecting: true });
-      call("github.connect", {}).then(
+      const wanted = githubFullName(want);
+      checksWanted = false;
+      set({ connectError: undefined, connecting: true, wanted, missing: undefined, returned: undefined });
+      // The wanted repository goes to the host too: GitHub's page opens for its owner, and a connection that already
+      // covers it answers `opened: false` with nothing to open.
+      call("github.connect", wanted ? { repo: wanted } : {}).then(
         (reply) => {
           set({ connecting: false });
           // Already connected (the host found it so as it re-read the status): read it here too.
           if ((reply as { opened?: unknown } | null)?.opened === false) {
-            readStatus();
+            if (state.wanted) checksWanted = true;
+            readStatus(state.wanted !== undefined);
             return;
           }
           waitingFrom = statusKey(state.status);
           set({ waiting: true });
           // Back from the browser: the page becomes the key one again, and the status is read.
           unwatch ??= watchKey(() => {
-            if (isKey()) readStatus();
+            if (!isKey()) return;
+            // Choose more repositories… from a ready list: the status stays ready, so the list is read again for the
+            // wanted repository (GitHub's settings page may not hand back to the app).
+            if (state.wanted) checksWanted = true;
+            readStatus(state.wanted !== undefined);
           });
         },
         (error: unknown) => {
@@ -354,6 +391,9 @@ export function createGitHubPicker(
       );
     },
     /// Runs `run` once, the next time the app says GitHub changed (a connect it finished); returns the cancel.
+    takeReturned() {
+      if (state.returned !== undefined) set({ returned: undefined });
+    },
     afterChange(run: () => void): () => void {
       afterChanges.add(run);
       return () => void afterChanges.delete(run);
@@ -388,5 +428,6 @@ export function useGitHubPicker(store?: GitHubPickerStore): GitHubPicker {
     onConnect: picker.connect,
     onSearch: picker.search,
     onRetry: picker.retry,
+    onTakeReturned: picker.takeReturned,
   };
 }

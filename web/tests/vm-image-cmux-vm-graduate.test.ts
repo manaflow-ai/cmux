@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { DEFAULT_LOCK_PATH } from "../scripts/cmux-vm-image/lock";
-import { GRADUATED_PATH, GRADUATED_REPO_PATH, NONE, graduate, graduatedInstallCommand, parseGraduated, parseSummary, readGraduated } from "../scripts/cmux-vm-image/graduate";
+import { GRADUATED_APT_CHECKS, GRADUATED_PATH, GRADUATED_REPO_PATH, NONE, graduate, graduatedCheckCommand, graduatedInstallCommand, parseGraduated, parseSummary, readGraduated } from "../scripts/cmux-vm-image/graduate";
 import { isBaseInput, layerKeys } from "../scripts/cmux-vm-image/layers";
 import { runChild } from "./helpers/run-child";
 
@@ -52,6 +52,32 @@ describe("graduate", () => {
     const r = await runChild("sh", ["-n"], { input: cmd, timeout: 10_000 });
     expect(r.status).toBe(0);
     expect(graduatedInstallCommand(NONE, "x")).toBe('echo "graduated: 0 apt, 0 npm"');
+  });
+});
+
+describe("the media and dev tools the image carries (Leo, 2026-11-25: \"ffprobe isn't installed\")", () => {
+  const tools = ["ffmpeg", "imagemagick", "poppler-utils", "sqlite3", "git-lfs", "fd-find", "unzip", "zip", "file", "tree"];
+
+  test("graduated.json lists each, and each has a check that its command runs", () => {
+    const g = readGraduated(GRADUATED_PATH);
+    for (const name of tools) {
+      expect(g.apt).toContain(name);
+      expect(GRADUATED_APT_CHECKS[name]).toBeDefined();
+    }
+    expect(GRADUATED_APT_CHECKS.ffmpeg).toContain("ffprobe");
+  });
+
+  test("the install wires fd and git-lfs and fails the bake when a checked tool does not run", async () => {
+    const cmd = graduatedInstallCommand(readGraduated(GRADUATED_PATH), "true");
+    expect(cmd).toContain("/usr/local/bin/fd");
+    expect(cmd).toContain("git lfs install --system --skip-repo");
+    expect((await runChild("sh", ["-n"], { input: cmd, timeout: 10_000 })).status).toBe(0);
+    expect(graduatedCheckCommand({ apt: ["jq"], npm: [] })).toBe("");
+    // A check that fails exits 1 and names the tool; one that runs prints ok.
+    const failing = graduatedCheckCommand({ apt: ["ffmpeg"], npm: [] });
+    const r = await runChild("/bin/sh", ["-c", failing], { env: { PATH: "/nonexistent" }, timeout: 10_000 });
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain("graduated: check ffmpeg FAILED");
   });
 });
 
