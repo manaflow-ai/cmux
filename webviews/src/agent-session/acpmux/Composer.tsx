@@ -2949,7 +2949,7 @@ function ComposerFrame({
   const chooseSend = (choice: SendChoice) => {
     if (choice === "side") send(false, false, undefined, "side");
     // Queue for later is ⌘Return; Send is the button's own send.
-    else send(false, choice === "queue" ? steersAlways : followUpSteers("return", followUpMode, followUp));
+    else send(false, followUpSteers(choice === "queue" ? "menuQueue" : "return", followUpMode, followUp));
   };
   // Declared after every value they read: the React Compiler refuses a closure that reads one declared
   // below it.
@@ -3179,7 +3179,7 @@ function ComposerFrame({
       event.preventDefault();
       const typed = typedWords().trim() !== "";
       const sendAndOpen = (gesture?: SendGesture) => {
-        const sent = submitNow.current(false, steersAlways || steersUnseen, gesture);
+        const sent = submitNow.current(false, followUpSteers("quickOpen", followUpMode, followUp), gesture);
         // A prompt the host refused stays in the composer, and the chat stays here.
         if (typed && !sent) return;
         openInWindow.current?.(sent);
