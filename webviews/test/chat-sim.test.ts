@@ -180,11 +180,12 @@ test("chat simulator: the sanitizer keeps the shape and drops every word", () =>
 
 // 300 turns by default (about 3 s); CHAT_SIM_LONG=1 runs 1,800 (10k+ rows, 40 h simulated, about 90 s).
 const LONG = process.env.CHAT_SIM_LONG === "1";
-test(`chat simulator: a ${LONG ? "monstrously " : ""}long run (${LONG ? "10k+" : "1.5k+"} rows, hours of virtual time) runs and keeps rule b`, () => {
+test(`chat simulator: a ${LONG ? "monstrously " : ""}long run (${LONG ? "10k+" : "1.5k+"} rows, hours of virtual time) keeps folds and settled rows stable`, () => {
   const result = runSimulation(longRun(LONG ? 1_800 : 300), { rowsInTraceUpTo: 0 });
   expect(result.recordRows).toBeGreaterThan(LONG ? 10_000 : 1_500);
   expect(result.virtualMs).toBeGreaterThan((LONG ? 30 : 6) * 3_600_000);
   expect(broken(result, "b-")).toEqual([]);
+  expect(broken(result, "d-shift")).toEqual([]);
 }, 300_000);
 
 // Leo, 2026-11-25: "the animation for compaction and a message sent/steered during compaction is weird. the worked for
