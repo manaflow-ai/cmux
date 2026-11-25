@@ -425,13 +425,25 @@ svg.acpmux-next-step__arrow {
 .acpmux-question-swap > [aria-hidden="true"] { visibility: hidden; }
 /* What Send still waits for, one line in the bar before the pager that steps to it: cut short rather
    than wrapped, and the first to give way in a narrow card; then "Needs your input" is cut, and the
-   pager and the × never leave the bar. */
-.acpmux-question-bar > span:first-child { flex: 0 1 auto; overflow: hidden; white-space: nowrap; }
-/* The actions give way first (down to the pager and the ×, their least width), then the label. */
-.acpmux-question-bar-actions { flex: 0 100000 auto; }
+   pager and the × never leave the bar.
+   The actions' box is flattened so the hint, the pager and the × are the bar's own items: a box around
+   them took the hint's whole line as its least width, so a long hint ("Answer Migration, Platforms,
+   and Flag to submit") pushed the × out of the card in a real pane (dev build of #56570). The gaps are
+   the ones the box drew: 8 px after the label, 6 px before the pager, 2 px before the ×. */
+.acpmux-question-bar { column-gap: var(--grid-half-step); }
+.acpmux-question-bar-actions { display: contents; }
+.acpmux-question-bar > span:first-child {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-right: auto;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.acpmux-question-bar-actions > :first-child { margin-left: calc(var(--ds-space-2) - var(--grid-half-step)); }
 .acpmux-question-bar-actions > :not(.acpmux-question-hint) { flex: none; }
 .acpmux-question-bar .acpmux-question-hint {
-  flex: 0 1 auto;
+  flex: 0 100000 auto;
+  min-width: 0;
   margin-right: var(--ds-space-1);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);

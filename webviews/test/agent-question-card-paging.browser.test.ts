@@ -123,7 +123,11 @@ await requireBrowserLane("agent-question-card-paging.browser.test.ts", async () 
           await page.locator(selector).click();
           await settle(page);
           expect(await position(page)).toBe(expected);
-          expectSame(`${expected} (${width} px, ${scale}x)`, first, await boxes(page));
+          const now = await boxes(page);
+          expectSame(`${expected} (${width} px, ${scale}x)`, first, now);
+          // The last page's hint gives way before the × does: the × stays inside the card (a long
+          // hint pushed it out in a real pane).
+          expect(now.dismiss.x + now.dismiss.width).toBeLessThanOrEqual(now.card.x + now.card.width + TOLERANCE);
         };
         const next = ".acpmux-question-nav-button:not([data-step])";
         const previous = '.acpmux-question-nav-button[data-step="previous"]';
