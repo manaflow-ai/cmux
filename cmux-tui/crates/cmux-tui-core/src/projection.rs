@@ -1292,11 +1292,10 @@ fn mount(
     } else if let Some(barrier) = old_barrier.take() {
         let _ = barrier.complete();
     }
-    // RFD 0007, seed bundles: with `CMUX_PROJECTION_GIT_SWAP=1`, a `.git` with a public remote
-    // takes its objects from the remote (a blobless fetch the machine makes) and only what the
-    // Mac has unpushed over the link, then switches from projection to that repository. Opt-in
-    // until Bring Back reads the machine's repository after a swap.
-    if std::env::var_os("CMUX_PROJECTION_GIT_SWAP").is_some_and(|value| value == "1") {
+    // RFD 0007, seed bundles: carry is on by default. The sender's live git probe adds a depth-1
+    // pack and base to the manifest, and the machine switches from projection to that repository.
+    // CMUX_PROJECTION_GIT_SWAP=off is the diagnostic kill switch.
+    if cmux_projection::git_swap::enabled() {
         let swapping = projected.clone();
         let (at, state) = (at.to_path_buf(), state.to_path_buf());
         let _ = std::thread::Builder::new().name("projection-git-swap".into()).spawn(move || {
