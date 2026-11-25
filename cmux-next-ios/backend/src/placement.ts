@@ -45,6 +45,45 @@ export const TIE_MS = 2
 
 export const isRegion = (v: string): v is Region => (REGIONS as readonly string[]).includes(v)
 
+/**
+ * The name of link session `sessionId`'s relay (`LinkRelay`) in a build space: the owner key, the space and the
+ * (lowercase) session id, never a client value. The Worker's relay route and the hub's prewarm (TeamHub) both
+ * name the object with this, so they reach the same one.
+ */
+export const relayRoomName = (ownerKey: string, space: string, sessionId: string) =>
+  `${space ? `${space}|` : ""}relay:${ownerKey}:${sessionId}`
+
+/**
+ * Where a new TeamHub should live: the region of the caller's own location (Cloudflare's geolocation of the
+ * client), not of the colo that received the request. A Durable Object stays where it is first created, and
+ * free-plan traffic is sometimes received far away (a California client was served from Paris on 2026-10-13),
+ * so creating hubs next to the ingress colo stranded them across an ocean. Only affects a hub's creation.
+ */
+export const locationHintFor = (cf: { continent?: unknown; longitude?: unknown; country?: unknown } | undefined): DurableObjectLocationHint | undefined => {
+  if (!cf || typeof cf.continent !== "string") return undefined
+  const lon = typeof cf.longitude === "string" ? Number.parseFloat(cf.longitude) : typeof cf.longitude === "number" ? cf.longitude : Number.NaN
+  switch (cf.continent) {
+    case "NA":
+      return Number.isFinite(lon) && lon < -100 ? "wnam" : "enam"
+    case "SA":
+      return "sam"
+    case "EU":
+      return Number.isFinite(lon) && lon > 20 ? "eeur" : "weur"
+    case "AF":
+      return "afr"
+    case "OC":
+      return "oc"
+    case "AS":
+      return ["AE", "BH", "IL", "IQ", "IR", "JO", "KW", "LB", "OM", "QA", "SA", "SY", "YE"].includes(String(cf.country)) ? "me" : "apac"
+    default:
+      return undefined
+  }
+}
+
+/** `locationHintFor` of an end known by its signal socket's ingress (the hub has no `req.cf`, only this). */
+export const locationHintOf = (end: Ingress | null | undefined): DurableObjectLocationHint | undefined =>
+  end ? locationHintFor({ continent: end.continent ?? undefined, longitude: end.lon ?? undefined, country: end.country ?? undefined }) : undefined
+
 /** The netcheck target of `region` in a build space: one `LinkRelay` object per region, never a client value. */
 export const netcheckRoomName = (space: string, region: Region) => `${space ? `${space}|` : ""}netcheck:${region}`
 

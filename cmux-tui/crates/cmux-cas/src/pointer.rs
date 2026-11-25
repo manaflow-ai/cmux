@@ -1,81 +1,42 @@
-//! A channel's signed pointer: which root manifest is current on a channel (app nightly, web
-//! every-merge, cloud-machine, image devbox, ci seed), inside the `cmux-signed-envelope` the web
-//! update pointer and the Cloud machine channel already use. The payload:
-//!
-//! ```json
-//! {"purpose": "cmux-cas-pointer", "schema": 1, "channel": "web-every-merge",
-//!  "root": "<64 hex>", "size": 123, "commit": "<sha>", "abi": 1, "floor": 42,
-//!  "https_base": "https://files.cmux.com/cas/"}
-//! ```
-//!
-//! [`Pointer::open`] checks the signature before reading any field, then the purpose (so a file
-//! signed for another kind never opens as a pointer), the channel, and the replay floor: a
-//! pointer whose `floor` is below the last one the reader accepted is an old pointer replayed.
+//! The signed pointer naming a channel's current manifest, inside the `cmux-signed-envelope`
+//! the web OTA and the Cloud machine channel already use. Its payload `purpose` is
+//! [`PURPOSE`], so a web pointer or a machine channel file never opens as one, nor this as them.
 
-use crate::Result;
-use crate::id::{Id, unhex};
-use cmux_signed_envelope::Key;
+use crate::{Id, Result};
 use serde::{Deserialize, Serialize};
 
-/// The payload's `purpose`.
+/// The payload purpose of a `cas/1` pointer.
 pub const PURPOSE: &str = "cmux-cas-pointer";
-/// The payload schema this build reads.
-pub const SCHEMA: u64 = 1;
 
-/// A channel's current root manifest.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// A pointer's payload.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Pointer {
     /// [`PURPOSE`].
     pub purpose: String,
-    /// [`SCHEMA`].
-    pub schema: u64,
-    /// The channel it names the root of.
+    /// The channel, e.g. `web/every-merge`.
     pub channel: String,
-    /// The root manifest's id (hex).
-    pub root: String,
-    /// The artifact's size.
-    pub size: u64,
-    /// The commit it was built from.
-    pub commit: String,
-    /// The artifact's ABI, which a reader checks it can run.
-    pub abi: u64,
-    /// A number that only grows on a channel; a reader refuses one below the last it accepted.
-    pub floor: u64,
-    /// Where the chunks' pack files are on HTTPS, the floor every client can reach.
-    pub https_base: String,
+    /// The manifest's id.
+    pub manifest: Id,
+    /// The packs holding its chunks (`packs/<id>.pack`).
+    pub packs: Vec<Id>,
+    /// A sequence the client never lets go backwards.
+    pub sequence: u64,
 }
 
-impl Pointer {
-    /// The pointer in envelope `body` when one of `keys` signed it, it is for `channel`, and its
-    /// floor is at least `min_floor`.
-    pub fn open(body: &[u8], keys: &[Key], channel: &str, min_floor: u64) -> Result<Self> {
-        let payload = cmux_signed_envelope::open(body, keys)?;
-        let pointer: Self = serde_json::from_slice(&payload)
-            .map_err(|e| format!("the signed payload is not a cas pointer: {e}"))?;
-        if pointer.purpose != PURPOSE {
-            return Err(
-                format!("the payload is a {} file, not a cas pointer", pointer.purpose).into()
-            );
-        }
-        if pointer.schema != SCHEMA {
-            return Err(format!("unknown cas pointer schema {}", pointer.schema).into());
-        }
-        if pointer.channel != channel {
-            return Err(format!("the pointer is for {}, not {channel}", pointer.channel).into());
-        }
-        if pointer.floor < min_floor {
-            return Err(format!(
-                "the pointer's floor {} is below {min_floor}: an old pointer replayed",
-                pointer.floor
-            )
-            .into());
-        }
-        unhex(&pointer.root)?;
-        Ok(pointer)
+/// The pointer `body` holds, when one of `keys` signed it and it is for `channel`.
+pub fn open(body: &[u8], keys: &[cmux_signed_envelope::Key], channel: &str) -> Result<Pointer> {
+    let payload = cmux_signed_envelope::open(body, keys)?;
+    let p: Pointer = serde_json::from_slice(&payload)?;
+    if p.purpose != PURPOSE {
+        return Err(format!("payload purpose {:?} is not {PURPOSE}", p.purpose).into());
     }
+    if p.channel != channel {
+        return Err(format!("pointer is for channel {:?}, not {channel:?}", p.channel).into());
+    }
+    Ok(p)
+}
 
-    /// The root manifest's id.
-    pub fn root_id(&self) -> Result<Id> {
-        unhex(&self.root)
-    }
+/// Whether `next` may replace `current`: a higher sequence, or the same manifest.
+pub fn newer(current: Option<&Pointer>, next: &Pointer) -> bool {
+    current.is_none_or(|c| next.sequence > c.sequence || next.manifest == c.manifest)
 }

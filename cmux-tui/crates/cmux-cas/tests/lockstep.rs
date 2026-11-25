@@ -6,7 +6,9 @@
 //! deadline on `WANT`) and a message kind version 1 does not know (`PATCH?`).
 
 use cmux_cas::wire::{Frame, KIND_DATA, KIND_HAVE, KIND_NOPE, KIND_WANT, tag};
-use cmux_cas::{ChunkStore, IdScheme, MemStore, Message, VERSION, accept, respond};
+use cmux_cas::peer::{accept, respond};
+use cmux_cas::wire::{Message, VERSION};
+use cmux_cas::{Id, Store};
 
 const V2: u16 = 2;
 /// Tags version 1 does not know.
@@ -32,32 +34,32 @@ fn over_the_wire(frames: &[Frame]) -> Vec<Frame> {
 
 /// A version 2 peer: answers what it knows; reads a version 1 `NOPE` of a kind as "fall back".
 struct V2Peer {
-    store: MemStore,
+    store: Store,
 }
 
 impl V2Peer {
-    fn want(&self, ids: &[[u8; 32]]) -> Frame {
+    fn want(&self, ids: &[Id]) -> Frame {
         Frame {
             version: V2,
             kind: KIND_WANT,
             fields: vec![
                 (TAG_DEADLINE, 250u32.to_le_bytes().to_vec()),
-                (tag::IDS, ids.concat()),
+                (tag::IDS, ids.iter().flat_map(|id| id.0).collect()),
                 (tag::PRIORITY, vec![1]),
             ],
         }
     }
 
-    fn have(&self, root: [u8; 32]) -> Frame {
+    fn have(&self, root: Id) -> Frame {
         Frame {
             version: V2,
             kind: KIND_HAVE,
-            fields: vec![(tag::ROOT, root.to_vec()), (TAG_BLOOM, vec![0xff; 64])],
+            fields: vec![(tag::ROOT, root.0.to_vec()), (TAG_BLOOM, vec![0xff; 64])],
         }
     }
 
-    fn patch(&self, base: [u8; 32], target: [u8; 32]) -> Frame {
-        Frame { version: V2, kind: KIND_PATCH, fields: vec![(tag::IDS, [base, target].concat())] }
+    fn patch(&self, base: Id, target: Id) -> Frame {
+        Frame { version: V2, kind: KIND_PATCH, fields: vec![(tag::IDS, [base.0, target.0].concat())] }
     }
 
     /// The v2 answer to a WANT: v1's DATA fields plus an outboard v1 never heard of.
@@ -65,14 +67,14 @@ impl V2Peer {
         let ids = frame.field(tag::IDS).unwrap();
         ids.chunks(32)
             .map(|id| {
-                let id: [u8; 32] = id.try_into().unwrap();
+                let id = Id(id.try_into().unwrap());
                 let bytes = self.store.get(&id).unwrap();
                 Frame {
                     version: V2,
                     kind: KIND_DATA,
                     fields: vec![
                         (TAG_OUTBOARD, vec![0xab; 128]),
-                        (tag::ID, id.to_vec()),
+                        (tag::ID, id.0.to_vec()),
                         (tag::BYTES, bytes),
                     ],
                 }
@@ -83,14 +85,15 @@ impl V2Peer {
 
 #[test]
 fn lockstep_v1_and_v2_peers_interoperate_both_ways() {
-    let scheme = IdScheme::Public;
+    let dirs: Vec<_> = (0..4).map(|_| tempfile::tempdir().unwrap()).collect();
     let chunk_a = b"chunk a: a v2 peer serves this to a v1 peer".to_vec();
     let chunk_b = b"chunk b: a v1 peer serves this to a v2 peer".to_vec();
 
     // --- Direction 1: a v1 client asks a v2 server. ---
-    let v2 = V2Peer { store: MemStore::new() };
-    let id_a = v2.store.put(&scheme, &chunk_a).unwrap();
-    let v1_client = MemStore::new();
+    let v2 = V2Peer { store: Store::new(dirs[0].path()) };
+    let id_a = Id::of(&chunk_a);
+    v2.store.put(&id_a, &chunk_a).unwrap();
+    let v1_client = Store::new(dirs[1].path());
     let ask = Message::Want { version: VERSION, ids: vec![id_a], priority: 0 };
     let [ask] = over_the_wire(&[ask.to_frame()]).try_into().unwrap();
     assert_eq!(ask.version, VERSION);
@@ -100,21 +103,22 @@ fn lockstep_v1_and_v2_peers_interoperate_both_ways() {
         // v1 skips the outboard tag it does not know and reads the chunk.
         let message = Message::from_frame(reply).unwrap();
         assert_eq!(message.version(), V2);
-        assert_eq!(accept(&v1_client, &scheme, &message).unwrap(), Some(id_a));
+        assert_eq!(accept(&v1_client, &message).unwrap(), Some(id_a));
     }
     assert_eq!(v1_client.get(&id_a).unwrap(), chunk_a);
 
     // A v2 HAVE with a bloom v1 cannot read still gives v1 the root.
-    let [have] = over_the_wire(&[v2.have([9; 32])]).try_into().unwrap();
+    let [have] = over_the_wire(&[v2.have(Id([9; 32]))]).try_into().unwrap();
     assert!(matches!(
         Message::from_frame(&have).unwrap(),
-        Message::Have { version: V2, root: Some(r), ids } if r == [9; 32] && ids.is_empty()
+        Message::Have { version: V2, root: Some(r), ids } if r == Id([9; 32]) && ids.is_empty()
     ));
 
     // --- Direction 2: a v2 client asks a v1 server. ---
-    let v1_server = MemStore::new();
-    let id_b = v1_server.put(&scheme, &chunk_b).unwrap();
-    let v2_client = MemStore::new();
+    let v1_server = Store::new(dirs[2].path());
+    let id_b = Id::of(&chunk_b);
+    v1_server.put(&id_b, &chunk_b).unwrap();
+    let v2_client = Store::new(dirs[3].path());
     let [want] = over_the_wire(&[v2.want(&[id_b])]).try_into().unwrap();
     // v1 reads the v2 WANT, ignoring the deadline, and answers in v1.
     let asked = Message::from_frame(&want).unwrap();
@@ -131,7 +135,7 @@ fn lockstep_v1_and_v2_peers_interoperate_both_ways() {
     assert_eq!(answers[0].kind, KIND_DATA);
     assert!(answers[0].field(TAG_OUTBOARD).is_none());
     let data = Message::from_frame(&answers[0]).unwrap();
-    assert_eq!(accept(&v2_client, &scheme, &data).unwrap(), Some(id_b));
+    assert_eq!(accept(&v2_client, &data).unwrap(), Some(id_b));
     assert_eq!(v2_client.get(&id_b).unwrap(), chunk_b);
 
     // A v2 message kind v1 does not know (PATCH?) is answered NOPE naming that kind and v1's
@@ -154,10 +158,10 @@ fn lockstep_v1_and_v2_peers_interoperate_both_ways() {
 fn lockstep_v1_unknown_field_inside_a_known_message_is_ignored() {
     // Same version, one more field (a v1-plus build): every v1 message still reads.
     for m in [
-        Message::Have { version: VERSION, root: Some([1; 32]), ids: vec![[2; 32]] },
-        Message::Want { version: VERSION, ids: vec![[3; 32]], priority: 4 },
-        Message::Data { version: VERSION, id: [5; 32], bytes: b"x".to_vec() },
-        Message::Nope { version: VERSION, ids: vec![[6; 32]], kind: None, reason: "gone".into() },
+        Message::Have { version: VERSION, root: Some(Id([1; 32])), ids: vec![Id([2; 32])] },
+        Message::Want { version: VERSION, ids: vec![Id([3; 32])], priority: 4 },
+        Message::Data { version: VERSION, id: Id([5; 32]), bytes: b"x".to_vec() },
+        Message::Nope { version: VERSION, ids: vec![Id([6; 32])], kind: None, reason: "gone".into() },
     ] {
         let mut frame = m.to_frame();
         frame.fields.insert(0, (200, b"from the future".to_vec()));

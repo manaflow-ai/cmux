@@ -187,12 +187,12 @@ impl Message {
 
     /// The message as a frame.
     pub fn to_frame(&self) -> Frame {
-        let id_list = |ids: &[Id]| ids.concat();
+        let id_list = |ids: &[Id]| ids.iter().flat_map(|id| id.0).collect::<Vec<u8>>();
         let (version, kind, fields) = match self {
             Self::Have { version, root, ids } => {
                 let mut fields = Vec::new();
                 if let Some(root) = root {
-                    fields.push((tag::ROOT, root.to_vec()));
+                    fields.push((tag::ROOT, root.0.to_vec()));
                 }
                 fields.push((tag::IDS, id_list(ids)));
                 (*version, KIND_HAVE, fields)
@@ -203,7 +203,7 @@ impl Message {
                 vec![(tag::IDS, id_list(ids)), (tag::PRIORITY, vec![*priority])],
             ),
             Self::Data { version, id, bytes } => {
-                (*version, KIND_DATA, vec![(tag::ID, id.to_vec()), (tag::BYTES, bytes.clone())])
+                (*version, KIND_DATA, vec![(tag::ID, id.0.to_vec()), (tag::BYTES, bytes.clone())])
             }
             Self::Nope { version, ids, kind, reason } => {
                 let mut fields = vec![(tag::IDS, id_list(ids))];
@@ -265,7 +265,7 @@ impl Message {
 }
 
 fn one_id(bytes: &[u8]) -> Result<Id> {
-    Id::try_from(bytes).map_err(|_| format!("an id of {} bytes, not 32", bytes.len()).into())
+    <[u8; 32]>::try_from(bytes).map(Id).map_err(|_| format!("an id of {} bytes, not 32", bytes.len()).into())
 }
 
 fn ids(bytes: &[u8]) -> Result<Vec<Id>> {
@@ -273,7 +273,7 @@ fn ids(bytes: &[u8]) -> Result<Vec<Id>> {
     if !rest.is_empty() {
         return Err(format!("an id list of {} bytes, not a multiple of 32", bytes.len()).into());
     }
-    Ok(ids.to_vec())
+    Ok(ids.iter().copied().map(Id).collect())
 }
 
 #[cfg(test)]
@@ -282,13 +282,13 @@ mod tests {
 
     fn all() -> Vec<Message> {
         vec![
-            Message::Have { version: VERSION, root: Some([1; 32]), ids: vec![[2; 32], [3; 32]] },
+            Message::Have { version: VERSION, root: Some(Id([1; 32])), ids: vec![Id([2; 32]), Id([3; 32])] },
             Message::Have { version: VERSION, root: None, ids: vec![] },
-            Message::Want { version: VERSION, ids: vec![[4; 32]], priority: 2 },
-            Message::Data { version: VERSION, id: [5; 32], bytes: b"chunk".to_vec() },
+            Message::Want { version: VERSION, ids: vec![Id([4; 32])], priority: 2 },
+            Message::Data { version: VERSION, id: Id([5; 32]), bytes: b"chunk".to_vec() },
             Message::Nope {
                 version: VERSION,
-                ids: vec![[6; 32]],
+                ids: vec![Id([6; 32])],
                 kind: None,
                 reason: String::new(),
             },

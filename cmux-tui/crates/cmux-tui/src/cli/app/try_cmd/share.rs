@@ -261,11 +261,15 @@ pub(super) fn dev_apps(answered: Vec<PathBuf>, is_dev_app: impl Fn(&Path) -> boo
     apps
 }
 
-/// The `.app` of every DEV build that answers `system.identify` on its own socket (`/tmp` and
-/// `~/.local/state/cmux`, where tagged builds put them): the builds register themselves, nothing is scanned.
+/// The `.app` of every DEV build that answers `system.identify` on its own socket (`/tmp`,
+/// `~/.local/state/cmux-next`, where tagged builds put them, and classic's `~/.local/state/cmux`,
+/// where builds before put them): the builds register themselves, nothing is scanned.
 fn answering_apps(home: Option<&Path>) -> Vec<PathBuf> {
     let mut dirs = vec![PathBuf::from("/tmp")];
-    dirs.extend(home.map(|home| home.join(".local/state/cmux")));
+    if let Some(home) = home {
+        dirs.push(cmux_agent_pane_policy::build_identity::socket_state_dir(home));
+        dirs.push(home.join(cmux_agent_pane_policy::build_identity::SOCKET_STATE_DIR_BEFORE));
+    }
     let mut apps = Vec::new();
     for dir in dirs {
         let Ok(entries) = fs::read_dir(&dir) else { continue };

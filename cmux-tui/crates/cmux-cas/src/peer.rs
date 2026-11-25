@@ -1,21 +1,19 @@
-//! Both ends of `cas/1`: what to ask for, how to answer, and what to keep.
+//! Both ends of a `cas/1` [`wire`](crate::wire) link: what to ask for, how to answer, and what to
+//! keep.
 //!
-//! The asking side reads a manifest, computes [`want`] (its chunks the local store lacks) and
-//! sends `WANT`; the answering side runs every message it reads through [`respond`] and writes
-//! back what it returns; the asking side runs every `DATA` through [`accept`], which keeps a
-//! chunk only under the id it hashes to. The flow is the one `cmux-session-pack`'s `ship.rs`
-//! already used for a session ("the receiver states what it holds; each chunk is checked against
-//! its id"), per chunk and on any stream.
+//! The asking side reads a manifest, computes [`want`] (its chunks the local [`Store`] lacks,
+//! [`plan::want`]) and sends `WANT`; the answering side runs every message it reads through
+//! [`respond`] and writes back what it returns; the asking side runs every `DATA` through
+//! [`accept`], which keeps a chunk only under the id it hashes to. This is the peer path beside
+//! the R2 pack floor ([`pack`](crate::pack)): the same chunks, the same check, any byte stream.
 
-use crate::Result;
-use crate::id::{Id, IdScheme, hex};
 use crate::manifest::Manifest;
-use crate::store::ChunkStore;
 use crate::wire::{Message, VERSION};
+use crate::{Id, Result, Store, plan};
 
-/// The chunks of `manifest` that `store` lacks, each once.
-pub fn want(store: &dyn ChunkStore, manifest: &Manifest) -> Result<Vec<Id>> {
-    Ok(manifest.chunk_ids()?.into_iter().filter(|id| !store.has(id)).collect())
+/// The chunks of `manifest` that `store` lacks, each once, in first-appearance order.
+pub fn want(store: &Store, manifest: &Manifest) -> Vec<Id> {
+    plan::want(manifest, |id| store.has(id)).into_iter().map(|c| c.id).collect()
 }
 
 /// What this end sends back for `message`, from `store`:
@@ -24,7 +22,7 @@ pub fn want(store: &dyn ChunkStore, manifest: &Manifest) -> Result<Vec<Id>> {
 /// - a kind this build does not speak: `NOPE` naming that kind and this build's version, so the
 ///   newer sender falls back (lockstep);
 /// - `HAVE`, `DATA`, `NOPE`: nothing (they are the asking side's to act on).
-pub fn respond(store: &dyn ChunkStore, message: &Message) -> Result<Vec<Message>> {
+pub fn respond(store: &Store, message: &Message) -> Result<Vec<Message>> {
     Ok(match message {
         Message::Want { ids, .. } => {
             let mut out = Vec::with_capacity(ids.len());
@@ -58,28 +56,36 @@ pub fn respond(store: &dyn ChunkStore, message: &Message) -> Result<Vec<Message>
     })
 }
 
-/// Keeps a `DATA`'s chunk in `store` when its bytes hash to its id under `scheme`, and returns
-/// the id; any other message is `None`. A chunk that does not hash to its id is an error: the
-/// peer that sent it is lying or broken, and the caller drops it.
-pub fn accept(store: &dyn ChunkStore, scheme: &IdScheme, message: &Message) -> Result<Option<Id>> {
+/// Keeps a `DATA`'s chunk in `store` when its bytes hash to its id, and returns the id; any other
+/// message is `None`. A chunk that does not hash to its id is an error: the peer that sent it is
+/// lying or broken, and the caller drops it.
+pub fn accept(store: &Store, message: &Message) -> Result<Option<Id>> {
     let Message::Data { id, bytes, .. } = message else { return Ok(None) };
-    store
-        .receive(scheme, id, bytes)
-        .map_err(|e| format!("peer sent a bad chunk {}: {e}", hex(id)))?;
+    store.put(id, bytes).map_err(|e| format!("peer sent a bad chunk {id}: {e}"))?;
     Ok(Some(*id))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cdc::Params;
-    use crate::cdc::tests::noise;
-    use crate::store::MemStore;
+    use std::collections::BTreeMap;
 
-    /// Fetches `manifest` from `server` into `client` over encoded frames; returns the payload
+    fn noise(seed: u64, n: usize) -> Vec<u8> {
+        let mut s = seed | 1;
+        (0..n)
+            .map(|_| {
+                s ^= s << 13;
+                s ^= s >> 7;
+                s ^= s << 17;
+                s as u8
+            })
+            .collect()
+    }
+
+    /// Fetches `manifest` from `server` into `client` over encoded frames; returns the frame
     /// bytes that crossed the wire.
-    fn fetch(server: &MemStore, client: &MemStore, scheme: &IdScheme, manifest: &Manifest) -> u64 {
-        let ids = want(client, manifest).unwrap();
+    fn fetch(server: &Store, client: &Store, manifest: &Manifest) -> u64 {
+        let ids = want(client, manifest);
         let mut moved = 0;
         for batch in ids.chunks(64) {
             let ask = Message::Want { version: VERSION, ids: batch.to_vec(), priority: 0 };
@@ -87,120 +93,66 @@ mod tests {
             for reply in respond(server, &ask).unwrap() {
                 let body = reply.encode().unwrap();
                 moved += body.len() as u64;
-                accept(client, scheme, &Message::decode(&body).unwrap()).unwrap();
+                accept(client, &Message::decode(&body).unwrap()).unwrap();
             }
         }
         moved
     }
 
-    /// Two archive versions: the same 4 MiB middle between different heads and tails.
-    fn versions() -> (Vec<u8>, Vec<u8>) {
-        let middle = noise(100, 4 << 20);
-        let v1 = [noise(101, 1 << 20), middle.clone(), noise(102, 1 << 20)].concat();
-        let v2 = [noise(201, 1_300_000), middle, noise(202, 700_000)].concat();
-        (v1, v2)
+    fn tree(bytes: Vec<u8>) -> BTreeMap<String, (Vec<u8>, bool)> {
+        BTreeMap::from([("archive".to_owned(), (bytes, false))])
     }
 
     #[test]
-    fn dedup_ratio_on_two_archive_versions() {
-        let scheme = IdScheme::Public;
-        let (v1, v2) = versions();
-        let server = MemStore::new();
-        let client = MemStore::new();
-        let m1 = Manifest::build("archive", &scheme, &[("a", 0o644, &v1)], Params::CAS_V1, &server)
-            .unwrap();
-        let m2 = Manifest::build("archive", &scheme, &[("a", 0o644, &v2)], Params::CAS_V1, &server)
-            .unwrap();
+    fn an_update_over_the_wire_moves_only_the_new_chunks() {
+        let (s, c) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let (server, client) = (Store::new(s.path()), Store::new(c.path()));
+        // Two archive versions: the same 4 MiB middle between different heads and tails.
+        let middle = noise(100, 4 << 20);
+        let v1 = [noise(101, 1 << 20), middle.clone(), noise(102, 1 << 20)].concat();
+        let v2 = [noise(201, 1_300_000), middle, noise(202, 700_000)].concat();
+        let put = |id, b: &[u8]| server.put(&id, b);
+        let m1 = Manifest::build(&tree(v1), put).unwrap();
+        let m2 = Manifest::build(&tree(v2.clone()), put).unwrap();
         // The client installs v1 whole, then updates to v2.
-        fetch(&server, &client, &scheme, &m1);
-        assert_eq!(m1.assemble(&client, &scheme).unwrap(), v1);
-        let lacking = want(&client, &m2).unwrap();
-        let lacking_bytes: u64 = m2
-            .entries
-            .iter()
-            .flat_map(|e| &e.chunks)
-            .filter(|(id, _)| lacking.contains(&crate::unhex(id).unwrap()))
-            .map(|(_, len)| *len)
-            .sum();
-        let moved = fetch(&server, &client, &scheme, &m2);
-        assert_eq!(m2.assemble(&client, &scheme).unwrap(), v2);
+        fetch(&server, &client, &m1);
+        let lacking = plan::want(&m2, |id| client.has(id));
+        let lacking_bytes: u64 = lacking.iter().map(|c| u64::from(c.len)).sum();
+        let moved = fetch(&server, &client, &m2);
+        assert!(want(&client, &m2).is_empty());
         let shared = v2.len() as u64 - lacking_bytes;
-        let ratio = shared as f64 / v2.len() as f64;
-        let middle_share = f64::from(4u32 << 20) / v2.len() as f64;
         eprintln!(
-            "dedup: v2 {} bytes, {} chunks ({} lacking); {} bytes reused ({:.1} %, the shared middle is {:.1} %); {} bytes on the wire",
+            "peer: v2 {} bytes, {} chunks ({} lacking); {shared} bytes reused; {moved} bytes on the wire",
             v2.len(),
-            m2.chunk_ids().unwrap().len(),
+            m2.distinct_chunks().len(),
             lacking.len(),
-            shared,
-            ratio * 100.0,
-            middle_share * 100.0,
-            moved
         );
         // The shared middle is reused but for the chunk at each of its edges (at most 256 KiB
-        // apiece), and only the new head and tail cross the wire.
+        // apiece); only the new head and tail cross the wire, plus a few bytes of framing each.
         assert!(shared + (512 << 10) >= 4 << 20, "only {shared} bytes reused");
-        assert!(moved < lacking_bytes + 4096 * lacking.len() as u64);
+        assert!(moved < lacking_bytes + 64 * lacking.len() as u64);
         assert!(moved < (v2.len() as u64) * 45 / 100, "{moved} bytes moved");
     }
 
     #[test]
     fn a_lying_peer_is_refused_and_a_missing_chunk_is_nope() {
-        let scheme = IdScheme::Public;
-        let client = MemStore::new();
-        let id = scheme.id(b"real");
+        let (s, c) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let (server, client) = (Store::new(s.path()), Store::new(c.path()));
+        let id = Id::of(b"real");
         let lie = Message::Data { version: VERSION, id, bytes: b"fake".to_vec() };
-        assert!(accept(&client, &scheme, &lie).is_err());
+        assert!(accept(&client, &lie).is_err());
         assert!(!client.has(&id));
-        let server = MemStore::new();
-        server.put(&scheme, b"real").unwrap();
-        let absent = scheme.id(b"absent");
+        server.put(&id, b"real").unwrap();
+        let absent = Id::of(b"absent");
         let replies = respond(
             &server,
             &Message::Want { version: VERSION, ids: vec![id, absent], priority: 0 },
         )
         .unwrap();
         assert_eq!(replies.len(), 2);
-        assert_eq!(accept(&client, &scheme, &replies[0]).unwrap(), Some(id));
+        assert_eq!(accept(&client, &replies[0]).unwrap(), Some(id));
         assert!(
             matches!(&replies[1], Message::Nope { ids, kind: None, .. } if *ids == vec![absent])
         );
-    }
-
-    #[test]
-    fn keyed_stores_do_not_serve_each_other() {
-        let bytes = noise(7, 50_000);
-        let alice = IdScheme::Keyed([0xa1; 32]);
-        let bob = IdScheme::Keyed([0xb0; 32]);
-        let alice_store = MemStore::new();
-        let m = Manifest::build(
-            "attachment",
-            &alice,
-            &[("x.png", 0o644, &bytes)],
-            Params::CAS_V1,
-            &alice_store,
-        )
-        .unwrap();
-        // Bob holds the same bytes under his key; none of Alice's ids are among his.
-        let bob_store = MemStore::new();
-        Manifest::build(
-            "attachment",
-            &bob,
-            &[("x.png", 0o644, &bytes)],
-            Params::CAS_V1,
-            &bob_store,
-        )
-        .unwrap();
-        assert_eq!(want(&bob_store, &m).unwrap(), m.chunk_ids().unwrap());
-        // Asked for Alice's ids, Bob's store answers NOPE: no cross-user equality.
-        let replies = respond(
-            &bob_store,
-            &Message::Want { version: VERSION, ids: m.chunk_ids().unwrap(), priority: 0 },
-        )
-        .unwrap();
-        assert!(matches!(replies.as_slice(), [Message::Nope { .. }]));
-        // And Alice's bytes sent as a public chunk do not verify under her key's id.
-        let public_id = IdScheme::Public.id(&bytes);
-        assert!(alice_store.receive(&alice, &public_id, &bytes).is_err());
     }
 }
