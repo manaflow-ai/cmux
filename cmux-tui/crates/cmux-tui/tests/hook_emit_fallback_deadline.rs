@@ -3,10 +3,11 @@
 //! On a host without the `cmux-tui-hook` helper, a wrapped Claude launch
 //! installs `cmux-tui agent hook emit --source claude --event EVENT` for every
 //! event except `PreToolUse` (claude_session_hook_settings). Claude kills a
-//! hook at its installed timeout and shows "A hook didn't answer in time".
+//! hook at its installed timeout (5 s) and shows "A hook didn't answer in time".
 //! This runs that command against a daemon that is gone, one that accepts and
-//! never answers, and one that answers each request after 3 s, and checks
-//! that it exits before the shortest installed timeout (3 s) minus a margin.
+//! never answers, and one that answers each request after 3 s: without
+//! `--deadline-ms` (the command before, measured only) and with the 3500 ms the
+//! installer now writes for 5 s (`emit_deadline_ms`), which must end under 4.5 s.
 
 #![cfg(unix)]
 
@@ -17,12 +18,12 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-/// The shortest timeout a hook is installed with (Codex `SessionEnd`).
-const SHORTEST_INSTALLED: Duration = Duration::from_secs(3);
-/// The margin #56070's helper keeps below the timeout.
-const MARGIN: Duration = Duration::from_millis(1500);
+/// What the installer writes for a hook installed with 5 s.
+const DEADLINE_MS: &str = "3500";
+/// The agent's 5 s timeout less half a second for process start and the shell.
+const BUDGET: Duration = Duration::from_millis(4500);
 /// Past this the run is killed and reported as hung.
-const CAP: Duration = Duration::from_secs(100);
+const CAP: Duration = Duration::from_secs(40);
 
 fn temp_dir(name: &str) -> PathBuf {
     static RUNS: AtomicUsize = AtomicUsize::new(0);
@@ -35,10 +36,11 @@ fn temp_dir(name: &str) -> PathBuf {
 }
 
 /// Runs the installed fallback (`emit ... >/dev/null 2>&1||:;echo {}`) once and returns its wall time.
-fn emit(dir: &Path, socket: &Path, event: &str) -> Duration {
+fn emit(dir: &Path, socket: &Path, event: &str, bounded: bool) -> Duration {
     let start = Instant::now();
     let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
         .args(["agent", "hook", "emit", "--source", "claude", "--event", event])
+        .args(if bounded { vec!["--deadline-ms", DEADLINE_MS] } else { vec![] })
         .env("CMUX_TUI_SOCKET", socket)
         .env("CMUX_MUX_SOCKET", socket)
         .env("HOME", dir)
@@ -97,34 +99,41 @@ fn serve(socket: &Path, delay: Option<Duration>) {
     });
 }
 
-fn measure(state: &str, delay: Option<Option<Duration>>) -> Vec<Duration> {
+fn measure(state: &str, delay: Option<Option<Duration>>, bounded: bool) -> Duration {
     let dir = temp_dir(state);
     let socket = dir.join("d.sock");
     if let Some(delay) = delay {
         serve(&socket, delay);
     }
-    let runs: Vec<Duration> = (0..5).map(|_| emit(&dir, &socket, "Stop")).collect();
-    let mut sorted = runs.clone();
-    sorted.sort();
+    let mut runs: Vec<Duration> = (0..5).map(|_| emit(&dir, &socket, "Stop", bounded)).collect();
+    runs.sort();
     eprintln!(
-        "EMIT-MEASURE state={state} n={} min_ms={} median_ms={} max_ms={}",
-        sorted.len(),
-        sorted[0].as_millis(),
-        sorted[sorted.len() / 2].as_millis(),
-        sorted[sorted.len() - 1].as_millis()
+        "EMIT-MEASURE side={} state={state} n={} min_ms={} median_ms={} max_ms={}",
+        if bounded { "after" } else { "before" },
+        runs.len(),
+        runs[0].as_millis(),
+        runs[runs.len() / 2].as_millis(),
+        runs[runs.len() - 1].as_millis()
     );
     let _ = std::fs::remove_dir_all(&dir);
-    sorted
+    runs[runs.len() - 1]
+}
+
+const STATES: [(&str, Option<Option<Duration>>); 3] =
+    [("dead", None), ("stalled", Some(None)), ("slow-3s", Some(Some(Duration::from_secs(3))))];
+
+/// The command before this change, for the numbers; it is not held to the budget.
+#[test]
+fn emit_without_a_deadline_is_measured() {
+    for (state, delay) in STATES {
+        measure(state, delay, false);
+    }
 }
 
 #[test]
-fn emit_fallback_answers_inside_the_shortest_installed_timeout() {
-    let budget = SHORTEST_INSTALLED - MARGIN;
-    let dead = measure("dead", None);
-    let stalled = measure("stalled", Some(None));
-    let slow = measure("slow-3s", Some(Some(Duration::from_secs(3))));
-    for (state, runs) in [("dead", &dead), ("stalled", &stalled), ("slow-3s", &slow)] {
-        let worst = *runs.last().unwrap();
-        assert!(worst <= budget, "{state}: emit took {worst:?}, over {budget:?}");
+fn emit_with_its_installed_deadline_answers_inside_the_hook_timeout() {
+    for (state, delay) in STATES {
+        let worst = measure(state, delay, true);
+        assert!(worst <= BUDGET, "{state}: emit took {worst:?}, over {BUDGET:?}");
     }
 }

@@ -1161,6 +1161,8 @@ fn parse_agent(
             const MAX_NATIVE_PAYLOAD_BYTES: u64 = 1024 * 1024;
             let source = flags.required("source")?;
             let native_event = flags.required("event")?;
+            // Read and armed before parsing (cli/hook_emit_deadline.rs).
+            flags.take("deadline-ms");
             let native = match flags.take("payload-json") {
                 Some(payload) => serde_json::from_str(&payload).map_err(|error| {
                     UsageError::new(format!("invalid --payload-json JSON: {error}"))
