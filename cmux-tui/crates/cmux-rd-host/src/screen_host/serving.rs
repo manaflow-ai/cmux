@@ -214,7 +214,7 @@ impl Host {
             );
             let ended = session::serve(&hub, &ticket, view_only, &args, &stop);
             eprintln!("{TAG}: session ended: {}", ended.reason);
-            if let Some(reason) = ended.tell_hub {
+            if let Some(reason) = ended.tell_hub.as_deref() {
                 if let Err(e) = hub.end(&ticket.session_id, reason) {
                     eprintln!("{TAG}: end not sent: {e}");
                 }
