@@ -56,6 +56,11 @@ pub struct SubOpts {
     /// Follows the chat's transcript rows (`_acpmux/rows` `follow`): each live record's row
     /// changes go out as `_acpmux/rows_patch` (`rows/serve.rs`).
     pub rows: Option<Arc<crate::rows::Following>>,
+    /// Attached with `omitTimeBreakdown: true` (the phone, which draws no breakdown): the chat's
+    /// `_acpmux/session_changed` rows to this connection leave `timeBreakdown` out too, as the
+    /// attach reply does (`requests/time_breakdown_gate.rs`). A full row of a long chat is mostly
+    /// that field (32 KiB of 36 KiB at 3,000 records, the time-away bench).
+    pub omit_time_breakdown: bool,
     /// The client draws nothing of the chat while it is `hidden` (`_acpmux/attach`
     /// `quietHidden`, the app's pane): its agent's `session/update` stream is left out until a
     /// view shows it, which then says how much in one `_acpmux/lagged` (`view.rs`).
@@ -66,6 +71,11 @@ pub struct SubOpts {
     /// as `afterSeq`, since the turn ends and status records that still went out moved the client's
     /// own cursor past the chunks it never got (`view.rs`).
     pub left_from: u64,
+}
+
+/// Whether `conn` attached `session_id` asking for no `timeBreakdown` (`SubOpts`).
+fn omits_time_breakdown(conn: &Conn, session_id: &str) -> bool {
+    conn.subs.lock_or_recover().get(session_id).is_some_and(|o| o.omit_time_breakdown)
 }
 
 /// Which of one chat's `_acpmux/message` records a connection has heard, so each reaches it once.
@@ -2664,7 +2674,9 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             let full = attached || conn.watch_tools.load(Ordering::SeqCst);
             let mut session =
                 if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) };
-            if conn.omit_time_breakdown.load(Ordering::SeqCst) {
+            if conn.omit_time_breakdown.load(Ordering::SeqCst)
+                || (attached && omits_time_breakdown(conn, &ev.session_id))
+            {
                 requests::without_time_breakdown(&mut session);
             }
             let notice = json!({"sessionId": ev.session_id, "kind": ev.record.kind, "recordKind": ev.record.kind, "seq": s.meta().last_seq, "listSeq": ev.list_seq});
@@ -2903,7 +2915,9 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         let full = attached || conn.watch_tools.load(Ordering::SeqCst);
         // A full row is mostly its time breakdown (93 of 96 KB on a 2,000-turn chat), sent again
         // on every record of a running turn; a client that draws none shares a row without it.
-        let lean = full && conn.omit_time_breakdown.load(Ordering::SeqCst);
+        let lean = full
+            && (conn.omit_time_breakdown.load(Ordering::SeqCst)
+                || (attached && omits_time_breakdown(conn, &ev.session_id)));
         let [list_row, full_row, lean_row] = &ev.row.cells;
         let row = if lean {
             lean_row
@@ -2970,6 +2984,7 @@ fn mux_meta(params: &Value) -> Option<&Value> {
 mod agent_login;
 mod agent_messages;
 mod app_reply;
+mod auto_gate;
 #[cfg(test)]
 #[path = "cancel_classes_tests.rs"]
 mod cancel_classes_tests;
@@ -3229,3 +3244,6 @@ mod chat_window_activity_tests;
 #[cfg(test)]
 #[path = "fanout_interest_tests.rs"]
 mod fanout_interest_tests;
+#[cfg(test)]
+#[path = "omit_time_breakdown_rows_tests.rs"]
+mod omit_time_breakdown_rows_tests;

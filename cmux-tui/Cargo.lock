@@ -24,6 +24,7 @@ dependencies = [
  "clap",
  "cmux-agent-customize",
  "cmux-agent-pane-policy",
+ "cmux-auto-session",
  "cmux-bounded",
  "cmux-build-space",
  "cmux-chat-index",
@@ -1423,6 +1424,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-auto-session"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cmux-autocloud"
 version = "0.1.0"
 dependencies = [
@@ -1608,6 +1619,7 @@ version = "1.0.0"
 dependencies = [
  "base64",
  "bytes",
+ "cmux-auto-session",
  "cmux-build-space",
  "cmux-cloud-client",
  "cmux-cloud-machine",
@@ -2244,6 +2256,14 @@ dependencies = [
 name = "cmux-json"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-keymap"
+version = "0.1.0"
+dependencies = [
+ "serde",
  "serde_json",
 ]
 
