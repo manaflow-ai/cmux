@@ -930,19 +930,46 @@ jobs:
         continue-on-error: true
         run: ./scripts/cmux-next/build-web-bundles.sh --force
 
+      # The two git-hook suites below test scripts/install-git-hooks.sh, scripts/git-hooks/ and the post-edit
+      # formatter, not the webviews tree, yet they ran on every web pull request head: 1.8 min of shard 1's
+      # 11 (2026-11-24, ci-min-per-pr-30 cut G). On a pull request each runs when scripts/ci/focused_tests.py, the
+      # source-path-to-test map the car guards use, selects it for the change (every file the installer copies
+      # names it), or the change moves webviews' vp (package.json, bun.lock: the real-vp cases). A push, a batch
+      # and a dispatch run both, so a miss here still reds feat-cmux-next's next push. Any error runs both.
+      - name: Pick shard 1's git-hook suites
+        id: hook-suites
+        if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' }}
+        continue-on-error: true
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" != pull_request ]; then
+            printf 'merge_driver=true\npost_edit=true\n' >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          printf 'merge_driver=true\npost_edit=true\n' > "$RUNNER_TEMP/hook-suites"
+          if plan="$(timeout 120 python3 -I scripts/ci/focused_tests.py --base HEAD^1 --head HEAD)" &&
+            picked="$(printf '%s' "$plan" | python3 -I -c 'import json,sys; p={t["path"] for t in json.load(sys.stdin)["python"]}; print(" ".join(n for n,t in (("merge_driver","tests/test_install_git_hooks.py"),("post_edit","tests/test_format_post_edit.py")) if t in p))')" &&
+            changed="$(git diff --name-only --no-renames HEAD^1 HEAD)"; then
+            if printf '%s\n' "$changed" | grep -qxE 'webviews/(package\.json|bun\.lock)'; then picked="merge_driver post_edit"; fi
+            for suite in merge_driver post_edit; do
+              case " $picked " in *" $suite "*) echo "$suite=true" ;; *) echo "$suite=false" ;; esac
+            done > "$RUNNER_TEMP/hook-suites"
+          fi
+          tee -a "$GITHUB_OUTPUT" < "$RUNNER_TEMP/hook-suites"
+
       # ci-guards runs this on main; feat-cmux-next PRs skip ci-guards.
       # The checks from here to the engines do not depend on the shard, so
       # they run once, on shard 1: one red check, not one per shard.
       - name: Generated bundle merge driver
         id: merge-driver
-        if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' }}
+        if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' && steps.hook-suites.outputs.merge_driver != 'false' }}
         continue-on-error: true
         run: python3 tests/test_install_git_hooks.py
 
       # Runs after the webviews install, so the real-vp case runs too.
       - name: Post-edit formatting hook
         id: post-edit-format
-        if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' }}
+        if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' && steps.hook-suites.outputs.post_edit != 'false' }}
         continue-on-error: true
         run: python3 tests/test_format_post_edit.py
 
