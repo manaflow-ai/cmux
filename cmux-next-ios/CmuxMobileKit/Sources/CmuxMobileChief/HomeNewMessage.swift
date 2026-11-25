@@ -2,6 +2,7 @@
 import CmuxConversationCore
 import CmuxConversationUI
 import CmuxMobileAgentChat
+import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileSupport
 import Foundation
@@ -42,6 +43,14 @@ public final class HomeNewMessage {
     private var isUp = false
     /// The presenter lives as long as its sheet is up.
     private static var current: HomeNewMessage?
+
+    /// RootView's existing foreground callback reaches the sheet's private
+    /// keyboard tracker while the sheet remains visible. This keeps the
+    /// fix at the lifecycle owner instead of adding another notification
+    /// observer to every tracker.
+    public static func appActiveChanged() {
+        current?.sheet?.keyboard.dropKeyboardWithoutOwner()
+    }
 
     init(context: Context) {
         self.context = context
@@ -199,8 +208,9 @@ public final class HomeNewMessage {
     /// known to the phone before `dm.open`, so it starts on the blank page.
     private func existing(_ recipients: [ConversationRecipient], carrying: ConversationComposeMessage) -> UIViewController? {
         guard recipients.count == 1, let id = recipients[0].contactID, let entry = directory.entry(id: id) else { return nil }
-        // Photos stay on the blank page, whose first send carries them (a conversation's own box takes text only).
-        guard carrying.images.isEmpty else { return nil }
+        // Photos and files stay on the blank page, whose first send carries them (a conversation's own
+        // box takes text only).
+        guard carrying.images.isEmpty, carrying.files.isEmpty else { return nil }
         let session: ChiefSession?
         let route: HomeConversationRoute
         switch entry.kind {
@@ -328,6 +338,7 @@ final class EmbeddedConversation: UIViewController, ConversationComposeEmbeddabl
         self.session = session
         self.carrying = carrying
         conversation = ConversationViewController(store: session.store, options: .chief, keyboard: keyboard)
+        conversation.dismissesKeyboardAfterSend = { CmuxMobilePreferences.dismissKeyboardAfterSend() }
         // New Message keeps its title and X.
         conversation.hidesNavigationBar = false
         conversation.showsHeader = false

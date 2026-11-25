@@ -8,6 +8,7 @@
     {"title": "Back to the system appearance", "rpc": {"method": "debug.appearance", "params": {"mode": "system"}}, "wait": 1, "shot": false,
      "optional": "debug.appearance is DEBUG only"},
     {"title": "Done: the sidebar is still again", "cmux": ["action", "run", "sidebar.edit"], "wait": 2},
+    {"title": "App Store on: it is hidden until it is ready", "cmux": ["settings", "set", "labs.appStore", "true"], "wait": 1, "shot": false},
     {"title": "Add Items: App Store Features with the Home, Notifications, History and Bookmarks cards", "cmux": ["action", "run", "appStore.show", "--tab", "features", "--focus"], "wait": 3}
   ]
 }

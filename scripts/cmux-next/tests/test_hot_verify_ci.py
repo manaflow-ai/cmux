@@ -11,6 +11,8 @@ import base64
 import importlib.util
 import io
 import os
+import re
+import shutil
 import json
 import sys
 import subprocess
@@ -227,6 +229,18 @@ class Result(unittest.TestCase):
         self.assertIn("cmux17", str(refused.exception))
         self.assertIn("timed out after 300 seconds", str(refused.exception))
         self.assertIn("plan 300", str(refused.exception))
+        self.assertIsInstance(refused.exception, hv.NoReceipt)
+
+    def test_a_tar_with_no_receipt_exits_3_so_the_workflow_looks_again(self) -> None:
+        # Run 44455465520 (#45972): the worker's GitHub read ran out of quota, its out.tar had a step.json and no
+        # receipt, and `post the look` failed hard. Exit 3 is the retryable result; a bad marker stays exit 1.
+        out = self.unpacked({"out/step.json": json.dumps({"head": HEAD, "worker": "mini", "error": "rate limit"}).encode()})
+        argv = ["stage", str(out), "--pr", "43000", "--head", HEAD, "--stage", str(self.tmp / "m"),
+                "--text", str(self.tmp / "t.txt")]
+        with redirect_stderr(io.StringIO()):
+            self.assertEqual(hv.main(argv), 3)
+            bad = self.unpacked(look_files(marker="<!-- something else -->"))
+            self.assertEqual(hv.main(["stage", str(bad)] + argv[2:]), 1)
 
     def test_needs_build_stages_nothing(self) -> None:
         out = self.unpacked({"out/step.json": json.dumps({"head": HEAD, "needs_build": True}).encode()})
@@ -406,26 +420,23 @@ class Workflow(unittest.TestCase):
     def test_the_workflow_runs_this_script_from_the_protected_branch(self) -> None:
         text = WORKFLOW.read_text()
         self.assertIn("tool=scripts/cmux-next/hot-verify-ci.py", text)
-        for command in ("verdict", "hq-ref", "pack", "unpack", "stage", "render", "post"):
+        for command in ("verdict", "nightly-commit", "result", "unpack", "stage", "render", "post"):
             with self.subTest(command=command):
                 self.assertTrue(f"hot-verify-ci.py {command} " in text or f'"$tool" {command} ' in text)
         self.assertIn("environment: pr-media", text)
         self.assertIn("uses: ./.github/actions/pr-media-publish", text)
         self.assertIn("gh workflow run cmux-next-web-bundle-publish.yml", text)
         self.assertNotIn("secrets: inherit", text)
-        self.assertIn("--script build-fleet/pr_capture/fleet-step-hot-verify.sh --display --artifact out.tar", text)
+        # No job waits for a fleet Mac: the gateway runner and the fleet client are gone from this workflow.
+        self.assertNotIn("CI_EVAL_STEP_GATEWAY", text)
+        self.assertNotIn("cmux-ci", text.replace("cmux-ci-", ""))
 
-    def test_the_look_step_packs_its_inputs_without_bash_4_builtins(self) -> None:
-        # #43916's look on glaeda-5 died with "mapfile: command not found": a fleet Mac's /bin/bash is 3.2. Run the
-        # step's packing lines with bash 4's array builtins switched off, as 3.2 has none of them.
-        scratch = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-bash32-")))
-        env, calls = self.look_env(scratch, "[[ $1 == run ]] && exit 75\nexit 1\n", "1", "")
-        script = "enable -n mapfile readarray\n" + self.look_steps()[0]
-        done = subprocess.run(["bash", "-c", script], cwd=ROOT, env=env, capture_output=True, text=True)
-        self.assertNotIn("command not found", done.stderr)
-        run = next(c for c in calls.read_text().splitlines() if c.startswith("run "))
-        args = [a[len("--arg="):] for a in run.split() if a.startswith("--arg=")]
-        self.assertEqual(args, hv.pack(hv.step_inputs(7, HEAD, f"hv-7-{HEAD[:12]}", True)))
+    def test_pr_reads_wait_through_github_api_rate_limits(self) -> None:
+        for job in ("target", "publish"):
+            with self.subTest(job=job):
+                block = "\n".join(self.job_block(job))
+                self.assertIn("scripts/ci/gh_budget_wait.sh", block)
+                self.assertIn("bash scripts/ci/gh_budget_wait.sh --install", block)
 
     def test_the_plan_fetch_finds_the_merge_base_after_a_depth_one_checkout(self) -> None:
         # The fleet's looks on #43862, #43807, #43816 and #43779 failed at `git merge-base` (2026-11-15): the
@@ -481,19 +492,23 @@ class Workflow(unittest.TestCase):
                    len(lines))
         return lines[start:end]
 
-    def run_block(self, job: str, gh_out: str, env: dict) -> tuple[subprocess.CompletedProcess, Path, list[str]]:
-        """Run JOB's one `run: |` script with a gh on PATH that prints GH_OUT and logs its argv; returns the
-        process, the GITHUB_OUTPUT file and the gh calls."""
+    def run_block(self, job: str, gh_out: str, env: dict, step: str = "") -> tuple[subprocess.CompletedProcess, Path, list[str]]:
+        """Run JOB's first `run: |` script (or STEP's), from the checkout's root, with a gh on PATH that prints GH_OUT
+        and logs its argv; returns the process, the GITHUB_OUTPUT file and the gh calls."""
         block = self.job_block(job)
-        start = next(i for i, line in enumerate(block) if line.strip() == "run: |") + 1
-        script = textwrap.dedent("\n".join(block[start:]))
+        first = next(i for i, line in enumerate(block) if line.strip() == f"- name: {step}") if step else 0
+        at = next(i for i in range(first, len(block)) if block[i].strip() == "run: |")
+        indent = len(block[at]) - len(block[at].lstrip()) + 2
+        end = next((j for j in range(at + 1, len(block)) if block[j].strip()
+                    and len(block[j]) - len(block[j].lstrip()) < indent), len(block))
+        script = textwrap.dedent("\n".join(block[at + 1:end]))
         scratch = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-job-")))
         (scratch / "bin").mkdir()
         fake = scratch / "bin" / "gh"
         fake.write_text('#!/bin/bash\nprintf "%s\\0" "$@" >> "$GH_CALLS"; printf "%s\\n" "$GH_OUT"\n')
         fake.chmod(0o755)
         out, summary, calls = scratch / "out", scratch / "summary", scratch / "calls"
-        done = subprocess.run(["bash", "-c", script], capture_output=True, text=True,
+        done = subprocess.run(["bash", "-c", script], cwd=ROOT, capture_output=True, text=True,
                               env={**os.environ, "PATH": f"{scratch / 'bin'}:{os.environ['PATH']}", "GH_OUT": gh_out,
                                    "GH_CALLS": str(calls), "GITHUB_OUTPUT": str(out), "GITHUB_STEP_SUMMARY": str(summary),
                                    "GITHUB_REPOSITORY": "manaflow-ai/cmux", **env})
@@ -519,27 +534,57 @@ class Workflow(unittest.TestCase):
                 self.assertEqual(done.returncode, 0, done.stderr)
                 self.assertIn(f"ok={ok}\n", out.read_text())
 
+    def test_a_look_result_waits_for_one_runner_not_two(self) -> None:
+        # 2026-11-19: every result run (the controller's look_result dispatch) queued for a shared 4 vCPU Linux runner
+        # at `target`, then queued again for `publish` or `again`; 15 of 16 PRs without a receipt lost their look to
+        # runner queues (goals/hot-verify-share.md). The result run is one job with no needs.
+        lines = WORKFLOW.read_text().split("\njobs:\n", 1)[1].splitlines()
+        jobs = [line.strip().rstrip(":") for line in lines if line.startswith("  ") and not line.startswith("   ")
+                and line.rstrip().endswith(":") and not line.lstrip().startswith("#")]
+        runs = [job for job in jobs if "inputs.look_result != ''" in
+                next(line for line in self.job_block(job) if line.strip().startswith("if:"))]
+        self.assertEqual(runs, ["publish"])
+        block = self.job_block("publish")
+        self.assertFalse(any(line.strip().startswith("needs:") for line in block), "\n".join(block))
+        target_if = next(line for line in self.job_block("target") if line.strip().startswith("if:"))
+        self.assertIn("inputs.look_result == ''", target_if)
+
     def test_a_look_lost_on_the_fleet_is_started_once_more_and_only_once(self) -> None:
         # 2026-11-16: run 43788086518's step failed on three lent Macs' disk declines, run 43788591989's worker
         # stopped renewing its lease, and a reserved fleet Mac's gateway runner refused 8 looks (runs
         # 43833883489, 43834069668, ...). Each lost its look for good: nothing started one again.
-        block = "\n".join(self.job_block("again"))
-        self.assertIn("needs: [target, look]", block)
-        self.assertIn("needs.look.result == 'failure'", block)
-        self.assertIn("inputs.attempt != '1'", block)
-        self.assertIn("!cancelled()", block)
+        block = self.job_block("publish")
+        self.assertIn("inputs.look_result != ''", "\n".join(block))
+        step = block.index("      - name: Dispatch one more look")
+        self.assertEqual(block[step + 1].strip(), "if: ${{ steps.check.outputs.ok == 'true' && "
+                                                  "(steps.result.outputs.tar == 'false' || steps.stage.outputs.again == 'true') && "
+                                                  "inputs.attempt != '1' }}")
         self.assertIn("attempt:", WORKFLOW.read_text().split("jobs:", 1)[0])
-        done, _, argv = self.run_block("again", "", {"PR": "7", "HEAD_SHA": HEAD, "LAYERS": "web,rust",
-                                                      "EVENT_AT": "1794800000"})
+        again = "Dispatch one more look"
+        done, _, argv = self.run_block("publish", "", {"PR": "7", "HEAD_SHA": HEAD, "LAYERS": "web,rust",
+                                                        "EVENT_AT": "1794800000"}, again)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(argv[:2], ["workflow", "run"])
         self.assertIn("cmux-next-hot-verify.yml", argv)
         for field in ("pr=7", f"head={HEAD}", "layers=web,rust", "event_at=1794800000", "attempt=1"):
             self.assertIn(field, argv)
-        done, _, argv = self.run_block("again", "", {"PR": "7", "HEAD_SHA": HEAD, "LAYERS": "rust", "EVENT_AT": "",
-                                                      "KIND": "merge"})
+        done, _, argv = self.run_block("publish", "", {"PR": "7", "HEAD_SHA": HEAD, "LAYERS": "rust", "EVENT_AT": "",
+                                                        "KIND": "merge"}, again)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn("kind=merge", argv)
+
+    def test_a_tar_with_no_receipt_marks_the_publish_job_to_look_again_once(self) -> None:
+        # Run 44455465520 (#45972): stage exits 3 for an out.tar with no receipt; the stage step turns that into
+        # again=true (the dispatch step above runs on it) on the first look, and fails on the retry (attempt 1).
+        block = self.job_block("publish")
+        stage = block.index("      - name: Unpack and stage")
+        dispatch = block.index("      - name: Dispatch one more look")
+        self.assertLess(stage, dispatch, "the dispatch step reads steps.stage.outputs.again, so it runs after stage")
+        script = "\n".join(block[stage:dispatch])
+        self.assertIn('if [[ "$rc" == 3 && "${ATTEMPT:-}" != 1 ]]; then', script)
+        self.assertIn('echo "again=true" >> "$GITHUB_OUTPUT"', script)
+        self.assertIn('[[ "$rc" == 0 ]] || exit "$rc"', script)
+        self.assertIn("ATTEMPT: ${{ inputs.attempt }}", script)
 
     def test_a_merged_pr_with_no_receipt_is_looked_at_at_its_merge_commit(self) -> None:
         # A look at the PR head that needs the change's own Rust (8 of 90 looks, 2026-11-15/16) cannot run on the
@@ -549,9 +594,13 @@ class Workflow(unittest.TestCase):
         self.assertIn("types: [opened, synchronize, reopened, ready_for_review, closed]", text)
         self.assertIn("(github.event.action != 'closed' || github.event.pull_request.merged)", "\n".join(self.job_block("plan")))
         self.assertIn("hot-verify-receipt.py --pr", "\n".join(self.job_block("plan")))
-        hand_off = "\n".join(self.job_block("hand-off"))
-        self.assertIn("github.event.action == 'closed' && github.event.pull_request.merge_commit_sha", hand_off)
-        self.assertIn('-f kind="$KIND"', hand_off)
+        # The plan job's last step dispatches the look (the hand-off was its own job until 2026-11-23).
+        self.assertNotIn("  hand-off:", WORKFLOW.read_text().splitlines())
+        plan = self.job_block("plan")
+        dispatch = "\n".join(plan[next(i for i, line in enumerate(plan) if line.strip() == "- name: Dispatch the look"):])
+        self.assertIn("if: ${{ steps.plan.outputs.eligible == 'true' }}", dispatch)
+        self.assertIn("github.event.action == 'closed' && github.event.pull_request.merge_commit_sha", dispatch)
+        self.assertIn('-f kind="$KIND"', dispatch)
         # its own concurrency group: it never cancels a head look still queued when the PR merged
         self.assertIn("inputs.kind == 'merge') && '-merge'", text)
         merge = "c" * 40
@@ -595,166 +644,182 @@ class Workflow(unittest.TestCase):
                     self.assertIn("reached-git", said, (done.stderr, said))
                     self.assertFalse(out.exists() and "eligible=false" in out.read_text())
 
-    def look_steps(self) -> list[str]:
-        """The look job's `run: |` scripts, each through the line before its next step."""
-        block, scripts = self.job_block("look"), []
-        for i, line in enumerate(block):
-            if line.strip() == "run: |":
-                indent = len(line) - len(line.lstrip()) + 2
-                end = next((j for j in range(i + 1, len(block)) if block[j].strip()
-                            and len(block[j]) - len(block[j].lstrip()) < indent), len(block))
-                scripts.append(textwrap.dedent("\n".join(block[i + 1:end])))
-        return scripts
+    def test_the_rust_layer_names_only_a_tree_something_will_publish(self) -> None:
+        # tree= makes the controller wait up to 50 min for the tree's completion.json. A pull request head's push
+        # builds no tree (ci-min-per-pr-30) and the dispatch below is off (#53824), so a named unpublished tree was a
+        # 50 min wait for nothing before the fleet step built the head's daemon itself (builds_head_daemon).
+        # Cases: curl exit, CMUX_TUI_BRANCH_ON_REQUEST, CMUX_TUI_LOOK_DISPATCH, the head's Cmux-Daemon-Tests value.
+        real_git = shutil.which("git")
+        cases = ((0, "1", "", "", True), (22, "1", "", "", False), (22, "0", "", "", True),
+                 (22, "1", "", " Run\n", True), (22, "1", "", "skip\n", False), (22, "1", "1", "", True))
+        for answer, on_request, dispatch, trailer, named in cases:
+            with self.subTest(curl_exit=answer, on_request=on_request, dispatch=dispatch, trailer=trailer):
+                fake = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-tree-")))
+                (fake / "curl").write_text(f"#!/bin/bash\nprintf '%s\\n' \"$*\" >> {fake}/asked\nexit {answer}\n")
+                (fake / "curl").chmod(0o755)
+                # git log answers the trailer; the tree key's own git reads go to the real git.
+                (fake / "git").write_text(f'#!/bin/bash\nif [[ "$1" == log ]]; then printf "{trailer}"; exit 0; fi\n'
+                                          f'exec {real_git} "$@"\n')
+                (fake / "git").chmod(0o755)
+                done, out, calls = self.run_block("rust", "", {"HEAD_SHA": HEAD, "GITHUB_RUN_ID": "1",
+                                                               "BRANCH_ON_REQUEST": on_request, "LOOK_DISPATCH": dispatch,
+                                                               "PATH": f"{fake}:{os.environ['PATH']}"},
+                                                  step="The head's cmux-tui tree key")
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertEqual(calls, [])
+                self.assertRegex((fake / "asked").read_text(),
+                                 r"https://files\.cmux\.com/cmux-tui/tree/[0-9a-f]{40,64}/completion\.json")
+                written = out.read_text()
+                self.assertRegex(written, r"(?m)^key=[0-9a-f]{40,64}$")  # the dispatch step still reads it
+                self.assertEqual(bool(re.search(r"(?m)^tree=[0-9a-f]{40,64}$", written)), named, written)
+        block = "\n".join(self.job_block("rust"))
+        self.assertIn("key: ${{ steps.key.outputs.tree }}", block)
+        self.assertIn("BRANCH_ON_REQUEST: ${{ vars.CMUX_TUI_BRANCH_ON_REQUEST || '1' }}", block)
 
-    def test_a_look_that_stops_waiting_cancels_its_queued_fleet_step(self) -> None:
-        # 2026-11-17 13:49Z: 49 hot-verify steps queued on the fleet, at least 23 of them from runs whose look had
-        # already given up (exit 75 after --queue-timeout leaves the step queued "keeping its place") and whose
-        # `look again` had queued a second one. Those orphans run later and are never posted.
-        step = "0123456789abcdef01234567"
-        scratch = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-look-")))
-        (scratch / "bin").mkdir()
-        calls = scratch / "client-calls"
-        client = scratch / "bin" / "cmux-ci"
-        client.write_text("#!/bin/bash\necho \"$*\" >> \"$CALLS\"\n"
-                          f"if [[ $1 == run ]]; then echo 'submitted step {step}'; exit 75; fi\n"
-                          "[[ $1 == cancel ]] && exit 0\nexit 1\n")
-        client.chmod(0o755)
-        curl = scratch / "bin" / "curl"
-        curl.write_text("#!/bin/bash\nwhile [[ $# -gt 0 ]]; do [[ $1 == -o ]] && { shift; printf '{\"commit\": \"%s\"}' "
-                        f"{HEAD} > \"$1\"; }}; shift; done\n")
-        curl.chmod(0o755)
-        temp, out, summary = scratch / "temp", scratch / "out", scratch / "summary"
-        temp.mkdir()
-        env = {**os.environ, "PATH": f"{scratch / 'bin'}:{os.environ['PATH']}", "CALLS": str(calls),
-               "CMUX_CI_CLIENT": str(client), "RUNNER_TEMP": str(temp), "GITHUB_OUTPUT": str(out),
-               "GITHUB_STEP_SUMMARY": str(summary), "CONTROLLER": "http://controller", "PR": "7",
-               "HEAD_SHA": HEAD, "GITHUB_RUN_ID": "99", "GITHUB_RUN_ATTEMPT": "1", "RUNNER_NAME": "test",
-               "ATTEMPT": "1"}  # the last look: no `look again` follows to rejoin its step
-        scripts = self.look_steps()
-        done = subprocess.run(["bash", "-c", scripts[0]], cwd=ROOT, env=env, capture_output=True, text=True)
-        self.assertNotEqual(done.returncode, 0)  # no look result is never green
-        self.assertIn(f"cancel {step}", calls.read_text(), (done.stdout, done.stderr))
-        # A job cancelled while it waits (a newer push's run, the 75 min limit) cancels its step too.
-        self.assertTrue(any("cancelled()" in line for line in self.job_block("look")), "no step runs on cancel")
-        calls.unlink()
-        (temp / "look.log").write_text(f"submitted step {step}\n")
-        done = subprocess.run(["bash", "-c", scripts[-1]], cwd=ROOT, env=env, capture_output=True, text=True)
-        self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertIn(f"cancel {step}", calls.read_text())
+    def test_the_request_job_name_is_the_controllers_request(self) -> None:
+        # The build fleet controller (cmuxterm-hq build-fleet/cmd/controller/hot_verify_look.go hotLookJobName) reads
+        # the request from this job's name; nothing else carries it. Its fields come only from the target job, which
+        # checks each one's shape.
+        block = "\n".join(self.job_block("request"))
+        name = next(line.split("name: ", 1)[1] for line in self.job_block("request") if line.strip().startswith("name: hot verify request"))
+        self.assertEqual(name, "hot verify request pr=${{ needs.target.outputs.pr }} head=${{ needs.target.outputs.head }} "
+                               "attempt=${{ needs.target.outputs.attempt }} kind=${{ needs.target.outputs.kind }} "
+                               "event=${{ needs.target.outputs.event_at }} layers=${{ needs.target.outputs.layers }}"
+                               "${{ needs.rust.outputs.key != '' && format(' tree={0}', needs.rust.outputs.key) || '' }}")
+        self.assertIn("timeout-minutes: 2", block)
+        self.assertIn("permissions: {}", block)
+        self.assertNotIn("sleep", "\n".join(self.job_block("rust")) + "\n".join(self.job_block("web")))
+        row = f"manaflow-ai/cmux\t{HEAD}\tfeat-cmux-next\topen\tfalse\t-\t-"
+        for env, want in (({"KIND": "", "ATTEMPT": "", "EVENT_AT": "1794800000"}, ("kind=head", "attempt=0", "event_at=1794800000")),
+                          ({"KIND": "merge", "ATTEMPT": "1", "EVENT_AT": "x y=z"}, ("kind=merge", "attempt=1", "event_at=\n"))):
+            done, out, _ = self.run_block("target", row, {"PR": "7", "HEAD_SHA": HEAD, "LAYERS": "web,rust", **env})
+            self.assertEqual(done.returncode, 0, done.stderr)
+            for line in want:
+                self.assertIn(line, out.read_text())
+        done, _, _ = self.run_block("target", row, {"PR": "7", "HEAD_SHA": HEAD, "LAYERS": "web", "KIND": "head layers=web"})
+        self.assertNotEqual(done.returncode, 0)
 
-    def look_env(self, scratch: Path, client_body: str, run_id: str, attempt: str) -> tuple[dict, Path]:
-        """The look step's environment, with a fake cmux-ci of client_body and a fake curl."""
-        (scratch / "bin").mkdir(exist_ok=True)
-        client = scratch / "bin" / "cmux-ci"
-        client.write_text("#!/bin/bash\necho \"$*\" >> \"$CALLS\"\n" + client_body)
-        client.chmod(0o755)
-        curl = scratch / "bin" / "curl"
-        curl.write_text("#!/bin/bash\nwhile [[ $# -gt 0 ]]; do [[ $1 == -o ]] && { shift; printf '{\"commit\": \"%s\"}' "
-                        f"{HEAD} > \"$1\"; }}; shift; done\n")
-        curl.chmod(0o755)
-        temp = scratch / f"temp-{run_id}"
-        temp.mkdir()
-        calls = scratch / "client-calls"
-        return {**os.environ, "PATH": f"{scratch / 'bin'}:{os.environ['PATH']}", "CALLS": str(calls),
-                "CMUX_CI_CLIENT": str(client), "RUNNER_TEMP": str(temp), "GITHUB_OUTPUT": str(scratch / "out"),
-                "GITHUB_STEP_SUMMARY": str(scratch / "summary"), "CONTROLLER": "http://controller", "PR": "7",
-                "HEAD_SHA": HEAD, "GITHUB_RUN_ID": run_id, "GITHUB_RUN_ATTEMPT": "1", "RUNNER_NAME": "test",
-                "ATTEMPT": attempt}, calls
+    def test_the_look_result_names_its_pr_and_head_and_its_out_tar(self) -> None:
+        url = "https://store.example/artifacts/abc?X-Amz-Signature=1"
+        done = hv.look_result(json.dumps({"pr": 7, "head": HEAD, "step_id": "0123456789abcdef01234567", "state": "done",
+                                          "exit_code": 0, "queued_s": 4620, "artifact_url": url}), 7, HEAD)
+        self.assertEqual(done["url"], url)
+        self.assertIn("after 4620 s in the queue", done["reason"])
+        lost = hv.look_result(json.dumps({"pr": 7, "head": HEAD, "state": "cancelled", "error": "no fleet Mac took the look within 3h0m0s"}), 7, HEAD)
+        self.assertEqual(lost["url"], "")
+        for bad in ({"pr": 8, "head": HEAD, "state": "done"}, {"pr": 7, "head": OTHER, "state": "done"},
+                    {"pr": 7, "head": HEAD, "state": "maybe"}, {"pr": 7, "head": HEAD, "state": "done", "artifact_url": "http://x"}):
+            with self.subTest(bad=bad), self.assertRaises(hv.Refused):
+                hv.look_result(json.dumps(bad), 7, HEAD)
 
-    def test_a_look_again_rejoins_the_queued_fleet_step_of_its_head(self) -> None:
-        # 2026-11-17: a look step runs about 2.5 min (p50 of 297) but waits 18 min p50 and 2 h p90 for a Mac. The client
-        # stops waiting at 30 min and `look again` used to submit a new step under a new key, at the back of the queue;
-        # #45314's step ran at 10:24 after waiting 2 h, with nobody left to post it. One key per PR head lets the retry
-        # rejoin the step where it stands, or take its out.tar when it has run since.
-        step = "0123456789abcdef01234567"
-        scratch = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-rejoin-")))
-        body = (f"if [[ $1 == run ]]; then echo 'cmux-ci: step {step} (light, key x)'; exit 75; fi\n"
-                "[[ $1 == cancel ]] && exit 0\nexit 1\n")
-        script = self.look_steps()[0]
-        keys = []
-        for run_id, attempt in (("99", ""), ("100", "1")):
-            env, calls = self.look_env(scratch, body, run_id, attempt)
-            if calls.exists():
-                calls.unlink()
-            done = subprocess.run(["bash", "-c", script], cwd=ROOT, env=env, capture_output=True, text=True)
-            self.assertNotEqual(done.returncode, 0)
-            made = calls.read_text().splitlines()
-            keys.append(next(c.split("--key ", 1)[1].split()[0] for c in made if c.startswith("run ")))
-            # The first look leaves its step queued for `look again`; the last one has no retry after it.
-            self.assertEqual(any(c.startswith(f"cancel {step}") for c in made), attempt == "1", made)
-        self.assertEqual(keys[0], keys[1])
-        self.assertEqual(keys[0], f"hv-7-{HEAD[:12]}")
-
-    def test_a_look_whose_head_step_already_failed_runs_a_fresh_one(self) -> None:
-        # The same key returns the step it made in any state: one that failed before must not be the only answer.
-        old, new = "aaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbb"
-        scratch = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-fresh-")))
-        body = ("if [[ $1 == run ]]; then\n"
-                "  for a in \"$@\"; do [[ $prev == --key ]] && key=$a; prev=$a; done\n"
-                f"  if [[ $key == hv-7-{HEAD[:12]} ]]; then echo 'cmux-ci: step {old} (light, key x)'; exit 1; fi\n"
-                f"  echo 'cmux-ci: step {new} (light, key y)'; exit 0\n"
-                "fi\n"
-                f"if [[ $1 == artifact && $2 == {new} ]]; then echo tar > \"$3\"; exit 0; fi\n"
-                "[[ $1 == cancel ]] && exit 0\nexit 1\n")
-        env, calls = self.look_env(scratch, body, "99", "")
-        done = subprocess.run(["bash", "-c", self.look_steps()[0]], cwd=ROOT, env=env, capture_output=True, text=True)
-        self.assertEqual(done.returncode, 0, (done.stdout, done.stderr))
-        made = calls.read_text().splitlines()
-        runs = [c for c in made if c.startswith("run ")]
-        self.assertEqual(len(runs), 2, runs)
-        self.assertIn(f"--key hv-7-{HEAD[:12]}-99-1 ", runs[1])
-        self.assertIn("result=ok", (scratch / "out").read_text())
-        # The first step is cancelled before the fresh one: a client that stopped early may have left it queued.
-        cancels = [i for i, c in enumerate(made) if c.startswith(f"cancel {old}")]
-        self.assertTrue(cancels and cancels[0] < made.index(runs[1]), made)
-
-    def test_a_look_rejoins_its_head_step_at_that_steps_hq_commit(self) -> None:
-        # #45082, 2026-11-17: its head step hv-45082-70e741a61349 was queued at 23:06 at HQ 1848f209. A run at 23:38 sent
-        # the same key at the controller's newer HQ commit, got "HTTP 409: step_key already names a different step"
-        # (the ref is part of the request), ran a fresh step instead, and the head step ran at 00:32 for nobody.
-        old_ref, now_ref = "1" * 40, HEAD
-        scratch = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-ref-")))
-        jobs = [{"id": "aaaaaaaaaaaaaaaaaaaaaaaa", "step_key": f"hv-7-{HEAD[:12]}", "ref": old_ref, "state": "queued",
-                 "created_at": "2026-11-17T23:06:52Z"},
-                {"id": "bbbbbbbbbbbbbbbbbbbbbbbb", "step_key": "hv-8-0123456789ab", "ref": "2" * 40, "state": "queued",
-                 "created_at": "2026-11-17T23:10:00Z"}]
-        (scratch / "all.json").write_text(json.dumps(jobs))
-        body = (f"if [[ $1 == status && $2 == --all ]]; then cat '{scratch / 'all.json'}'; exit 0; fi\n"
-                "if [[ $1 == run ]]; then echo 'cmux-ci: step aaaaaaaaaaaaaaaaaaaaaaaa (light, key x)'; exit 75; fi\n"
-                "[[ $1 == cancel ]] && exit 0\nexit 1\n")
-        env, calls = self.look_env(scratch, body, "99", "")
-        subprocess.run(["bash", "-c", self.look_steps()[0]], cwd=ROOT, env=env, capture_output=True, text=True)
-        runs = [c for c in calls.read_text().splitlines() if c.startswith("run ")]
-        self.assertEqual(len(runs), 1, runs)
-        self.assertIn(f"--ref {old_ref} ", runs[0])
-        # With no step under the head key yet, the look runs at the controller's own HQ commit.
-        (scratch / "all.json").write_text(json.dumps(jobs[1:]))
-        calls.unlink()
-        env, calls = self.look_env(scratch, body, "100", "")
-        subprocess.run(["bash", "-c", self.look_steps()[0]], cwd=ROOT, env=env, capture_output=True, text=True)
-        runs = [c for c in calls.read_text().splitlines() if c.startswith("run ")]
-        self.assertIn(f"--ref {now_ref} ", runs[0])
-
-    def test_a_look_at_a_new_head_cancels_the_prs_steps_at_other_heads(self) -> None:
-        # A look that stopped waiting leaves its head's step queued for `look again`; when the author pushes meanwhile,
-        # that retry never looks (the PR moved), so the new head's look retires the old step. Other PRs' are not touched.
-        mine = f"hv-7-{HEAD[:12]}"
-        queued = [("cccccccccccccccccccccccc", "hv-7-0123456789ab"), ("dddddddddddddddddddddddd", "hv-70-0123456789ab"),
-                  ("eeeeeeeeeeeeeeeeeeeeeeee", mine), ("ffffffffffffffffffffffff", "build-thing")]
-        status = json.dumps({"queued": [{"id": i, "step_key": k} for i, k in queued], "running": []})
-        scratch = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-moved-")))
-        (scratch / "status.json").write_text(status)
-        body = (f"if [[ $1 == status ]]; then cat '{scratch / 'status.json'}'; exit 0; fi\n"
-                "if [[ $1 == run ]]; then echo 'cmux-ci: step eeeeeeeeeeeeeeeeeeeeeeee (light, key x)'; exit 75; fi\n"
-                "[[ $1 == cancel ]] && exit 0\nexit 1\n")
-        env, calls = self.look_env(scratch, body, "99", "")
-        subprocess.run(["bash", "-c", self.look_steps()[0]], cwd=ROOT, env=env, capture_output=True, text=True)
-        cancelled = {c.split()[1] for c in calls.read_text().splitlines() if c.startswith("cancel ")}
-        self.assertEqual(cancelled, {"cccccccccccccccccccccccc"})
+    def test_the_plan_plans_against_the_nightlys_commit(self) -> None:
+        # 128 steps on 2026-11-17 queued for a Mac and ended "needs a build" at the worker, which plans against the
+        # nightly; the PR half planned against the merge base. The feed item cmux's own pick() takes names it.
+        def item(build: int, commit: str, channel: str = "") -> str:
+            ch = f"<sparkle:channel>{channel}</sparkle:channel>" if channel else ""
+            return (f"<item><sparkle:version>{build}</sparkle:version>{ch}<cmux:sourceCommit>{commit}</cmux:sourceCommit>"
+                    f'<enclosure url="https://files-next.cmux.com/nightly-next/cmux-nightly-next-macos-arm64-{build}.dmg" '
+                    'length="1" sparkle:edSignature="x"/></item>')
+        feed = "<rss><channel>" + item(10, APP) + item(12, OTHER, "cmux-next-dev") + item(11, HEAD) + "</channel></rss>"
+        self.assertEqual(hv.nightly_commit(feed), HEAD)
+        self.assertEqual(hv.nightly_commit("<rss/>"), "")
+        plan = "\n".join(self.job_block("plan"))
+        self.assertIn('"$tool" nightly-commit', plan)
+        self.assertIn('${base[@]+"${base[@]}"}', plan)
 
     def test_the_web_publisher_takes_a_pr_dispatch(self) -> None:
         text = WEB_PUBLISH.read_text()
         self.assertIn("workflow_dispatch:", text)
+
+
+PR_SH = ROOT / "scripts" / "cmux-next" / "hot-verify-pr.sh"
+BUDGET_WAIT = ROOT / "scripts" / "ci" / "gh_budget_wait.sh"
+HEAD = "a" * 40
+
+
+class PullRequestRead(unittest.TestCase):
+    """hot-verify-pr.sh reads the PR without sleeping: REST, then GraphQL's own hour, then a capped wait."""
+
+    def run_read(self, fake_body: str) -> tuple[subprocess.CompletedProcess, dict[str, str], str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            t = Path(tmp)
+            real = t / "real"
+            real.mkdir()
+            calls = t / "calls.log"
+            fake = real / "gh"
+            fake.write_text("#!/usr/bin/env bash\n" f"echo \"$*\" >> {calls}\n" + textwrap.dedent(fake_body))
+            fake.chmod(0o755)
+            wrap = t / "wrap"
+            wrap.mkdir()
+            gh = wrap / "gh"
+            # The wrapper as --install writes it, pointed at the fake gh.
+            gh.write_text(BUDGET_WAIT.read_text().replace("REAL_GH=gh ", f"REAL_GH='{fake}' ", 1))
+            gh.chmod(0o755)
+            out = t / "out"
+            out.write_text("")
+            env = {
+                "PATH": f"{wrap}:/usr/bin:/bin", "PR": "42", "HEAD_SHA": HEAD, "LAYERS": "web",
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_OUTPUT": str(out),
+                "GITHUB_STEP_SUMMARY": str(t / "summary"), "RUNNER_TEMP": str(t),
+                "GH_TOKEN": "t0", "GH_BUDGET_WAIT_MAX_SECONDS": "0",
+            }
+            done = subprocess.run(["bash", str(PR_SH)], env=env, capture_output=True, text=True, timeout=60)
+            lines = dict(l.split("=", 1) for l in out.read_text().splitlines() if "=" in l)
+            return done, lines, calls.read_text() if calls.exists() else ""
+
+    def test_rest_answers(self) -> None:
+        done, out, calls = self.run_read(f"""
+            [[ "$2" == graphql ]] && exit 9
+            printf 'manaflow-ai/cmux\\t{HEAD}\\tfeat-cmux-next\\topen\\tfalse\\t-\\t-\\n'
+            """)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(out["ok"], "true")
+        self.assertNotIn("graphql", calls)
+
+    def test_spent_rest_hour_reads_graphql_without_sleeping(self) -> None:
+        done, out, calls = self.run_read(f"""
+            if [[ "$2" == rate_limit ]]; then echo 0; exit 0; fi
+            if [[ "$2" == graphql ]]; then
+              printf 'manaflow-ai/cmux\\t{HEAD}\\tfeat-cmux-next\\topen\\tfalse\\t-\\t-\\n'; exit 0
+            fi
+            echo "gh: API rate limit exceeded for installation ID 1 (HTTP 403)" >&2; exit 1
+            """)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(out["ok"], "true")
+        self.assertEqual(out["pr_head"], HEAD)
+        self.assertIn("graphql", calls)
+
+    def test_graphql_merged_state_reads_as_closed_and_merged(self) -> None:
+        done, out, _ = self.run_read("""
+            if [[ "$2" == graphql ]]; then
+              # what gh's --jq prints for a merged pull request whose merge commit is the head
+              printf 'manaflow-ai/cmux\\tbbbb\\tfeat-cmux-next\\tclosed\\tfalse\\t2026-11-24T00:00:00Z\\t%s\\n' "$HEAD_SHA"; exit 0
+            fi
+            echo "API rate limit exceeded" >&2; exit 1
+            """)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(out["ok"], "true")
+
+    def test_graphql_jq_maps_the_states(self) -> None:
+        text = PR_SH.read_text()
+        self.assertIn('if .state == "OPEN" then "open" else "closed" end', text)
+        self.assertIn("GH_BUDGET_WAIT_MAX_SECONDS=0 gh api graphql", text)
+
+    def test_both_refused_ends_with_the_refusal(self) -> None:
+        done, _, calls = self.run_read("""
+            if [[ "$2" == rate_limit ]]; then echo 0; exit 0; fi
+            echo "API rate limit exceeded" >&2; exit 1
+            """)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertEqual(calls.count("pulls/42"), 2)
+
+    def test_workflow_reads_take_the_spare_and_target_caps_its_wait(self) -> None:
+        text = WORKFLOW.read_text()
+        self.assertEqual(text.count("- name: Mint the pull request read's spare token"), 2)
+        self.assertEqual(text.count("GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}"), 3)
+        target = text.split("  target:", 1)[1].split("\n  web:", 1)[0]
+        self.assertIn("GH_BUDGET_WAIT_MAX_SECONDS: 120", target)
+        self.assertIn("permission-pull-requests: read", target)
 
 
 if __name__ == "__main__":

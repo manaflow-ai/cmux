@@ -149,8 +149,10 @@ pub(super) struct ClientSizingState {
     /// The settings revision `host_policy` was read at.
     pub(super) host_policy_revision: Option<u64>,
     /// Placements an agent's layout change may have just shrunk, with when
-    /// (`terminal_sizing/agent_layout_hold.rs`).
-    pub(super) agent_layout_marks: HashMap<SurfaceId, Instant>,
+    /// and the change's number (`terminal_sizing/agent_layout_hold.rs`).
+    pub(super) agent_layout_marks: HashMap<SurfaceId, (Instant, u64)>,
+    /// The number of the last agent layout change that set marks.
+    pub(super) agent_layout_changes: u64,
 }
 
 /// Host participant id of one client's view of one terminal placement. The

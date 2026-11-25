@@ -896,6 +896,7 @@ fn a_rebuild_that_gave_up_keeps_the_roster_stale() {
     mux.stop_journal_maintenance();
     assert!(rebuild_ends_on_its_own(&mux));
     assert!(mux.agent_roster_stale(), "a roster whose rebuild gave up is reconciled from");
+    assert!(mux.agent_roster_settling(), "a stale roster keeps guarded sends refused");
     rebuild_faults::fail_reads(session, 0);
     mux.shutdown();
     drop(mux);

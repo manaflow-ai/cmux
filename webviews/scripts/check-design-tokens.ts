@@ -16,6 +16,12 @@
  *   font-weight  anything but 400/600 (`normal`); 700 for monograms is recorded in the baseline.
  *   duration     a literal transition/animation duration other than 0, not var(--cmux-motion-*).
  *   easing       cubic-bezier() or ease/ease-in/ease-out/ease-in-out, not var(--cmux-ease-out).
+ *   transition-all  `transition: all ...` or `transition-property: all`: it animates whatever property
+ *                changes next, layout ones included, so a later width or position change starts to move
+ *                with no one deciding it should. Name the properties (opacity, transform, a colour).
+ *                None today, so no baseline row holds one.
+ *   motion-literal  a TS/TSX file (tests and galleries too) typing a motion-scale step or curve instead of
+ *                importing it from motion/scale.generated.ts (see scriptMotionFindings).
  * Font sizes are the type-scale ratchet's job (scripts/cmux-next/check-type-scale.py), not this one's.
  * A migration PR shrinks the baseline with `bun scripts/check-design-tokens.ts --update-baseline`,
  * which refuses to grow any count.
@@ -59,13 +65,18 @@ const LAYOUT_PROPERTY =
 const RADIUS_PROPERTY = /^border(?:-(?:top|bottom|start|end)-(?:left|right|start|end))?-radius$/;
 const DURATION_PROPERTY = /^(?:transition|animation)(?:-duration)?$/;
 const EASING_PROPERTY = /^(?:transition|animation)(?:-timing-function)?$/;
+const TRANSITION_PROPERTY = /^transition(?:-property)?$/;
+/** `all` as one transition's property: the first word of a comma-separated item. */
+const TRANSITION_ALL = /(?:^|,)\s*all(?![\w-])/i;
 const COLOR_FUNCTION = /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(/gi;
 /** Properties whose strings and idents are not colours (`content: "#1"`). */
 const NOT_COLOR_PROPERTY =
   /^(?:(?:-webkit-)?mask(?:-[a-z-]+)?|content|quotes|grid-template-areas|font-feature-settings|font-variation-settings|counter-\w+)$/;
 const HEX_COLOR = /#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})\b/i;
 const REDUCE_MEDIA = /(?<!not\s*)\(\s*prefers-reduced-transparency\s*:\s*reduce\s*\)/;
-const REDUCE_ATTR = /(?<!:not\(\s*)\[data-reduce-transparency\]/;
+// The host's Reduce Transparency, or Liquid Glass off (appearance.liquidGlass, data-glass="off"),
+// outside a `:not(...)` list.
+const REDUCE_ATTR = /(?<!:not\([^)]*)\[data-reduce-transparency\]|(?<!:not\([^)]*)\[data-glass="off"\]/;
 
 export interface Finding {
   file: string;
@@ -78,6 +89,8 @@ export interface Finding {
     | "font-weight"
     | "duration"
     | "easing"
+    | "transition-all"
+    | "motion-literal"
     | "token-only"
     | "token-copy";
   selector: string;
@@ -143,6 +156,7 @@ export function tokenLiteralKind(property: string, value: string): Finding["kind
     const weight = value.trim().toLowerCase();
     if (!WEIGHTS.has(weight) && !/^(?:var\(|inherit|initial|unset|revert)/.test(weight)) return "font-weight";
   }
+  if (TRANSITION_PROPERTY.test(property) && TRANSITION_ALL.test(withoutVars(value))) return "transition-all";
   if (DURATION_PROPERTY.test(property)) {
     const times = [...withoutVars(value).matchAll(/(?<![\w.-])(\d*\.?\d+)(ms|s)\b/gi)].map((m) => Number(m[1]));
     if (times.some((time) => time !== 0)) return "duration";
@@ -271,9 +285,12 @@ function key(finding: Omit<Finding, "line">): string {
 
 /** Sheets and components that may use tokens only (see the header). Paths under src/. */
 export const TOKEN_ONLY_FILES: readonly string[] = [
+  "agent-session/acpmux/StartRecovery.tsx",
+  "agent-session/acpmux/startRecovery.css",
   "agent-session/acpmux/conversation/unread.css",
   "agent-session/acpmux/conversation/SinceDivider.tsx",
   "agent-session/acpmux/jumpPair.css",
+  "agent-session/acpmux/jumpPlace.css",
   // The public kit (kit/index.ts): what customization pages, plugins and web pages compose.
   "kit/kit.css",
   "kit/Row.tsx",
@@ -768,8 +785,160 @@ export function findTokenCopies(): Finding[] {
   ];
 }
 
+/**
+ * Motion literals in scripts (kind `motion-literal`): a TS or TSX file, tests and galleries included,
+ * that hand-types a duration or a curve the motion scale names, so a scale change has to find every
+ * copy (cmux#39380 moved one value, 265 to 180 ms, in 14 files; Leo, 2026-11-14: "fewer sources of
+ * truth for individual things"). The value comes from webviews/src/motion/scale.generated.ts
+ * (`MOTION_MS.standard`, `MOTION_SETTLE_MS`, `MOTION_SETTLE`, `MOTION_EASE_OUT`) or from a
+ * `var(--cmux-motion-*)` in a CSS string. Counted:
+ *   string   a string or template piece with a scale step as a CSS time (80/120/180/240 ms or
+ *            0.08/0.12/0.18/0.24 s, "180 ms" in prose too) or the scale's ease-out or settle curve.
+ *            A `var(--cmux-motion-*, 180ms)` fallback is the generator's to keep in step
+ *            (scripts/cmux-next/gen-motion-scale.py --check), not counted here.
+ *   number   a bare 80/120/180/240 bound to a name that reads as a length in ms (`FOLD_MS`,
+ *            `durationMs`, `duration:`) or asserted against one (`expect(fold.durationMs).toBe(180)`).
+ * A line marked `motion-allow: <reason>` is a reviewed exception (a value that only happens to equal a
+ * step, such as a 120 ms debounce). The generated scale itself is not scanned.
+ *
+ * The steps and curves come from schemas/motion-scale/motion-scale.json, the file a scale change edits,
+ * so the detector follows it: a new step value is flagged and a retired one stops being flagged with no
+ * edit here (cmux#44271 review).
+ */
+/** The parts of motion-scale.json the detector reads. */
+export type MotionScaleSource = {
+  steps: { ms: number }[];
+  easeOut: number[];
+  settle: { ms: number; bezier: number[] };
+  send: { ms: number; ease: number[] };
+};
+const MOTION_SCALE_JSON = join(ROOT, "..", "schemas", "motion-scale", "motion-scale.json");
+/** What a hand-typed copy of `scale` looks like: its durations (ms) and its curves. */
+export type MotionScaleMatchers = { ms: Set<number>; curve: RegExp };
+export function motionScaleMatchers(scale: MotionScaleSource): MotionScaleMatchers {
+  // A 0 ms send is "no motion", not a step anyone copies.
+  const ms = new Set(
+    [...scale.steps.map((step) => step.ms), scale.settle.ms, scale.send.ms].filter((value) => value > 0),
+  );
+  const curves = [scale.easeOut, scale.settle.bezier, scale.send.ease];
+  const points = (curve: number[]) => curve.map((point) => String(point).replace(".", "\\.")).join("\\s*,\\s*");
+  return { ms, curve: new RegExp(`cubic-bezier\\(\\s*(?:${[...new Set(curves.map(points))].join("|")})\\s*\\)`, "g") };
+}
+const SCALE = motionScaleMatchers(JSON.parse(readFileSync(MOTION_SCALE_JSON, "utf8")) as MotionScaleSource);
+const MOTION_TIME = /(?<![\w.$-])(\d*\.?\d+) ?(ms|s)\b/g;
+const SCALE_FALLBACK = /var\(\s*--cmux-(?:motion|ease|spinner)-[\w-]+\s*,(?:[^()]|\([^()]*\))*\)/g;
+const MS_NAME = /(?:^|_)MS$|[a-z]Ms$|^ms$|[Dd]uration$|DURATION$/;
+const MOTION_ALLOW = /motion(?::\s*allow|-allow:)\s*\S/;
+/** Generated copies of the scales (motion/scale.generated.ts, ui/designTokens.generated.ts) are the source. */
+const SCRIPT_SKIP = /\.generated\.ts$|\.d\.ts$/;
+
+function scriptFiles(): string[] {
+  const walk = (dir: string): string[] =>
+    existsSync(dir)
+      ? readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+          if (entry.isDirectory() && (entry.name === "node_modules" || entry.name === "generated")) return [];
+          const path = join(dir, entry.name);
+          if (entry.isDirectory()) return walk(path);
+          return /\.tsx?$/.test(entry.name) ? [path] : [];
+        })
+      : [];
+  return [...walk(SRC), ...walk(join(ROOT, "test"))].filter((path) => !SCRIPT_SKIP.test(path.replaceAll("\\", "/")));
+}
+
+/** The scale-named durations and curves `text` (a string's contents) types out. */
+export function motionLiteralsInText(text: string, scale: MotionScaleMatchers = SCALE): string[] {
+  const bare = text.replace(SCALE_FALLBACK, "§");
+  const found: string[] = [];
+  for (const match of bare.matchAll(MOTION_TIME)) {
+    const ms = Number(match[1]) * (match[2]!.toLowerCase() === "s" ? 1000 : 1);
+    if (scale.ms.has(Math.round(ms * 1000) / 1000)) found.push(match[0]);
+  }
+  for (const match of bare.matchAll(scale.curve)) found.push(match[0].replace(/\s+/g, " "));
+  return found;
+}
+
+function bindingName(node: ts.Node): string | undefined {
+  const parent = node.parent;
+  const name = (n: ts.Node | undefined) =>
+    n && (ts.isIdentifier(n) || ts.isStringLiteral(n) || ts.isPrivateIdentifier(n)) ? n.text : undefined;
+  if (ts.isVariableDeclaration(parent) || ts.isPropertyAssignment(parent) || ts.isPropertyDeclaration(parent))
+    return parent.initializer === node ? name(parent.name) : undefined;
+  if (ts.isParameter(parent) && parent.initializer === node) return name(parent.name);
+  if (ts.isBinaryExpression(parent) && parent.right === node && parent.operatorToken.kind === ts.SyntaxKind.EqualsToken)
+    return ts.isPropertyAccessExpression(parent.left) ? parent.left.name.text : name(parent.left);
+  // expect(<subject>).toBe(180): the subject names it.
+  if (ts.isCallExpression(parent) && ts.isPropertyAccessExpression(parent.expression)) {
+    const matcher = parent.expression.name.text;
+    const target = parent.expression.expression;
+    if (
+      /^to(?:Be|Equal|BeCloseTo|BeLessThanOrEqual|BeGreaterThanOrEqual)$/.test(matcher) &&
+      ts.isCallExpression(target)
+    ) {
+      const subject = target.arguments[0];
+      if (subject && ts.isIdentifier(target.expression) && target.expression.text === "expect") {
+        const last = ts.isPropertyAccessExpression(subject)
+          ? subject.name.text
+          : ts.isIdentifier(subject)
+            ? subject.text
+            : "";
+        return last || undefined;
+      }
+    }
+  }
+  return undefined;
+}
+
+/** Hand-typed motion-scale literals in one script (see the header above `motionScaleMatchers`). */
+export function scriptMotionFindings(rel: string, source: string): Finding[] {
+  const ast = ts.createSourceFile(
+    rel,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    rel.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+  const lines = source.split("\n");
+  const findings: Finding[] = [];
+  const push = (node: ts.Node, property: "string" | "number", value: string) => {
+    const line = ast.getLineAndCharacterOfPosition(node.getStart(ast)).line + 1;
+    if (MOTION_ALLOW.test(lines[line - 1] ?? "") || MOTION_ALLOW.test(lines[line - 2] ?? "")) return;
+    findings.push({ file: rel, kind: "motion-literal", selector: "", property, value, line });
+  };
+  const visit = (node: ts.Node) => {
+    if (
+      ts.isStringLiteral(node) ||
+      ts.isNoSubstitutionTemplateLiteral(node) ||
+      ts.isTemplateHead(node) ||
+      ts.isTemplateMiddle(node) ||
+      ts.isTemplateTail(node) ||
+      ts.isJsxText(node)
+    ) {
+      for (const value of motionLiteralsInText(node.text)) push(node, "string", value);
+    } else if (ts.isNumericLiteral(node) && SCALE.ms.has(Number(node.text))) {
+      const name = bindingName(node);
+      if (name && MS_NAME.test(name)) push(node, "number", node.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(ast);
+  return findings;
+}
+
+function scriptFindings(): Finding[] {
+  return scriptFiles().flatMap((file) => {
+    const rel = relative(SRC, file).replaceAll("\\", "/");
+    return scriptMotionFindings(rel, readFileSync(file, "utf8"));
+  });
+}
+
 export function findDesignTokenViolations(): Finding[] {
-  return [...cssFiles().flatMap(findingsForFile), ...glassFindings(), ...tsxFindings(), ...findTokenCopies()];
+  return [
+    ...cssFiles().flatMap(findingsForFile),
+    ...glassFindings(),
+    ...tsxFindings(),
+    ...findTokenCopies(),
+    ...scriptFindings(),
+  ];
 }
 
 function loadBaseline(): Map<string, number> {

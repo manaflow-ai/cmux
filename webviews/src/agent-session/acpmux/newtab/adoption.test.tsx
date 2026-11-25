@@ -2,16 +2,18 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import type { NewTabHost } from "../newTabModel";
+import { newTabHost, type NewTabHost } from "../newTabModel";
 import { EMPTY_OMNIBAR } from "../omnibar";
 import {
   injectedNewTabContext,
   NEW_TAB_ADOPT_EVENT,
   NEW_TAB_PLACES_EVENT,
+  useLostSharedPart,
   useNewTabAdoption,
   useNewTabPlaces,
   withHandshakeNewTab,
 } from "./adoption";
+import { lacksSharedPart } from "./sharedPart";
 import { settleReact } from "../../../../test/support/domTeardown";
 
 // Cmd-N's first page shows without the Commands palette's actions and lists them on the frame after
@@ -199,4 +201,90 @@ test("a places event with only tabs and workspaces keeps the bar's actions, rece
   expect(view.host?.omnibar?.history.map((page) => page.url)).toEqual(["https://example.com/"]);
   expect(view.host?.omnibar?.commands).toEqual(["make"]);
   expect(view.host?.omnibar?.folders).toEqual(["/work/app"]);
+});
+
+// The host sends the context in two parts (sharedPart.ts): the page's own part at each send, and the
+// large shared part one time for a document, as JSON text. The own part names the shared part's generation.
+const sharedPart = (commands: string[]) => ({
+  hotkeys: { agent: "⌘J" },
+  projects: ["/work/app"],
+  layout: "a",
+  omnibar: { ...EMPTY_OMNIBAR, workspaces: [{ id: "ws_1", name: "Work" }], folders: ["/work/app"], actions, commands },
+});
+const ownPart = (inputToken: string, tabs: number, sharedGeneration = 1) => ({
+  kind: "agent",
+  cwd: "/work/app",
+  inputToken,
+  sharedGeneration,
+  omnibar: {
+    tabs: Array.from({ length: tabs }, (_, index) => ({ id: `tab_${index}`, kind: "agent", title: `Tab ${index}` })),
+  },
+});
+
+test("a context in two parts is joined: each page's own part with the shared text that came one time", () => {
+  const first = newTabHost({ newTab: { ...ownPart("key-1", 1), shared: JSON.stringify(sharedPart(["ls"])) } });
+  expect(first?.inputToken).toBe("key-1");
+  expect(first?.omnibar?.tabs.map((tab) => tab.id)).toEqual(["tab_0"]);
+  expect(first?.omnibar?.actions).toEqual(actions);
+  expect(first?.omnibar?.workspaces.map((workspace) => workspace.id)).toEqual(["ws_1"]);
+  expect(first?.hotkeys).toEqual({ agent: "⌘J" });
+  expect(first?.layout).toBe("a");
+  expect(first?.projects).toEqual(["/work/app"]);
+
+  // The next send of this generation carries the own part only: the document's kept shared part joins it.
+  expect(lacksSharedPart(ownPart("key-2", 2))).toBe(false);
+  const second = newTabHost({ newTab: ownPart("key-2", 2) });
+  expect(second?.inputToken).toBe("key-2");
+  expect(second?.omnibar?.tabs.map((tab) => tab.id)).toEqual(["tab_0", "tab_1"]);
+  expect(second?.omnibar?.actions).toEqual(actions);
+  expect(second?.omnibar?.commands).toEqual(["ls"]);
+  expect(second?.hotkeys).toEqual({ agent: "⌘J" });
+
+  // A changed shared part comes as a new generation with its text, and replaces the kept one.
+  const changed = { ...ownPart("key-3", 2, 2), shared: JSON.stringify(sharedPart(["ls", "make"])) };
+  expect(newTabHost({ newTab: changed })?.omnibar?.commands).toEqual(["ls", "make"]);
+  expect(newTabHost({ newTab: ownPart("key-4", 2, 2) })?.omnibar?.commands).toEqual(["ls", "make"]);
+});
+
+test("a page that gets its own part while its document keeps no shared part asks for its context again", async () => {
+  const asked: string[] = [];
+  const callNative = (method: string) => {
+    asked.push(method);
+    // `newTab.context`'s answer always carries the shared text (AgentPaneModel.respond).
+    return Promise.resolve({ newTab: { ...ownPart("key-1", 1), shared: JSON.stringify(sharedPart(["ls"])) } });
+  };
+  const view: { host?: NewTabHost; check?: (newTab: unknown) => void } = {};
+  function Probe() {
+    const [host, setHost] = useState<NewTabHost | undefined>(undefined);
+    useNewTabAdoption(setHost);
+    view.check = useLostSharedPart(callNative, setHost);
+    view.host = host;
+    return null;
+  }
+  act(() => root!.render(<Probe />));
+
+  // The host's mark said that this document has generation 1; it has none (a lost state).
+  expect(lacksSharedPart(ownPart("key-1", 1))).toBe(true);
+  await act(async () => {
+    dom!.window.dispatchEvent(adopt(ownPart("key-1", 1)));
+    await Promise.resolve();
+  });
+  expect(asked).toEqual(["newTab.context"]);
+  expect(view.host?.inputToken).toBe("key-1");
+  expect(view.host?.omnibar?.tabs.map((tab) => tab.id)).toEqual(["tab_0"]);
+  expect(view.host?.omnibar?.actions).toEqual(actions);
+  expect(view.host?.hotkeys).toEqual({ agent: "⌘J" });
+
+  // The document has the shared part now: an own part of that generation asks nothing, by an event or a reply.
+  await act(async () => {
+    dom!.window.dispatchEvent(adopt(ownPart("key-2", 2)));
+    view.check!(ownPart("key-2", 2));
+    await Promise.resolve();
+  });
+  expect(asked).toEqual(["newTab.context"]);
+  expect(view.host?.inputToken).toBe("key-2");
+  expect(view.host?.omnibar?.actions).toEqual(actions);
+  // A context in the whole form (an older host) asks nothing.
+  act(() => view.check!(prepared));
+  expect(asked).toEqual(["newTab.context"]);
 });

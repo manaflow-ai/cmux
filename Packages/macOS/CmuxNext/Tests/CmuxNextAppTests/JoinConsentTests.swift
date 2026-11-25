@@ -2,11 +2,13 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextDevices
 import CmuxNextPages
 @testable import CmuxNextServer
 @testable import CmuxNextSettings
+import CmuxNextSettingsWindow
 import Foundation
 import Testing
 @testable import CmuxNextApp
@@ -196,6 +198,26 @@ import Testing
         #expect(model.consent?.control != true)
     }
 
+    /// SECURITY (cmux#37286): macOS 15.4+ may capture a window with `sharingType` none, so every capture cmux
+    /// makes leaves the sheet out by its window id: screen sharing, `cmux rd serve` and the recorders read
+    /// `CaptureExcludedWindows`, which lists it while it shows. Computer Use refuses it for the same property.
+    @Test func cmuxsOwnCapturesLeaveTheSheetOut() async throws {
+        _ = NSApplication.shared
+        let model = JoinConsentModel(services: Fake().services())
+        await model.refresh()
+        model.refused(JoinConsentRefusal(requester: "lane-vm-3", surface: .control))
+        let panel = JoinConsentAskPanel(model: model)
+        #expect(panel.sharingType == .none, "the sharing state CaptureExcludedWindows reads")
+        panel.setShown(true)
+        defer { panel.hide() }
+        // With no window server connection (a test step over SSH) the panel has no number and no capture runs.
+        guard panel.windowNumber > 0 else { return }
+        let id = CGWindowID(panel.windowNumber)
+        // The window server takes the new window in its own time.
+        for _ in 0..<40 where !CaptureExcludedWindows().windowIDs.contains(id) { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(CaptureExcludedWindows().windowIDs.contains(id), "left out of cmux's captures")
+    }
+
     /// The sheet's Allow refuses a click that is not the person's own (a remote driver's posted click) and a
     /// press through its action (Accessibility): nothing is granted, and the sheet says why instead of
     /// doing nothing. The gate is unchanged: the person's own click still grants.
@@ -207,11 +229,15 @@ import Testing
         model.refused(JoinConsentRefusal(requester: "lane-vm-3", surface: .control))
         let panel = JoinConsentAskPanel(model: model)
         model.present = { [weak panel] _ in panel?.content.rebuild() }
-        panel.content.rebuild()
-        panel.setContentSize(panel.content.fittingSize)
-        panel.contentView?.layoutSubtreeIfNeeded()
+        // Shown as the app shows it (``JoinConsentAskPanel/setShown(_:)``): the content joins the panel only then, and
+        // Allow's action finds its panel through its window (before 27ee68fa the panel's init held the content).
+        panel.setShown(true)
+        defer { panel.hide() }
         let allow = { try #require(AddDeviceShotsTests.find(panel.content, id: "cmux.joinConsentAsk.allow") as? NSButton) }
-        func texts(_ view: NSView) -> [String] { ((view as? NSTextField).map { [$0.stringValue] } ?? []) + view.subviews.flatMap(texts) }
+        // The card's words are ChromeLabels (the dialog card draws no NSTextField labels).
+        func texts(_ view: NSView) -> [String] {
+            (((view as? NSTextField)?.stringValue ?? (view as? ChromeLabel)?.stringValue).map { [$0] } ?? []) + view.subviews.flatMap(texts)
+        }
         let shown = { (text: String) in texts(panel.content).contains(text) }
         var number = 0
         let mouse = { (type: NSEvent.EventType) throws -> NSEvent in
@@ -885,6 +911,84 @@ import Testing
         #expect(ids.contains("cmux.joinConsentAsk.allow") && ids.contains("cmux.joinConsentAsk.deny"))
         let image = try AddMachineShotsTests.render(view)
         #expect(image.size.width >= 300 && image.size.height >= 80)
+    }
+
+    /// Leo 2026-11-22 on air-blue: "i also couldnt find settings devices control". The sheet's Settings… opens
+    /// Settings > Devices at the switch it asks about (``SettingsPageAnchor``). It answers nothing and grants
+    /// nothing, from any press (a click, Accessibility): the sheet stays up with nothing written, and Allow
+    /// still answers only the person's own click (``allowAnswersOnlyThePersonsOwnClickOnAllow()``).
+    @Test(arguments: [JoinConsentSurface.screen, .control])
+    func theSheetsSettingsOpensTheSwitchItAsksAboutAndGrantsNothing(surface: JoinConsentSurface) async throws {
+        // Settings… shows only with Settings > Experiments > Themed Floating Prompts on (off by default).
+        try await DesignSettings.$themedPromptsOverride.withValue(true) { try await settingsOpensTheSwitch(surface: surface) }
+    }
+
+    /// Off (the default), the sheet keeps Deny and Allow alone, as before.
+    @Test func offTheSheetHasNoSettingsButton() async throws {
+        _ = NSApplication.shared
+        try await DesignSettings.$themedPromptsOverride.withValue(false) {
+            let fake = Fake()
+            let model = JoinConsentModel(services: fake.services())
+            await model.refresh()
+            model.refused(JoinConsentRefusal(requester: "lane-vm-3", surface: .control))
+            let panel = JoinConsentAskPanel(model: model)
+            panel.content.rebuild()
+            let ids = AddDeviceShotsTests.identifiers(panel.content)
+            #expect(!ids.contains("cmux.joinConsentAsk.settings"))
+            #expect(ids.contains("cmux.joinConsentAsk.allow") && ids.contains("cmux.joinConsentAsk.deny"))
+        }
+    }
+
+    private func settingsOpensTheSwitch(surface: JoinConsentSurface) async throws {
+        _ = NSApplication.shared
+        let fake = Fake()
+        let model = JoinConsentModel(services: fake.services())
+        await model.refresh()
+        var opened: [JoinConsentSurface] = []
+        model.openSettings = { opened.append($0) }
+        model.refused(JoinConsentRefusal(requester: "lane-vm-3", surface: surface))
+        let panel = JoinConsentAskPanel(model: model)
+        panel.content.rebuild()
+        panel.setContentSize(panel.content.fittingSize)
+        panel.contentView?.layoutSubtreeIfNeeded()
+        let ids = AddDeviceShotsTests.identifiers(panel.content)
+        #expect(ids.contains("cmux.joinConsentAsk.settings") && ids.contains("cmux.joinConsentAsk.allow") && ids.contains("cmux.joinConsentAsk.deny"))
+        let settings = try #require(AddDeviceShotsTests.find(panel.content, id: "cmux.joinConsentAsk.settings") as? NSButton)
+        _ = settings.accessibilityPerformPress()
+        settings.performClick(nil)
+        for _ in 0..<50 { await Task.yield() }
+        #expect(opened == [surface, surface], "each press opens Settings at the asked switch")
+        #expect(fake.writes.isEmpty && fake.confirms.isEmpty, "Settings… writes nothing and asks no confirm")
+        #expect(model.ask == JoinConsentRefusal(requester: "lane-vm-3", surface: surface) && model.askError == nil,
+                "the sheet stays up, unanswered")
+        let place = try #require(SettingsPageAnchor.joinConsent(surface.rawValue))
+        #expect(place.route == "#/settings/devices?focus=devices.join.\(surface.rawValue)")
+        // With no ask, Settings… has nothing to open.
+        _ = await model.answer(allow: false)
+        model.showSettings()
+        #expect(opened.count == 2)
+    }
+
+    /// Every join switch has a Settings place a deep link opens (`openSettings setting:devices.join.control`),
+    /// and the page gets the words Settings search finds it by: the localized ones and English.
+    @Test func everyJoinSwitchHasASettingsPlaceAndSearchWords() async throws {
+        for surface in JoinConsentSurface.allCases {
+            let place = try #require(SettingsPageAnchor.joinConsent(surface.rawValue), "\(surface)")
+            #expect(SettingsPageAnchor(key: " devices.join.\(surface.rawValue) ") == place)
+            #expect(place.category == "devices" && place.route == "#/settings/devices?focus=\(place.rawValue)")
+        }
+        #expect(SettingsPageAnchor.allCases.count == JoinConsentSurface.allCases.count)
+        #expect(SettingsPageAnchor(key: "devices.join.nothing") == nil && SettingsPageAnchor(key: "tabs.newTabPosition") == nil)
+        #expect(JoinConsentStrings.searchWords(.control).contains("remote control"))
+        #expect(JoinConsentStrings.searchWords(.control).contains("let my team control"))
+        #expect(JoinConsentStrings.searchWords(.screen).contains("screen sharing"))
+
+        let fake = Fake()
+        let model = JoinConsentModel(services: fake.services())
+        await model.refresh()
+        let switches = try #require(try Self.page(model)["switches"] as? [[String: Any]])
+        let control = try #require(switches.first { $0["surface"] as? String == "control" })
+        #expect((control["keywords"] as? [String])?.contains("remote control") == true)
     }
 
     /// Allow answers only the person's own click on Allow itself, read from the click's events: the

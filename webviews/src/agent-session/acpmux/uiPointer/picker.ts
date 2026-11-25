@@ -179,6 +179,12 @@ export function installUiPointer(doc: Document, options: Options): UiPointerCont
     },
     pick(x, y) {
       control.start();
+      // The click's own point is a pointer position too: a deliberate move made inside the grace
+      // time and clicked after it, with no mousemove since, releases the hold here.
+      if (held && grace && !graceAfterMove(grace, now(), Number(x), Number(y))) {
+        held = null;
+        grace = null;
+      }
       const element = held?.isConnected ? held : elementAt(Number(x), Number(y));
       outlineOn(element);
       if (element) options.post(reportOf(element));

@@ -71,7 +71,14 @@ cmux NIGHTLY.app/Contents/Library/cmux NIGHTLY Screen Sharing.app
   - A session's helper is the app's child: the app reaps it (`SignedHelperLaunch.reap`) and closes
     its stdin when the session ends, as it did for the in-app child.
   - When the app dies, its pipes close and `serve` exits on EOF.
+  - The app keeps a session helper's stdout and stderr pipes for the session's life
+    (`MacScreenRdProcess.startSpawned`). No `Process` holds them, and a released `Pipe` closes
+    its read end under its reader. That left the helper's answer unread and the viewer at
+    "Connecting..." (cmuxterm-hq#13721).
   - Probes have a 10 s deadline, then SIGKILL.
+  - A started host that has not answered within 15 s fails the session. A viewer whose connect
+    shows no picture within 15 s fails naming the stage it reached (no answer, no link, no
+    frame). `mac_screen.state` reports it as `connect_stage` / `timed_out_at`.
 - **No fallback across the line.** If a build carries the helper but staging fails, the share
   fails. Running capture in the app would silently move the grant back to cmux. A build without the
   helper (a local build with no cached Rust binary) keeps the old in-app path, so a dev build still
@@ -125,11 +132,48 @@ The helper follows the iPhone host (cmux-mobile-host):
 | Developer ID signing before notarization | `scripts/sign-cmux-bundle.sh` |
 | Notices; dependency budget for its lockfile | `scripts/cmux-next/notices/bundle-map.json`; `scripts/cmux-next/bundle-size-budget.json` |
 
+## The iPhone viewer's WebRTC host
+
+The iPhone viewer (and a Mac from before cmux.rd/1) offers WebRTC, which `ScreenStreamHost`
+(CmuxScreenKit) serves. With the helper bundled it runs outside the app too, so its
+ScreenCaptureKit capture and CGEvent input use the helper's grants:
+
+```
+cmux NIGHTLY (app)                      MacScreenRdHost.serveWebRTC -> MacScreenStreamProcess
+  └ disclaimed spawn: cmux-screen-sharing __webrtc-host <app executable> --screen-stream-host
+       (the helper; its own responsible process)
+       └ posix_spawn, suspended: <app executable> --screen-stream-host
+            runs only when its code is signed by the helper's own Team ID (SecCodeCheckValidity),
+            its signing identifier is a cmux app's (com.cmuxterm.app*) and its only argument is
+            --screen-stream-host;
+            the helper's ordinary child, so macOS checks the helper's grants
+            MacScreenStreamChild: ScreenStreamHost + ScreenCaptureBackend, no NSApplication
+```
+
+The app keeps the session's signaling (the viewer's protocol is unchanged) and relays it in JSON
+lines on the child's stdio (`MacScreenStreamLine`): app to child `setup` (with the first
+`exclude_windows`), `signal`, `ice`, `exclude_windows` (the whole list on every change, SECURITY:
+`CaptureExcludedWindows`) and `stop`; child to app `signal`, `ice_request`, `event`, `close` and
+`done`. Stop, or the app ending, closes the child's input and it exits. A build without the helper
+serves the viewer in the app, as before.
+
+The exclusion list has one reading: the one on the setup seeds the watch, which starts only once
+the setup is queued, so no watch line can reach the child before the setup and be replaced by it.
+
+SECURITY, the limit of the check: SecCodeCheckValidity covers the child's main executable (the
+app's stub). The code it loads from `Contents/Frameworks` is not checked again, and the app's
+entitlements disable library validation, so a copied cmux app with a replaced framework would run
+under the helper's grants. That is the app's own exposure today (it runs under the app's grants
+the same way); closing it means checking the whole bundle from a protected path.
+
 ## Left
 
-- The WebRTC path for iPhone viewers (`ScreenStreamHost`, CmuxScreenKit) still captures in the
-  app. Moving it means a WebRTC peer in the helper, or the helper capturing and handing IOSurfaces
-  to the app.
+- Still this app's own grants (a grant made there takes effect after a relaunch):
+  `MacScreenSystemShortcuts`' Accessibility event tap (`requestAppAccessibility`, the remote pane's
+  system shortcuts), the reads `CmuxRemoteService.appPermissions` reports, and every capture of a
+  build without the helper. A remote pane's Share Screen (`SystemUpstreamPermissions`) still asks for
+  this app's grant; nothing captures for it yet, and its capturer must run in the helper and ask the
+  helper (`MacScreenShareHost.requestAndWait`), or it keeps the relaunch.
 - Consent read inside the helper, after #43983 (above).
 - Notices: the helper maps to the `rust-cmux-cli` section, because bin/cmux links the same crates.
   A dedicated section built from `cmux-rd-host/Cargo.lock` would also list its exact versions.

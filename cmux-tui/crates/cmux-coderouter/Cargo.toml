@@ -10,6 +10,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+cmux-egress.workspace = true
 cmux-json.workspace = true
 anyhow.workspace = true
 axum.workspace = true
