@@ -496,8 +496,8 @@ impl Hub {
                     // 4dcbe192, F3): it waits until the restore ends or lapses, as an admission
                     // does, and never runs into the seqs the restore needs.
                     // It waits for the turn at most `TURN_LOCK_WAIT` under its admission: a lock
-                    // held with no turn shown (a recovered host turn awaiting its old host's
-                    // answer, a restore, a route) never keeps the prompt, and every one admitted
+                    // held with no turn shown (a route switch, a journal restore's recovery, a
+                    // watched chat's op, a restore) never keeps the prompt, and every one admitted
                     // after it, unanswered. Past the bound it queues durably, is accepted as
                     // queued and waits for its turn in `queue_turn` without the admission
                     // (Leo, 2026-11-25: "A delivery always gets an answer within seconds").

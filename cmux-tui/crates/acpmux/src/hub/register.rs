@@ -481,8 +481,15 @@ impl Hub {
         // Files: off the runtime's workers (RFD 0124 R6).
         let gone = crate::qos::off_worker(move || {
             let kept = crate::claude_peers::kept_token(&home, &id);
-            let started_now =
-                kept.as_ref().and_then(|k| crate::claude_peers::started_at(&claude_home, k.pid));
+            // Its registry entry's start, or the kept start while that process still runs with
+            // no entry: a live Claude Code never yields its name.
+            let started_now = kept.as_ref().and_then(|k| {
+                crate::claude_peers::started_at(&claude_home, k.pid).or_else(|| {
+                    crate::adopt_live::registered_runs(k.pid, k.started)
+                        .then_some(k.started)
+                        .flatten()
+                })
+            });
             registered_chat_gone(registered, kept.as_ref(), started_now)
         });
         if !gone {
@@ -813,6 +820,13 @@ mod tests {
             .unwrap_err();
         assert_eq!(e.data.as_ref().unwrap()["reason"], "register.name_taken", "{}", e.message);
         assert_eq!(held.meta().name, "mango-live");
+        // Its process runs with no registry entry at all: still taken.
+        std::fs::remove_file(registry.join(format!("{me}.json"))).unwrap();
+        let e = hub
+            .yield_name_of_gone(&held, "mango-live", home.path(), claude_home.path())
+            .await
+            .unwrap_err();
+        assert_eq!(e.data.as_ref().unwrap()["reason"], "register.name_taken", "{}", e.message);
         // Nor does a chat that was never registered yield, gone or not.
         assert!(!registered_chat_gone(false, None, None));
         let kept = crate::claude_peers::ChildToken {
