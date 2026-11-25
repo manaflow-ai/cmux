@@ -2,7 +2,8 @@ import Foundation
 
 /// Text of the notifications panel. Keys live in
 /// Resources/NotificationsPanelList.xcstrings.
-package enum NotificationsPanelStrings {
+package struct NotificationsPanelStrings {
+    package init() {}
     package static var title: String { String(localized: "notificationsPanel.title", defaultValue: "Notifications", table: "NotificationsPanelList", bundle: .localizedModule) }
     package static var markAllRead: String { String(localized: "notificationsPanel.markAllRead", defaultValue: "Mark All Read", table: "NotificationsPanelList", bundle: .localizedModule) }
     package static var clearAll: String { String(localized: "notificationsPanel.clearAll", defaultValue: "Clear All", table: "NotificationsPanelList", bundle: .localizedModule) }
