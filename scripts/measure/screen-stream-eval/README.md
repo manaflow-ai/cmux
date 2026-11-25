@@ -473,7 +473,7 @@ server takes the first private-address client that holds the token and that one 
 posts as the step's user, and ends at the viewer's `/done` or after 2 hours. Apple's presented Total
 logs in with the login the worker writes for a `--vnc-login` step (`CMUX_CI_VNC_LOGIN_FILE`), or,
 with no `--vnc-login` (a controller with no fleet login source refuses it), with the fleet password
-in the viewer's login keychain (`manaflow-fleet-sudo`, which `fleet-sudo --login-keychain VIEWER_MAC`
+in the viewer's login keychain (`manaflow-fleet-login`, never the sudo item; `fleet-sudo --login-keychain VIEWER_MAC`
 stores), copied to a 0600 file in the step's output for the run and removed after it. The
 ledger, its log and the printed table are `stage-table/` in evidence.tar.gz.
 
@@ -483,8 +483,9 @@ step's commit (`scripts/reload.sh --tag stagetable`, the build `chat-open.sh` do
 host half's as `--app-host-app`. The host app is started as a direct child of the step, so it shares the
 launcher's Screen Recording grant, signs in to the device hub, turns sharing on, and approves the viewer's
 session; it tells the viewer half its path through the peer server (a file under `/tmp` named by the run
-token's hash). Both apps sign in with `CMUX_STAGE_TABLE_AUTH_FILE` (default: the Mac's
-`~/rd-hub-rig/private/creds.env`, the Mac Screen rig's agent test-account file). Without that file on
+token's hash). Both apps sign in with `CMUX_STAGE_TABLE_AUTH_FILE`, else the Mac's
+`~/rd-hub-rig/private/creds.env` (the Mac Screen rig's agent test-account file), else
+`~/.secrets/cmuxterm-dev.env` (the CI dev account the pair e2e signs in with). Without any of them on
 either Mac, or when a build or sign-in fails, the run keeps Apple's leg and the cmux rows end at decode, and
 a `SCREEN-STREAM-EVAL-STAGE ... no app viewer` line says why. A shaped leg
 (`wifi-away`) needs `sudo -n` on the host for mac-holds.sh; without it that leg fails and the table
