@@ -53,7 +53,8 @@ OUR_LABELS = {NIGHTLY_ONLY, NIGHTLY_SLOT, SIGNING_SLOT, HOSTED}
 # The light jobs that hold no routing key run on our Linux pool, one label for every own-branch Linux job.
 CMUX_LINUX = 'cmux-linux'
 CMUX_LINUX_JOBS = ('resolve-nightly-cmux-tui-client', 'resolve-nightly-ghostty-cli-helper',
-                   'prepare-nightly-variant-primary', 'prepare-nightly-variant', 'await-nightly-tree-marker')
+                   'prepare-nightly-variant-primary', 'prepare-nightly-variant', 'await-nightly-tree-marker',
+                   'published-build')
 # The tail's secret jobs that take the ephemeral JIT nightly label, outside the push group, never Blacksmith
 # (test_nightly_owned_minis_only.HOSTED_TAIL_JOBS has each one's reason). Every other nightly job runs on our own minis.
 # publish-nightly-next-github is the loop run's one hosted job (test_nightly_owned_minis_only.HOSTED_LOOP_JOBS, Leo's
@@ -98,6 +99,7 @@ OWNED_SECRET_JOBS = {
     'pick-nightly-sign-runner': 'reads the routing App key (ci-routing-agent) to pick the signer; a credentialed control',
     'find-nightly-next-recovery': 'reads the routing App key (ci-routing-agent) to pick the recovery signer; a credentialed control',
     'route-visual-gate-nightly': 'reads the routing App key (ci-routing-agent) to pick the visual gate mini; a credentialed control',
+    'pick-nightly-next-signer': 'reads the glaeda-route App key for a read-only token to pick the signer Mac; a credentialed control',
     'await-release-surface-ack': "retired (if: false); its environment is the release-surface ack, on the nightly-only pool",
     'promote-nightly-next': 'a main dispatch the signer refuses; ends on the nightly slot (test_no_signing_job_reads_an_owned_runner_variable)',
     'promote-nightly-next-acked': "retired (if: false) twin of promote-nightly-next, same route",
