@@ -196,7 +196,8 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             if let refreshError = store.refreshError {
                 refreshErrorRow(refreshError)
             }
-            switch FeedEmptyBody.resolve(isEmpty: store.visibleItems.isEmpty, sync: store.syncState, filter: store.filter) {
+            switch FeedEmptyBody.resolve(isEmpty: store.visibleItems.isEmpty, sync: store.syncState,
+                                         filter: store.filter, known: store.hasKnownData) {
             case .caughtUp: caughtUpState
             case .noEvents: noEventsState
             case nil: EmptyView()
@@ -515,8 +516,11 @@ private struct DoneUndoBar: View {
 enum FeedEmptyBody: Equatable {
     case caughtUp, noEvents
 
-    static func resolve(isEmpty: Bool, sync: FeedStore.SyncState, filter: FeedFilter) -> FeedEmptyBody? {
-        guard isEmpty, sync == .live else { return nil }
+    /// `known`: the account's cached snapshot or a live result already said what the Feed holds,
+    /// so an empty Feed is truly empty even while the Mac reconnects.
+    static func resolve(isEmpty: Bool, sync: FeedStore.SyncState, filter: FeedFilter,
+                        known: Bool = false) -> FeedEmptyBody? {
+        guard isEmpty, sync == .live || known else { return nil }
         return filter == .needsYou ? .caughtUp : .noEvents
     }
 }
