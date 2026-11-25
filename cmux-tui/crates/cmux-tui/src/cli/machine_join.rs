@@ -52,6 +52,7 @@ use cmux_json::JsonSet as _;
 /// The production platform: the default, the same hub `acpmux host join` and production's join.sh use,
 /// so a line minted with no flags is redeemed where it was minted.
 pub(super) const DEFAULT_ORIGIN: &str = cmux_cloud_environment::PRODUCTION_PLATFORM;
+#[cfg(test)]
 const TOKEN_ENV: &str = "CMUX_CLOUD_ACCESS_TOKEN";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 /// A list merge (`machine list`, `device list`) costs at most this.

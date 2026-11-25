@@ -637,14 +637,16 @@ fn scope_list(value: &Value) -> String {
 fn table(rows: &[Vec<String>]) -> String {
     let columns = rows.first().map_or(0, Vec::len);
     let widths: Vec<usize> = (0..columns)
-        .map(|c| rows.iter().map(|r| r[c].chars().count()).max().unwrap_or(0))
+        .map(|c| {
+            rows.iter().filter_map(|r| r.get(c)).map(|cell| cell.chars().count()).max().unwrap_or(0)
+        })
         .collect();
     let mut out = String::new();
     for row in rows {
         let line: Vec<String> = row
             .iter()
             .enumerate()
-            .map(|(c, cell)| format!("{cell:<width$}", width = widths[c]))
+            .map(|(c, cell)| format!("{cell:<width$}", width = widths.get(c).copied().unwrap_or(0)))
             .collect();
         out.push_str(line.join("  ").trim_end());
         out.push('\n');
@@ -674,7 +676,7 @@ pub(super) fn human(verb: &Verb, answer: &Value) -> (String, String) {
                 .to_vec()];
             let tokens = answer.get("tokens").and_then(Value::as_array).cloned().unwrap_or_default();
             for t in &tokens {
-                let owner = match text(&t, "owner") {
+                let owner = match text(t, "owner") {
                     Some("team") => format!("team ({})", text(t, "createdByName").or(text(t, "createdBy")).unwrap_or("-")),
                     _ => text(t, "repository").map(|r| format!("github {r}")).unwrap_or_else(|| "you".into()),
                 };
