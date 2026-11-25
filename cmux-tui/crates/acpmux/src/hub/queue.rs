@@ -219,6 +219,10 @@ pub(super) enum Wait<'a> {
 /// another daemon (`transfer_out.rs`). One whose move committed keeps its move's mark for good
 /// (`MOVED_AWAY` after a restart), and answers where it went: no move of it is under way.
 pub(super) fn moving_error(session: &Session) -> RpcError {
+    // Auto mode froze it (`auto_hold.rs`): no move is under way.
+    if session.moving().as_deref() == Some(super::AUTO_AWAY) {
+        return super::auto_hold::away_error(session);
+    }
     match session.read_meta(|m| m.moved_to.clone()) {
         Some(to) => super::transfer_out::moved_error(&to),
         None => {
