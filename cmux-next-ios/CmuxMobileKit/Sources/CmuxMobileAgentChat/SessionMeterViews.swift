@@ -149,7 +149,7 @@ struct PlanProgressBar: View {
             }
         }
         .padding(.horizontal, 14)
-        .glassEffect(.regular, in: .rect(cornerRadius: 22, style: .continuous))
+        .cmuxMobileFloatingGlass(in: .rect(cornerRadius: 22, style: .continuous))
         .padding(.horizontal, 20)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text("Plan, \(progress.completed) of \(progress.total) done. \(progress.current ?? "")"))
