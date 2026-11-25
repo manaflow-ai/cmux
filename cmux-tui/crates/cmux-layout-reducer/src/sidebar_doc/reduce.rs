@@ -918,7 +918,12 @@ fn unpin_order(doc: &Doc, ids: &[ItemId]) -> Result<Vec<ItemId>, Refusal> {
                 // Old places have no source order. Their order in Pinned is
                 // the only surviving order for siblings with the same place.
                 let order = key("order").unwrap_or(&item.order);
-                let run = sibling_runs.entry((section, key("parent"), key("after"))).or_default();
+                let parent = key("parent");
+                // A saved parent is followed across sections, so two rows
+                // pinned before and after their group moved share one run.
+                let run = sibling_runs
+                    .entry((parent.is_none().then_some(section), parent, key("after")))
+                    .or_default();
                 run.push((order, item));
             }
         }

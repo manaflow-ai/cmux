@@ -210,6 +210,29 @@ fn unpin_follows_its_saved_group_after_the_group_changes_section() {
 }
 
 #[test]
+fn batch_unpin_orders_siblings_pinned_before_and_after_their_group_moves() {
+    for order in [["w2", "w3"], ["w3", "w2"]] {
+        for unpin_parent in [false, true] {
+            let mut doc = fixture();
+            run(&mut doc, vec![Op::Pin { items: vec![item_id("w2")] }]);
+            run(&mut doc, vec![Op::Pin { items: vec!["g1".into()] }]);
+            run(&mut doc, vec![Op::Pin { items: vec![item_id("w3")] }]);
+            let mut items = order.map(item_id).to_vec();
+            if unpin_parent {
+                items.push("g1".into());
+            }
+            run(&mut doc, vec![Op::Unpin { items }]);
+            let section = if unpin_parent { machine() } else { PINNED_SECTION_ID.into() };
+            assert_eq!(
+                list(&doc, &section, Some("g1")),
+                ["w1", "w2", "w3"],
+                "selection {order:?}, parent unpinned {unpin_parent}"
+            );
+        }
+    }
+}
+
+#[test]
 fn unpin_puts_a_first_member_back_first_in_its_group() {
     let mut doc = fixture();
     run(&mut doc, vec![Op::Pin { items: vec![item_id("w1")] }]);
