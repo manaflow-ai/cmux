@@ -197,6 +197,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::PATH.optional(), args::MACHINE.optional()],
         targets: &["tab"],
         cli_name: "cloud move",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -211,6 +212,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "move", 1).folder("move")], ..SurfacePlan::DEFAULT },
         targets: &["tab"],
         cli_name: "cloud bring-back",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -226,6 +228,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "move", 2).folder("move")], ..SurfacePlan::DEFAULT },
         targets: &["tab"],
         cli_name: "cloud transfer-local",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -241,6 +244,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::MACHINE.optional()],
         targets: &["tab"],
         cli_name: "cloud move-to-machine",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
