@@ -563,7 +563,7 @@ const MAX_SCROLL_LEAD_VIEWPORTS = 4;
 const SCROLL_TRAIL_VIEWPORTS = 1;
 
 /// Viewports of rows kept mounted either side of the reader, built between frames.
-const WARM_VIEWPORTS = 1;
+const WARM_VIEWPORTS = 0;
 
 /// Viewports of history mounted above the reader, in the commit that draws the view: a chat opens
 /// with rows to scroll up into already drawn, and the warm rows keep that much above while the reader
@@ -571,7 +571,7 @@ const WARM_VIEWPORTS = 1;
 /// all. Like it doesn't load enough"). Rows the transcript already holds only; older pages still come
 /// by OLDER_AHEAD_VIEWPORTS. Above the view, so a followed view's end anchors them: their heights
 /// land in the offset in the frame they are measured and no visible row moves.
-const HISTORY_VIEWPORTS = 4;
+const HISTORY_VIEWPORTS = 0;
 
 /// How far the reader scrolls, in viewports, before the warm rows move with them.
 const WARM_STEP_VIEWPORTS = 0.5;
