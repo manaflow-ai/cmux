@@ -846,14 +846,16 @@ export function NewTabScreen(props: Props) {
       ? project
       : (props.startCwd ?? (props.startPending && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
   const cloudMode = props.runMode?.mode === "cloud";
-  // A folder of this Mac the person picked here goes to Cloud as itself (copied, granted on the pick) when it is
-  // no clone of a GitHub repository; never the tab's inherited folder (cmux#53226).
+  // A folder of this Mac the person picked here goes to Cloud as itself (projected or copied, granted on the pick), a
+  // checkout of a GitHub repository too (cmux#55104); never the tab's inherited folder (cmux#53226), which goes as its
+  // GitHub repository when it is a checkout of one.
   const cloudFolder =
+    (picked && project !== undefined && localAskFolder === project ? project : undefined) ??
     cloudRepositoryPick(
       localAskFolder,
       (localGitHubPick?.cwd === localAskFolder ? localGitHubPick?.name : undefined) ??
         props.projects?.find((candidate) => candidate.cwd === localAskFolder)?.repo?.github,
-    ) ?? (picked && project !== undefined && localAskFolder === project ? project : undefined);
+    );
   const askFolder = cloudMode ? cloudFolder : githubFolderRepo(localAskFolder) ? undefined : localAskFolder;
   // A GitHub repository picked with This Mac picked, not checked out yet: the chip names it, Return checks it out.
   const pendingGitHubFolder = !cloudMode && githubFolderRepo(localAskFolder) ? localAskFolder : undefined;
@@ -1166,12 +1168,12 @@ export function NewTabScreen(props: Props) {
   const commandAt = shell ? undefined : commandTrigger;
   const commandQuery = commandAt?.query;
   // The person's saved prompts (savedPrompts.ts) first, as in the chat composer; read again as the list opens.
-  const savedPrompts = useSavedPrompts();
+  const commandOpening = commandAt !== undefined;
+  const savedPrompts = useSavedPrompts(commandOpening);
   const menuCommands = useMemo(
     () => [...savedPromptCommands(savedPrompts), ...(snapshot.commands ?? [])],
     [savedPrompts, snapshot.commands],
   );
-  const commandOpening = commandAt !== undefined;
   useEffect(() => {
     if (commandOpening) void refreshSavedPrompts();
   }, [commandOpening]);
