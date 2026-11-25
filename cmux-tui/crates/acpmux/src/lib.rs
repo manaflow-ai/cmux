@@ -86,6 +86,7 @@ pub mod config;
 pub mod conn_origin;
 pub mod context_inventory;
 pub mod cpu_class;
+pub mod customize_run;
 pub mod cwd_pin;
 pub mod daemon;
 pub(crate) mod daemon_parts;
