@@ -60,7 +60,6 @@ export type MachineAtRestArm = "off" | "on";
 /// The gallery's alternates (not shipped): a count of items on the dot, or a warning glyph.
 export type DotLook = "dot" | "count" | "glyph";
 
-
 /// The composer footer's status slot (Composer.tsx `chips`): the dot with the session's items, its
 /// machine link's item, and the pane's own (its connection to acpmux, a held send), or an older
 /// acpmux's machine row as before.

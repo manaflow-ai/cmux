@@ -197,4 +197,3 @@ function msOf(value: string): number | undefined {
   if (!Number.isFinite(number)) return undefined;
   return text.endsWith("ms") ? number : text.endsWith("s") ? number * 1000 : number;
 }
-
