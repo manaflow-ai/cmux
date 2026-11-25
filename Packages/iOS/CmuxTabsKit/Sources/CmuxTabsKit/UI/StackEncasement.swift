@@ -32,7 +32,7 @@ struct StackOutlineShape: Shape {
 
     // perf-hot: three rounded rects and at most three bridges, a few CGPath boolean ops per stack per frame while it morphs
     static func outline(_ rects: StackOutlineRects, radius: CGFloat, innerRadius: CGFloat, maxGap: CGFloat) -> CGPath {
-        let (rows, bridges) = rects.pieces(maxGap: maxGap)
+        let (rows, bridges) = rects.pieces(maxGap: maxGap, overlap: radius)
         var shape: CGPath?
         for r in rows where r.width > 0.5 && r.height > 0.5 {
             let rr = min(radius, r.width / 2, r.height / 2)

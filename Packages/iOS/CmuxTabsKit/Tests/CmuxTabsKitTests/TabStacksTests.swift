@@ -86,6 +86,12 @@ struct TabStacksTests {
         #expect(pieces.rows.count == 2)
         #expect(pieces.bridges.count == 1)
         #expect(abs(pieces.bridges[0].width - r.c.width) < 0.01)
+        // Reaching the rows' corner radius into each row, it squares the
+        // corners on the shared edge: the L's left side is one straight line.
+        let reach = r.pieces(maxGap: OverviewLayout.rowGap + 2, overlap: 20).bridges[0]
+        #expect(abs(reach.minY - (r.a.maxY - 20)) < 0.01)
+        #expect(abs(reach.maxY - (r.c.minY + 20)) < 0.01)
+        #expect(abs(reach.minX - r.c.minX) < 0.01)
     }
 
     @Test func threeRowsKeepTheMiddleWhole() {
