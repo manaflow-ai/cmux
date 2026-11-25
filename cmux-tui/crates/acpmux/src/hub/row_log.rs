@@ -228,6 +228,8 @@ impl Hub {
         self.events.all_rows_stale();
         self.events.row_changed(session);
         self.note_rows_reading(session);
+        // Synced winners kept for it while it was elsewhere (`synced.rs`).
+        self.synced_chat_came(&session.id);
     }
 
     /// The newest list position and this run's epoch.

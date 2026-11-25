@@ -94,6 +94,10 @@ pub struct Transcript {
     /// Item indices removed since the TUI last read them, in order, so it can move
     /// state it keys by index (folds) with the rows that stay.
     pub removed_items: Vec<usize>,
+    /// The chat's capacity wait from its session row (`hub/capacity_wait.rs`, the row's
+    /// `capacityWait`): acpmux holds the cut turn and goes on by itself. A client draws that
+    /// turn's error as a calm wait, never red. Set by the TUI from the row; None otherwise.
+    pub capacity_wait: Option<Value>,
 }
 
 /// Line diff of two texts: `+`, `-` and ` ` prefixed lines, in order. LCS

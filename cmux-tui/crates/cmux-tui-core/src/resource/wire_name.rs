@@ -283,6 +283,7 @@ impl ResourceOperation {
             Self::ThemeSchemeConvert => "theme.scheme.convert",
             Self::ThemeSchemeExport => "theme.scheme.export",
             Self::ThemeSchemeFromImage => "theme.scheme.from_image",
+            Self::ThemeSlotsResolve => "theme.slots.resolve",
             Self::StashCreate => "stash.create",
             Self::StashList => "stash.list",
             Self::StashRestore => "stash.restore",

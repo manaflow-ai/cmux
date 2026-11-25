@@ -29,7 +29,15 @@
 //!   bandwidth-delay product plus [`TARGET`] of queue; with no queue it grows
 //!   by `TARGET / base`. Each change is at most a factor of two either way.
 //! - Slow start doubles the window each measured round while the queueing
-//!   delay stays under half the target, and ends as soon as the last
+//!   delay stays under half the target, but never past what the round's
+//!   ACKs show the path carries: the window leaves paced at twice its
+//!   rate, so once it is past half the path's product the ACKs come back
+//!   at the bottleneck's rate, and `rate * (base + TARGET)` is the window
+//!   the path holds. Doubling blind past it put up to a whole product in
+//!   the queue (a 60 to 110 ms keystroke-echo spike on lte, one per
+//!   transfer) before the first late sample could show it. A round still
+//!   grows the window by at least [`SLOW_START_MIN_GROWTH`], so a low rate
+//!   reading cannot stall slow start. It ends as soon as the last
 //!   [`RECENT_SAMPLES`] samples all show more than the target (cutting the
 //!   window as above from the smallest, by up to four times). After it,
 //!   the same samples past [`OVERSHOOT`] targets cut the window at once.
@@ -64,6 +72,14 @@ const RECENT_SAMPLES: usize = 8;
 const OVERSHOOT: u32 = 4;
 /// A full-size segment.
 const SEGMENT: u32 = 1200;
+/// Acknowledged bytes one delivery-rate sample spans at least: several
+/// segments, so delayed and jittered ACKs average out. A sample also spans
+/// a quarter of the window: ACKs a busy receiver or a radio bunches read
+/// faster than the path over a few segments.
+const RATE_SPAN: u32 = 8 * SEGMENT;
+/// The least a slow-start round grows the window by, whatever the
+/// delivery rate reads.
+const SLOW_START_MIN_GROWTH: f64 = 1.25;
 /// Departures kept for samples; past this, segments go unsampled.
 const MAX_DEPARTURES: usize = 4096;
 /// Minutes of base-delay history (RFC 6817's BASE_HISTORY).
@@ -112,6 +128,11 @@ pub(crate) struct DelayWindow {
     measured: bool,
     /// Largest wire flight seen in the round being measured.
     round_flight: u32,
+    /// Recent ACKs (arrival, number), oldest first, spanning about
+    /// [`RATE_SPAN`] bytes: the delivery rate's window.
+    ack_times: VecDeque<(Instant, u32)>,
+    /// Largest delivery rate (bytes a second) of the round being measured.
+    round_rate: f64,
 }
 
 impl Default for DelayWindow {
@@ -126,6 +147,8 @@ impl Default for DelayWindow {
             recent: VecDeque::new(),
             measured: false,
             round_flight: 0,
+            ack_times: VecDeque::new(),
+            round_rate: 0.0,
         }
     }
 }
@@ -165,6 +188,7 @@ impl DelayWindow {
     /// The ACK moved to `ack` at `now`; `snd_max` is the highest sequence end
     /// sent.
     pub(crate) fn acked(&mut self, ack: u32, snd_max: u32, now: Instant) {
+        self.note_rate(ack, now);
         let mut newest = None;
         while let Some(&(end, departed)) = self.departures.front() {
             if after(end, ack) {
@@ -200,6 +224,27 @@ impl DelayWindow {
         self.round = Some(Round { since: now, until: None });
         self.round_min = None;
         self.round_flight = 0;
+        self.round_rate = 0.0;
+    }
+
+    /// The ACK moved to `ack` at `now`: one delivery-rate sample over the
+    /// last [`RATE_SPAN`] (or a quarter window) of acknowledged bytes.
+    fn note_rate(&mut self, ack: u32, now: Instant) {
+        let span = RATE_SPAN.max(self.window / 4);
+        if self.ack_times.back().is_some_and(|&(_, last)| !after(ack, last)) {
+            return;
+        }
+        self.ack_times.push_back((now, ack));
+        // Keep the newest entry that is still a whole span behind.
+        while self.ack_times.get(1).is_some_and(|&(_, next)| ack.wrapping_sub(next) >= span) {
+            self.ack_times.pop_front();
+        }
+        let Some(&(since, from)) = self.ack_times.front() else { return };
+        let bytes = ack.wrapping_sub(from);
+        let elapsed = now.saturating_duration_since(since).as_secs_f64();
+        if bytes >= span && elapsed > 0.0 {
+            self.round_rate = self.round_rate.max(f64::from(bytes) / elapsed);
+        }
     }
 
     /// Whether the last [`RECENT_SAMPLES`] samples all show a queue past
@@ -273,7 +318,14 @@ impl DelayWindow {
         }
         let window = f64::from(self.window);
         let next = if self.slow_start && queueing < self.target() / 2 {
-            window * 2.0
+            // The window the path holds at the rate the round's ACKs came
+            // back at (none measured: no cap).
+            let holds = if self.round_rate > 0.0 {
+                self.round_rate * (base + self.target()).as_secs_f64()
+            } else {
+                f64::INFINITY
+            };
+            (window * 2.0).min(holds.max(window * SLOW_START_MIN_GROWTH))
         } else {
             self.slow_start = false;
             let scaled =
