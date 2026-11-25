@@ -28,6 +28,10 @@ pub(crate) struct Parts<'a> {
     pub host: Option<&'a str>,
     /// The path as written (percent-encoded).
     pub path: &'a str,
+    /// The port digits as written, `""` when the authority names none.
+    pub port: &'a str,
+    /// The query after `?`, as written (percent-encoded); `None` without a `?`.
+    pub query: Option<&'a str>,
 }
 
 fn is_unreserved(c: char) -> bool {
@@ -86,8 +90,8 @@ fn valid_ip_literal(literal: &str) -> bool {
     literal.parse::<std::net::Ipv6Addr>().is_ok()
 }
 
-/// `host[:port]` of an authority; the host (brackets kept) when valid.
-fn valid_host_port(host_port: &str) -> Option<&str> {
+/// `host[:port]` of an authority; the host (brackets kept) and the port digits when valid.
+fn valid_host_port(host_port: &str) -> Option<(&str, &str)> {
     let (host, port) = if let Some(after_open) = host_port.strip_prefix('[') {
         let (literal, rest) = after_open.split_once(']')?;
         if !valid_ip_literal(literal) {
@@ -107,7 +111,7 @@ fn valid_host_port(host_port: &str) -> Option<&str> {
         }
         (host, port)
     };
-    port.bytes().all(|b| b.is_ascii_digit()).then_some(host)
+    port.bytes().all(|b| b.is_ascii_digit()).then_some((host, port))
 }
 
 /// `URLComponents(string:)` for an absolute URL; `None` when the text is not
@@ -117,7 +121,7 @@ pub(crate) fn parse_strict(text: &str) -> Option<Parts<'_>> {
     if !valid_scheme(scheme) {
         return None;
     }
-    let (host, rest) = if let Some(authority_and_rest) = after.strip_prefix("//") {
+    let (host, port, rest) = if let Some(authority_and_rest) = after.strip_prefix("//") {
         let (authority, rest) = split_before(authority_and_rest, |c| matches!(c, '/' | '?' | '#'));
         let host_port = match authority.rsplit_once('@') {
             Some((userinfo, host_port)) => {
@@ -128,9 +132,10 @@ pub(crate) fn parse_strict(text: &str) -> Option<Parts<'_>> {
             }
             None => authority,
         };
-        (Some(valid_host_port(host_port)?), rest)
+        let (host, port) = valid_host_port(host_port)?;
+        (Some(host), port, rest)
     } else {
-        (None, after)
+        (None, "", after)
     };
     let (before_fragment, fragment) = split_before(rest, |c| c == '#');
     let (path, query) = split_before(before_fragment, |c| c == '?');
@@ -138,7 +143,7 @@ pub(crate) fn parse_strict(text: &str) -> Option<Parts<'_>> {
     let valid = valid_component(path, |c| is_pchar(c) || c == '/')
         && valid_component(query.strip_prefix('?').unwrap_or(""), query_or_fragment)
         && valid_component(fragment.strip_prefix('#').unwrap_or(""), query_or_fragment);
-    valid.then_some(Parts { scheme, host, path })
+    valid.then_some(Parts { scheme, host, path, port, query: query.strip_prefix('?') })
 }
 
 fn push_percent_encoded(out: &mut String, c: char) {
@@ -209,4 +214,36 @@ pub(crate) fn file_url(path: &str) -> String {
         }
     }
     out
+}
+
+/// The parts of a URL as Foundation's `URL` gives them, for the app's URL rules that read a
+/// `URL` (`url.scheme`, `url.host(percentEncoded: true)`, `url.port`,
+/// `url.path(percentEncoded: true)`, `url.query(percentEncoded: true)`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UrlParts {
+    /// As written (not lowercased).
+    pub scheme: String,
+    /// The host as written (percent-encoded, brackets kept for an IP literal); `None` when the URL
+    /// has no authority (`about:blank`), `Some("")` for `file:///x`.
+    pub host: Option<String>,
+    /// The port, `None` when the URL names none (or it does not fit).
+    pub port: Option<i64>,
+    /// The path as written (percent-encoded), `""` for `https://a.org`.
+    pub path: String,
+    /// The query after `?` as written (percent-encoded); `None` without a `?`.
+    pub query: Option<String>,
+}
+
+/// The parts of `text` read the way `URL(string:)` reads it (characters the grammar never allows
+/// are percent-encoded first); `None` when `URL(string:)` gives nil or the URL has no scheme.
+pub fn url_parts(text: &str) -> Option<UrlParts> {
+    let url = parse_lenient(text)?;
+    let parts = parse_strict(&url)?;
+    Some(UrlParts {
+        scheme: parts.scheme.to_string(),
+        host: parts.host.map(str::to_string),
+        port: if parts.port.is_empty() { None } else { parts.port.parse().ok() },
+        path: parts.path.to_string(),
+        query: parts.query.map(str::to_string),
+    })
 }
