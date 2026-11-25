@@ -11,9 +11,12 @@
 ///
 /// A workspace that has terminals nobody focused yet (a restored launch) keeps them: step 3 never
 /// brings another workspace's project into it. Another window is never a source.
+///
+/// The trail and the rule are `cmux-focus-core`'s `work_context` (`focus_work_context`): this value
+/// mirrors the trail, Rust answers the entries in the rule's order, and ``resolve`` reads them live.
 public struct WorkContextTrail: Equatable, Sendable {
     /// What a trail entry was.
-    public enum Kind: Hashable, Sendable {
+    public enum Kind: String, Hashable, Codable, CaseIterable, Sendable {
         /// A terminal tab.
         case terminal
         /// An agent chat tab.
@@ -21,7 +24,7 @@ public struct WorkContextTrail: Equatable, Sendable {
     }
 
     /// One focused terminal or chat tab.
-    public struct Entry: Equatable, Sendable {
+    public struct Entry: Equatable, Codable, Sendable {
         /// The tab's id.
         public var tab: String
         /// The id of the workspace that holds the tab.
@@ -57,16 +60,16 @@ public struct WorkContextTrail: Equatable, Sendable {
     /// `entry`'s tab was focused now.
     /// - Parameter entry: The tab focused now.
     public mutating func record(_ entry: Entry) {
+        // A settled focus that changes nothing asks nothing.
         if entries.first == entry { return }
-        entries.removeAll { $0.tab == entry.tab }
-        entries.insert(entry, at: 0)
-        if entries.count > Self.limit { entries.removeLast(entries.count - Self.limit) }
+        apply(.record(entry: entry))
     }
 
     /// `tab` closed: it is no source any more.
     /// - Parameter tab: The id of the closed tab.
     public mutating func forget(tab: String) {
-        entries.removeAll { $0.tab == tab }
+        guard entries.contains(where: { $0.tab == tab }) else { return }
+        apply(.forget(tab: tab))
     }
 
     /// The first live value of the rule above. `value` reads an entry's value now (its folder, its
@@ -81,15 +84,46 @@ public struct WorkContextTrail: Equatable, Sendable {
     /// - Returns: The first live value, or nil when no entry gives one.
     public func resolve<Value>(current: Entry?, workspace: String?, window: String?, workspaceHasWork: Bool,
                         kinds: Set<Kind> = [.terminal, .chat], value: (Entry) -> Value?) -> Value? {
-        if let current, kinds.contains(current.kind), let found = value(current) { return found }
-        func first(where matches: (Entry) -> Bool) -> Value? {
-            for entry in entries where kinds.contains(entry.kind) && entry.tab != current?.tab && matches(entry) {
-                if let found = value(entry) { return found }
-            }
-            return nil
+        let target = Target(current: current, workspace: workspace, window: window, workspaceHasWork: workspaceHasWork,
+                            kinds: Kind.allCases.filter(kinds.contains))
+        let response = FocusReducer.call("focus_work_context", Request(trail: entries, op: .candidates(target: target)),
+                                         as: Response.self)
+        assert(response?.candidates != nil, "focus_work_context refused")
+        for entry in response?.candidates ?? [] {
+            if let found = value(entry) { return found }
         }
-        if let workspace, let found = first(where: { $0.workspace == workspace }) { return found }
-        guard !workspaceHasWork, let window else { return nil }
-        return first { $0.window == window }
+        return nil
+    }
+
+    private struct Target: Encodable {
+        var current: Entry?
+        var workspace: String?
+        var window: String?
+        var workspaceHasWork: Bool
+        var kinds: [Kind]
+    }
+
+    private enum Op: Encodable {
+        case record(entry: Entry)
+        case forget(tab: String)
+        case candidates(target: Target)
+    }
+
+    private struct Request: Encodable {
+        var trail: [Entry]
+        var op: Op
+    }
+
+    private struct Response: Decodable {
+        var trail: [Entry]?
+        var candidates: [Entry]?
+    }
+
+    private mutating func apply(_ op: Op) {
+        guard let trail = FocusReducer.call("focus_work_context", Request(trail: entries, op: op), as: Response.self)?.trail else {
+            assertionFailure("focus_work_context refused")
+            return
+        }
+        entries = trail
     }
 }

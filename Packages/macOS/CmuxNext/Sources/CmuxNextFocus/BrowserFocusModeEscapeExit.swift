@@ -9,7 +9,8 @@ public import Foundation
 /// ``sequenceInterval`` leaves focus mode and is consumed. A late second
 /// Escape re-arms instead. Any other key disarms. A held Escape's repeats and
 /// a key-down seen twice (same timestamp) are consumed so they never count as
-/// the second press.
+/// the second press. The rules are `cmux-focus-core`'s `escape_exit`
+/// (`focus_escape_exit`); this value mirrors its state and calls it synchronously.
 public struct BrowserFocusModeEscapeExit: Equatable {
     /// Classic cmux's window between the two presses.
     public static let sequenceInterval: TimeInterval = 1.6
@@ -26,10 +27,16 @@ public struct BrowserFocusModeEscapeExit: Equatable {
         case consume
     }
 
+    private struct Wire: Codable, Equatable {
+        var armedTab: String?
+        var armedAt: TimeInterval?
+        var lastEscapeTimestamp: TimeInterval?
+    }
+
+    private var wire = Wire()
+
     /// The tab whose exit is armed, nil when none is.
-    public private(set) var armedTab: String?
-    private var armedAt: TimeInterval?
-    private var lastEscapeTimestamp: TimeInterval?
+    public var armedTab: String? { wire.armedTab }
 
     public init() {}
 
@@ -41,26 +48,43 @@ public struct BrowserFocusModeEscapeExit: Equatable {
     ///   - timestamp: The event's timestamp (seconds since boot).
     ///   - focusModeTab: The tab in browser focus mode that has the keyboard, nil when none.
     public mutating func handle(isPlainEscape: Bool, isRepeat: Bool, timestamp: TimeInterval, focusModeTab: String?) -> Outcome {
-        guard let tab = focusModeTab, isPlainEscape else {
-            reset()
+        // Every key-down comes here: one that is no focus-mode Escape skips the call when nothing
+        // is armed, as the rule would only answer `pass` with the state it was sent.
+        if (focusModeTab == nil || !isPlainEscape), wire == Wire() { return .pass }
+        let key = Key(isPlainEscape: isPlainEscape, isRepeat: isRepeat, timestamp: timestamp, focusModeTab: focusModeTab)
+        guard let response = FocusReducer.call("focus_escape_exit", Request(gesture: wire, key: key), as: Response.self) else {
+            assertionFailure("focus_escape_exit refused")
             return .pass
         }
-        if isRepeat { return .consume }
-        if lastEscapeTimestamp == timestamp { return .consume }
-        lastEscapeTimestamp = timestamp
-        if armedTab == tab, let armedAt, timestamp - armedAt <= Self.sequenceInterval {
-            reset()
-            return .exit(tab: tab)
+        wire = response.gesture
+        switch response.outcome {
+        case "forwardToPage": return .forwardToPage
+        case "exit": return response.tab.map { .exit(tab: $0) } ?? .pass
+        case "consume": return .consume
+        default: return .pass
         }
-        armedTab = tab
-        armedAt = timestamp
-        return .forwardToPage
     }
 
     /// Disarms (focus mode ended, focus moved, a non-Escape key).
     public mutating func reset() {
-        armedTab = nil
-        armedAt = nil
-        lastEscapeTimestamp = nil
+        wire = Wire()
+    }
+
+    private struct Key: Encodable {
+        var isPlainEscape: Bool
+        var isRepeat: Bool
+        var timestamp: TimeInterval
+        var focusModeTab: String?
+    }
+
+    private struct Request: Encodable {
+        var gesture: Wire
+        var key: Key
+    }
+
+    private struct Response: Decodable {
+        var gesture: Wire
+        var outcome: String
+        var tab: String?
     }
 }
