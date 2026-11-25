@@ -633,6 +633,9 @@ pub mod method {
     pub const MUX_ATTACHMENT: &str = "_acpmux/attachment";
     /// A turn's before and after picture of the chat's page (`hub/turn_shots.rs`).
     pub const MUX_TURN_SHOTS: &str = "_acpmux/turn_shots";
+    /// A turn's frames of the chat's page as it formed, the newest since a seq, or a look now
+    /// (`hub/turn_frames.rs`).
+    pub const MUX_TURN_FRAMES: &str = "_acpmux/turn_frames";
     /// A wrap-up card's Try it on, Keep or Revert: `cmux customize` run from a typed, allowlisted
     /// request (`customize_run.rs`).
     pub const MUX_CUSTOMIZE_RUN: &str = "_acpmux/customize_run";
