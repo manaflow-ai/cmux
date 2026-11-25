@@ -1,4 +1,5 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { DialogButton } from "../../../ui/DialogButton";
 import type { ModelsState } from "../ops";
 import { t } from "../strings";
 import { ConnectionError, ConnectionFooter, SecretField, SignInWaiting } from "./ModelConnectionFields";
@@ -36,6 +37,7 @@ export function ClaudeLoginForm({
   onCancel,
   replace,
   recover,
+  blocked,
   error,
 }: {
   models: ModelsState;
@@ -46,6 +48,7 @@ export function ClaudeLoginForm({
   onCancel(): void;
   replace?: string;
   recover?: boolean;
+  blocked?: boolean;
   error: string | null;
 }) {
   const login = cloud ? models.cloudClaudeLogin : models.claudeLogin;
@@ -75,6 +78,18 @@ export function ClaudeLoginForm({
   const valid = /^[!-~]{1,4096}$/.test(code.trim());
   const failure = error ?? (login?.error ? loginMessage(login.error) : undefined);
   const action = fallback ? "finishClaudeLogin" : "connectClaude";
+  if (blocked) {
+    return (
+      <div className="models-form">
+        <SignInWaiting title={t("settingsWindow.models.claude.busy")} />
+        <footer className="models-footer-buttons">
+          <DialogButton className="ui-button ui-btn" data-variant="subtle" dialogKey="escape" onClick={onCancel}>
+            {t("settingsWindow.cancel")}
+          </DialogButton>
+        </footer>
+      </div>
+    );
+  }
   return (
     <form
       className="models-form"

@@ -105,7 +105,7 @@ public final class CloudSetup {
         /// Whether a connection serves `family`; nil when this Mac's connections were not read.
         public func serves(_ family: String) -> Bool? {
             switch choice(family: family, model: nil, account: nil) {
-            case .connection, .organization, .gateway: true
+            case .connection, .organization, .gateway, .claudeMachineLogin: true
             case .setup: false
             case .fallback: nil
             }
@@ -130,6 +130,8 @@ public final class CloudSetup {
         /// The inference gateway of the team the machine is made in, in gateway mode and online, serves `family` (``gateway``): the machine's
         /// agent reaches it through the edge, so nothing is sent (hq#15762).
         case gateway(family: String)
+        /// The selected owner machine has its own Claude sign-in.
+        case claudeMachineLogin
         /// Nothing serves `family`: the chat shows Set up Cloud naming `model`, and nothing starts.
         case setup(family: String, model: String?)
         /// The snapshot has unknown readiness.
@@ -315,18 +317,33 @@ public final class CloudSetup {
     /// (app-to-machine credential delivery) reads ``Choice/connection(id:family:)``'s credential and
     /// sends it with the agent launch; ``Choice/setup(family:model:)`` shows the card instead.
     public func choose(harness: String?, model: String?, account: String?) async -> Choice {
+        await launchReadiness(harness: harness, model: model, account: account).choice
+    }
+
+    /// Selects the credential used by a Cloud launch and supplies the setup refusal when needed.
+    public func launchReadiness(harness: String?, model: String?, account: String? = nil, readyClaude: Bool = false) async -> (choice: Choice, refusal: Refusal?) {
         let snapshot = routed(await read?() ?? .init(personal: nil, organization: nil))
         if let profile = snapshot.personal?.first(where: { $0.endpointProfile && $0.id == harness }) {
-            guard snapshot.serves(profile.id) == true else { return .setup(family: profile.id, model: model) }
-            return snapshot.choice(family: profile.id, model: model, account: profile.id)
+            guard snapshot.serves(profile.id) == true else { return (.setup(family: profile.id, model: model), nil) }
+            return (snapshot.choice(family: profile.id, model: model, account: profile.id), nil)
         }
-        let name = harness ?? "claude"
-        let normalized = name.lowercased()
-        guard let family = Self.family(of: harness) ?? (Self.nativeHarnesses[normalized] == nil ? nil : normalized)
-        else { return .fallback }
+        let normalized = (harness ?? "claude").lowercased()
+        let gatewayFamily = Self.family(of: harness)
+        guard let family = gatewayFamily ?? (Self.nativeHarnesses[normalized] == nil ? nil : normalized)
+        else { return (.fallback, nil) }
         let choice = snapshot.choice(family: family, model: model, account: account)
-        guard case .setup = choice, await gatewayServes(family) else { return choice }
-        return .gateway(family: family)
+        switch choice {
+        case .setup, .fallback:
+            if (choice != .fallback || family == "claude" && readyClaude), await gatewayServes(family) {
+                return (.gateway(family: family), nil)
+            }
+            if family == "claude", readyClaude { return (.claudeMachineLogin, nil) }
+        default:
+            break
+        }
+        guard case .setup(_, let model) = choice, gatewayFamily != nil else { return (choice, nil) }
+        let local = snapshot.personal?.contains { $0.enabled && $0.signedIn && !$0.servesCloud && $0.families.contains(family) } == true
+        return (choice, Refusal(family: family, model: model, localLogin: local))
     }
 
     /// Whether the chosen connection needs the endpoint credential capability.
@@ -476,12 +493,7 @@ public final class CloudSetup {
     /// ``decide(harness:model:)``'s setup answer, from the same one read; nil when the start goes on (something serves it,
     /// or nothing could be read).
     public func refusal(harness: String?, model: String?, readyClaude: Bool = false) async -> Refusal? {
-        guard let family = Self.family(of: harness), let read else { return nil }
-        if family == "claude", readyClaude { return nil }
-        let snapshot = routed(await read())
-        guard case .setup(_, let model) = snapshot.choice(family: family, model: model, account: nil), !(await gatewayServes(family)) else { return nil }
-        let local = snapshot.personal?.contains { $0.enabled && $0.signedIn && !$0.servesCloud && $0.families.contains(family) } == true
-        return Refusal(family: family, model: model, localLogin: local)
+        await launchReadiness(harness: harness, model: model, readyClaude: readyClaude).refusal
     }
 
     /// The connections changed: every wait checks again.

@@ -61,8 +61,8 @@ struct CloudStartChat {
             let preflight = folder.flatMap { folder in services.cloud.move.cli.map { CloudStartPreflight(root: folder.root, cli: CloudMoveCLI(binary: $0, timeout: services.cloud.move.timeout)) } }
             defer { preflight?.cancel() } // unused when the start ends before it, or takes another folder
             let account = services.cloud.account, setup = services.cloud.setup
-            let choice = await setup.choose(harness: start.harness, model: start.model, account: start.account)
             let ready = await setup.readyClaudeMachines(for: start)
+            let choice = await setup.launchReadiness(harness: start.harness, model: start.model, account: start.account, readyClaude: !ready.isEmpty).choice
             if let machine = start.machine, let environment = start.environment,
                !setup.machineMatchesEnvironment(machine, environment: environment) { throw CloudStartSessionStrings.environmentMismatch }
             if let refusal = start.connectionSetupReply(for: choice, readyClaude: !ready.isEmpty) { return refusal }
@@ -138,7 +138,7 @@ struct CloudStartChat {
         let gateway = services.cloud.gateway.onlineBeside(within: .seconds(10)) // No login step (PersonalGateway): only the first prompt needs it, so it comes up beside the start
         // The machine, the pin and the keys are cmux-tui's (`cmux link start-chat`, +Machine).
         let account = origin.account
-        let (machine, plan) = try await CloudSizeLocked.naming(start.size, bytes: start.folderBytes) { try await self.machine(for: start, account: account, workspace: origin.workspace, connection: origin.connection, cli: cli, invocation: invocation) {
+        let (machine, plan, machineLogin) = try await CloudSizeLocked.naming(start.size, bytes: start.folderBytes) { try await self.machine(for: start, account: account, workspace: origin.workspace, connection: origin.connection, cli: cli, invocation: invocation) {
             await CloudChatPick(work: services.work).read(folder: chat, tab: tab)
         } } // a refusal of its size names the size and the folder
         timeline?.mark("machine") // the pick or create, and its link
@@ -177,13 +177,13 @@ struct CloudStartChat {
             try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
             report(.init(name: "opening", folder: folderName, machine: name, size: size,
                          start: .init(environmentId: plan.environmentId, setup: plan.setup)))
-            if PersonalGateway.turnNeedsIt(credential: origin.connection) { _ = await gateway.value }
+            if !machineLogin, PersonalGateway.turnNeedsIt(credential: origin.connection) { _ = await gateway.value }
             timeline?.mark("gateway") // 0 ms when it came up beside the steps, or when the first prompt goes straight to the provider
             let entry = AgentTabStore.registryHost(of: machine.daemon).map {
                 CloudMovedChats.Entry(machineID: machine.machineID, host: $0, session: "", harness: start.harness,
                                       localRoot: folder.root, localChat: chat, remoteFolder: copy.1.folder, remoteChat: copy.1.chat)
             }
-            return try await open(start, from: origin, on: machine, cwd: copy.1.chat, trusted: copy.1.sourceTrusted, tabKey: plan.tabKey, copy: entry)
+            return try await open(start, from: origin, on: machine, cwd: copy.1.chat, trusted: copy.1.sourceTrusted, tabKey: plan.tabKey, copy: entry, machineLogin: machineLogin)
         } }
     }
 
@@ -218,8 +218,8 @@ struct CloudStartChat {
     /// machine's now. A copy of a folder this Mac trusts (`trusted`) is trusted there first. The opened tab is kept with its start, so another
     /// machine picked before its first send runs moves it there (+Repick).
     func open(_ start: AgentPaneCloudStart, from origin: Origin, on machine: CloudMachineSession, cwd: String?,
-              trusted: Bool = false, tabKey: String, copy: CloudMovedChats.Entry? = nil) async throws -> String {
-        guard !start.attachments.isEmpty else { return try await openUploaded(start, from: origin, on: machine, cwd: cwd, trusted: trusted, tabKey: tabKey, copy: copy) }
+              trusted: Bool = false, tabKey: String, copy: CloudMovedChats.Entry? = nil, machineLogin: Bool = false) async throws -> String {
+        guard !start.attachments.isEmpty else { return try await openUploaded(start, from: origin, on: machine, cwd: cwd, trusted: trusted, tabKey: tabKey, copy: copy, machineLogin: machineLogin) }
         await CloudOutdatedMachine.updateBeforeUsingCapability(holds: { machine.daemon.supports(DaemonCapability.agentSessionContent.rawValue) }, update: { await CloudMachineUpdates.updateNow(machine.machineID, services: services) })
         guard machine.daemon.supports(DaemonCapability.agentSessionContent.rawValue), let carry = AgentPaneCloudAttachments(start.attachments, files: start.carriedFiles, staged: start.stagedFiles), let pastes = CloudUploads.pastes,
               let binary = services.cloud.move.cli, let socket = await machine.daemon.connection?.endpoint?.socketPath,
@@ -234,22 +234,21 @@ struct CloudStartChat {
             try Self.checkAccount(origin.account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
             var uploaded = start
             uploaded.attachments = attachments
-            return try await openUploaded(uploaded, from: origin, on: machine, cwd: cwd, trusted: trusted, tabKey: tabKey, copy: copy, original: start)
+            return try await openUploaded(uploaded, from: origin, on: machine, cwd: cwd, trusted: trusted, tabKey: tabKey, copy: copy, machineLogin: machineLogin, original: start)
         }
     }
 
     private func openUploaded(_ start: AgentPaneCloudStart, from origin: Origin, on machine: CloudMachineSession, cwd: String?,
-                              trusted: Bool, tabKey: String, copy: CloudMovedChats.Entry? = nil,
+                              trusted: Bool, tabKey: String, copy: CloudMovedChats.Entry? = nil, machineLogin: Bool,
                               original: AgentPaneCloudStart? = nil) async throws -> String {
         // A chosen model connection goes with the launch only to a daemon that takes one (an image's older daemon dropped it and the provider refused the agent): a connected one that lacks it after a refused or bounded update ends the start, saying so.
         let connection = await services.cloud.setup.launchConnection(origin.connection)
         let endpoint = connection?.endpointCredentials == true
         let subscription = connection?.subscriptionCredentials == true
-        let capability = AgentSessionAttachClient.credentialsCapability(harness: start.harness, endpoint: endpoint,
-                                                                                      subscription: subscription)
-        try await CloudOutdatedMachine.requireCapability(
-            holds: { services.agentTabs.holdsTabs(machine.daemon) && (origin.connection == nil || machine.daemon.supports(capability)) }, lacks: { origin.connection != nil && machine.daemon.connection != nil && !machine.daemon.supports(capability) },
-            update: { await CloudMachineUpdates.updateNow(machine.machineID, services: services) }, missing: CloudMove.Failure(message: CloudMachineRoute.tooOld, retry: .move(machineID: machine.machineID)))
+        let capability = machineLogin ? AgentSessionAttachClient.startClaudeMachineLoginCapability
+            : AgentSessionAttachClient.credentialsCapability(harness: start.harness, endpoint: endpoint, subscription: subscription)
+        let requiresCapability = machineLogin || origin.connection != nil
+        try await CloudOutdatedMachine.requireCapability(holds: { services.agentTabs.holdsTabs(machine.daemon) && (!requiresCapability || machine.daemon.supports(capability)) }, lacks: { requiresCapability && machine.daemon.connection != nil && !machine.daemon.supports(capability) }, update: { await CloudMachineUpdates.updateNow(machine.machineID, services: services) }, missing: CloudMove.Failure(message: CloudMachineRoute.tooOld, retry: .move(machineID: machine.machineID)))
         try Self.requireEndpointHarness(start.harness == "openrouter" ? "opencode" : connection?.launchHarness, on: machine, subscription: subscription)
         let context = AppActionContext(services: services), daemon = machine.daemon, failure = CloudMove.Failure(message: CloudMoveStrings.notConnected(machine.machine.title), retry: .move(machineID: machine.machineID))
         var machineStart = start
@@ -261,7 +260,7 @@ struct CloudStartChat {
         let (seed, handOff) = AgentPaneSeedSource.handingOffDraft(machineStart.seed(cwd: cwd)) { [services] in services.agentTabs.unsentDrafts.draft(forTab: services.agentTabs.resolve(origin.tab.id), machine: services.agentTabs.daemonListing(origin.tab)?.machineID) }
         defer { handOff(false) }
         // The chat's agent launch reads this choice (AgentTabs+RemoteStart): set before the tab exists, under the tab's key.
-        services.cloud.agentCredentials.use(connection: origin.connection, chat: tabKey, machine: machine.machineID, harness: machineStart.harness, useMachineLogin: start.usesMachineLogin)
+        services.cloud.agentCredentials.use(connection: origin.connection, chat: tabKey, machine: machine.machineID, harness: machineStart.harness, useMachineLogin: machineLogin)
         let inPlace = Self.frontsInPlace(origin.tab, workspace: CloudMachineWorkspace.chatKey(tabKey: tabKey).rawValue, services: services); let open = { (workspace: WorkspaceHandle) in try await services.agentTabs.openFirstPage(workspace: workspace, cwd: cwd, on: daemon, source: seed, mutationID: tabKey) }
         // The chat's own workspace, the chat its only tab: never the machine's first workspace and its starter terminal. The link can be down or drop under this (CloudMachineWorkspace.chatRelinked): it opens once more on the new link, under the same key.
         let (anchor, tab, opened) = try await CloudMachineWorkspace.chatRelinked(in: daemon.store, held: machine.linkHeld) {
@@ -281,7 +280,7 @@ struct CloudStartChat {
         // The agent the page's first send will start, warmed now beside the page's load and its first send (cmux#45953): after the copied folder's trust, which the daemon's prewarm checks as the start does. A background step, logged with its own time and kept off the send's steps.
         let credentials = services.agentTabs.cloudCredentials, machineID = machine.machineID, logger = services.cloud.logger, prewarmBegan = ContinuousClock.now
         let launch = machineStart
-        CloudAgentPrewarm(cwd: cwd, harness: launch.harness, model: launch.model, mode: start.mode, served: daemon.supports(AgentSessionAttachClient.prewarmCapability))?
+        CloudAgentPrewarm(cwd: cwd, harness: launch.harness, model: launch.model, mode: start.mode, served: !machineLogin && daemon.supports(AgentSessionAttachClient.prewarmCapability))?
             .begin(surface: opened.surface.rawValue, endpoint: AgentTabRemoteHost.endpoint(on: daemon), ownerLink: CloudMachineLinks(appLink: machine.appLink).ownerLink,
                    permissionMode: services.agentTabs.startPermissionMode(), credentials: {
                        guard let credential = try? await credentials?.launchCredential(chat: opened.key, machine: machineID, harness: launch.harness, model: launch.model) else { return nil }
@@ -305,7 +304,7 @@ struct CloudStartChat {
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         report(.init(name: "machine"))
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
-        let (machine, plan) = try await CloudSizeLocked.naming(start.size, bytes: start.folderBytes) { try await self.machine(for: start, account: account, workspace: origin.workspace, connection: origin.connection, cli: cli, invocation: invocation) { await CloudChatPick(work: services.work).read(folder: nil, tab: tab) } }
+        let (machine, plan, machineLogin) = try await CloudSizeLocked.naming(start.size, bytes: start.folderBytes) { try await self.machine(for: start, account: account, workspace: origin.workspace, connection: origin.connection, cli: cli, invocation: invocation) { await CloudChatPick(work: services.work).read(folder: nil, tab: tab) } }
         return try await services.cloud.startGate.holding(machine.machineID) { try await plan.releasing(sameAccount: { account == services.cloud.account }, delete: { try await cli.strandThenDelete(key: start.key, account: CloudStartCore().accountText(account), machine: machine.machineID) { try await services.cloud.deleteMachine($0) } }) { // a start that can't go on deletes its machine
             try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
             // No harness login: remote approvals alone are prepared before the first prompt.
@@ -314,7 +313,7 @@ struct CloudStartChat {
             try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
             report(.init(name: "opening", machine: machine.machine.title, size: AgentPaneCloudStart.sizeText(machine.machine.size),
                          start: .init(environmentId: plan.environmentId, setup: plan.setup)))
-            return try await open(start, from: origin, on: machine, cwd: cwd, tabKey: plan.tabKey)
+            return try await open(start, from: origin, on: machine, cwd: cwd, tabKey: plan.tabKey, machineLogin: machineLogin)
         } }
     }
 }

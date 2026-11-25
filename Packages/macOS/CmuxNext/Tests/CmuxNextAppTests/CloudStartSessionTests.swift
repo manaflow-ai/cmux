@@ -83,16 +83,29 @@ struct CloudStartSessionTests {
         let request = try CloudStartSession.request(invocation)
         #expect(request.machineID == nil && request.name == nil)
 
-        let steps = CloudStartSteps(log: { _ in })
+        services.cloud.setup.read = { .init(personal: [], organization: []) }
+        services.cloud.setup.gateway = { [] }
+        services.cloud.setup.loadCloudMachines = nil
+        services.cloud.setup.claudeMachines = { [session.machine] }
+        services.cloud.setup.readClaudeMachineLogin = { _ in false }
+        let start = CloudStartSession(services: services)
+        let context = AppActionContext(services: services)
         do {
-            _ = try await CloudStartSession(services: services).started(
-                on: session, made: false, request, invocation, AppActionContext(services: services),
-                account: services.cloud.account, byPerson: false, revealing: false, steps: steps, gateway: CloudStartBeside { true }
-            )
+            _ = try await start.run(request, invocation, context, account: services.cloud.account, byPerson: false)
             Issue.record("the automatic destination's hold was ignored")
         } catch let failure as ActionFailure {
             #expect(failure.message.hasPrefix("computer.human_has_control"))
-            #expect(steps.recorded.isEmpty)
+            #expect(session.daemon.connection == nil)
+        }
+
+        _ = try services.cloud.computerControl.perform(.handBack, machine: session.machineID, byPerson: true)
+        do {
+            _ = try await start.run(request, invocation, context, account: services.cloud.account, byPerson: false)
+            Issue.record("the signed-out fallback started without a connection")
+        } catch let failure as ActionFailure {
+            #expect(failure.message.contains("settings/cloud/claude?machine=\(session.machineID)"))
+            #expect(failure.message.contains("`cmux cloud start-session --agent claude`"))
+            #expect(session.daemon.connection == nil)
         }
     }
 

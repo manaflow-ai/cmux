@@ -55,7 +55,7 @@ extension CloudStartChat {
 
     /// Connects the send's pinned machine or creates and pins one sized for the chat.
     func machine(for start: AgentPaneCloudStart, account: [String?], workspace: String?, connection: String?, cli: CloudMoveCLI, invocation: ActionInvocation,
-                 direct: Bool = true, pick: () async -> CloudWorkPick?) async throws -> (CloudMachineSession, CloudMoveCLI.StartChatPlan) {
+                 direct: Bool = true, pick: () async -> CloudWorkPick?) async throws -> (CloudMachineSession, CloudMoveCLI.StartChatPlan, Bool) {
         let machines = services.machines, cloud = services.cloud
         await CloudWait.firstList(loaded: { cloud.hasLoadedCurrentMachines }, signedIn: { cloud.isSignedIn }) { _ = await cloud.refresh() } // Rust's `list_wait`; the card shows the machine step meanwhile
         try await importKeptSends(cli)
@@ -138,12 +138,12 @@ extension CloudStartChat {
                 )
             }
             try Self.requireEndpointHarness(start.harness == "openrouter" && connection != nil ? "opencode" : launchConnection?.launchHarness, on: session, subscription: subscription)
-            let nativeClaude = if connection == nil { await cloud.setup.readyClaudeMachines(for: start.onMachine(machineID)).contains(machineID) } else { false }
-            if !nativeClaude, connection == nil, CloudSetup.family(of: start.harness) == "claude",
-               await cloud.setup.refusal(harness: start.harness, model: start.model) != nil { throw CloudMachineRoute.NeedsClaudeLogin(machine: machineID) }
-            if start.machine != nil || nativeClaude {
+            let (choice, refusal) = await cloud.setup.launchReadiness(for: start.onMachine(machineID), checkMachineLogin: connection == nil)
+            let machineLogin = connection == nil && choice == .claudeMachineLogin
+            if connection == nil, refusal?.family == "claude" { throw CloudMachineRoute.NeedsClaudeLogin(machine: machineID) }
+            if start.machine != nil || machineLogin {
                 let owned = await CloudMachineLinks(appLink: session.appLink).ownerLink() != nil
-                if owned && nativeClaude { return (session, plan) }
+                if owned && machineLogin { return (session, plan, true) }
                 if !owned, start.machine != nil { throw CloudMove.Failure(message: CloudMoveStrings.noSuchMachine(machineID)) }
             }
             try await CloudMachineRoute(api: cloud.machineAPI, machineID: machineID, start: { @MainActor [invocation] in try await CloudWait.startStopped(status: { session.machine.shownStatus }, within: CloudStartSession.connectWait, read: { await session.refresher?($0) }) { do { try await session.resumer?(machineID, CloudHandlers.connectOrigin(for: invocation)) } catch where !CloudMachineRoute.keepsItsError(error) && CloudMachineCreation.proRefusal(error) == nil { throw CloudMove.Failure(message: CloudMoveStrings.moveFailed(CloudStrings.errorText(error)), retry: .move(machineID: machineID)) } }; _ = try await CloudMove.connected(session, invocation) }).prepare(serves: {
@@ -153,7 +153,7 @@ extension CloudStartChat {
                 ahead: cloud.spareReadiness.takeRouteReport(machineID, scope: cloud.account, instance: AcpmuxRemotePersonKeys.shared.instance(machine: machineID)).flatMap { session.machine.status == .running && session.machine.pendingChange == nil ? $0 : nil },
                 requiresCredentialCapability: endpoint) { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(machineID, services: services) } // checked first: updated only when it lacks what a start uses
             timeline?.mark("machine.route")
-            return (session, plan)
+            return (session, plan, false)
         }
     }
 

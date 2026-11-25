@@ -129,6 +129,12 @@ extension AgentPaneCloudStart {
 }
 
 extension CloudSetup {
+    /// The credential for this send on the resolved machine.
+    public func launchReadiness(for start: AgentPaneCloudStart, checkMachineLogin: Bool = true) async -> (choice: Choice, refusal: Refusal?) {
+        let ready = checkMachineLogin ? await readyClaudeMachines(for: start) : []
+        return await launchReadiness(harness: start.harness, model: start.model, account: start.account, readyClaude: !ready.isEmpty)
+    }
+
     public func readyClaudeMachines(for start: AgentPaneCloudStart) async -> [String] {
         guard Self.family(of: start.harness) == "claude" else { return [] }
         return await readyClaudeMachines(machine: start.machine, environment: start.environment)

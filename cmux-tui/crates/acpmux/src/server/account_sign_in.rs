@@ -395,7 +395,7 @@ async fn sign_in(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
             return Err(e);
         }
     };
-    let started = match login::start_in(&machine(hub), &cli, agent, home.as_deref()).await {
+    let started = match login::start_in(&machine(hub), &cli, agent, home.as_deref(), None).await {
         Ok(s) => s,
         Err(e) => {
             if let Some(add) = &add {
@@ -482,7 +482,7 @@ async fn finish(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
         p.busy = true;
     }
     let code = params.get("code").and_then(Value::as_str);
-    let done = login::finish(&login_id, code).await;
+    let done = login::finish(&login_id, code, None).await;
     // A finish refused before it waited (no code for Claude): the sign-in still runs.
     if done.is_err() && login::running(&login_id) {
         if let Some(p) = lock_pending().get_mut(&login_id) {

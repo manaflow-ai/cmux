@@ -282,6 +282,39 @@ test("a rejected Claude token can recover on an already signed-in target", async
   });
 });
 
+test("a recovery visit cannot submit a code to or close on another chat's sign-in", async () => {
+  const route = (chat: string) => `/settings/models?provider=claude&machine=vm_b&recoverySession=${chat}&open=recovery`;
+  const attempt = { machine: "vm_b", recoverySession: "chat-a", error: null };
+  const rendered = await render(
+    { ...mockModels.empty, cloudClaudeLogin: { ...attempt, phase: "code" } },
+    route("chat-a"),
+  );
+  expect(panel()?.querySelector('input[type="password"]')).not.toBeNull();
+
+  await act(async () => rendered.history.push(route("chat-b")));
+  expect(panel()?.textContent).toContain("Another sign-in is running on this machine.");
+  expect(panel()?.querySelector('input[type="password"]')).toBeNull();
+  expect(panel()?.querySelector('button[type="submit"]')).toBeNull();
+  await fire(panel()!.querySelector("h2")!, "keydown", { key: "Enter" });
+  expect(rendered.provider.modelRuns).toEqual([]);
+
+  await act(async () =>
+    rendered.provider.setModels({
+      ...mockModels.empty,
+      cloudClaudeLogin: { ...attempt, phase: "connected", completion: "a-finished" },
+    }),
+  );
+  const submit = panel()?.querySelector<HTMLButtonElement>('button[type="submit"]');
+  expect(submit?.disabled).toBe(false);
+  await click(submit!);
+  expect(rendered.provider.modelRuns).toContainEqual({
+    action: "connectClaude",
+    cloud: true,
+    machine: "vm_b",
+    recoverySession: "chat-b",
+  });
+});
+
 test("Cloud models can enable and disable a key added in Models without removing the local row", async () => {
   const rendered = await render(mockModels.empty, "/settings/models?focus=models.add.openai");
   await changeValue(panel()!.querySelector('input[type="password"]')!, "fixture-api-key");

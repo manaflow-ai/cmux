@@ -191,7 +191,7 @@ struct CloudStartSession {
         let still = { [services] (machine: String) throws in try Self.checked(account, now: services.cloud.account, original.asked(machine: machine)) }
         try still(original.name ?? original.machineID ?? "")
         let request: Request
-        do { request = try await original.preflight(setup: services.cloud.setup, scheme: services.linkScheme) }
+        do { request = try await original.preflight(setup: services.cloud.setup, scheme: services.linkScheme, heldRefusal: { services.cloud.computerControl.heldRefusal(invocation, machine: $0) }) }
         catch let refusal as Request.Refusal { throw ActionFailure(message: refusal.message) }
         try still(request.name ?? request.machineID ?? "")
         if let local = request.fromFolder, let refused = await services.cloud.move.refusedSource(local, home: NSHomeDirectory(), acpmuxHome: QuitAgents.environment(services)?.home.path, message: { Self.message($0, folder: local) }) { throw ActionFailure(message: refused) } // before any machine
@@ -218,8 +218,8 @@ struct CloudStartSession {
         try await connected(session, request, account: account, byPerson: byPerson)
         steps.done("connect"); try still(name)
         let setup = services.cloud.setup
-        let ready = agent == "claude" ? await setup.readyClaudeMachines(machine: id).contains(id) : false
-        if let refused = await setup.refusal(harness: agent, model: request.model, readyClaude: ready) {
+        let (choice, refusal) = await request.launchReadiness(setup: setup, machine: id)
+        if let refused = refusal {
             throw ActionFailure(message: request.setupRequired(refused, scheme: services.linkScheme, machine: id))
         }
         try still(name)
@@ -229,10 +229,9 @@ struct CloudStartSession {
         }, cwd = copy?.chat ?? request.cwd
         try still(name)
         steps.done("approvals")
-        let choice = await services.cloud.setup.choose(harness: agent, model: request.model, account: nil)
-        if let connection = await services.cloud.setup.launchConnection(choice.connectionID) {
-            let capability = AgentSessionAttachClient.credentialsCapability(harness: agent, endpoint: connection.endpointCredentials,
-                                                                                 subscription: connection.subscriptionCredentials)
+        let connection = await setup.launchConnection(choice.connectionID)
+        if connection != nil || choice == .claudeMachineLogin {
+            let capability = choice == .claudeMachineLogin ? AgentSessionAttachClient.startClaudeMachineLoginCapability : AgentSessionAttachClient.credentialsCapability(harness: agent, endpoint: connection?.endpointCredentials == true, subscription: connection?.subscriptionCredentials == true)
             await CloudOutdatedMachine.updateBeforeUsingCapability(
                 holds: { session.daemon.supports(capability) },
                 update: { [services] in await CloudMachineUpdates.updateNow(id, services: services) }
@@ -262,7 +261,7 @@ struct CloudStartSession {
         try still(name)
         let started: AgentTabRemoteStart.Started, tabKey = opened.key
         do {
-            let tabs = services.agentTabs; services.cloud.agentCredentials.use(connection: choice.connectionID, chat: tabKey, machine: id, harness: agent, useMachineLogin: ready && choice.connectionID == nil)
+            let tabs = services.agentTabs; services.cloud.agentCredentials.use(connection: choice.connectionID, chat: tabKey, machine: id, harness: agent, useMachineLogin: choice == .claudeMachineLogin)
             await Self.trust(copy, surface: opened.surface.rawValue, on: session) // before the start, as the composer's: it refuses an untrusted folder
             let listed = await CloudWait.holds(within: .seconds(60)) { [services] in services.locateTab(tabKey, onMachine: id) != nil }
             try Self.check(account, now: services.cloud.account, request.asked(machine: name))
@@ -288,7 +287,7 @@ struct CloudStartSession {
             try Self.failed(account, now: services.cloud.account, request.asked(machine: name), AgentRemoteStartRefusal.untrustedCopy(error, of: copy?.trusted == false ? request.fromFolder : nil)?.userMessage ?? Self.startFailure(error, name: name, id: id, agent: agent))
         }
         steps.done("start"); services.cloud.startGate.started(id)
-        _ = await gateway.awaited(marking: "gateway", on: steps, if: PersonalGateway.turnNeedsIt(credential: choice.connectionID)) // up before the first turn; 0 ms when it came up beside the steps, or when the turn goes straight to the provider
+        _ = await gateway.awaited(marking: "gateway", on: steps, if: choice != .claudeMachineLogin && PersonalGateway.turnNeedsIt(credential: choice.connectionID)) // up before the first turn; 0 ms when it came up beside the steps, or when the turn goes straight to the provider
         CloudStartStepRecord.current?.machine = started.phases
         // The session runs now; the result reports it. A switch during the start shows nothing. (A trajectory hook, hq#4381, goes here.)
         if revealing, invocation.allowsViewChange, account == services.cloud.account { CloudHandlers.show(anchor.id, context) }
@@ -392,7 +391,7 @@ struct CloudStartSession {
             guard cloud.listedMachineIDs.contains(id), let session = machines.session(id) else { throw ActionFailure(message: CloudStartSessionStrings.noSuchMachine(id: id, agent: request.agent)) }
             return (session, false)
         }
-        let name = request.name ?? "cloud-chats"
+        let name = request.destinationName
         // A list the server answered just now for this account: a machine by this name made
         // elsewhere is taken, never made again. A failed or superseded read refuses.
         let still = { try Self.check(account, now: cloud.account, request.asked(machine: name)) }

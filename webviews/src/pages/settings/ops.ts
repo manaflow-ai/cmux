@@ -766,6 +766,7 @@ export type ClaudeLogin = {
   signedIn?: boolean | null;
   machineName?: string | null;
   machine?: string | null;
+  recoverySession?: string | null;
   completion?: string | null;
 };
 
@@ -828,7 +829,7 @@ export type ModelsRun =
   | { action: "openChatGPTDevice" }
   | { action: "closeKeyPage"; url: string }
   | { action: "checkClaudeLogin"; cloud: boolean; machine?: string; environment?: string; machineName?: string }
-  | { action: "cancelClaudeLogin"; cloud: boolean }
+  | { action: "cancelClaudeLogin"; cloud: boolean; machine?: string; recoverySession?: string }
   | { action: "signOutClaude"; cloud: boolean; machine?: string }
   | {
       action: "connectClaude";
@@ -839,7 +840,7 @@ export type ModelsRun =
       environment?: string;
       machineName?: string;
     }
-  | { action: "finishClaudeLogin"; cloud: boolean; code: string }
+  | { action: "finishClaudeLogin"; cloud: boolean; code: string; machine?: string; recoverySession?: string }
   | { action: "cancelChatGPTDevice" }
   | { action: "setCloud"; id: string; on: boolean }
   | {

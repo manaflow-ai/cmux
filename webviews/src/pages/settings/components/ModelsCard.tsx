@@ -89,7 +89,10 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   const cloudClaude = models?.cloudClaudeLogin;
   const claudeLogin = cloud
     ? (!machine || !cloudClaude?.machine || cloudClaude.machine === machine) &&
-      (!environment || !cloudClaude?.machine || cloudClaude.environment === environment) &&
+      (!environment ||
+        !cloudClaude?.machine ||
+        cloudClaude.environment === environment ||
+        cloudClaude.phase === "preparing") &&
       (!machineName || !cloudClaude?.machine || cloudClaude.machineName === machineName)
       ? cloudClaude
       : undefined
@@ -237,6 +240,17 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   const setup = selection && "id" in selection ? selection : undefined;
   const rowAction = selection && "kind" in selection ? selection : undefined;
   const editingConnection = setup?.edit ? connections.find((c) => c.id === setup.target) : undefined;
+  const visitMachine = setup?.machine ?? machine;
+  const visitRecovery = setup && setup.machine === machine && !setup.target ? recoverySession : undefined;
+  const visitLogin =
+    (claudeLogin?.recoverySession ?? undefined) === visitRecovery &&
+    (!visitMachine || claudeLogin?.machine === visitMachine)
+      ? claudeLogin
+      : undefined;
+  const claudeScope = {
+    ...(visitMachine ? { machine: visitMachine } : {}),
+    ...(visitRecovery ? { recoverySession: visitRecovery } : {}),
+  };
   const existingClaude =
     setup?.id === requestedId && family === "claude" && nativeCloud && !recoverySession && !setup?.target;
   const active = setup && !existingClaude && (!setup.edit || editingConnection) ? providerById(setup.id) : undefined;
@@ -278,8 +292,8 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
     close();
     if (startingDevice.current || (setup?.id === devicePreset && (device === "waiting" || device === "starting"))) {
       void rowRun({ action: "cancelChatGPTDevice" });
-    } else if ((setup?.id === "claude" || setup?.id === "claude-login") && (busy || claudePending)) {
-      void rowRun({ action: "cancelClaudeLogin", cloud });
+    } else if ((setup?.id === "claude" || setup?.id === "claude-login") && visitLogin && (busy || claudePending)) {
+      void rowRun({ action: "cancelClaudeLogin", cloud, ...claudeScope });
     }
   };
   const rowRun: Run = (gesture) => {
@@ -291,12 +305,11 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   };
   const panelRun: Run = (gesture) => {
     setFormError(true);
-    const target = setup?.machine ?? machine;
+    if (gesture.action === "finishClaudeLogin") return run({ ...gesture, ...claudeScope });
     if (gesture.action === "connectClaude") {
       return run({
         ...gesture,
-        ...(target ? { machine: target } : {}),
-        ...(recoverySession && setup?.machine === machine && !gesture.replace ? { recoverySession } : {}),
+        ...claudeScope,
         ...(environment ? { environment } : {}),
         ...(machineName ? { machineName } : {}),
       });
@@ -411,9 +424,10 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
       <ModelConnectionDialog
         visit={request}
         cloud={cloud}
-        recoverClaude={!!recoverySession && setup?.machine === machine && !setup?.target}
+        recoverClaude={!!visitRecovery}
+        claudeAttemptBlocked={claudePending && !visitLogin}
         provider={available ? active : undefined}
-        models={models && cloud ? { ...models, cloudClaudeLogin: claudeLogin } : (models ?? undefined)}
+        models={models && cloud ? { ...models, cloudClaudeLogin: visitLogin } : (models ?? undefined)}
         busy={locked}
         setSaving={setSaving}
         error={formError ? error : null}

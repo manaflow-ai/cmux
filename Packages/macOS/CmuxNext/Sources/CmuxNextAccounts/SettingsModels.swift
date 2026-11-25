@@ -415,9 +415,10 @@ public final class SettingsModels {
                                      machine: params["machine"]?.stringValue, environment: params["environment"]?.stringValue, name: params["machineName"]?.stringValue,
                                      recoverySession: params["recoverySession"]?.stringValue)
             case "finishClaudeLogin":
-                finishClaudeLogin(target, code: params["code"]?.stringValue ?? "")
+                finishClaudeLogin(target, code: params["code"]?.stringValue ?? "", machine: params["machine"]?.stringValue,
+                                  recoverySession: params["recoverySession"]?.stringValue)
             case "cancelClaudeLogin":
-                await cancelClaudeLogin(target)
+                await cancelClaudeLogin(target, machine: params["machine"]?.stringValue, recoverySession: params["recoverySession"]?.stringValue)
             default:
                 try await signOutClaude(target, machine: params["machine"]?.stringValue)
             }

@@ -354,6 +354,10 @@ pub struct SessionMeta {
     pub credential_model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) claude_token_recovery: Option<ClaudeTokenRecovery>,
+    /// Whether a host still needs to restart on the machine login. Older recovery records
+    /// omit this field, so a recovered chat keeps the restart pending until a fresh launch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) claude_login_restart_pending: Option<bool>,
     /// `HarnessProfile::launch_digest` of the profile its agent last started from: a profile
     /// reload that changes it respawns the agent at its turn end, on the same conversation
     /// (`hub/profile_respawn.rs`). Kept on disk, so an agent host the next daemon adopts is

@@ -81,10 +81,10 @@ impl Hub {
         {
             return Ok(false);
         }
-        self.detach_child(session).await;
         {
             let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             meta.claude_token_recovery = Some(ClaudeTokenRecovery::MachineLogin);
+            meta.claude_login_restart_pending = Some(true);
             meta.credential_connection = None;
             meta.credential_model = None;
         }
@@ -93,6 +93,7 @@ impl Hub {
             meta.credential_connection = previous.credential_connection;
             meta.credential_model = previous.credential_model;
             meta.claude_token_recovery = previous.claude_token_recovery;
+            meta.claude_login_restart_pending = previous.claude_login_restart_pending;
             return Err(error);
         }
         session.credential.lock().unwrap_or_else(|e| e.into_inner()).take();
@@ -205,6 +206,10 @@ fn is_saved_claude_token(id: &str) -> bool {
 
 pub(super) fn uses_claude_machine_login(meta: &SessionMeta) -> bool {
     meta.claude_token_recovery == Some(ClaudeTokenRecovery::MachineLogin)
+}
+
+pub(super) fn claude_login_needs_restart(meta: &SessionMeta) -> bool {
+    uses_claude_machine_login(meta) && meta.claude_login_restart_pending != Some(false)
 }
 
 #[cfg(test)]
@@ -397,6 +402,86 @@ mod tests {
         assert_eq!(launched(&session).get(CLAUDE_OAUTH).map(String::as_str), Some(FIRST));
         assert!(!only_here(&session));
         assert!(!written(&hub, &session.id).contains(FIRST), "still never written down");
+    }
+
+    #[tokio::test]
+    async fn claude_recovery_keeps_the_active_turn_and_restarts_without_the_token() {
+        let hub = hub();
+        let session = hub
+            .new_session(NewRequest {
+                cwd: Some(std::env::temp_dir()),
+                credential: Some(credential(FIRST)),
+                ..NewRequest::default()
+            })
+            .await
+            .unwrap();
+        let before = hub.child_for(&session).await.unwrap().generation;
+        let (shown, turn_shown) = tokio::sync::oneshot::channel();
+        let (resume, wait) = tokio::sync::oneshot::channel();
+        *hub.turn_shown_seam.lock().unwrap() = Some((shown, wait));
+        let turn = tokio::spawn({
+            let (hub, session) = (hub.clone(), session.clone());
+            async move {
+                hub.prompt(&session, vec![json!({"type": "text", "text": "first"})], "test", false)
+                    .await
+            }
+        });
+        turn_shown.await.unwrap();
+        assert!(hub.use_claude_machine_login(&session).await.unwrap());
+        let only = std::collections::BTreeSet::from([session.id.clone()]);
+        let restarts = hub.restart_harnesses(None, Some(&only)).await;
+        assert_eq!((restarts.now, restarts.after_turn), (0, 1));
+        assert!(session.turn().is_some());
+        assert_eq!(session.child.lock().await.as_ref().unwrap().generation, before);
+
+        resume.send(()).unwrap();
+        turn.await.unwrap().unwrap();
+        hub.prompt(&session, vec![json!({"type": "text", "text": "next"})], "test", false)
+            .await
+            .unwrap();
+        assert_ne!(hub.child_for(&session).await.unwrap().generation, before);
+        assert!(!launched(&session).contains_key(CLAUDE_OAUTH));
+        assert_eq!(launched(&session).get("CMUX_CLAUDE_AUTH").map(String::as_str), Some("own"));
+        assert_eq!(session.meta().claude_login_restart_pending, Some(false));
+        hub.shutdown_all().await;
+    }
+
+    #[tokio::test]
+    async fn a_cold_start_waiting_on_recovery_reads_the_new_credential() {
+        use std::{future::Future as _, task::Poll};
+
+        let hub = hub();
+        let session = hub
+            .new_session(NewRequest {
+                cwd: Some(std::env::temp_dir()),
+                credential: Some(credential(FIRST)),
+                ..NewRequest::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(hub.pause(&session).await.unwrap()["paused"], true);
+        let lock = session.spawn_lock.lock().await;
+        let mut recovery = std::pin::pin!(hub.use_claude_machine_login(&session));
+        assert!(futures::poll!(recovery.as_mut()).is_pending());
+        let mut start = std::pin::pin!(hub.child_for(&session));
+        use super::super::full_access_bound::AT_OPERATION_ENTRY;
+        AT_OPERATION_ENTRY.with(|hook| hook.set(Some(|_| {})));
+        std::future::poll_fn(|cx| {
+            assert!(start.as_mut().poll(cx).is_pending());
+            if AT_OPERATION_ENTRY.with(|hook| hook.get().is_none()) {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+
+        drop(lock);
+        assert!(recovery.await.unwrap());
+        start.await.unwrap();
+        assert!(!launched(&session).contains_key(CLAUDE_OAUTH));
+        assert_eq!(launched(&session).get("CMUX_CLAUDE_AUTH").map(String::as_str), Some("own"));
+        hub.shutdown_all().await;
     }
 
     #[tokio::test]

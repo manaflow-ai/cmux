@@ -113,6 +113,31 @@ fn the_owners_start_relays_the_credential_to_acpmux_with_the_agent_launch() {
 }
 
 #[test]
+fn the_owner_can_select_the_claude_machine_login_for_a_start() {
+    for (label, host, phone, expected) in [
+        ("claude-own", AgentStartHost::OwnerCloud, false, true),
+        ("claude-team", AgentStartHost::TeamVm, false, false),
+        ("claude-phone", AgentStartHost::OwnerCloud, true, false),
+    ] {
+        let mut chat = connect(label, host, phone);
+        let started = chat.client.request(json!({
+            "cmd": "agent-session-start", "surface": chat.surface, "cwd": chat.cwd,
+            "harness": "claude", "vm_kind": "owner", "claude_machine_login": true
+        }));
+        assert_eq!(started["ok"], expected, "{started}");
+        let sent = chat.sent("session/new");
+        if expected {
+            assert_eq!(sent.len(), 1);
+            let meta = &sent[0]["params"]["_meta"]["acpmux"];
+            assert_eq!(meta["claudeMachineLogin"], true);
+            assert!(meta.get("credentials").is_none());
+        } else {
+            assert!(sent.is_empty(), "{label}: no agent starts");
+        }
+    }
+}
+
+#[test]
 fn a_credential_is_refused_anywhere_but_the_owners_own_cloud_vm() {
     for (label, host, phone, vm_kind) in [
         ("cred-mac", AgentStartHost::Allowed, false, json!("owner")),

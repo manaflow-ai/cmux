@@ -34,6 +34,7 @@ export function ModelConnectionDialog({
   visit,
   cloud,
   recoverClaude,
+  claudeAttemptBlocked,
   provider,
   models,
   busy,
@@ -51,6 +52,7 @@ export function ModelConnectionDialog({
   visit: string;
   cloud: boolean;
   recoverClaude?: boolean;
+  claudeAttemptBlocked?: boolean;
   provider?: CatalogProvider;
   models?: ModelsState;
   busy: boolean;
@@ -233,6 +235,7 @@ export function ModelConnectionDialog({
               onCancel={onDismiss}
               replace={target}
               recover={recoverClaude}
+              blocked={claudeAttemptBlocked}
               error={error}
             />
           )}

@@ -533,14 +533,14 @@ impl Hub {
             creation_guard.disarm();
             return Ok(self.begin_watch(&session, &store_family, file.clone()));
         }
-        let spawned =
-            match self.spawn_profile(&session, &profile, launch_digest, &defaults.env).await {
-                Ok(spawn) => {
-                    let checked = checked_cwd.as_ref();
-                    self.ensure_checked_child(&session, &spawn, checked, created_stops).await
-                }
-                Err(e) => Err(e),
-            };
+        let spawned = self
+            .ensure_checked_child(
+                &session,
+                (&profile, launch_digest, &defaults.env),
+                checked_cwd.as_ref(),
+                created_stops,
+            )
+            .await;
         if let Err(e) = spawned {
             // A session whose agent never started is not left behind, and
             // neither is a child that spawned but failed to initialize.
@@ -713,7 +713,11 @@ impl Hub {
     pub(super) async fn ensure_child(
         self: &Arc<Self>,
         session: &Arc<Session>,
-        profile: &super::spawn::Spawn,
+        launch: (
+            &crate::config::HarnessProfile,
+            String,
+            &std::collections::BTreeMap<String, String>,
+        ),
         stops: u64,
     ) -> Result<Arc<ChildAgent>, RpcError> {
         // MDM's off as this start begins: its one read, before it waits on anything (review 123),
@@ -722,6 +726,14 @@ impl Hub {
         let off = self.off_latch();
         #[cfg(test)]
         super::full_access_bound::operation_entry(self);
+        // One spawn at a time per session; a caller that waited here finds
+        // the child the previous holder started. The idle pass never ends the harness meanwhile.
+        self.touch(session);
+        let _using = session.harness_use.read().await;
+        let _spawning = self.spawn_lease(session).await;
+        let (profile, digest, defaults) = launch;
+        let spawn = self.spawn_profile(session, profile, digest, defaults).await?;
+        let profile = &spawn;
         // Harness startup can itself run repository hooks and write files. A harness that gates
         // every tool on the sync itself starts at the repository's head (repo_sync.rs).
         let head_ok = super::repo_sync::gates_its_tools(profile);
@@ -730,11 +742,6 @@ impl Hub {
             session.stops.load(Ordering::SeqCst) != stops
         })
         .await?;
-        // One spawn at a time per session; a caller that waited here finds
-        // the child the previous holder started. The idle pass never ends the harness meanwhile.
-        self.touch(session);
-        let _using = session.harness_use.read().await;
-        let _spawning = self.spawn_lease(session).await;
         // Stopped since the request: it starts nothing and touches no agent. One a later request
         // started after the stop is that request's (it reopened the session).
         // A chat being deleted starts nothing either, whatever stop count its request read
@@ -2007,8 +2014,7 @@ impl Hub {
             (profile, cfg.defaults_for(&agent))
         };
         let digest = profile.launch_digest();
-        let spawn = self.spawn_profile(session, &profile, digest, &defaults.env).await?;
-        self.ensure_child(session, &spawn, stops).await
+        self.ensure_child(session, (&profile, digest, &defaults.env), stops).await
     }
 }
 

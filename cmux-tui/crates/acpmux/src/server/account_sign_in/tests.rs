@@ -79,7 +79,7 @@ async fn a_shared_machine_refuses_the_owners_sign_in_too() {
     let m = Machine { root: root.clone(), home: root.join("home") };
     let cli = Cli { program: root.join("no-such-gh").display().to_string(), ..Cli::default() };
     for agent in [Agent::Github, Agent::Codex, Agent::Claude] {
-        let e = login::start_in(&m, &cli, agent, None).await.unwrap_err();
+        let e = login::start_in(&m, &cli, agent, None, None).await.unwrap_err();
         assert_eq!(e.reason, reason::SHARED_MACHINE, "{agent:?}");
     }
     let _ = std::fs::remove_dir_all(&root);
@@ -198,7 +198,8 @@ async fn a_cancelled_add_lists_nothing_and_removes_only_its_home() {
     let m = Machine { root: root.clone(), home: root.clone() };
     let mut cli = Cli { program: program.display().to_string(), ..Cli::default() };
     cli.env.insert("HOME".into(), root.display().to_string());
-    let started = login::start_in(&m, &cli, Agent::Claude, Some(&home)).await.expect("started");
+    let started =
+        login::start_in(&m, &cli, Agent::Claude, Some(&home), None).await.expect("started");
     assert!(started.needs_code);
     lock_pending().insert(
         started.login_id.clone(),

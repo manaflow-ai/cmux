@@ -1838,8 +1838,18 @@ async fn dispatch_request_with_identity(
             }
             // The owner's Cloud credential (`agent_credentials.rs`): this socket's, never an agent's.
             let credential = crate::agent_credentials::requested(meta)?;
-            if credential.is_some() {
+            let claude_machine_login =
+                meta.and_then(|meta| meta.get("claudeMachineLogin")) == Some(&Value::Bool(true));
+            if credential.is_some() || claude_machine_login {
                 crate::agent_credentials::admit(conn.origin == Origin::Local, conn.caller())?;
+            }
+            if claude_machine_login {
+                if credential.is_some() {
+                    return Err(RpcError::invalid_params(
+                        "a Claude machine login cannot carry a delivered credential",
+                    ));
+                }
+                env.insert("CMUX_CLAUDE_AUTH".into(), "own".into());
             }
             let disallowed_tools = disallowed_tools(meta)?;
             let additional_directories = crate::hub::additional_dirs::requested(&params).await?;

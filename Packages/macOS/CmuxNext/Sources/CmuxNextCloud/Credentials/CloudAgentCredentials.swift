@@ -96,6 +96,7 @@ public final class CloudAgentCredentials {
     private struct Selection {
         let connection: String?
         let harness: String?
+        let useMachineLogin: Bool
     }
 
     private struct ChatKey: Hashable { let machine: String, chat: String }
@@ -210,12 +211,12 @@ public final class CloudAgentCredentials {
     /// The Cloud start's choice for the chat tab `chat` on `machine`: its agent launches on connection
     /// `id` (nil: the machine's own route). Read once, at the chat's start on that machine.
     public func use(connection id: String?, chat: String, machine: String, harness: String? = nil, useMachineLogin: Bool = false) {
-        chosen[ChatKey(machine: machine, chat: chat)] = id != nil || useMachineLogin ? Selection(connection: id, harness: harness) : nil
+        chosen[ChatKey(machine: machine, chat: chat)] = id != nil || useMachineLogin ? Selection(connection: id, harness: harness, useMachineLogin: useMachineLogin && id == nil) : nil
     }
 
     public func stopDeliveringCredential(chat: String, machine: String, harness: String) {
         let key = ChatKey(machine: machine, chat: chat)
-        chosen[key] = Selection(connection: nil, harness: harness)
+        chosen[key] = Selection(connection: nil, harness: harness, useMachineLogin: false)
         keyDeliveries[key] = nil
         if let previous = tracked.removeValue(forKey: key) { refresher.untrack(previous) }
     }
@@ -224,6 +225,14 @@ public final class CloudAgentCredentials {
     public func move(chat: String, to key: String, machine: String) {
         guard let id = chosen.removeValue(forKey: ChatKey(machine: machine, chat: chat)) else { return }
         chosen[ChatKey(machine: machine, chat: key)] = id
+    }
+
+    /// Whether the Cloud start selected the machine's own Claude sign-in for this harness.
+    public func usesMachineLogin(chat: String, machine: String, harness: String?) -> Bool {
+        guard CloudSetup.family(of: harness) == "claude",
+              let selection = chosen[ChatKey(machine: machine, chat: chat)],
+              selection.harness == nil || selection.harness == harness else { return false }
+        return selection.useMachineLogin
     }
 
     /// The connection chosen for `chat` on `machine`, if any.
@@ -248,7 +257,8 @@ public final class CloudAgentCredentials {
     /// picks for `harness` (``setup``); nil when none serves it or it cannot be read (the machine's own route).
     public func launchCredential(chat: String, machine: String, harness: String? = nil, model: String? = nil) async throws -> CloudAgentCredential? {
         if let selection = chosen[ChatKey(machine: machine, chat: chat)],
-           selection.harness == nil || selection.harness == harness {
+           selection.harness == nil || selection.harness == harness,
+           !selection.useMachineLogin || CloudSetup.family(of: harness) == "claude" {
             guard let connection = selection.connection else { return nil }
             return try await credential(forConnection: connection, model: model, harness: harness)
         }

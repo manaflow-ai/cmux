@@ -139,6 +139,10 @@ pub const AGENT_SESSION_START_ENDPOINT_CREDENTIALS_CAPABILITY: &str =
 pub const AGENT_SESSION_START_SUBSCRIPTION_CREDENTIALS_CAPABILITY: &str =
     "agent-session-start-subscription-credentials-v1";
 
+/// The owner's start can select Claude's machine login for the new chat.
+pub(in crate::server) const CLAUDE_MACHINE_LOGIN_CAPABILITY: &str =
+    "agent-session-start-claude-machine-login-v1";
+
 pub(in crate::server) const CREDENTIAL_REATTACH_CAPABILITY: &str =
     "agent-session-credential-reattach-v1";
 
@@ -515,6 +519,8 @@ pub(super) struct StartParams {
     /// The owner's model credential for the agent ([`AGENT_SESSION_START_CREDENTIALS_CAPABILITY`]).
     #[serde(default)]
     credentials: Option<StartCredentials>,
+    #[serde(default)]
+    claude_machine_login: bool,
 }
 
 impl StartParams {
@@ -592,7 +598,8 @@ pub(super) fn start(
     if let Some(field) = params.invalid_field() {
         return super::bad_field::refuse_field(writer, id, Some(field));
     }
-    if params.credentials.is_some() && mux.control_clients.agent_sessions.starts.is_team_vm() {
+    let chooses_credential = params.credentials.is_some() || params.claude_machine_login;
+    if chooses_credential && mux.control_clients.agent_sessions.starts.is_team_vm() {
         return refuse(writer, id, Refusal::PersonalConnectionOnTeamVm);
     }
     if let Err(refusal) = mux.agent_host_gate(client, vm_word(&params.vm_kind)) {
@@ -602,7 +609,7 @@ pub(super) fn start(
         return refuse(writer, id, refusal);
     }
     // A credential only from the owner's own app on the owner's own Cloud VM.
-    if params.credentials.is_some() && !credentials_admitted(mux, client, &params.vm_kind) {
+    if chooses_credential && !credentials_admitted(mux, client, &params.vm_kind) {
         return refuse(writer, id, Refusal::OwnerOnly);
     }
     // On the caller's own Cloud VM a new chat with no folder gets a fresh
@@ -1036,6 +1043,9 @@ fn start_and_bind(
     // any agent process exists: a Codex alias or a default harness of a
     // refused family never starts (but on the caller's own Cloud VM).
     let family = start_family(catalog, params.harness.as_deref())?;
+    if params.claude_machine_login && (family != "claude" || params.credentials.is_some()) {
+        return Err(Refusal::BadRequest.into());
+    }
     // A phone's family is held to its own floor instead: acpmux refuses Codex as a Web family,
     // but a Codex bridge session holds to the phone floor in `ask`, which only the session's
     // `cloudMobileAsks` can tell from Codex's adapter (`settle_phone_mode`).
@@ -1080,6 +1090,9 @@ fn start_and_bind(
     // Admitted in `start` (the owner's own Cloud VM); acpmux keeps it for this agent in memory.
     if let Some(credentials) = &params.credentials {
         meta.insert("credentials", credentials.wire());
+    }
+    if params.claude_machine_login {
+        meta.insert("claudeMachineLogin", json!(true));
     }
     // The workspace of the tab, read here and never taken from the client:
     // acpmux gives the session that workspace's display (none without it).

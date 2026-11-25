@@ -171,6 +171,7 @@ pub mod reason {
     pub const BAD_CODE: &str = "bad_code";
     pub const EXPIRED: &str = "expired";
     pub const FAILED: &str = "failed";
+    pub const RECOVERY_MISMATCH: &str = "recovery_mismatch";
     pub const UNKNOWN_LOGIN: &str = "unknown_login";
     /// GitHub's `gh` is not on this machine (the agents' own CLIs answer [`CLI_MISSING`]).
     pub const NOT_INSTALLED: &str = "not_installed";
@@ -835,6 +836,7 @@ pub struct Finished {
     pub signed_in: bool,
     /// The account whose login actually finished, retained from start rather than the caller.
     pub store: PathBuf,
+    pub(crate) recovery_session: Option<String>,
     /// The first finish to see the CLI end (a paste that raced a wait for
     /// the approve sees the same end): only it takes the after-sign-in steps.
     pub fresh: bool,
@@ -916,6 +918,7 @@ struct Entry {
     group: Option<u32>,
     expires: Instant,
     store: PathBuf,
+    recovery_session: Option<String>,
     home: PathBuf,
     /// `start` answered an automatic link: a finish with no code waits for
     /// the CLI to end on its own.
@@ -1057,8 +1060,13 @@ pub(crate) async fn claude_logout(machine: &Machine, cli: &Cli) -> Result<(), Lo
 }
 
 /// Starts `agent`'s own sign-in with `cli` on `machine` (module docs).
-pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started, LoginError> {
-    start_in(machine, cli, agent, None).await
+pub async fn start(
+    machine: &Machine,
+    cli: &Cli,
+    agent: Agent,
+    recovery_session: Option<String>,
+) -> Result<Started, LoginError> {
+    start_in(machine, cli, agent, None, recovery_session).await
 }
 
 /// [`start`] in the account home `home` when given: the CLI gets `agent`'s
@@ -1070,6 +1078,7 @@ pub async fn start_in(
     cli: &Cli,
     agent: Agent,
     home: Option<&Path>,
+    recovery_session: Option<String>,
 ) -> Result<Started, LoginError> {
     let homed;
     let cli = match home {
@@ -1240,6 +1249,7 @@ pub async fn start_in(
         expires: Instant::now() + EXPIRY,
         store,
         home: cli.home(),
+        recovery_session,
         auto: auto.is_some(),
         stdin: Arc::new(tokio::sync::Mutex::new(stdin)),
         code_sent: Default::default(),
@@ -1276,7 +1286,11 @@ fn boxed<R: AsyncRead + Unpin + Send + 'static>(r: R) -> Box<dyn AsyncRead + Unp
 
 /// Finishes sign-in `login_id` (module docs). Claude needs `code`, unless
 /// its start answered an automatic link.
-pub async fn finish(login_id: &str, code: Option<&str>) -> Result<Finished, LoginError> {
+pub async fn finish(
+    login_id: &str,
+    code: Option<&str>,
+    requested_recovery: Option<&str>,
+) -> Result<Finished, LoginError> {
     let found = {
         let table = lock_table();
         table.values().find(|e| e.id == login_id).map(|e| {
@@ -1285,6 +1299,7 @@ pub async fn finish(login_id: &str, code: Option<&str>) -> Result<Finished, Logi
                 e.expires,
                 e.store.clone(),
                 e.home.clone(),
+                e.recovery_session.clone(),
                 e.auto,
                 e.stdin.clone(),
                 e.code_sent.clone(),
@@ -1292,12 +1307,20 @@ pub async fn finish(login_id: &str, code: Option<&str>) -> Result<Finished, Logi
             )
         })
     };
-    let Some((agent, expires, store, home, auto, stdin, code_sent, running)) = found else {
+    let Some((agent, expires, store, home, recovery_session, auto, stdin, code_sent, running)) =
+        found
+    else {
         return Err(LoginError::new(
             reason::UNKNOWN_LOGIN,
             "no sign-in with that id is running here: start again",
         ));
     };
+    if requested_recovery.is_some() && requested_recovery != recovery_session.as_deref() {
+        return Err(LoginError::new(
+            reason::RECOVERY_MISMATCH,
+            "recoverySession differs from sign-in start",
+        ));
+    }
     if Instant::now() >= expires {
         end(login_id);
         return Err(LoginError::new(reason::EXPIRED, "the sign-in expired: start again"));
@@ -1415,7 +1438,7 @@ pub async fn finish(login_id: &str, code: Option<&str>) -> Result<Finished, Logi
     } else {
         signed_in_at(agent, &store) || (cfg!(target_os = "macos") && agent == Agent::Claude)
     };
-    Ok(Finished { agent, signed_in, store, fresh })
+    Ok(Finished { agent, signed_in, store, recovery_session, fresh })
 }
 
 /// Stops sign-in `login_id`; nothing when none runs.

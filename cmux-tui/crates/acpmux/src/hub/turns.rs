@@ -907,6 +907,12 @@ impl Hub {
         if !no_queue {
             self.hold_retry_start(session, &prompt_id).await;
         }
+        if session.route_switch.load(Ordering::SeqCst)
+            && session.read_meta(super::credentials::claude_login_needs_restart)
+            && session.pending_permissions().is_empty()
+        {
+            let _ = self.restart_on_route(session).await;
+        }
         self.refresh_local_chatgpt_between_turns(session).await;
         self.refresh_local_kimi_between_turns(session).await;
         if session.cancels.load(Ordering::SeqCst) != cancels {

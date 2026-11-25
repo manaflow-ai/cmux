@@ -49,15 +49,25 @@ package struct CloudStartSessionRequest: Equatable {
         CloudStartSessionStrings.Asked(machine: machine, agent: agent, command: command)
     }
 
-    @MainActor package func preflight(setup: CloudSetup, scheme: String) async throws -> Self {
+    package var destinationName: String { name ?? "cloud-chats" }
+
+    @MainActor package func preflight(setup: CloudSetup, scheme: String, heldRefusal: (String) -> String? = { _ in nil }) async throws -> Self {
         let ready = agent == "claude" ? await setup.readyClaudeMachines(machine: machineID, name: machineID == nil ? name : nil).first : nil
         var request = self
-        request.machineID = machineID ?? ready ?? (agent == "claude" ? name.flatMap { setup.claudeMachine(named: $0) } : nil)
+        let named = agent == "claude" ? setup.claudeMachine(named: destinationName) : nil
+        let fallback = machineID == nil && name == nil && ready == nil ? named : nil
+        request.machineID = machineID ?? ready ?? named
+        if let id = request.machineID, let held = heldRefusal(id) { throw Refusal(message: held) }
         if let refused = await setup.refusal(harness: agent, model: model, readyClaude: ready != nil),
-           agent != "claude" || request.machineID == nil {
+           agent != "claude" || request.machineID == nil || fallback != nil {
             throw Refusal(message: setupRequired(refused, scheme: scheme, machine: request.machineID))
         }
         return request
+    }
+
+    @MainActor package func launchReadiness(setup: CloudSetup, machine: String) async -> (choice: CloudSetup.Choice, refusal: CloudSetup.Refusal?) {
+        let ready = agent == "claude" ? await setup.readyClaudeMachines(machine: machine).contains(machine) : false
+        return await setup.launchReadiness(harness: agent, model: model, readyClaude: ready)
     }
 
     package func setupRequired(_ refused: CloudSetup.Refusal, scheme: String, machine: String?) -> String {

@@ -140,6 +140,9 @@ public actor AgentSessionAttachClient {
     /// the attachment (cleared to retire it silently).
     private var newest: (transport: ObjectIdentifier, number: Int, tells: OSAllocatedUnfairLock<Bool>)?
 
+    /// An owner Cloud start can select the machine's Claude sign-in.
+    public static let startClaudeMachineLoginCapability = "agent-session-start-claude-machine-login-v1"
+
     private static let credentialReattachCapability = "agent-session-credential-reattach-v1"
 
     private struct Served: Sendable {
@@ -166,6 +169,7 @@ public actor AgentSessionAttachClient {
         var endpointCredentials = false
         var subscriptionCredentials = false
         var credentialReattach = false
+        var claudeMachineLogin = false
         /// `agent-session-trust-vm-kind-v1`.
         var trustVMKind = false
         /// `agent-session-children-v1`.
@@ -279,7 +283,7 @@ public actor AgentSessionAttachClient {
     public func start(cwd: String?, harness: String?, homeConfirmed: Bool = false, personKey: PersonKey? = nil,
                       ownerLink: OwnerLink? = nil, model: String? = nil, permissionMode: String? = nil, startMode: String? = nil,
                       credentials: [String: String]? = nil, launchEndpoint: LaunchEndpoint? = nil,
-                      credentialConnection: String? = nil) async throws -> String {
+                      credentialConnection: String? = nil, claudeMachineLogin: Bool = false) async throws -> String {
         guard mode == .attach else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "a read-only agent session cannot start a chat")
         }
@@ -296,6 +300,9 @@ public actor AgentSessionAttachClient {
             guard !Self.needsEndpointCapability(launchEndpoint, credentials) || (served.endpointCredentials && served.credentials && served.vmKind) else {
                 throw AgentSessionAttachError(code: Self.endpointCredentialsUnsupported, message: "the daemon does not take endpoint credentials")
             }
+            guard !claudeMachineLogin || (served.claudeMachineLogin && served.vmKind && ownerLink != nil) else {
+                throw AgentSessionAttachError(code: Self.endpointCredentialsUnsupported, message: "the daemon does not support selecting the Claude machine login")
+            }
             guard credentialConnection == nil || served.credentials && served.vmKind else {
                 throw AgentSessionAttachError(code: Self.endpointCredentialsUnsupported, message: "the daemon does not take model credentials")
             }
@@ -309,7 +316,8 @@ public actor AgentSessionAttachClient {
                                       startMode: startMode, servesStartMode: served.startMode,
                                       servesCredentials: served.credentials, credentials: credentials,
                                       servesEndpointCredentials: served.endpointCredentials, launchEndpoint: launchEndpoint,
-                                      credentialConnection: served.credentialReattach ? credentialConnection : nil)
+                                      credentialConnection: served.credentialReattach ? credentialConnection : nil,
+                                      claudeMachineLogin: claudeMachineLogin)
         guard !transport.isClosed else {
             throw AgentSessionAttachError(code: "agent_session.closed", message: "the connection ended before the start was sent")
         }
@@ -389,7 +397,7 @@ public actor AgentSessionAttachClient {
                             startMode: String? = nil, servesStartMode: Bool = false,
                             servesCredentials: Bool = false, credentials: [String: String]? = nil,
                             servesEndpointCredentials: Bool = false, launchEndpoint: LaunchEndpoint? = nil,
-                            credentialConnection: String? = nil) -> [String: any Sendable] {
+                            credentialConnection: String? = nil, claudeMachineLogin: Bool = false) -> [String: any Sendable] {
         var params: [String: any Sendable] = [:]
         if let cwd { params["cwd"] = cwd }
         if let harness { params["harness"] = harness }
@@ -399,7 +407,10 @@ public actor AgentSessionAttachClient {
             params["require_person_key"] = true
             if let instance = personKey.instance { params["person_instance"] = instance }
         }
-        if callerOwnsVM, servesVMKind { params["vm_kind"] = "owner" }
+        if callerOwnsVM, servesVMKind {
+            params["vm_kind"] = "owner"
+            if claudeMachineLogin { params["claude_machine_login"] = true }
+        }
         // The person's start mode, which the daemon reads only on their own Cloud VM (`agent-session-start-permission-mode-v1`).
         if callerOwnsVM, servesPermissionMode, let mode = startPermissionMode(permissionMode) { params["permission_mode"] = mode }
         // The mode pick goes only with the owner word: the daemon applies it on the caller's own
@@ -1078,6 +1089,7 @@ public actor AgentSessionAttachClient {
                             endpointCredentials: identity.supports(Self.startEndpointCredentialsCapability),
                             subscriptionCredentials: identity.supports(Self.startSubscriptionCredentialsCapability),
                             credentialReattach: identity.supports(Self.credentialReattachCapability),
+                            claudeMachineLogin: identity.supports(Self.startClaudeMachineLoginCapability),
                             trustVMKind: identity.supports(DaemonCapability.agentSessionTrustVMKind.rawValue),
                             children: identity.supports(DaemonCapability.agentSessionChildren.rawValue),
                             fork: identity.supports(DaemonCapability.agentSessionFork.rawValue),

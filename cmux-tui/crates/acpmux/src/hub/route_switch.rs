@@ -450,7 +450,11 @@ impl Hub {
     ) -> T {
         let recorded = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            route_account::record(&mut m, spawn.account_home.as_deref())
+            let restarted = super::credentials::claude_login_needs_restart(&m);
+            if restarted {
+                m.claude_login_restart_pending = Some(false);
+            }
+            route_account::record(&mut m, spawn.account_home.as_deref()) || restarted
         };
         if recorded {
             self.save_meta(session);

@@ -195,5 +195,19 @@ async fn a_discovered_claude_with_no_sign_in_gets_the_team_plane() {
         assert_eq!(claude.get(*key).map(String::as_str).unwrap_or(""), "", "{key} reaches Claude");
     }
     assert_eq!(claude[headers], "x-cmux-workspace-id: ws-1");
+    // A chat that selects a signed-in machine account pins its launch to it,
+    // even while the machine's recorded preference still selects team.
+    let choice = home.join(".config/cmux/agent-auth");
+    std::fs::create_dir_all(&choice).unwrap();
+    std::fs::write(choice.join("claude"), "team\n").unwrap();
+    let mut account = meta.clone();
+    let p = profile(&[]);
+    let team = hub.spawn_profile_for(&account, &p, &none).await.unwrap();
+    assert_eq!(team.env.get("ANTHROPIC_BASE_URL").map(String::as_str), Some("https://localhost"));
+    account.session_env.insert("CMUX_CLAUDE_AUTH".into(), "own".into());
+    let own = hub.spawn_profile_for(&account, &p, &none).await.unwrap();
+    assert_eq!(own.env.get("CMUX_CLAUDE_AUTH").map(String::as_str), Some("own"));
+    assert!(!own.env.contains_key("ANTHROPIC_BASE_URL"));
+    assert_eq!(std::fs::read_to_string(choice.join("claude")).unwrap(), "team\n");
     let _ = std::fs::remove_dir_all(&root);
 }

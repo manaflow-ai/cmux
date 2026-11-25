@@ -47,6 +47,7 @@ pub(super) fn error(e: LoginError) -> RpcError {
     let code = match e.reason {
         reason::UNSUPPORTED_AGENT
         | reason::UNSUPPORTED
+        | reason::RECOVERY_MISMATCH
         | reason::BAD_CODE
         | reason::UNKNOWN_LOGIN
         | reason::UNKNOWN_SESSION => -32602,
@@ -68,6 +69,18 @@ fn agent_of(params: &Value) -> Result<Agent, RpcError> {
 
 fn text<'a>(params: &'a Value, key: &str) -> Option<&'a str> {
     params.get(key).and_then(Value::as_str).filter(|v| !v.is_empty())
+}
+
+fn recovery_id(params: &Value) -> Result<Option<&str>, RpcError> {
+    params
+        .get("recoverySession")
+        .map(|value| {
+            value
+                .as_str()
+                .filter(|id| !id.is_empty())
+                .ok_or_else(|| RpcError::invalid_params("recoverySession must be a chat id"))
+        })
+        .transpose()
 }
 
 /// Whether a connection of `origin` that presented `auth` may run a sign-in here (module docs).
@@ -189,9 +202,10 @@ async fn signed_in(
     agent: Agent,
     params: &Value,
     store: &Path,
+    recovery: Option<&str>,
 ) -> Result<bool, RpcError> {
-    // Finishing a login may name a different chat, or its config may have changed while
-    // the browser was open. Never apply one account's success to another account.
+    // The chat config may have changed while the browser was open. Apply the result
+    // only if the sign-in still belongs to the same account.
     let (current, route) = cli(hub, agent, params).await?;
     if current.store(agent) != store {
         return Err(RpcError::invalid_params(
@@ -200,7 +214,7 @@ async fn signed_in(
     }
     // Alternate account homes are scoped to this chat; do not flip the machine-wide
     // launcher mode away from team routing for the canonical account.
-    let recovery = recovery_session(hub, agent, params, store).await?;
+    let recovery = recovery_session(hub, agent, text(params, "sessionId"), recovery, store).await?;
     let machine = machine(hub);
     let canonical = machine.home.join(agent.home_dir_name());
     if recovery.is_none()
@@ -211,9 +225,11 @@ async fn signed_in(
     }
     if let Some(session) = recovery {
         hub.use_claude_machine_login(&session).await?;
-        hub.login_changed(agent.name(), store, None).await?;
+        let changed = hub.login_changed(agent.name(), store, None).await;
         let ids = std::collections::BTreeSet::from([session.id.clone()]);
-        return Ok(hub.restart_harnesses(None, Some(&ids)).await.now > 0);
+        let restarted = hub.restart_harnesses(None, Some(&ids)).await.now > 0;
+        changed?;
+        return Ok(restarted);
     }
     hub.login_changed(agent.name(), store, route.as_deref()).await?;
     if cfg!(target_os = "macos") && matches!(agent, Agent::Grok | Agent::Cursor) {
@@ -236,11 +252,12 @@ async fn signed_in(
 async fn recovery_session(
     hub: &Hub,
     agent: Agent,
-    params: &Value,
+    session: Option<&str>,
+    recovery: Option<&str>,
     store: &Path,
 ) -> Result<Option<Arc<crate::hub::Session>>, RpcError> {
-    let Some(id) = text(params, "recoverySession") else { return Ok(None) };
-    if agent != Agent::Claude || text(params, "sessionId").is_some() {
+    let Some(id) = recovery else { return Ok(None) };
+    if agent != Agent::Claude || session.is_some() {
         return Err(RpcError::invalid_params("recovery requires a Claude chat on this machine"));
     }
     let session = hub.session_get(id).ok_or_else(|| {
@@ -370,7 +387,9 @@ pub(super) async fn handle(
                 )));
             }
             let (cli, _) = cli(hub, agent, params).await?;
-            recovery_session(hub, agent, params, &cli.store(agent)).await?;
+            let recovery = recovery_id(params)?;
+            recovery_session(hub, agent, text(params, "sessionId"), recovery, &cli.store(agent))
+                .await?;
             let mut api_key = None;
             if agent == Agent::Claude
                 && text(params, "sessionId").is_none()
@@ -378,12 +397,14 @@ pub(super) async fn handle(
             {
                 let status = login::claude_status(&machine(hub), &cli).await.map_err(error)?;
                 if status["signedIn"] == true {
-                    signed_in(hub, agent, params, &cli.store(agent)).await?;
+                    signed_in(hub, agent, params, &cli.store(agent), recovery).await?;
                     return Ok(status);
                 }
                 api_key = status["apiKey"].as_bool();
             }
-            let s = login::start(&machine(hub), &cli, agent).await.map_err(error)?;
+            let s = login::start(&machine(hub), &cli, agent, recovery.map(str::to_owned))
+                .await
+                .map_err(error)?;
             let mut reply = json!({
                 "loginId": s.login_id,
                 "url": s.url,
@@ -412,12 +433,23 @@ pub(super) async fn handle(
             })?;
             // No code: Codex's device flow, or Claude after an automatic link.
             let code = params.get("code").and_then(Value::as_str);
-            let done = login::finish(id, code).await.map_err(error)?;
+            let done = login::finish(id, code, recovery_id(params)?).await.map_err(error)?;
             // A paste that raced the wait for the approve reads the same end;
             // only the first finish takes the after-sign-in steps.
-            let restarted = done.signed_in
-                && done.fresh
-                && signed_in(hub, done.agent, params, &done.store).await?;
+            let restarted = if done.signed_in && done.fresh {
+                let recovery = done.recovery_session.as_deref();
+                let machine_params = json!({});
+                signed_in(
+                    hub,
+                    done.agent,
+                    if recovery.is_some() { &machine_params } else { params },
+                    &done.store,
+                    recovery,
+                )
+                .await?
+            } else {
+                false
+            };
             Ok(
                 json!({"signedIn": done.signed_in, "restarted": restarted, "agent": done.agent.name()}),
             )
@@ -434,7 +466,7 @@ pub(super) async fn handle(
             let key = params.get("key").and_then(Value::as_str).unwrap_or_default();
             let (cli, _) = cli(hub, agent, params).await?;
             login::save_api_key(&machine(hub), &cli, agent, key).await.map_err(error)?;
-            let restarted = signed_in(hub, agent, params, &cli.store(agent)).await?;
+            let restarted = signed_in(hub, agent, params, &cli.store(agent), None).await?;
             Ok(json!({"saved": true, "restarted": restarted}))
         }
         other => Err(RpcError::method_not_found(other)),
@@ -485,7 +517,7 @@ mod tests {
         }
         let (target, token) = &chats[0];
         let (other, _) = &chats[1];
-        signed_in(&hub, Agent::Claude, &json!({}), &cli_home).await.unwrap();
+        signed_in(&hub, Agent::Claude, &json!({}), &cli_home, None).await.unwrap();
         assert_eq!(hub.credential_status(&target.id).await.unwrap()["held"], true);
 
         hub.edit_test_meta(target, |meta| {
@@ -493,9 +525,7 @@ mod tests {
         });
         // An upgraded daemon may have only the saved connection id until the Mac reconnects.
         hub.revoke_credential(&target.id).await.unwrap();
-        signed_in(&hub, Agent::Claude, &json!({"recoverySession": target.id}), &cli_home)
-            .await
-            .unwrap();
+        signed_in(&hub, Agent::Claude, &json!({}), &cli_home, Some(&target.id)).await.unwrap();
 
         let status = hub.credential_status(&target.id).await.unwrap();
         assert_eq!(status["claudeTokenRecovery"], "machineLogin");
