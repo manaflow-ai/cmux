@@ -1,0 +1,453 @@
+/* The intro walk's gallery arms (walkArms.tsx): loaded by the gallery entry only, never by the shipped
+   page, so the shipped first-run screen is untouched. Tokens only: the miniatures take the system's
+   canvas colors under their own color-scheme (a true light and a true dark face on either appearance),
+   the accent and the attention role; spacing, radii and type are the design scale. Every pick keeps
+   the layout: rings are box-shadows, example lines hold one line, the hero keeps its box. */
+
+.onb-walk {
+  --onb-walk-mini-ratio: 16 / 10;
+  min-height: 0;
+}
+.onb-walk[data-screen="look"],
+.onb-walk[data-screen="tune"] {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.onb-walk-line {
+  overflow: hidden;
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.onb-walk-example {
+  margin-top: var(--ds-space-2);
+}
+.onb-walk-shipped {
+  color: var(--ds-color-faint);
+}
+
+/* A miniature of the whole app: titlebar with tabs, sidebar, a pane with a composer. */
+.onb-walk-faces {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--ds-space-1);
+  min-width: 0;
+}
+.onb-walk-mini {
+  --onb-walk-ink: CanvasText;
+  --onb-walk-bg: Canvas;
+  --onb-walk-side: color-mix(in srgb, CanvasText 5%, Canvas);
+  --onb-walk-pane: Canvas;
+  --onb-walk-line-c: color-mix(in srgb, CanvasText 16%, transparent);
+  --onb-walk-edge: color-mix(in srgb, CanvasText 10%, transparent);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  aspect-ratio: var(--onb-walk-mini-ratio);
+  border: 1px solid var(--onb-walk-edge);
+  border-radius: var(--ds-radius-sm);
+  background: var(--onb-walk-bg);
+  color-scheme: light;
+}
+.onb-walk-mini[data-face="dark"] {
+  color-scheme: dark;
+}
+.onb-walk-mini-bar {
+  display: flex;
+  flex: 0 0 14%;
+  align-items: center;
+  gap: 3%;
+  padding-inline: 4%;
+  background: var(--onb-walk-side);
+}
+.onb-walk-mini-tab {
+  flex: 0 0 18%;
+  height: 50%;
+  border-radius: var(--ds-radius-sm);
+  background: var(--onb-walk-line-c);
+}
+.onb-walk-mini-tab[data-active] {
+  background: var(--onb-walk-pane);
+  box-shadow: 0 0 0 1px var(--onb-walk-edge);
+}
+.onb-walk-mini-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.onb-walk-mini-side {
+  display: flex;
+  flex: 0 0 30%;
+  flex-direction: column;
+  gap: 7%;
+  padding: 6% 5%;
+  border-right: 1px solid var(--onb-walk-edge);
+  background: var(--onb-walk-side);
+}
+.onb-walk-mini-row {
+  flex: 0 0 9%;
+  border-radius: var(--ds-radius-sm);
+  background: var(--onb-walk-line-c);
+}
+.onb-walk-mini-row[data-active] {
+  background: color-mix(in srgb, var(--ds-color-accent) 45%, transparent);
+}
+.onb-walk-mini-pane {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 7%;
+  padding: 7% 7% 6%;
+  background: var(--onb-walk-pane);
+}
+.onb-walk-mini-line {
+  flex: 0 0 7%;
+  width: 82%;
+  border-radius: var(--ds-radius-sm);
+  background: var(--onb-walk-line-c);
+}
+.onb-walk-mini-line[data-short] {
+  width: 56%;
+}
+.onb-walk-mini-composer {
+  flex: 0 0 20%;
+  margin-top: auto;
+  border: 1px solid var(--onb-walk-edge);
+  border-radius: var(--ds-radius-sm);
+  background: var(--onb-walk-bg);
+}
+/* Glasshouse: a picture under clear panes. */
+.onb-walk-mini[data-glass] {
+  --onb-walk-side: color-mix(in srgb, Canvas 45%, transparent);
+  --onb-walk-pane: color-mix(in srgb, Canvas 62%, transparent);
+  background:
+    radial-gradient(circle at 78% 26%, color-mix(in srgb, var(--ds-color-attention) 55%, transparent), transparent 42%),
+    linear-gradient(160deg, color-mix(in srgb, var(--ds-color-accent) 55%, Canvas), color-mix(in srgb, CanvasText 55%, Canvas));
+}
+/* Two-Tone Studio: sidebar and bar in a second tone. */
+.onb-walk-mini[data-two-tone] {
+  --onb-walk-side: color-mix(in srgb, var(--ds-color-attention) 30%, Canvas);
+}
+/* Quiet Solid: opaque, one surface, no hairlines. */
+.onb-walk-mini[data-solid] {
+  --onb-walk-side: Canvas;
+  --onb-walk-edge: transparent;
+  --onb-walk-line-c: color-mix(in srgb, CanvasText 10%, transparent);
+}
+/* Dense Operator: more rows in the same box. */
+.onb-walk-mini[data-dense] .onb-walk-mini-side {
+  gap: 4%;
+}
+.onb-walk-mini[data-dense] .onb-walk-mini-row {
+  flex-basis: 7%;
+}
+.onb-walk-mini[data-dense] .onb-walk-mini-pane {
+  gap: 5%;
+}
+
+/* Step 1, Pick a look. */
+.onb-walk-looks {
+  display: grid;
+  gap: var(--ds-space-2);
+}
+.onb-walk-look {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  padding: var(--ds-space-2);
+  border-radius: var(--ds-radius-lg);
+}
+.onb-walk-look-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.onb-walk-look-name {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  overflow: hidden;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: var(--weight-emphasis);
+  white-space: nowrap;
+}
+.onb-walk-look-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--ds-space-2);
+  border: 1px dashed var(--onb-card-rim);
+  border-radius: var(--ds-radius-lg);
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  text-align: center;
+}
+/* A: a 2x2-plus grid of large tiles. */
+.onb-walk[data-layout="grid"] .onb-walk-looks {
+  grid-template-columns: 1fr 1fr;
+}
+/* B: the picked bundle as the hero, the five as a strip under it. */
+.onb-walk-hero {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  margin-bottom: var(--ds-space-3);
+}
+.onb-walk-hero .onb-walk-faces {
+  gap: var(--ds-space-2);
+}
+.onb-walk-hero .onb-walk-mini {
+  border-radius: var(--ds-radius-md);
+}
+.onb-walk-hero-text {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-3);
+  min-width: 0;
+}
+.onb-walk[data-layout="hero"] .onb-walk-looks,
+.onb-walk[data-layout="strip"] .onb-walk-looks {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.onb-walk[data-layout="hero"] .onb-walk-look,
+.onb-walk[data-layout="strip"] .onb-walk-look {
+  padding: var(--ds-space-1);
+  border-radius: var(--ds-radius-md);
+}
+.onb-walk[data-layout="hero"] .onb-walk-look-name .onb-make-badge,
+.onb-walk[data-layout="strip"] .onb-walk-look-name .onb-make-badge {
+  display: none;
+}
+/* C: a compact list, a small preview and a line each. */
+.onb-walk[data-layout="list"] .onb-walk-looks {
+  grid-template-columns: 1fr;
+  gap: var(--ds-space-1);
+}
+.onb-walk[data-layout="list"] .onb-walk-look {
+  display: grid;
+  grid-template-columns: 22% minmax(0, 1fr);
+  align-items: center;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-1) var(--ds-space-3) var(--ds-space-1) var(--ds-space-1);
+  border-radius: var(--ds-radius-md);
+}
+.onb-walk[data-layout="list"] .onb-walk-look-name {
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+
+/* The More disclosure (trust and noise folded into the look screen). */
+.onb-walk-disclosure {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--ds-space-4);
+}
+.onb-walk-more-button {
+  align-self: flex-start;
+}
+
+/* Step 3, Trust and noise. */
+.onb-walk[data-screen="trust"] {
+  gap: var(--ds-space-6);
+}
+.onb-walk-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--ds-space-3);
+}
+.onb-walk-card {
+  padding: var(--ds-space-3);
+  border-radius: calc(var(--ds-radius-control) + var(--ds-space-3));
+}
+.onb-walk-card .onb-make-option-title {
+  flex-wrap: wrap;
+}
+
+/* Step 4, Tune. */
+.onb-walk-density {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--ds-space-2);
+}
+.onb-walk-density > .onb-make-group {
+  flex: 1;
+}
+.onb-walk-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-4);
+}
+.onb-walk-toggle-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.onb-walk-tune-rest .onb-make-work,
+.onb-walk-tune-rest .onb-make-density {
+  display: none;
+}
+
+/* Step "exit". */
+.onb-walk[data-screen="exit"] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+}
+.onb-walk-still {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--onb-card-rim);
+  border-radius: var(--ds-radius-xl);
+  background: var(--onb-card-fill);
+}
+.onb-walk-still-side {
+  display: flex;
+  flex: 0 0 26%;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-4) var(--ds-space-3);
+  border-right: 1px solid var(--onb-card-rim);
+  --onb-walk-line-c: var(--ds-color-separator);
+}
+.onb-walk-still-side .onb-walk-mini-row {
+  flex: 0 0 var(--ds-space-2);
+}
+.onb-walk-still-chat {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-4);
+}
+.onb-walk-still-empty {
+  margin-bottom: auto;
+  padding-top: var(--ds-space-6);
+  color: var(--page-text-2);
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  text-align: center;
+}
+.onb-walk-still-suggest {
+  align-self: flex-start;
+  padding: var(--ds-space-1) var(--ds-space-3);
+  border: 1px solid var(--onb-card-rim);
+  border-radius: var(--ds-radius-lg);
+  color: var(--page-text);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+.onb-walk-still-composer {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-3);
+  border: 1px solid var(--ds-color-accent);
+  border-radius: var(--ds-radius-xl);
+  box-shadow: 0 0 0 1.5px var(--ds-color-accent);
+  background: var(--ds-color-surface);
+  color: var(--ds-color-faint);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+.onb-walk-still-caret {
+  align-self: stretch;
+  width: 1.5px;
+  background: var(--ds-color-fg);
+}
+.onb-walk-summary {
+  display: grid;
+  margin: 0;
+  border: 1px solid var(--onb-card-rim);
+  border-radius: var(--ds-radius-xl);
+  background: var(--onb-card-fill);
+}
+.onb-walk-summary-row {
+  display: grid;
+  grid-template-columns: 40% minmax(0, 1fr);
+  align-items: baseline;
+  padding: var(--ds-space-2) var(--ds-space-4);
+  border-top: 1px solid var(--onb-card-rim);
+}
+.onb-walk-summary-row:first-child {
+  border-top: 0;
+}
+.onb-walk-summary-row dd {
+  margin: 0;
+  font-weight: var(--weight-emphasis);
+}
+.onb-walk-summary-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-3);
+  min-width: 0;
+}
+.onb-walk-tries {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.onb-walk-try {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-3) var(--ds-space-4);
+  border-radius: var(--ds-radius-xl);
+}
+.onb-walk-try > .onb-make-option-text {
+  flex: 1;
+}
+.onb-walk-try-mark {
+  flex: none;
+  width: var(--ds-space-4);
+  aspect-ratio: 1;
+  border: 1.5px solid var(--onb-card-rim);
+  border-radius: 999px;
+}
+.onb-walk-try[data-done] .onb-walk-try-mark {
+  border-color: var(--ds-color-success);
+  background: var(--ds-color-success);
+  box-shadow: inset 0 0 0 3px var(--ds-color-surface);
+}
+.onb-walk-key {
+  padding: 0 var(--ds-space-1);
+  border-radius: var(--ds-radius-sm);
+  background: var(--ds-surface-inset);
+  color: var(--page-text-2);
+  font: inherit;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: var(--weight-regular);
+}
+
+/* The footer with a persistent Undo / Redo pair, leading. */
+.onb-walk-undo {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  margin-inline-end: auto;
+}
+.onb-walk-undo .ui-btn {
+  padding-inline: var(--ds-space-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onb-walk-look,
+  .onb-walk-card,
+  .onb-walk-try {
+    transition: none;
+  }
+}
