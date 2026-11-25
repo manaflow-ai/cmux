@@ -271,7 +271,7 @@ import { transcriptBackground } from "./summary/sessionSummary";
 import { openSourceFile } from "./session-info/sourcesSectionModel";
 import { useSessionInfo } from "./session-info/useSessionInfo";
 import { toggleRemoteControl, useRemoteControl } from "./remoteControl";
-import { HybridChip, useSessionInfoCloud } from "./hybrid/HybridMounts";
+import { HybridChip, NewTabHybridChip, useSessionInfoCloud } from "./hybrid/HybridMounts";
 import {
   type BackgroundCommand,
   backgroundCommands,
@@ -10214,6 +10214,24 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       </>
     );
   }, [placeSession, notices.transient]);
+  // The New Tab page's Hybrid control (hybrid/newTabHybrid.ts), before a chat exists: the page's Where pick
+  // drawn as Hybrid (Auto), Only in Cloud and Only on This Mac, written through the Where rows. Only where
+  // AutoCloud is on (the plan and the `cloud.autoCloud` key, default off), as the Where menu's Auto chevron.
+  const newTabWhereMode = useRef(sandboxModeRows.onMode);
+  newTabWhereMode.current = sandboxModeRows.onMode;
+  const newTabHybridShown = autoCloud && autoOffered && !placeSession;
+  const newTabPlaceControl = useMemo(() => {
+    if (!newTabHybridShown) return undefined;
+    return (
+      <NewTabHybridChip
+        where={{ autoPicked, mode: sandbox.mode }}
+        writes={{
+          pickAuto: (on) => pickAutoRef.current(on),
+          onMode: (mode) => newTabWhereMode.current(mode),
+        }}
+      />
+    );
+  }, [newTabHybridShown, autoPicked, sandbox.mode]);
   const composer = drawPaneComposer({
     markDockEdge,
     hostOverload,
@@ -10248,6 +10266,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     switchLoginCommand,
     composerHandle,
     placeControl,
+    newTabPlaceControl,
     healthStale,
     connectMachine,
     chooseWorkspaceFolder,

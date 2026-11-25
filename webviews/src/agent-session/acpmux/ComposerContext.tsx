@@ -182,6 +182,7 @@ export function ComposerContext({
   connectOnlyWhenEmpty = false,
   onOffload,
   placeControl,
+  newTabPlaceControl,
   offloads = NO_OFFLOADS,
   offloadReasons,
   moveTargets,
@@ -277,6 +278,9 @@ export function ComposerContext({
   /// A started chat's place control (place/PlaceControl.tsx: Local, Cloud, Auto), beside the picker's
   /// Move to Cloud and Bring Back Local rows, which stay. None while the app reports no place.
   placeControl?: React.ReactNode;
+  /// The New Tab page's Hybrid control (hybrid/newTabHybrid.ts): Hybrid, Only in Cloud, Only on This Mac for
+  /// the chat Send starts, drawn before the chat exists. None with AutoCloud off.
+  newTabPlaceControl?: React.ReactNode;
   /// The moves the app offers this chat now (its right-click menu's, `pane.tabState` `moves`): the
   /// picker offers only these, whatever the machine's kind.
   offloads?: readonly OffloadKind[];
@@ -1369,6 +1373,7 @@ export function ComposerContext({
             />
           )}
           {started && placeControl}
+          {!started && newTabPlaceControl}
         </div>
         {browseError && browseRetry.current && (
           <BrowseFailure

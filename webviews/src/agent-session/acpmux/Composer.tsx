@@ -505,6 +505,8 @@ type Props = {
   onOffload?(kind: OffloadKind): void;
   /// The place control, for a started chat (see ComposerContext).
   placeControl?: React.ReactNode;
+  /// The New Tab page's Hybrid control, before a chat starts (see ComposerContext).
+  newTabPlaceControl?: React.ReactNode;
   offloads?: readonly OffloadKind[];
   /// Why each offered move would refuse now (see ComposerContext).
   offloadReasons?: OffloadReasons;
@@ -808,6 +810,7 @@ function ComposerFrame({
   onConnect,
   onOffload,
   placeControl,
+  newTabPlaceControl,
   offloads,
   offloadReasons,
   onRefreshMachines,
@@ -2849,6 +2852,7 @@ function ComposerFrame({
       onConnect={onConnect}
       {...(onOffload ? { onOffload } : {})}
       {...(placeControl ? { placeControl } : {})}
+      {...(newTabPlaceControl ? { newTabPlaceControl } : {})}
       {...(offloads ? { offloads } : {})}
       {...(offloadReasons ? { offloadReasons } : {})}
       summary={snapshot.summary}
