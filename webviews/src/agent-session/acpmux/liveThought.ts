@@ -92,6 +92,16 @@ export function drewThoughts(rows: readonly AcpmuxRow[] | undefined): void {
 const ROW_KEYS = new Set(["version", "items"]);
 const ITEM_KEYS = new Set(["text", "endedAt"]);
 
+function sameThought(previous: AcpmuxActivity | undefined, next: AcpmuxActivity | undefined): boolean {
+  return (
+    previous !== undefined &&
+    next !== undefined &&
+    previous.text === next.text &&
+    previous.endedAt === next.endedAt &&
+    sameExcept(previous, next, ITEM_KEYS)
+  );
+}
+
 function sameExcept(previous: object, next: object, except: ReadonlySet<string>): boolean {
   const before = previous as Record<string, unknown>;
   const after = next as Record<string, unknown>;
@@ -131,7 +141,7 @@ export function thoughtOnly(
   // A short thought is quiet once it is finished, but the live transcript deliberately keeps
   // the current thought visible while it streams. `drewThoughts` proves that this row is the one
   // currently drawing it, so its chunks can stay on the row without redrawing the pane.
-  if (drawnThought(now.id) !== before) return undefined;
+  if (!sameThought(drawnThought(now.id), before)) return undefined;
   return { id: now.id, before, after };
 }
 
@@ -140,7 +150,7 @@ export function thoughtOnly(
 function drawnThought(id: string): AcpmuxActivity | undefined {
   const shown = drawn.get(id);
   const entry = entries.get(id);
-  return entry && entry.epoch === epoch && entry.from === shown ? entry.to : shown;
+  return entry && entry.epoch === epoch && sameThought(entry.from, shown) ? entry.to : shown;
 }
 
 function subscribe(id: string, listener: () => void): () => void {
