@@ -105,7 +105,7 @@ opts.in_tree = "on" if MODE == "inTree" else "off"
 CHECKS = set(opts.checks.split(","))
 if "regressions" in CHECKS:  # in-tree-regressions.md: the live rows of the bugs found in real use
     CHECKS |= {"mode", "prompts", "file_after_popup", "reveal", "pane_fit", "divider_resize", "window_resize", "fullscreen",
-               "resize_hitch", "chaos_resize", "live_resize", "divider_load", "window_move", "tab_spam", "pane_zoom", "popup_float", "omnibar_narrow", "key_route", "element_fullscreen"}
+               "resize_hitch", "chaos_resize", "live_resize", "divider_load", "window_move", "tab_spam", "pane_zoom", "pane_zoom_all", "popup_float", "omnibar_narrow", "key_route", "element_fullscreen"}
 with open(os.path.join(opts.app, "Contents/Info.plist"), "rb") as f:
     BINARY = os.path.join(opts.app, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
@@ -1846,6 +1846,35 @@ def check_chaos_resize(tab, pane):
                 continue
             row(p95 <= 1.5 * refresh and worst <= 50, f"chaos_resize.{key}",
                 dict(summary, pass_if="app frame p95 <= 1.5 refresh and max <= 50 ms in each of 3 chaotic drags"))
+    # One more corner drag under `sample` (1 ms), after the measured ones so they carry no sampling cost: which functions
+    # a step's time is in (chaos-corner.sample.txt), not judged.
+    if pid:
+        path = os.path.join(opts.out, "chaos-corner.sample.txt")
+        log = []
+        try:
+            sampler = subprocess.Popen(["/usr/bin/sample", str(pid), "8", "1", "-mayDie", "-file", path],
+                                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            attached = threading.Event()
+
+            def read_sampler():
+                for line in sampler.stdout:
+                    log.append(line.rstrip())
+                    if line.startswith("Sampling process"):
+                        attached.set()
+                attached.set()
+
+            threading.Thread(target=read_sampler, daemon=True).start()
+            attached.wait(30)
+            rng = pointer_paths.seeded(zlib.crc32(b"corner/sampled"))
+            frame0 = main_layers().get("frame")
+            RAW["chaos_corner_sampled"] = measure(held, pointer_paths.chaotic_path((W - 2, H - 2), rng, "xy", (240, 150),
+                                                                                   seconds=3.5))
+            if main_layers().get("frame") != frame0:
+                rpc("debug.window_frame", {"frame": frame0})
+            sampler.wait(30)
+            RAW["chaos_corner_sample"] = {"path": path, "log": log[-5:]}
+        except (OSError, subprocess.TimeoutExpired) as error:
+            RAW["chaos_corner_sample"] = {"error": repr(error)}
     RAW["chaos_resize"] = results
 
 
@@ -1976,6 +2005,52 @@ def pane_zoom_whole(tab, pane):
         row(sized and not masked, f"pane_zoom.{direction}",
             {"bug": 14, "in_tree": opts.in_tree, "pane_before": before, "pane_final": final, "masked": masked,
              "pass_if": "zoom: pane area >= 1.3x and no mask on its host or overlay; unzoom: back within 1 pt"})
+
+
+def check_pane_zoom_all(tab, pane):
+    """Every pane of the window, one at a time (the retest on 7cdcce50, 2026-11-24: zooming any pane but the top-left
+    left the window dark for the whole zoom, no tab bar or omnibar, both modes): Cmd-Shift-Enter on a tab of the pane,
+    and at rest after the zoom's motion the pane takes at least 1.3x its area and nothing masks its host or overlay at
+    five points across it (debug.views_at); unzoomed, it is back within 1 pt. Either mode; with user_grid, the user's
+    grid of four pages and a terminal."""
+    focus = rpc("debug.focus") or {}
+    panes = [p for w in (focus.get("windows") or [])[:1] for p in w.get("topology") or []] or list(focus.get("topology") or [])
+    results = {}
+    for index, entry in enumerate(panes):
+        key, tabs = entry.get("pane"), entry.get("tabs") or []
+        if not key or not tabs:
+            continue
+        before = pane_frame(key)
+        if not before:
+            results[key] = {"note": "no pane frame"}
+            continue
+        record(f"pane_zoom_all_{index}", 4)  # this pane's zoom and unzoom, as the window shows them
+        action("tab.focus", target=f"tab:{str(tabs[0]).split(':', 1)[0]}")
+        time.sleep(0.3)  # test harness: focus lands
+        rpc("debug.key", {"key": "return", "modifiers": ["command", "shift"]})
+        time.sleep(1.5)  # test harness: the zoom's motion ends
+        final = pane_frame(key)
+        rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, f"pane-zoom-all-{index}.png")})
+        masked = []
+        if final:
+            height = content_height()
+            for fx in (0.1, 0.3, 0.5, 0.7, 0.9):
+                for fy in (0.25, 0.75):
+                    x, y = final[0] + fx * final[2], height - (final[1] + fy * final[3])
+                    reply = rpc("debug.views_at", {"x": x, "y": y}) or {}
+                    masked += [[round(x), round(y), v.get("class")] for v in reply.get("views") or []
+                               if v.get("mask") and v.get("class") in ("PaneHostView", "PaneOverlayView")]
+        sized = bool(final) and final[2] * final[3] >= 1.3 * before[2] * before[3]
+        rpc("debug.key", {"key": "return", "modifiers": ["command", "shift"]})
+        time.sleep(1.5)  # test harness: the unzoom's motion ends
+        back = pane_frame(key)
+        restored = bool(back) and all(abs(a - b) <= FIT_PX for a, b in zip(back, before))
+        results[key] = {"index": index, "tabs": [str(t) for t in tabs][:3], "before": before, "zoomed": final,
+                        "after_unzoom": back, "masked": masked[:6], "sized": sized, "restored": restored}
+        row(sized and not masked and restored, f"pane_zoom_all.{index}",
+            dict(results[key], bug=14, in_tree=opts.in_tree,
+                 pass_if="zoomed: area >= 1.3x, no mask on its host or overlay at 10 points; unzoomed: back within 1 pt"))
+    RAW["pane_zoom_all"] = results
 
 
 def check_popup_float(tab, pane):
@@ -2290,7 +2365,7 @@ def check_element_fullscreen(tab, pane):
             time.sleep(1.0)  # test harness: the window settles
 
 
-REGRESSION_CHECKS = ("user_grid", "pane_fit", "divider_resize", "window_resize", "fullscreen", "resize_hitch", "chaos_resize", "live_resize", "divider_load", "window_move", "tab_spam", "pane_zoom",
+REGRESSION_CHECKS = ("user_grid", "pane_fit", "divider_resize", "window_resize", "fullscreen", "resize_hitch", "chaos_resize", "live_resize", "divider_load", "window_move", "tab_spam", "pane_zoom", "pane_zoom_all",
                      "popup_float", "omnibar_narrow", "key_route", "element_fullscreen")
 
 
@@ -2539,7 +2614,7 @@ try:
             for name, run in (("pane_fit", check_pane_fit), ("divider_resize", check_divider_resize),
                               ("window_resize", check_window_resize), ("fullscreen", check_fullscreen),
                               ("resize_hitch", check_resize_hitch), ("chaos_resize", check_chaos_resize), ("live_resize", check_live_resize), ("divider_load", check_divider_load),
-                              ("pane_zoom", check_pane_zoom), ("popup_float", check_popup_float),
+                              ("pane_zoom", check_pane_zoom), ("pane_zoom_all", check_pane_zoom_all), ("popup_float", check_popup_float),
                               ("omnibar_narrow", check_omnibar_narrow), ("window_move", check_window_move), ("tab_spam", check_tab_spam),
                               ("key_route", check_key_route), ("element_fullscreen", check_element_fullscreen)):
                 if name in CHECKS:
