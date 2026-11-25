@@ -1,5 +1,5 @@
 //! `_acpmux/place_set`, `_acpmux/place_undo` and `_acpmux/place_get`: move an existing chat from
-//! the place menu (`acpmux session place`). The rules are `place_move.rs`'s; this gathers what
+//! the place menu (`acpmux session place-set`). The rules are `place_move.rs`'s; this gathers what
 //! they read, keeps the chat's pin, writes the move line and runs the move.
 //!
 //! * `place_set {sessionId | sessionIds, place, confirm?, why?}`, `place` being

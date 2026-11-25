@@ -103,6 +103,7 @@ extension TabStripView {
         // An opening tab first shows where it opens from; the move takes it to its slot.
         if !starts.isEmpty { place(starts, mapping: mappingBefore) }
         applyFrames(move: move, scrollFrom: mappingBefore)
+        noteNaturalWidth()
     }
 
     /// ``isCrowded`` from the layout just made. Closing mode's pretend width keeps the tabs as they

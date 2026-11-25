@@ -53,21 +53,27 @@ final class AndroidScreenStream {
             switch handle.readReady() {
             case .bytes(let ready): data = ready
             case .retry: return
-            case .end: handle.readabilityHandler = nil; return
+            case .end: handle.readabilityHandler = nil; try? handle.close(); return
             }
             for sample in decoder.samples(from: data) {
                 // task-owner: one main-actor hop per frame; it ends when the frame is enqueued.
                 Task { @MainActor [weak self] in self?.onSample?(sample.buffer) }
             }
         }
+        let reader = pipe.fileHandleForReading
         process.terminationHandler = { [weak self] finished in
+            // screenrecord restarts every few minutes; an adb helper holding its stdout would keep one pipe per restart.
+            ChildOutputEnds.closeAfterExit(reading: [reader])
             let status = finished.terminationStatus
             // task-owner: restarts screenrecord after its time limit, or reports the failure; ends at once.
             Task { @MainActor [weak self] in self?.ended(finished, status: status) }
         }
         self.process = process
         // The spawn runs off main, in order with a later stop's terminate.
+        let writer = pipe.fileHandleForWriting
         launcher.launch(process) { error in
+            // It never ran: the write end is still ours, so no end of file would ever come.
+            ChildOutputEnds.closeNow(reading: [reader], writing: [writer])
             let message = error.localizedDescription
             Task { @MainActor [weak self] in
                 guard let self, self.process === process else { return }
