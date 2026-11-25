@@ -16,6 +16,7 @@ workspace = true
 hotpatch = ["dep:subsecond"]
 
 [dependencies]
+cmux-presence.workspace = true
 cmux-egress.workspace = true
 cmux-build-space.workspace = true
 cmux-json.workspace = true

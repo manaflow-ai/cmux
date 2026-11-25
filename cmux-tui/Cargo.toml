@@ -130,6 +130,7 @@ members = [
     "crates/cmux-bookmarks-ops",
     "crates/cmux-automations",
     "crates/cmux-feed-core",
+    "crates/cmux-presence",
     "crates/cmux-tasks",
     "crates/cmux-server-core",
     "crates/cmux-server",
@@ -286,6 +287,7 @@ default-members = [
     "crates/cmux-bookmarks-ops",
     "crates/cmux-automations",
     "crates/cmux-feed-core",
+    "crates/cmux-presence",
     "crates/cmux-tasks",
     "crates/cmux-server-core",
     "crates/cmux-server",
@@ -406,6 +408,7 @@ cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-conductor-import = { path = "crates/cmux-conductor-import" }
 cmux-browser-import = { path = "crates/cmux-browser-import" }
 cmux-classic-import = { path = "crates/cmux-classic-import" }
+cmux-presence = { path = "crates/cmux-presence" }
 cmux-feed-core = { path = "crates/cmux-feed-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
 cmux-focus-core = { path = "crates/cmux-focus-core" }

@@ -56,6 +56,7 @@ dependencies = [
  "cmux-netwatch",
  "cmux-palette-ranker",
  "cmux-panic-log",
+ "cmux-presence",
  "cmux-process",
  "cmux-relay",
  "cmux-remote",
@@ -2399,6 +2400,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-presence"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-process"
 version = "0.1.0"
 dependencies = [
@@ -3175,6 +3184,7 @@ dependencies = [
  "cmux-local-url",
  "cmux-palette-ranker",
  "cmux-panic-log",
+ "cmux-presence",
  "cmux-process",
  "cmux-projection",
  "cmux-pty",
