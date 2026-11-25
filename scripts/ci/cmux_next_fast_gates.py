@@ -236,10 +236,39 @@ def deepen_fetch(repo: Path, remote: str, how: str, wants: list[str]) -> None:
     git(repo, "fetch", "--no-tags", "--quiet", DEEPEN_FALLBACK_FILTER, how, remote, *wants)
 
 
+def unshallow_from_alternates(repo: Path, head: str, base: str) -> bool:
+    """Drop the shallow cut when the borrowed object stores already hold every commit both sides reach.
+
+    A cmux-runner-pool VM checks out at depth 2 with the pool's full git mirror as its alternate
+    (cmux-next-fast-gates.yml's pool checkout), so the history a deepen would fetch is already on disk: the
+    deepens to GitHub were ~2.8 min of this step on the NOW verdict wall's heads (2026-11-25). Without the cut,
+    one local walk of both sides proves no commit is missing; a commit newer than the mirror's last sync whose
+    parent it lacks fails that walk, and the cut goes back for the deepen fetches."""
+    alternates = Path(git(repo, "rev-parse", "--path-format=absolute", "--git-path",
+                          "objects/info/alternates").stdout.strip())
+    if not alternates.exists() or not alternates.read_text().strip():
+        return False
+    shallow = Path(git(repo, "rev-parse", "--path-format=absolute", "--git-path", "shallow").stdout.strip())
+    if not shallow.exists():
+        return True
+    cut = shallow.read_bytes()
+    shallow.unlink()
+    started = time.monotonic()
+    if git(repo, "rev-list", "--quiet", head, base, check=False).returncode == 0:
+        log(f"fast-gates: the alternate object store holds the whole history; unshallowed locally in "
+            f"{time.monotonic() - started:.1f}s")
+        return True
+    shallow.write_bytes(cut)
+    log("fast-gates: the alternate object store lacks some history; deepening from the remote")
+    return False
+
+
 def deepen(repo: Path, remote: str, wants: list[str], head: str, base: str) -> None:
     """Deepen a shallow checkout until `deep_enough`; a full clone is left alone (a depth flag there would make
     every worktree sharing it shallow: tests/test_ci_no_shallow_dev_fetch.py)."""
     if git(repo, "rev-parse", "--is-shallow-repository").stdout.strip() != "true":
+        return
+    if unshallow_from_alternates(repo, head, base):
         return
     for depth in DEEPEN_STEPS:
         if deep_enough(repo, head, base):
