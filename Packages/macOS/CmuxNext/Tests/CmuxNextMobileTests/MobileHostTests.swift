@@ -390,7 +390,7 @@ import Testing
         let palette = (0..<16).map { String(format: "#%02x%02x%02x", $0, $0, $0) }
         let shown = MobileHostAppearance(
             background: "#1e1e2e", foreground: "#cdd6f4", palette: palette, selectionBackground: "#585b70",
-            accent: "magenta", backgroundOpacity: 0.9, wallpaper: URL(fileURLWithPath: "/tmp/phone-wallpaper/a.jpg"),
+            accent: "magenta", backgroundOpacity: 0.9, backgroundBlur: -2, wallpaper: URL(fileURLWithPath: "/tmp/phone-wallpaper/a.jpg"),
             wallpaperTintOpacity: 0.62)
         let line = MobileHostLaunch.appearanceLine(shown)
         #expect(line.last == 0x0A)
@@ -403,6 +403,8 @@ import Testing
         #expect(theme["cursor"] == nil)
         #expect(theme["accent"] as? String == "magenta")
         #expect(theme["background_opacity"] as? Double == 0.9)
+        // The window's resolved material, in Ghostty's `background-blur` encoding (-2: clear Liquid Glass).
+        #expect(theme["background_blur"] as? Int == -2)
         let wallpaper = try #require(object["wallpaper"] as? [String: Any])
         #expect(wallpaper["path"] as? String == "/tmp/phone-wallpaper/a.jpg")
         #expect(wallpaper["tint_opacity"] as? Double == 0.62)

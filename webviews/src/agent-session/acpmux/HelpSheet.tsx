@@ -4,6 +4,7 @@ import { focusRoute } from "../../ui/focusRoute";
 import { useT } from "./i18n";
 import { ShortcutsContext } from "./shortcuts";
 import { Listbox } from "../../ui/Listbox";
+import { usePopupSettle } from "../../ui/popupSettle";
 import type { SlashCommand } from "./slashCommands";
 
 /**
@@ -28,6 +29,9 @@ export function HelpSheet({
   const [active, setActive] = useState(0);
   const search = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
+  // Opens at its final size and keeps it while the commands arrive; typing in its search frees the box
+  // (ui/popupSettle.ts).
+  const settle = usePopupSettle<HTMLDivElement>();
   const all = useMemo(() => helpRows(commands, shortcuts, t), [commands, shortcuts, t]);
   const rows = useMemo(() => searchHelp(all, query), [all, query]);
   const at = Math.min(active, Math.max(0, rows.length - 1));
@@ -59,6 +63,7 @@ export function HelpSheet({
   const labelOf = (row: HelpRow) => HELP_SECTIONS.find((section) => section.id === row.section)?.label;
   return (
     <div
+      ref={settle}
       className="ui-popup ui-glass acpmux-slash-menu acpmux-help-sheet"
       data-cmux-component="HelpSheet"
       // host-glass-allow: drawn in the `/` list's place and material (SlashMenu, on the web_floating backlog); they move to host glass together.

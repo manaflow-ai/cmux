@@ -36,9 +36,15 @@ public struct MacRoster: Equatable, Sendable {
     }
 
     /// Every team's Macs as one list, each build once across the teams (Settings → Terminal →
-    /// Terminal Size When Shared).
-    public static func acrossTeams(_ teams: [Team], activeTeamID _: String) -> [MacDevice] {
-        MacRoster(teams.flatMap(\.macs)).visible
+    /// Terminal Size When Shared), plus any of `directory` (the account's device list, while
+    /// discovery catches up) not already there.
+    public static func acrossTeams(_ teams: [Team], activeTeamID _: String, including directory: [MacDevice] = []) -> [MacDevice] {
+        var macs = teams.flatMap(\.macs)
+        if !directory.isEmpty {
+            var known = Set(macs.map(\.id))
+            macs += directory.filter { known.insert($0.id).inserted }
+        }
+        return MacRoster(macs).visible
     }
 }
 
