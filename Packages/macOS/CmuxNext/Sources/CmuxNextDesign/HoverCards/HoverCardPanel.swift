@@ -290,6 +290,9 @@ final class HoverCardPanel: NSPanel {
     private func install(_ newBody: NSView, fades: Bool = false) {
         guard body !== newBody else { return }
         MotionTrace.measure("hoverCard.swap") {
+            // A source reuses its one body view, so the card window the coordinator just retired (still
+            // fading out, maybe mid-morph) can hold the view this card takes now: it gives it up first.
+            if let holder = newBody.window as? HoverCardPanel, holder !== self { holder.giveUp(newBody) }
             if newBody === leavingBody { endLeaving() }
             if fades, let body { leave(body) } else { body?.removeFromSuperview() }
             let container = glass.contentView
@@ -321,6 +324,28 @@ final class HoverCardPanel: NSPanel {
             // A view that left a glide stays clear (`endLeaving`); it shows whole unless it fades in.
             if fades { fadeIn(newBody) } else if let layer = newBody.layer { Motion.setModel(layer, "opacity", Float(1)) }
         }
+    }
+
+    /// Another card window takes `view` (a source's reused body) out of this one: this card drops every
+    /// claim it has on it. A morph in flight lays the card out at rest now, while the view is still here
+    /// (a fold's held layout ends with it); then the card forgets the view and its constraints. Kept, they
+    /// pinned the view to this card's content view after it moved: the morph's end (this card's fade-out
+    /// finishing) activated them across two windows and AppKit threw "no common ancestor" (NIGHTLY crash
+    /// 2026-11-25, `HoverCardPanel.finishMorph` from `dismiss`). A parked or leaving view is forgotten too,
+    /// so `endLeaving` never takes it out of the card that shows it now.
+    func giveUp(_ view: NSView) {
+        if leavingBody === view || parkedBody === view {
+            if leavingBody === view { leavingBody = nil }
+            if parkedBody === view { parkedBody = nil }
+            view.isHidden = false
+        }
+        guard body === view else { return }
+        finishMorph()
+        NSLayoutConstraint.deactivate(edgeConstraints + sizeConstraints)
+        edgeConstraints = []
+        sizeConstraints = []
+        pendingRefit = nil
+        body = nil
     }
 
     /// The card draws in the theme scope of `themeAnchor` (else `parent`'s), at full strength, and follows its changes.
