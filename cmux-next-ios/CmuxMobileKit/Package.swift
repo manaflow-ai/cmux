@@ -320,7 +320,7 @@ let package = Package(
 // iOS and macOS, and keeps the whole package. cmux-next-ios-kit.yml skips these test targets on the Mac.
 if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
     let linuxModules: Set<String> = [
-        "CmuxMobileModel", "CmuxMobileRealtime", "CmuxMobileTransport",
+        "CmuxMobileAuth", "CmuxMobileModel", "CmuxMobileRealtime", "CmuxMobileTransport",
     ]
     let linuxTests = Set(linuxModules.map { $0 + "Tests" })
     package.products.removeAll { !linuxModules.contains($0.name) }
@@ -331,6 +331,22 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
             return false
         }
     }
-    package.dependencies = [.package(path: "../../Packages/Shared/CMUXAuthCore")]
+    // CmuxMobileAuth's portable TeamInviteFailure uses StackAuth's error protocol. The rest of
+    // the target is the iOS-only coordinator and its Apple frameworks, so leave those package
+    // products out of the Linux projection instead of making Linux resolve the app's auth graph.
+    if let auth = package.targets.first(where: { $0.name == "CmuxMobileAuth" }) {
+        auth.dependencies = [
+            "CmuxMobileModel",
+            .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
+        ]
+    }
+    if let authTests = package.targets.first(where: { $0.name == "CmuxMobileAuthTests" }) {
+        authTests.dependencies = ["CmuxMobileAuth", "CmuxMobileModel"]
+    }
+    package.dependencies = [
+        .package(path: "../../Packages/Shared/CMUXAuthCore"),
+        .package(path: "../../Packages/Shared/CmuxEgress"),
+        .package(path: "../../vendor/stack-auth-swift-sdk-prerelease"),
+    ]
 }
 #endif
