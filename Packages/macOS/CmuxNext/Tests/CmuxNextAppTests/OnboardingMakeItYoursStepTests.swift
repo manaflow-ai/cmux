@@ -128,7 +128,7 @@ import Testing
 
     /// Skip puts back what was set when the step opened, in one write; with nothing picked it writes nothing.
     @Test func skipPutsBackTheOpeningChoices() async {
-        let opening = FirstRunChoices(workStyle: .terminal, density: .compact, background: "daily")
+        let opening = FirstRunChoices(workStyle: .terminal, density: "compact", background: "daily")
         let source = Source(opening)
         let step = MakeItYoursStepModel(source: source)
         step.start()
@@ -136,17 +136,17 @@ import Testing
         step.revert()
         #expect(source.applied.isEmpty, "nothing picked, nothing written")
         step.setWorkStyle(.gui)
-        step.setDensity(.comfortable)
+        #expect(step.setDensity("comfortable"))
         #expect(step.setBackground("hogai-nio"))
         step.revert()
         #expect(source.current == opening)
         #expect(step.choices == opening)
         #expect(source.applied.count == 4, "three picks and one write back")
-        #expect(source.applied.last?.old == FirstRunChoices(workStyle: .gui, density: .comfortable, background: "hogai-nio"))
+        #expect(source.applied.last?.old == FirstRunChoices(workStyle: .gui, density: "comfortable", background: "hogai-nio"))
     }
 
     @Test func skippingTheStepPutsBackTheOpeningChoices() async {
-        let opening = FirstRunChoices(workStyle: .terminal, density: .compact, background: nil)
+        let opening = FirstRunChoices(workStyle: .terminal, density: "compact", background: nil)
         let source = Source(opening)
         let model = OnboardingModel(services: MockOnboardingServices(), step: .makeItYours, choices: source)
         model.stepDidAppear()
