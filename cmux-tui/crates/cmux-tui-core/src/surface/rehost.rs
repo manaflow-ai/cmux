@@ -145,10 +145,6 @@ pub(super) fn after_host_death(
     pty.stream_progress.notify();
     if let Some(mux) = mux.upgrade() {
         mux.surface_exited(surface.id);
-        // Exit persistence captures the final replay while the live
-        // terminal is still available. Park only after that read so the
-        // retained tab does not immediately rebuild the full VT runtime.
-        pty.park_dead_mirror();
     }
     DeadHost::Stop
 }

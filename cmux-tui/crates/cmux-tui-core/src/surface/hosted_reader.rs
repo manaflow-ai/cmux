@@ -439,11 +439,6 @@ impl HostedReader {
                 // The last output's scroll position goes before the exit.
                 let _ = pty.frame_requests.flush_scroll(&mux, surface.id);
                 mux.surface_exited(surface.id);
-                // Exit persistence captures the final replay while the live
-                // terminal is still available. Park only after that read so
-                // the retained tab does not immediately rebuild the full VT
-                // runtime during its own exit transition.
-                pty.park_dead_mirror();
             }
             return None;
         }

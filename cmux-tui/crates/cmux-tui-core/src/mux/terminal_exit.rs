@@ -424,19 +424,24 @@ impl Mux {
             if let Some((snapshot_terminal_id, generation, covered_through, blob)) = exit_replay {
                 // Best-effort: a snapshot store failure must not disturb the
                 // exit latch that already committed above.
-                match self.workspace_registry.lock().unwrap().put_terminal_exit_snapshot(
-                    snapshot_terminal_id.as_str(),
-                    &generation,
-                    covered_through,
-                    &blob,
-                ) {
-                    Ok(()) => {
+                let snapshot_result = {
+                    let mut registry = self.workspace_registry.lock().unwrap();
+                    registry.put_terminal_exit_snapshot(
+                        snapshot_terminal_id.as_str(),
+                        &generation,
+                        covered_through,
+                        &blob,
+                    )
+                };
+                match snapshot_result {
+                    Ok(true) => {
                         self.output_store.release_terminal_output(
                             &snapshot_terminal_id,
                             &generation,
                             covered_through,
                         );
                     }
+                    Ok(false) => {}
                     Err(error) => {
                         eprintln!(
                             "cmux-tui: could not store the exit snapshot for terminal \

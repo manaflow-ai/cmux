@@ -939,10 +939,31 @@ impl OutputStore {
         // then has them (a pruned or cleared file is the only other cause).
         const TRIES: usize = 3;
         for attempt in 1..=TRIES {
-            let (generation, end, unflushed_start) = {
+            let (generation, end, unflushed_start, ended) = {
                 let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
-                (state.generation.clone(), state.next_offset(), state.unflushed_start())
+                (
+                    state.generation.clone(),
+                    state.next_offset(),
+                    state.unflushed_start(),
+                    state.ended,
+                )
             };
+            if ended
+                && !self.full.enabled()
+                && let Some(directory) = self.directory.as_deref()
+                && let Some(window) =
+                    tail::read_exit_after(directory, terminal_id, &generation, after, budget)
+            {
+                return Some(window);
+            }
+            if ended
+                && !self.full.enabled()
+                && let Some(directory) = self.directory.as_deref()
+                && let Some(window) =
+                    tail::read_after(directory, terminal_id, &generation, after, budget)
+            {
+                return Some(window);
+            }
             if self.full.enabled()
                 && after < unflushed_start
                 && let Some(directory) = self.directory.as_deref()
@@ -1091,12 +1112,93 @@ impl OutputStore {
     /// The log remains in the store so its final cursor is still observable
     /// while a parked tab keeps the dead runtime. A later generation starts a
     /// fresh stream and may append normally.
+    fn persist_exit_output(
+        &self,
+        terminal_id: &TerminalPublicId,
+        generation: &str,
+        covered_through: u64,
+        state: &LogState,
+    ) -> bool {
+        let Some(directory) = self.directory.as_deref() else { return false };
+        let tail_path = tail::path(directory, terminal_id);
+        let extent = tail::extent(directory, terminal_id);
+        if extent.is_none() && tail_path.exists() {
+            // A present but unreadable or gapped tail cannot be copied into a
+            // one-time exit artifact without risking a permanently split
+            // window.
+            return false;
+        }
+        if extent.as_ref().is_some_and(|(stored, _, _)| stored != generation) {
+            return false;
+        }
+        let (base, disk_end) = extent
+            .as_ref()
+            .map_or((state.tail_start, state.tail_start), |(_, base, end)| (*base, *end));
+        if disk_end > covered_through || base > covered_through {
+            return false;
+        }
+        let mut bytes = Vec::new();
+        if extent.is_some() && disk_end > base {
+            let budget = usize::try_from(disk_end - base).unwrap_or(usize::MAX);
+            let Some(window) = tail::read_after(directory, terminal_id, generation, base, budget)
+            else {
+                return false;
+            };
+            if window.start_offset != base
+                || window.next_offset != disk_end
+                || window.truncated
+            {
+                return false;
+            }
+            bytes.extend_from_slice(&window.bytes);
+        }
+        if disk_end < covered_through {
+            let source_start = if state.pending.is_empty() {
+                state.tail_start
+            } else {
+                state.pending_start
+            };
+            let source = if state.pending.is_empty() {
+                state.tail.iter().copied().collect::<Vec<_>>()
+            } else {
+                state.pending.clone()
+            };
+            let source_end = source_start.saturating_add(source.len() as u64);
+            if disk_end < source_start || source_end < covered_through {
+                return false;
+            }
+            let skip = usize::try_from(disk_end - source_start).unwrap_or(usize::MAX);
+            let take = usize::try_from(covered_through - disk_end).unwrap_or(usize::MAX);
+            let Some(raw) = source.get(skip..skip.saturating_add(take)) else {
+                return false;
+            };
+            bytes.extend_from_slice(raw);
+        }
+        let expected = usize::try_from(covered_through - base).unwrap_or(usize::MAX);
+        if bytes.len() != expected {
+            return false;
+        }
+        tail::write_exit(directory, terminal_id, generation, base, &bytes).is_ok()
+    }
+
     pub(crate) fn release_terminal_output(
         &self,
         terminal_id: &TerminalPublicId,
         generation: &str,
         covered_through: u64,
     ) -> bool {
+        // Memory and incognito terminals have no durable exit replay, so the
+        // caller should never release their bounded in-memory raw tail.
+        // Full-mode segments may be retained or pruned independently of this
+        // log, so their presence cannot prove that a released raw window will
+        // remain reachable. Keep that bounded tail in memory too.
+        if self.memory_only()
+            || self.full.enabled()
+            || self.cached_policy().is_some_and(|policy| policy.mode == PersistenceMode::Full)
+            || self.private.lock().unwrap_or_else(PoisonError::into_inner).contains(terminal_id)
+        {
+            return false;
+        }
         let _pass = self.lock_pass();
         let Some(log) =
             self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id).cloned()
@@ -1105,6 +1207,9 @@ impl OutputStore {
         };
         let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
         if state.generation.as_ref() != generation || state.next_offset() != covered_through {
+            return false;
+        }
+        if !self.persist_exit_output(terminal_id, generation, covered_through, &state) {
             return false;
         }
         state.tail = VecDeque::new();

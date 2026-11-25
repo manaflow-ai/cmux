@@ -26,11 +26,13 @@ use flate2::Compression;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 
+use super::OutputWindow;
 use crate::resource::TerminalPublicId;
 use crate::workspace_registry::terminal_respawn_store::TerminalReplay;
 
 const MAGIC: &[u8] = b"CMUXTAIL1\n";
 pub(super) const SUFFIX: &str = "tail";
+const EXIT_SUFFIX: &str = "exit-tail";
 const FRAME_HEADER_BYTES: usize = 16;
 /// A tail file larger than this is not read back (corrupt or foreign).
 const MAX_TAIL_FILE_BYTES: u64 = 64 * 1024 * 1024;
@@ -44,10 +46,47 @@ pub(super) fn path(directory: &Path, terminal_id: &TerminalPublicId) -> PathBuf 
     directory.join(format!("{}.{SUFFIX}", terminal_id.as_str()))
 }
 
+fn exit_path(directory: &Path, terminal_id: &TerminalPublicId) -> PathBuf {
+    directory.join(format!("{}.{EXIT_SUFFIX}", terminal_id.as_str()))
+}
+
 /// Remove terminal `terminal_id`'s tail (a snapshot covers it, the terminal
 /// is incognito, or its history was cleared).
 pub(super) fn remove(directory: &Path, terminal_id: &TerminalPublicId) {
     let _ = fs::remove_file(path(directory, terminal_id));
+    let _ = fs::remove_file(exit_path(directory, terminal_id));
+}
+
+/// Store the final raw window in a one-time artifact. It is separate from the
+/// recovery tail, which snapshot compaction may remove after an exit.
+pub(super) fn write_exit(
+    directory: &Path,
+    terminal_id: &TerminalPublicId,
+    generation: &str,
+    base: u64,
+    bytes: &[u8],
+) -> anyhow::Result<()> {
+    fs::create_dir_all(directory)?;
+    let target = exit_path(directory, terminal_id);
+    let staged = target.with_extension(format!("{EXIT_SUFFIX}.tmp"));
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+    encoder.write_all(bytes)?;
+    let compressed = encoder.finish()?;
+    let mut frame = Vec::with_capacity(FRAME_HEADER_BYTES + compressed.len());
+    frame.extend_from_slice(&base.to_le_bytes());
+    frame.extend_from_slice(&u32::try_from(compressed.len())?.to_le_bytes());
+    frame.extend_from_slice(&u32::try_from(bytes.len())?.to_le_bytes());
+    frame.extend_from_slice(&compressed);
+    let header = serde_json::json!({"generation": generation, "start": base});
+    let mut contents = MAGIC.to_vec();
+    serde_json::to_writer(&mut contents, &header)?;
+    contents.push(b'\n');
+    contents.extend_from_slice(&frame);
+    let mut file = fs::File::create(&staged)?;
+    file.write_all(&contents)?;
+    file.sync_data()?;
+    fs::rename(staged, target)?;
+    Ok(())
 }
 
 /// Append `bytes` (stream offsets `start..`) to the tail that continues the
@@ -193,6 +232,92 @@ pub(super) fn bytes_after(
         cursor = end;
     }
     out
+}
+
+/// (generation, snapshot offset, largest frame end) of a terminal's tail.
+pub(super) fn extent(
+    directory: &Path,
+    terminal_id: &TerminalPublicId,
+) -> Option<(String, u64, u64)> {
+    let (generation, base, frames) = read_file(&path(directory, terminal_id))?;
+    let mut end = base;
+    for (start, bytes) in frames {
+        let frame_end = start.saturating_add(bytes.len() as u64);
+        if start > end {
+            return None;
+        }
+        end = end.max(frame_end);
+    }
+    Some((generation, base, end))
+}
+
+/// The tail file's bytes at or after `after`, in stream order, bounded by
+/// `budget`. A cursor older than the file starts at its oldest frame.
+pub(super) fn read_after(
+    directory: &Path,
+    terminal_id: &TerminalPublicId,
+    generation: &str,
+    after: u64,
+    budget: usize,
+) -> Option<OutputWindow> {
+    read_after_file(&path(directory, terminal_id), generation, after, budget)
+}
+
+/// The immutable exit artifact's bytes at or after `after`.
+pub(super) fn read_exit_after(
+    directory: &Path,
+    terminal_id: &TerminalPublicId,
+    generation: &str,
+    after: u64,
+    budget: usize,
+) -> Option<OutputWindow> {
+    read_after_file(&exit_path(directory, terminal_id), generation, after, budget)
+}
+
+fn read_after_file(
+    file: &Path,
+    generation: &str,
+    after: u64,
+    budget: usize,
+) -> Option<OutputWindow> {
+    let Some((tail_generation, _, frames)) = read_file(file) else {
+        return None;
+    };
+    if tail_generation != generation {
+        return None;
+    }
+    let mut window = None;
+    for (start, bytes) in frames {
+        let end = start.saturating_add(bytes.len() as u64);
+        if end <= after {
+            continue;
+        }
+        let window = window.get_or_insert_with(|| OutputWindow {
+            start_offset: start.max(after),
+            next_offset: start.max(after),
+            bytes: Vec::new(),
+            truncated: false,
+        });
+        if start > window.next_offset {
+            window.truncated = true;
+            break;
+        }
+        let room = budget.saturating_sub(window.bytes.len());
+        if room == 0 {
+            window.truncated = true;
+            break;
+        }
+        let skip = usize::try_from(window.next_offset.saturating_sub(start)).unwrap_or(usize::MAX);
+        let piece = bytes.get(skip..).unwrap_or_default();
+        let take = piece.len().min(room);
+        window.bytes.extend_from_slice(&piece[..take]);
+        window.next_offset = start + (skip.min(bytes.len()) + take) as u64;
+        if take < piece.len() {
+            window.truncated = true;
+            break;
+        }
+    }
+    window
 }
 
 /// The stream end each tail recorded, by terminal: (generation, end), from
