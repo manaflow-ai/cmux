@@ -159,13 +159,27 @@ export function verdict(opens: OpenRow[], baseline: BaselineRow[], meta: Record<
 /** Staging's test team sits near its machine cap; a create that hits it waits for room instead of
  * failing the row (25 min, or ROOM_WAIT_MS). Returns the value and the time spent waiting, which the caller leaves out of its phase timing. */
 export async function withRoom<T>(fn: () => Promise<T>, budgetMs = Number(process.env.ROOM_WAIT_MS ?? 1_500_000)): Promise<[T, number]> {
+  // Returns the time spent waiting for room only: a full team (cloud.quota.vm_limit) waits and is left out of
+  // the timing. A call cut off at the client timeout is asked again, at most twice, under the same idempotency
+  // key, so it cannot make a second machine (runs 45570177493 and 45571955695 stopped there); that time counts.
   const t0 = Date.now();
+  let roomAt = t0;
+  let timeouts = 0;
   for (;;) {
     try {
-      return [await fn(), Date.now() - t0];
+      return [await fn(), roomAt - t0];
     } catch (e) {
-      if (!String((e as Error).message).includes("cloud.quota.vm_limit") || Date.now() - t0 > budgetMs) throw e;
-      await sleep(15_000);
+      const m = String((e as Error).message);
+      if (m.includes("cloud.quota.vm_limit") && Date.now() - t0 <= budgetMs) {
+        await sleep(15_000);
+        roomAt = Date.now();
+        continue;
+      }
+      if (m.includes("timed out") && ++timeouts <= 2) {
+        await sleep(2_000);
+        continue;
+      }
+      throw e;
     }
   }
 }
