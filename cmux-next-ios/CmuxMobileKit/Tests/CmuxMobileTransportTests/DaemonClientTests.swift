@@ -205,15 +205,17 @@ import Testing
 
     /// An answer to an earlier send is progress for the ones written after it (the daemon
     /// answers a connection's lines in order): a queue of slow answers is not cut one by one.
+    /// The deadline is wall time: each wait is 0.6 of it, so a sleep that runs long on a loaded
+    /// runner (the macOS leg runs the whole kit at once) still lands inside it.
     @Test(.timeLimit(.minutes(1))) func anEarlierAnswerIsProgressForLaterSends() async throws {
         let channel = DeadlineTestChannel()
         let client = DaemonClient(channel: channel)
-        let first = try await client.submit("send", params: [:], deadline: .milliseconds(300))
-        let second = try await client.submit("send", params: [:], deadline: .milliseconds(300))
-        try await Task.sleep(for: .milliseconds(200))
+        let first = try await client.submit("send", params: [:], deadline: .seconds(1))
+        let second = try await client.submit("send", params: [:], deadline: .seconds(1))
+        try await Task.sleep(for: .milliseconds(600))
         channel.deliver(Data("{\"id\":\"\(first)\",\"ok\":true}\n".utf8))
         _ = try await client.reply(to: first)
-        try await Task.sleep(for: .milliseconds(200))
+        try await Task.sleep(for: .milliseconds(600))
         channel.deliver(Data("{\"id\":\"\(second)\",\"ok\":true}\n".utf8))
         _ = try await client.reply(to: second)
         #expect(await client.outlivedFixedDeadline == 1)
