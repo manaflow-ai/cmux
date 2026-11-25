@@ -1,4 +1,7 @@
 public import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking  // URLRequest on Linux (the package builds there)
+#endif
 
 /// The cloud build space every call of a hub client carries (`X-Cmux-Build-Space`, docs/device-hub/PROTOCOL.md
 /// "Build spaces"). The app decides it once from its build identity (the iPhone app's `CMUXBuildSpaceState`; cmux
