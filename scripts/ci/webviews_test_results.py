@@ -4,6 +4,7 @@
     webviews_test_results.py SUMMARY OUT.json     # write {name: passed}
     webviews_test_results.py --failed-files OUT.json  # print the files with a red, one a line
     webviews_test_results.py --mark-unreached FILES OUT.json  # name in OUT.json the FILES it has no result for
+    webviews_test_results.py --first-replay-stop-at STARTED TIMEOUT_MINUTES RESERVE [NOW]  # the first base replay's stop
 
 SUMMARY has a `RESULT FILE LOG` line per file. A failed file lists each of its `(fail)` tests as
 `FILE > TEST: false`; a complete failed file also lists its explicit `(pass)` tests as true. A file that timed out, or failed without naming a test (it did not load),
@@ -285,7 +286,35 @@ def tap_observations(summary: Path, *, log_dir: Path | None = None):
                 continue
 
 
+FILE_CEILING = 900  # run-webviews-tests.sh's per-file limit (CMUX_WEB_TEST_MAX_FILE_TIMEOUT's default)
+VERDICT_MARGIN = 120  # the head re-run's margin before the job's timeout
+
+
+def first_replay_stop_at(started: int, timeout_minutes: int, reserve: int, now: int) -> int | None:
+    """The epoch second react-apps-base-check's first base replay stops at (None: no job clock, no stop).
+
+    The first replay holds only the head's reds, so it is the base verdict: it always gets one whole file's time
+    from when it starts. A fixed reserve counted from the job's start let a slow setup use the replay's budget up
+    before its one file ran (cmux#53976, job 138896898305: NOT RUN ... past CMUX_WEB_TEST_STOP_AT), and a red from
+    the base then had no base verdict and failed the change. The reserve for the head re-run holds when there is
+    time for both; it never pushes the replay past the verdict's margin before the job's timeout.
+    """
+    if started <= 0:
+        return None
+    end = started + timeout_minutes * 60
+    return min(max(end - reserve, now + FILE_CEILING), end - VERDICT_MARGIN)
+
+
 def main(argv: list[str]) -> int:
+    if len(argv) in (4, 5) and argv[0] == "--first-replay-stop-at":
+        try:
+            started, minutes, reserve = (int(value) for value in argv[1:4])
+            now = int(argv[4]) if len(argv) == 5 else int(__import__("time").time())
+        except ValueError:
+            started, minutes, reserve, now = 0, 0, 0, 0
+        stop = first_replay_stop_at(started, minutes, reserve, now)
+        print("" if stop is None else stop)
+        return 0
     if len(argv) == 2 and argv[0] == "--tap-markers":
         print("::group::TAP final named results")
         for row in tap_observations(Path(argv[1])):
