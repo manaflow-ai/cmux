@@ -22,6 +22,10 @@ import Testing
         private var log: [(seq: Int, json: String)]
         private var end: Int
         let forwardOnly: Bool
+        /// A current Mac: its `initialize` names its capabilities, and an attach says how far its
+        /// page holds (`pageThrough`, acpmux server/requests.rs `page_reaches_end`).
+        let current: Bool
+        private var methodLog: [String] = []
         private var failGap = false
         private var liveWithFirstGapPage: [(seq: Int, json: String)] = []
         private var attachParams: [[String: Any]] = []
@@ -32,7 +36,8 @@ import Testing
         private var failNextForward = false
         private var gapLimit: Int?
 
-        init(turns: Range<Int>, skipping: Set<Int> = [], visibleThrough: Int, forwardOnly: Bool = false) {
+        init(turns: Range<Int>, skipping: Set<Int> = [], visibleThrough: Int, forwardOnly: Bool = false, current: Bool = false) {
+            self.current = current
             log = turns.filter { !skipping.contains($0) }.flatMap { n in
                 Chat.turnRecords(n).enumerated().map { (seq: n * 5 + 1 + $0.offset, json: $0.element) }
             }
@@ -57,9 +62,22 @@ import Testing
         var attaches: [[String: Any]] { lock.withLock { attachParams } }
         var gapPageCount: Int { lock.withLock { gapPages } }
         var eventsCallCount: Int { lock.withLock { eventsCalls } }
+        var methods: [String] { lock.withLock { methodLog } }
         /// Records sent in replies (live ones not counted).
         var recordsSent: Int { lock.withLock { sent } }
-        func resetCounts() { lock.withLock { (sent, eventsCalls, gapPages) = (0, 0, 0) } }
+        func resetCounts() { lock.withLock { (sent, eventsCalls, gapPages, methodLog) = (0, 0, 0, []) } }
+
+        /// What acpmux's attach says as `pageThrough`: the log's end for a newest page (no
+        /// `afterSeq`, or a `beforeSeq` past the end) or a forward page that read to it, else the
+        /// page's own newest record.
+        private func through(_ params: [String: Any], records: String, more: Bool) -> Int {
+            let after = (params["afterSeq"] as? NSNumber)?.intValue
+            let before = (params["beforeSeq"] as? NSNumber)?.intValue
+            let toEnd = before.map { $0 > end } ?? (after == nil || !more)
+            if toEnd && !(forwardOnly && more) { return end }
+            let seqs = records.components(separatedBy: "\"seq\":").dropFirst().compactMap { Int($0.prefix { $0.isNumber }) }
+            return seqs.max() ?? (after ?? 0)
+        }
 
         private func page(_ params: [String: Any], limit limitOverride: Int? = nil) -> (String, Bool) {
             let limit = max(limitOverride ?? (params["limit"] as? NSNumber)?.intValue ?? 400, 1)
@@ -99,14 +117,18 @@ import Testing
                 let params = object["params"] as? [String: Any] ?? [:]
                 func reply(_ result: String) -> Data { Data(#"{"jsonrpc":"2.0","id":\#(id),"result":\#(result)}"#.utf8) }
                 return lock.withLock { () -> [Data] in
+                    methodLog.append(method)
                     switch method {
+                    case "initialize" where current:
+                        return [reply(#"{"protocolVersion":1,"_meta":{"acpmux":{"capabilities":["elevation-cards-v1"]}}}"#)]
                     case "initialize": return [reply(#"{"protocolVersion":1}"#)]
                     case "_acpmux/watch":
                         return [reply(#"{"sessions":[{"sessionId":"s1","name":"Fix","harness":"codex","cwd":"/tmp/w","status":"idle"}]}"#)]
                     case "_acpmux/attach":
                         attachParams.append(params)
                         let (records, more) = page(params)
-                        return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},"lastSeq":\#(end),"hasMore":\#(more),"events":[\#(records)]}"#)]
+                        let pageThrough = current ? #","pageThrough":\#(through(params, records: records, more: more))"# : ""
+                        return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},"lastSeq":\#(end),"hasMore":\#(more)\#(pageThrough),"events":[\#(records)]}"#)]
                     case "_acpmux/events":
                         eventsCalls += 1
                         // The gap's pages are the byte-capped forward reads.
@@ -469,5 +491,50 @@ import Testing
             #expect((attach["afterSeq"] as? NSNumber)?.intValue == Chat.turns * 5)
             #expect(attach["beforeSeq"] != nil)
         }
+    }
+
+    /// A current Mac (new phone, new Mac): the reattach's newest page says it reaches the end
+    /// (`pageThrough` = `lastSeq`), so no `_acpmux/events` read follows it, and the attach went
+    /// out with `initialize` and the watch, read from that write. The chat shows the same turns
+    /// as against an older Mac.
+    @Test func aCurrentMacNeedsNoReadAfterTheNewestPageAndTheAttachRidesWithInitialize() async throws {
+        let last = Chat.turns + 299
+        let fake = Fake(turns: 0..<(last + 1), visibleThrough: Chat.turns * 5, current: true)
+        fake.failGapPages(true)
+        let (hub, source, store, link) = try await Self.reconnect(fake, missedThrough: last)
+        defer { withExtendedLifetime((hub, link)) {} }
+        await Self.waitUntil { Self.shows(store, last) && fake.gapPageCount > 0 }
+
+        #expect(store.turns.map(\.id) == Self.ids(0..<Chat.turns) + Self.ids((last - 79)...last))
+        #expect(source.gapFill == AcpmuxSessionSource.GapFill(cursor: Chat.turns * 5, end: (last - 79) * 5 + 1))
+        // Only the gap's pages: no read after the newest page.
+        #expect(fake.eventsCallCount == fake.gapPageCount)
+        // One attach on the reconnect, written right behind initialize and the watch.
+        #expect(Array(fake.methods.prefix(3)) == ["initialize", "_acpmux/watch", "_acpmux/attach"])
+        #expect(fake.methods.filter { $0 == "_acpmux/attach" }.count == 1)
+        #expect(hub.pipelinedAttachesRead == 1)
+        #expect(fake.recordsSent == 400)
+    }
+
+    /// An older Mac (new phone, old Mac): no `pageThrough` in its reply, so the read after the
+    /// newest page still goes, and no attach rides with `initialize` (it names no kinds).
+    @Test func anOlderMacStillGetsTheReadAfterTheNewestPage() async throws {
+        let last = Chat.turns + 299
+        let fake = Fake(turns: 0..<(last + 1), visibleThrough: Chat.turns * 5)
+        fake.failGapPages(true)
+        let (hub, _, store, link) = try await Self.reconnect(fake, missedThrough: last)
+        defer { withExtendedLifetime((hub, link)) {} }
+        await Self.waitUntil { Self.shows(store, last) && fake.gapPageCount > 0 }
+
+        #expect(fake.eventsCallCount == fake.gapPageCount + 1)
+        #expect(hub.pipelinedAttachesRead == 0)
+    }
+
+    /// `pageReachesEnd` reads only a reply that says so.
+    @Test func pageReachesEndNeedsPageThroughAtLastSeq() {
+        typealias S = AcpmuxSessionSource
+        #expect(S.pageReachesEnd(.object(["lastSeq": .number(9), "pageThrough": .number(9)])))
+        #expect(!S.pageReachesEnd(.object(["lastSeq": .number(9), "pageThrough": .number(7)])))
+        #expect(!S.pageReachesEnd(.object(["lastSeq": .number(9)])))
     }
 }

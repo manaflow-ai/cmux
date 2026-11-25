@@ -9,6 +9,9 @@ mod agent_revive;
 #[path = "auto_resume_capacity.rs"]
 mod capacity;
 
+#[path = "auto_resume_capacity_failover.rs"]
+mod capacity_failover;
+
 #[path = "auto_resume_context.rs"]
 mod context;
 
@@ -32,6 +35,9 @@ mod limits;
 
 #[path = "auto_resume_retry.rs"]
 mod retry;
+
+#[path = "auto_resume_refused.rs"]
+mod refused;
 
 #[path = "auto_resume_race.rs"]
 mod race;

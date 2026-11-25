@@ -26,6 +26,11 @@ cmux-braid-path.workspace = true
 cmux-build-space.workspace = true
 cmux-rd-core.workspace = true
 cmux-rd-proto.workspace = true
+# The phone's viewport sync receiver (src/viewport.rs) renders its screens as VT bytes.
+cmux-terminal-projection.workspace = true
+cmux-remote-protocol.workspace = true
+# The relay cache client (src/relay_cache.rs): opens sealed snapshots and deltas under a floor.
+cmux-relay-snapshot.workspace = true
 cmux-transport.workspace = true
 cmux-wg.workspace = true
 flate2.workspace = true
@@ -42,7 +47,9 @@ serde_json.workspace = true
 # The local ad's key tag (local.rs); already in the graph.
 sha2 = "0.10"
 # Larger UDP socket buffers for the tunnel (a replay burst after a roam).
-socket2 = "0.6"
+socket2 = { version = "0.6", features = ["all"] }
+# if_nametoindex: the cellular interface a second socket is bound to.
+libc.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 # TURN over TLS (dial/turn.rs); ring only, like every other TLS here.
@@ -57,7 +64,7 @@ x25519-dalek.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+cmux-fault.workspace = true
 cmux-mobile-link = { path = ".", features = ["testing"] }
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber.workspace = true
-cmux-fault.workspace = true
