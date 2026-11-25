@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::io::Write as _;
 use std::os::unix::fs::{FileExt as _, MetadataExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -119,6 +120,23 @@ fn repo(pushed: usize, bytes: usize) -> Repo {
     std::fs::write(mac.join("README.md"), "staged\n").unwrap();
     sh(&mac, &["add", "README.md"]);
     sh(&mac, &["gc", "--quiet"]);
+    let base = sh(&mac, &["rev-parse", "HEAD"]).trim().to_owned();
+    let staged = sh(&mac, &["ls-files", "--stage"]).split_whitespace().nth(1).unwrap().to_owned();
+    std::fs::write(mac.join(".git/cmux-carry.base"), format!("{base}\n")).unwrap();
+    let mut pack = Command::new("git");
+    pack.current_dir(&mac)
+        .args(["pack-objects", "--revs", "--stdout", "-q", "--delta-base-offset"])
+        .stdin(Stdio::piped())
+        .stdout(std::fs::File::create(mac.join(".git/cmux-carry.pack")).unwrap())
+        .stderr(Stdio::piped());
+    let mut child = pack.spawn().unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(format!("--shallow {base}\n{base}\n{staged}\n").as_bytes())
+        .unwrap();
+    assert!(child.wait_with_output().unwrap().status.success());
     Repo { _dir: dir, mac, public }
 }
 
