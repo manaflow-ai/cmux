@@ -6802,7 +6802,7 @@ jobs:
       # a second build waited 10.5 min behind the first. Optional: the pick falls back to github.token without it.
       - name: Mint a spare read token for the pick
         id: pick-spare-token
-        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        if: vars.GLAEDA_ROUTE_APP_ID != '' && github.ref == 'refs/heads/nightly-next'
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -6878,6 +6878,11 @@ jobs:
           s=scripts/ci/nightly-steps/next-pkg.sh
           [ -f "$s" ] || { echo "next-pkg: the build ref predates $s; no package"; exit 0; }
           bash "$s" "nightly-pkg/input/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg" nightly-pkg/output
+
+      - name: Cleanup keychain
+        if: always()
+        run: ./scripts/ci/signing-keychain.sh delete --keychain build.keychain \
+          || security delete-keychain build.keychain >/dev/null 2>&1 || true
 
   # nightly-next on one Mac, end to end. Why: docs/ci/nightly-workflow-notes.md#note-18
   nightly-next-one:
@@ -7432,6 +7437,18 @@ jobs:
           # The tail's own revise (R2 upload, merge into the live item, prune, guard, then write-feed
           # --same-build: only while the live feed still serves this build).
           bash .publish-tooling/scripts/ci/nightly-steps/republish-deltas-upload-next-appcasts.sh
+      # A refused publication is red, not green: run 45607031207 built and signed, its shelf check died (ENOSPC),
+      # the gate refused, and the job showed green with nothing published, so a 3.5 h stall read as healthy
+      # (2026-11-25). A stand-down (writer linux or none, a known-bad commit), a superseded build and a left slot
+      # publish nothing on purpose and stay green.
+      - name: Fail when this build's publication was refused
+        if: "always() && !cancelled() && !env.LEFT_SLOT && needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && (steps.gate.outputs.refusal_reason != '' || steps.upload_next_appcasts.outputs.publication_refused == 'true')"
+        env:
+          REASON: ${{ steps.gate.outputs.refusal_reason || 'the R2 feed write refused this build' }}
+          BUILD_SHA: ${{ steps.source.outputs.build_sha }}
+        run: |
+          echo "::error title=Nothing published::build $NIGHTLY_BUILD ($BUILD_SHA) was not published: $REASON"
+          exit 1
       # The workspace stays (the next build fetches into it); this job's tokens and temp files do not.
       - name: Wipe this job's credentials and temp files
         if: always()

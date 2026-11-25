@@ -97,6 +97,23 @@ export interface ContextMenuProps {
   };
 }
 
+/** A row's height in the menu, for the room a menu of `rows` rows needs (an estimate: the host draws it). */
+const NATIVE_ROW_PX = 28;
+
+/**
+ * Whether a menu of `rows` rows at pointer height `y` opens upward: there is no room below it in the
+ * page and more above (a hat over the composer at the window's bottom edge).
+ */
+/// The side the panel opens on: the page's flip applies only to the default "bottom"; a caller's own side stays.
+export function popupSide<S extends string>(callerSide: S, flipped: "top" | "bottom"): S | "top" {
+  return callerSide === "bottom" ? (flipped as S | "top") : callerSide;
+}
+
+export function opensUp(y: number, rows: number, viewportHeight = window.innerHeight): boolean {
+  const need = rows * NATIVE_ROW_PX + 8;
+  return viewportHeight - y < need && y > viewportHeight - y;
+}
+
 /** The control a closed menu gives focus back to. */
 const RETURN_FOCUS =
   "button, a[href], input, select, textarea, [contenteditable]:not([contenteditable='false']), [role='textbox'], [tabindex]:not([tabindex='-1'])";
@@ -153,6 +170,8 @@ export function ContextMenu({
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
   const [nativeAnchor, setNativeAnchor] = useState<AnchorBox | null>(null);
   const [nativeOpen, setNativeOpen] = useState(false);
+  // Which side of the pointer the host's panel opens on: up when the page has no room below it.
+  const [nativeSide, setNativeSide] = useState<"top" | "bottom">("bottom");
   const [active, setActive] = useState(0);
   const returnFocus = useRef<HTMLElement | null>(null);
   const popupTarget = useRef<HTMLElement | null>(null);
@@ -163,7 +182,10 @@ export function ContextMenu({
   const host = usePopupHost();
   const nativePopup = useNativePopup({
     open: nativeOpen && native !== undefined,
-    model: native?.model ?? { side: "bottom", align: "start", width: 0, rows: [] },
+    model: native?.model
+      ? // Flip up only from the default "bottom"; a side the caller chose is theirs.
+        { ...native.model, side: popupSide(native.model.side, nativeSide) }
+      : { side: "bottom", align: "start", width: 0, rows: [] },
     anchor: () => nativeAnchor,
     onEvent: (event) => {
       const action = event.type === "pick" && native ? popupAction(native.model, event.id) : undefined;
@@ -205,9 +227,17 @@ export function ContextMenu({
     [],
   );
   const anchor = useMemo(() => point && pointerAnchor(point.x, point.y), [point]);
-  useEscapingPopup(host, shown, () => anchor, { side: "bottom", align: "start", gap: 0, shell: "self" });
   const place = usePointerMenuPosition(shown, anchor, shown?.parentElement);
   const placed = place !== null;
+  // No room above or below the pointer in the page: past the window's edge, as a Mac context menu
+  // (popupHost.ts). The side is the one the measured placement chose, so the host's panel opens up when
+  // the page's own menu would.
+  useEscapingPopup(host, shown, () => anchor, {
+    side: place?.side ?? "bottom",
+    align: "start",
+    gap: 0,
+    shell: "self",
+  });
   useLayoutEffect(() => {
     if (placed) menu.current?.focus();
   }, [placed, point]);
@@ -402,6 +432,7 @@ export function ContextMenu({
           )
         : null;
     if (native && nativePopup.available) {
+      setNativeSide(opensUp(at.y, native.model.rows.length) ? "top" : "bottom");
       setNativeAnchor(pointerAnchor(at.x, at.y));
       setNativeOpen(true);
       return;
