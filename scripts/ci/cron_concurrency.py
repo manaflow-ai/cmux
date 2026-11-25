@@ -101,6 +101,9 @@ PER_SOURCE_RUN: dict[str, str] = {
     "cmux-tui-artifacts-retry.yml": "each run retries the one failed artifacts run that fired it",
     "merge-group-fail-fast.yml": "each run watches the one merge-group run that fired it",
     "pr-media.yml": "each run renders media for the one pull request run that fired it; tours are per PR",
+    "red-autofix.yml": (
+        "each run fixes the one red run (and attempt) that fired it; a shared group would drop a pending red. "
+        "Same-incident runs meet in the per-key open and land groups"),
 }
 
 # workflow_run workflows whose shared group is keyed by the source run's workflow, repository or pull request:
@@ -114,6 +117,14 @@ SOURCE_KEYED: dict[str, str] = {
 # (delivery_concurrency) cannot prove through a `!`.
 CANCEL_FALSE_ON_SCHEDULE: dict[str, str] = {
     "ci-owned-pool-rescue.yml": "!(schedule || dispatch without run_id): false for every schedule run",
+}
+
+# Scheduled sweeps that cancel a running sweep on purpose, each with why: a sweep that is cut short
+# loses nothing, because the next one reads the queue afresh and redoes it.
+CANCEL_ON_SCHEDULE_IDEMPOTENT: dict[str, str] = {
+    "ci-shed-superseded-runs.yml": (
+        "#48064: each sweep reads the queue afresh and a repeated cancel is a no-op, while a sweep held in its "
+        "group (44749834573, queued for its label from 2026-11-20 14:03Z) starved every later one"),
 }
 
 # Trivial pull request checks that keep superseded runs, and why.
@@ -268,7 +279,8 @@ def cron_findings(workflow: Workflow) -> list[str]:
                 problems.append(f"{where}: group {block['group']!r} is unique per run on {event}, so runs pile up. "
                                 "Key it so every scheduled run shares it (dispatches may keep their own key).")
             kinds = _cancel_kinds(block, workflow, event)
-            if event == "schedule" and kinds != {dc.FALSY} and workflow.name not in CANCEL_FALSE_ON_SCHEDULE:
+            if event == "schedule" and kinds != {dc.FALSY} and workflow.name not in CANCEL_FALSE_ON_SCHEDULE \
+                    and workflow.name not in CANCEL_ON_SCHEDULE_IDEMPOTENT:
                 problems.append(f"{where}: cancel-in-progress {block.get('cancel-in-progress')!r} can cut a running "
                                 "scheduled run short; use false (or true only for pull request events).")
             if event == "workflow_run" and kinds == {dc.CONST}:

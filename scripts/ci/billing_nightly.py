@@ -28,6 +28,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import urllib.request
 from datetime import datetime, timezone
 
@@ -115,8 +116,27 @@ def config(environment: str, names: list[str]) -> int:
     return 0
 
 
-def _gh(*args: str) -> str:
-    return subprocess.run(["gh", *args], check=True, text=True, capture_output=True).stdout.strip()
+class GhError(subprocess.CalledProcessError):
+    """A gh call that failed every try; its text carries gh's own stderr."""
+
+    def __str__(self) -> str:
+        return f"{super().__str__()}: {(self.stderr or '').strip()[-400:]}"
+
+
+def _gh(*args: str, tries: int = 3) -> str:
+    """Runs gh, retrying a failure (a 5xx, a timeout, a brief rate limit) after 5 s and 15 s.
+
+    Writes pass tries=1: a create that GitHub applied but answered with an error must not run twice."""
+    for attempt in range(tries):
+        try:
+            return subprocess.run(["gh", *args], check=True, text=True, capture_output=True).stdout.strip()
+        except subprocess.CalledProcessError as error:
+            if attempt == tries - 1:
+                raise GhError(error.returncode, error.cmd, error.output, error.stderr) from None
+            print(f"::warning::gh {' '.join(args[:2])} failed (try {attempt + 1} of {tries}): "
+                  f"{(error.stderr or '').strip()[-200:]}; retrying")
+            time.sleep(5 * 3 ** attempt)
+    raise AssertionError("unreachable")
 
 
 def _notify(text: str) -> None:
@@ -152,11 +172,11 @@ def alert(title: str, workflow: str, slack: bool = True) -> int:
                      "--json", "number,title", "--jq", f'map(select(.title == {json.dumps(title)}))[0].number // ""')
     plan = plan_alert(bool(bad), open_issue)
     if plan["issue"] == "create":
-        _gh("issue", "create", "--title", title, "--body", issue_body(needs, run_url, workflow, datetime.now(timezone.utc)))
+        _gh("issue", "create", "--title", title, "--body", issue_body(needs, run_url, workflow, datetime.now(timezone.utc)), tries=1)
     elif plan["issue"] == "edit":
-        _gh("issue", "edit", open_issue, "--body", issue_body(needs, run_url, workflow, datetime.now(timezone.utc)))
+        _gh("issue", "edit", open_issue, "--body", issue_body(needs, run_url, workflow, datetime.now(timezone.utc)), tries=1)
     elif plan["issue"] == "close":
-        _gh("issue", "close", open_issue, "--comment", f"Green again ([run]({run_url})).")
+        _gh("issue", "close", open_issue, "--comment", f"Green again ([run]({run_url})).", tries=1)
     if not slack:
         pass
     elif plan["slack"] == "red":
