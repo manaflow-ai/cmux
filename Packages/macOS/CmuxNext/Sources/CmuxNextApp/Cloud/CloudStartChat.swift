@@ -5,6 +5,7 @@ import CmuxNextCloud
 import CmuxNextCloudCredentials
 // Re-exported: every App file and `@testable import CmuxNextApp` test reads Cloud's start-session strings (CloudStartSessionStrings).
 @_exported import CmuxNextCloudUI
+import CmuxNextCloudPlace
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextRemote
