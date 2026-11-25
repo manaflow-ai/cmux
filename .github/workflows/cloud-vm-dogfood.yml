@@ -119,8 +119,10 @@ jobs:
           test -f "$public" && test ! -L "$public"
           attestation="$RUNNER_TEMP/cmux-tui-attestation.json"
           # A pool VM's apt gh (2.45) has no `gh attestation`; the helper installs a pinned gh that has it.
+          # It also defines gh_waiting_out_rate_limit: the repository's shared token budget ran out at
+          # this step on staging and production at once (runs 45682713296 and 45683201692).
           source scripts/ci/ensure-gh-attestation.sh
-          gh attestation verify "$public" \
+          gh_waiting_out_rate_limit attestation verify "$public" \
             --repo manaflow-ai/cmux \
             --signer-workflow manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml \
             --source-ref refs/heads/main \
@@ -132,7 +134,7 @@ jobs:
           [ "$workflow" = .github/workflows/cmux-tui-artifacts.yml ]
           [ "$ref" = refs/heads/main ]
           # The attested commit is main itself or behind it (an ancestor of main's tip).
-          relation="$(gh api "repos/$GITHUB_REPOSITORY/compare/$commit...main" --jq .status)"
+          relation="$(gh_waiting_out_rate_limit api "repos/$GITHUB_REPOSITORY/compare/$commit...main" --jq .status)"
           [[ "$relation" = ahead || "$relation" = identical ]]
           digest="$(sha256sum "$public" | awk '{print $1}')"
           [[ "$digest" =~ ^[0-9a-f]{64}$ ]]

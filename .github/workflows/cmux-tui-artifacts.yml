@@ -3868,7 +3868,7 @@ jobs:
               gh attestation verify "$RUNNER_TEMP/source-manifest.json" --bundle "$RUNNER_TEMP/source.sigstore.json" "${args[@]}" >/dev/null; then
             echo "The manifest of $source is attested (offline bundle)."
           else
-            gh attestation verify "$RUNNER_TEMP/source-manifest.json" "${args[@]}" >/dev/null
+            gh_waiting_out_rate_limit attestation verify "$RUNNER_TEMP/source-manifest.json" "${args[@]}" >/dev/null
             echo "The manifest of $source is attested (attestations API)."
           fi
 
