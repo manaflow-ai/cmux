@@ -33,12 +33,7 @@ struct CloudStartChat {
     static func runner(_ tabs: AgentTabStore, services: AppServices) -> @MainActor (AgentPaneView?, AgentPaneCloudStart) async -> [String: Any] {
         { [weak tabs, weak services] view, start in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
-            // Only a tab of this Mac's daemon: the folder it names is copied from this Mac.
-            guard let view, let scoped = tabs?.views.entries.first(where: { $0.value === view })?.key,
-                  let (tab, _) = services.locateTab(scoped.key, onMachine: scoped.machine),
-                  services.machines.daemon(forTab: tab).isLocal else {
-                return AgentPaneReply.failure(code: "unavailable", message: CloudMoveStrings.notAChat)
-            }
+            guard let view, let tab = localTab(view, tabs, services) else { return AgentPaneReply.failure(code: "unavailable", message: CloudMoveStrings.notAChat) }
             let timeline = CloudSendTimeline() // from the Send's arrival here (cmux#45953)
             let titles = services.cloudStartTitles, workspace = services.workspaceID(ofTab: tab.id); titles.begin(tab, task: start.task, untitled: AgentPaneModel.tabTitle); defer { titles.end(tab); titles.endWorkspace(workspace) } // the page reads as its chat from the Send
             return await CloudStartChat(services: services, asker: .card(view, start: start.key), timeline: timeline).reply(start, tab: tab) { [weak view] step in
@@ -47,6 +42,11 @@ struct CloudStartChat {
         }
     }
 
+    static func localTab(_ view: AgentPaneView?, _ tabs: AgentTabStore?, _ services: AppServices) -> TabModel? { // the Mac tab whose page is `view`: only this Mac's, whose folder a start copies from here
+        guard let view, let scoped = tabs?.views.entries.first(where: { $0.value === view })?.key, let (tab, _) = services.locateTab(scoped.key, onMachine: scoped.machine) else { return nil }; return services.machines.daemon(forTab: tab).isLocal ? tab : nil
+    }
+    // The page's Send with Cloud picked (its gesture, cmux#51000): its tab wears the cloud at once, not when the start reaches the runner.
+    static func sendGesture(_ tabs: AgentTabStore, services: AppServices) -> @MainActor (AgentPaneView?) -> Void { { [weak tabs, weak services] view in if let services, let tab = localTab(view, tabs, services) { services.cloudStartTitles.sending(tab) } } }
     /// The page's reply: the machine's name, or a refusal the card says (no toast), with Retry when another try can help.
     /// `report` tells the page's card each step as it begins (``AgentPaneCloudStart/progress(_:folder:machine:size:to:)``).
     func reply(_ start: AgentPaneCloudStart, tab: TabModel, report: @MainActor (AgentPaneCloudStart.Step) -> Void = { _ in }) async -> [String: Any] {

@@ -1,3 +1,4 @@
+@testable import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextIcons
@@ -53,6 +54,36 @@ struct CloudChatTabMarkTests {
         titles.begin(page, task: "1+1", untitled: "New Chat")
         titles.endWorkspace("ws-cloud") // the runner's defer
         #expect(mark("ws-cloud") == CloudChatTabMark(machine: nil), "its start, then a failure, keep it")
+    }
+
+    /// 2026-11-24 (Austin): after sending "1+1" with Cloud picked, the tab still read as a New Tab while the page said "Starting Claude": the
+    /// page holds the Send up to 3 s for its speculative lease before `cloud.startChat` reaches the runner. The Send's gesture marks the tab
+    /// at once; the start then keeps the mark.
+    @Test func theSendsGestureMarksTheTabBeforeTheStartArrives() throws {
+        let titles = AgentCloudStartTitles(), page = try Self.page(DaemonStore(), surface: 75), other = try Self.page(DaemonStore(), surface: 76)
+        titles.sending(page)
+        #expect(titles.sentToCloud(page) && !titles.sentToCloud(other))
+        #expect(CloudChatTabMark.mark(agent: true, frontedMachine: nil, sentToCloud: titles.marksCloud(page, workspace: nil), localSession: false) == CloudChatTabMark(machine: nil))
+        titles.sending(page) // a second gesture (Retry) keeps one mark
+        titles.begin(page, task: "1+1", untitled: "New Chat")
+        titles.end(page)
+        #expect(titles.sentToCloud(page), "the start ended; a failed one keeps its cloud")
+        titles.opened(page)
+        #expect(!titles.sentToCloud(page), "shown in place: the front marks it")
+    }
+
+    /// The page's Send gesture for a Cloud start (cloudComposeReservation.ts `reservedCloudCall`) reaches the pane as the
+    /// `cloud.startChat` intent the pane reports to the app (`onCloudSendGesture`); a local prompt's never does.
+    @Test func thePagesCloudSendGestureIsTheCloudStartIntent() {
+        let gesture = { (method: String, params: [String: Any]) in
+            AgentPaneRequest(body: ["method": "transport.gesture", "params": ["intent": ["method": method, "params": params]]])
+        }
+        guard case .transportGesture(let intent?, _, _) = gesture("cloud.startChat", ["key": "send-1"]) else {
+            Issue.record("the Cloud Send's gesture did not parse"); return
+        }
+        #expect(intent.method == "cloud.startChat")
+        guard case .transportGesture(let local?, _, _) = gesture("session/set_mode", ["modeId": "plan"]) else { Issue.record("no intent"); return }
+        #expect(local.method != "cloud.startChat")
     }
 
     /// A retry after a failure marks the tab again; another tab's send never marks this one.

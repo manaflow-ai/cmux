@@ -65,6 +65,13 @@ public final class AgentCloudStartTitles {
         sentToCloud(tab) || workspace.map { startsInCloud(workspace: $0) } == true
     }
 
+    /// The person pressed Send on `tab` with Cloud picked (its gesture, before the start reaches the runner, cmux#51000): its tab wears the
+    /// cloud from now, as ``begin(_:task:untitled:)`` marks it.
+    public func sending(_ tab: TabModel) {
+        cloudSends = cloudSends.filter { $0.value.tab != nil }
+        if cloudSends[ObjectIdentifier(tab)]?.tab !== tab { cloudSends[ObjectIdentifier(tab)] = Mark(tab: tab) }
+    }
+
     /// `tab`'s start opened its chat, which now shows in place: the front marks it from here (``sentToCloud(_:)`` ends).
     public func opened(_ tab: TabModel) {
         if cloudSends[ObjectIdentifier(tab)] != nil { cloudSends[ObjectIdentifier(tab)] = nil }
