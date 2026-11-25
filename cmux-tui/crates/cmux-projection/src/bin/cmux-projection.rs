@@ -659,7 +659,12 @@ mod cli {
         idle_exit: Option<Duration>,
         on_ready: impl FnOnce(),
     ) -> anyhow::Result<()> {
-        mount::serve_with(overlay, at, mount::Options { idle_exit, ..mount::Options::default() }, on_ready)
+        mount::serve_with(
+            overlay,
+            at,
+            mount::Options { idle_exit, ..mount::Options::default() },
+            on_ready,
+        )
     }
 
     /// Serves a git-mount; the NFS backend has no `--idle-exit` yet, so it says so.
