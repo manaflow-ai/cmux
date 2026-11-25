@@ -9,7 +9,7 @@
 //! narrow one give the same facts (`tests/parity.rs` checks them against the recorded sessions).
 
 use crate::claude::Chrome;
-use crate::{FAINT, Grid};
+use crate::{Cell, FAINT, Grid};
 
 /// What one look at the screen found. `None`: not on screen now (the banner scrolled away, no
 /// turn has ended), so the last value seen still holds ([`ScreenFacts::apply`]).
@@ -29,6 +29,24 @@ pub struct ScreenFacts {
     pub running: bool,
     /// The input box was on screen (a dialog or menu can take its place).
     pub prompt_seen: bool,
+    /// The spinner row while a turn runs (`✻ Photosynthesizing… (3s · ↓ 25 tokens)`), cell for
+    /// cell: its glyph, verb, shimmer, timer and token count are the host's alone.
+    pub spinner: Option<Vec<Cell>>,
+}
+
+/// Claude Code's spinner glyphs.
+const SPINNER: &[char] = &['✻', '✶', '✳', '✢', '·', '✽', '*'];
+
+/// Whether `row` is the spinner row: a glyph, a space, then one word ending in `…`.
+fn is_spinner(row: &str) -> bool {
+    let mut chars = row.chars();
+    let (Some(glyph), Some(' ')) = (chars.next(), chars.next()) else { return false };
+    let rest: String = chars.collect();
+    let word = rest.split(' ').next().unwrap_or_default();
+    SPINNER.contains(&glyph)
+        && word.ends_with('…')
+        && word.trim_end_matches('…').chars().all(char::is_alphabetic)
+        && word.len() > '…'.len_utf8()
 }
 
 /// The banner's logo: the block characters before its text.
@@ -78,6 +96,13 @@ impl ScreenFacts {
         }
         if rows.iter().any(|r| r.contains("esc to interrupt")) {
             facts.running = true;
+        }
+        if let Some(y) = rows.iter().rposition(|r| is_spinner(r)) {
+            let mut cells = grid.cells[y].clone();
+            while cells.last().is_some_and(Cell::is_blank) {
+                cells.pop();
+            }
+            facts.spinner = Some(cells);
         }
         // The prompt: the last `❯` row with a rule above it, its draft running to the rule below.
         let prompt = (1..rows.len()).rev().find(|&y| {
@@ -135,5 +160,6 @@ impl ScreenFacts {
             chrome.draft.clone_from(&self.draft);
             chrome.placeholder.clone_from(&self.placeholder);
         }
+        chrome.spinner.clone_from(&self.spinner);
     }
 }

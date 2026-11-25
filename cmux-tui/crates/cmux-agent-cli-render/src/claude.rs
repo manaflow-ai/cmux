@@ -57,6 +57,9 @@ pub struct Chrome {
     /// The dim text in an empty prompt (a tip, or the model's suggested next prompt): the
     /// host's fact. None draws none.
     pub placeholder: Option<String>,
+    /// The spinner row as the host's screen draws it (`claude_facts`); None draws
+    /// `✻ Working…`.
+    pub spinner: Option<Vec<Cell>>,
 }
 
 /// One tool call, as its `tool_call` and `tool_call_update` records say.
@@ -198,7 +201,17 @@ pub fn render_with_history(
     if running {
         lines.push(Line::new());
         let mut l = Line::new();
-        l.push("✻", Style::fg(CLAUDE)).push(" ", Style::PLAIN).push("Working…", Style::fg(CLAUDE));
+        match &chrome.spinner {
+            Some(cells) => {
+                for cell in cells.iter().filter(|cell| !cell.text.is_empty()) {
+                    l.push(&cell.text, cell.style);
+                }
+            }
+            None => {
+                l.push("✻", Style::fg(CLAUDE)).push(" ", Style::PLAIN);
+                l.push("Working…", Style::fg(CLAUDE));
+            }
+        }
         lines.push(l);
     }
     if fullscreen(chrome) {

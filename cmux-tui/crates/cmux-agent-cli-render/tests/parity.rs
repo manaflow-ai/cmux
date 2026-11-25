@@ -277,6 +277,7 @@ fn chrome(draft: &str) -> Chrome {
         utc_offset_minutes: 0,
         done_verb: None,
         placeholder: None,
+        spinner: None,
     }
 }
 
@@ -1319,6 +1320,7 @@ fn phone_chrome(name: &str, moment: &str, draft: &str) -> Chrome {
             "done" => v["placeholders"]["done"].as_str().map(str::to_owned),
             _ => None,
         },
+        spinner: None,
     }
 }
 
@@ -1402,7 +1404,9 @@ fn claude_code_at_the_phones_grid_from_records() {
             let (live, open) = live_records(&lines);
             let seeded = seeded_records(&lines, open, &scratch);
             let draft = if moment == "typed" { prompt.as_str() } else { "" };
-            let chrome = phone_chrome(name, moment, draft);
+            let mut chrome = phone_chrome(name, moment, draft);
+            // The spinner row is a host fact like the done verb: the screen's own cells.
+            chrome.spinner = ScreenFacts::read(&real).spinner;
             let a = real.parity(&claude::render(&live, &chrome, cols, rows));
             let seeded_grid = claude::render(&seeded, &chrome, cols, rows);
             let b = real.parity(&seeded_grid);

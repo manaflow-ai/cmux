@@ -98,7 +98,9 @@ fn the_mac_screens_facts_and_the_transcript_make_the_phones_screen() {
     let mut phone = phone();
     assert!(phone.transcript().is_file());
     for (moment, want) in [
-        ("start", &["Claude Code v2.1.332", "/effort", "auto mode on"][..]),
+        // The transcript is the whole session's (the file as it ended), so only the Mac
+        // screen's facts change between the two looks.
+        ("start", &["Claude Code v2.1.332", "Opus 5.5", "auto mode on"][..]),
         ("done", &["Create hello.py", "Churned", "Ran 1 shell command"][..]),
     ] {
         let mut term =
