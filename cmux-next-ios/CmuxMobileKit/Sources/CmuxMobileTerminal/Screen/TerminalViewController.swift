@@ -902,7 +902,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     @objc private func returnProbeTick(_ link: CADisplayLink) {
         guard let probe = returnProbe else { return link.invalidate() }
-        let phoneWidth = model.isTUI || (appliedHostColumns ?? hostLayout.phoneColumns) == hostLayout.phoneColumns
+        let phoneWidth = model.isTUI || (appliedHostColumns ?? hostLayout.ownColumns) == hostLayout.ownColumns
         let right = phoneWidth && freezeView == nil && !replayGate.isReplaying && output.isEmpty && !feedInFlight
         let elapsed = link.timestamp - probe.start
         guard right || elapsed > 5 else { return }
@@ -1865,7 +1865,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 replayHold.gridTaken()
                 appliedHostColumns = columns
                 appliedHostRows = rows
-                if !model.isTUI, columns != hostLayout.phoneColumns {
+                if !model.isTUI, columns != hostLayout.ownColumns {
                     model.wideGridsShown += 1
                     sizingLog.notice("wide grid on the primary screen: \(columns, privacy: .public) columns (phone \(self.hostLayout.phoneColumns, privacy: .public))")
                 }
@@ -2741,8 +2741,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // down). Showing or closing the keyboard insets the grid instead of
         // resizing the Mac's PTY (`TerminalGridSizing`).
         let newTUIRows = TerminalGridSizing(cellHeight: cellHeight).rows(restingStackTop: restingStackTop, chromeTop: chromeTop)
-        // The phone claims its own grid; only the rendering follows the Mac's.
-        let columns = layout.phoneColumns
+        // The phone claims its own grid (the page's width, or Wide's); only
+        // the rendering follows the Mac's.
+        let columns = layout.ownColumns
         // Only a rows-only change (a chrome change: Hide Toolbar, a tab's
         // insets; never the soft keyboard) is held: a new width (a rotation)
         // shows the page's grid, letterboxed or shifted to the cursor as it
@@ -4699,8 +4700,37 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
         return TerminalHostGridLayout(viewportWidth: view.bounds.width - 2 * Self.sidePadding, cell: cell,
                                       scale: view.window?.screen.scale ?? surface.renderScale, hostColumns: remoteColumns,
                                       hostRows: remoteColumns == nil ? nil : appliedHostRows ?? model.session.remoteRows,
-                                      visibleRows: tuiGridHold.rows(page: tuiRows))
+                                      visibleRows: tuiGridHold.rows(page: tuiRows),
+                                      wideColumns: model.wideOutput ? TerminalHostGridLayout.defaultWideColumns : nil)
     }
+
+    /// Wide turned on or off (`TerminalModel.setWide`): the page claims the
+    /// new grid (`layoutTerminal`, settled like any resize), the mirror takes
+    /// its width now and the page pans sideways while it is wider. Off, the
+    /// page goes back to its leading edge.
+    func wideChanged() {
+        let layout = hostLayout
+        sizingLog.notice("wide \(self.model.wideOutput ? "on" : "off", privacy: .public): \(layout.ownColumns, privacy: .public) columns (page \(layout.phoneColumns, privacy: .public))")
+        if !model.wideOutput {
+            tuiPanX = 0
+            scrollView.contentOffset.x = 0
+        }
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        applyTUIPlacement()
+    }
+
+    #if DEBUG
+    /// The sideways state for the `wide` demo (TerminalWideOutputUITests):
+    /// the mirror's columns, the phone's, the pan, the furthest it pans and
+    /// the last column on screen. `key=N` words.
+    var wideProbe: String {
+        let layout = hostLayout
+        let x = model.isTUI ? tuiPanX : scrollView.contentOffset.x
+        let last = cell.width > 0 ? Int(floor((x + layout.viewportWidth) / cell.width)) : 0
+        return "cols=\(surface.grid.columns) phone=\(layout.phoneColumns) panX=\(Int(x)) maxPanX=\(Int(layout.maxPanX)) lastCol=\(last) tui=\(model.isTUI)"
+    }
+    #endif
 
     /// The page's scrollable width: the mirror plus its side padding.
     var contentWidth: CGFloat {
