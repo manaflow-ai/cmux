@@ -202,6 +202,7 @@ public final class MacTabCards {
         warmed = []
         arriving = [:]
         entries = [:]
+        screenWaiters = [:]
     }
 
     public func entry(_ key: TabSnapshotKey) -> MacCardEntry {
@@ -292,6 +293,8 @@ public final class MacTabCards {
         }
         let listed = Set(cards.map(\.tabID))
         for key in entries.keys where key.macID == macID && !listed.contains(key.tabID) { entries[key] = nil }
+        // A card the Mac no longer lists never gets its first screen: its waiter goes with it.
+        for key in screenWaiters.keys where key.macID == macID && !listed.contains(key.tabID) { screenWaiters[key] = nil }
         var keys: [TabSnapshotKey] = []
         for card in cards {
             let key = TabSnapshotKey(accountID: account, macID: macID, tabID: card.tabID)
@@ -407,7 +410,9 @@ public final class MacTabCards {
                     switch part.slot {
                     case .screen: return Loaded(part: part, text: bytes.map { String(decoding: $0, as: UTF8.self) })
                     case .favicon: return Loaded(part: part, image: bytes.flatMap { UIImage(data: $0) })
-                    case .thumb: return Loaded(part: part, image: bytes.flatMap { UIImage(data: $0) }?.preparingForDisplay())
+                    // A Mac thumbnail that is a placeholder (`CardPictureGate`) is never shown.
+                    case .thumb: return Loaded(part: part, image: bytes.flatMap { UIImage(data: $0) }
+                        .flatMap { CardPictureGate.isPlaceholder($0) ? nil : $0 }?.preparingForDisplay())
                     }
                 }
             }.value

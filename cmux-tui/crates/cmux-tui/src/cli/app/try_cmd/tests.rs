@@ -1698,8 +1698,8 @@ fn app_try_live_set_covers_every_helper_app_the_app_bundles() {
     );
     for (script, bundle) in &helpers {
         // `$name` is the app's name ("cmux NIGHTLY"): the live set's helper is every
-        // `<app name> Helper.app`.
-        let covered = bundle.strip_prefix("$name").is_some_and(|tail| tail == helper::SUFFIX);
+        // `<app name> Helper.app` (or the older `<app name> Screen Sharing.app`).
+        let covered = bundle.strip_prefix("$name").is_some_and(|tail| helper::is_helper_name(tail));
         assert!(covered, "{script} bundles {bundle}, which `cmux app try` does not carry live");
     }
 }
@@ -1802,6 +1802,9 @@ fn app_try_sha_from_a_file_before_daemon_from_says_so() {
     };
     assert!(left.iter().any(|reason| reason.contains("predates daemon_from")), "{left:?}");
 }
+
+#[path = "cu_upgrade_tests.rs"]
+mod cu_upgrade_tests;
 
 const TREE: &str = "cccccccccccccccccccccccccccccccccccccccc";
 const SIGNED_CMUX: &[u8] = b"new cmux, Team-signed, longer still";

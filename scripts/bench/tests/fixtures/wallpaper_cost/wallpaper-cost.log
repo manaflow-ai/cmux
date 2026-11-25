@@ -1,0 +1,12 @@
+step: scripts/measure/wallpaper-cost.sh measure=60 (a hand-written sample of the harness's lines, not a fleet run)
+WALLPAPER-COST-MACHINE host=cmux19 sha=0000000000000000000000000000000000000000 macos=27.0 gpu="Apple M4 Pro"
+** BUILD SUCCEEDED **
+WALLPAPER-COST-MACHINE host=cmux19 measure=60.0 frame_rate=30 ids=blueprint,orbits
+WALLPAPER-COST picture id=van-gogh-starry-night cpu_s_per_s=0.004 gpu_s_per_s=0.0 footprint_mb=212.4 frames_per_s=0.0 state=none fps=0
+WALLPAPER-COST live id=blueprint cpu_s_per_s=0.031 gpu_s_per_s=0.012 footprint_mb=231.0 frames_per_s=29.8 state=run fps=30
+WALLPAPER-COST live id=orbits cpu_s_per_s=0.029 gpu_s_per_s=0.018 footprint_mb=233.2 frames_per_s=29.9 state=run fps=30
+WALLPAPER-COST idle id=blueprint cpu_s_per_s=0.004 gpu_s_per_s=0.0 footprint_mb=231.5 frames_per_s=0.0 state=hold:idle fps=0
+WALLPAPER-COST occluded id=blueprint cpu_s_per_s=0.003 gpu_s_per_s=0.0 footprint_mb=231.6 frames_per_s=0.0 state=hold:occluded fps=0
+WALLPAPER-COST-NOTE reloadConfiguration: nothing
+WALLPAPER-COST minimized id=blueprint cpu_s_per_s=0.003 gpu_s_per_s=0.0 footprint_mb=231.6 frames_per_s=0.0 state=hold:minimized fps=0
+WALLPAPER-COST low-power id=blueprint cpu_s_per_s=0.004 gpu_s_per_s=0.0 footprint_mb=231.7 frames_per_s=0.0 state=hold:low-power fps=0
