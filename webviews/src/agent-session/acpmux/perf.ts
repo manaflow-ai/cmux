@@ -4,6 +4,7 @@
 // the render path then pays one boolean check per render.
 
 import { type KeyPresentation, KeyPresentationMarks } from "./keyPresentation";
+import { splitKey } from "./typingSplit";
 
 /** Rounds to hundredths, as the native pane's stats do. */
 export function round2(value: number): number {
@@ -284,6 +285,7 @@ export class AcpmuxPerf {
         listener: performance.now() - start,
         key: event.key,
       };
+      splitKey(sample as unknown as Record<string, unknown>, start, element);
       presented?.mark(start, (presentation) => Object.assign(sample, presentation));
       // The key's edit is done inside its own task: the `input` event reaches the document last, as it bubbles, after
       // the field's and React's handlers, and each handler's microtasks (the editor's flush, React's sync render and
