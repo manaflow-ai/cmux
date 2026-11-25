@@ -12812,6 +12812,25 @@ export class AcpmuxDirectClient {
       this.optimisticPromptInputs.delete(promptId);
       this.optimisticPromptAttachments.delete(promptId);
       this.optimisticPromptParts.delete(promptId);
+      // acpmux refused the outbox's resend for good: the row (and the record a relaunch draws)
+      // says acpmux's own words, never "no answer", and the refusal's Retry rules (sendFailure.ts).
+      const refused = this.resendRefusals.get(promptId);
+      this.resendRefusals.delete(promptId);
+      if (refused) {
+        const kept = this.unsentKept.get(promptId)!.record;
+        const error = resendRefusalError(refused);
+        this.keepUnsent(sessionId, {
+          ...kept,
+          error: failedSendText(error, false, attachments),
+          failure: {
+            hop: "acpmux",
+            failedAt: Date.now(),
+            ...(refused.code ? { code: refused.code } : {}),
+            ...(refused.reason ? { reason: refused.reason } : {}),
+            error: error.message,
+          },
+        });
+      }
       this.drawUnsentRow(sessionId, this.unsentKept.get(promptId)!.record);
       // A newer version than the row on its way: the transcript's rows are memoized on it.
       const failed = this.rows.get(entry.rowId);

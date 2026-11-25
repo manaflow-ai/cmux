@@ -451,8 +451,13 @@ test("a resend acpmux refuses for good says Not sent with acpmux's own words, no
       lost.notice("refused", { code: "session.not_found", reason: "session.not_found", message: "This chat is gone." });
       await until(() => lost.mine()[0]?.failed === true);
     });
-    expect(lost.mine()[0]!.error).not.toBe(translate("prompt.delivery.noAnswer"));
     expect(lost.mine()).toHaveLength(1);
+    expect(lost.mine()[0]!.error).not.toBe(translate("prompt.delivery.noAnswer"));
+    expect(lost.mine()[0]!.error).not.toBe(translate("prompt.failure.hostAway"));
+    // The record a relaunch draws keeps acpmux's refusal too.
+    await settle();
+    const kept = host.all().find((record) => record.promptId === lost.promptId);
+    expect(kept?.failure?.code).toBe("session.not_found");
   } finally {
     lost.next.client.close?.();
   }
