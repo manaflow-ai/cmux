@@ -147,7 +147,8 @@ impl<C: AutoCloud + 'static> Loop<C> {
                 tracing::info!(session = %id, "auto session: the chat was not moved: {error}");
             }
         }
-        let wish = view.as_ref().and_then(|view| view.moving.as_ref()).map(|wish| wish.to);
+        let wish = view.as_ref().and_then(|view| view.moving.as_ref());
+        let wish = wish.map(|wish| (wish.to, wish.at));
         let mine = view.as_ref().is_some_and(|view| view.holder == self.ctx.me);
         if let (Some(tracked), Some(view)) = (self.chats.get_mut(id), view) {
             tracked.note_view(view);
@@ -156,8 +157,8 @@ impl<C: AutoCloud + 'static> Loop<C> {
         if error.is_none() {
             let state = self.chats.get(id).map(|tracked| tracked.chat.state);
             match (state, wish) {
-                (Some(State::Holding { .. }), Some(to)) => {
-                    self.step(id, Event::Wished { to }).await;
+                (Some(State::Holding { .. }), Some((to, at))) => {
+                    self.step(id, Event::Wished { to, at: Some(at) }).await;
                 }
                 (Some(State::Standby { .. }), _) if mine => self.step(id, Event::Wake).await,
                 _ => {}

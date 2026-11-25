@@ -13,7 +13,7 @@ fn lose(out: &mut Out, epoch: u64, now: u64) {
     out.push(Effect::KillTree);
     out.push(Effect::WriteLeftoverPatch);
     out.chat.needs_run = false;
-    out.chat.declined = false;
+    give::forget(out);
     out.to(State::Standby { epoch });
     out.renew(now);
 }
@@ -30,7 +30,7 @@ fn gave(out: &mut Out, epoch: u64, at: u64, now: u64) {
 
 /// Auto is off for the chat.
 fn close(out: &mut Out) {
-    out.chat.declined = false;
+    give::forget(out);
     out.to(State::Off);
     out.rest();
 }
@@ -69,7 +69,7 @@ fn held_again(out: &mut Out, answer: Answer, stopped: bool, now: u64) {
         out.push(Effect::ContinueTree);
     }
     out.to(State::Holding { epoch: answer.epoch });
-    match (give::wanted(out, answer.wish), stopped) {
+    match (give::wanted(out, answer.wish, answer.wish_at), stopped) {
         (Some(to), false) => return give::begin(out, answer.epoch, to),
         (Some(_), true) => out.renew(now),
         (None, true | false) => {}
@@ -79,10 +79,11 @@ fn held_again(out: &mut Out, answer: Answer, stopped: bool, now: u64) {
     }
 }
 
-/// The person asked this daemon to move the chat it holds, and the store took the wish.
-fn wished(out: &mut Out, epoch: u64, to: MoveTo) {
-    out.chat.declined = false;
-    if let Some(to) = give::wanted(out, Some(to)) {
+/// The person asked this daemon to move the chat it holds, and the store took the wish at
+/// `at`: a new wish, whatever was refused before.
+fn wished(out: &mut Out, epoch: u64, to: MoveTo, at: Option<u64>) {
+    give::forget(out);
+    if let Some(to) = give::wanted(out, Some(to), at) {
         give::begin(out, epoch, to);
     }
 }
@@ -200,7 +201,7 @@ pub(super) fn holding(out: &mut Out, epoch: u64, event: Event, now: u64) {
             out.renew_if_work_changed(now);
         }
         Event::Closed { .. } => close(out),
-        Event::Wished { to } => wished(out, epoch, to),
+        Event::Wished { to, at } => wished(out, epoch, to, at),
         // A give this laptop asked before the move was taken back, answered only now.
         Event::Gave { epoch: at } => gave(out, epoch, at, now),
         Event::AutoOn
@@ -243,7 +244,10 @@ pub(super) fn giving(
                 Verdict::Holder => {
                     out.chat.fresh_at = out.chat.fresh_at.max(sent_at);
                     match answer.wish {
-                        Some(to) => out.to(State::Giving { epoch: answer.epoch, step, to }),
+                        Some(to) => {
+                            give::told(out, answer.wish_at);
+                            out.to(State::Giving { epoch: answer.epoch, step, to });
+                        }
                         None => {
                             out.push(Effect::Stay);
                             held_again(out, answer, false, now);

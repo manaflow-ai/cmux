@@ -89,11 +89,11 @@ fn a_wish_stops_the_turn_copies_then_gives_and_the_laptop_stands_by() {
 
 #[test]
 fn the_daemons_own_move_starts_the_give_without_waiting_for_a_renewal() {
-    let (chat, effects) = step(holding(0), Event::Wished { to: CLOUD }, 100);
+    let (chat, effects) = step(holding(0), Event::Wished { to: CLOUD, at: None }, 100);
     assert_eq!(effects, [Effect::StopTurn]);
     assert_eq!(chat.state, giving(GiveStep::Stopping));
     // A second word of the same wish changes nothing.
-    let (chat, effects) = step(chat, Event::Wished { to: CLOUD }, 200);
+    let (chat, effects) = step(chat, Event::Wished { to: CLOUD, at: None }, 200);
     assert!(effects.is_empty(), "{effects:?}");
     assert_eq!(chat.state, giving(GiveStep::Stopping));
 }
@@ -264,7 +264,7 @@ fn a_chat_too_large_to_copy_is_not_given_and_says_so_once() {
     let (chat, effects) = step(chat, held(&effects, Some(CLOUD)), now);
     assert!(effects.is_empty(), "{effects:?}");
     // The person asks again from this laptop: told again, and still not given.
-    let (chat, effects) = step(chat, Event::Wished { to: CLOUD }, now + 1);
+    let (chat, effects) = step(chat, Event::Wished { to: CLOUD, at: None }, now + 1);
     assert_eq!(effects, [told]);
     assert_eq!(chat.state, HOLDING);
 }
@@ -340,7 +340,8 @@ fn a_wake_mid_give_stops_the_chat_and_asks() {
 fn a_laptop_that_does_not_hold_the_chat_gives_nothing() {
     let (chat, now) = give_until(GiveStep::Asking);
     let (standby, _) = step(chat, Event::Gave { epoch: 2 }, now + 1);
-    let events = [Event::Wished { to: CLOUD }, Event::TurnStopped, Event::Gave { epoch: 3 }];
+    let events =
+        [Event::Wished { to: CLOUD, at: None }, Event::TurnStopped, Event::Gave { epoch: 3 }];
     for event in events {
         let (after, effects) = step(standby, event, now + 2);
         assert_eq!(after.state, State::Standby { epoch: 2 }, "{event:?}");

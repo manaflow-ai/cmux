@@ -361,7 +361,9 @@ Rust mirror is `cmux-auto-session/src/fake/moves.rs`, and the conformance vector
     it may be paused and has to read the wish.
   - Asked again while it waits, a wish's time starts again. A move that changes nothing writes nothing.
 - The wish is `session.move: {to, device?, at}` in the view (left out when there is none). The lease answer
-  carries `move: "cloud" | "local"` only to the holder (`role: "holder"`), never to a standby or a `lost` caller.
+  carries `move: "cloud" | "local"` only to the holder (`role: "holder"`), never to a standby or a `lost` caller,
+  and with it `moveAt`: the wish's `at`. Asking again starts `at` again, so a holder that sees another `moveAt`
+  knows the person asked again.
 - `POST :id/give` (the holder, laptop or machine) `{holder, epoch}` -> `{session}`. The checks, in order: the
   fence (`auto.closed`, `auto.not_holder`, `auto.stale_epoch`); `auto.no_move` with no wish; `auto.not_copied`
   unless a snapshot exists and `snapshotSeq >= lastSeq`. To the Cloud the Auto machine is looked up at the give
@@ -535,7 +537,8 @@ turn, without waiting for a lease to run out.
 - A parked chat has no holder to give it: to the Cloud it is assigned as a `takeover` at once (refused
   `auto.not_copied` with no snapshot); to a laptop it goes to that standby at once, owing an import.
 - The holder learns the wish from its lease answer (`move: "cloud" | "local"`, absent when there is none) and
-  from the chat's view (`session.move`). A machine is woken by the index as for an assignment.
+  from the chat's view (`session.move`). A machine is woken by the index as for an assignment. The lease answer
+  names the wish's time beside it (`moveAt`, the record's `move.at`; absent with no wish).
 - `POST /v1/auto-sessions/:id/give` (holder) `{holder, epoch}` -> `{session}`. Fenced like every holder write.
   Refused `auto.no_move` with no wish, and `auto.not_copied` unless a snapshot exists and
   `snapshotSeq >= lastSeq`: a chat never changes hands ahead of its copy. On success: epoch + 1, the wish is
@@ -559,6 +562,11 @@ The holder's side (core crate and daemons):
   any step of a give), as on a renewal answered `lost`: the tree is killed and what it wrote since its last
   stored copy is kept. An answer at the holder's own epoch or below is to a give from before it got the chat,
   and means nothing.
+- A give the store refuses (`auto.no_laptop`, `auto.no_machine`) leaves the chat at its holder and the wish in
+  the store. The person is told once, and the holder does not try that wish again while renewals still tell it.
+  The person asking again is a new wish and is tried again: the holder knows it by the wish's time (`moveAt`
+  in the lease answer, `move.at` in the answer to a move asked from this daemon), which asking again starts
+  again. An older store names no time; then a refused wish is tried again only once an answer comes without it.
 - The new holder imports as for a takeover or a handback. A turn that was running is settled once and continued
   with the moved-chat text that exists (`Cut::Move`), not the "machine went away" text.
 

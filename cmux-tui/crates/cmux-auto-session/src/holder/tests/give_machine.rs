@@ -88,7 +88,7 @@ fn a_wish_comes_before_the_inbox() {
 
 #[test]
 fn the_daemons_own_move_starts_the_give_without_waiting_for_a_renewal() {
-    let (chat, effects) = step(serving(0), Event::Wished { to: LOCAL }, 100);
+    let (chat, effects) = step(serving(0), Event::Wished { to: LOCAL, at: None }, 100);
     assert_eq!(effects, [Effect::StopTurn]);
     assert_eq!(chat.state, returning(GiveStep::Stopping));
 }

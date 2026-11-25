@@ -115,6 +115,11 @@ pub struct Answer {
     /// The person asked for the chat to be moved, and this holder has not given it yet (the
     /// lease answer's `move`). The store tells a wish only to the holder that must give.
     pub wish: Option<MoveTo>,
+    /// When the person asked for that move (the lease answer's `moveAt`, epoch ms). Asking
+    /// again starts the wish's time again, so a time other than the last one told is a new
+    /// ask. None with no wish, and from a store that does not say it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wish_at: Option<u64>,
 }
 
 impl Answer {
@@ -126,6 +131,7 @@ impl Answer {
             inbox_pending: session.inbox_pending(),
             handback_due: session.handback_due(),
             wish: None,
+            wish_at: None,
         }
     }
 
@@ -137,12 +143,19 @@ impl Answer {
             inbox_pending: false,
             handback_due: false,
             wish: None,
+            wish_at: None,
         }
     }
 
-    /// The same answer with the store's wish for the chat.
+    /// The same answer with the store's wish for the chat, asked at a time the store does not
+    /// say.
     pub fn wishing(self, wish: Option<MoveTo>) -> Answer {
-        Answer { wish, ..self }
+        Answer { wish, wish_at: None, ..self }
+    }
+
+    /// The same answer with the store's wish for the chat, asked at `at`.
+    pub fn wishing_since(self, to: MoveTo, at: u64) -> Answer {
+        Answer { wish: Some(to), wish_at: Some(at), ..self }
     }
 
     /// A lease's answer. The wish in it (`move`) is the holder's to act on: the store tells it
@@ -158,7 +171,8 @@ impl Answer {
             }
         };
         let wish = answer.move_to.filter(|_| verdict == Verdict::Holder);
-        Answer::of(verdict, &answer.session).wishing(wish)
+        let wish_at = answer.move_at.filter(|_| wish.is_some());
+        Answer { wish, wish_at, ..Answer::of(verdict, &answer.session) }
     }
 
     /// The session a `PUT /:id` answered, read as this machine (`me`).
@@ -247,8 +261,14 @@ pub enum Event {
     Closed { epoch: u64 },
     /// The store's view of the chat says the person wants it moved (`session.move`), heard
     /// outside a renewal: this daemon just asked for the move, or a view came with another
-    /// answer. The holder gives the chat as on a renewal's wish.
-    Wished { to: MoveTo },
+    /// answer. The holder gives the chat as on a renewal's wish. `at` is when the person asked
+    /// (the view's `move.at`), None when the view does not say: a renewal that tells the wish
+    /// with that time tells the same ask, and one with another time a new one.
+    Wished {
+        to: MoveTo,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<u64>,
+    },
     /// A `StopTurn` is done: no turn of the chat runs here. One that failed is a
     /// [`GiveFailure::Stuck`].
     TurnStopped,

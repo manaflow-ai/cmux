@@ -2,6 +2,7 @@
 //! `tests/laptop.rs` and `tests/machine.rs`, and a move by hand in `tests/give_laptop.rs`,
 //! `tests/give_machine.rs` and `tests/give_late.rs`.
 
+mod give_again;
 mod give_laptop;
 mod give_late;
 mod give_machine;
@@ -35,7 +36,8 @@ fn request(effects: &[Effect]) -> u64 {
 
 /// A store answer with nothing pending and no wish.
 fn answer(verdict: Verdict, epoch: u64, snapshot: u64) -> Answer {
-    Answer { verdict, epoch, snapshot, inbox_pending: false, handback_due: false, wish: None }
+    let (inbox_pending, handback_due) = (false, false);
+    Answer { verdict, epoch, snapshot, inbox_pending, handback_due, wish: None, wish_at: None }
 }
 
 /// The effects' names in order, without the schedule and the row's `blocked`.

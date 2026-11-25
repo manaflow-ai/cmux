@@ -33,7 +33,7 @@ fn taken_back_on_a_machine() -> (Chat, u64) {
 /// The chat as the person asks for the move again, at each point the first give's answer can
 /// find it: before the holder hears the new wish, and at each step of the give that follows.
 fn asked_again(chat: Chat, to: MoveTo, now: u64) -> [Chat; 4] {
-    let (stopping, effects) = step(chat, Event::Wished { to }, now + 1);
+    let (stopping, effects) = step(chat, Event::Wished { to, at: None }, now + 1);
     assert_eq!(effects, [Effect::StopTurn]);
     let (copying, effects) = step(stopping, Event::TurnStopped, now + 2);
     let copy = effects
