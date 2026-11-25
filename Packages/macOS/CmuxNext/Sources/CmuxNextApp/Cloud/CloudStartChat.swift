@@ -33,12 +33,7 @@ struct CloudStartChat {
     static func runner(_ tabs: AgentTabStore, services: AppServices) -> @MainActor (AgentPaneView?, AgentPaneCloudStart) async -> [String: Any] {
         { [weak tabs, weak services] view, start in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
-            // Only a tab of this Mac's daemon: the folder it names is copied from this Mac.
-            guard let view, let scoped = tabs?.views.entries.first(where: { $0.value === view })?.key,
-                  let (tab, _) = services.locateTab(scoped.key, onMachine: scoped.machine),
-                  services.machines.daemon(forTab: tab).isLocal else {
-                return AgentPaneReply.failure(code: "unavailable", message: CloudMoveStrings.notAChat)
-            }
+            guard let view, let tab = localTab(view, tabs, services) else { return AgentPaneReply.failure(code: "unavailable", message: CloudMoveStrings.notAChat) }
             let timeline = CloudSendTimeline() // from the Send's arrival here (cmux#45953)
             let titles = services.cloudStartTitles, workspace = services.workspaceID(ofTab: tab.id); titles.begin(tab, task: start.task, untitled: AgentPaneModel.tabTitle); defer { titles.end(tab); titles.endWorkspace(workspace) } // the page reads as its chat from the Send
             return await CloudStartChat(services: services, asker: .card(view, start: start.key), timeline: timeline).reply(start, tab: tab) { [weak view] step in
@@ -47,6 +42,11 @@ struct CloudStartChat {
         }
     }
 
+    static func localTab(_ view: AgentPaneView?, _ tabs: AgentTabStore?, _ services: AppServices) -> TabModel? { // the Mac tab whose page is `view`: only this Mac's, whose folder a start copies from here
+        guard let view, let scoped = tabs?.views.entries.first(where: { $0.value === view })?.key, let (tab, _) = services.locateTab(scoped.key, onMachine: scoped.machine) else { return nil }; return services.machines.daemon(forTab: tab).isLocal ? tab : nil
+    }
+    // The page's Send with Cloud picked (its gesture, cmux#51000): its tab wears the cloud at once, not when the start reaches the runner.
+    static func sendGesture(_ tabs: AgentTabStore, services: AppServices) -> @MainActor (AgentPaneView?) -> Void { { [weak tabs, weak services] view in if let services, let tab = localTab(view, tabs, services) { services.cloudStartTitles.sending(tab) } } }
     /// The page's reply: the machine's name, or a refusal the card says (no toast), with Retry when another try can help.
     /// `report` tells the page's card each step as it begins (``AgentPaneCloudStart/progress(_:folder:machine:size:to:)``).
     func reply(_ start: AgentPaneCloudStart, tab: TabModel, report: @MainActor (AgentPaneCloudStart.Step) -> Void = { _ in }) async -> [String: Any] {
@@ -142,7 +142,7 @@ struct CloudStartChat {
             await CloudChatPick(services: services).read(folder: chat, tab: tab)
         } } // a refusal of its size names the size and the folder
         timeline?.mark("machine") // the pick or create, and its link
-        return try await plan.releasing(sameAccount: { account == services.cloud.account }, delete: { try await cli.strandThenDelete(key: start.key, account: CloudStartCore().accountText(account), machine: machine.machineID) { try await services.cloud.deleteMachine($0) } }) { // a start that can't go on deletes its machine
+        return try await services.cloud.startGate.holding(machine.machineID) { try await plan.releasing(sameAccount: { account == services.cloud.account }, delete: { try await cli.strandThenDelete(key: start.key, account: CloudStartCore().accountText(account), machine: machine.machineID) { try await services.cloud.deleteMachine($0) } }) { // a start that can't go on deletes its machine
             let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)
             // The account may have changed while the machine connected: copy nothing then.
             try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
@@ -177,14 +177,14 @@ struct CloudStartChat {
             try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
             report(.init(name: "opening", folder: folderName, machine: name, size: size,
                          start: .init(environmentId: plan.environmentId, setup: plan.setup)))
-            _ = await gateway.value
-            timeline?.mark("gateway") // 0 ms when it came up beside the steps
+            if PersonalGateway.turnNeedsIt(credential: origin.connection) { _ = await gateway.value }
+            timeline?.mark("gateway") // 0 ms when it came up beside the steps, or when the first prompt goes straight to the provider
             let entry = AgentTabStore.registryHost(of: machine.daemon).map {
                 CloudMovedChats.Entry(machineID: machine.machineID, host: $0, session: "", harness: start.harness,
                                       localRoot: folder.root, localChat: chat, remoteFolder: copy.1.folder, remoteChat: copy.1.chat)
             }
             return try await open(start, from: origin, on: machine, cwd: copy.1.chat, trusted: copy.1.sourceTrusted, tabKey: plan.tabKey, copy: entry)
-        }
+        } }
     }
 
     /// What a copy answers: the CLI's answer, the chat's folder and the copied folder on the machine, whether it copied now (false: an earlier copy under the key finished) and whether this Mac trusts the source.
@@ -273,7 +273,7 @@ struct CloudStartChat {
                    permissionMode: services.agentTabs.startPermissionMode(), credentials: { (try? await credentials?.launchCredential(chat: opened.key, machine: machineID, harness: start.harness, model: start.model))?.env }) { outcome in
                 logger.info("cloud start prewarm: \(outcome, privacy: .public) in \(CloudStartSteps.milliseconds(prewarmBegan.duration(to: .now)), privacy: .public) ms")
             }
-        if let shown = services.agentTabs.existingView(origin.tab.id), let window = shown.window { let tabs = services.agentTabs, key = AgentTabKey(machine: machine.machineID, key: opened.key); let drawn = await AgentPaneDrawFirst.draw({ tabs.view(for: key.key, machine: key.machine) }, makeable: { [weak tabs] in tabs.map { $0.existingView(key.key, machine: key.machine) != nil || ($0.record(for: key) != nil && $0.host(for: key) != nil) } ?? true }, in: window, size: shown.frame.size); timeline?.mark(drawn.rawValue); if drawn != .painted { services.cloud.logger.notice("cloud start: chat shows before its page painted (\(drawn.rawValue, privacy: .public))") } }; if let inPlace { services.agentTabs.pageChats.cloudStarted[AgentTabKey(machine: machine.machineID, key: opened.key)] = AgentPaneCloudStarted(start: original ?? start, chat: origin.chat, workspace: origin.workspace, account: origin.account, machineID: machine.machineID); handOff(true); Self.front(inPlace, with: .init(machine: machine.machineID, key: opened.key, workspace: anchor.id), services: services); return machine.machine.title }; if let slot = origin.workspace, let window = Self.placementWindow(of: slot, services: services) { services.windows.place(newWorkspace: anchor.id, in: window, at: Self.placementSlot(besides: slot)) } // the machine's page draws out of sight first (no blink, AgentPaneView+PaintParked), then its workspace takes the row this Mac's tab started in (cmux#45947), else the top of its machine's rows, never the end (cmux#47677)
+        if let shown = services.agentTabs.existingView(origin.tab.id), let window = shown.window { let tabs = services.agentTabs, key = AgentTabKey(machine: machine.machineID, key: opened.key); let drawn = await AgentPaneDrawFirst.draw({ tabs.view(for: key.key, machine: key.machine) }, makeable: { [weak tabs] in tabs.map { $0.existingView(key.key, machine: key.machine) != nil || ($0.record(for: key) != nil && $0.host(for: key) != nil) } ?? true }, in: window, size: shown.frame.size); timeline?.mark(drawn.rawValue); if drawn != .painted { services.cloud.logger.notice("cloud start: chat shows before its page painted (\(drawn.rawValue, privacy: .public))") } }; if let inPlace { services.agentTabs.pageChats.cloudStarted[AgentTabKey(machine: machine.machineID, key: opened.key)] = AgentPaneCloudStarted(start: original ?? start, chat: origin.chat, workspace: origin.workspace, account: origin.account, machineID: machine.machineID); handOff(true); services.cloudStartTitles.opened(origin.tab); Self.front(inPlace, with: .init(machine: machine.machineID, key: opened.key, workspace: anchor.id), services: services); return machine.machine.title }; if let slot = origin.workspace, let window = Self.placementWindow(of: slot, services: services) { services.windows.place(newWorkspace: anchor.id, in: window, at: Self.placementSlot(besides: slot)) } // the machine's page draws out of sight first (no blink, AgentPaneView+PaintParked), then its workspace takes the row this Mac's tab started in (cmux#45947), else the top of its machine's rows, never the end (cmux#47677)
         CloudHandlers.show(anchor.id, context)
         for window in services.windows.controllers { window.state.selection.select(opened.key, in: anchor.pane.id) }
         services.agentTabs.pageChats.cloudStarted[AgentTabKey(machine: machine.machineID, key: opened.key)] = AgentPaneCloudStarted(start: original ?? start, chat: origin.chat, workspace: origin.workspace, account: origin.account, machineID: machine.machineID)
@@ -290,7 +290,7 @@ struct CloudStartChat {
         report(.init(name: "machine"))
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
         let (machine, plan) = try await CloudSizeLocked.naming(start.size, bytes: start.folderBytes) { try await self.machine(for: start, account: account, workspace: origin.workspace, connection: origin.connection, cli: cli, invocation: invocation) { await CloudChatPick(services: services).read(folder: nil, tab: tab) } }
-        return try await plan.releasing(sameAccount: { account == services.cloud.account }, delete: { try await cli.strandThenDelete(key: start.key, account: CloudStartCore().accountText(account), machine: machine.machineID) { try await services.cloud.deleteMachine($0) } }) { // a start that can't go on deletes its machine
+        return try await services.cloud.startGate.holding(machine.machineID) { try await plan.releasing(sameAccount: { account == services.cloud.account }, delete: { try await cli.strandThenDelete(key: start.key, account: CloudStartCore().accountText(account), machine: machine.machineID) { try await services.cloud.deleteMachine($0) } }) { // a start that can't go on deletes its machine
             try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
             // No harness login: remote approvals alone are prepared before the first prompt.
             try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus) { account == services.cloud.account } }) {}
@@ -299,7 +299,7 @@ struct CloudStartChat {
             report(.init(name: "opening", machine: machine.machine.title, size: AgentPaneCloudStart.sizeText(machine.machine.size),
                          start: .init(environmentId: plan.environmentId, setup: plan.setup)))
             return try await open(start, from: origin, on: machine, cwd: cwd, tabKey: plan.tabKey)
-        }
+        } }
     }
 }
 
@@ -379,7 +379,7 @@ extension CloudStartChat {
         }, keyedInstance: { AcpmuxRemotePersonKeys.shared.instance(machine: $0) }, link: { [weak cloud] machine, team in
             guard let cloud, let connector = CloudCarrierDial.Connector(machine: machine, service: .mux, cli: cloud.binary, auth: cloud.auth, platform: cloud.configuration.relayAPIBaseURL(), team: team, stateDirectory: cloud.tuiState, streams: cloud.desktopStreams) else { return nil }
             return .init(spare: connector, paths: cloud.paths)
-        }, team: { [weak cloud] in await (try? cloud?.installIdentity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) }, route: { [weak cloud] machine in guard let cloud else { return nil }; return await CloudMachineRoute(api: cloud.machineAPI, machineID: machine).report() }) // the route check's report, read with no start of the machine; before it: the team the create bills (appServerCreate) and the claimed record names; never carrierTeam, the App's active team
+        }, team: { [weak cloud] in await (try? cloud?.installIdentity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) }, route: { [weak cloud] machine in guard let cloud else { return nil }; return await CloudMachineRoute(api: cloud.machineAPI, machineID: machine).report() }, warm: { [weak cloud] machine in guard let cloud else { return false }; return await CloudMachineRoute(api: cloud.machineAPI, machineID: machine).warmHome() }) // the route check's report, read with no start of the machine; before it: the team the create bills (appServerCreate) and the claimed record names; never carrierTeam, the App's active team
     }
 }
 

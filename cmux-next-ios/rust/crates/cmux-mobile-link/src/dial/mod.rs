@@ -14,6 +14,8 @@ use crate::api::IceServer;
 use crate::link::{Link, LinkConfig, Role};
 use crate::signaling::{SessionEvent, SignalEnvelope, SignalPayload, SignalingClient, SignalingEvent};
 
+pub mod diagnosis;
+pub mod relay;
 pub(crate) mod turn;
 /// Measurement support (cmux-mobile-path-probe).
 pub use turn::{TimedAllocation, TurnTransport, timed_allocation};
@@ -71,19 +73,24 @@ pub enum LinkPath {
     /// Through a TURN server whose client leg is TCP or TLS (a network that
     /// blocks UDP); WireGuard only.
     TurnTls,
+    /// Through cmux's own WebSocket relay over HTTPS (PROTOCOL.md "WebSocket
+    /// relay"), the last resort when neither UDP nor TURN gets through;
+    /// WireGuard only.
+    HttpsRelay,
     /// No working route at the moment (WireGuard: nothing from the peer
-    /// authenticated yet, or every route was refused). There is no backend
-    /// relay to fall back to any more.
+    /// authenticated yet, or every route was refused).
     NoPath,
 }
 
 impl LinkPath {
-    /// The path's wire name (`link_stat`, the debug probes): `direct`, `turn`, `turn-tls`, `none`.
+    /// The path's wire name (`link_stat`, the debug probes): `direct`, `turn`, `turn-tls`,
+    /// `https-relay`, `none`.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Direct => "direct",
             Self::Turn => "turn",
             Self::TurnTls => "turn-tls",
+            Self::HttpsRelay => "https-relay",
             Self::NoPath => "none",
         }
     }
@@ -129,6 +136,22 @@ pub struct DialOptions {
     /// server the dial fails at once. WebRTC ignores it (webrtc-rs has no
     /// TURN over TCP or TLS).
     pub block_udp: bool,
+    /// cmux's WebSocket relay (PROTOCOL.md "WebSocket relay"): where this
+    /// side joins it when neither plain UDP nor TURN reaches the peer.
+    /// `None`: no relay (tests, tools, and the dial fails as before).
+    pub relay: Option<relay::RelayEndpoint>,
+    /// Debug "Relay via cmux (HTTPS) only" (and the rig's
+    /// `CMUX_MOBILE_DEV_FORCE_RELAY`): WireGuard sends no plain UDP, takes no
+    /// TURN allocation, and joins the relay at once, so the link rides it
+    /// (path `https-relay`); without [`Self::relay`] the dial fails at once.
+    pub force_relay: bool,
+    /// Where a WireGuard dial records each path's failure, for the error it
+    /// returns when none works ([`DialError::Blocked`]). Shared by clones.
+    pub diagnosis: diagnosis::Diagnosis,
+    /// Test support: how long another confirmed route carries the session
+    /// before the relay socket is let go (default 60 s).
+    #[doc(hidden)]
+    pub relay_leave_after: Option<Duration>,
     /// Test support: trust these roots, not the public web PKI, for TURN
     /// over TLS (a test TURN server's self-signed certificate).
     #[doc(hidden)]
@@ -250,6 +273,10 @@ impl Default for DialOptions {
     fn default() -> Self {
         Self {
             ice_servers: Vec::new(),
+            relay: None,
+            force_relay: false,
+            diagnosis: diagnosis::Diagnosis::default(),
+            relay_leave_after: None,
             include_loopback: false,
             exclude_cgnat: false,
             relay_only: false,
@@ -315,7 +342,7 @@ pub fn route_name(path: LinkPath, peer: Option<std::net::IpAddr>) -> &'static st
         (LinkPath::Direct, Some(ip)) if is_lan(ip) => "direct-lan",
         (LinkPath::Direct, Some(_)) => "direct-wan",
         (LinkPath::Direct, None) => "direct",
-        (LinkPath::Turn | LinkPath::TurnTls, _) => "relay",
+        (LinkPath::Turn | LinkPath::TurnTls | LinkPath::HttpsRelay, _) => "relay",
         (LinkPath::NoPath, _) => "none",
     }
 }
@@ -332,9 +359,39 @@ pub fn is_cgnat(ip: std::net::IpAddr) -> bool {
     }
 }
 
+/// Where a direct path's peer address is, as one word: `lan` (on this network, [`is_lan`]),
+/// `tailnet` (100.64.0.0/10 or Tailscale's IPv6 range, [`is_cgnat`]: a tailnet, or a carrier's
+/// CGNAT), `wan` (any other routed address) or empty (relayed, no route yet, or unknown). The
+/// phone's DEBUG hand-off receipt names it, so a dev link over Tailscale is never taken for the
+/// LAN or internet path a user without Tailscale gets.
+pub fn peer_scope(peer: Option<std::net::IpAddr>) -> &'static str {
+    // An IPv4-mapped IPv6 peer is its IPv4 address.
+    let peer = peer.map(|ip| match ip {
+        std::net::IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, std::net::IpAddr::V4),
+        ip => ip,
+    });
+    match peer {
+        Some(ip) if is_cgnat(ip) => "tailnet",
+        Some(ip) if is_lan(ip) => "lan",
+        Some(_) => "wan",
+        None => "",
+    }
+}
+
 /// A byte stream a link can run on.
 pub trait LinkStream: AsyncRead + AsyncWrite + Send + Unpin + 'static {}
 impl<T: AsyncRead + AsyncWrite + Send + Unpin + 'static> LinkStream for T {}
+
+/// The two WireGuard static public keys a tunnel handshook with (base64, as
+/// in `wg-init` and `wg-resp`): the dialer's (the phone's) and the
+/// answerer's (the Mac's). `auth`'s identity proofs cover them (PROTOCOL.md
+/// "Mac identity"), so the keys each side signs are the ones its own tunnel
+/// authenticated.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunnelKeys {
+    pub dialer: String,
+    pub answerer: String,
+}
 
 /// A dialed or answered transport.
 pub struct Dialed {
@@ -356,6 +413,8 @@ pub struct Dialed {
     /// Pings and pongs as datagrams, when both sides listed
     /// [`crate::link::LIVENESS_LANE`] (WireGuard).
     pub liveness: Option<crate::link::LivenessDatagrams>,
+    /// The tunnel's static keys (WireGuard); `None` on WebRTC.
+    pub tunnel_keys: Option<TunnelKeys>,
 }
 
 /// A negotiated media carrier; the link starts its core once it runs (the
@@ -445,6 +504,10 @@ pub enum DialError {
     Transport(String),
     #[error("unexpected signal: {0}")]
     Unexpected(String),
+    /// No way to the peer worked, and each one's failure is known
+    /// (PROTOCOL.md "When no path works"): the network blocks the link.
+    #[error("no path to the peer: {0}")]
+    Blocked(Box<diagnosis::PathFailures>),
 }
 
 pub type DialFuture<'a> = Pin<Box<dyn Future<Output = Result<Dialed, DialError>> + Send + 'a>>;
@@ -528,6 +591,8 @@ pub struct Connected {
     /// Both sides agreed on a WebRTC media session beside this (WireGuard)
     /// link; the phone opens it on demand ([`crate::hybrid`]).
     pub webrtc_media: bool,
+    /// The tunnel's static keys (WireGuard); `None` on WebRTC.
+    pub tunnel_keys: Option<TunnelKeys>,
 }
 
 /// Phone side: dial `mac` over `kind` and run a link on the result.
@@ -538,23 +603,82 @@ pub async fn connect(
     options: &DialOptions,
     link_config: LinkConfig,
 ) -> Result<Connected, DialError> {
+    refuse_unreachable(kind, options)?;
+    connect_on(signaling, mac, kind, options, link_config, None).await
+}
+
+/// Phone side, a redial: `signaling` is the signaling reconnect, and the
+/// dial ([`connect`]) follows it on the client it gives. A WireGuard dial's
+/// TURN allocation starts now, beside the reconnect, instead of after it:
+/// its round trips overlap the reconnect's. Nothing is allocated before
+/// this is called, and an allocation the dial never takes (the reconnect
+/// failed, or this future was dropped) is released at once. Marks
+/// `signaling_connected` when the reconnect is done, then [`connect`]'s
+/// marks (`turn_early_allocated` when the allocation is in hand). Returns
+/// the client with the link.
+pub async fn connect_after<E: std::fmt::Display>(
+    signaling: impl Future<Output = Result<SignalingClient, E>>,
+    mac: &str,
+    kind: TransportKind,
+    options: &DialOptions,
+    link_config: LinkConfig,
+) -> Result<(SignalingClient, Connected), DialError> {
+    refuse_unreachable(kind, options)?;
+    let early = (kind == TransportKind::WireGuard).then(|| wireguard::EarlyTurn::start(options));
+    let signaling = signaling.await.map_err(|error| DialError::Signaling(error.to_string()))?;
+    options.timeline.mark("signaling_connected");
+    let connected = connect_on(&signaling, mac, kind, options, link_config, early).await?;
+    Ok((signaling, connected))
+}
+
+/// A dial that cannot work with what `options` offer fails at once.
+fn refuse_unreachable(kind: TransportKind, options: &DialOptions) -> Result<(), DialError> {
     if options.relay_only && kind == TransportKind::WebRtc && turn_url_count(&options.ice_servers) == 0 {
         return Err(DialError::Transport(
             "relay only needs a TURN server, and the service offered none".into(),
         ));
     }
+    if kind == TransportKind::WireGuard && options.force_relay && options.relay.is_none() {
+        return Err(DialError::Transport(
+            "relay via cmux needs the service's relay, and there is none".into(),
+        ));
+    }
+    // Without a TURN server the debug UDP-blocked mode still has the relay;
+    // relay only is about TURN, so it still needs one.
+    let relay_covers = options.force_relay || (options.relay.is_some() && !options.relay_only);
     if kind == TransportKind::WireGuard
+        && !relay_covers
         && let Some(reason) = wireguard::missing_turn(options)
     {
         return Err(DialError::Transport(reason.into()));
     }
+    Ok(())
+}
+
+/// [`connect`] on `signaling`, a WireGuard dial taking the TURN allocation
+/// `early` when a redial started one.
+async fn connect_on(
+    signaling: &SignalingClient,
+    mac: &str,
+    kind: TransportKind,
+    options: &DialOptions,
+    link_config: LinkConfig,
+    early: Option<wireguard::EarlyTurn>,
+) -> Result<Connected, DialError> {
     let session_id = uuid::Uuid::new_v4().to_string();
     let events = SessionEvents::subscribe(signaling, &session_id);
     let dialer = kind.dialer();
     options.timeline.mark("dial_start");
-    let result =
-        tokio::time::timeout(options.timeout, dialer.dial(signaling, mac, &session_id, events, options))
-            .await;
+    let dial = match early {
+        Some(early) => wireguard::dial_wireguard(signaling, mac, &session_id, events, options, Some(early)),
+        None => dialer.dial(signaling, mac, &session_id, events, options),
+    };
+    // A WireGuard dial whose last way (the relay) failed too ends then, with
+    // why, instead of waiting out its timeout.
+    let result = tokio::select! {
+        result = tokio::time::timeout(options.timeout, dial) => result,
+        () = options.diagnosis.given_up() => Ok(Err(options.diagnosis.blocked())),
+    };
     let dialed = match result {
         Ok(Ok(dialed)) => dialed,
         Ok(Err(error)) => {
@@ -565,7 +689,7 @@ pub async fn connect(
         Err(_) => {
             signaling.unsubscribe(&session_id);
             let _ = signaling.send_signal(mac, &session_id, SignalPayload::Bye { reason: "timeout".into() });
-            return Err(DialError::Timeout);
+            return Err(options.diagnosis.timed_out(kind));
         }
     };
     let link = Link::new(dialed.stream, Role::Phone, link_config, Some(dialed.guard));
@@ -587,6 +711,7 @@ pub async fn connect(
         peer: dialed.peer,
         session_id,
         webrtc_media: dialed.webrtc_media,
+        tunnel_keys: dialed.tunnel_keys,
     })
 }
 
@@ -603,6 +728,8 @@ pub async fn answer(
     let session_id = first.session_id.clone();
     let peer = first.from.clone();
     let dialer = kind.dialer();
+    // The Mac never ends its answer early on the diagnosis: the phone says why,
+    // and a `bye` from here would only race the phone's own verdict.
     let result =
         tokio::time::timeout(options.timeout, dialer.answer(signaling, first, events, options)).await;
     let dialed = match result {
@@ -615,7 +742,7 @@ pub async fn answer(
         Err(_) => {
             let _ =
                 signaling.send_signal(&peer, &session_id, SignalPayload::Bye { reason: "timeout".into() });
-            return Err(DialError::Timeout);
+            return Err(options.diagnosis.timed_out(kind));
         }
     };
     let link = Link::new(dialed.stream, Role::Mac, link_config, Some(dialed.guard));
@@ -637,6 +764,7 @@ pub async fn answer(
         peer: dialed.peer,
         session_id,
         webrtc_media: dialed.webrtc_media,
+        tunnel_keys: dialed.tunnel_keys,
     })
 }
 
@@ -665,6 +793,193 @@ mod tests {
         assert_eq!(route_name(LinkPath::NoPath, None), "none");
     }
 
+    #[test]
+    fn a_peer_is_on_this_network_a_tailnet_or_the_internet() {
+        let ip = |text: &str| Some(text.parse::<std::net::IpAddr>().unwrap());
+        // A Mac on the phone's own wifi or ethernet.
+        assert_eq!(peer_scope(ip("192.168.1.23")), "lan");
+        assert_eq!(peer_scope(ip("10.0.0.5")), "lan");
+        assert_eq!(peer_scope(ip("fe80::1")), "lan");
+        assert_eq!(peer_scope(ip("::ffff:192.168.1.23")), "lan");
+        // Tailscale (and a carrier's CGNAT), IPv4, IPv4-mapped and IPv6: never the LAN.
+        assert_eq!(peer_scope(ip("100.101.102.103")), "tailnet");
+        assert_eq!(peer_scope(ip("100.64.0.1")), "tailnet");
+        assert_eq!(peer_scope(ip("::ffff:100.101.102.103")), "tailnet");
+        assert_eq!(peer_scope(ip("fd7a:115c:a1e0::1")), "tailnet");
+        // A hole-punched public address.
+        assert_eq!(peer_scope(ip("203.0.113.9")), "wan");
+        assert_eq!(peer_scope(ip("100.128.0.1")), "wan");
+        assert_eq!(peer_scope(ip("2001:db8::1")), "wan");
+        // A relayed path, or no route yet.
+        assert_eq!(peer_scope(None), "");
+    }
+
+    /// A Mac on `signaling` that answers every session (`answer`), or
+    /// takes them and never answers.
+    async fn mac(signaling: &crate::testing::FakeSignaling, answer: bool) -> (String, SignalingClient) {
+        let mac_id = uuid::Uuid::new_v4().to_string();
+        let mac = SignalingClient::connect(&signaling.base_url, "user:alice", "team", &mac_id)
+            .await
+            .expect("Mac signaling");
+        let serving = mac.clone();
+        tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Some(session) = serving.next_session().await {
+                if !answer {
+                    held.push(session);
+                    continue;
+                }
+                let events = SessionEvents {
+                    backend: serving.events(),
+                    session_id: session.first.session_id.clone(),
+                    session: session.events,
+                };
+                let (mac, options) =
+                    (serving.clone(), DialOptions { include_loopback: true, ..DialOptions::default() });
+                tokio::spawn(async move {
+                    if let Ok(connected) = answer_on(&mac, session.first, events, &options).await {
+                        // Held for the rest of the test.
+                        std::mem::forget(connected);
+                    }
+                });
+            }
+        });
+        (mac_id, mac)
+    }
+
+    async fn answer_on(
+        mac: &SignalingClient,
+        first: SignalEnvelope,
+        events: SessionEvents,
+        options: &DialOptions,
+    ) -> Result<Connected, DialError> {
+        super::answer(mac, first, events, options, LinkConfig::default()).await
+    }
+
+    fn relayed(turn: &crate::testing::TestTurn) -> DialOptions {
+        DialOptions {
+            include_loopback: true,
+            relay_only: true,
+            ice_servers: vec![turn.udp_only()],
+            timeout: Duration::from_secs(10),
+            ..DialOptions::default()
+        }
+    }
+
+    /// Waits up to 5 s for the TURN server to hold `count` allocations.
+    async fn held(turn: &crate::testing::TestTurn, count: usize) -> bool {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while turn.allocations() != count {
+            if tokio::time::Instant::now() >= deadline {
+                return false;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        true
+    }
+
+    /// A redial's TURN allocation is made while signaling reconnects (the
+    /// reconnect here finishes only once the server holds it), and the dial
+    /// rides that allocation: no second one.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_redial_allocates_turn_while_signaling_reconnects() {
+        let signaling = crate::testing::FakeSignaling::start(crate::testing::FakeOptions::default()).await;
+        let turn = crate::testing::TestTurn::start().await;
+        let (mac_id, _mac) = mac(&signaling, true).await;
+        let options = relayed(&turn);
+        assert_eq!(turn.allocations(), 0, "nothing is held before the redial");
+        let reconnect = async {
+            if !held(&turn, 1).await {
+                return Err("no TURN allocation while signaling reconnected");
+            }
+            SignalingClient::connect(&signaling.base_url, "user:alice", "team", "phone")
+                .await
+                .map_err(|_| "signaling")
+        };
+        let (_phone, connected) =
+            connect_after(reconnect, &mac_id, TransportKind::WireGuard, &options, LinkConfig::default())
+                .await
+                .expect("the redial connects");
+        assert_eq!(*connected.path.borrow(), LinkPath::Turn);
+        let at = |name: &str| options.timeline.get(name).unwrap_or_else(|| panic!("no {name} mark"));
+        assert!(at("turn_early_allocated") <= at("signaling_connected"));
+        assert!(at("signaling_connected") <= at("dial_start"));
+        assert!(at("dial_start") <= at("turn_allocated"));
+        assert_eq!(turn.allocations(), 1, "the dial took the early allocation");
+    }
+
+    /// An early allocation whose signaling reconnect fails is released.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_redial_whose_signaling_fails_releases_its_turn_allocation() {
+        let turn = crate::testing::TestTurn::start().await;
+        let options = relayed(&turn);
+        let reconnect = async {
+            let allocated = held(&turn, 1).await;
+            Err::<SignalingClient, _>(if allocated { "signaling down" } else { "not allocated" })
+        };
+        let result =
+            connect_after(reconnect, "mac", TransportKind::WireGuard, &options, LinkConfig::default()).await;
+        assert!(
+            matches!(&result, Err(DialError::Signaling(reason)) if reason == "signaling down"),
+            "{:?}",
+            result.err()
+        );
+        assert!(held(&turn, 0).await, "{} allocations still held", turn.allocations());
+    }
+
+    /// A redial dropped mid-dial (the Mac never answers), and one dropped
+    /// while signaling still reconnects, hold no allocation afterwards.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_abandoned_redial_releases_its_turn_allocation() {
+        let signaling = crate::testing::FakeSignaling::start(crate::testing::FakeOptions::default()).await;
+        let turn = crate::testing::TestTurn::start().await;
+        let (mac_id, _mac) = mac(&signaling, false).await;
+        let options = relayed(&turn);
+        let reconnect = SignalingClient::connect(&signaling.base_url, "user:alice", "team", "phone");
+        let mut redial = Box::pin(connect_after(
+            reconnect,
+            &mac_id,
+            TransportKind::WireGuard,
+            &options,
+            LinkConfig::default(),
+        ));
+        let waited = tokio::select! {
+            result = &mut redial => panic!("an unanswered dial ended: {:?}", result.err()),
+            waited = async {
+                let allocated = held(&turn, 1).await;
+                // The dial took it and waits for the Mac's answer.
+                while options.timeline.get("wg_init_sent").is_none() {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                allocated
+            } => waited,
+        };
+        assert!(waited, "the redial allocated");
+        drop(redial);
+        assert!(held(&turn, 0).await, "{} allocations held after the abandoned dial", turn.allocations());
+
+        let options = relayed(&turn);
+        let reconnect = std::future::pending::<Result<SignalingClient, &str>>();
+        let mut redial = Box::pin(connect_after(
+            reconnect,
+            &mac_id,
+            TransportKind::WireGuard,
+            &options,
+            LinkConfig::default(),
+        ));
+        let allocated = tokio::select! {
+            _ = &mut redial => unreachable!("the reconnect never ends"),
+            allocated = held(&turn, 1) => allocated,
+        };
+        assert!(allocated, "the redial allocated while signaling reconnects");
+        drop(redial);
+        assert!(
+            held(&turn, 0).await,
+            "{} allocations held after the abandoned reconnect",
+            turn.allocations()
+        );
+    }
+
     fn error(session_id: Option<&str>) -> SignalingEvent {
         SignalingEvent::Error {
             code: "offline".into(),
@@ -689,6 +1004,7 @@ mod tests {
             session_id: "new".into(),
             payload: SignalPayload::Bye { reason: "test".into() },
             from_user_id: None,
+            relay_ticket: None,
         };
         session_tx.send(SessionEvent::Signal(bye)).unwrap();
         assert!(matches!(events.next().await, Ok(SessionEvent::Signal(_))));

@@ -19,6 +19,8 @@ import {
 } from "./mockFixture";
 import { mockGitCommit, mockGitDiff, mockGitPush, mockGitStatus } from "./mockGit";
 import { mockFileSearch } from "./mockFiles";
+import { dataUrlImageSize } from "./conversation/imageEntries";
+import { sampleAgentHome, type AgentHome } from "./session-info/carriedSectionModel";
 import { lightTurn, loadTurn, streamedReply, streamedTool } from "./loadFixture";
 import {
   journeyCell,
@@ -270,6 +272,12 @@ export type LoadStreamOptions = {
     elapsedMs: number;
     maxGapMs: number;
     maxScheduleOffsetMs: number;
+    /// This chunk's time (`performance.now()`), the one before it and its due time (the chunk before's
+    /// with no fixed schedule), so a reader can take the maxima over a window of its own (a bench's
+    /// typing window) instead of the run's.
+    atMs: number;
+    previousAtMs: number;
+    dueAtMs: number;
   }) => void;
 };
 
@@ -314,6 +322,8 @@ export class MockAcpmuxSocket {
   /// Stashed drafts by chat, newest first, as acpmux keeps them (stash.rs), without its limits.
   private stash = new Map<string, { id: string; text: string; attachments: unknown[]; at: number }[]>();
   private stashSerial = 0;
+  /** Session Info's Carried memory (`_acpmux/agent_home`): sample files and proposals, settled by resolve. */
+  private agentHome: AgentHome | undefined;
   private handoffs = new MockHandoffs(
     () => this.sessions,
     (source, harness) => {
@@ -541,6 +551,8 @@ export class MockAcpmuxSocket {
       } else await this.delay(options.chunkMs);
       if (options.stopped?.() || this.closed) break;
       const now = performance.now();
+      const previousAtMs = previous;
+      const dueAtMs = options.fixedSchedule ? nextChunkAt : previous;
       maxGapMs = Math.max(maxGapMs, now - previous);
       previous = now;
       if (options.fixedSchedule) {
@@ -566,7 +578,16 @@ export class MockAcpmuxSocket {
           },
         });
       }
-      options.progress?.({ deltas, toolLines, elapsedMs: now - started, maxGapMs, maxScheduleOffsetMs });
+      options.progress?.({
+        deltas,
+        toolLines,
+        elapsedMs: now - started,
+        maxGapMs,
+        maxScheduleOffsetMs,
+        atMs: now,
+        previousAtMs,
+        dueAtMs,
+      });
       if (options.toolEvery > 0 && deltas % options.toolEvery === 0) {
         this.emit(target, { update: streamedTool(turn, tools) });
         tools += 1;
@@ -972,6 +993,30 @@ export class MockAcpmuxSocket {
         this.stash.delete(from);
         return { moved: moving.length, ids: source.map((entry) => entry.id) };
       }
+      // Session Info's Carried memory (acpmux agent_home.rs): sample files and two proposals; a
+      // resolve settles the ones it names, as the daemon would, and refuses an id it does not hold.
+      case "_acpmux/agent_home": {
+        this.agentHome ??= sampleAgentHome(Date.now(), 2);
+        return this.agentHome;
+      }
+      case "_acpmux/agent_home_resolve": {
+        this.agentHome ??= sampleAgentHome(Date.now(), 2);
+        const held = new Set(this.agentHome.proposals.map((proposal) => proposal.id));
+        const ids = (value: unknown) => (Array.isArray(value) ? value.map(String) : []);
+        const accepted = ids(params.accept).filter((id) => held.has(id));
+        const dropped = ids(params.drop).filter((id) => held.has(id) && !accepted.includes(id));
+        const refused = [...ids(params.accept), ...ids(params.drop)]
+          .filter((id) => !held.has(id))
+          .map((id) => ({ id, reason: "unknown proposal" }));
+        const settled = new Set([...accepted, ...dropped]);
+        const revision = (this.agentHome.revision ?? 0) + (accepted.length > 0 ? 1 : 0);
+        this.agentHome = {
+          ...this.agentHome,
+          revision,
+          proposals: this.agentHome.proposals.filter((proposal) => !settled.has(proposal.id)),
+        };
+        return { accepted, dropped, refused, revision };
+      }
       // The memory inbox's Accept and Dismiss (acpmux hub/memory.rs): writes nothing here, and logs
       // the `memory_resolved` record the daemon would, with only the offer's facts still open.
       case "_acpmux/memory_resolve": {
@@ -1210,8 +1255,11 @@ export class MockAcpmuxSocket {
           .filter((block: Record<string, unknown>) => block?.type === "image" && typeof block.data === "string")
           .map((block: Record<string, string>) => {
             const id = `image-${this.promptImages.size + 1}`;
-            this.promptImages.set(id, { mimeType: block.mimeType ?? "image/png", data: block.data! });
-            return { id, mimeType: block.mimeType ?? "image/png", ...(block.name ? { name: block.name } : {}) };
+            const mimeType = block.mimeType ?? "image/png";
+            this.promptImages.set(id, { mimeType, data: block.data! });
+            // Its pixel size, as acpmux records it (hub/image_size.rs).
+            const size = dataUrlImageSize(`data:${mimeType};base64,${block.data}`);
+            return { id, mimeType, ...(block.name ? { name: block.name } : {}), ...size };
           });
         const queued = this.pending > 0 && promptId !== undefined;
         // A queued prompt's record names its images too, so its row shows them (ComposerQueue.tsx).
