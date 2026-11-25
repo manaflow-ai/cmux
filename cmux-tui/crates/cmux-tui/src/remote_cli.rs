@@ -31,7 +31,7 @@ use cmux_remote::identity::{
 use cmux_remote::provider::{
     Dialer, IrohPathMode, MachinePipeDialer, ProviderError, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID,
     ROUTING_RELAY_URL, RelayCredentialSource, SocksDialer, SshProvider, SshProviderConfig,
-    SupportedClientAuthModes, WireGuardDialer, sanitized_route,
+    SupportedClientAuthModes, TailnetCarrierMode, WireGuardDialer, sanitized_route,
 };
 use cmux_remote::secure_directory::{DirectoryAccess, ensure_secure_directory};
 use cmux_remote_protocol::{
@@ -44,13 +44,15 @@ use zeroize::Zeroizing;
 
 use crate::localization::catalog;
 #[cfg(test)]
+use crate::remote_runtime::client_provider_registry;
+#[cfg(test)]
 use crate::remote_runtime::persist_daemon_lifecycle_fence;
 use crate::remote_runtime::{
     ClientRuntimeOptions, DaemonRuntimeOptions, DaemonShutdownStatus, RelayClientOptions,
     ResolvedRouteCandidate, SshBootstrapOptions, acknowledge_failed_shutdown_outcome,
-    acknowledge_legacy_shutdown_state, client_provider_registry, complete_verified_daemon_stop,
-    daemon_paths, inactive_daemon_needs_legacy_acknowledgement, load_runtime_info,
-    load_shutdown_outcome, start_client_runtime, start_daemon_runtime,
+    acknowledge_legacy_shutdown_state, client_provider_registry_with_tailnet,
+    complete_verified_daemon_stop, daemon_paths, inactive_daemon_needs_legacy_acknowledgement,
+    load_runtime_info, load_shutdown_outcome, start_client_runtime, start_daemon_runtime,
     start_recovering_client_runtime,
 };
 use crate::session::{RemoteSession, Session};
@@ -64,6 +66,8 @@ mod remote_link_mux;
 mod self_install;
 mod spill;
 mod spill_cloud;
+mod ssh_bench;
+mod ssh_carrier;
 use daemon_lifecycle::*;
 use enroll::*;
 use exec_cp::{ExitWith, run_cp, run_exec};
@@ -75,7 +79,6 @@ const WIREGUARD_HUB_START_TIMEOUT: Duration = Duration::from_secs(10);
 const WIREGUARD_HUB_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const ENROLLMENT_APPROVAL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const MAX_RPC_STDIN_LINE_BYTES: usize = 16 * 1024 * 1024;
-const MAX_CLIENT_RELAY_ROUTES: usize = 4;
 const DETACHED_TERM_GRACE: Duration = Duration::from_millis(500);
 const DETACHED_KILL_GRACE: Duration = Duration::from_secs(1);
 const FORWARD_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
@@ -115,6 +118,15 @@ fn run_inner(
     if remote_help_requested(rest) {
         let help = remote_help(args.first().map(String::as_str));
         // `cmux remote --help` also lists the cmux app's `remote …` verbs (cli/app_action_help.rs).
+        // `cmux remote disconnect --help`: that verb's own help. Before, every `remote <verb>`
+        // printed the whole remote help (the Cloud and remote command matrix).
+        if let Some(text) = (args.first().map(String::as_str) == Some("remote"))
+            .then(|| remote_verb_help(rest))
+            .flatten()
+        {
+            print!("{text}");
+            return Ok(());
+        }
         match args.first().map(String::as_str) {
             Some("remote") => match crate::cli::app_action_help::append("remote", help) {
                 Some(text) => print!("{text}"),
@@ -232,6 +244,16 @@ fn is_inline_secret_option(argument: &str, option: &str) -> bool {
         || argument.strip_prefix(option).is_some_and(|suffix| suffix.starts_with('='))
 }
 
+/// The help of the verb after `remote`: a remote action's own (`remote exec` is `remote-exec`'s),
+/// else the cmux app's `remote <verb>` action's. `None` for no verb or an unknown one.
+fn remote_verb_help(rest: &[String]) -> Option<String> {
+    let verb = rest.first().filter(|word| !word.starts_with('-'))?;
+    if let Some(command) = crate::cli::remote_action_command(verb) {
+        return Some(remote_help(Some(command)).to_owned());
+    }
+    crate::cli::app_action_help::verb_help("remote", verb)
+}
+
 fn remote_help(command: Option<&str>) -> &'static str {
     let client = &catalog().remote_client;
     match command {
@@ -314,6 +336,10 @@ struct ConnectFlags {
     forward_listen: Option<std::net::SocketAddr>,
     forward_scheme: String,
     rpc_request: Option<String>,
+    /// `--repo LOCAL[:REMOTE]`: once connected, seed LOCAL's repo into REMOTE on the
+    /// host over this same link (`link/seed_cli.rs`: the git carry pack, else clone,
+    /// else copy). REMOTE defaults to `~/<LOCAL's folder name>`.
+    repo: Option<String>,
 }
 
 enum InvitationArg {
@@ -537,6 +563,11 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
             "--exit-with-parent" => flags.exit_with_parent = true,
             "--vm-kind" => flags.vm_owner = value("--vm-kind")? == "owner",
             "--headless" => flags.headless = true,
+            "--repo" => {
+                if flags.repo.replace(value("--repo")?).is_some() {
+                    return Err(anyhow!(catalog().remote_client.option_once("--repo")));
+                }
+            }
             "--json" => flags.json = true,
             "--session" => flags.ssh_session = value("--session")?,
             "--ssh-binary" => flags.ssh_binary = value("--ssh-binary")?,
@@ -622,6 +653,12 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
     Ok(flags)
 }
 
+/// The hub route a connect takes on its own: the one an invitation or a known daemon carries
+/// (`carried`), unless it is this very machine's (`local`), whose loopback daemon answers here.
+pub(crate) fn implied_hub_route(carried: Option<String>, local: Option<&str>) -> Option<String> {
+    carried.filter(|via| Some(via.as_str()) != local)
+}
+
 fn set_invitation_arg(
     destination: &mut Option<InvitationArg>,
     invitation: InvitationArg,
@@ -657,7 +694,17 @@ fn connect_with_flags(
     let json = flags.json;
     let owner = flags.exit_with_parent.then(current_parent_process_id);
     let vm_owner = flags.vm_owner;
+    let repo = flags.repo.as_deref().map(|spec| RepoSeed::plan(spec, &flags)).transpose()?;
     let connected = start_connected(flags)?;
+    if let Some(repo) = repo {
+        let line = repo.seed(&connected.runtime.info().local_socket);
+        if json {
+            println!("{}", serde_json::json!({"event": "repo-seed", "seed": line}));
+            io::stdout().flush()?;
+        } else {
+            eprintln!("{line}");
+        }
+    }
     if headless {
         if json {
             let runtime = tokio_runtime()?;
@@ -782,6 +829,30 @@ fn start_connected_inner(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRun
         .join("client");
     let store = ClientIdentityStore::load_or_create(&client_root)?;
     let async_runtime = tokio_runtime()?;
+    // The daemon's hub route when the person named no way to reach it: the invitation's
+    // (`via_machine`), else the known daemon's, kept from the invitation that enrolled it.
+    let hub_route = if flags.via_machine.is_none()
+        && flags.wireguard_config.is_none()
+        && flags.wireguard_hub.is_none()
+        && flags.route.is_none()
+    {
+        let carried = match &invitation {
+            Some(invitation) => invitation.via_machine.clone(),
+            None => async_runtime
+                .block_on(select_known_daemon(&store, flags.daemon.as_deref(), None))
+                .ok()
+                .and_then(|known| known.via_machine),
+        };
+        implied_hub_route(carried, local_hub_route().as_deref())
+    } else {
+        None
+    };
+    if hub_route.is_some() {
+        flags.via_machine = hub_route;
+    }
+    // A node key the dial goes through (given or implied), kept with the daemon it enrolls.
+    let dial_via =
+        flags.via_machine.clone().filter(|via| cmux_remote::identity::is_hub_machine_key(via));
     let direct_dialer: Option<Arc<dyn Dialer>> =
         match (flags.wireguard_config.take(), flags.wireguard_hub.take()) {
             (Some(path), _) => {
@@ -831,9 +902,8 @@ fn start_connected_inner(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRun
             relay_routes.entry(route).or_insert(options);
         }
     }
-    if relay_routes.len() > MAX_CLIENT_RELAY_ROUTES {
-        return Err(anyhow!(catalog().remote_client.relay_route_limit(MAX_CLIENT_RELAY_ROUTES)));
-    }
+    // Relay routes are not capped by count: each is one entry in the routed provider's
+    // map, dialed only when a connection asks for it.
     let ssh = SshProviderConfig {
         ssh_binary: flags.ssh_binary.clone(),
         remote_binary: flags.remote_binary.clone(),
@@ -847,12 +917,20 @@ fn start_connected_inner(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRun
         capture_stderr: false,
     };
     let relay_route_names = relay_routes.keys().cloned().collect::<Vec<_>>();
-    let providers = Arc::new(client_provider_registry(
+    let tailnet_mode = match cmux_tui_core::user_settings::tailnet_carrier() {
+        cmux_tui_core::user_settings::TailnetCarrier::Off => TailnetCarrierMode::Off,
+        cmux_tui_core::user_settings::TailnetCarrier::DirectOnly => TailnetCarrierMode::DirectOnly,
+        cmux_tui_core::user_settings::TailnetCarrier::On => TailnetCarrierMode::On,
+    };
+    let providers = Arc::new(client_provider_registry_with_tailnet(
         ssh.clone(),
         relay_routes,
         flags.iroh_path,
         direct_dialer,
         flags.carrier,
+        tailnet_mode,
+        // Off reads nothing; on, tailscaled's LocalAPI through its cached snapshot.
+        cmux_remote::provider::hints_for_mode(tailnet_mode),
     )?);
     let explicit_route = flags.route.take();
     let explicit_route_for_refresh = explicit_route.clone();
@@ -958,11 +1036,15 @@ fn start_connected_inner(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRun
     };
 
     if let Some(invitation) = &invitation {
-        async_runtime.block_on(store.pin_daemon(
+        let pinned = async_runtime.block_on(store.pin_daemon(
             invitation.daemon_name.clone(),
             invitation_daemon_key(invitation)?,
             route_strings,
         ))?;
+        // Its hub route, so a later connect with no invitation dials it the same way.
+        if let Some(via) = &dial_via {
+            async_runtime.block_on(store.remember_via_machine(&pinned.fingerprint, via))?;
+        }
     } else if carrier_auth {
         let name = credential_free_route_hint(&route_strings[0])?;
         async_runtime.block_on(store.pin_carrier_daemon(
@@ -1084,9 +1166,6 @@ fn client_relay_options(
     }
     if routes.len() != slots.len() {
         return Err(anyhow!(messages.route_scoped_relay_credential_pair_required));
-    }
-    if routes.len() > MAX_CLIENT_RELAY_ROUTES {
-        return Err(anyhow!(messages.relay_credential_limit(MAX_CLIENT_RELAY_ROUTES)));
     }
     let mut by_route = BTreeMap::new();
     for ((route, slot), credential) in routes.into_iter().zip(slots).zip(credentials) {
@@ -1470,7 +1549,21 @@ fn run_ssh(
     args: &[String],
     load_config: impl FnOnce() -> crate::config::StartupConfigSnapshot,
 ) -> anyhow::Result<()> {
-    connect_with_flags(direct_ssh_flags(args)?, load_config)
+    // RFD 0127's harness (`ssh_bench.rs`): `--bench` measures, `--bench-pipe` is its ProxyCommand.
+    if ssh_bench::wants_pipe(args) {
+        return ssh_bench::pipe(args);
+    }
+    if ssh_bench::wants(args) {
+        return ssh_bench::run(args);
+    }
+    // The hub carrier first for one of this person's listed machines (`ssh_carrier.rs`).
+    let (way, rest) = ssh_carrier::split_way(args)?;
+    if way != ssh_carrier::Way::SshOnly
+        && let Some((remote, host)) = ssh_carrier::reach(&rest, way)?
+    {
+        return crate::run_tui(Session::Remote(remote), host, None, load_config());
+    }
+    connect_with_flags(direct_ssh_flags(&rest)?, load_config)
 }
 
 fn direct_ssh_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
@@ -1489,6 +1582,97 @@ fn direct_ssh_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
     }
 
     Ok(flags)
+}
+
+/// `--repo LOCAL[:REMOTE]` (`ConnectFlags::repo`), resolved before the link opens.
+#[derive(Debug, PartialEq, Eq)]
+struct RepoSeed {
+    local: PathBuf,
+    remote: String,
+}
+
+impl RepoSeed {
+    /// Splits the spec at the first `:` that starts an absolute or `~` path, and
+    /// resolves `~` (and the default, `~/<LOCAL's folder name>`) to the host's
+    /// `$HOME` over SSH. Other routes need an absolute REMOTE.
+    fn plan(spec: &str, flags: &ConnectFlags) -> anyhow::Result<Self> {
+        let (local, remote) = split_repo_spec(spec)?;
+        if !remote.starts_with('~') {
+            return Ok(Self { local, remote });
+        }
+        let home = remote_home(flags)?;
+        let remote = format!("{}{}", home.trim_end_matches('/'), &remote[1..]);
+        Ok(Self { local, remote })
+    }
+
+    /// The seed's answer line: `link seed push`'s JSON, a delta when this machine
+    /// pushed this folder to that place before, else a full seed.
+    fn seed(&self, socket: &std::path::Path) -> serde_json::Value {
+        let started = std::time::Instant::now();
+        let mut line = crate::link::seed_repo(socket, &self.local, &self.remote);
+        if let Some(object) = line.as_object_mut() {
+            object.insert("remote".into(), serde_json::json!(self.remote));
+            object.insert(
+                "elapsed_ms".into(),
+                serde_json::json!(started.elapsed().as_millis() as u64),
+            );
+        }
+        line
+    }
+}
+
+fn split_repo_spec(spec: &str) -> anyhow::Result<(PathBuf, String)> {
+    let split = spec
+        .char_indices()
+        .find(|&(at, ch)| ch == ':' && matches!(spec[at + 1..].chars().next(), Some('/' | '~')));
+    let (local, remote) = match split {
+        Some((at, _)) => (&spec[..at], spec[at + 1..].to_string()),
+        None => (spec, String::new()),
+    };
+    if local.is_empty() {
+        return Err(anyhow!("--repo needs a local folder: --repo LOCAL[:REMOTE]"));
+    }
+    let local = std::path::absolute(local).map_err(|error| anyhow!("--repo {local}: {error}"))?;
+    let remote = if remote.is_empty() {
+        let name = local
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| anyhow!("--repo {}: name a REMOTE folder", local.display()))?;
+        format!("~/{name}")
+    } else {
+        remote
+    };
+    Ok((local, remote))
+}
+
+/// The SSH host's `$HOME`, asked over the same `ssh` command line the link uses.
+fn remote_home(flags: &ConnectFlags) -> anyhow::Result<String> {
+    let route = flags
+        .route
+        .as_deref()
+        .filter(|route| route.starts_with("ssh://"))
+        .ok_or_else(|| anyhow!("--repo: REMOTE must be an absolute path on this route"))?;
+    let (destination, port) =
+        crate::remote_runtime::ssh_bootstrap_destination(&url::Url::parse(route)?)?;
+    let mut command = cmux_process::Command::new(&flags.ssh_binary);
+    command.args(&flags.ssh_args);
+    if let Some(port) = port {
+        command.arg("-p").arg(port.to_string());
+    }
+    let output = command
+        .arg("--")
+        .arg(destination)
+        .arg("sh -c 'printf %s \"$HOME\"'")
+        .stderr(cmux_process::Stdio::inherit())
+        .output()
+        .map_err(|error| anyhow!("--repo: cannot run {}: {error}", flags.ssh_binary))?;
+    let home = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if !output.status.success() || !home.starts_with('/') {
+        return Err(anyhow!(
+            "--repo: the host did not say its home folder; pass an absolute REMOTE"
+        ));
+    }
+    Ok(home)
 }
 
 /// Programmatic equivalent of `cmux-tui ssh`, used by the native machine

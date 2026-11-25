@@ -512,6 +512,52 @@ class WorkflowSiteTests(unittest.TestCase):
         loop = run[run.index("for attempt in 1 2 3"):run.index("retrying Cargo registry")]
         self.assertRegex(loop, r"cargo-locks\.py explain [^\n]*; then\n\s*exit \"\$status\"")
 
+    def run_daemon_test_loop(self, transcripts: list[tuple[int, str]]) -> tuple[int, int]:
+        """Run the workflow's real cargo-test step with a fake cargo that plays one (exit, output)
+        transcript per call (the last repeats). Returns (step exit status, cargo calls)."""
+        run = next(step["run"] for _, step in steps(ROOT / ".github/workflows/cmux-tui-artifacts.yml")
+                   if "retrying Cargo registry" in (step.get("run") or ""))
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / "cmux-tui").mkdir()
+            (base / "bin").mkdir()
+            (base / "scripts/ci").mkdir(parents=True)
+            (base / "scripts/cmux-next").mkdir(parents=True)
+            (base / "scripts/ci/cmux-next-daemon-test-packages.sh").write_text("#!/bin/sh\necho -p fake\n")
+            (base / "scripts/cmux-next/cargo-locks.py").write_text("import sys\nsys.exit(1)\n")
+            for index, (code, text) in enumerate(transcripts, 1):
+                (base / f"t{index}.txt").write_text(text)
+                (base / f"t{index}.rc").write_text(str(code))
+            (base / "bin/cargo").write_text(
+                "#!/bin/bash\nn=$(($(cat \"$B/n\" 2>/dev/null || echo 0) + 1)); echo $n > \"$B/n\"\n"
+                f"i=$(( n > {len(transcripts)} ? {len(transcripts)} : n ))\n"
+                "cat \"$B/t$i.txt\"; exit \"$(cat \"$B/t$i.rc\")\"\n")
+            (base / "bin/sleep").write_text("#!/bin/sh\nexit 0\n")
+            for tool in (base / "bin").iterdir():
+                tool.chmod(0o755)
+            env = {**os.environ, "B": str(base), "RUNNER_TEMP": str(base), "PATH": f"{base / 'bin'}:{os.environ['PATH']}"}
+            done = subprocess.run(["bash", "-c", run], cwd=base / "cmux-tui", env=env, capture_output=True, text=True)
+            calls = int((base / "n").read_text()) if (base / "n").exists() else 0
+            return done.returncode, calls
+
+    def test_the_daemon_tests_retry_only_a_fetch_failure(self) -> None:
+        ok = "test result: ok. 5 passed; 0 failed\n"
+        assertion = ("thread 'cmux_next_x' panicked at src/a.rs:1:1:\nassertion failed\n"
+                     "test result: FAILED. 4 passed; 1 failed\n")
+        fetch = "warning: spurious network error (2 tries remaining): Could not resolve host\nerror: failed to download\n"
+        cases = {
+            "assertion failure is terminal": ([(101, assertion)], 101, 1),
+            "assertion failure that also names a fetch word is terminal": ([(101, fetch + assertion)], 101, 1),
+            "compiler error is terminal": ([(101, "error[E0425]: cannot find value\nerror: could not compile `x`\n")], 101, 1),
+            "unknown failure is terminal": ([(1, "something odd\n")], 1, 1),
+            "fetch failure then success retries": ([(101, fetch), (0, ok)], 0, 2),
+            "persistent fetch failure stops at three": ([(101, fetch)], 101, 3),
+            "zero matched tests is terminal": ([(0, "test result: ok. 0 passed; 0 failed\n")], 1, 1),
+        }
+        for name, (transcripts, status, calls) in cases.items():
+            with self.subTest(name):
+                self.assertEqual(self.run_daemon_test_loop(transcripts), (status, calls))
+
 
 # The list. A file (a workflow: a step, `path#job/step name`) under scripts/ or .github/ that runs cargo with
 # --locked and prints ::error, FAIL or left: must be in one of these two tables.

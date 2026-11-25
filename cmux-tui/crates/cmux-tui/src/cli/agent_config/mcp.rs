@@ -69,7 +69,7 @@ pub(in crate::cli) fn run_if_requested(args: &[String]) -> Option<i32> {
     if command_args.first().map(String::as_str) != Some("agent-config") {
         return None;
     }
-    let (json_flag, rest) = take_json_flag(&command_args[1..]);
+    let (json_flag, rest) = take_json_flag(command_args.get(1..).unwrap_or_default());
     let json_out = json_flag || global.output == OutputMode::Json;
     if rest.is_empty()
         || rest.iter().any(|a| a == "--help" || a == "-h") && !rest.contains(&"--".to_owned())

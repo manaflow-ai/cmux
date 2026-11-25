@@ -45,8 +45,27 @@ final class TerminalTUILocalPanUITests: XCTestCase {
         try pan(variant: "keys-load")
     }
 
-    @MainActor
-    private func pan(variant: String) throws {
+    // Leo, 2026-11-23: "we should also be able to smooth out the jaggedness of scroll that we have in
+    // claude in terminal vs in regular shell terminal. latter feels smoother for some reason." A slow
+    // drag, as a reader reads: the shell's page moves a few points a frame; the full-screen app moved
+    // nothing for several frames and then three rows (a whole wheel report's redraw) in one. The demo
+    // reads where the content was drawn each frame (`stepP95Pct`: the 95th percentile frame's move as a
+    // percent of a row; `stillPct`: frames, between the first move and the last, where nothing moved).
+
+    @MainActor func testSlowDragOverTheShellPageMovesItSmoothly() throws {
+        let values = try pan(variant: "primary-slow", velocity: 200)
+        XCTAssertGreaterThan(values["motionFrames"] ?? 0, 30, "the page moved under the finger")
+    }
+
+    @MainActor func testSlowDragOverAFullScreenAppMovesItsRowsSmoothly() throws {
+        let values = try pan(variant: "mouse-slow", velocity: 200)
+        XCTAssertGreaterThan(values["motionFrames"] ?? 0, 30, "the app's rows moved")
+        XCTAssertLessThan(values["stepP95Pct"] ?? 1000, 100, "no frame (p95) moves the rows a whole row or more")
+        XCTAssertLessThan(values["stillPct"] ?? 100, 50, "the rows move in most frames, not stand still between jumps")
+    }
+
+    @discardableResult @MainActor
+    private func pan(variant: String, velocity: CGFloat = 900) throws -> [String: Int] {
         let primary = variant.hasPrefix("primary")
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
@@ -76,7 +95,7 @@ final class TerminalTUILocalPanUITests: XCTestCase {
         while Date() < panEnd {
             let older = (drags / 3) % 2 == 0
             (older ? high : low).press(forDuration: 0.02, thenDragTo: older ? low : high,
-                                      withVelocity: XCUIGestureVelocity(900), thenHoldForDuration: 0)
+                                      withVelocity: XCUIGestureVelocity(velocity), thenHoldForDuration: 0)
             drags += 1
         }
 
@@ -107,6 +126,7 @@ final class TerminalTUILocalPanUITests: XCTestCase {
             XCTAssertGreaterThan(values["appScrolls"] ?? 0, 0, "a one-finger drag scrolled the full-screen app: \(demo)")
             XCTAssertGreaterThan(values["bytes"] ?? 0, 0, "its wheel went to the Mac: \(demo)")
         }
+        return values
     }
 
     /// `key=N` words of the demo's label.

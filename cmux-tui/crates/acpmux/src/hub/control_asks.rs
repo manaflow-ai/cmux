@@ -44,7 +44,7 @@ impl Hub {
     }
 
     pub(crate) fn control_ask(&self, id: &str, permission: &str) -> Option<Value> {
-        let session = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned()?;
+        let session = self.session_get(id)?;
         let permissions = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
         let ask = permissions.pending.get(permission)?;
         Some(self.control_ask_value(&session.meta(), permission, ask))

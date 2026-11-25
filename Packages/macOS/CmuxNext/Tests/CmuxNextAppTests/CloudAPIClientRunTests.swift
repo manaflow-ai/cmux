@@ -46,14 +46,14 @@ struct CloudAPIClientRunTests {
     nonisolated static let running = #"{"ok":true,"body":{"run":{"id":"run-9","status":"running"},"attempts":[],"artifacts":[],"receipt":null}}"#
     nonisolated static let done = #"{"ok":true,"body":{"run":{"id":"run-9","status":"succeeded"},"attempts":[],"artifacts":[],"receipt":{"status":"succeeded","reply":"done"}}}"#
 
-    private func api(_ daemon: FakeDaemon?, access: @escaping @Sendable () async throws -> String = { "access" }) -> CloudAPIClient {
+    private func api(_ daemon: FakeDaemon?, access: @escaping @Sendable () async throws -> String = { "access" }) -> CloudDaemon {
         var api = CloudAPIClient.workerMachines(baseURL: URL(string: "https://owner.standin.invalid") ?? URL(fileURLWithPath: "/"),
                                                 accessToken: access, teamID: { "team_cmux" })
-        if let daemon { api.daemonCall = { input, _ in try daemon.run(input) } }
-        return api.runningAs(Self.account)
+        if let daemon { api.daemon.daemonCall = { input, _ in try daemon.run(input) } }
+        return api.daemon.runningAs(Self.account)
     }
 
-    nonisolated static let account = CloudAPIClient.RunAccount(user: "u1", team: "t1")
+    nonisolated static let account = CloudDaemon.RunAccount(user: "u1", team: "t1")
 
     /// A daemon whose create answers (after `dropCreates` lost answers) and whose wait has the receipt after `finishAfter` waits.
     private func sandbox(finishAfter: Int = 0, dropCreates: Int = 0) -> FakeDaemon {
@@ -187,41 +187,6 @@ struct CloudAPIClientRunTests {
         let creates = daemon.requests.filter { $0["call"] as? String == "runs.create" }
         #expect(creates.map { $0["credential"] as? String } == ["account-1", "account-1"])
         #expect(creates.map { ($0["args"] as? [String: Any])?["idempotencyKey"] as? String } == ["send-3", "send-3"])
-    }
-
-    /// A client with the classic Cloud session (``CloudAPIClient/sending(as:classic:)``) sends it beside every call, the Stack
-    /// team the person sent under (never the Worker client's) and its tokens read once per send; which call takes it is Rust's
-    /// (cmux-cloud-api `classic_runs`, whose tests hold the rules). One it could not read goes as `classic_unread`.
-    @Test func theClassicSessionGoesBesideEachCallWithTheStackTeam() async throws {
-        struct Down: Error {}
-        let reads = Counter()
-        let classic = CloudAPIClient(baseURL: URL(string: "https://classic.standin.invalid") ?? URL(fileURLWithPath: "/"),
-                                     tokens: { ("stack-access", "stack-refresh-\(reads.next())") }, teamID: { "team_stack_now" },
-                                     session: CloudAPIClient.noStoreTransport, appVersion: "cmux-next")
-        let daemon = sandbox(dropCreates: 1)
-        let sender = api(daemon).sending(as: .init(user: "u1", team: "team_stack"), classic: classic)
-        _ = try await sender.runSandbox(task: "private", timeoutMs: 60_000, idempotencyKey: "send-i", incognito: true)
-        let sessions = daemon.requests.map { $0["classic"] as? [String: Any] }
-        #expect(sessions.allSatisfy { $0?["team"] as? String == "team_stack" && $0?["api"] as? String == "https://classic.standin.invalid" })
-        #expect(daemon.requests.allSatisfy { $0["team"] as? String == "team_cmux" && $0["refresh"] == nil }, "the daemon's own call is unchanged")
-        let creates = daemon.requests.filter { $0["call"] as? String == "runs.create" }.map { ($0["classic"] as? [String: Any])?["refresh"] as? String }
-        #expect(creates.count == 2 && Set(creates).count == 1 && creates.first != nil, "a send's creates carry one session: \(creates)")
-
-        let unread = CloudAPIClient(baseURL: URL(string: "https://classic.standin.invalid") ?? URL(fileURLWithPath: "/"),
-                                    tokens: { throw Down() }, teamID: { nil }, session: CloudAPIClient.noStoreTransport, appVersion: "cmux-next")
-        let lost = FakeDaemon { _, _, _ in Self.done }
-        _ = try await api(lost).drainingClassic(unread).waitRun("r-old", timeoutMs: 1_000)
-        #expect(lost.requests.last?["classic_unread"] as? Bool == true)
-        #expect(lost.requests.last?["classic"] == nil)
-        _ = try await api(lost).waitRun("r-x", timeoutMs: 1_000)
-        #expect(lost.requests.last?["classic"] == nil && lost.requests.last?["classic_unread"] == nil, "no session to send")
-    }
-
-    nonisolated final class Counter: @unchecked Sendable {
-        // @unchecked: `value` is read and written only under `lock`.
-        private let lock = NSLock()
-        private var value = 0
-        func next() -> Int { lock.withLock { value += 1; return value } }
     }
 
     @Test func everyCreateNamesTheAccountItWasSentUnderAndNoneGoesWithout() async throws {

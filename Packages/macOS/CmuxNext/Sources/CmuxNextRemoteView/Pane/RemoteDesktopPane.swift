@@ -111,12 +111,16 @@ public final class RemoteDesktopPane {
             self?.view.video.setFramePixels(size)
         }
         wireChrome()
+        // The connect starts now: its card stays away for the short coming-up time.
+        state = RemotePaneReducer().reduce(state, .connectNoticeCheck)
+        armConnectNotice()
         view.render(state: state, settings: settings)
     }
 
     /// Starts decoding and following status. Idempotent.
     public func start() {
         guard tasks.isEmpty else { return }
+        armConnectNotice() // a pane shown again mid-connect gets its deadline back (stop() cancels it)
         let presenter = self.presenter
         let firstFrame = self.firstFrame
         let deliver: @Sendable (RemoteDecodedFrame) -> Void = { [weak self] frame in
@@ -158,6 +162,9 @@ public final class RemoteDesktopPane {
         latencyCheckDue = nil
         autoReconnectTask?.cancel()
         autoReconnectTask = nil
+        connectNotice?.cancel()
+        connectNotice = nil
+        connectNoticeSince = nil
         pipeline = nil
         view.capture.controller.releaseAll()
     }
@@ -193,6 +200,7 @@ public final class RemoteDesktopPane {
         state = next
         armLatencyCheck()
         armReconnectNotice()
+        armConnectNotice()
         view.render(state: state, settings: settings)
         onStateChange?()
     }
@@ -237,6 +245,27 @@ public final class RemoteDesktopPane {
             guard let self, !Task.isCancelled else { return }
             reconnectNoticeSince = nil
             apply(.reconnectNoticeCheck)
+        }
+    }
+
+    /// The first connect's notice deadline (``RemotePaneState/connectNoticeDelay``), re-checked when it comes due.
+    private var connectNotice: Task<Void, Never>?
+    private var connectNoticeSince: ContinuousClock.Instant?
+
+    private func armConnectNotice() {
+        let since = state.connectNoticeDue ? nil : state.connectingSince
+        guard since != connectNoticeSince else { return }
+        connectNotice?.cancel()
+        connectNoticeSince = since
+        guard let since else { return connectNotice = nil }
+        connectNotice = Task { [weak self] in
+            // wakeup-allow: one-shot notice deadline per first connect; a frame, an end or Stop cancels it.
+            do { try await ContinuousClock().sleep(until: since + RemotePaneState.connectNoticeDelay, tolerance: .milliseconds(50)) } catch {
+                return
+            }
+            guard let self, !Task.isCancelled else { return }
+            connectNoticeSince = nil
+            apply(.connectNoticeCheck)
         }
     }
 

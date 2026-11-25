@@ -27,6 +27,12 @@ if [ -z "${CMUX_NEXT_TUI_BIN:-}${CMUX_TUI_CLIENT_LOCAL:-}${CMUX_TUI_TREE_KEY:-}"
     ./scripts/cmux-next/pin-cmux-tui.sh probe 2>/dev/null) | grep -q ': ready ('; then
   export CMUX_TUI_CLIENT_TARGET_DIR="${CMUX_TUI_CLIENT_TARGET_DIR:-$HOME/Library/Caches/cmux-ci-media/cmux-tui-client-target/${RUNNER_NAME:-local}}"
   echo "cmux-tui tree for $tag is not published: building its client set here"
+  # The tree's pinned Zig, not the Mac's (media_pinned_zig.sh); without it build.rs tries PATH's.
+  if zig="$("$(dirname "${BASH_SOURCE[0]}")/media_pinned_zig.sh" "$dir")"; then
+    export CMUX_ZIG="$zig"
+  else
+    echo "::warning title=What's New clip::no pinned Zig for $tag; its client builds with PATH's zig"
+  fi
   CMUX_TUI_CLIENT_LOCAL="$(cd "$dir" && "$client" --print-path)"
   export CMUX_TUI_CLIENT_LOCAL
 fi

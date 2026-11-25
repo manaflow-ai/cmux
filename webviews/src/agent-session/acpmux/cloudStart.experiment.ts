@@ -25,3 +25,31 @@ export const cloudStartLook = defineExperiment({
   },
   defaultArm: "chips",
 });
+
+/// How the quiet start view (a start on its way, before any failure) says what the chat waits on:
+/// one line under the person's message, never the step list. Gallery `agent-pane.cloud-start`, the
+/// `quiet-*` variants.
+export const cloudStartQuietLook = defineExperiment({
+  id: "cloud-start-quiet-look",
+  title: "Cloud start wait line",
+  description: "What the quiet Cloud start line says while the machine, copy, setup and agent start.",
+  arms: {
+    inline: {
+      label: "Stage and ETA inline",
+      description: "The live line's look with the stage's words, then its time and the usual wait after a dot.",
+    },
+    stacked: {
+      label: "ETA under the stage",
+      description: "The stage's words on the live line, the usual wait as one secondary line under it.",
+    },
+    hint: {
+      label: "Stage with a progress hint",
+      description: "The inline line over a thin row of segments, one per stage this start runs.",
+    },
+    thinking: {
+      label: "Thinking only",
+      description: "The line before this change: Thinking, with no stage and no ETA.",
+    },
+  },
+  defaultArm: "inline",
+});
