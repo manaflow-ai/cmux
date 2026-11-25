@@ -1744,3 +1744,22 @@ async fn an_unreadable_message_fails_open() {
     hub.inbox_review(&session);
     assert!(tried(&session), "delivered as today");
 }
+
+/// An idle chat off the coordinator list is never woken by its flush: an old FYI and an old
+/// result from a session that neither started it nor gave it work wait for its next real turn,
+/// with no turn and no timer of their own (each flush was a cold prompt-cache write; Leo,
+/// 2026-11-25: "let's continue while not doing bad cache writes!"). A question still wakes it.
+#[tokio::test]
+async fn an_idle_chat_takes_no_flush_turn_for_what_wakes_nobody() {
+    let (hub, session) = hub_with_chat("lane-no-flush");
+    let old = now_ms().saturating_sub(FLUSH_MS * 4);
+    session.inbox().items.push(item("f1", "t", "tool", PromptClass::Fyi, old, "fyi"));
+    session.inbox().items.push(item("r1", "t", "other", PromptClass::Result, old, "done"));
+    hub.inbox_review(&session);
+    assert!(!tried(&session), "no flush turn");
+    assert!(session.inbox().timer.is_none(), "no flush timer");
+    let at = now_ms().saturating_sub(WAKE_DEBOUNCE_MS + 1);
+    session.inbox().items.push(item("q1", "t", "other", PromptClass::Question, at, "which?"));
+    hub.inbox_review(&session);
+    assert!(tried(&session), "a question still wakes it, and brings the rest");
+}
