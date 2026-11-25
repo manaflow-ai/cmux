@@ -36,6 +36,8 @@ mod artifacts_fs;
 pub mod artifacts_sync;
 pub mod attach;
 pub mod author;
+/// Auto mode: a chat keeps running in the Cloud when the laptop goes away (`auto_session/`).
+pub mod auto_session;
 pub mod beads;
 pub mod bg_hook;
 pub mod bg_run;
@@ -47,6 +49,7 @@ pub mod caller_stats;
 pub mod capabilities;
 pub mod catalog;
 pub mod chat_fork;
+pub mod chat_place;
 pub mod chat_size_fixture;
 pub mod chatgpt;
 pub mod chats;
@@ -84,6 +87,7 @@ pub mod config;
 pub mod conn_origin;
 pub mod context_inventory;
 pub mod cpu_class;
+pub mod customize_run;
 pub mod cwd_pin;
 pub mod daemon;
 pub(crate) mod daemon_parts;
@@ -122,6 +126,7 @@ pub mod github_rest_op;
 pub mod github_session_env;
 pub mod god_fixture;
 pub mod install_share;
+pub mod memory_follow;
 /// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
 /// never offered, and the command says so.
 #[cfg(not(unix))]
@@ -178,6 +183,10 @@ mod joined_model_plane;
 /// `cmux github` and the GitHub MCP bridge on a joined machine ask its hub (`joined_model_plane`).
 #[cfg(unix)]
 pub use joined_model_plane::install_github_source;
+pub mod chat_secrets;
+/// Hot paths for the instruction-count bench (`benches/icount.rs`); not an API.
+#[doc(hidden)]
+pub mod icount;
 pub mod launch_credential;
 pub mod launch_policy;
 pub mod left_on_mac;
@@ -216,6 +225,9 @@ pub mod mcp_args;
 /// Each chat's `cmux` MCP server over loopback HTTP, started on use and stopped when idle.
 pub mod mcp_gateway;
 pub mod mcp_hint;
+#[cfg(unix)]
+pub mod mcp_pool;
+pub mod memory_mount;
 pub mod mesh;
 pub mod mesh_control;
 pub mod mesh_gate;
@@ -246,6 +258,7 @@ pub mod peer;
 pub mod peer_kept_tokens;
 pub mod peer_last_good;
 pub mod peer_link;
+pub mod perf_trace;
 // One host-wide gate for peer links' dials, so many dropped links do not redial in one instant.
 pub mod peer_dial_gate;
 pub(crate) mod peer_notice_outbox;
@@ -261,6 +274,8 @@ pub mod person_tokens;
 pub mod fleet_elastic;
 pub mod place_mode;
 pub mod placement;
+// `acpmux machine cells`: lane hosts against their caps and the registry (RFD 0181 B2).
+pub mod cell_report;
 pub mod plan_build_records;
 #[cfg(not(unix))]
 mod platform;

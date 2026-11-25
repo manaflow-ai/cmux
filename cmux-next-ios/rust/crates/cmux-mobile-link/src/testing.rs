@@ -26,11 +26,12 @@ use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
 mod hub;
+mod relay_cache;
 mod shaped;
 pub use hub::{FakeHub, FakeHubMode, FakeHubStats};
 pub use shaped::{
-    Direction, LINK_PROFILES_JSON, LinkProfile, RadioModel, radio_wakes, set_link_profile, set_radio_model,
-    shape_by_profile, shape_downlink, shape_uplink, shaped_counts,
+    Direction, LINK_PROFILES_JSON, LinkProfile, PeriodicLoss, RadioModel, radio_wakes, set_link_profile,
+    set_periodic_loss, set_radio_model, shape_by_profile, shape_downlink, shape_uplink, shaped_counts,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -55,6 +56,10 @@ pub struct FakeOptions {
     /// A relay join's upgrade is answered this much later (a slow network or
     /// a far Worker), so a join can race a path that starts working.
     pub relay_join_delay: std::time::Duration,
+    /// Answer `/v1/relay-cache/...` (the Worker's `LINK_RELAY_CACHE=on`, RFD 0142 R2 and R9;
+    /// `testing/relay_cache.rs`). Off: every cache route answers `503 relay_cache_off`, as the
+    /// Worker does by default.
+    pub relay_cache: bool,
 }
 
 /// How often the backend answers an older peer's relay frames for one
@@ -72,6 +77,9 @@ struct State {
     /// sessionId → the two devices in it.
     sessions: HashMap<String, (String, String)>,
     refused_binary_frames: u64,
+    /// `POST /v1/devices`: device id → the user who registered it first (the real service
+    /// answers `403 not_owner` to anyone else).
+    owners: HashMap<String, String>,
     /// When each signal was forwarded: (sessionId, payload kind, instant).
     forwarded: Vec<(String, String, std::time::Instant)>,
     /// The relay's joined sockets: sessionId → device → its socket.
@@ -83,6 +91,7 @@ struct State {
     /// Each device's relay joins, in order: device → when.
     relay_joined: Vec<(String, std::time::Instant)>,
     relay_frames: u64,
+    relay_cache: relay_cache::FakeRelayCache,
 }
 
 pub struct FakeSignaling {
@@ -116,6 +125,13 @@ impl FakeSignaling {
             }
         });
         Self { base_url, state, task }
+    }
+
+    /// How many `route` requests (`snapshot GET`, `snapshot PUT`, `delta POST`, `catch-up`,
+    /// `ack`) the relay cache answered.
+    pub fn relay_cache_hits(&self, route: &str) -> u64 {
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.relay_cache.hits.get(route).copied().unwrap_or(0)
     }
 
     /// When the server forwarded the first `kind` signal (`wg-init`,
@@ -197,7 +213,7 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
     let mut stream = stream;
     match peek_head(&stream).await {
         Some(head) if !head.to_ascii_lowercase().contains("upgrade: websocket") => {
-            answer_http(&mut stream, &head, &ice, &options).await;
+            answer_http(&mut stream, &head, &ice, &options, &state).await;
             return;
         }
         Some(head) if head.starts_with("GET /v1/relay/") => {
@@ -564,6 +580,7 @@ async fn answer_http(
     head: &str,
     ice: &[crate::api::IceServer],
     options: &FakeOptions,
+    state: &Mutex<State>,
 ) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let length = head
@@ -579,7 +596,48 @@ async fn answer_http(
     }
     let body: Value = serde_json::from_slice(&request[head.len()..]).unwrap_or(Value::Null);
     let line = head.lines().next().unwrap_or_default();
-    let authorized = head.lines().any(|l| l.to_ascii_lowercase().starts_with("authorization: bearer user:"));
+    let user = head.lines().find_map(|l| {
+        let (name, value) = l.split_once(':')?;
+        name.eq_ignore_ascii_case("authorization")
+            .then(|| value.trim().strip_prefix("Bearer user:"))?
+            .map(str::to_owned)
+    });
+    let authorized = user.is_some();
+    if let Some(target) = line.split_whitespace().nth(1).filter(|t| t.starts_with("/v1/relay-cache/")) {
+        let method = line.split_whitespace().next().unwrap_or_default();
+        let answer = if authorized {
+            let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
+            state.relay_cache.answer(method, target, &request[head.len()..], options.relay_cache)
+        } else {
+            relay_cache::Answer {
+                status: "401 Unauthorized",
+                content_type: "application/json",
+                body: br#"{"error":"unauthorized"}"#.to_vec(),
+                headers: Vec::new(),
+            }
+        };
+        let mut response = format!(
+            "HTTP/1.1 {}\r\ncontent-type: {}\r\ncontent-length: {}\r\nconnection: close\r\n",
+            answer.status,
+            answer.content_type,
+            answer.body.len()
+        );
+        for (name, value) in &answer.headers {
+            response.push_str(&format!("{name}: {value}\r\n"));
+        }
+        response.push_str("\r\n");
+        let mut bytes = response.into_bytes();
+        bytes.extend_from_slice(&answer.body);
+        let _ = stream.write_all(&bytes).await;
+        // Hold the socket until the client closes it (a real server's FIN comes after its reply
+        // is acked); a proxy in front (cmux-fault's shaper) ends a pair when either side ends.
+        let mut sink = [0u8; 512];
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            while matches!(stream.read(&mut sink).await, Ok(n) if n > 0) {}
+        })
+        .await;
+        return;
+    }
     let (status, reply) = if line.starts_with("GET /v1/health") {
         ("200 OK", json!({"ok": true, "version": "fake"}))
     } else if !authorized {
@@ -593,7 +651,20 @@ async fn answer_http(
         }));
         ("200 OK", json!({"iceServers": servers, "ttl": 3600, "turn": !ice.is_empty()}))
     } else if line.starts_with("POST /v1/devices") {
-        ("200 OK", json!({"device": body}))
+        // A device id belongs to the user who registered it first (PROTOCOL.md `POST /v1/devices`).
+        let id = body.get("deviceId").and_then(Value::as_str).unwrap_or_default().to_owned();
+        let user = user.unwrap_or_default();
+        let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
+        match state.owners.get(&id) {
+            Some(owner) if *owner != user => (
+                "403 Forbidden",
+                json!({"error": {"code": "not_owner", "message": "this deviceId belongs to another user"}}),
+            ),
+            _ => {
+                state.owners.insert(id, user);
+                ("200 OK", json!({"device": body}))
+            }
+        }
     } else {
         ("404 Not Found", json!({"error": "not_found"}))
     };
@@ -628,6 +699,8 @@ pub fn is_test_relay(addr: &std::net::SocketAddr) -> bool {
 struct RecordedRelays {
     inner: webrtc::turn::relay::relay_range::RelayAddressGeneratorRanges,
     allocated: Arc<Mutex<Vec<std::net::SocketAddr>>>,
+    /// Every allocation this server granted, when, and its relayed address.
+    granted: Arc<Mutex<Vec<(std::time::Instant, std::net::SocketAddr)>>>,
 }
 
 #[async_trait::async_trait]
@@ -646,6 +719,10 @@ impl webrtc::turn::relay::RelayAddressGenerator for RecordedRelays {
         // (also 127.0.0.1): both spellings are the same socket.
         RELAYED.lock().unwrap_or_else(PoisonError::into_inner).push(relayed);
         self.allocated.lock().unwrap_or_else(PoisonError::into_inner).push(relayed);
+        self.granted
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((std::time::Instant::now(), relayed));
         let conn = RecordedConn { inner: conn, relayed, allocated: Arc::clone(&self.allocated) };
         Ok((Arc::new(conn), relayed))
     }
@@ -753,6 +830,8 @@ pub struct TestTurn {
     /// Relayed addresses this server allocated (also in [`RELAYED`] until
     /// the server drops).
     allocated: Arc<Mutex<Vec<std::net::SocketAddr>>>,
+    /// Every allocation granted so far, released or not: when, and where.
+    granted: Arc<Mutex<Vec<(std::time::Instant, std::net::SocketAddr)>>>,
     /// How long a new stream connection (TLS or TCP) waits before the
     /// server takes it, in milliseconds ([`Self::delay_streams`]).
     stream_delay: Arc<std::sync::atomic::AtomicU64>,
@@ -769,6 +848,13 @@ struct UdpBlock {
     /// the server's answer, so the client's retransmit meets an allocation
     /// that already exists).
     drop_allocate_successes: std::sync::atomic::AtomicU32,
+    /// Until the instant, every datagram the server sends its clients
+    /// leaves this much late (a new network's first seconds: a radio still
+    /// attaching, a congested cell), [`TestTurn::delay_udp_replies`].
+    reply_delay: Mutex<Option<(std::time::Instant, std::time::Duration)>>,
+    /// STUN and TURN messages (not ChannelData) ride the profile set by
+    /// [`set_link_profile`] both ways, [`TestTurn::shape_udp_control`].
+    shaped: std::sync::atomic::AtomicBool,
     /// Every client address the UDP port heard from.
     clients: std::sync::Mutex<std::collections::HashSet<std::net::SocketAddr>>,
     /// Clients whose permissions lapsed ([`TestTurn::lapse_permissions`]):
@@ -777,6 +863,11 @@ struct UdpBlock {
     lapsed: std::sync::Mutex<std::collections::HashSet<std::net::SocketAddr>>,
     /// Relayed datagrams dropped for a lapsed permission.
     dropped_lapsed: std::sync::atomic::AtomicU64,
+}
+
+/// Whether `datagram` is a STUN message (TURN's control), not ChannelData.
+fn is_stun(datagram: &[u8]) -> bool {
+    datagram.len() >= 20 && datagram[0] & 0xC0 == 0
 }
 
 /// What a lapsed client's datagram does to its lapse: renews it (a
@@ -884,12 +975,30 @@ impl webrtc::util::Conn for BlockableUdp {
         {
             return Ok(buf.len());
         }
-        let delay = TURN_ANSWER_DELAY_MS.load(std::sync::atomic::Ordering::Relaxed);
-        if delay > 0 && is_stun_response(buf) {
-            let (socket, answer) = (Arc::clone(&self.socket), buf.to_vec());
+        let mut late = std::time::Duration::ZERO;
+        if let Some((until, by)) = *self.block.reply_delay.lock().unwrap_or_else(PoisonError::into_inner)
+            && std::time::Instant::now() < until
+        {
+            late += by;
+        }
+        let answer_delay = TURN_ANSWER_DELAY_MS.load(std::sync::atomic::Ordering::Relaxed);
+        if answer_delay > 0 && is_stun_response(buf) {
+            late += std::time::Duration::from_millis(answer_delay);
+        }
+        if self.block.shaped.load(std::sync::atomic::Ordering::Relaxed) && is_stun(buf) {
+            // The request's leg and the answer's, each its own draw.
+            for _ in 0..2 {
+                match shape_by_profile(false, &target, buf.len()) {
+                    Some(delay) => late += delay,
+                    None => return Ok(buf.len()),
+                }
+            }
+        }
+        if !late.is_zero() {
+            let (socket, datagram) = (Arc::clone(&self.socket), buf.to_vec());
             tokio::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
-                let _ = socket.send_to(&answer, target).await;
+                tokio::time::sleep(late).await;
+                let _ = socket.send_to(&datagram, target).await;
             });
             return Ok(buf.len());
         }
@@ -921,12 +1030,15 @@ impl TestTurn {
         let servers = Arc::new(Mutex::new(Vec::new()));
         let udp_block = Arc::new(UdpBlock::default());
         let allocated = Arc::new(Mutex::new(Vec::new()));
+        let granted = Arc::new(Mutex::new(Vec::new()));
         let udp = BlockableUdp {
             socket: Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.expect("bind TURN UDP")),
             block: Arc::clone(&udp_block),
         };
         let udp_port = udp.socket.local_addr().expect("addr").port();
-        let server = Self::server(Arc::new(udp), relay_ports.clone(), Arc::clone(&allocated)).await;
+        let server =
+            Self::server(Arc::new(udp), relay_ports.clone(), Arc::clone(&allocated), Arc::clone(&granted))
+                .await;
         servers.lock().unwrap_or_else(PoisonError::into_inner).push(server);
 
         let certified =
@@ -952,22 +1064,24 @@ impl TestTurn {
             listener.set_nonblocking(true).expect("nonblocking");
             let port = listener.local_addr().expect("addr").port();
             let listener = TcpListener::from_std(listener).expect("listener");
-            let (acceptor, servers, ports, streams, allocated, delay) = (
+            let (acceptor, servers, ports, streams, allocated, granted, delay) = (
                 acceptor.clone(),
                 Arc::clone(&servers),
                 relay_ports.clone(),
                 Arc::clone(&streams),
                 Arc::clone(&allocated),
+                Arc::clone(&granted),
                 Arc::clone(&stream_delay),
             );
             tasks.push(tokio::spawn(async move {
                 while let Ok((tcp, client)) = listener.accept().await {
-                    let (acceptor, servers, ports, streams, allocated) = (
+                    let (acceptor, servers, ports, streams, allocated, granted) = (
                         acceptor.clone(),
                         Arc::clone(&servers),
                         ports.clone(),
                         Arc::clone(&streams),
                         Arc::clone(&allocated),
+                        Arc::clone(&granted),
                     );
                     let delay = delay.load(std::sync::atomic::Ordering::Relaxed);
                     tokio::spawn(async move {
@@ -983,7 +1097,7 @@ impl TestTurn {
                             Arc::new(crate::dial::turn::StreamConn::new(tcp, local, client))
                         };
                         streams.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        let server = Self::server(conn, ports, allocated).await;
+                        let server = Self::server(conn, ports, allocated, granted).await;
                         servers.lock().unwrap_or_else(PoisonError::into_inner).push(server);
                     });
                 }
@@ -1010,6 +1124,7 @@ impl TestTurn {
             streams,
             udp_block,
             allocated,
+            granted,
             stream_delay,
         }
     }
@@ -1018,6 +1133,7 @@ impl TestTurn {
         conn: Arc<dyn webrtc::util::Conn + Send + Sync>,
         ports: std::ops::RangeInclusive<u16>,
         allocated: Arc<Mutex<Vec<std::net::SocketAddr>>>,
+        granted: Arc<Mutex<Vec<(std::time::Instant, std::net::SocketAddr)>>>,
     ) -> webrtc::turn::server::Server {
         webrtc::turn::server::Server::new(webrtc::turn::server::config::ServerConfig {
             conn_configs: vec![webrtc::turn::server::config::ConnConfig {
@@ -1032,6 +1148,7 @@ impl TestTurn {
                         net: Arc::new(webrtc::util::vnet::net::Net::new(None)),
                     },
                     allocated,
+                    granted,
                 }),
             }],
             realm: "cmuxMobile.test".into(),
@@ -1065,6 +1182,28 @@ impl TestTurn {
     /// a lossy link that loses the server's answer to an allocation.
     pub fn drop_allocate_successes(&self, count: u32) {
         self.udp_block.drop_allocate_successes.store(count, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// For `window` from now, every datagram the UDP port sends its
+    /// clients leaves `delay` late: a new network's first seconds (a radio
+    /// still attaching, a congested cell), when an allocation's answer
+    /// comes after the client stopped waiting for it.
+    pub fn delay_udp_replies(&self, delay: std::time::Duration, window: std::time::Duration) {
+        *self.udp_block.reply_delay.lock().unwrap_or_else(PoisonError::into_inner) =
+            Some((std::time::Instant::now() + window, delay));
+    }
+
+    /// STUN and TURN messages on the UDP port (not ChannelData, which a
+    /// tunnel's `impair_inbound` shapes) ride the link profile set by
+    /// [`set_link_profile`], both legs of each exchange.
+    pub fn shape_udp_control(&self, on: bool) {
+        self.udp_block.shaped.store(on, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Every allocation this server granted so far (released ones too):
+    /// when, and its relayed address.
+    pub fn grants(&self) -> Vec<(std::time::Instant, std::net::SocketAddr)> {
+        self.granted.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 
     /// Every permission every current UDP client holds lapses now, as when
@@ -1145,6 +1284,7 @@ mod tests {
                 net: Arc::new(webrtc::util::vnet::net::Net::new(None)),
             },
             allocated: Arc::clone(&allocated),
+            granted: Arc::default(),
         };
         let (conn, relayed) = relays.allocate_conn(true, 0).await.expect("allocate");
         assert!(is_test_relay(&relayed), "a live allocation is a relay");

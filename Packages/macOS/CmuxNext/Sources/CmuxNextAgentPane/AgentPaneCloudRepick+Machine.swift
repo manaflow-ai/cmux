@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A chat a `cloud.startChat` send opened on a Cloud machine: what the start was, from where, and
 /// where it runs. The App keeps one per opened tab for its run (CmuxNextApp `CloudStartChat`), so

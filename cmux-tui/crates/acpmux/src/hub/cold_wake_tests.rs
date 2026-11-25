@@ -68,14 +68,26 @@ fn both_settings_are_on_by_default_and_compacting_first_needs_batching() {
 }
 
 #[test]
-fn the_compaction_line_is_a_setting_clamped_to_its_range_and_50k_by_default() {
+fn the_compaction_line_is_a_setting_clamped_to_its_range_and_100k_by_default() {
     let line = |doc: Value| settings(Some(&doc)).compact_above;
-    assert_eq!(settings(None).compact_above, 50_000, "the default stays 50K");
+    assert_eq!(settings(None).compact_above, 100_000, "the default is 100K");
     assert_eq!(line(json!({"agents": {"coldWake": {"compactAboveTokens": 80_000}}})), 80_000);
     assert_eq!(line(json!({"agents.coldWake.compactAboveTokens": 120_000})), 120_000);
     assert_eq!(line(json!({"agents.coldWake.compactAboveTokens": 1})), COMPACT_ABOVE_RANGE.0);
     assert_eq!(line(json!({"agents.coldWake.compactAboveTokens": 9e9})), COMPACT_ABOVE_RANGE.1);
-    assert_eq!(line(json!({"agents.coldWake.compactAboveTokens": "big"})), 50_000, "junk");
+    assert_eq!(line(json!({"agents.coldWake.compactAboveTokens": "big"})), 100_000, "junk");
+}
+
+#[test]
+fn the_default_line_sits_above_the_break_even() {
+    // Compacting first must cost less than the plain wake at the default line, and the 50K the
+    // line started at must stay a loss, so the model and the default cannot drift apart.
+    let line = DEFAULT_COMPACT_ABOVE_TOKENS;
+    assert!(cold_compact_cost(line) < plain_wake_cost(line), "the default pays on the wake");
+    let break_even = COLD_COMPACT_OVERHEAD_TOKENS;
+    assert!(line > break_even, "{line} must sit above the {break_even} break-even");
+    assert_eq!(cold_compact_cost(break_even), plain_wake_cost(break_even));
+    assert!(cold_compact_cost(50_000) > plain_wake_cost(50_000), "50K lost about 26K a wake");
 }
 
 #[test]
@@ -166,6 +178,86 @@ fn surgery_switched_off_compacts() {
     assert!(!surgery_applied(&answer));
 }
 
+/// A queue entry as `enqueue` makes it: another agent's message when `agent`, else a person's.
+fn queued(prompt_id: &str, agent: Option<&str>) -> super::super::queue::QueuedPrompt {
+    let run = super::super::queue::PromptRun {
+        size: Default::default(),
+        blocks: vec![json!({"type": "text", "text": "waits"})],
+        display_parts: None,
+        control: Control::Local,
+        cloud_mobile: false,
+        trust_gate: false,
+        provenance: None,
+        agent: agent.map(str::to_owned),
+        class: None,
+        supersede: None,
+        full_access_device: None,
+        message_id: None,
+        message_sender: None,
+    };
+    super::super::queue::QueuedPrompt {
+        prompt_id: prompt_id.into(),
+        turn_id: format!("t-{prompt_id}"),
+        client: "test".into(),
+        preview: "waits".into(),
+        queued_at: 0,
+        withdraw: Arc::new(tokio::sync::Notify::new()),
+        run: Arc::new(run),
+        restored: false,
+        resume: false,
+        steer: false,
+        steer_on_start: false,
+        held: false,
+        awaiting_owner: false,
+        revision: 0,
+        declined: Default::default(),
+        sent_now: false,
+        joined: Arc::new(std::sync::Mutex::new(None)),
+        requeued: false,
+        retries: 0,
+    }
+}
+
+fn idle_hub(id: &str) -> (Arc<Hub>, Arc<Session>) {
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let meta = json!({"schema": crate::store::META_SCHEMA, "id": id, "name": id,
+        "harness": "claude", "cwd": "/tmp", "status": "idle", "turnCount": 3,
+        "createdAt": 1, "updatedAt": 2});
+    store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+    let hub = Hub::new(cfg, store);
+    hub.begin_startup(false);
+    let session = hub.resolve(id).unwrap();
+    session.meta.lock().unwrap().last_turn = Some(json!({"turnId": "t0", "endedAt": 1}));
+    (hub, session)
+}
+
+/// The batch's own gathered message waits in the queue (`agent_gather.rs`): the batch's
+/// compaction goes ahead of it. Before, the continuation check refused every cold compaction
+/// with `auto_resume.superseded` (15 of 15 on one lane VM over 48 h), so none ran.
+#[tokio::test]
+async fn a_cold_batchs_compaction_goes_ahead_of_the_batch_but_not_a_persons_prompt() {
+    let ours = json!({"kind": KIND});
+    let (_hub, session) = idle_hub("cold-q1");
+    let check = |prov: Option<&Value>| {
+        super::super::auto_resume::check_cut(&session, Some("t0"), false, prov).is_ok()
+    };
+    assert!(check(Some(&ours)), "an empty queue");
+    session.queue.lock().unwrap().push(queued("lane-msg", Some("lane")));
+    assert!(goes_ahead_of_batch(&session, Some(&ours)));
+    assert!(check(Some(&ours)), "the batch's gathered message waits behind its compaction");
+    assert!(!check(None), "another continuation still yields to what waits");
+    assert!(!goes_ahead_of_batch(&session, None), "only the batch's own compaction");
+    session.queue.lock().unwrap().push(queued("persons", None));
+    assert!(!goes_ahead_of_batch(&session, Some(&ours)));
+    assert!(!check(Some(&ours)), "a person's prompt waits: the compaction yields to it");
+    // The chat moved on: superseded, as before.
+    session.queue.lock().unwrap().clear();
+    session.meta.lock().unwrap().last_turn = Some(json!({"turnId": "t1", "endedAt": 2}));
+    assert!(!check(Some(&ours)));
+}
+
 /// End to end through `Hub::surgery`: a chat with no stored Claude conversation (or surgery
 /// switched off on this machine) is refused, so the cold batch falls back to `/compact`.
 #[tokio::test]
@@ -183,4 +275,73 @@ async fn a_chat_surgery_refuses_falls_back_to_compact() {
     let answer = hub.surgery(&session, None, true).await;
     assert!(!surgery_suffices(&answer, LINE), "{answer:?}");
     assert!(!hub.cold_wake_surgery(&session, 150_000, LINE).await, "refused: /compact as before");
+}
+
+/// Every wake source joins the batch (module docs): a task's result and an offer's result name
+/// their sender, so in a chat that ran a turn they wait for the window as a lane report does,
+/// and the same prompt with no sender (the person's) never waits.
+#[tokio::test]
+async fn task_and_offer_results_name_their_sender_and_join_the_window() {
+    use crate::prompt_class::PromptClass;
+    use crate::prompt_provenance::{offer_result, task_result};
+    let config = serde_json::from_value(json!({})).unwrap();
+    let hub = Hub::new(config, Box::new(crate::store::MemoryStore::default()));
+    let meta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "giver", "name": "giver",
+        "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
+    }))
+    .unwrap();
+    let session = hub.insert_test_session(meta);
+    session.meta.lock().unwrap().turn_count = 3;
+    let blocks = [json!({"type": "text", "text": "Result"})];
+    let replaced = std::sync::OnceLock::new();
+    let slot = |provenance: &'_ Value, agent: Option<&'_ str>| {
+        let s = super::super::queue::Slot {
+            text: "Result",
+            blocks: &blocks,
+            display_parts: None,
+            client: "acpmux",
+            prompt_id: "r",
+            control: Control::Local,
+            cloud_mobile: false,
+            trust_gate: false,
+            interrupt: false,
+            interrupt_turn: None,
+            provenance: Some(provenance),
+            agent,
+            class: Some(PromptClass::Result),
+            supersede: None,
+            full_access_device: None,
+            replaced: &replaced,
+            no_queue: false,
+            admitted: false,
+            after_turn: false,
+            steer_on_start: false,
+        };
+        super::super::digest::gathers(&session, &s)
+    };
+    let task = task_result("lane-id", "lane-a", "giver", "t1", "done");
+    let offer = offer_result("o1", "child-id", "Suggested task");
+    assert!(slot(&task, Some("lane-a")), "a task result waits for the batch");
+    assert!(slot(&offer, Some("child")), "an offer result waits for the batch");
+    assert!(!slot(&task, None), "unnamed, it was the person's prompt and woke the chat at once");
+    assert!(!slot(&offer, None));
+}
+
+#[test]
+fn a_gather_send_is_refused_what_a_batch_cannot_wait_for() {
+    use crate::prompt_class::PromptClass;
+    let reason = |e: Option<RpcError>| e.map(|e| e.message);
+    let no_sender = reason(gather_refusal(false, None, false, false)).unwrap();
+    assert!(no_sender.contains("--from"), "{no_sender}");
+    for blocker in [PromptClass::Block, PromptClass::Question] {
+        assert!(gather_refusal(true, Some(blocker), false, false).is_some(), "{blocker:?}");
+    }
+    assert!(reason(gather_refusal(true, None, true, false)).unwrap().contains("fire"));
+    assert!(gather_refusal(true, None, false, true).is_some(), "--interrupt, --now, --wait");
+    let refused = gather_refusal(false, None, false, false).unwrap();
+    assert_eq!(refused.data.unwrap()["reason"], "send.gather_refused");
+    for class in [None, Some(PromptClass::Result), Some(PromptClass::Fyi)] {
+        assert!(gather_refusal(true, class, false, false).is_none(), "{class:?} joins the window");
+    }
 }

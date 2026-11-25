@@ -1,5 +1,7 @@
-import CmuxNextDaemon
+// Only the launcher: CmuxNextDaemon has a JSONValue of its own, and this file speaks the page's.
+import class CmuxNextDaemon.BundledExecutable
 public import CmuxNextPages
+public import CmuxNextSettings
 import CmuxNextWakeups
 public import Foundation
 
@@ -19,7 +21,7 @@ public final class CustomizeChatPage: PageProvider {
     public static let op = "cmux.customize.run"
     /// What the bar may run, and what each takes after the verb.
     public enum Argument: Sendable { case none, optionalGeneration, name, optionalNote }
-    public static let verbs: [String: Argument] = [
+    public nonisolated static let verbs: [String: Argument] = [
         "status": .none, "diff": .none, "profiles": .none, "generations": .none,
         "apply": .optionalNote, "discard": .none, "rollback": .optionalGeneration,
         "save": .name, "use": .name, "keep": .none, "revert": .none,
