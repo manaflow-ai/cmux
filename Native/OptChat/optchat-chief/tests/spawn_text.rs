@@ -125,16 +125,19 @@ fn settle_until(h: &mut Harness, done: impl Fn(&Harness) -> bool) {
 fn a_spawn_turn_with_no_text_gets_its_start_host_posted() {
     let mut h = Harness::new(script("", "Started a1 on the fix."));
     spawn_turn(&mut h, None);
-    settle_until(&mut h, |h| {
-        h.log()
+    let posted = |h: &Harness| {
+        h.owner
+            .lock()
+            .unwrap()
+            .sends()
             .iter()
-            .any(|(_, t)| t.starts_with("[a1] started: Fix it"))
-    });
-    let log = h.log();
+            .any(|(key, text)| key == "host-spawn:a1" && text == "[a1] started: Fix it")
+    };
+    settle_until(&mut h, posted);
     assert!(
-        log.iter()
-            .any(|(k, t)| k == "talk" && t.starts_with("[a1] started: Fix it")),
-        "the host posted the start: {log:?}"
+        posted(&h),
+        "the host posted the start: {:?}",
+        h.owner.lock().unwrap().sends()
     );
     // No Chief turn was spent relaying it: no `[no text]` turn follows.
     settle_until(&mut h, |_| false);

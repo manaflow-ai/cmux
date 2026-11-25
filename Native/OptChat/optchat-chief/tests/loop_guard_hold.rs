@@ -176,7 +176,11 @@ fn report(h: &mut Harness, hold: bool) {
     }
 }
 
-const LANDED: &str = "Landed 1a2b3c4d..5e6f7a8b on feat-cmux-next; tests green.";
+/// A landed report that still needs the Chief's judgment (the rollout's
+/// approval), so its report turn runs: a purely mechanical one is
+/// host-posted and starts no turn (outcome_ledger.rs).
+const LANDED: &str =
+    "Landed 1a2b3c4d..5e6f7a8b on feat-cmux-next; tests green. The rollout needs your approval.";
 
 #[test]
 fn stop_and_sleep_go_through_while_the_loop_guard_refuses_sends() {

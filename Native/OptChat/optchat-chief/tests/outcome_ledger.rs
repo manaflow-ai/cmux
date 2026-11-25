@@ -6,8 +6,9 @@
 //!
 //! A finished subagent (not stopped by the person) waits until a Chief post
 //! names it (`a1`). A turn that saw its report and ended without naming it
-//! gets one retry turn on an `[untold]` note; after that it is dropped, and
-//! the host never posts on the Chief's behalf.
+//! gets one retry turn on an `[untold]` note; after that it is dropped. A
+//! mechanical result (final, no open question or decision) is host-posted at
+//! once instead (Lucas's latency plan, item 3): no Chief turn relays it.
 
 mod common;
 
@@ -82,6 +83,16 @@ fn prompts(h: &Harness) -> Vec<String> {
 }
 
 /// a1 is spawned, reports, and the Chief's turn on its report ends.
+/// Whether the host posted a1's result to the chat itself.
+fn host_posted(h: &Harness) -> bool {
+    h.owner
+        .lock()
+        .unwrap()
+        .sends()
+        .iter()
+        .any(|(key, text)| key == "host-outcome:a1" && text.starts_with("[a1] "))
+}
+
 fn report_and_settle(h: &mut Harness) -> Arc<Spawner> {
     report_task(h, "REPORT-TASK fix it")
 }
@@ -112,7 +123,9 @@ fn report_task(h: &mut Harness, task: &str) -> Arc<Spawner> {
     let worker = std::thread::spawn(move || sp.spawn(vec![task], None));
     let deadline = Instant::now() + Duration::from_secs(20);
     let mut idle_sent = false;
-    while !h.log().iter().any(|(_, t)| t.starts_with("[a1] ")) {
+    // The report reaches the Chief's log, or (a mechanical result) the
+    // host posts it to the chat and starts no turn.
+    while !h.log().iter().any(|(_, t)| t.starts_with("[a1] ")) && !host_posted(h) {
         assert!(Instant::now() < deadline, "no report: {:?}", h.log());
         if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
             h.brain.step(input);
@@ -274,14 +287,12 @@ fn a_host_posted_result_shows_in_the_chiefs_next_turn() {
         h.brain.untold_outcomes().is_empty(),
         "host-posted: nothing waits for the Chief"
     );
+    assert!(host_posted(&h), "the host posted the result to the chat");
     assert!(
-        h.log()
-            .iter()
-            .any(|(k, t)| k == "talk" && t.starts_with("[a1] ")),
-        "the host posted the result to the chat: {:?}",
-        h.log()
+        !prompts(&h).iter().any(|t| t.contains("[a1]")),
+        "no Chief turn spent relaying it"
     );
-    h.say("person", "what happened to the sidebar?");
+    h.say("user_local", "what happened to the sidebar?");
     h.settle();
     let turns = prompts(&h);
     let next = turns
@@ -301,12 +312,6 @@ fn a_host_posted_result_shows_in_the_chiefs_next_turn() {
 fn a_judgment_report_is_not_host_posted() {
     let mut h = Harness::new(script(|_, _| None));
     report_task(&mut h, "REPORT-QUESTION fix it");
-    assert!(
-        !h.log()
-            .iter()
-            .any(|(k, t)| k == "talk" && t.starts_with("[a1] ")),
-        "no host post for a question: {:?}",
-        h.log()
-    );
+    assert!(!host_posted(&h), "no host post for a question");
     assert_eq!(h.brain.untold_outcomes(), vec!["a1".to_owned()]);
 }

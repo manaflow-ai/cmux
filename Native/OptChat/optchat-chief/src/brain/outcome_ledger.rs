@@ -269,6 +269,7 @@ impl Brain {
     /// Posts a host-authored message into the Chief conversation. The outbox
     /// is durable, and the key is saved on the matching outcome before the
     /// daemon is flushed, so a restart cannot lose or duplicate the post.
+    /// False when it was not posted, or the owner already refused it.
     pub(super) fn host_post(
         &mut self,
         key: String,
@@ -308,7 +309,15 @@ impl Brain {
         ));
         self.save();
         self.flush_outbox();
-        true
+        // A refusal the flush already met (host_post_refused) cleared the
+        // key: the outcome is the Chief's again, so the caller keeps its turn.
+        outcome_id.is_none_or(|id| {
+            self.state
+                .untold
+                .iter()
+                .find(|u| u.id == id)
+                .is_none_or(|u| u.posted_key.is_some())
+        })
     }
 
     /// A host-authored post was refused. Keep the report and wake the Chief
