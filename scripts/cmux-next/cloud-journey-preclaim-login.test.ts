@@ -39,14 +39,15 @@ describe("the production journey copies the login on spare.ready, as the app's S
     expect(pre?.fields?.create_marks_ms).toBeUndefined();
   });
 
-  test("without a receipt, the full copy runs after bind", () => {
+  // A miss no longer pays a post-bind login copy: the login goes with the agent's start (cmux#50935).
+  test("without a receipt, the login goes with the agent's start, never a copy after bind", () => {
     const { steps, probe, log } = runJourney({ preclaim: { receipt: false }, login: FIXTURE_LOGIN });
     const create = log.indexOf("create");
-    expect(log.slice(create)).toContain("fs/write credential");
+    expect(log.slice(create)).not.toContain("fs/write credential");
     const login = steps.find((s) => s.step === "pass Claude login");
     expect(login?.status).toBe("pass");
-    expect(login?.detail).toContain("written by the app's installer");
-    expect(probe.login_path).toBe("copy");
+    expect(login?.detail).toContain("given to the agent at its start");
+    expect(probe.login_path).toBe("launch");
   });
 
   test("the warm goes to client-config's platform_origin, never the API host (an empty 404 there)", () => {

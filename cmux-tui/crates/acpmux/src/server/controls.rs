@@ -56,7 +56,6 @@ struct Open {
     staged: VecDeque<Line>,
 }
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct Request {
     kinds: Option<Vec<String>>,
     stream: Option<String>,
