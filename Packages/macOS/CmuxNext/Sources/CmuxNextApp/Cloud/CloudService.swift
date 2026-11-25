@@ -729,7 +729,7 @@ final class CloudService {
         creating += 1
         defer { creating -= 1 }
         let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }
-        let policy = agentCreatePolicy(), asksFirst = !startedByPerson && policy.asksFirst
+        let policy = agentCreatePolicy(), asksFirst = !startedByPerson && policy.asksFirst; var spare = "spare=unread" // why it took or skipped a spare (Rust's note)
         let idlePause = request.idlePauseMinutes(startedByPerson: startedByPerson, pauseAgentMachines: policy.pauseAgentMachines)
         var machine = try await CloudMachineCap.creating(person: startedByPerson && capCard, cap: { [weak self] error in
             guard case CloudMachineCreateFlow.Failure.upgradeRequired(let reason) = error else { return CloudMachineCap.refusal(error) }
@@ -738,9 +738,9 @@ final class CloudService {
                                                          pause: { [weak self] in try await self?.pauseMachine($0) }) { again in
             var request = request // after a Pause, a new key: the first one's stored answer is the refusal
             if again { request.idempotencyKey = UUID().uuidString }
-            return try await appServerCreate(name: name, startedByPerson: startedByPerson, ownCreate: ownCreate && startedByPerson, asksFirst: asksFirst, askedBy: askedBy, environment: request.environment, creation: creation, request: request, onSent: onSent, persistSent: onAppServerSent)
+            return try await appServerCreate(name: name, startedByPerson: startedByPerson, ownCreate: ownCreate && startedByPerson, asksFirst: asksFirst, askedBy: askedBy, environment: request.environment, creation: creation, request: request, onSent: onSent, persistSent: onAppServerSent, onAnswer: { spare = CloudStartCore().spareNote(answer: $0) })
         }
-        let answeredAt = ContinuousClock.now; logger.info("created machine \(machine.id, privacy: .public)")
+        let answeredAt = ContinuousClock.now; logger.notice("created machine \(machine.id, privacy: .public) \(spare, privacy: .public)")
         try proceed()
         // The machine exists either way: a failed write leaves its idle pause as the server says,
         // and the answer's `persistent` reads false, so the caller can run `cloud set-idle-pause`.
