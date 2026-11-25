@@ -9,7 +9,12 @@ import Testing
         let clause = try WhenClause.parse("cacheTestKey =~ /^term(inal)?-[0-9]+$/")
         let hit = KeyContext(["cacheTestKey": .string("terminal-42")])
         let miss = KeyContext(["cacheTestKey": .string("page")])
+        // Fails without the change: the clause holds its compiled regex, and every evaluation uses that one.
+        guard case .matches(_, let pattern) = clause else { Issue.record("not a =~ clause"); return }
+        let compiled = try #require(pattern.regex)
         for _ in 0..<1000 {
+            guard case .matches(_, let again) = clause else { return }
+            #expect(again.regex === compiled)
             #expect(clause.evaluate(hit))
             #expect(!clause.evaluate(miss))
         }
