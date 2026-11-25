@@ -221,6 +221,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/tailnet/placement",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/status",
       "params": {
         "$ref": "#/types/StatusParams"
