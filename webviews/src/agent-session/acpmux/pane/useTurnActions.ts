@@ -62,6 +62,19 @@ import { subagentRowsFrom, type SubagentRows } from "../subagents/subagentRows";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 type Held = { session?: string; keys: ReadonlySet<string> };
+/// App.tsx `heldWorked`: the ended turn's "Worked for" folds held open over what the reader reads,
+/// and the ones the reader closed while scrolled up there (`closed`), which the hold never opens
+/// again: their click folds away rows in view, which the hold would take for a turn's end.
+export type HeldWorked = Held & { closed?: ReadonlySet<string> };
+
+/// The reader's click on a held "Worked for" `id` (App.tsx `toggleActivity`): it closes and stays
+/// closed until the view follows the latest row again. Undefined when `id` is not held.
+export function closeHeldWorked(held: HeldWorked, id: string): HeldWorked | undefined {
+  if (!held.keys.has(id)) return undefined;
+  const keys = new Set(held.keys);
+  keys.delete(id);
+  return { ...held, keys, closed: new Set([...(held.closed ?? []), id]) };
+}
 
 /// What `turnRowsShownFrom` reads of AcpmuxPane: the values its `turnRowsShown` memo closes over.
 export interface TurnRowsShownDeps {
@@ -79,7 +92,7 @@ export interface TurnRowsShownDeps {
   callRelease: number;
   transcriptInView: RefObject<(() => readonly string[] | null) | undefined>;
   heldRuns: RefObject<Held & { asked?: true }>;
-  heldWorked: RefObject<Held>;
+  heldWorked: RefObject<HeldWorked>;
   heldWorkedClosing: RefObject<boolean>;
   /// Only the fields the memo's deps array names.
   snapshot: Pick<
@@ -204,6 +217,8 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
       heldRuns.current = { session: shownSessionId, keys: new Set() };
     if (heldWorked.current.session !== shownSessionId)
       heldWorked.current = { session: shownSessionId, keys: new Set() };
+    else if (!viewNow && heldWorked.current.keys.size === 0 && heldWorked.current.closed)
+      heldWorked.current = { session: shownSessionId, keys: new Set() };
     else if (!viewNow && heldWorked.current.keys.size > 0) {
       // Back at the latest row: the Worked for held open over what the reader read closes, in
       // the turn's end motion (VirtualTranscript `heldWorkedClosing`), never in one frame.
@@ -250,6 +265,7 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
     if (inView) {
       const worked = new Set<string>();
       const held = foldsToHold(rows, turns.rows, last?.turns.rows, turns.reusedRows, inView, folds, worked);
+      for (const key of heldWorked.current.closed ?? []) worked.delete(key);
       if (worked.size > 0) {
         heldWorked.current = { session: shownSessionId, keys: new Set([...heldWorked.current.keys, ...worked]) };
         turns = shape(withHeldFolds(folds, heldOpen()));
