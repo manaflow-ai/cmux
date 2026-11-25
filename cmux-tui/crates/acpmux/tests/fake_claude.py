@@ -39,7 +39,8 @@ wait. A gate that says "read" reads them at a tool boundary (each echoed), then 
 the prompt is done. One that says "end" ends the turn first; the lines waiting then run as the
 next turn of Claude Code's own (echoed, "read: TEXT"), which waits for the next gate; "end-first"
 does the same with only the first waiting line, and the rest stay unread; "fail" ends the turn
-with a connection error. An interrupt is answered and changes nothing.
+with a connection error, and "overload" with the provider's "Repeated 529 Overloaded errors" (in
+the result Claude Code calls a success, `claude_stdio/api_error.rs`). An interrupt is answered and changes nothing.
 A stop_task control request ends its task killed (task_updated);
 FAKE_CLAUDE_STOP_NOTIFY=1 sends the task's task_notification too.
 "fg-shell" runs a foreground Bash call until a background_tasks control
@@ -476,6 +477,10 @@ def gated(prompt, base):
         if how == "fail":
             send({"type": "result", "subtype": "success", "is_error": True, "num_turns": 1,
                   "result": "API Error: Connection error.", "duration_api_ms": 5})
+            return
+        if how == "overload":
+            send({"type": "result", "subtype": "success", "is_error": False, "num_turns": 1,
+                  "result": "API Error: Repeated 529 Overloaded errors", "duration_api_ms": 5})
             return
         if how == "read":
             for m in waiting:

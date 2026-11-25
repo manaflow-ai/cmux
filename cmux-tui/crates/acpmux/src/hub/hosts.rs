@@ -952,7 +952,13 @@ impl Hub {
             if work.turn_at > 0 {
                 turn.started_at = work.turn_at;
             }
-            self.recover_carried(session, child, turn, None, Default::default());
+            // Its continuation, should an outage cut it, goes through the gate its start did.
+            let continues = super::carried_turn::Continues {
+                trust_gate: work.turn_trust_gate,
+                trigger: work.turn_trigger,
+                ..Default::default()
+            };
+            self.recover_carried(session, child, turn, None, continues);
         } else if work.turn.is_none()
             && let Some((from, record)) = &work.carry_next
             && let Some(next) = super::carried_turn::NextTurn::from_record(record)
