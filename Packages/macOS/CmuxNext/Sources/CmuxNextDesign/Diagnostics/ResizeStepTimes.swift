@@ -47,14 +47,14 @@ public struct ResizeStepTimes {
     /// nil, and the caller measures nothing. `input` is the `NSEvent.timestamp` of the pointer event the step shows (a
     /// window step's current event); a divider step takes the events ``noteInput(_:)`` kept since the last one.
     public static func beginStep(_ kind: StepKind, if condition: @autoclosure () -> Bool = true,
-                                 input: @autoclosure () -> TimeInterval? = nil) -> UInt64? {
+                                 input: @autoclosure () -> Double? = nil) -> UInt64? {
         guard isRecording, condition() else { return nil }
         return ResizeStepLog.begin(kind, input: input())
     }
 
     /// Keeps a divider's pointer event (its `NSEvent.timestamp`) for the drag's next step, which reports how long the
     /// newest and the oldest one waited (`input_age`, `input_wait`).
-    public static func noteInput(_ timestamp: TimeInterval) {
+    public static func noteInput(_ timestamp: Double) {
         guard isRecording else { return }
         ResizeStepLog.noteInput(timestamp)
     }
