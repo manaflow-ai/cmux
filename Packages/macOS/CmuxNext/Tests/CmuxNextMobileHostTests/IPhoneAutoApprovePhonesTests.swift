@@ -54,12 +54,25 @@ import Testing
         }
     }
 
+    /// The iPhone apps with no build space (review of #54991): the Production configuration, the shared Demo build and
+    /// cmux Dev belong to NIGHTLY or release, so the setting still pairs them there, though the quiet ask holds them
+    /// from the prompt. On a tagged dev Mac (another space) the setting leaves them to the quiet ask.
+    @Test func aBuildSpacelessPhoneStillPairsOnANightlyOrReleaseMac() {
+        for bundleID in ["dev.cmux.mobile.prod", "dev.cmux.mobile.demo", "dev.cmux.mobile.dev", "DEV.CMUX.MOBILE.PROD"] {
+            #expect(IPhoneDevAutoApprove.asksQuietly(Self.request(bundleID: bundleID), macDevTag: nil), "\(bundleID)")
+            #expect(Self.approves(Self.request(bundleID: bundleID)), "\(bundleID)")
+            #expect(!Self.approves(Self.request(bundleID: bundleID), macDevTag: "pair-fast-v1"), "\(bundleID)")
+        }
+        // A tagged Demo build (demo-build.sh --tag X: dev.cmux.mobile.demo.X) is not one of them: it waits.
+        #expect(!Self.approves(Self.request(bundleID: "dev.cmux.mobile.demo.pair-fast-v1")))
+    }
+
     /// The hole (route audit 2026-11-24): another build's dev iPhone app reached a Mac with the setting
     /// on and paired silently, before the quiet ask could hold it. It now waits quietly instead.
     @Test func anotherBuildsDevPhoneWaitsQuietlyWithTheSettingOn() {
         // On NIGHTLY or release: any dev iPhone app, a tagged review build's, cmux Dev (`dev.cmux.mobile.dev`)
         // or a Demo build named like a tagged one. Bundle ids compare without case.
-        for bundleID in ["dev.cmux.mobile.ios-onboard", "dev.cmux.mobile.dev", "dev.cmux.mobile.Pair-Fast-V1"] {
+        for bundleID in ["dev.cmux.mobile.ios-onboard", "dev.cmux.mobile.demo.ios-onboard", "dev.cmux.mobile.Pair-Fast-V1"] {
             #expect(!Self.approves(Self.request(bundleID: bundleID)), "\(bundleID)")
         }
         // On a tagged dev Mac: another tag's dev iPhone app, also a tag that only starts the same.
@@ -81,11 +94,13 @@ import Testing
     /// the setting on it pairs every other phone of the signed-in user.
     @Test func theSettingNeverPairsWhatTheQuietAskHolds() {
         let bundles: [String?] = [Self.prodPhone, "dev.cmux.app.beta", nil, "", "dev.cmux.mobile.", "dev.cmux.mobile.dev",
+                                  "dev.cmux.mobile.prod", "dev.cmux.mobile.demo", "dev.cmux.mobile.demo.other-tag",
                                   "dev.cmux.mobile.pair-fast-v1", "DEV.CMUX.MOBILE.PAIR-FAST-V1", "dev.cmux.mobile.other-tag"]
         for bundleID in bundles {
             for macDevTag: String? in [nil, "pair-fast-v1", "other-tag", "dev"] {
                 let request = Self.request(bundleID: bundleID)
                 let quiet = IPhoneDevAutoApprove.asksQuietly(request, macDevTag: macDevTag)
+                    && !IPhoneHostService.pairsWithoutBuildSpace(request, macDevTag: macDevTag)
                 #expect(Self.approves(request, macDevTag: macDevTag) == !quiet, "\(bundleID ?? "nil") on \(macDevTag ?? "nightly")")
             }
         }

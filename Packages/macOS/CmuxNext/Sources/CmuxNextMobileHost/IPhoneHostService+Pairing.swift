@@ -277,8 +277,21 @@ extension IPhoneHostService {
     static func autoApproves(_ request: MobileHostPairRequest, on: Bool, macDevTag: String?, pairedUserID: String,
                              accountUserID: String?) -> Bool {
         guard on, !request.isMachine, let accountUserID, !accountUserID.isEmpty else { return false }
-        guard !IPhoneDevAutoApprove.asksQuietly(request, macDevTag: macDevTag) else { return false }
+        guard !IPhoneDevAutoApprove.asksQuietly(request, macDevTag: macDevTag) || pairsWithoutBuildSpace(request, macDevTag: macDevTag)
+        else { return false }
         return pairedUserID == accountUserID
+    }
+
+    /// The iPhone apps named `dev.cmux.mobile.<name>` that carry no cloud build space, so their Mac is NIGHTLY, RC or
+    /// release (the space with none): the Production configuration (`prod`, project.yml), the shared Demo build (`demo`,
+    /// demo-build.sh) and cmux Dev (`dev`, try.sh, which shows the person's real data). These names are reserved tags
+    /// (CMUX_ATTACH_RESERVED_TAGS), so no tagged dev build has them. The quiet ask still holds them from the prompt, but the
+    /// person's setting pairs them on a Mac with no dev tag, as before 2026-11-24.
+    static let buildSpacelessPhones: Set<String> = ["prod", "demo", "dev"]
+
+    static func pairsWithoutBuildSpace(_ request: MobileHostPairRequest, macDevTag: String?) -> Bool {
+        guard macDevTag == nil, let tag = IPhoneDevAutoApprove.phoneTag(of: request) else { return false }
+        return buildSpacelessPhones.contains(tag)
     }
 
     /// Whether `request` waits in Settings > Mobile only, without the prompt, banner or Dock bounce:

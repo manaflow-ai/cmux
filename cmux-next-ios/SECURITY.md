@@ -1384,7 +1384,10 @@ nothing: it only hides a request from the prompt. The person's own Approve Phone
 Automatically (`mobile.autoApprovePhones`) never pairs such a request either: with the setting on,
 another build's dev iPhone app still waits quietly, so only the person's Allow in Settings > Mobile
 pairs it there (route audit, 2026-11-24). Every other phone of the account, the App Store and
-TestFlight apps included, pairs with the setting on as before.
+TestFlight apps included, pairs with the setting on as before, and so do the iPhone apps with no build
+space on a NIGHTLY, RC or release Mac: the Production configuration (`dev.cmux.mobile.prod`), the shared
+Demo build (`dev.cmux.mobile.demo`) and cmux Dev (`dev.cmux.mobile.dev`), whose Mac that is. Their names
+are reserved tags, so no tagged dev build has them.
 
 ## End-of-task hand-off: pairing through dev auto-approve, and a readiness receipt (DEBUG builds)
 
