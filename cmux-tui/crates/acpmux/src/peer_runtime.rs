@@ -977,12 +977,11 @@ impl Peer {
         // One of any link that is bound to its connection goes again on the next link when
         // this one switches paths under it (`resend_switched`).
         let retry = epoch.is_none() && dual::bound(m);
-        if epoch.is_some()
-            && (!self.connected.load(Ordering::SeqCst) || self.admitting.load(Ordering::SeqCst))
-        {
+        let epoch = epoch.unwrap_or_else(|| self.link_epoch());
+        if !self.connected.load(Ordering::SeqCst) || self.admitting.load(Ordering::SeqCst) {
             return Err(self.unreachable_error());
         }
-        self.send_request_with(m, params, epoch, ListKey::None, retry, true).await
+        self.send_request_with(m, params, Some(epoch), ListKey::None, retry).await
     }
 
     /// Sends `m` on the link of epoch `epoch` (any link when None), with no check that the
@@ -1003,6 +1002,6 @@ impl Peer {
         epoch: Option<u64>,
         list: ListKey,
     ) -> Result<Value, RpcError> {
-        self.send_request_with(m, params, epoch, list, false, false).await
+        self.send_request_with(m, params, epoch, list, false).await
     }
 }
