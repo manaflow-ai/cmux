@@ -1,3 +1,4 @@
+import CmuxEgress
 import Darwin
 public import Foundation
 import Network
@@ -127,7 +128,7 @@ final class IrxTunnelNWChannel: IrxTunnelByteChannel, @unchecked Sendable {
         tcp.noDelay = true
         let parameters = NWParameters(tls: nil, tcp: tcp)
         parameters.preferNoProxies = true
-        let connection = NWConnection(host: host, port: port, using: parameters)
+        let connection = CmuxEgress.connection(host: host, port: port, using: parameters, site: "CmuxIrxTransport.IrxTunnelTCPConnector")
         let outcome = IrxTunnelConnectOutcome()
         // The deadline: whichever of state change, deadline, or cancellation
         // settles the outcome first wins; the others are no-ops.
