@@ -11,7 +11,8 @@ variables at the owned pools and GitHub-hosted Linux by hand.
 ci-cloud-overflow-probe.yml runs this every 10 minutes. Its `probe` jobs ask
 for each Blacksmith Linux size in PROBE_LABELS (4 and 16 vCPU), one job per
 label, and only print a line. This script, in the `watch` job on Blacksmith
-Linux (its own bounded CI_TRUSTED_RUNNER selector, 2 or 8 vCPU, never a probe size), waits for them:
+Linux (its own bounded CI_TRUSTED_RUNNER selector, 2 or 8 vCPU or the one-job GCP JIT label, never a probe
+size), waits for them:
 
 - Every probe starts within PROBE_MINUTES of being queued: Blacksmith serves.
   If this switch turned overflow off (the CI_CLOUD_OVERFLOW_SAVED record
@@ -23,9 +24,23 @@ Linux (its own bounded CI_TRUSTED_RUNNER selector, 2 or 8 vCPU, never a probe si
   cheap, runs already stuck on a Blacksmith label are force-cancelled and
   re-run so they pick their runners again. The workflow then force-cancels
   its own run, whose probes would otherwise stay queued.
-- Some start and some do not: nothing changes. One stalled size never flips
-  the fleet, and a record is not cleared while a size is still stalled. A
-  size stalling alone is for that size's own failover, not this switch.
+- Some start and some do not: nothing changes, with one exception. One
+  stalled size never flips the fleet, and a size stalling alone is for that
+  size's own failover (RUNNER_POOLS, from CI_CLOUD_LABEL_HEALTH), not this
+  switch. The exception: a record exists and the smallest probed size
+  (SERVING_PROBE, 4 vCPU) started. Blacksmith is serving then, so the record
+  is put back as when every probe starts (plan_on() returns a Linux variable
+  only onto a size that started). Keeping it would latch: while the record is
+  set, about 216 feat-cmux-next runs-on read `vars.CI_CLOUD_OVERFLOW_SAVED &&`
+  a larger size (8 to 16, 16 to 32), which fills exactly the large sizes under
+  Blacksmith's vCPU cap, so the 16 vCPU probe keeps stalling and the record
+  never clears. On 2026-11-17 a record written at 19:48Z (macOS variables
+  only) was still set at 00:48Z; every pass from 21:07Z ended partial (the
+  00:31Z one: 4 vCPU started in 7 s, 16 vCPU no runner), and of the Linux jobs
+  created 00:00-00:48Z, 32 vCPU started 1 of 282 and 16 vCPU 5 of 63 while
+  4 vCPU started 47 of 209. A required check (`clippy (changed cmux-tui
+  packages)`, size 8, overflow route RUNNER_POOLS.linux_16, then 32 vCPU) sat
+  in that queue.
 
 One probe, one switch: the only state is the variables and the record. The
 failover of each variable (failover_values()) is derived from the lane's
@@ -64,6 +79,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import datetime as dt
+import http.client
 import json
 import os
 import re
@@ -95,18 +111,37 @@ CLOUD_PREFIX = pr_runner_pool.EPHEMERAL_PREFIX  # "blacksmith-"
 # alone queued past 5 minutes at 21:59Z, 22:13Z, 22:53Z and 23:30Z while the
 # other sizes started jobs, and each time the whole fleet failed over.
 PROBE_LABELS = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404")
+# Every x64 Linux label a RUNNER_POOLS pool can point at (its declared members,
+# runner_pools.allowed(); tests/test_ci_runner_pools.py), decision probes first. The others are probed for
+# CI_CLOUD_LABEL_HEALTH only and never decide overflow: on 2026-11-18 linux_16 and linux_32 sat on
+# blacksmith-32vcpu-ubuntu-2404 from about 23:12Z with nothing starting there, because no probe asked for it
+# and the janitor's snapshot (truncated at 2,500 queued runs) said nothing either.
+HEALTH_LABELS = (*PROBE_LABELS, "blacksmith-2vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404",
+                 "blacksmith-32vcpu-ubuntu-2404")
 # Where Linux overflow goes while the probed label stalls: another Blacksmith
-# Linux size, never GitHub-hosted Ubuntu. CI_TRUSTED_RUNNER's readers accept
-# only ubuntu-24.04 and the 2 and 4 vCPU labels (docs/ci-runners.md), so it
+# Linux size, never GitHub-hosted Ubuntu. Every CI_TRUSTED_RUNNER reader
+# accepts ubuntu-24.04 and the 2 and 4 vCPU labels (docs/ci-runners.md), so it
 # takes 2 vCPU.
 LINUX_FAILOVER = "blacksmith-16vcpu-ubuntu-2404"
+# The size whose probe starting means Blacksmith serves, whatever larger sizes do: most Linux jobs are
+# measured at 4 vCPU or less (.github/runners.json linux_sizes on feat-cmux-next), and a larger size that
+# stalls alone is per-size routing's to move (module docstring).
+SERVING_PROBE = PROBE_LABELS[0]
 TRUSTED_FAILOVER = "blacksmith-2vcpu-ubuntu-2404"
 # When the probed label is that failover itself, the other size: a probed one, so
 # toward_started() can pick it, and one the bounded LINUX_RUNNER selectors accept.
 ALTERNATE_FAILOVERS = {LINUX_FAILOVER: "blacksmith-4vcpu-ubuntu-2404",
                        TRUSTED_FAILOVER: "blacksmith-4vcpu-ubuntu-2404"}
-# The only Blacksmith labels CI_TRUSTED_RUNNER's readers accept.
+# The only Blacksmith labels every CI_TRUSTED_RUNNER reader accepts.
 TRUSTED_BLACKSMITH_LABELS = frozenset({"blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"})
+# The owned one-job GCP JIT label CI_TRUSTED_RUNNER's readers also accept (cmuxterm-hq runner_pool.py
+# JIT_ONLY_LABELS: one VM per job, deleted after it). Leo, 2026-11-19, on Blacksmith: "stop ... relying on it".
+# The CLA jobs (cla.yml, cla-policy-guard.yml) do not list it: their runner-name guard admits only GitHub-hosted
+# and Blacksmith VMs, so for them it falls back to Blacksmith 4 vCPU. No probe asks for it and Blacksmith being
+# down does not stall it, so the switch never moves CI_TRUSTED_RUNNER off it (plan_off: it is not a blacksmith-*
+# label) and keeps it where an override or a recorded value puts it (toward_started, plan_on, plan_resume).
+TRUSTED_JIT_LABELS = frozenset({"cmux-gcp-secret-jit-x64"})
+TRUSTED_ACCEPTED_LABELS = TRUSTED_BLACKSMITH_LABELS | TRUSTED_JIT_LABELS
 HOSTED_LINUX_LABEL = re.compile(r"^ubuntu-")
 LINUX_VARIABLE = "LINUX_RUNNER"
 # The merge-gating checks (CLA, backend migrations) read this; it falls back to
@@ -121,11 +156,19 @@ LINUX_VARIABLES = (LINUX_VARIABLE, TRUSTED_VARIABLE)
 # Any of these a signing job reads (signing_runner_variables) keeps its value: on
 # 2026-10-28 the failover pointed MACOS_RUNNER_26 at the std pool and turned
 # cmux-next-guards.yml's signing-runner-variables red on every PR.
-STD_VARIABLES = ("MACOS_RUNNER_15", "MACOS_RUNNER_26", "MACOS_RUNNER_26_LARGE", "MACOS_RUNNER_PR",
-                 "MACOS_RUNNER_DUAL_XCODE")
+STD_VARIABLES = ("MACOS_RUNNER_15", "MACOS_RUNNER_26", "MACOS_RUNNER_26_LARGE", "MACOS_RUNNER_PR")
+# swift-package-tests reads this one, and on a full suite that checks the
+# Release build it first builds the Release helper against an SDK 15 Xcode.
+# No owned pool carries one (the minis have the lane's Xcode alone), so the
+# std pool is no failover for it: on 2026-11-16 the switch pointed it there
+# and the job failed "No Xcode.app found under /Applications with macOS SDK
+# major 15" on every main full suite. It has no default failover: its jobs
+# wait for Blacksmith, and CI_CLOUD_FAILOVER can still name one.
+SDK15_VARIABLE = "MACOS_RUNNER_DUAL_XCODE"
 GUI_VARIABLE = "MACOS_RUNNER_DISPLAY"
 IOS_VARIABLE = "MACOS_RUNNER_IOS"
-SWITCHED_VARIABLES = (*LINUX_VARIABLES, *STD_VARIABLES, GUI_VARIABLE, IOS_VARIABLE, PAID_OVERFLOW_VARIABLE)
+SWITCHED_VARIABLES = (*LINUX_VARIABLES, *STD_VARIABLES, SDK15_VARIABLE, GUI_VARIABLE, IOS_VARIABLE,
+                      PAID_OVERFLOW_VARIABLE)
 # What CI_CLOUD_FAILOVER may name: the workflow passes each one's live value,
 # so a restore never guesses what a variable held. MACOS_RUNNER_26 is not
 # one: every value an override could give it is refused (GitHub-hosted, a
@@ -150,6 +193,32 @@ MAX_ATTEMPT = 3  # a run re-run this often already is left to a person
 CANCEL_WAIT_SECONDS = 300
 PROTECTED_EVENTS = frozenset({"merge_group", "release"})
 PROTECTED_WORKFLOW = re.compile(r"release|publish|notar|testflight|app[-_ ]?store", re.IGNORECASE)
+# --rescue-dead runs every pass while a dead mark lasts (hours on 2026-11-18), not only while
+# overflow is off, so it also leaves alone signing, deploys, promotions, rollbacks and the
+# nightly trains, whose half-done work a force-cancel would cut, and gives each run one try: a
+# job whose runs-on names a literal label (or a variable no pool moves) comes back to the same
+# dead label, and a second cancel would only repeat that.
+DEAD_PROTECTED_WORKFLOW = re.compile(r"sign|deploy|promot|rollback|nightly|train", re.IGNORECASE)
+DEAD_MAX_RESCUES = 10
+# Of MAX_RUN_LISTINGS, the share kept for runs other than pushes, so pushes queued on live labels cannot
+# push a stranded pull request run out of every pass.
+DEAD_NON_PUSH_LISTINGS = 20
+# A run with one of these jobs in progress is mid-publish or mid-sign: a force-cancel would cut it.
+DEAD_BUSY_JOB = re.compile(r"publish|upload|sign|notar|deploy|promot|release", re.IGNORECASE)
+DEAD_CANCEL_WAIT_SECONDS = 120
+# A label some pool named and none names now, with no dead mark: linux_pool_spill.py moved a pool off a backed-up
+# size and back, or a pool was moved by hand. GitHub never re-routes a queued job, so a job bound there while a pool
+# named it waits on it for good (2026-11-19: cmux#45502's `changes`, run 44476854382, queued on
+# blacksmith-16vcpu-ubuntu-2404 from 07:04Z, past 13:00Z; cmux#46768 and #47130 the same day). The label may still
+# start jobs, so a moved job waits this long first: a re-run loses its place, and most jobs bound to a size a pool
+# just left still start there within it.
+MOVED_MINUTES = 30
+# Created at least this long ago: a listing of the oldest queued runs, besides the newest 100. With thousands queued
+# (2026-11-19) a run stranded for hours is never in the newest page.
+OLD_RUN_SLICES_MINUTES = (MOVED_MINUTES, 180)
+# Variables that hold one raw Blacksmith Linux label runs-on reads ahead of a pool (runner_pools.RAW_LABEL_VARS),
+# passed to the rescue step as NAME=value lines: a label one of them names is routed, and a re-run comes back to it.
+RAW_RUNNER_VARIABLES_ENV = "RAW_RUNNER_VARIABLES"
 
 
 def parse_time(value: object) -> dt.datetime | None:
@@ -181,6 +250,11 @@ def cloud_label(label: str | None) -> bool:
 def linux_cloud_label(label: str | None) -> bool:
     """An x64 Blacksmith Linux label: a Linux failover may name another size of the pool it probes."""
     return bool(re.fullmatch(r"blacksmith-\d+vcpu-ubuntu-\d+", str(label or "")))
+
+
+def unprobed_trusted(name: str, label: str | None) -> bool:
+    """CI_TRUSTED_RUNNER on a one-job GCP JIT label: no probe decides it, so probe health never moves it."""
+    return name == TRUSTED_VARIABLE and (label or "").strip() in TRUSTED_JIT_LABELS
 
 
 def probe_job_name(label: str) -> str:
@@ -239,7 +313,7 @@ def failover_values(xcode_app_pr: str | None, overrides: str | None) -> tuple[di
                     # No job runs on GitHub-hosted Ubuntu (Leo, 2026-10-27).
                     problems.append(f"{OVERRIDES_VARIABLE} points {name} at {value.strip()}, GitHub-hosted "
                                     "Ubuntu; ignored")
-                elif name == TRUSTED_VARIABLE and value.strip() not in TRUSTED_BLACKSMITH_LABELS:
+                elif name == TRUSTED_VARIABLE and value.strip() not in TRUSTED_ACCEPTED_LABELS:
                     problems.append(f"{OVERRIDES_VARIABLE} points {name} at {value.strip()}, which its readers do "
                                     "not accept; ignored")
                 elif cloud_label(value.strip()) and not (name in LINUX_VARIABLES and linux_cloud_label(value.strip())):
@@ -336,7 +410,8 @@ def plan_on(record: Mapping[str, Any], current: Mapping[str, str | None],
             restores.append(Restore(name, before, f"stays {now or 'unset'}; its value before, {before}, is "
                                                   "GitHub-hosted, which no job runs on"))
             continue
-        if healthy is not None and name in LINUX_VARIABLES and (before or "") not in healthy:
+        if (healthy is not None and name in LINUX_VARIABLES and (before or "") not in healthy
+                and not unprobed_trusted(name, before)):
             restores.append(Restore(name, before, f"stays {now or 'unset'}; its value before, {before or 'unset'}, "
                                                   "is not a size whose probe started"))
             continue
@@ -345,7 +420,8 @@ def plan_on(record: Mapping[str, Any], current: Mapping[str, str | None],
 
 
 def plan_resume(record: Mapping[str, Any], current: Mapping[str, str | None],
-                started: Iterable[str] | None = None) -> list[Resume]:
+                started: Iterable[str] | None = None,
+                failover: Mapping[str, str] | None = None) -> list[Resume]:
     """What a stalled probe should retry after a partial failover write.
 
     A value still at the recorded ``before`` value was never switched, so it
@@ -353,7 +429,11 @@ def plan_resume(record: Mapping[str, Any], current: Mapping[str, str | None],
     at ``after`` or was edited by someone else and is left alone. A record
     written before signing variables were kept ephemeral may name one with an
     owned ``after``; that is never applied (on 2026-10-28 a retry re-applied
-    MACOS_RUNNER_26 eight minutes after it was put back by hand).
+    MACOS_RUNNER_26 eight minutes after it was put back by hand). Given
+    ``failover`` (this run's), a non-Linux variable it no longer names is
+    never applied either: on 2026-11-16 the record held
+    MACOS_RUNNER_DUAL_XCODE on the std pool, which has no SDK 15 Xcode, after
+    the failover stopped naming it. The Linux variables follow ``started``.
     """
     resumes: list[Resume] = []
     for name, change in sorted((record.get("changed") or {}).items()):
@@ -374,7 +454,12 @@ def plan_resume(record: Mapping[str, Any], current: Mapping[str, str | None],
             # No job runs on GitHub-hosted Ubuntu (Leo, 2026-10-27), whatever an older record says.
             resumes.append(Resume(name, after, "a GitHub-hosted Ubuntu failover from an older record; left alone"))
             continue
-        if name in LINUX_VARIABLES and started is not None and after not in set(started):
+        if (failover is not None and name not in LINUX_VARIABLES and name != PAID_OVERFLOW_VARIABLE
+                and name not in failover):
+            resumes.append(Resume(name, after, "no failover now; left alone (the record still restores it)"))
+            continue
+        if (name in LINUX_VARIABLES and started is not None and after not in set(started)
+                and not unprobed_trusted(name, after)):
             resumes.append(Resume(name, after, f"{after} did not start a probe in this run; left alone"))
             continue
         if now == before or (now is not None and now == change.get("was")):
@@ -401,7 +486,7 @@ def toward_started(failover: Mapping[str, str], started: Iterable[str]) -> dict[
     healthy = set(started)
     values = dict(failover)
     for name in LINUX_VARIABLES:
-        if name not in values or values[name] in healthy:
+        if name not in values or values[name] in healthy or unprobed_trusted(name, values[name]):
             continue
         other = next((label for label in LINUX_FAILOVER_CHAIN[name] if label in healthy), None)
         if other is None:
@@ -486,56 +571,110 @@ def probe_outcome(job: Mapping[str, Any] | None, now: dt.datetime, minutes: int)
     return "waiting"
 
 
-def protected_reason(run: Mapping[str, Any]) -> str:
+def protected_reason(run: Mapping[str, Any], dead: bool = False) -> str:
     if run.get("event") in PROTECTED_EVENTS:
         return f"{run.get('event')} run"
     if PROTECTED_WORKFLOW.search(f"{run.get('name') or ''} {run.get('path') or ''}"):
         return "release/publish/TestFlight/App Store workflow"
+    if dead and DEAD_PROTECTED_WORKFLOW.search(f"{run.get('name') or ''} {run.get('path') or ''}"):
+        return "signing/deploy/promotion/rollback/nightly workflow"
+    if dead and int(run.get("run_attempt") or 1) >= 2:
+        return f"already re-run (attempt {run.get('run_attempt')}); a dead-label rescue tries a run once"
     if int(run.get("run_attempt") or 1) >= MAX_ATTEMPT:
         return f"already on attempt {run.get('run_attempt')}"
     return ""
 
 
 def stuck_job(jobs: Iterable[Mapping[str, Any]], now: dt.datetime, minutes: int,
-              failovers: Iterable[str] = (), linux_moves: bool = True) -> Mapping[str, Any] | None:
+              failovers: Iterable[str] = (), linux_moves: bool = True,
+              only: Iterable[str] | Mapping[str, int] | None = None) -> Mapping[str, Any] | None:
     """The oldest job queued with no runner on a Blacksmith label for `minutes` or more.
 
     A job queued on a failover label (another Blacksmith size) already went
     where the switch sends overflow, so re-running it moves nothing. Without
     `linux_moves` (no Linux size started, so no Linux variable has anywhere to
     go), a job on a Blacksmith Linux label would come back on the same label,
-    so it is not one either.
+    so it is not one either. With `only`, a job counts only on one of those
+    labels (the dead labels no pool names any more, dead_labels()).
     """
     skip = {str(label) for label in failovers}
+    wanted = None if only is None else {str(label) for label in only}
+    # `only` as a mapping gives a label its own wait (stranded_labels(): a moved label waits MOVED_MINUTES).
+    waits = {str(label): int(wait) for label, wait in only.items()} if isinstance(only, Mapping) else {}
 
     def movable(label: str) -> bool:
-        return cloud_label(label) and label not in skip and (linux_moves or not linux_cloud_label(label))
+        return (cloud_label(label) and label not in skip and (linux_moves or not linux_cloud_label(label))
+                and (wanted is None or label in wanted))
 
     stuck = []
     for job in jobs:
         if job.get("status") != "queued" or job.get("runner_name"):
             continue
-        if not any(movable(str(label)) for label in job.get("labels") or ()):
+        labels = [str(label) for label in job.get("labels") or () if movable(str(label))]
+        if not labels:
             continue
+        wait = max([minutes, *(waits.get(label, minutes) for label in labels)])
         created = parse_time(job.get("created_at"))
-        if created is not None and (now - created).total_seconds() >= minutes * 60:
+        if created is not None and (now - created).total_seconds() >= wait * 60:
             stuck.append((created, job))
     return min(stuck, key=lambda item: item[0])[1] if stuck else None
 
 
-REFUSED_CODES = frozenset({401, 403, 429})
+class GitHubError(RuntimeError):
+    """A refused call, with GitHub's own words: `status` is the HTTP code (None for a network error)."""
+
+    def __init__(self, message: str, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+def http_error_text(error: urllib.error.HTTPError) -> str:
+    """`403: <GitHub's message>; rate limit 0 left (resource core), resets 03:12:00Z` from a refused call:
+    a bare 403 says nothing of whether the token lacks a permission or its pool is spent."""
+    parts = [str(error.code)]
+    try:
+        raw = error.read() or b""
+    except (OSError, ValueError, http.client.HTTPException):
+        raw = b""
+    message = ""
+    try:
+        body = json.loads(raw) if raw else {}
+        message = str(body.get("message") or "") if isinstance(body, dict) else ""
+    except ValueError:
+        message = raw.decode("utf-8", "replace")
+    message = " ".join(message.split())[:300]
+    if message:
+        parts[0] += f": {message}"
+    headers = error.headers
+    get = headers.get if headers is not None else (lambda _name: None)
+    remaining, resource, reset = get("x-ratelimit-remaining"), get("x-ratelimit-resource"), get("x-ratelimit-reset")
+    if remaining is not None:
+        limit = f"rate limit {remaining} left" + (f" (resource {resource})" if resource else "")
+        if reset and str(reset).isdigit():
+            limit += ", resets " + dt.datetime.fromtimestamp(int(reset), dt.timezone.utc).strftime(
+                "%H:%M:%SZ")
+        parts.append(limit)
+    if get("retry-after"):
+        parts.append(f"retry after {get('retry-after')} s")
+    if get("x-accepted-github-permissions"):
+        parts.append(f"needs {get('x-accepted-github-permissions')}")
+    return "; ".join(parts)
 
 
 class GitHub:
     """REST client. With `fallback_token`, reads go out on `token` (the watch's cmux-bot installation token,
-    whose pool is its own) and a refused read is asked once more on the fallback (the workflow token, which
-    shares the repository's 1,000/h pool with every workflow); writes always use the fallback, so who
-    cancels and re-runs a run is unchanged. Without it, everything uses `token`, as before."""
+    whose pool is its own) and writes on the fallback (the workflow token), so who cancels and re-runs a run
+    is unchanged. A refused read is not asked again on the workflow token: that token can never read a
+    variable, and its 403 hid the first refusal's cause. Without it, everything uses `token`."""
 
     def __init__(self, token: str, repo: str, fallback_token: str | None = None) -> None:
         self.repo = repo
         self.token = token
         self.fallback_token = (fallback_token or "").strip() or None
+        # path -> (ETag, body) of the last answer to a GET. The watch lists its own run's jobs every POLL_SECONDS
+        # for up to PROBE_MINUTES + 5; a conditional read of an unchanged listing answers 304, which GitHub does not
+        # count against the token's hourly pool.
+        self.etags: dict[str, tuple[str, Any]] = {}
 
     def _headers(self, token: str) -> dict[str, str]:
         return {
@@ -549,36 +688,49 @@ class GitHub:
         headers = self._headers(token)
         if data is not None:
             headers["Content-Type"] = "application/json"
+        # An ETag is per URL, not per token: a 304 answers whichever token asked.
+        cached = self.etags.get(path) if method == "GET" else None
+        if cached:
+            headers["If-None-Match"] = cached[0]
         request = urllib.request.Request(f"{API}/repos/{self.repo}{path}", data=data, headers=headers,
                                          method=method)
-        with urllib.request.urlopen(request, timeout=30) as response:
-            raw = response.read()
-            return json.loads(raw) if raw else {}
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                raw = response.read()
+                result = json.loads(raw) if raw else {}
+                etag = response.headers.get("ETag") if method == "GET" else None
+                if etag:
+                    self.etags[path] = (etag, result)
+                return result
+        except urllib.error.HTTPError as error:
+            if error.code == 304 and cached:
+                return cached[1]
+            raise
 
     def request(self, method: str, path: str, body: Any | None = None) -> Any:
         data = json.dumps(body).encode() if body is not None else None
         read = method == "GET"
         token = self.token if read or self.fallback_token is None else self.fallback_token
+        where = f"{method} {path.split('?')[0]}"
         try:
-            try:
-                return self._send(method, path, data, token)
-            except urllib.error.HTTPError as error:
-                if not (read and self.fallback_token and token != self.fallback_token
-                        and error.code in REFUSED_CODES):
-                    raise
-                # A refused GET did nothing: ask the workflow token once.
-                return self._send(method, path, data, self.fallback_token)
+            return self._send(method, path, data, token)
         except urllib.error.HTTPError as error:
-            raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.code})") from error
+            raise GitHubError(f"{where} failed ({http_error_text(error)})", error.code) from error
         except urllib.error.URLError as error:
-            raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.reason})") from error
+            raise GitHubError(f"{where} failed ({error.reason})") from error
+        except (OSError, ValueError, http.client.HTTPException) as error:
+            # A read timeout (TimeoutError) or a body that is not JSON: a failed call like any other, so a
+            # rescue that already force-cancelled runs still re-runs the rest.
+            raise GitHubError(f"{where} failed ({type(error).__name__})") from error
 
     def jobs(self, run_id: int, attempt: int | None = None) -> list[dict[str, Any]]:
         where = f"/actions/runs/{run_id}/attempts/{attempt}/jobs" if attempt else f"/actions/runs/{run_id}/jobs"
         return list(self.request("GET", f"{where}?per_page=100").get("jobs") or [])
 
-    def runs(self, status: str) -> list[dict[str, Any]]:
-        query = urllib.parse.urlencode({"status": status, "per_page": 100})
+    def runs(self, status: str, event: str | None = None, *,
+             created_before: dt.datetime | None = None) -> list[dict[str, Any]]:
+        query = urllib.parse.urlencode({"status": status, "per_page": 100, **({"event": event} if event else {}),
+                                        **({"created": f"<={iso(created_before)}"} if created_before else {})})
         return list(self.request("GET", f"/actions/runs?{query}").get("workflow_runs") or [])
 
     def run(self, run_id: int) -> dict[str, Any]:
@@ -591,11 +743,19 @@ class GitHub:
     def rerun(self, run_id: int) -> None:
         self.request("POST", f"/actions/runs/{run_id}/rerun")
 
+    def get_variable(self, name: str) -> str | None:
+        try:
+            return self.request("GET", f"/actions/variables/{name}").get("value")
+        except RuntimeError as error:
+            if getattr(error, "status", None) == 404:
+                return None
+            raise
+
     def set_variable(self, name: str, value: str) -> None:
         try:
             self.request("PATCH", f"/actions/variables/{name}", {"name": name, "value": value})
         except RuntimeError as error:
-            if "(404)" not in str(error):
+            if getattr(error, "status", None) != 404:
                 raise
             self.request("POST", "/actions/variables", {"name": name, "value": value})
 
@@ -603,7 +763,7 @@ class GitHub:
         try:
             self.request("DELETE", f"/actions/variables/{name}")
         except RuntimeError as error:
-            if "(404)" not in str(error):
+            if getattr(error, "status", None) != 404:
                 raise
 
 
@@ -614,8 +774,8 @@ def probe_set_outcome(jobs: Iterable[Mapping[str, Any]], labels: Sequence[str], 
     "started": every probe started, so Blacksmith serves every size and an
     existing record is put back. "stalled": none started, so Blacksmith serves
     no size and overflow goes off. "partial": some started and some stalled;
-    nothing changes either way, so one stalled size never flips the fleet and
-    a record is not cleared while a size jobs fall back from is still stalled.
+    one stalled size never flips the fleet, and main() clears a record on it
+    only when SERVING_PROBE started (the upsize latch, module docstring).
     "waiting": a probe has not decided yet.
     """
     by_name = {str(job.get("name")): job for job in jobs}
@@ -650,32 +810,91 @@ def wait_for_probe(api: GitHub, run_id: int, attempt: int, minutes: int, labels:
         sleep(POLL_SECONDS)
 
 
+def wait_for_health(api: GitHub, run_id: int, attempt: int, minutes: int, labels: Sequence[str], *,
+                    deadline: dt.datetime, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
+                    log: Callable[[str], None]) -> tuple[list[str], list[str]]:
+    """(decided, stalled) for the health-only probes (HEALTH_LABELS beyond PROBE_LABELS), never past `deadline`.
+
+    They decide nothing about overflow; one that never decides is left out of the health."""
+    if not labels:
+        return [], []
+    while True:
+        try:
+            jobs = api.jobs(run_id, attempt)
+        except RuntimeError as error:
+            log(f"could not list this run's jobs ({error}); trying again")
+            jobs = []
+        by_name = {str(job.get("name")): job for job in jobs}
+        outcomes = {label: probe_outcome(by_name.get(probe_job_name(label)), now(), minutes) for label in labels}
+        decided = [label for label in labels if outcomes[label] != "waiting"]
+        if len(decided) == len(labels) or now() >= deadline:
+            return decided, [label for label in decided if outcomes[label] == "stalled"]
+        sleep(POLL_SECONDS)
+
+
 def rescue_stuck_runs(api: GitHub, *, own_run_id: int, minutes: int, now: Callable[[], dt.datetime],
                       sleep: Callable[[float], None], log: Callable[[str], None], dry_run: bool,
-                      failovers: Iterable[str] = (), linux_moves: bool = True) -> list[str]:
-    """Force-cancel and re-run runs holding a job queued on Blacksmith; one line per run touched."""
+                      failovers: Iterable[str] = (), linux_moves: bool = True,
+                      only: Iterable[str] | Mapping[str, int] | None = None) -> list[str]:
+    """Force-cancel and re-run runs holding a job queued on Blacksmith; one line per run touched.
+
+    With `only` (--rescue-dead), push runs are listed and looked at first: one listing holds
+    the newest 100 runs, and with thousands queued (2026-11-18) the branch pushes a nightly
+    waits on (the cmux-tui tree owners) fell outside it. That mode also protects more
+    (protected_reason(dead=True), busy_reason()), touches at most DEAD_MAX_RESCUES runs, and
+    cancels and re-runs through _cancel_and_rerun_once().
+    """
     lines: list[str] = []
+    dead = only is not None
+    if isinstance(only, Mapping):
+        only = {str(label): int(wait) for label, wait in sorted(only.items())}
+    elif only is not None:
+        only = sorted({str(label) for label in only})
     seen: dict[int, dict[str, Any]] = {}
-    for status in ("queued", "in_progress"):
+    listings = (("queued", "push"), ("in_progress", "push"), ("queued", None), ("in_progress", None)) if dead \
+        else (("queued", None), ("in_progress", None))
+    for status, event in listings:
         try:
-            for run in api.runs(status):
+            for run in api.runs(status, event) if event else api.runs(status):
                 seen.setdefault(int(run["id"]), run)
         except RuntimeError as error:
-            lines.append(f"could not list {status} runs ({error})")
-    candidates = sorted((run for run_id, run in seen.items() if run_id != own_run_id),
-                        key=lambda run: str(run.get("created_at") or ""))[:MAX_RUN_LISTINGS]
+            lines.append(f"could not list {status} {event or ''} runs ({error})".replace("  ", " "))
+    if dead:
+        # The newest page of each listing misses a run stranded for hours under a deep queue: list queued runs
+        # created before each OLD_RUN_SLICES_MINUTES too (one call each).
+        for age in OLD_RUN_SLICES_MINUTES:
+            try:
+                for run in api.runs("queued", None, created_before=now() - dt.timedelta(minutes=age)):
+                    seen.setdefault(int(run["id"]), run)
+            except RuntimeError as error:
+                lines.append(f"could not list queued runs older than {age} min ({error})")
+    if dead:
+        # Protected and already re-run runs leave the window before it is cut, so they cannot fill it
+        # pass after pass (a re-run keeps its created_at, so it stays oldest).
+        seen = {run_id: run for run_id, run in seen.items() if not protected_reason(run, dead)}
+    ordered = sorted((run for run_id, run in seen.items() if run_id != own_run_id),
+                     key=lambda run: (dead and run.get("event") != "push", str(run.get("created_at") or "")))
+    if dead:
+        pushes = [run for run in ordered if run.get("event") == "push"]
+        others = [run for run in ordered if run.get("event") != "push"]
+        keep_others = others[:max(DEAD_NON_PUSH_LISTINGS, MAX_RUN_LISTINGS - len(pushes))]
+        candidates = (pushes[:MAX_RUN_LISTINGS - len(keep_others)] + keep_others)[:MAX_RUN_LISTINGS]
+    else:
+        candidates = ordered[:MAX_RUN_LISTINGS]
+    most = DEAD_MAX_RESCUES if dead else MAX_RESCUES
     chosen: list[tuple[dict[str, Any], Mapping[str, Any]]] = []
     for run in candidates:
-        if len(chosen) >= MAX_RESCUES:
+        if len(chosen) >= most:
             break
         try:
-            job = stuck_job(api.jobs(int(run["id"])), now(), minutes, failovers, linux_moves)
+            jobs = api.jobs(int(run["id"]))
         except RuntimeError as error:
             lines.append(f"run {run['id']}: could not list jobs ({error})")
             continue
+        job = stuck_job(jobs, now(), minutes, failovers, linux_moves, only)
         if job is None:
             continue
-        why = protected_reason(run)
+        why = protected_reason(run, dead) or (dead and busy_reason(jobs))
         label = ",".join(str(label) for label in job.get("labels") or ())
         if why:
             lines.append(f"run {run['id']} ({run.get('name')}): `{job.get('name')}` stuck on {label}; left "
@@ -688,6 +907,9 @@ def rescue_stuck_runs(api: GitHub, *, own_run_id: int, minutes: int, now: Callab
                      f"{label}" + (" (dry run)" if dry_run else ""))
     if dry_run or not chosen:
         return lines
+    if dead:
+        return lines + _cancel_and_rerun_once(api, chosen, minutes=minutes, now=now, sleep=sleep, log=log,
+                                              only=only if only is not None else ())
     cancelled: list[int] = []
     for run, _ in chosen:
         try:
@@ -723,6 +945,183 @@ def rescue_stuck_runs(api: GitHub, *, own_run_id: int, minutes: int, now: Callab
     return lines
 
 
+def busy_reason(jobs: Iterable[Mapping[str, Any]]) -> str:
+    """Why a run must not be cut now: a publish, upload, signing or deploy job of it is running."""
+    for job in jobs:
+        if job.get("status") == "in_progress" and DEAD_BUSY_JOB.search(str(job.get("name") or "")):
+            return f"`{job.get('name')}` is running"
+    return ""
+
+
+def _http_code(error: RuntimeError) -> int | None:
+    found = re.search(r"failed \((\d{3})\)", str(error))
+    return int(found.group(1)) if found else None
+
+
+def _cancel_and_rerun_once(api: GitHub, chosen: Sequence[tuple[Mapping[str, Any], Mapping[str, Any]]], *,
+                           minutes: int, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
+                           log: Callable[[str], None], only: Iterable[str] | Mapping[str, int]) -> list[str]:
+    """--rescue-dead's cancel and re-run.
+
+    - Each run is read again first: one re-run or started since the listing is left alone.
+    - The re-run is a whole one (`/rerun`), never rerun-failed-jobs: that keeps the outputs of jobs that
+      passed, and a planner's output can name the dead label (cmux-tui-build-package.yml's plan-build
+      writes LINUX_RUNNER into the build matrix), so the build would queue there again.
+    - A force-cancel whose answer was lost (no HTTP status, or a 5xx) may have gone through: the run is
+      watched like a cancelled one and re-run only if it ends cancelled. A 4xx refusal is final.
+    """
+    lines: list[str] = []
+    pending: dict[int, bool] = {}  # run id -> whether the cancel is known to have gone through
+    for run, _ in chosen:
+        run_id = int(run["id"])
+        try:
+            current = api.run(run_id)
+            still = (current.get("status") != "completed"
+                     and int(current.get("run_attempt") or 1) == int(run.get("run_attempt") or 1)
+                     and stuck_job(api.jobs(run_id), now(), minutes, only=only) is not None)
+        except RuntimeError as error:
+            lines.append(f"run {run_id}: could not read it again ({error}); left alone")
+            continue
+        if not still:
+            lines.append(f"run {run_id}: changed since it was listed; left alone")
+            continue
+        try:
+            api.force_cancel(run_id)
+            pending[run_id] = True
+            # Logged now: if the step is killed before the re-run, its log still names the run.
+            log(f"run {run_id}: force-cancelled; re-running it once it ends")
+        except RuntimeError as error:
+            code = _http_code(error)
+            if code is not None and code < 500:
+                lines.append(f"run {run_id}: force-cancel refused ({error})")
+                continue
+            pending[run_id] = False
+            log(f"run {run_id}: force-cancel answer lost ({error}); re-running it only if it ends cancelled")
+    deadline = now() + dt.timedelta(seconds=DEAD_CANCEL_WAIT_SECONDS)
+    while pending:
+        for run_id, known in list(pending.items()):
+            try:
+                current = api.run(run_id)
+            except RuntimeError:
+                continue
+            if current.get("status") != "completed":
+                continue
+            del pending[run_id]
+            if not known and current.get("conclusion") != "cancelled":
+                lines.append(f"run {run_id}: ended {current.get('conclusion')}; the cancel did not take, no re-run")
+                continue
+            try:
+                api.rerun(run_id)
+                lines.append(f"run {run_id}: force-cancelled and re-run")
+            except RuntimeError as error:
+                lines.append(f"run {run_id}: force-cancelled, re-run failed ({error}); re-run it by hand")
+        if pending and now() >= deadline:
+            for run_id in pending:
+                lines.append(f"run {run_id}: force-cancelled but still finishing after {DEAD_CANCEL_WAIT_SECONDS} s; "
+                             "re-run it by hand")
+            break
+        if pending:
+            sleep(10)
+    return lines
+
+
+POOLS_VARIABLE = "RUNNER_POOLS"
+POOLS_DEAD_KEY = "_dead"
+
+
+def dead_labels(pools_value: Mapping[str, Any]) -> set[str]:
+    """Blacksmith labels RUNNER_POOLS marks dead and no pool points at any more.
+
+    runner_pools.py moves each pool off a label it marks dead, so a run that picks its
+    runner again lands on a live one; but a job already queued on that label keeps it
+    and waits forever. On 2026-11-18 (09:32Z) 4, 8 and 16 vCPU were marked dead while
+    2 and 32 vCPU served: an outcome this switch leaves to per-size routing, and the
+    cmux-tui tree owners queued there held the NEXT nightly for hours until they were
+    cancelled and re-run by hand. A dead label a pool still names is skipped: a re-run
+    would come back to it, and so is any macOS label (below).
+    """
+    marks = pools_value.get(POOLS_DEAD_KEY)
+    if not isinstance(marks, Mapping):
+        return set()
+    routed = {str(value) for key, value in pools_value.items() if not str(key).startswith("_")}
+    # Linux only: a MACOS_RUNNER_* variable (which runner_pools.py never moves) can still name a dead
+    # macOS label, and a re-run would go straight back to it.
+    return {str(label) for label in marks if linux_cloud_label(str(label)) and str(label) not in routed}
+
+
+def raw_named(env: Mapping[str, str]) -> set[str]:
+    """The labels the raw runner variables name (RAW_RUNNER_VARIABLES_ENV, NAME=value lines)."""
+    named = set()
+    for line in str(env.get(RAW_RUNNER_VARIABLES_ENV) or "").splitlines():
+        _, _, value = line.partition("=")
+        if value.strip():
+            named.add(value.strip())
+    return named
+
+
+def stranded_labels(pools_value: Mapping[str, Any], named: Iterable[str] = (), *,
+                    minutes: int = DEFAULT_PROBE_MINUTES) -> dict[str, int]:
+    """Each x64 Blacksmith Linux label a job may be stranded on, with how long its jobs wait before a re-run.
+
+    A label is stranded when no pool names it now (and no raw runner variable, `named`), so a re-run picks another:
+    - marked dead (dead_labels()): after `minutes`, the probe's wait, as before;
+    - otherwise a label a pool can point at (HEALTH_LABELS, a `_spill` record's `from`) that no pool names: a move
+      left it, by runner_pools.py, linux_pool_spill.py or a hand edit of RUNNER_POOLS. It may still start jobs, so
+      after MOVED_MINUTES.
+    Reading the state after the move, not each writer's move, covers every writer, a hand edit included.
+    """
+    pooled = {str(value) for key, value in pools_value.items() if not str(key).startswith("_")}
+    routed = pooled | set(named)
+    out = {label: minutes for label in dead_labels(pools_value) if label not in routed}
+    if not pooled:
+        # An unset or empty value names no pool: every label would read as left. Its readers take their defaults.
+        return out
+    candidates = set(HEALTH_LABELS)
+    spills = pools_value.get("_spill")
+    if isinstance(spills, Mapping):
+        candidates |= {str(spill.get("from")) for spill in spills.values() if isinstance(spill, Mapping)}
+    for label in candidates:
+        if linux_cloud_label(label) and label not in routed and label not in out:
+            out[label] = max(minutes, MOVED_MINUTES)
+    return dict(sorted(out.items()))
+
+
+def rescue_dead(api: GitHub, switch: GitHub | None, env: Mapping[str, str], *, own_run_id: int, minutes: int,
+                now: Callable[[], dt.datetime], sleep: Callable[[float], None], log: Callable[[str], None],
+                dry_run: bool) -> int:
+    """`--rescue-dead`: after the pools step, re-run runs stranded on a label no pool names (stranded_labels())."""
+    raw = None
+    fresh = False
+    if switch is not None:
+        try:
+            raw = switch.get_variable(POOLS_VARIABLE) or ""  # None: the API says the variable is unset
+            fresh = True
+        except RuntimeError as error:
+            log(f"::warning title=Dead label rescue::could not read {POOLS_VARIABLE} ({error})")
+    if not fresh:
+        # The job-start value predates the pools step, which may have cleared or added a mark since: it may
+        # only describe what a live pass would do, never cancel anything.
+        if not dry_run:
+            log(f"no live {POOLS_VARIABLE} read (switch token missing or refused); nothing cancelled this pass")
+            return 0
+        raw = env.get(POOLS_VARIABLE) or ""
+    try:
+        value = json.loads(raw) if raw.strip() else {}
+    except ValueError:
+        log(f"::warning title=Dead label rescue::{POOLS_VARIABLE} is not JSON; nothing to rescue")
+        return 0
+    labels = stranded_labels(value if isinstance(value, Mapping) else {}, raw_named(env), minutes=minutes)
+    if not labels:
+        log(f"no Blacksmith label off every pool in {POOLS_VARIABLE}; nothing to rescue")
+        return 0
+    log("labels no pool names: " + ", ".join(f"{label} ({wait}+ min)" for label, wait in labels.items())
+        + "; re-running runs queued there that long")
+    for line in rescue_stuck_runs(api, own_run_id=own_run_id, minutes=minutes, now=now, sleep=sleep, log=log,
+                                  dry_run=dry_run, only=labels):
+        log(f"- {line}")
+    return 0
+
+
 RUNNER_VARIABLES_ENV = "CMUX_CI_RUNNER_VARIABLES"
 
 
@@ -748,6 +1147,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--dry-run", action="store_true",
                         default=(env.get("DRY_RUN", "").strip().lower() in {"1", "true", "yes"}))
+    parser.add_argument("--rescue-dead", action="store_true",
+                        help="only re-run runs stranded on a RUNNER_POOLS dead label no pool names (dead_labels())")
     args = parser.parse_args(argv)
     lines: list[str] = []
 
@@ -767,6 +1168,11 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     if switch is None and (env.get("SWITCH_TOKEN") or "").strip():
         switch = GitHub(str(env["SWITCH_TOKEN"]).strip(), repo)
     minutes = probe_minutes(env.get("PROBE_MINUTES"))
+    if args.rescue_dead:
+        code = rescue_dead(api, switch, env, own_run_id=run_id, minutes=minutes, now=now, sleep=sleep, log=log,
+                           dry_run=args.dry_run)
+        write_summary(env, lines)
+        return code
     try:
         record = parse_record(env.get(f"VAR_{RECORD_VARIABLE}"))
     except ValueError as error:
@@ -790,14 +1196,18 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     log(f"Blacksmith overflow is {state}; probing {label} (a stall is every probe queued {minutes} min with no "
         "runner)")
 
+    health_deadline = now() + dt.timedelta(minutes=minutes + 5)
     outcome, stalled = wait_for_probe(api, run_id, attempt, minutes, labels, now=now, sleep=sleep, log=log)
+    extra = () if drill else tuple(item for item in HEALTH_LABELS if item not in labels)
+    extra_decided, extra_stalled = wait_for_health(api, run_id, attempt, minutes, extra, deadline=health_deadline,
+                                                   now=now, sleep=sleep, log=log)
     stamp = iso(now())
     code = 0
     started = [item for item in labels if item not in stalled] if outcome != "unknown" else []
     failover = toward_started(failover, started)
     if outcome != "unknown" and not args.dry_run and switch is not None:
-        health = label_health(labels, stalled, checked=stamp, run=f"https://github.com/{repo}/actions/runs/{run_id}",
-                              minutes=minutes)
+        health = label_health([*labels, *extra_decided], [*stalled, *extra_stalled], checked=stamp,
+                              run=f"https://github.com/{repo}/actions/runs/{run_id}", minutes=minutes)
         try:
             switch.set_variable(HEALTH_VARIABLE, json.dumps(health, sort_keys=True))
         except RuntimeError as error:
@@ -805,12 +1215,17 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             log(f"::warning title=Cloud overflow switch::could not write {HEALTH_VARIABLE} ({error})")
     if outcome == "unknown":
         log("::warning title=Cloud overflow switch::never saw every probe job decide; nothing decided")
-    elif outcome == "partial":
+    elif outcome == "partial" and not (record and SERVING_PROBE in started):
         log(f"{stamp}: {', '.join(stalled)} waited {minutes} min with no runner while the other sizes started; "
             f"overflow stays {'off' if record else 'on'}; nothing changes (per-size routing reads "
             f"{HEALTH_VARIABLE})")
-    elif outcome == "started":
-        log(f"{stamp}: every probe started ({label}); Blacksmith is serving")
+    elif outcome in ("started", "partial"):
+        if outcome == "started":
+            log(f"{stamp}: every probe started ({label}); Blacksmith is serving")
+        else:
+            log(f"{stamp}: {SERVING_PROBE} started while {', '.join(stalled)} waited {minutes} min with no runner; "
+                f"Blacksmith is serving, so the record goes back (a stalled larger size is per-size routing's, "
+                f"{HEALTH_VARIABLE}); keeping it would hold every overflow reader on the larger sizes")
         if record:
             restores = plan_on(record, current, started)
             if args.dry_run:
@@ -876,7 +1291,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                         log(f"- {item.name}: moved from GitHub-hosted Ubuntu to {item.value}")
                     record = migrated
                     current = {**current, **{item.name: item.value for item in moves}}
-            resumes = plan_resume(migrated if args.dry_run else record, current, started)
+            resumes = plan_resume(migrated if args.dry_run else record, current, started, failover)
             if args.dry_run:
                 for item in resumes:
                     if item.skipped:
@@ -905,6 +1320,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     if out:
         with open(out, "a", encoding="utf-8") as handle:
             handle.write(f"outcome={outcome}\n")
+            # Whether every probe job, health-only ones included, started: otherwise one may still be
+            # queued, and the workflow's last step force-cancels this run so it frees the concurrency group.
+            every = outcome == "started" and len(extra_decided) == len(extra) and not extra_stalled
+            handle.write(f"all_started={'true' if every else 'false'}\n")
     write_summary(env, lines)
     return code
 

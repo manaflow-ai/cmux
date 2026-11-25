@@ -309,6 +309,10 @@ export const env = createEnv({
       "STRIPE_STARTER_MONTHLY_15_PRICE_ID",
     ),
     STRIPE_STARTER_MONTHLY_15_PRICE_ID: z.string().min(1).optional(),
+    // cmux NEXT Cloud plans. Unset means that plan is not for sale yet.
+    STRIPE_PRICE_NEXT_PLUS_MONTHLY: z.string().min(1).optional(),
+    STRIPE_PRICE_NEXT_PRO_MONTHLY: z.string().min(1).optional(),
+    STRIPE_PRICE_NEXT_MAX_MONTHLY: z.string().min(1).optional(),
     // Optional pin for the Pro <-> Max portal configuration; otherwise the
     // configuration is found by its metadata (see services/billing/stripe.ts).
     STRIPE_PERSONAL_PLAN_SWITCH_PORTAL_CONFIGURATION_ID: z.string().min(1).optional(),
@@ -373,6 +377,8 @@ export const env = createEnv({
     // Hosted coderouter and Subrouter have no plan, permission, or team
     // allow-list gate: team membership is the only access requirement.
     CRON_SECRET: z.string().min(1).optional(),
+    // Bearer token for the Billing nightly's read of /api/cron/apple-notifications/health.
+    APPLE_NOTIFICATIONS_HEALTH_TOKEN: z.string().min(1).optional(),
     CMUX_ALERTS_SLACK_WEBHOOK_URL: z.string().url().optional(),
     // Preserve the legacy VM alert range. The VM consumers already apply
     // their compatibility fallback for zero and unsafe values.
@@ -552,6 +558,9 @@ export const env = createEnv({
     STRIPE_MAX_YEARLY_1920_PRICE_ID: trimEnv(process.env.STRIPE_MAX_YEARLY_1920_PRICE_ID),
     STRIPE_STARTER_MONTHLY_20_PRICE_ID: trimEnv(process.env.STRIPE_STARTER_MONTHLY_20_PRICE_ID),
     STRIPE_STARTER_MONTHLY_15_PRICE_ID: trimEnv(process.env.STRIPE_STARTER_MONTHLY_15_PRICE_ID),
+    STRIPE_PRICE_NEXT_PLUS_MONTHLY: trimEnv(process.env.STRIPE_PRICE_NEXT_PLUS_MONTHLY) || undefined,
+    STRIPE_PRICE_NEXT_PRO_MONTHLY: trimEnv(process.env.STRIPE_PRICE_NEXT_PRO_MONTHLY) || undefined,
+    STRIPE_PRICE_NEXT_MAX_MONTHLY: trimEnv(process.env.STRIPE_PRICE_NEXT_MAX_MONTHLY) || undefined,
     STRIPE_PERSONAL_PLAN_SWITCH_PORTAL_CONFIGURATION_ID: trimEnv(
       process.env.STRIPE_PERSONAL_PLAN_SWITCH_PORTAL_CONFIGURATION_ID,
     ),
@@ -592,6 +601,7 @@ export const env = createEnv({
       process.env.CMUX_VM_PUBLICATION_SIGN_IN_RATE_LIMIT_ID,
     ),
     CRON_SECRET: trimEnv(process.env.CRON_SECRET),
+    APPLE_NOTIFICATIONS_HEALTH_TOKEN: trimEnv(process.env.APPLE_NOTIFICATIONS_HEALTH_TOKEN),
     CMUX_ALERTS_SLACK_WEBHOOK_URL: trimEnv(process.env.CMUX_ALERTS_SLACK_WEBHOOK_URL),
     CMUX_VM_ALERT_CREATE_FAILURES_15M: trimEnv(process.env.CMUX_VM_ALERT_CREATE_FAILURES_15M),
     CMUX_VM_ALERT_EXPIRED_LEASES: trimEnv(process.env.CMUX_VM_ALERT_EXPIRED_LEASES),

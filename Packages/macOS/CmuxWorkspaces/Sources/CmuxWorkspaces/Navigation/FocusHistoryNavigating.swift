@@ -59,6 +59,16 @@ public protocol FocusHistoryNavigating: AnyObject {
     /// so repeated calls toggle between the two most recent positions.
     @discardableResult
     func navigateToLastFocused() -> Bool
+    /// Returns to the surface focus most recently left, in any workspace,
+    /// whatever the navigation scope. A second call returns to the
+    /// starting surface.
+    @discardableResult
+    func navigateToLastFocusedSurface() -> Bool
+    /// Returns to the workspace focus most recently left, on the surface
+    /// that last had focus there, whatever the navigation scope. A second
+    /// call returns to the starting workspace.
+    @discardableResult
+    func navigateToLastFocusedWorkspace() -> Bool
     /// Whether any back entry is navigable from the current position.
     var canNavigateBack: Bool { get }
     /// Whether any forward entry is navigable from the current position.
