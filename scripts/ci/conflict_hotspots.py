@@ -19,7 +19,7 @@ Two steps, so the GitHub half runs where `gh` is and the git half where the clon
          cannot conflict; the rest edited existing lines and conflict in either layout.
 
 Same harness before and after a fix: rerun `analyze` and compare the file's rows. First used for
-scripts/ci/entry_logs.py (2026-11-25): run on huge-blue against its cmux mirror, about 25 min of
+scripts/ci/entry_logs.py (2026-11-25): run on a Linux host against a cmux mirror, about 25 min of
 GraphQL (148 queries, cost 1 each) and 3 min of `git merge-tree` for 14 days.
 """
 from __future__ import annotations
