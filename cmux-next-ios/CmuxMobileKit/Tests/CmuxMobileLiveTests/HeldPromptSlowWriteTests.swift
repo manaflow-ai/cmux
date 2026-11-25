@@ -209,10 +209,11 @@ import Testing
         // A whole window passes between two attempts (the prompt is held, not being written;
         // the outbox gives back only what is queued, never one mid-write): the draft comes back.
         await eventually { source.heldPrompts.count == 1 }
-        clock.advance(by: .seconds(11))
-        await eventually { store.returnedDraft != nil }
-        #expect(store.returnedDraft?.text == "run the tests")
-        #expect(store.clientError == "Not sent: mini is offline.")
+        clock.advance(by: .seconds(61))
+        await eventually { store.turns.last?.localSend == .notSent }
+        #expect(store.turns.last?.prompt == "run the tests")
+        #expect(store.returnedDraft == nil)
+        #expect(store.clientError == nil)
     }
 
     /// (b2) A write that fails at once, again and again, on a channel that still says ready is
@@ -232,18 +233,18 @@ import Testing
         // with a failed attempt in each: never a whole window between two attempts, so only a
         // wait that is not restarted by each failure can run out (the Rust outbox ages it from
         // the first failure and moves it on by what each write took: nothing here).
-        for _ in 0..<6 where store.returnedDraft == nil {
+        for _ in 0..<20 where store.turns.last?.localSend != .notSent {
             let before = channel.promptWrites
             clock.advance(by: .seconds(4))
             // The prompt is queued (not mid-write) whenever the test moves the clock, so the
             // advance is never counted as time a write took.
             await eventually {
-                (channel.promptWrites > before && source.heldPrompts.count == 1) || store.returnedDraft != nil
+                (channel.promptWrites > before && source.heldPrompts.count == 1) || store.turns.last?.localSend == .notSent
             }
         }
-        await eventually { store.returnedDraft != nil }
-        #expect(store.returnedDraft?.text == "run the tests")
-        #expect(store.clientError == "Not sent: mini is offline.")
+        await eventually { store.turns.last?.localSend == .notSent }
+        #expect(store.turns.last?.prompt == "run the tests")
+        #expect(store.clientError == nil)
         #expect(mac.prompts.isEmpty)
     }
 

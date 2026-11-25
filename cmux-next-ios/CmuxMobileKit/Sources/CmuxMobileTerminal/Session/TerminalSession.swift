@@ -70,7 +70,6 @@ public enum TerminalConnectionState: Sendable, Equatable {
     /// `QuietStatusGate.threshold` (nil: attached). Plain words, never a
     /// transport error ("daemon channel closed").
     public var quietLine: String? {
-        func named(_ mac: String?) -> String { mac.flatMap { $0.isEmpty ? nil : $0 } ?? "your Mac" }
         switch self {
         case .connecting(let mac): return "Connecting to \(named(mac))…"
         case .reattaching(let mac): return "Reconnecting to \(named(mac))…"

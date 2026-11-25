@@ -54,7 +54,7 @@ import Testing
             return
         }
         #expect(text == "hello" && promptID == "p1")
-        #expect(reason == "Not sent: Studio is offline.")
+        #expect(reason == AgentChatStore.unreachableNotice)
         #expect(source.held.isEmpty)
     }
 
