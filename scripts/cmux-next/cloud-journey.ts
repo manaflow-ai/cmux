@@ -5726,7 +5726,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           if (modelStub || gatewayStub) {
             sendText = await J.step("stub file in the chat's folder", async () => {
               const info = await exec(`${GUEST}"$c" acp session info ${shq(session)} --fields cwd 2>&1`, 45_000);
-              const cwd = /^cwd\t(\/\S*)$/m.exec(info.stdout)?.[1] ?? "";
+              const cwd = /^(?:cwd\t)?(\/\S*)$/m.exec(info.stdout)?.[1] ?? "";
               if (!cwd) throw new Error(`no cwd for ${session}: ${info.stdout.trim().slice(-200)}`);
               const w = await exec(journeyReadFileCommand(cwd, nonce), 45_000);
               const file = /@@file (\S+)/.exec(w.stdout)?.[1];

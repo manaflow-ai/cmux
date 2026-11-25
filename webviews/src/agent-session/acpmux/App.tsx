@@ -535,6 +535,7 @@ import {
   useEnvironmentCardOn,
   useFeatureTipsOn,
   useHeaderBreadcrumb,
+  useSubagentOf,
   useTrayHandle,
   useTrayTucked,
   useUnreadBannerMode,
@@ -5271,9 +5272,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     : undefined;
   const shownSubagentTitle =
     ownSubagentPane && subagentView && shownAgent ? subagentTabTitle(shownAgent, t("tray.kind.subagent")) : undefined;
-  // A subagent's own pane heads with the subagent, not its chat's title (paneHeading).
+  // A subagent's own pane heads with the subagent, in the chat's one line (paneHeading), from the frame
+  // it is known to be a subagent's pane (`requestedSubagent`, at the handshake), so the header never
+  // changes height when the subagent's rows come in. With Subagent Of in Header on
+  // (agentPane.display.subagentOf, off by default) it also says whose it is, on that same line.
+  const subagentOfOn = useSubagentOf();
+  const ofName = shownAgent?.parent
+    ? (freshAgents.find((agent) => agent.id === shownAgent.parent)?.name ?? chatName)
+    : chatName;
   const heading = paneHeading(
-    ownSubagentPane && subagentView ? (shownSubagentTitle ?? t("tray.kind.subagent")) : undefined,
+    ownSubagentPane && (subagentView ?? requestedSubagent) !== undefined
+      ? {
+          title: shownSubagentTitle ?? t("tray.kind.subagent"),
+          of: subagentOfOn ? `${t("subagents.of")} ${ofName}` : undefined,
+        }
+      : undefined,
     { title: chatName },
   );
   const shownFacts = useMemo(
