@@ -29,6 +29,18 @@ n=$(nproc); [ "$n" -gt 3 ] && n=3
 report="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/api-workerd-$shard-$$.json"
 VITEST_JSON_OUT="$report" bun run test --shard="$shard/$total" --maxWorkers="$n" && exit 0
 failed=(); while IFS= read -r f; do failed+=("$f"); done < <(node -e 'for (const f of require(process.argv[1]).testResults) if (f.status === "failed") console.log(f.name)' "$report" 2>/dev/null || true)
+# Every test passed and vitest still exited 1: errors outside the tests. On a packed slow host that is the pool
+# timing out starting a runner ("Timeout starting cloudflare-pool runner") and the teardown that follows; shard
+# 10/12 of run 45621873127 passed 69 of 69 that way on cmux-runner-pool-hx4a-0011, then its whole-shard rerun on the
+# same host timed out 11 tests and ran out of disk. That is no test verdict: with API_WORKERD_NO_VERDICT_FILE set
+# (the matrix job) this marks it so, and backend.yml's `test` gate reruns the shard on its own runner, where a real
+# unhandled error fails again.
+all_passed=$(node -e 'const r = require(process.argv[1]); console.log(r.numTotalTests > 0 && r.numFailedTests === 0 && r.testResults.every((f) => f.status === "passed") ? 1 : 0)' "$report" 2>/dev/null || echo 0)
+if [ "${#failed[@]}" -eq 0 ] && [ "$all_passed" = 1 ] && [ -n "${API_WORKERD_NO_VERDICT_FILE:-}" ]; then
+  echo "::warning::api-workerd shard $shard/$total passed every test, but vitest reported errors outside them (see 'Unhandled Errors' above); no test verdict, so the backend test gate reruns this shard on its own runner"
+  : > "$API_WORKERD_NO_VERDICT_FILE"
+  exit 1
+fi
 if [ "${#failed[@]}" -eq 0 ]; then
   echo "::warning::api-workerd shard $shard/$total failed once with no failed file in its report; running the whole shard again"
   bun run test --shard="$shard/$total" --maxWorkers="$n"

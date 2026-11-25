@@ -192,6 +192,8 @@ jobs:
         # Worker count, the rerun of a shard's failed files and why: scripts/ci/api-workerd-shard.sh. The `test` job
         # runs the same script for a shard whose job died before this step answered (cmux#56511).
         id: shard
+        env:
+          API_WORKERD_NO_VERDICT_FILE: ${{ runner.temp }}/api-workerd-no-verdict
         run: bash "$GITHUB_WORKSPACE/scripts/ci/api-workerd-shard.sh" ${{ matrix.shard }} 12
       # The test step's answer, for the `test` gate: a shard with no recorded verdict died before its tests answered
       # and the gate reruns it (scripts/ci/api_workerd_infra_shards.py). An artifact, not a REST read of the run's
@@ -201,7 +203,12 @@ jobs:
         working-directory: backend
         # "<outcome> <attempt>": artifacts belong to the run, so after "Re-run failed jobs" the gate tells this
         # attempt's answer from an older one's.
-        run: mkdir -p "$RUNNER_TEMP/api-workerd-verdict" && echo "${{ steps.shard.outcome }} ${{ github.run_attempt }}" > "$RUNNER_TEMP/api-workerd-verdict/${{ matrix.shard }}"
+        # The shard script marks "every test passed, errors outside them" as no verdict: nothing is recorded, and the
+        # gate reruns the shard.
+        run: |
+          mkdir -p "$RUNNER_TEMP/api-workerd-verdict"
+          if [ -e "$RUNNER_TEMP/api-workerd-no-verdict" ]; then echo "no test verdict (see the test step); the gate reruns this shard"; exit 0; fi
+          echo "${{ steps.shard.outcome }} ${{ github.run_attempt }}" > "$RUNNER_TEMP/api-workerd-verdict/${{ matrix.shard }}"
       - name: Upload the shard's test verdict
         if: ${{ !cancelled() && (steps.shard.outcome == 'success' || steps.shard.outcome == 'failure') }}
         continue-on-error: true
@@ -212,7 +219,7 @@ jobs:
           # As long as the run can still be re-run: a passing shard is not rerun, and its verdict must still be here.
           retention-days: 30
           overwrite: true
-          if-no-files-found: error
+          if-no-files-found: ignore
 
   test:
     # Runs after the API Worker shards whatever they end with, and fails on a red shard (its last step), so the

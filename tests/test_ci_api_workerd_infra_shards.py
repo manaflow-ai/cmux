@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import fnmatch
 import importlib.util
+import json
 import os
 import shutil
 import subprocess
@@ -200,6 +201,86 @@ class GateRerunStep(unittest.TestCase):
         self.assertNotIn("verdict=pass", output)
 
 
+@unittest.skipUnless(shutil.which("node"), "the shard script reads vitest's report with node")
+class ShardScript(unittest.TestCase):
+    """Runs scripts/ci/api-workerd-shard.sh with a stand-in `bun` that writes a vitest JSON report."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir()
+        # First call: write REPORT_1 to $VITEST_JSON_OUT and exit EXIT_1; later calls exit EXIT_2.
+        (bin_dir / "bun").write_text(
+            "#!/usr/bin/env bash\n"
+            'echo "$*" >> "$CALLS"\n'
+            'if [ ! -e "$CALLS.first" ]; then : > "$CALLS.first"; [ -n "${VITEST_JSON_OUT:-}" ] && cp "$REPORT_1" "$VITEST_JSON_OUT"; exit "$EXIT_1"; fi\n'
+            'exit "$EXIT_2"\n'
+        )
+        (bin_dir / "bun").chmod(0o755)
+        if not shutil.which("nproc"):
+            (bin_dir / "nproc").write_text("#!/bin/sh\necho 4\n")
+            (bin_dir / "nproc").chmod(0o755)
+        self.bin = bin_dir
+        self.calls = self.tmp / "calls"
+        self.marker = self.tmp / "no-verdict"
+
+    def run_shard(self, report: dict, exit_1: int, exit_2: int = 0, no_verdict_file: bool = True) -> tuple[int, list[str]]:
+        report_path = self.tmp / "report.json"
+        report_path.write_text(json.dumps(report))
+        env = {
+            "PATH": f"{self.bin}:{os.environ['PATH']}",
+            "RUNNER_TEMP": str(self.tmp),
+            "CALLS": str(self.calls),
+            "REPORT_1": str(report_path),
+            "EXIT_1": str(exit_1),
+            "EXIT_2": str(exit_2),
+        }
+        if no_verdict_file:
+            env["API_WORKERD_NO_VERDICT_FILE"] = str(self.marker)
+        proc = subprocess.run(
+            ["bash", str(ROOT / "scripts" / "ci" / "api-workerd-shard.sh"), "10", "12"],
+            cwd=self.tmp, env=env, capture_output=True, text=True,
+        )
+        return proc.returncode, self.calls.read_text().splitlines() if self.calls.exists() else []
+
+    @staticmethod
+    def report(*statuses: str) -> dict:
+        failed = sum(1 for s in statuses if s == "failed")
+        return {
+            "numTotalTests": 3 * len(statuses),
+            "numFailedTests": failed,
+            "testResults": [{"name": f"/w/test/f{i}.test.ts", "status": s} for i, s in enumerate(statuses)],
+        }
+
+    def test_all_passed_with_errors_outside_the_tests_is_no_verdict_not_a_rerun_here(self) -> None:
+        # Shard 10/12 of run 45621873127: 69 of 69 passed, 6 pool start timeouts, exit 1.
+        code, calls = self.run_shard(self.report("passed", "passed"), exit_1=1)
+        self.assertEqual(code, 1)
+        self.assertEqual(len(calls), 1, "no rerun on the same slow host")
+        self.assertTrue(self.marker.exists())
+
+    def test_without_the_marker_path_it_still_reruns_the_whole_shard(self) -> None:
+        # The gate's own rerun sets no marker path: there it is the second runner's answer.
+        code, calls = self.run_shard(self.report("passed", "passed"), exit_1=1, exit_2=1, no_verdict_file=False)
+        self.assertEqual(code, 1)
+        self.assertEqual(len(calls), 2)
+        self.assertFalse(self.marker.exists())
+
+    def test_a_failed_file_reruns_alone_and_decides(self) -> None:
+        code, calls = self.run_shard(self.report("passed", "failed"), exit_1=1, exit_2=0)
+        self.assertEqual(code, 0)
+        self.assertEqual(len(calls), 2)
+        self.assertIn("/w/test/f1.test.ts", calls[1])
+        self.assertIn("--maxWorkers=1", calls[1])
+        self.assertFalse(self.marker.exists())
+
+    def test_a_green_first_run_is_green(self) -> None:
+        code, calls = self.run_shard(self.report("passed"), exit_1=0)
+        self.assertEqual((code, len(calls)), (0, 1))
+        self.assertFalse(self.marker.exists())
+
+
 class WorkflowWiring(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -227,6 +308,10 @@ class WorkflowWiring(unittest.TestCase):
         self.assertEqual(upload["with"]["path"], "${{ runner.temp }}/api-workerd-verdict/${{ matrix.shard }}")
         self.assertGreaterEqual(upload["with"]["retention-days"], 30, "a re-run needs the passing shards' verdicts")
         self.assertIn("${{ github.run_attempt }}", record["run"])
+        marker = test_step["env"]["API_WORKERD_NO_VERDICT_FILE"]
+        self.assertEqual(marker, "${{ runner.temp }}/api-workerd-no-verdict")
+        self.assertIn('"$RUNNER_TEMP/api-workerd-no-verdict"', record["run"])
+        self.assertEqual(upload["with"]["if-no-files-found"], "ignore")
 
         gate = self.jobs["test"]["steps"]
         download = find_step(gate, "Download the API Worker shards' test verdicts")
