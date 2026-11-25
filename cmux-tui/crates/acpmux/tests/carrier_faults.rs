@@ -706,6 +706,21 @@ async fn run(row: Row) -> Times {
         )
         .await;
     let early = cc.reply(outage, OUTAGE_HOLD).await;
+    // A black hole lifts once A's link gave up on it (`downReason` names why), so the row
+    // redials, as its name says. Lifted before acpmux's own deadline, a WireGuard tunnel's TCP
+    // can retransmit and the link heal in place from `degraded`: then nothing redialed, and
+    // whether it did was a race between the retransmit and the request probe (#56198).
+    if matches!(row.cut, Cut::BlackHole) && row.restore {
+        let deadline = Instant::now() + DETECT_BOUND + STEP;
+        while down_reason(&w.a).is_none() {
+            assert!(
+                Instant::now() < deadline,
+                "{}: the black hole never took the link down",
+                row.tag
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
     let restored_at = Instant::now();
     if row.restore {
         w.carrier.restore();
