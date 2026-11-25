@@ -255,6 +255,11 @@ fn ranked_servers(servers: &[IceServer], peer: Option<&str>) -> Vec<TurnServer> 
         return all;
     }
     let ranked = super::relay_rank::ranked_for(&relays, peer);
+    // Unranked (no measurement, or the listed order won): the service's
+    // URL order exactly, hosts interleaved as listed.
+    if ranked == relays {
+        return all;
+    }
     all.sort_by_key(|server| ranked.iter().position(|relay| *relay == server.host));
     all
 }
@@ -1785,6 +1790,33 @@ mod tests {
             username: Some("u".into()),
             credential: Some("c".into()),
         }]
+    }
+
+    /// The dial's URL order follows the relay ranking: unmeasured, the
+    /// service's order exactly (interleaved hosts included); measured, the
+    /// faster relay's URLs first.
+    #[test]
+    fn turn_urls_follow_the_relay_ranking() {
+        let servers = ice(&[
+            "turn:slow.example:3478?transport=udp",
+            "turns:fast.example:443?transport=tcp",
+            "turns:slow.example:443?transport=tcp",
+            "turn:fast.example:3478?transport=udp",
+        ]);
+        let peer = "turn-rank-test-peer";
+        let hosts = |list: Vec<TurnServer>| list.into_iter().map(|s| s.host).collect::<Vec<_>>();
+        assert_eq!(
+            hosts(ranked_servers(&servers, Some(peer))),
+            ["slow.example", "fast.example", "slow.example", "fast.example"]
+        );
+        let mut far = std::collections::BTreeMap::new();
+        far.insert("slow.example".to_owned(), 200);
+        far.insert("fast.example".to_owned(), 20);
+        super::super::relay_rank::note_far(peer, &far);
+        assert_eq!(
+            hosts(ranked_servers(&servers, Some(peer))),
+            ["fast.example", "fast.example", "slow.example", "slow.example"]
+        );
     }
 
     /// Cloudflare's `generate-ice-servers` list: UDP 3478 first, then TLS

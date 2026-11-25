@@ -176,7 +176,10 @@ fn note_own(table: &mut Table, relay: &str, answer: Option<u32>) {
     let next = match (table.own.get(relay), answer) {
         (_, None) => Leg::Dead,
         (Some(Leg::Measured(old)), Some(ms)) => {
-            Leg::Measured((old * (100 - EWMA_NEW_PERCENT) + ms * EWMA_NEW_PERCENT) / 100)
+            let mixed = (u64::from(*old) * u64::from(100 - EWMA_NEW_PERCENT)
+                + u64::from(ms) * u64::from(EWMA_NEW_PERCENT))
+                / 100;
+            Leg::Measured(u32::try_from(mixed).unwrap_or(u32::MAX))
         }
         (_, Some(ms)) => Leg::Measured(ms),
     };
