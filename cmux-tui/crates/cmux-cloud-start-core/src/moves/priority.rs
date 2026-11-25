@@ -505,11 +505,11 @@ mod tests {
             signed_in: true,
             plan_known: true,
             plan_id: Some("next_plus".into()),
-            chats: vec![pinned.clone(), chat("s")],
+            chats: vec![pinned, chat("s")],
             ..ControlFacts::default()
         };
         assert_eq!(control(&facts), Control::default());
-        let unknown = ControlFacts { plan_id: Some("enterprise_x".into()), ..facts.clone() };
+        let unknown = ControlFacts { plan_id: Some("enterprise_x".into()), ..facts };
         assert_eq!(control(&unknown), Control::default());
         assert_eq!(plan_of_id("next_max"), Some(Plan::Max));
         assert_eq!(plan_of_id("pro"), Some(Plan::Pro));
