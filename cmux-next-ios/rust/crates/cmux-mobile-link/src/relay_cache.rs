@@ -28,6 +28,16 @@ pub const DEFAULT_BUDGET_BYTES: usize = 64 * 1024;
 pub const MAX_BUDGET_BYTES: usize = 256 * 1024;
 /// The most surfaces one catch-up may ask for.
 pub const MAX_SURFACES: usize = 64;
+/// The most plaintext a first-screen snapshot holds: 12 KiB, so its sealed envelope and the HTTP
+/// reply fit TCP's initial window (10 segments, about 14 KB) and arrive in one round trip.
+pub const FIRST_SCREEN_BYTES: usize = 12 * 1024;
+
+/// The stream a first-screen snapshot of `stream` is sealed and stored on: the newest
+/// [`FIRST_SCREEN_BYTES`] of the same state, at the same position. A cold open reads it before the
+/// whole snapshot ([`RelayCache::cold_open_first_screen`]) so the screen fills in one round trip.
+pub fn first_screen_stream(stream: &str) -> String {
+    format!("{stream}/first")
+}
 
 /// Whether this client talks to the relay cache at all. Default off.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -252,6 +262,20 @@ impl RelayCache {
         let Some((envelope, cached_at_ms)) = self.snapshot(source, stream).await? else { return Ok(None) };
         let opened = floor.open(viewer, source_key, stream, &envelope).map_err(RelayCacheError::Seal)?;
         Ok(Some(ColdOpen { opened, cached_at_ms, bytes: envelope.len() }))
+    }
+
+    /// A cold open of `stream`'s first screen ([`first_screen_stream`]), opened under `floor` (the
+    /// first screen's own floor; its signature names its own stream). `None` when the source put
+    /// none; then the caller opens the whole snapshot.
+    pub async fn cold_open_first_screen(
+        &self,
+        source: &str,
+        source_key: &PublicKey,
+        viewer: &SecretKey,
+        stream: &str,
+        floor: &mut Floor,
+    ) -> Result<Option<ColdOpen>, RelayCacheError> {
+        self.cold_open(source, source_key, viewer, &first_screen_stream(stream), floor).await
     }
 
     /// `POST catch-up`: every sealed delta after each ask's position, unopened.

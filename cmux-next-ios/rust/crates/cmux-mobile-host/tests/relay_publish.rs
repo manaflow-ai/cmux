@@ -7,7 +7,7 @@ use cmux_mobile_host::push_keys::PushKeys;
 use cmux_mobile_host::relay_publish::{RelayPublishConfig, RelayPublisher, viewers};
 use cmux_mobile_host::seal::hex;
 use cmux_mobile_link::api::ApiClient;
-use cmux_mobile_link::relay_cache::{DEFAULT_BUDGET_BYTES, RelayCache, RelayCacheConfig};
+use cmux_mobile_link::relay_cache::{DEFAULT_BUDGET_BYTES, FIRST_SCREEN_BYTES, RelayCache, RelayCacheConfig};
 use cmux_mobile_link::testing::{FakeOptions, FakeSignaling};
 use cmux_relay_snapshot::Floor;
 use p256::SecretKey;
@@ -90,4 +90,33 @@ async fn off_publishes_nothing() {
     assert_eq!(publisher.publish_snapshot(&viewers, STREAM, b"x").await.sent, 0);
     assert_eq!(publisher.publish_delta(&viewers, STREAM, b"y").await.sent, 0);
     assert_eq!(server.relay_cache_hits("snapshot PUT") + server.relay_cache_hits("delta POST"), 0);
+}
+
+#[tokio::test]
+async fn the_first_screen_opens_at_the_snapshots_position_and_stays_in_its_bound() {
+    let server = FakeSignaling::start(FakeOptions { relay_cache: true, ..FakeOptions::default() }).await;
+    let mac = RelayCache::new(ApiClient::new(&server.base_url, "user:me"), MAC, on());
+    let publisher =
+        RelayPublisher::new(mac, SigningKey::random(&mut OsRng), 3, RelayPublishConfig { enabled: true });
+    let phone = SecretKey::random(&mut OsRng);
+    let viewers =
+        vec![cmux_mobile_host::relay_publish::Viewer { device: PHONES[0].into(), key: phone.public_key() }];
+    publisher.publish_delta(&viewers, STREAM, b"one").await;
+    publisher.publish_snapshot(&viewers, STREAM, b"whole state").await;
+    assert_eq!(publisher.publish_first_screen(&viewers, STREAM, b"newest lines").await.sent, 1);
+    let over = publisher.publish_first_screen(&viewers, STREAM, &vec![b'x'; FIRST_SCREEN_BYTES + 1]).await;
+    assert_eq!((over.sent, over.failed), (0, 1));
+
+    let client = RelayCache::new(ApiClient::new(&server.base_url, "user:me"), PHONES[0], on());
+    let (mut first, mut whole) = (Floor::default(), Floor::default());
+    let screen = client
+        .cold_open_first_screen(MAC, &publisher.source_key(), &phone, STREAM, &mut first)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(screen.opened.plaintext, b"newest lines");
+    let all =
+        client.cold_open(MAC, &publisher.source_key(), &phone, STREAM, &mut whole).await.unwrap().unwrap();
+    assert_eq!(all.opened.plaintext, b"whole state");
+    assert_eq!(screen.opened.position, all.opened.position);
 }

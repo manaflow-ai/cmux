@@ -31,7 +31,9 @@ use cmux_fault::Trace;
 use cmux_fault::shaper::{ProfileFile, Shaper};
 use cmux_mobile_host::relay_publish::{Coalescer, RelayPublishConfig, RelayPublisher, Viewer};
 use cmux_mobile_link::api::ApiClient;
-use cmux_mobile_link::relay_cache::{MAX_BUDGET_BYTES, RelayCache, RelayCacheConfig, RelayCacheError};
+use cmux_mobile_link::relay_cache::{
+    FIRST_SCREEN_BYTES, MAX_BUDGET_BYTES, RelayCache, RelayCacheConfig, RelayCacheError, first_screen_stream,
+};
 use cmux_mobile_link::testing::{FakeOptions, FakeSignaling};
 use cmux_relay_snapshot::Floor;
 use p256::SecretKey;
@@ -88,6 +90,17 @@ fn open_page(records: &[String]) -> Vec<u8> {
     format!("[{}]", records[start..].join(",")).into_bytes()
 }
 
+/// The chat's first screen: its newest records, at most [`FIRST_SCREEN_BYTES`].
+fn first_screen(records: &[String]) -> Vec<u8> {
+    let mut size = 2;
+    let mut start = records.len();
+    while start > 0 && size + records[start - 1].len() + 1 <= FIRST_SCREEN_BYTES {
+        start -= 1;
+        size += records[start].len() + 1;
+    }
+    format!("[{}]", records[start..].join(",")).into_bytes()
+}
+
 fn chat(turns: usize) -> Vec<String> {
     (0..turns).flat_map(|t| [record(2 * t + 1, "user"), record(2 * t + 2, "assistant")]).collect()
 }
@@ -130,6 +143,7 @@ impl Rig {
         let viewers = vec![Viewer { device: PHONE.into(), key: phone_key.public_key() }];
         let measured = chat(load.measured_turns);
         publisher.publish_snapshot(&viewers, &stream_name(0), &open_page(&measured)).await;
+        publisher.publish_first_screen(&viewers, &stream_name(0), &first_screen(&measured)).await;
         for i in 1..load.chats {
             publisher.publish_snapshot(&viewers, &stream_name(i), &open_page(&chat(load.other_turns))).await;
         }
@@ -195,37 +209,122 @@ fn row(cell: &str, arm: &str, load: &str, runs: usize, samples: &mut [f64], note
     );
 }
 
+/// One timed cold open of `stream`: the GET (connect, request, every byte) and the open, apart.
+struct Timed {
+    fetch_ms: f64,
+    open_ms: f64,
+    bytes: usize,
+    plaintext: usize,
+}
+
+async fn timed_open(
+    phone: &RelayCache,
+    source: &p256::PublicKey,
+    key: &SecretKey,
+    stream: &str,
+    floor: &mut Floor,
+) -> Result<Option<Timed>, RelayCacheError> {
+    let began = Instant::now();
+    let Some((envelope, _)) = phone.snapshot(MAC, stream).await? else { return Ok(None) };
+    let fetch_ms = began.elapsed().as_secs_f64() * 1000.0;
+    let began = Instant::now();
+    let opened = floor.open(key, source, stream, &envelope).map_err(RelayCacheError::Seal)?;
+    let open_ms = began.elapsed().as_secs_f64() * 1000.0;
+    Ok(Some(Timed { fetch_ms, open_ms, bytes: envelope.len(), plaintext: opened.plaintext.len() }))
+}
+
+/// What a shaped TCP connect costs on this path, measured on its own connection after the run.
+async fn connect_ms(rig: &Rig) -> f64 {
+    let began = Instant::now();
+    let _ = tokio::net::TcpStream::connect(rig.shaper.addr()).await;
+    began.elapsed().as_secs_f64() * 1000.0
+}
+
+/// The profile's rate, for the bytes-on-air share of a breakdown.
+fn air_ms(bytes: usize) -> f64 {
+    let profile = ProfileFile::builtin().get(PROFILE).cloned().expect("lte profile");
+    let kbit = profile.down_kbit.max(1) as f64;
+    bytes as f64 * 8.0 / kbit
+}
+
+/// The rest of the other chats' whole snapshots, fetched at once (duress only), as the app's list
+/// does when it opens.
+fn spawn_others(rig: &Rig, phone: &RelayCache, load: &Load) -> Vec<tokio::task::JoinHandle<()>> {
+    let source = rig.publisher.source_key();
+    (1..load.chats)
+        .filter(|_| load.name == "duress")
+        .map(|i| {
+            let phone = phone.clone();
+            let key = rig.phone_key.clone();
+            tokio::spawn(async move {
+                let mut floor = Floor::default();
+                let _ = phone.cold_open(MAC, &source, &key, &stream_name(i), &mut floor).await;
+            })
+        })
+        .collect()
+}
+
 /// `mac-asleep x cold-open`: the phone opens the app with no state; the Mac is asleep.
-async fn cold_open(load: &Load, cache_on: bool, n: usize) {
-    let arm = if cache_on { "after" } else { "before" };
+///
+/// Arms: `before` (the relay holds nothing), `after` (the measured chat's whole snapshot, fetched
+/// alongside every other chat's), `after-first-screen` (the measured chat's first-screen snapshot
+/// first, alone; then every chat's whole snapshot at once). Each content run also prints where the
+/// time went: `connect_ms` (a shaped TCP connect, measured apart), `fetch_ms` (connect + GET + all
+/// bytes), `air_ms` (the envelope's bytes at the profile's rate), `open_ms` (verify and decrypt).
+async fn cold_open(load: &Load, arm: &str, n: usize) {
+    let cache_on = arm != "before";
+    let first_screen = arm == "after-first-screen";
     let mut samples = Vec::new();
+    let mut whole_samples = Vec::new();
     for run in 0..n {
         let seed = 0x5eed_0000 + run as u64;
         let rig = Rig::start(cache_on, load, seed).await;
         let phone = rig.phone();
         let source = rig.publisher.source_key();
         let began = Instant::now();
-        let others: Vec<_> = (1..load.chats)
-            .filter(|_| load.name == "duress")
-            .map(|i| {
-                let phone = phone.clone();
-                let key = rig.phone_key.clone();
-                tokio::spawn(async move {
-                    let mut floor = Floor::default();
-                    let _ = phone.cold_open(MAC, &source, &key, &stream_name(i), &mut floor).await;
-                })
-            })
-            .collect();
         let mut floor = Floor::default();
-        let got = phone.cold_open(MAC, &source, &rig.phone_key, &stream_name(0), &mut floor).await;
+        let (got, others, whole_ms) = if first_screen {
+            let mut first_floor = Floor::default();
+            let got = timed_open(
+                &phone,
+                &source,
+                &rig.phone_key,
+                &first_screen_stream(&stream_name(0)),
+                &mut first_floor,
+            )
+            .await;
+            let others = spawn_others(&rig, &phone, load);
+            let whole = timed_open(&phone, &source, &rig.phone_key, &stream_name(0), &mut floor).await;
+            let whole_ms = began.elapsed().as_secs_f64() * 1000.0;
+            (got, others, whole.ok().flatten().map(|_| whole_ms))
+        } else {
+            let others = spawn_others(&rig, &phone, load);
+            let got = timed_open(&phone, &source, &rig.phone_key, &stream_name(0), &mut floor).await;
+            (got, others, None)
+        };
         let ms = began.elapsed().as_secs_f64() * 1000.0;
+        let ms = if first_screen {
+            got.as_ref().ok().and_then(|g| g.as_ref()).map(|g| g.fetch_ms + g.open_ms).unwrap_or(ms)
+        } else {
+            ms
+        };
         for other in others {
             let _ = other.await;
         }
         let (ms, fields) = match got {
-            Ok(Some(open)) => {
+            Ok(Some(t)) => {
                 samples.push(ms);
-                (Some(ms), json!({"bytes": open.bytes, "plaintext": open.opened.plaintext.len()}))
+                if let Some(w) = whole_ms {
+                    whole_samples.push(w);
+                }
+                let connect = connect_ms(&rig).await;
+                let round = |v: f64| (v * 10.0).round() / 10.0;
+                (
+                    Some(ms),
+                    json!({"bytes": t.bytes, "plaintext": t.plaintext, "connect_ms": round(connect),
+                           "fetch_ms": round(t.fetch_ms), "air_ms": round(air_ms(t.bytes)), "open_ms": round(t.open_ms),
+                           "whole_ms": whole_ms.map(round)}),
+                )
             }
             Ok(None) => (None, json!({"why": "no snapshot"})),
             Err(RelayCacheError::RelayOff(code)) => {
@@ -235,12 +334,24 @@ async fn cold_open(load: &Load, cache_on: bool, n: usize) {
         };
         cell("mac-asleep x cold-open", arm, load.name, run, seed, ms, fields);
     }
-    let note = if cache_on {
-        "first content from the relay's sealed snapshot (GET + open), Mac asleep"
-    } else {
-        "today: the relay holds nothing; first content waits for the Mac to wake"
+    let note = match arm {
+        "before" => "today: the relay holds nothing; first content waits for the Mac to wake",
+        "after" => "first content from the relay's sealed whole snapshot (GET + open), Mac asleep",
+        _ => {
+            "first content from the relay's sealed first-screen snapshot (<= 12 KiB, one round trip), alone, then the rest"
+        }
     };
     row("mac-asleep x cold-open", arm, load.name, n, &mut samples, note);
+    if first_screen {
+        row(
+            "mac-asleep x cold-open (whole page)",
+            arm,
+            load.name,
+            n,
+            &mut whole_samples,
+            "the measured chat's whole snapshot, fetched after its first screen with every other chat's",
+        );
+    }
 }
 
 /// `lte x resume-after-sleep x relay`: the phone held the chat, slept 60 s while the Mac kept
@@ -301,8 +412,10 @@ async fn relay_cache_rows() {
     let resumes = runs("RELAYCACHE_RESUME_RUNS", RESUME_RUNS);
     for load in [&IDLE, &DURESS] {
         for cache_on in [false, true] {
-            cold_open(load, cache_on, cold).await;
             resume(load, cache_on, resumes).await;
+        }
+        for arm in ["before", "after", "after-first-screen"] {
+            cold_open(load, arm, cold).await;
         }
     }
 }

@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use cmux_mobile_link::relay_cache::{RelayCache, RelayCacheError};
+use cmux_mobile_link::relay_cache::{FIRST_SCREEN_BYTES, RelayCache, RelayCacheError, first_screen_stream};
 use cmux_relay_snapshot::delta::delta_stream;
 use cmux_relay_snapshot::{MAX_PLAINTEXT, Position, seal};
 use p256::PublicKey;
@@ -94,6 +94,28 @@ impl RelayPublisher {
         }
         let position = self.position(stream);
         self.each(viewers, stream, position, state, false).await
+    }
+
+    /// Seals `screen` (what the phone's first screen of `stream` shows, at most
+    /// [`FIRST_SCREEN_BYTES`]) at the stream's current position on [`first_screen_stream`] and puts
+    /// it, so a cold open fills the screen in one round trip before the whole snapshot arrives.
+    /// A `screen` over the bound is not put: the phone opens the whole snapshot as before.
+    pub async fn publish_first_screen(&self, viewers: &[Viewer], stream: &str, screen: &[u8]) -> Published {
+        if !self.config.enabled {
+            return Published::default();
+        }
+        if screen.len() > FIRST_SCREEN_BYTES {
+            return Published {
+                failed: viewers.len(),
+                first_error: Some(format!(
+                    "first screen is {} bytes, over {FIRST_SCREEN_BYTES}",
+                    screen.len()
+                )),
+                ..Published::default()
+            };
+        }
+        let position = self.position(stream);
+        self.each(viewers, &first_screen_stream(stream), position, screen, false).await
     }
 
     /// Seals `change` as the next delta of `stream` to each viewer and appends it.
