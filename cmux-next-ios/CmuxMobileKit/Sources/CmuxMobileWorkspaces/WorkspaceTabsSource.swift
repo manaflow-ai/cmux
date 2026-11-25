@@ -2551,12 +2551,15 @@ struct WorkspaceTabPage: View {
     @ViewBuilder
     private func page(_ tab: WorkspaceTab, _ workspace: Workspace) -> some View {
         let insets = context.safeAreaInsets
+        // What scrolls under the chrome follows it (a collapsed top bar gives its band back);
+        // a surface with a fixed size (the streamed browser and simulator) keeps the resting insets.
+        let chromeInsets = context.chromeInsets
         switch tab.kind {
         case .agent:
             let surface = source.surface(tab.id)
             AgentChatTranscript(
                 store: source.chatStore(tab, workspace), surface: surface,
-                topInset: insets.top + 8,
+                topInset: chromeInsets.top + 8,
                 onUserScroll: { context.reportScroll(fingerDelta: $0) }
             )
             .background(CmuxMobileChatBackdrop())
@@ -2569,13 +2572,13 @@ struct WorkspaceTabPage: View {
         case .terminal:
             // Claude Code and Codex: the terminal and a View Only chat of its session, both parked;
             // the page menu's Show Chat / Show Terminal row swaps them.
-            TerminalChatPage(source: source, tab: tab, workspace: workspace, topInset: insets.top,
+            TerminalChatPage(source: source, tab: tab, workspace: workspace, topInset: chromeInsets.top,
                              reportScroll: { context.reportScroll(fingerDelta: $0) }) {
                 terminalPage(tab, workspace)
             }
         case .browser:
             if let model = source.nativeBrowser(tab) {
-                NativeBrowserPage(model: model, macName: source.macName, insets: insets,
+                NativeBrowserPage(model: model, macName: source.macName, insets: chromeInsets,
                                   isZoomGestureActive: context.isZoomGestureActive,
                                   reportScroll: { context.reportScroll(fingerDelta: $0) },
                                   canMirror: source.canMirror(tab), mirror: { source.mirrorFromMac(tab.id) })
@@ -2583,7 +2586,7 @@ struct WorkspaceTabPage: View {
                 StreamedBrowserPage(model: model, insets: insets, lastKnown: source.snapshotEntry(tab.id)?.image?.cgImage,
                                     reportScroll: { context.reportScroll(fingerDelta: $0) })
             } else {
-                BrowserPage(model: source.localBrowser(tab), insets: insets, isZoomGestureActive: context.isZoomGestureActive,
+                BrowserPage(model: source.localBrowser(tab), insets: chromeInsets, isZoomGestureActive: context.isZoomGestureActive,
                             reportScroll: { context.reportScroll(fingerDelta: $0) })
             }
         case .simulator:
@@ -2630,7 +2633,8 @@ struct WorkspaceTabPage: View {
     private var terminalContext: TerminalTabContext {
         let context = context
         let tabID = tabID
-        return TerminalTabContext(safeAreaInsets: context.safeAreaInsets, isInteractive: context.isInteractive,
+        return TerminalTabContext(safeAreaInsets: context.safeAreaInsets, chromeTop: context.chromeInsets.top,
+                                  isInteractive: context.isInteractive,
                                   isZoomGestureActive: context.isZoomGestureActive,
                                   reportScroll: { context.reportScroll(fingerDelta: $0) },
                                   openLink: { [weak source] url in Task { await source?.openLink(url, fromTab: tabID) } })
@@ -2675,14 +2679,17 @@ struct WorkspaceTabAccessory: View {
 /// the keyboard is up; an interactive dismissal drags the keyboard under the
 /// toolbar before it reports 0, so the row followed it down, then jumped
 /// back up. This lifts the row by however far it would sink, as a render
-/// effect (no layout feedback). A collapsed toolbar rests lower, so the
-/// floor applies only with the toolbar expanded.
+/// effect (no layout feedback). A collapsed bottom toolbar rests lower, so
+/// there the floor applies only with it expanded; a top toolbar's collapse
+/// leaves the bottom alone, so the floor always holds
+/// (`PageChromeInsets.accessoryRestsOnBar`).
 struct AccessoryFloor: ViewModifier {
     let context: TabsKitContentContext
 
     func body(content: Content) -> some View {
         let floor = context.pageSize.height - context.safeAreaInsets.bottom
-        let applies = !context.isToolbarCollapsed && floor > 0
+        let applies = PageChromeInsets.accessoryRestsOnBar(edge: context.toolbarEdge, collapsed: context.isToolbarCollapsed)
+            && floor > 0
         content.visualEffect { effect, proxy in
             effect.offset(y: applies ? -Self.overshoot(maxY: proxy.frame(in: .global).maxY, floor: floor) : 0)
         }
