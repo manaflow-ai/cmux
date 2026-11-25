@@ -227,6 +227,9 @@ struct ChatComposer: View {
             attachments[index].data = optimized
             attachments[index].byteCount = optimized.count
             attachments[index].name = AgentImageOptimizer.filename(attachments[index].name, for: optimized)
+            // Optimization mutates an attachment in place, so the ID-based change
+            // observer does not fire. Reconcile the prestager after the MIME changes.
+            store.composerAttachmentsChanged(attachments)
         }
     }
 

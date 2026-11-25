@@ -85,6 +85,25 @@ import Testing
         await mac.release()
     }
 
+    @Test func sameIDImageOptimizationCancelsTheOriginalUpload() async throws {
+        let prestager = AttachmentPrestager()
+        let mac = FakeMac()
+        await mac.hold()
+        let upload: AttachmentPrestager.Upload = { _, name in try await mac.upload(name) }
+        let original = AgentAttachment(id: "image", kind: .image, name: "photo.heic", data: Data("heic".utf8))
+        prestager.sync([original], upload: upload)
+        let task = try #require(prestager.entries[original.id]?.task)
+
+        let optimizedData = Data([0x89, 0x50, 0x4E, 0x47, 0, 0, 0, 0, 0, 0, 0, 0])
+        let optimized = AgentAttachment(id: original.id, kind: .image, name: "photo.png", data: optimizedData)
+        prestager.sync([optimized], upload: upload)
+
+        #expect(prestager.entries.isEmpty)
+        #expect(task.isCancelled)
+        #expect(await mac.started == ["photo.heic"])
+        await mac.release()
+    }
+
     /// The prompt links the early copy: no second upload, and no link needed at Send.
     @Test func promptLinksTheEarlyCopy() async throws {
         let prestager = AttachmentPrestager()
