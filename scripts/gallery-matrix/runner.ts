@@ -249,6 +249,8 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     const page = await context.newPage();
     // Only a recording context has a video; the runner's tests pass page doubles without `video()`.
     if (RECORD_VIDEO) recording = page.video();
+    // Opt-in diagnostic init script (e.g. dock-trace.js), run before the page's own scripts.
+    if (process.env.CMUX_GALLERY_INIT_SCRIPT) await page.addInitScript({ path: process.env.CMUX_GALLERY_INIT_SCRIPT });
     if (ECHO_TRACE) page.on("console", (message) => { const text = message.text(); if (text.startsWith("motion-trace")) console.log(`${item.id} ${text}`); });
     // The renderer's main-thread CPU time (Chromium's Performance metrics, `ThreadTime`): the work the
     // stage did to get ready, which a loaded runner does not stretch the way it stretches wall time.
