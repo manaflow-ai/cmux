@@ -61,6 +61,21 @@ class LiveSchemaTests(unittest.TestCase):
             "ref<TerminalKeyInput>",
         )
 
+    def test_fieldless_struct_variant_has_no_request_fields(self) -> None:
+        # `ReleaseWorkspaceNames {},` is one line with no fields (#53137).
+        self.assertEqual(
+            CHECKER.runtime_command_fields()["release-workspace-names"], {}
+        )
+
+    def test_delta_cursor_maps_to_the_named_since_type(self) -> None:
+        runtime_field = CHECKER.runtime_command_fields()["list-workspaces"]["since"]
+        self.assertEqual(
+            CHECKER._runtime_type_shape(
+                CHECKER._unwrap_rust_option(runtime_field.rust_type)[0]
+            ),
+            "ref<ListWorkspacesSince>",
+        )
+
     def test_boxed_command_request_uses_its_named_struct_fields(self) -> None:
         fields = CHECKER.runtime_command_fields()["create-surface-with-receipt"]
 
@@ -84,6 +99,10 @@ class LiveSchemaTests(unittest.TestCase):
             CHECKER._runtime_type_shape(fields["selectors"].rust_type),
             "ref<ResourceSelectors>",
         )
+
+    def test_a_struct_variant_with_no_fields_has_no_request_fields(self) -> None:
+        # `ReleaseWorkspaceNames {},` in the Command enum (base went red on it, 2026-11-24).
+        self.assertEqual(CHECKER.runtime_command_fields()["release-workspace-names"], {})
 
     def test_struct_fields_accept_restricted_visibility(self) -> None:
         fields = CHECKER._parse_rust_fields(

@@ -66,12 +66,30 @@ export function useAutoOpenSubagents(): [boolean, (on: boolean) => void] {
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
-/// The name subagent `agent`'s pane tab shows: its own (its task; the Agent tool's description), else
-/// `fallback` ("Subagent of" the chat). Leo 2026-10-30: "the sidebar tab shouldn't just be named claude
-/// sr2 coord if you can just say it's SUbagent of sr2 coord".
-export function subagentTabTitle(agent: Pick<Subagent, "id" | "name"> | undefined, fallback: string): string {
+/// The name subagent `agent`'s pane tab shows: its own, else its task (the Agent call's
+/// description, its first line), else `fallback`, a plain "Subagent". Never the chat it came from
+/// (Leo, 2026-11-22: "the metadata about provenance or whatever like subagent of something. we
+/// shouldn't have those.").
+export function subagentTabTitle(agent: Pick<Subagent, "id" | "name" | "task"> | undefined, fallback: string): string {
   const own = agent?.name?.trim();
-  return own && own !== agent?.id ? own : fallback;
+  if (own && own !== agent?.id) return own;
+  const task = agent?.task
+    ?.split("\n")
+    .map((line) => line.trim())
+    .find(Boolean);
+  return task || fallback;
+}
+
+/// What a pane's header names: in a subagent's own pane, that subagent (its tab title, no rename),
+/// never the chat it came from; else the chat, renamable. No rolling summary: #51813 removed it.
+/// Leo, 2026-11-22: "i notice there's differing layouts among it and normal chats. like the metadata
+/// about provenance or whatever like subagent of something. we shouldn't have those."
+export function paneHeading(
+  subagentTitle: string | undefined,
+  chat: { title: string },
+): { title: string; renamable: boolean } {
+  if (subagentTitle !== undefined) return { title: subagentTitle, renamable: false };
+  return { title: chat.title, renamable: true };
 }
 
 /// The harness whose mark subagent `agent`'s row draws (SubagentDoneLine.tsx, the tray: AgentIdentity

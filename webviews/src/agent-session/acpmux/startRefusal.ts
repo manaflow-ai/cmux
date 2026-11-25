@@ -34,6 +34,8 @@ export function startRefusalAction(code: string | undefined): StartRefusalAction
       return "newCloudMachine";
     // No folder there, the machine lists no work folder (an older cmux-tui): pick one.
     case "app.folder_needed":
+    // The folder is gone (a reboot wiped it, it was removed): pick another; Retry re-resolves.
+    case "transport.path_invalid":
       return "chooseFolder";
     // The agent is not signed in there: its own sign-in, then Retry.
     case SIGN_IN_REQUIRED:
