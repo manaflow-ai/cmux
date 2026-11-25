@@ -1,0 +1,4 @@
+{
+  "agent": "userOnly",
+  "why": "Saved prompts are the person's own words, sent to agents as prompts; an agent does not write them."
+}
