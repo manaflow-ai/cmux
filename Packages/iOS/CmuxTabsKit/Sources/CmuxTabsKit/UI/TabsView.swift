@@ -537,8 +537,10 @@ struct TabsScreen<Source: TabsDataSource>: View {
                 // copy still showed in the accessibility tree, a second
                 // "v" on the same card (PaneStacksUITests, fleet run 84fd97fe).
                 if zoomTabId != TabsScreenSpace.newTabMarker, !settled, phase != .overview, let id = activeID {
-                    StackChevron(isOpen: stack.isOpen, count: stack.members.count, title: stack.title, action: {})
-                        .padding(2)
+                    ZStack(alignment: .topTrailing) {
+                        CardCloseGlyph().padding(4).offset(x: -StackChevron.closeInset)
+                        StackChevron(isOpen: stack.isOpen, count: stack.members.count, title: stack.title, action: {})
+                    }
                         .opacity(close)
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)

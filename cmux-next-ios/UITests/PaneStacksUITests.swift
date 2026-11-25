@@ -38,7 +38,7 @@ final class PaneStacksUITests: XCTestCase {
         chevrons(app)[0].tap()
         pause(1.4)
         attach("lone-1-open")
-        XCTAssertEqual(closeButtons(app).count, 2, "zsh and build get close buttons; docs leads the stack")
+        XCTAssertEqual(closeButtons(app).count, 3, "every card closes; docs has its chevron to the right of its close button")
         chevrons(app)[0].tap()
         pause(1.4)
         attach("lone-2-folded")
@@ -84,7 +84,7 @@ final class PaneStacksUITests: XCTestCase {
         attach("\(p)-0-folded")
         // Four cards: two stacks (chevrons) and two lone tabs (close buttons).
         XCTAssertEqual(chevrons(app).count, 2, "two stacks\n\(app.debugDescription)")
-        XCTAssertEqual(closeButtons(app).count, 2, "server and cmux.com have close buttons")
+        XCTAssertEqual(closeButtons(app).count, 4, "every card closes, the two stacks' too (left of their chevron)")
         let folded = closeCorners(app)
 
         // Open the first pane: six cards.
@@ -92,7 +92,7 @@ final class PaneStacksUITests: XCTestCase {
         burst("\(p)-1-opening")
         pause(1.0)
         attach("\(p)-2-open")
-        XCTAssertEqual(closeButtons(app).count, 4, "zsh, build, server and cmux.com")
+        XCTAssertEqual(closeButtons(app).count, 6, "docs, zsh, build, server, cmux.com and tests")
         XCTAssertEqual(chevrons(app)[0].value as? String, "Open")
 
         // Fold it again: the four cards come back to their places.
@@ -119,7 +119,7 @@ final class PaneStacksUITests: XCTestCase {
         attach("\(p)-7-both-open")
         // Seven cards in four rows: logs, the seventh, is below the screen on a 402 pt phone,
         // so the close buttons on screen are zsh's, build's, server's and cmux.com's.
-        XCTAssertEqual(closeButtons(app).count, 4, "every card on screen but the two stacks' first")
+        XCTAssertEqual(closeButtons(app).count, 6, "every card on screen")
         XCTAssertEqual(chevrons(app).count, 2, "both stacks keep their chevron, open")
 
         // A tab inside an open stack opens; back on the grid the stack is still open, that tab in place.

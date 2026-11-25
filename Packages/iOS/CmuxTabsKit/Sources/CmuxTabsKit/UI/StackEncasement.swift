@@ -117,8 +117,10 @@ private struct EncasementFrame<Content: View>: View, Animatable {
     }
 }
 
-/// The stack's "v": a glass circle with a chevron at its first card's top
-/// trailing corner (where a card's close button is). Down while the stack is
+/// The stack's "v" at its first card's top trailing corner, with the card's
+/// close button to its left. It wears the close button's plain fill, not
+/// glass: the encasement is the stack's one piece of glass (Aziz,
+/// 2026-11-25: "avoid liquid glass overload"). Down while the stack is
 /// folded, turning up as it opens.
 struct StackChevron: View {
     var isOpen: Bool
@@ -128,19 +130,24 @@ struct StackChevron: View {
 
     @Environment(\.tabsKitTheme) private var theme
 
-    static let size: CGFloat = 26
+    /// The close button's size (`TabsKitTheme.Metrics.cardClose`).
+    static let size: CGFloat = 22
+    /// How far left of the chevron a stack card's close button sits: one
+    /// 30 pt button frame less a 2 pt overlap, so the circles are 6 pt apart.
+    static let closeInset: CGFloat = 28
 
     var body: some View {
         Button(action: action) {
             Image(systemName: "chevron.down")
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(theme.colors.label)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(theme.colors.cardCloseGlyph)
                 .rotationEffect(.degrees(isOpen ? -180 : 0))
-                .frame(width: Self.size, height: Self.size)
-                .contentShape(.circle)
+                .frame(width: theme.metrics.cardClose, height: theme.metrics.cardClose)
+                .background(theme.colors.cardCloseFill, in: .circle)
+                .padding(4)
+                .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .glassEffect(.regular.interactive(), in: .circle)
         .accessibilityLabel(isOpen ? "Stack \(title)" : "Show \(count) tabs in \(title)")
         .accessibilityIdentifier("tabs.stack.chevron")
         .accessibilityValue(isOpen ? "Open" : "Folded")
@@ -186,7 +193,6 @@ struct StackChevronLayer: View {
                 let card = stack.anchor < cardIDs.count ? cardIDs[stack.anchor] : nil
                 let swiped = card.map { swipes.isRaised($0) || swipes.menuCard == $0 || $0 == excluding } ?? false
                 StackChevron(isOpen: stack.isOpen, count: stack.members.count, title: stack.title) { onToggle(stack.id) }
-                    .padding(2)
                     .position(center)
                     .opacity(swiped ? 0 : shown)
                     .allowsHitTesting(interactive && !swiped && shown > 0.5)

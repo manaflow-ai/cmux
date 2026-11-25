@@ -54,6 +54,9 @@ struct TabCard<Content: View>: View {
     var height: CGFloat
     var radius: CGFloat
     var showsClose: Bool
+    /// How far left of the corner the close button sits (a stack's first
+    /// card keeps its chevron in the corner).
+    var closeInset: CGFloat = 0
     /// Close buttons and title rows (`CardChrome`).
     var closeOpacity: Double
     var titleOpacity: Double
@@ -116,6 +119,7 @@ struct TabCard<Content: View>: View {
                         .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
+                .offset(x: -closeInset)
                 .opacity(closeOpacity * (contentHidden ? 0 : 1))
                 .allowsHitTesting(closeOpacity > 0.5 && !contentHidden)
                 .accessibilityLabel("Close")
@@ -391,10 +395,11 @@ struct TabOverview<Source: TabsDataSource>: View {
         let tab = card.tab, index = card.index
         let r = card.departed?.rect ?? layout.card(index)
         let copy = { DepartingCard(id: tab.id, tab: tab, rect: r) }
-        // A stack's first card has its chevron where the close button is.
+        // A stack's first card has its chevron in the corner, its close button to the left.
         let anchorsStack = card.departed == nil && !card.folded && stacks.stack(anchoredAt: index) != nil
+        let closeInset = anchorsStack ? StackChevron.closeInset : 0
         TabCard(title: tab.title, systemImage: tab.systemImage, pageSize: layout.size, width: r.width, height: r.height,
-                radius: layout.cardRadius, showsClose: !selecting && !anchorsStack, closeOpacity: chrome.closeOpacity,
+                radius: layout.cardRadius, showsClose: !selecting, closeInset: closeInset, closeOpacity: chrome.closeOpacity,
                 titleOpacity: chrome.titleOpacity, titleOffset: chrome.titleOffset,
                 contentHidden: tab.id == hiddenTabId, onOpen: { onSelect(tab.id) },
                 onClose: { Task { _ = await closeTapped(tab.id) } }) {
@@ -412,7 +417,7 @@ struct TabOverview<Source: TabsDataSource>: View {
         .overlay(alignment: .topLeading) {
             CardInteraction(
                 card: r.size, radius: layout.cardRadius,
-                passThrough: selecting ? nil : CGRect(x: r.width - 30, y: 0, width: 30, height: 30),
+                passThrough: selecting ? nil : CGRect(x: r.width - 30 - closeInset, y: 0, width: 30 + closeInset, height: 30),
                 menu: { selecting ? [] : menuSections(tab) },
                 preview: { scale in
                     AnyView(CardMenuPreview(scale: scale, card: r.size, radius: layout.cardRadius) {
