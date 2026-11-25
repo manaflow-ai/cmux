@@ -438,6 +438,13 @@ async fn opening_a_hibernated_chat_wakes_it_and_a_hidden_attach_does_not() {
     let id = new_session(&mut r.c, "click").await;
     r.c.request(method::SESSION_PROMPT, prompt(&id, "hi", None)).await.unwrap();
     r.hibernate(&id).await;
+    // The app refreshes an already visible attachment while its pane remains open. That refresh
+    // must not turn into another wake cycle for the same hibernated child.
+    r.c.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
+    r.c.request(method::MUX_VIEW, json!({"sessionId": id, "visible": true})).await.unwrap();
+    settle().await;
+    assert_eq!(r.status(&id), "idle", "a repeated visible refresh woke the chat");
+    assert_eq!(r.pids("harness").len(), 1);
     let mut hidden = connect(&r.hub).await;
     hidden
         .request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0, "visible": false}))

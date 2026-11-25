@@ -76,6 +76,21 @@ pub(super) fn attach(hub: &Hub, conn: &Conn, s: &crate::hub::Session, opts: SubO
     }
 }
 
+/// Whether this attach changes an existing local subscription from hidden to visible, or creates
+/// a new visible subscription. Re-attaching an already visible chat is only a stream reset and
+/// must not wake an idle child.
+pub(super) fn attach_opens(conn: &Conn, id: &str, hidden: bool) -> bool {
+    if hidden {
+        return false;
+    }
+    let subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
+    match subs.get(id) {
+        None => true,
+        Some(before) if before.remote => true,
+        Some(before) => before.hidden,
+    }
+}
+
 /// Whether presence may still change for `conn`; read under its subscriptions' lock, as every
 /// presence change of a connection is made. The connection's end is marked before
 /// `release_all` takes that lock, so a request still running then (an attach in flight) adds no
@@ -234,6 +249,15 @@ pub(super) fn view(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcE
         Some(back) => json!({"lastReturn": back}),
         None => json!({}),
     })
+}
+
+/// Whether a visible owner view changes this connection from hidden to shown.
+pub(super) fn view_opens(conn: &Conn, id: &str, visible: bool) -> bool {
+    if !visible {
+        return false;
+    }
+    let subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
+    subs.get(id).is_some_and(|sub| !sub.remote && sub.hidden)
 }
 
 /// `_acpmux/typing {sessionId, on}`: the caller's author (or the owner) starts or stops typing
