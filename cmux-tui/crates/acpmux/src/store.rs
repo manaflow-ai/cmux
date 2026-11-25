@@ -577,10 +577,6 @@ pub struct SessionMeta {
         skip_serializing_if = "Option::is_none"
     )]
     pub goal: Option<GoalState>,
-    /// What is done and next across the chat's turns (`task_list.rs`): its harness's latest plan,
-    /// or the list its agent or Chief keeps. None until one is written.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub task_list: Option<crate::task_list::TaskList>,
     /// Per-session permission rules layered above the policy (see hub/rules.rs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission_rules: Option<Value>,
