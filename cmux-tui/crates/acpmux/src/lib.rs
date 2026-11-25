@@ -129,6 +129,7 @@ pub mod github_rest_op;
 pub mod github_session_env;
 pub mod god_fixture;
 pub mod install_share;
+pub mod key_check;
 pub mod memory_follow;
 /// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
 /// never offered, and the command says so.
@@ -246,6 +247,7 @@ pub mod name_match;
 mod named_files_watch;
 pub mod native;
 pub mod no_panic;
+pub mod notice_read;
 pub mod offer_mcp;
 pub mod oom_rank;
 pub mod opaque_agent_id;
