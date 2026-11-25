@@ -6564,6 +6564,198 @@
         }
       }
     },
+    "settings.transport.tailnetCarrier": {
+      "comment": "Settings > Transport: choice that lets direct route races try a peer's direct Tailscale address.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale Carrier"
+          }
+        },
+        "ar": {"stringUnit": {"state": "needs_review", "value": "ناقل Tailscale"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Tailscale prijenosnik"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Tailscale-bærer"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Tailscale-Träger"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Transporte de Tailscale"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Transporteur Tailscale"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Vettore Tailscale"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "Tailscale キャリア"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "អ្នកដឹកជញ្ជូន Tailscale"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "Tailscale 캐리어"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Tailscale-bærer"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nośnik Tailscale"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Transporte Tailscale"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Транспорт Tailscale"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ตัวนำส่ง Tailscale"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Tailscale Taşıyıcı"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Транспорт Tailscale"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Kênh truyền Tailscale"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "Tailscale 传输"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "Tailscale 傳輸"}}
+      }
+    },
+    "settings.transport.tailnetCarrier.directOnly": {
+      "comment": "Tailscale Carrier choice: add only paths tailscaled reports as direct.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direct Only"
+          }
+        },
+        "ar": {"stringUnit": {"state": "needs_review", "value": "المباشر فقط"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Samo direktno"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Kun direkte"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Nur direkt"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Solo directo"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Direct uniquement"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Solo diretto"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "直接のみ"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ផ្ទាល់តែប៉ុណ្ណោះ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "직접 연결만"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Bare direkte"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Tylko bezpośrednio"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Somente direto"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Только напрямую"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เฉพาะแบบตรง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Yalnızca doğrudan"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Лише напряму"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Chỉ trực tiếp"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "仅直连"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "僅直連"}}
+      }
+    },
+    "settings.transport.tailnetCarrier.help": {
+      "comment": "Help for the Tailscale Carrier setting.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Race a peer's direct Tailscale address with the other transports when tailscaled reports one."
+          }
+        },
+        "ar": {"stringUnit": {"state": "needs_review", "value": "سابِق عنوان Tailscale المباشر للنظير مع وسائل النقل الأخرى عندما يُبلغ tailscaled عن واحد."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Utrkuj direktnu Tailscale adresu peera s ostalim prijenosima kada je tailscaled prijavi."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Lad en peers direkte Tailscale-adresse konkurrere med de andre transporter, når tailscaled rapporterer en."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Die direkte Tailscale-Adresse eines Peers mit den anderen Transporten konkurrieren lassen, wenn tailscaled eine meldet."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Compite con la dirección directa de Tailscale de un par frente a los otros transportes cuando tailscaled informa una."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Met en concurrence l'adresse Tailscale directe d'un pair avec les autres transports lorsque tailscaled en signale une."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Mette in gara l'indirizzo Tailscale diretto di un peer con gli altri trasporti quando tailscaled ne segnala uno."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "tailscaled が報告したとき、ピアの直接 Tailscale アドレスを他のトランスポートと競わせます。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ប្រណាំងអាសយដ្ឋាន Tailscale ផ្ទាល់របស់ peer ជាមួយការដឹកជញ្ជូនផ្សេងទៀត នៅពេល tailscaled រាយការណ៍មួយ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "tailscaled가 보고하면 피어의 직접 Tailscale 주소를 다른 전송과 경쟁시킵니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "La en peers direkte Tailscale-adresse konkurrere med de andre transportene når tailscaled rapporterer en."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Ścigaj bezpośredni adres Tailscale peera z innymi transportami, gdy tailscaled go zgłosi."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Coloca o endereço Tailscale direto de um par para competir com os outros transportes quando o tailscaled informar um."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Состязать прямой адрес Tailscale узла с другими транспортами, когда tailscaled сообщает о нём."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แข่งที่อยู่ Tailscale แบบตรงของ peer กับการส่งอื่น ๆ เมื่อ tailscaled รายงาน"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "tailscaled bir tane bildirdiğinde, eşin doğrudan Tailscale adresini diğer taşıyıcılarla yarıştır."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Змагати пряму адресу Tailscale вузла з іншими транспортами, коли tailscaled повідомляє про неї."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Cho địa chỉ Tailscale trực tiếp của máy ngang hàng chạy đua với các kênh truyền khác khi tailscaled báo có."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "当 tailscaled 报告对端的直连 Tailscale 地址时，让它与其他传输方式竞速。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "當 tailscaled 回報對端的直連 Tailscale 位址時，讓它與其他傳輸方式競速。"}}
+      }
+    },
+    "settings.transport.tailnetCarrier.off": {
+      "comment": "Tailscale Carrier choice: add no Tailscale candidates.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        },
+        "ar": {"stringUnit": {"state": "needs_review", "value": "إيقاف"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Isključeno"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Fra"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Aus"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Desactivado"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Désactivé"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Disattivato"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "オフ"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បិទ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "끔"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Av"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Wyłączone"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Desativado"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Выкл."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ปิด"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kapalı"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Вимк."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Tắt"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "关闭"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "關閉"}}
+      }
+    },
+    "settings.transport.tailnetCarrier.on": {
+      "comment": "Tailscale Carrier choice: accept the carrier policy value; relayed paths stay excluded.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On"
+          }
+        },
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تشغيل"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Uključeno"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Til"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ein"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Activado"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Activé"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Attivato"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "オン"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បើក"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "켬"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "På"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Włączone"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Ativado"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Вкл."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เปิด"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Açık"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Увімк."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Bật"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "开启"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "開啟"}}
+      }
+    },
+    "settings.transport.tailnetCarrier.summary": {
+      "comment": "One-line summary of the Tailscale Carrier setting.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use direct Tailscale paths when available"
+          }
+        },
+        "ar": {"stringUnit": {"state": "needs_review", "value": "استخدام مسارات Tailscale المباشرة عند توفرها"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Koristi direktne Tailscale putanje kada su dostupne"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Brug direkte Tailscale-stier, når de er tilgængelige"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Direkte Tailscale-Pfade verwenden, wenn verfügbar"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Usar rutas directas de Tailscale cuando estén disponibles"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Utiliser les chemins Tailscale directs lorsqu'ils sont disponibles"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Usa i percorsi Tailscale diretti quando disponibili"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "利用可能なときは直接 Tailscale 経路を使う"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ប្រើផ្លូវ Tailscale ផ្ទាល់ នៅពេលមាន"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "가능하면 직접 Tailscale 경로 사용"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Bruk direkte Tailscale-stier når de er tilgjengelige"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Używaj bezpośrednich ścieżek Tailscale, gdy są dostępne"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Usar caminhos Tailscale diretos quando disponíveis"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Использовать прямые пути Tailscale, когда они доступны"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ใช้เส้นทาง Tailscale แบบตรงเมื่อมี"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Mümkün olduğunda doğrudan Tailscale yollarını kullan"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Використовувати прямі шляхи Tailscale, коли вони доступні"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Dùng đường Tailscale trực tiếp khi có"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "可用时使用直连 Tailscale 路径"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "可用時使用直連 Tailscale 路徑"}}
+      }
+    },
     "settings.workspaceHibernation.enabled": {
       "extractionState": "manual",
       "localizations": {
@@ -204699,6 +204891,30 @@
         }
       }
     },
+    "settings.cloud.autoCloud": {
+      "comment": "Settings > Machines: toggle that lets the new-chat Where menu's Auto start a chat on a Cloud machine when this Mac has no room (AutoCloud preview, off by default).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto Places Chats in Cloud"
+          }
+        }
+      }
+    },
+    "settings.cloud.autoCloud.help": {
+      "comment": "Help for the AutoCloud toggle: where Auto runs a new chat.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto runs a new chat on this Mac when it has room, else on a Cloud machine."
+          }
+        }
+      }
+    },
     "settings.cloud.agentsStartWithoutAsking": {
       "comment": "Settings > Machines: toggle that lets agents, the cmux CLI and scripts create Cloud machines, move chats to Cloud and start sessions there with no card asking first.",
       "extractionState": "manual",
@@ -247691,6 +247907,60 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "附件載入時，其標籤顯示檔案或圖片圖示，而不是載入標記。"}}
       }
     },
+    "settings.experiments.composerCustomizer": {
+      "comment": "Settings > Experiments: the Customize Button Under the Composer taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Customize Button Under the Composer"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "زر التخصيص أسفل مربع الرسالة"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Dugme Prilagodi ispod okvira za poruke"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Tilpas-knap under beskedfeltet"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Anpassen-Taste unter dem Eingabefeld"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Botón Personalizar bajo el cuadro de mensaje"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Bouton Personnaliser sous la zone de saisie"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Pulsante Personalizza sotto la casella del messaggio"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "入力欄の下のカスタマイズボタン"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ប៊ូតុងប្ដូរតាមបំណងនៅក្រោមប្រអប់សារ"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "입력창 아래 사용자화 버튼"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Tilpass-knapp under meldingsfeltet"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Przycisk Dostosuj pod polem wiadomości"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Botão Personalizar abaixo da caixa de mensagem"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Кнопка «Настроить» под полем ввода"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ปุ่มปรับแต่งใต้ช่องข้อความ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Mesaj kutusunun altında Özelleştir düğmesi"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Кнопка «Налаштувати» під полем введення"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Nút Tùy chỉnh dưới ô soạn tin"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "输入框下方的自定义按钮"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "輸入框下方的自訂按鈕"}}
+      }
+    },
+    "settings.experiments.composerCustomizer.help": {
+      "comment": "Settings > Experiments: the Customize Button Under the Composer taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Point at the chat box for a Customize button that lists every experiment and Labs switch."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "أشر إلى مربع الدردشة لإظهار زر تخصيص يعرض كل مفاتيح التجارب والمختبرات."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Postavite pokazivač na okvir za razgovor za dugme Prilagodi sa svim prekidačima eksperimenata i Labs."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Peg på chatfeltet for en Tilpas-knap med alle eksperimenter og Labs-kontakter."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Zeige auf das Chatfeld, um eine Anpassen-Taste mit allen Experimenten und Labs-Schaltern zu sehen."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Apunta al cuadro del chat para ver un botón Personalizar con todos los experimentos e interruptores de Labs."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Pointez la zone de discussion pour afficher un bouton Personnaliser qui liste toutes les expériences et options Labs."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Punta la casella della chat per un pulsante Personalizza con tutti gli esperimenti e gli interruttori Labs."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "チャット欄にポインタを合わせると、すべての実験とLabsのスイッチを並べたカスタマイズボタンが表示されます。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ចង្អុលលើប្រអប់ជជែក ដើម្បីបង្ហាញប៊ូតុងប្ដូរតាមបំណងដែលរាយកុងតាក់ពិសោធន៍ និង Labs ទាំងអស់។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "채팅 입력창에 포인터를 올리면 모든 실험 및 Labs 스위치를 담은 사용자화 버튼이 나타납니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Pek på chatfeltet for en Tilpass-knapp med alle eksperimenter og Labs-brytere."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Wskaż pole czatu, aby zobaczyć przycisk Dostosuj z każdym eksperymentem i przełącznikiem Labs."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Aponte para a caixa do chat para ver um botão Personalizar com todos os experimentos e chaves do Labs."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Наведите указатель на поле чата, чтобы увидеть кнопку «Настроить» со всеми экспериментами и переключателями Labs."}},
+        "th": {"stringUnit": {"state": "translated", "value": "ชี้ที่ช่องแชทเพื่อแสดงปุ่มปรับแต่งที่รวมสวิตช์การทดลองและ Labs ทั้งหมด"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Tüm deney ve Labs anahtarlarını listeleyen Özelleştir düğmesi için sohbet kutusunun üzerine gelin."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Наведіть вказівник на поле чату, щоб побачити кнопку «Налаштувати» з усіма експериментами та перемикачами Labs."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Trỏ vào ô trò chuyện để hiện nút Tùy chỉnh liệt kê mọi công tắc thử nghiệm và Labs."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "将指针移到聊天框上，即可显示列出所有实验和 Labs 开关的自定义按钮。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "將指標移到聊天框上，即可顯示列出所有實驗與 Labs 開關的自訂按鈕。"}}
+      }
+    },
     "settings.experiments.agentBadges": {
       "comment": "Settings > Advanced > Experiments: the title of the Agent Badges switch (taste prototype, off by default)",
       "extractionState": "manual",
@@ -259503,6 +259773,141 @@
         }
       }
     },
+    "settings.appearance.liveWallpaperFrameRate": {
+      "comment": "Settings row title: the most frames per second a live wallpaper (a moving background drawn by code) draws.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Live Wallpaper Frame Rate"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "معدل إطارات الخلفية الحية"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Broj sličica žive pozadine"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Billedhastighed for levende baggrunde"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Bildrate für Live-Hintergründe"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Velocidad de fotogramas del fondo animado"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Fréquence d’images des fonds d’écran animés"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Frequenza fotogrammi degli sfondi animati"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ライブ壁紙のフレームレート"}},
+        "km": {"stringUnit": {"state": "translated", "value": "អត្រាស៊ុមនៃផ្ទាំងរូបភាពផ្ទាល់"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "라이브 배경화면 프레임 속도"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Bildefrekvens for levende bakgrunner"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Liczba klatek tapety na żywo"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Taxa de quadros do papel de parede animado"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Частота кадров живых обоев"}},
+        "th": {"stringUnit": {"state": "translated", "value": "อัตราเฟรมของภาพพื้นหลังแบบเคลื่อนไหว"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Canlı duvar kâğıdı kare hızı"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Частота кадрів живих шпалер"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Tốc độ khung hình của hình nền động"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "动态壁纸帧率"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "動態背景圖片影格速率"}}
+      }
+    },
+    "settings.appearance.liveWallpaperFrameRate.help": {
+      "comment": "Help text of the Live Wallpaper Frame Rate setting.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The most frames per second a live wallpaper draws. A wallpaper may ask for fewer; it stops drawing when the window is hidden, idle or on Low Power Mode."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "أقصى عدد من الإطارات في الثانية ترسمه الخلفية الحية. قد تطلب الخلفية عددًا أقل؛ وتتوقف عن الرسم عندما تكون النافذة مخفية أو خاملة أو في وضع الطاقة المنخفضة."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Najveći broj sličica u sekundi koje živa pozadina crta. Pozadina može tražiti manje; prestaje crtati kada je prozor skriven, neaktivan ili u načinu niske potrošnje."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Det højeste antal billeder pr. sekund, en levende baggrund tegner. En baggrund kan bede om færre; den stopper med at tegne, når vinduet er skjult, inaktivt eller i strømsparetilstand."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die höchste Zahl an Bildern pro Sekunde, die ein Live-Hintergrund zeichnet. Ein Hintergrund kann weniger anfordern; er hört auf zu zeichnen, wenn das Fenster verborgen oder untätig ist oder der Stromsparmodus aktiv ist."}},
+        "es": {"stringUnit": {"state": "translated", "value": "El máximo de fotogramas por segundo que dibuja un fondo animado. Un fondo puede pedir menos; deja de dibujar cuando la ventana está oculta, inactiva o en modo de bajo consumo."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Le nombre maximal d’images par seconde qu’un fond d’écran animé dessine. Un fond peut en demander moins ; il cesse de dessiner quand la fenêtre est masquée, inactive ou en mode économie d’énergie."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Il numero massimo di fotogrammi al secondo che uno sfondo animato disegna. Uno sfondo può chiederne meno; smette di disegnare quando la finestra è nascosta, inattiva o in modalità Risparmio energetico."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ライブ壁紙が描画する1秒あたりの最大フレーム数。壁紙がより少ない数を求めることもあります。ウインドウが隠れている、操作がない、または低電力モードのときは描画を止めます。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ចំនួនស៊ុមច្រើនបំផុតក្នុងមួយវិនាទីដែលផ្ទាំងរូបភាពផ្ទាល់គូរ។ ផ្ទាំងរូបភាពអាចស្នើតិចជាងនេះ; វាឈប់គូរនៅពេលបង្អួចត្រូវបានលាក់ ទំនេរ ឬក្នុងរបៀបថាមពលទាប។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "라이브 배경화면이 그리는 초당 최대 프레임 수입니다. 배경화면이 더 적게 요청할 수 있으며, 윈도우가 가려지거나 유휴 상태이거나 저전력 모드일 때는 그리기를 멈춥니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Det høyeste antallet bilder per sekund en levende bakgrunn tegner. En bakgrunn kan be om færre; den slutter å tegne når vinduet er skjult, inaktivt eller i strømsparingsmodus."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Największa liczba klatek na sekundę, jaką rysuje tapeta na żywo. Tapeta może prosić o mniej; przestaje rysować, gdy okno jest ukryte, bezczynne lub w trybie niskiego zużycia energii."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "O máximo de quadros por segundo que um papel de parede animado desenha. Um papel de parede pode pedir menos; ele para de desenhar quando a janela está oculta, ociosa ou no Modo de Pouca Energia."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Наибольшее число кадров в секунду, которое рисуют живые обои. Обои могут запросить меньше; они перестают рисовать, когда окно скрыто, простаивает или включён режим энергосбережения."}},
+        "th": {"stringUnit": {"state": "translated", "value": "จำนวนเฟรมต่อวินาทีสูงสุดที่ภาพพื้นหลังแบบเคลื่อนไหววาด ภาพพื้นหลังอาจขอน้อยกว่านั้น และจะหยุดวาดเมื่อหน้าต่างถูกซ่อน ไม่มีการใช้งาน หรืออยู่ในโหมดพลังงานต่ำ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Canlı bir duvar kâğıdının saniyede çizdiği en fazla kare sayısı. Duvar kâğıdı daha azını isteyebilir; pencere gizliyken, boştayken veya Düşük Güç Modu'ndayken çizmeyi bırakır."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Найбільша кількість кадрів на секунду, яку малюють живі шпалери. Шпалери можуть просити менше; вони перестають малювати, коли вікно приховане, неактивне або ввімкнено режим енергозбереження."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Số khung hình mỗi giây tối đa mà hình nền động vẽ. Hình nền có thể yêu cầu ít hơn; nó ngừng vẽ khi cửa sổ bị ẩn, không hoạt động hoặc ở Chế độ nguồn điện thấp."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "动态壁纸每秒最多绘制的帧数。壁纸可以要求更少；窗口隐藏、闲置或处于低电量模式时停止绘制。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "動態背景圖片每秒最多繪製的影格數。背景圖片可以要求更少；視窗隱藏、閒置或處於低耗電模式時停止繪製。"}}
+      }
+    },
+    "settings.choice.liveWallpaperFrameRate.15": {
+      "comment": "Live Wallpaper Frame Rate choice: 15 frames per second.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "15 fps"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "15 fps"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "15 fps"}},
+        "da": {"stringUnit": {"state": "translated", "value": "15 fps"}},
+        "de": {"stringUnit": {"state": "translated", "value": "15 fps"}},
+        "es": {"stringUnit": {"state": "translated", "value": "15 fps"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "15 fps"}},
+        "it": {"stringUnit": {"state": "translated", "value": "15 fps"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "15 fps"}},
+        "km": {"stringUnit": {"state": "translated", "value": "15 fps"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "15 fps"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "15 fps"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "15 fps"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "15 fps"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "15 fps"}},
+        "th": {"stringUnit": {"state": "translated", "value": "15 fps"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "15 fps"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "15 fps"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "15 fps"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "15 fps"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "15 fps"}}
+      }
+    },
+    "settings.choice.liveWallpaperFrameRate.30": {
+      "comment": "Live Wallpaper Frame Rate choice: 30 frames per second (the default).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "30 fps"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "30 fps"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "30 fps"}},
+        "da": {"stringUnit": {"state": "translated", "value": "30 fps"}},
+        "de": {"stringUnit": {"state": "translated", "value": "30 fps"}},
+        "es": {"stringUnit": {"state": "translated", "value": "30 fps"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "30 fps"}},
+        "it": {"stringUnit": {"state": "translated", "value": "30 fps"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "30 fps"}},
+        "km": {"stringUnit": {"state": "translated", "value": "30 fps"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "30 fps"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "30 fps"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "30 fps"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "30 fps"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "30 fps"}},
+        "th": {"stringUnit": {"state": "translated", "value": "30 fps"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "30 fps"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "30 fps"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "30 fps"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "30 fps"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "30 fps"}}
+      }
+    },
+    "settings.choice.liveWallpaperFrameRate.60": {
+      "comment": "Live Wallpaper Frame Rate choice: 60 frames per second.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "60 fps"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "60 fps"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "60 fps"}},
+        "da": {"stringUnit": {"state": "translated", "value": "60 fps"}},
+        "de": {"stringUnit": {"state": "translated", "value": "60 fps"}},
+        "es": {"stringUnit": {"state": "translated", "value": "60 fps"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "60 fps"}},
+        "it": {"stringUnit": {"state": "translated", "value": "60 fps"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "60 fps"}},
+        "km": {"stringUnit": {"state": "translated", "value": "60 fps"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "60 fps"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "60 fps"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "60 fps"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "60 fps"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "60 fps"}},
+        "th": {"stringUnit": {"state": "translated", "value": "60 fps"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "60 fps"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "60 fps"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "60 fps"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "60 fps"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "60 fps"}}
+      }
+    },
     "settings.category.integrations": {
       "comment": "Settings sidebar category: linked accounts agents can act through (Stripe, GitHub).",
       "extractionState": "manual",
@@ -268291,6 +268696,666 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Join new Cloud machines automatically"
+          }
+        }
+      }
+    },
+    "settings.group.customizeChecklist": {
+      "comment": "Settings > General group holding the Customize cmux checklist switch.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Customize cmux"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تخصيص cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prilagodi cmux"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilpas cmux"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux anpassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personaliza cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personnaliser cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personalizza cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmuxをカスタマイズ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្ដូរ cmux តាមបំណង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 맞춤 설정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilpass cmux"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dostosuj cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personalize o cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Настройка cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปรับแต่ง cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'u özelleştir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Налаштування cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tùy chỉnh cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自定义 cmux"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自訂 cmux"
+          }
+        }
+      }
+    },
+    "settings.customizeChecklist.enabled": {
+      "comment": "Settings toggle that shows the Customize cmux checklist card.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the Customize cmux Checklist"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار قائمة تخصيص cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži listu za prilagodbu cmuxa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis tjeklisten til tilpasning af cmux"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Checkliste zum Anpassen von cmux anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar la lista para personalizar cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher la liste de personnalisation de cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra la checklist di personalizzazione di cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmuxカスタマイズのチェックリストを表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញបញ្ជីត្រួតពិនិត្យការប្ដូរ cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 맞춤 설정 체크리스트 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis sjekklisten for tilpasning av cmux"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż listę kontrolną dostosowywania cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar a lista de personalização do cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать список настройки cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงรายการตรวจสอบการปรับแต่ง cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux özelleştirme kontrol listesini göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати список налаштування cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện danh sách tùy chỉnh cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示 cmux 自定义清单"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示 cmux 自訂清單"
+          }
+        }
+      }
+    },
+    "settings.customizeChecklist.enabled.help": {
+      "comment": "Help under the Show the Customize cmux Checklist toggle.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows the steps for making cmux your own at the top of Settings, with how many are done."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعرض في أعلى الإعدادات خطوات جعل cmux خاصًا بك، مع عدد ما أُنجز منها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikazuje na vrhu postavki korake za prilagodbu cmuxa, s brojem završenih."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viser øverst i indstillingerne trinnene til at gøre cmux til din egen, med hvor mange der er udført."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zeigt oben in den Einstellungen die Schritte, mit denen Sie cmux zu Ihrem eigenen machen, und wie viele erledigt sind."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muestra arriba en Ajustes los pasos para hacer tuyo cmux, con cuántos llevas hechos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Affiche en haut des réglages les étapes pour personnaliser cmux, avec le nombre déjà faites."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra in cima alle impostazioni i passi per rendere cmux tuo, con quanti ne hai completati."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmuxを自分好みにするためのステップを設定の上部に表示し、完了数も示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញជំហានសម្រាប់ធ្វើឱ្យ cmux ជារបស់អ្នកនៅផ្នែកខាងលើនៃការកំណត់ ព្រមទាំងចំនួនដែលបានបញ្ចប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux를 나에게 맞게 만드는 단계를 설정 상단에 완료 개수와 함께 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viser øverst i innstillingene stegene for å gjøre cmux til din egen, med hvor mange som er fullført."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wyświetla na górze ustawień kroki dostosowywania cmux wraz z liczbą ukończonych."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra no topo dos Ajustes os passos para deixar o cmux do seu jeito, com quantos já foram concluídos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывает вверху настроек шаги, которые помогут сделать cmux своим, и сколько из них выполнено."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงขั้นตอนการทำให้ cmux เป็นของคุณไว้ที่ด้านบนของการตั้งค่า พร้อมจำนวนที่ทำเสร็จแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ayarların üstünde cmux'u kendinize göre yapma adımlarını ve kaçının tamamlandığını gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показує вгорі налаштувань кроки, що допоможуть зробити cmux своїм, і скільки з них виконано."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện các bước để biến cmux thành của riêng bạn ở đầu Cài đặt, kèm số bước đã xong."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在设置顶部显示让 cmux 成为你专属工具的步骤，以及已完成的数量。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在設定頂部顯示讓 cmux 成為你專屬工具的步驟，以及已完成的數量。"
+          }
+        }
+      }
+    },
+    "settings.customizeChecklist.done": {
+      "comment": "Title of the (hidden) setting holding checklist steps checked off by hand.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checked Off Customize Steps"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خطوات التخصيص المحددة كمنجزة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ručno označeni koraci prilagodbe"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afkrydsede tilpasningstrin"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abgehakte Anpassungsschritte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pasos de personalización marcados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Étapes de personnalisation cochées"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Passi di personalizzazione spuntati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チェック済みのカスタマイズステップ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជំហានប្ដូរតាមបំណងដែលបានគូសរួច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "체크한 맞춤 설정 단계"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avmerkede tilpasningssteg"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odznaczone kroki dostosowywania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Passos de personalização marcados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отмеченные шаги настройки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขั้นตอนการปรับแต่งที่ทำเครื่องหมายแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İşaretlenen özelleştirme adımları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Позначені кроки налаштування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các bước tùy chỉnh đã đánh dấu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已勾选的自定义步骤"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已勾選的自訂步驟"
+          }
+        }
+      }
+    },
+    "settings.customizeChecklist.done.help": {
+      "comment": "Help of the setting holding checklist steps checked off by hand.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The checklist steps you marked done yourself."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خطوات القائمة التي حددتها بنفسك كمنجزة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koraci liste koje si sam označio kao završene."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "De trin på tjeklisten, du selv har markeret som udført."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Checklistenschritte, die Sie selbst als erledigt markiert haben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los pasos de la lista que marcaste tú mismo como hechos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les étapes de la liste que vous avez marquées vous-même comme faites."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I passi della checklist che hai segnato come completati tu stesso."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自分で完了にしたチェックリストのステップです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជំហាននៃបញ្ជីដែលអ្នកបានគូសថាបានបញ្ចប់ដោយខ្លួនឯង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "직접 완료로 표시한 체크리스트 단계입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sjekklistestegene du selv har markert som fullført."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kroki listy, które sam oznaczyłeś jako ukończone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Os passos da lista que você mesmo marcou como concluídos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шаги списка, которые вы сами отметили как выполненные."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขั้นตอนในรายการที่คุณทำเครื่องหมายว่าเสร็จด้วยตัวเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kontrol listesinde kendinizin tamamlandı olarak işaretlediği adımlar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кроки списку, які ви самі позначили як виконані."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các bước trong danh sách mà bạn tự đánh dấu là đã xong."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你自己标记为已完成的清单步骤。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你自己標記為已完成的清單步驟。"
           }
         }
       }
