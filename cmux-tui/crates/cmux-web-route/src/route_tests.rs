@@ -61,26 +61,26 @@ fn the_shared_vectors_read_the_same_here() {
 
 #[test]
 fn a_route_never_carries_anything_but_its_address_and_message() {
-    let route = parse("/m/big-red/agent/claude/s1?prompt=hi&run=1&approve=all").unwrap();
+    let route = parse("/m/my-vm/agent/claude/s1?prompt=hi&run=1&approve=all").unwrap();
     assert_eq!(
         route,
         Route::Agent {
-            machine: Some(Machine::Name("big-red".into())),
+            machine: Some(Machine::Name("my-vm".into())),
             harness: "claude".into(),
             session: "s1".into(),
             message: None,
         }
     );
-    assert_eq!(route.path().as_deref(), Some("/m/big-red/agent/claude/s1"));
+    assert_eq!(route.path().as_deref(), Some("/m/my-vm/agent/claude/s1"));
 }
 
 #[test]
 fn an_address_too_long_or_with_spaces_is_no_route() {
-    let long = format!("/m/big-red/agent/claude/{}", "s".repeat(4096));
+    let long = format!("/m/my-vm/agent/claude/{}", "s".repeat(4096));
     assert_eq!(parse(&long), Err(RouteError::NotARoute));
     assert_eq!(
-        parse("  /m/big-red/agent/claude/s1  ").map(|r| r.path()),
-        Ok(Some("/m/big-red/agent/claude/s1".into()))
+        parse("  /m/my-vm/agent/claude/s1  ").map(|r| r.path()),
+        Ok(Some("/m/my-vm/agent/claude/s1".into()))
     );
     assert_eq!(parse(""), Err(RouteError::NotARoute));
     assert_eq!(RouteError::Link("x".into()).to_string(), "x");

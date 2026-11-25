@@ -47,11 +47,11 @@ fn the_schema_vectors_read_the_same_here() {
 
 #[test]
 fn a_pr_footer_line_carries_its_link() {
-    let line = "Agent session: [big-red](https://cmux.com/deeplink/agent?harness=claude&session=01a16c8c-54ec-71b2-a0fa-125d1404dd72&host=big-red)";
+    let line = "Agent session: [my-vm](https://cmux.com/deeplink/agent?harness=claude&session=01a16c8c-54ec-71b2-a0fa-125d1404dd72&host=my-vm)";
     let link = find(line).unwrap().unwrap();
     assert_eq!(link.harness, "claude");
     assert_eq!(link.session, "01a16c8c-54ec-71b2-a0fa-125d1404dd72");
-    assert_eq!(link.host.as_deref(), Some("big-red"));
+    assert_eq!(link.host.as_deref(), Some("my-vm"));
     // A localized page and an HTML-escaped query read the same.
     let html = "https://cmux.com/en/deeplink/agent?harness=codex&amp;session=s%3A1&amp;host=hb";
     let link = find(html).unwrap().unwrap();
@@ -64,12 +64,12 @@ fn a_written_link_reads_back_and_leaves_out_what_the_schema_refuses() {
     let link = AgentLink {
         harness: "claude".into(),
         session: "s:1".into(),
-        host: Some("big-red".into()),
+        host: Some("my-vm".into()),
         name: Some("two words".into()),
         ..Default::default()
     };
     let url = link.web_url().unwrap();
-    assert_eq!(url, "https://cmux.com/deeplink/agent?harness=claude&session=s:1&host=big-red");
+    assert_eq!(url, "https://cmux.com/deeplink/agent?harness=claude&session=s:1&host=my-vm");
     assert_eq!(find(&url).unwrap().unwrap(), AgentLink { name: None, ..link });
     assert!(AgentLink { harness: "Claude".into(), ..Default::default() }.web_url().is_none());
 }
