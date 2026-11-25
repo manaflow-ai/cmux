@@ -89,6 +89,39 @@ class TrustedRoute(unittest.TestCase):
         self.assertTrue(trusted)
         self.assertIn("could not be read", why)
 
+    def test_an_unreadable_list_with_builds_already_on_the_mini_takes_the_cloud(self) -> None:
+        # 2026-11-25: every pick kept the pin while the list was unread; nine builds queued behind one mini.
+        clock = Clock()
+        trusted, why = picker.trusted_route(POOL, RUNNER, lambda: None, True, "1", sleep=clock.sleep, clock=clock,
+                                            backlog=lambda: 3)
+        self.assertFalse(trusted)
+        self.assertIn("3 nightly build(s)", why)
+        self.assertEqual(clock.at, 0)
+
+    def test_an_unreadable_list_with_an_empty_or_unread_backlog_keeps_the_pin(self) -> None:
+        for count in (0, None):
+            with self.subTest(count=count):
+                clock = Clock()
+                trusted, _ = picker.trusted_route(POOL, RUNNER, lambda: None, True, "1", sleep=clock.sleep,
+                                                  clock=clock, backlog=lambda: count)
+                self.assertTrue(trusted)
+
+    def test_the_backlog_counts_other_runs_jobs_on_the_pinned_label_only(self) -> None:
+        pages = {
+            f"/actions/workflows/{picker.NIGHTLY_WORKFLOW}/runs?status=in_progress&per_page={picker.BACKLOG_RUNS}":
+                {"workflow_runs": [{"id": 1}, {"id": 2}, {"id": 9}]},
+            f"/actions/workflows/{picker.NIGHTLY_WORKFLOW}/runs?status=queued&per_page={picker.BACKLOG_RUNS}":
+                {"workflow_runs": [{"id": 3}, {"id": 1}]},
+            "/actions/runs/1/jobs?filter=latest&per_page=100": {"jobs": [
+                {"status": "queued", "labels": [POOL, RUNNER]},
+                {"status": "completed", "labels": [POOL, RUNNER]},
+                {"status": "queued", "labels": ["blacksmith-6vcpu-macos-26"]}]},
+            "/actions/runs/2/jobs?filter=latest&per_page=100": {"jobs": [{"status": "in_progress", "labels": [POOL, RUNNER]}]},
+            "/actions/runs/3/jobs?filter=latest&per_page=100": {"jobs": [{"status": "queued", "labels": [POOL, RUNNER]}]},
+            "/actions/runs/9/jobs?filter=latest&per_page=100": {"jobs": [{"status": "queued", "labels": [POOL, RUNNER]}]},
+        }
+        self.assertEqual(picker.pinned_backlog(pages.__getitem__, RUNNER, "9"), 3)
+
     def test_off_later_attempts_and_bad_variables_never_ask_for_the_mini(self) -> None:
         idle = [[runner(POOL, RUNNER)]]
         self.assertFalse(self.route(idle, enabled=False)[0][0])
@@ -429,6 +462,20 @@ class Census(unittest.TestCase):
     def test_a_refused_list_without_a_census_keeps_the_pinned_pair(self) -> None:
         self.assertEqual(self.refused(None)[0], "true")
         self.assertEqual(self.refused(census(at=NOW - dt.timedelta(hours=2)))[0], "true")
+
+    def test_a_refused_list_with_a_backlog_on_the_mini_takes_the_cloud(self) -> None:
+        def boom(token, repo):
+            raise RuntimeError("HTTP Error 403: Forbidden")
+        for count, want in ((2, "false"), (0, "true")):
+            with self.subTest(count=count), tempfile.TemporaryDirectory() as directory:
+                out = Path(directory) / "out"
+                picker.main({"GITHUB_REPOSITORY": "o/r", "ROUTE_TOKEN": "t", "SNAPSHOT_TOKEN": "s",
+                             "TRUSTED_POOL": POOL, "TRUSTED_RUNNER": RUNNER, "ENABLED": "1",
+                             "GITHUB_RUN_ATTEMPT": "1", "GITHUB_RUN_ID": "7", "GITHUB_OUTPUT": str(out)},
+                            read_runners=boom, read_snapshot=lambda token, repo: None,
+                            read_backlog=lambda token, repo, name, run: count if (name, run) == (RUNNER, "7") else -1,
+                            now=NOW)
+                self.assertIn(f"trusted={want}", out.read_text())
 
 
 class Prepare(unittest.TestCase):
