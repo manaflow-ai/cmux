@@ -1,7 +1,7 @@
 import CmuxNextBrowser
-import CmuxNextCloud
+package import CmuxNextCloud
 import CmuxNextPages
-import CmuxNextPopups
+package import CmuxNextPopups
 import Foundation
 
 /// Connect GitHub's pages (the App's install page, its account chooser, an installation's settings, GitHub's authorize
