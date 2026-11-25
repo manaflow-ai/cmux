@@ -130,7 +130,7 @@ import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
 import { awaitPaused, runWakeEcho, setupProbe, startWithRetry, wakeEchoMarkdown, summarize as wakeEchoSummary, type WakeCycle } from "./cloud-wake-echo.ts";
 import { FAIL_STREAK, parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, resumeRouteCall, type ResumeSample, type ResumeStop, runProviderArm, runResumeMatrix, syncRunning } from "./cloud-resume-matrix.ts";
-import { clientSpans, hopDurations, readStartTrace, slowestHop, traceMarkdown } from "./cloud-start-trace.ts";
+import { clientSpans, hopDurations, mintSendTrace, modelFloor, readSendTrace, readStartTrace, sendTraceRows, sendTraceTable, slowestHop, snappyReport, snappyRun, traceMarkdown } from "./cloud-start-trace.ts";
 import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTenant, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts } from "./cloud-start-bench.ts";
 
 // The shipped app's CloudMachineCreateFlow.named and the platform's CHAT_START_SHAPE (2/4/20, cmux-platform#1756).
@@ -225,14 +225,19 @@ export function readEnvFile(text: string): Record<string, string> {
 }
 
 export type Status = "pass" | "fail" | "skip";
-export type FirstTextFields = { create_marks_ms?: Record<string, number>; create_to_first_text_ms?: number; reserved_hit?: boolean };
+export type FirstTextFields = { create_marks_ms?: Record<string, number>; create_to_first_text_ms?: number; guest_ms?: Record<string, number>; reserved_hit?: boolean };
 export type Step = { step: string; status: Status; ms: number; detail: string; fields?: FirstTextFields };
 
 /** One runner monotonic clock, from the create call. Reused machines have no create measurement. */
 export class FirstTextTiming {
   private start: number | undefined;
   private marks: Record<string, number> = {};
+  private onGuest: Record<string, number> = {};
   constructor(private readonly clock = () => performance.now()) {}
+  /** A part as the guest timed it (its own clock, without the exec route's trip): `guest_ms` beside the marks. */
+  guest(part: string, ms: number | null): void {
+    if (ms !== null && Number.isFinite(ms) && ms >= 0 && !(part in this.onGuest)) this.onGuest[part] = Math.round(ms);
+  }
   mark(phase: string): void {
     if (phase === "create" && this.start === undefined) {
       this.start = this.clock();
@@ -244,7 +249,11 @@ export class FirstTextTiming {
   }
   fields(): FirstTextFields {
     if (this.start === undefined) return {};
-    return { create_marks_ms: { ...this.marks }, ...(this.marks.first_text !== undefined ? { create_to_first_text_ms: this.marks.first_text } : {}) };
+    return {
+      create_marks_ms: { ...this.marks },
+      ...(this.marks.first_text !== undefined ? { create_to_first_text_ms: this.marks.first_text } : {}),
+      ...(Object.keys(this.onGuest).length ? { guest_ms: { ...this.onGuest } } : {}),
+    };
   }
 }
 
@@ -484,10 +493,11 @@ export class Api {
   private headers(): Record<string, string> {
     return { authorization: `Bearer ${this.bearer}`, ...(this.team ? { "x-cmux-team": this.team } : {}) };
   }
-  async op(op: string, params: unknown, key?: string): Promise<any> {
+  /** `extra`: headers for this op only (a send's trace headers, cloud-start-trace.ts mintSendTrace). */
+  async op(op: string, params: unknown, key?: string, extra: Record<string, string> = {}): Promise<any> {
     let ownerRetried = false;
     for (let attempt = 1; ; attempt++) {
-      const r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, this.headers(), 60_000, !!key);
+      const r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, { ...this.headers(), ...extra }, 60_000, !!key);
       // A provider call cut off mid-way is safe to repeat under the same key; without it a cleanup delete leaks the VM.
       if (key && attempt < OP_ATTEMPTS && opRetryable(r.body)) { await sleep(2000 * attempt); continue; }
       // An owner reset: once more, under the same key so the op cannot apply twice.
@@ -526,8 +536,8 @@ export class Api {
     if (r.status !== 200 || (r.body.ok === false)) throw new Error(`${op}: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
     return r.body.value;
   }
-  async raw(method: string, route: string, body?: unknown, timeoutMs = 60_000): Promise<Answer> {
-    return http(method, `${this.origin}${route}`, body, this.headers(), timeoutMs);
+  async raw(method: string, route: string, body?: unknown, timeoutMs = 60_000, extra: Record<string, string> = {}): Promise<Answer> {
+    return http(method, `${this.origin}${route}`, body, { ...this.headers(), ...extra }, timeoutMs);
   }
 }
 
@@ -1939,7 +1949,8 @@ export type ExecResult = { code: number; stdout: string; stderr: string };
 export type Exec = (command: string, timeoutMs?: number) => Promise<ExecResult>;
 
 /** Follow a fresh session's ACP stream on the guest and return on text, not turn end. The exec response carries
- * only a marker, never the model's text. --since 0 closes the subscribe/send race on this run's unique session.
+ * only a marker, never the model's text: `@@first-text TURN THOUGHT`, the guest's own ms from the turn's start
+ * (acpmux took the prompt) to the first text and to the first thinking (-1: none), apart from the exec route. --since 0 closes the subscribe/send race on this run's unique session.
  * The process is bounded and reaped by its own parent; no daemon or unrelated process is signalled. */
 export function firstTextCommand(session: string, budgetMs: number): string {
   return `python3 - "$c" ${shq(session)} ${Math.min(270_000, budgetMs) / 1000} <<'CMUX_FIRST_TEXT'
@@ -1952,6 +1963,8 @@ end = time.monotonic() + float(sys.argv[3])
 buf = b''
 discarding = False
 started = False
+turn_at = None
+thought_ms = -1
 try:
     while time.monotonic() < end:
         if not sel.select(max(0, end - time.monotonic())):
@@ -1977,9 +1990,11 @@ try:
                 continue
             if event.get('kind') == 'turn_started':
                 started = True
+                if turn_at is None:
+                    turn_at = time.monotonic()
             if event.get('kind') in ('turn_result', 'turn_error'):
                 sys.exit('first turn ended without assistant text')
-            if not started or event.get('kind') not in (None, 'agent_message_chunk'):
+            if not started or event.get('kind') not in (None, 'agent_message_chunk', 'agent_thought_chunk'):
                 continue
             msg = event.get('msg', event)
             params = msg.get('params', {}) if isinstance(msg, dict) else {}
@@ -1988,11 +2003,13 @@ try:
             if isinstance(acpmux, dict) and acpmux.get('subagent'):
                 continue
             update = params.get('update', {}) if isinstance(params, dict) else {}
+            if isinstance(update, dict) and update.get('sessionUpdate') == 'agent_thought_chunk' and thought_ms < 0:
+                thought_ms = int((time.monotonic() - turn_at) * 1000)
             if not isinstance(update, dict) or update.get('sessionUpdate') != 'agent_message_chunk':
                 continue
             content = update.get('content', {})
             if isinstance(content, dict) and content.get('type') == 'text' and isinstance(content.get('text'), str) and content['text']:
-                print('@@first-text', flush=True)
+                print('@@first-text %d %d' % (int((time.monotonic() - turn_at) * 1000), thought_ms), flush=True)
                 sys.exit(0)
         if len(buf) > 1048576:
             buf = b''
@@ -2013,8 +2030,11 @@ CMUX_FIRST_TEXT`;
 export async function observeFirstText(exec: Exec, session: string, budgetMs: number, timing: FirstTextTiming, record: (step: Step) => void): Promise<void> {
   try {
     const r = await exec(`${GUEST}${firstTextCommand(session, budgetMs)}`, Math.min(270_000, budgetMs) + 5000);
-    if (r.code !== 0 || r.stdout.trim() !== "@@first-text") throw new Error(`first-text observer: exit ${r.code}; ${r.stderr.slice(-300) || "no text marker"}`);
+    const m = /^@@first-text(?: (\d+) (-?\d+))?$/.exec(r.stdout.trim());
+    if (r.code !== 0 || !m) throw new Error(`first-text observer: exit ${r.code}; ${r.stderr.slice(-300) || "no text marker"}`);
     timing.mark("first_text");
+    if (m[1] !== undefined) timing.guest("first_token", Number(m[1]));
+    if (m[2] !== undefined && Number(m[2]) >= 0) timing.guest("first_thought", Number(m[2]));
     record({ step: "first text", status: "pass", ms: 0, detail: "streamed assistant text observed (parallel to send/reply; includes exec return)", fields: timing.fields() });
   } catch (error) {
     record({ step: "first text", status: "pass", ms: 0, detail: `measurement unavailable: ${String((error as Error)?.message ?? error)}`, fields: timing.fields() });
@@ -2277,6 +2297,33 @@ export function carrierTicketProblem(status: number, body: any, nowS = Date.now(
   if (!visibleSecret(v.grant)) return "grant is not 1 to 4096 visible ASCII bytes";
   if (!canonicalKey(v.daemon_key)) return "no canonical 32-byte daemon_key: the dial refuses an answer without one";
   return null;
+}
+
+/** The first text's epoch ms: the create's send plus its first_text mark; null when either was not reached. */
+export function firstTextEpoch(timing: FirstTextTiming, createSentAt: number | null): number | null {
+  const at = timing.fields().create_marks_ms?.first_text;
+  return createSentAt === null || at === undefined ? null : createSentAt + at;
+}
+
+/** How long after the first token the send's trace is read, so the platform's last spans have landed. */
+export const SEND_TRACE_SETTLE_MS = 5_000;
+
+/**
+ * The send's Chrome trace (cloud-start-trace.ts readSendTrace), ~5 s after its first token: saved as send-trace.json
+ * in the run's out dir, its hops printed with their floors, and its id printed. A 404 or any error is printed only.
+ */
+export async function saveSendTrace(api: Pick<Api, "raw">, id: string, firstTextAt: number | null, outDir: string | null, now = Date.now, wait = sleep): Promise<boolean> {
+  const left = (firstTextAt ?? now()) + SEND_TRACE_SETTLE_MS - now();
+  if (left > 0) await wait(left);
+  const got = await readSendTrace((m, r, b, t) => api.raw(m, r, b, t), id);
+  if ("missing" in got) {
+    console.log(`send trace ${id}: not read: ${got.missing}`);
+    return false;
+  }
+  if (outDir) writeFileSync(path.join(outDir, "send-trace.json"), `${JSON.stringify(got.body)}\n`);
+  console.log(`send trace ${id} (Chrome trace JSON, opens in ui.perfetto.dev)${outDir ? `: ${path.join(outDir, "send-trace.json")}` : ""}`);
+  console.log(sendTraceTable(sendTraceRows(got.body)));
+  return true;
 }
 
 /** The carrier dials still running, so a cancelled journey stops them instead of leaving them to their deadline. */
@@ -3303,16 +3350,19 @@ export function loginPathAfterClaim(o: { receipt: boolean; launchCredential: boo
  * `@@prompted`; the turn runs on in the daemon. Without it the journey's send was a second exec and a fresh
  * `cmux-tui acp send` process (2.4 to 3.2 s on the 11-23 stub legs), a path no person's first send takes.
  */
-export function launchCredentialStartProgram(session: string, agent: string, name: string, value: string, prompt?: string): string {
+export function launchCredentialStartProgram(session: string, agent: string, name: string, value: string, prompt?: string, traceId?: string): string {
   const slash = agent.indexOf("/");
   const meta: Record<string, unknown> = { name: session, harness: slash < 0 ? agent : agent.slice(0, slash), credentials: { env: { [name]: value } } };
   if (slash >= 0) meta.model = agent.slice(slash + 1);
   const params = JSON.stringify({ mcpServers: [], _meta: { acpmux: meta } });
   const first = prompt === undefined ? "None" : JSON.stringify(prompt);
+  // The send's W3C trace id (cmux#55505 perf_trace.rs reads params._meta.traceId); only hex, so it is safe inline.
+  const trace = traceId && /^[0-9a-f]{32}$/.test(traceId) ? JSON.stringify(traceId) : "None";
   return `python3 -I - <<'CMUX_JOURNEY_START'
 import json, os, socket, sys, uuid
 params = json.loads(${JSON.stringify(params)})
 first = ${first}
+trace = ${trace}
 params['cwd'] = os.environ.get('HOME') or '/home/cmux'
 home = params['cwd']
 paths = [p for p in (os.environ.get('ACPMUX_SOCKET'), home + '/.cmux/acpmux/acpmux.sock', home + '/.acpmux/acpmux.sock') if p]
@@ -3348,7 +3398,10 @@ for path in paths:
     # The session exists now: a failed prompt never starts a second session on another socket.
     try:
         pid = str(uuid.uuid4())
-        s.sendall((json.dumps({'jsonrpc': '2.0', 'id': 3, 'method': 'session/prompt', 'params': {'sessionId': sid, 'prompt': [{'type': 'text', 'text': first}], '_meta': {'acpmux': {'steer': False, 'promptId': pid, 'resend': False}}}}) + '\\n').encode())
+        meta = {'acpmux': {'steer': False, 'promptId': pid, 'resend': False}}
+        if trace:
+            meta['traceId'] = trace
+        s.sendall((json.dumps({'jsonrpc': '2.0', 'id': 3, 'method': 'session/prompt', 'params': {'sessionId': sid, 'prompt': [{'type': 'text', 'text': first}], '_meta': meta}}) + '\\n').encode())
         while True:
             line = f.readline()
             if not line:
@@ -3526,7 +3579,9 @@ export interface StaleMachine { id: string; name: string; status: string; create
 
 /**
  * The machines earlier journey runs meant to delete and left behind (killed or timed out before their cleanup):
- * named `cloud journey auto jr-<tag>` or `cloud journey auto jr-<tag> gateway`, a name only a run that deletes its
+ * named `cloud journey auto jr-<tag>`, or that name with any suffix (` gateway`, ` cold`, ` move B`: every machine a
+ * run makes under its auto name; the old suffix list missed the ` move B` machines of 2026-11-23's runs, which helped fill the
+ * staging test team to its 300-machine cap, cloud.quota.vm_limit on 2026-11-25), a name only a run that deletes its
  * machine gives, whose tag (`Date.now().toString(36)`, the run's start) is more than `maxAgeMs` old, with no activity
  * in the last IDLE_JOURNEY_MS (`last_active_at`, when the row has it), and not deleted.
  * Ownership is the name, never age or state: a --keep run's `cloud journey jr-<tag>`, any other name, and a tag that
@@ -3538,7 +3593,7 @@ export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STAL
     if (!r || r.status === "deleted" || r.status === "deleting") continue;
     const name = typeof r.name === "string" ? r.name : "";
     // A start bench's machines (runStartBench) are the sweep's too: only a run that deletes them names them so.
-    const m = /^cloud journey auto jr-([0-9a-z]+)( gateway| cold)?$/.exec(name) ?? /^cloud start bench jr-([0-9a-z]+) (?:source|(?:spare|cold|snapshot) \d+)$/.exec(name);
+    const m = /^cloud journey auto jr-([0-9a-z]+)(?: \S.*)?$/.exec(name) ?? /^cloud start bench jr-([0-9a-z]+) (?:source|(?:spare|cold|snapshot) \d+)$/.exec(name);
     if (!m) continue;
     const started = parseInt(m[1], 36);
     // A real tag is a millisecond time after 2020 and not in the future.
@@ -4386,6 +4441,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // A --preclaim-login run whose claimed machine got no login on spare.ready takes this path (loginPathAfterClaim).
   const launchOnMiss = homeChat === "reserved" ? false : startsOnLaunchCredential({ modelStub, provider, login, gatewayAny, startVia, preclaimLogin: false });
   const tag =`jr-${Date.now().toString(36)}`;
+  // This run's send as one trace (cloud-start-trace.ts mintSendTrace): on the create, the carrier ticket and the prompt.
+  const sendTrace = mintSendTrace();
+  console.log(`send trace id ${sendTrace.id}`);
   // A run that deletes its machine at the end names it "cloud journey auto jr-...": only those names are the sweep's
   // (the run meant to delete them). A --keep run keeps the plain "cloud journey jr-..." name, as every run used before
   // the sweep existed, and the sweep never matches it, so a kept machine is never deleted.
@@ -4807,7 +4865,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       : await J.step("create machine", async () => {
           J.firstText.mark("create");
           createSentAt = Date.now();
-          const v = await api.op("cloud.machine.create", { name: machineName, size: CHAT_START_SIZE, ...(seed === "none" ? { seed: "none" } : {}) }, `${tag}-create`);
+          const v = await api.op("cloud.machine.create", { name: machineName, size: CHAT_START_SIZE, ...(seed === "none" ? { seed: "none" } : {}) }, `${tag}-create`, sendTrace.headers);
           machine = v.machine.id as string;
           createAnsweredAt = Date.now();
           afterCreate = J.steps.length;
@@ -5494,7 +5552,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       await J.step(`start agent (${agent})`, async () => {
         if (launchCredential) {
           // The first prompt follows session/new on the same acpmux link, as the app's first send does.
-          const r = await exec(guestTimed(`${GUEST}${launchCredentialStartProgram(session, agent, "CLAUDE_CODE_OAUTH_TOKEN", login, prompt)}`), 120_000);
+          const r = await exec(guestTimed(`${GUEST}${launchCredentialStartProgram(session, agent, "CLAUDE_CODE_OAUTH_TOKEN", login, prompt, sendTrace.id)}`), 120_000);
           const id = /@@session (\S+)/.exec(r.stdout)?.[1];
           if (!id) throw new Error(scrub(r.stdout.slice(-400) || r.stderr.slice(-400), [login]));
           J.firstText.mark("session_ready");
@@ -5505,10 +5563,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           J.firstText.mark("sent");
           return { value: null, detail: `session ${session}, on the person's model connection (its launch credential); its first prompt went with the start${guestDetail(guestMs(r.stdout))}` };
         }
-        const r = await exec(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`, 120_000);
+        const r = await exec(guestTimed(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`), 120_000);
         if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
         J.firstText.mark("session_ready");
-        return { value: null, detail: `session ${session}` };
+        J.firstText.guest("harness_spawn", guestMs(r.stdout));
+        return { value: null, detail: `session ${session}${guestDetail(guestMs(r.stdout))}` };
       });
       firstTextObserver = observeFirstText(exec, session, chatBudget, J.firstText, (s) => J.record(s));
       await J.step("send chat", async () => {
@@ -5516,6 +5575,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         J.firstText.mark("send");
         const onGuest = await send(prompt);
         J.firstText.mark("sent");
+        J.firstText.guest("request_sent", onGuest);
         return { value: null, detail: `${prompt.slice(0, 80)}${guestDetail(onGuest)}` };
       });
       await J.step("reply", async () => {
@@ -5757,7 +5817,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       // Without a cmux binary (the production journeys) the dial cannot run; its platform half still can: the
       // ticket, grant and daemon key it asks for, checked by the dial's own rules.
       await J.step("connect (carrier ticket)", async () => {
-        const r = await api.raw("POST", `/v1/cloud/machines/${created.id}/carrier`, { noise_key: randomBytes(32).toString("base64url") });
+        const r = await api.raw("POST", `/v1/cloud/machines/${created.id}/carrier`, { noise_key: randomBytes(32).toString("base64url") }, 60_000, sendTrace.headers);
         const problem = carrierTicketProblem(r.status, r.body);
         if (problem) throw new Error(`carrier ticket: ${problem}`);
         return { value: null, detail: `${r.body.value.relay}, ticket until ${r.body.value.expires_at}, grant and daemon key present` };
@@ -5968,7 +6028,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     // The start's waterfall (cmux-platform /v1/cloud/start-traces): the platform's own hops for this create, keyed by
     // its idempotency key, plus the agent's start and first token this run measured; then the last day's p50/p95.
     if (!reuse) await J.step("start trace", async () => {
-      const got = await readStartTrace((m, r, b, t) => api.raw(m, r, b, t), `${tag}-create`, clientSpans(J.firstText.fields().create_marks_ms, createSentAt), created.id);
+      // The create carried the send's trace id (x-cmux-start-trace); a platform that keys by the idempotency key still reads.
+      const spans = clientSpans(J.firstText.fields().create_marks_ms, createSentAt);
+      let got = await readStartTrace((m, r, b, t) => api.raw(m, r, b, t), sendTrace.id, spans, created.id);
+      if ("missing" in got) got = await readStartTrace((m, r, b, t) => api.raw(m, r, b, t), `${tag}-create`, spans, created.id);
       if ("missing" in got) return { value: null, detail: got.missing };
       if (outDir) {
         writeFileSync(path.join(outDir, "start-trace.json"), `${JSON.stringify(got, null, 2)}\n`);
@@ -5978,6 +6041,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const hops = Object.entries(hopDurations(got.trace)).map(([h, ms]) => `${h} ${ms}`).join(", ");
       return { value: null, detail: `${got.trace.trace} ${got.trace.path ?? "?"} ${got.trace.total_ms} ms: ${hops}${slow ? `; slowest 24 h p50 ${slow.hop} ${slow.p50_ms} ms (p95 ${slow.p95_ms ?? "-"})` : ""}` };
     }).catch(() => undefined);
+    // The send's Chrome trace (Perfetto): printed and saved, never a step, so tracing can never fail the journey.
+    if (!reuse) await saveSendTrace(api, sendTrace.id, firstTextEpoch(J.firstText, createSentAt), outDir).catch((e) => console.log(`send trace ${sendTrace.id}: ${String((e as Error)?.message ?? e).slice(0, 200)}`));
     // A step that failed without ending the run (the key probe, a chaos fault, the handoff record): its facts first.
     await readGuestDiagnostics("before-cleanup");
     await readFailureFacts();
@@ -5998,6 +6063,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
   const failed = J.steps.filter((s) => s.status === "fail");
   writeProbe();
+  // snappy-bench/v1 (cloud-start-trace.ts): this fresh chat's send to first token, its parts, and the same model and
+  // prompt straight through the Messages API with the same login (the floor). A real-model run that made its machine.
+  const snappy = !modelStub && !reuse ? snappyRun({ steps: J.steps, run: probeRun }) : null;
+  if (snappy) {
+    const model = agent.startsWith("claude/") ? agent.slice("claude/".length) : "claude-opus-5-5";
+    const floor = agent.startsWith("claude") ? await modelFloor(process.env, model, prompt) : null;
+    const report = snappyReport([snappy], floor, { sha: process.env.GITHUB_SHA ?? null, host: process.env.RUNNER_NAME ?? "local", platform: "linux", model, runUrl: probeRun ?? null });
+    if (outDir) writeFileSync(path.join(outDir, "snappy-bench.json"), `${JSON.stringify(report)}\n`);
+    process.on("exit", () => console.log(scrub(JSON.stringify(report), J.secrets)));
+  }
   console.log(`\n${failed.length ? "FAIL" : "PASS"} ${backend.name}: ${J.steps.filter((s) => s.status === "pass").length} passed, ${failed.length} failed, ${J.steps.filter((s) => s.status === "skip").length} skipped, ${(J.steps.reduce((n, s) => n + s.ms, 0) / 1000).toFixed(1)} s`);
   return failed.length ? 1 : 0;
 }

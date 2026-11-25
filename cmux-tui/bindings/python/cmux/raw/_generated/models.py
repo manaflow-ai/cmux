@@ -3431,6 +3431,7 @@ class ConversationInboxOpRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-inbox-op/request'
     conversation: str
     op: Union[JsonValue, None]
+    op_id: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)

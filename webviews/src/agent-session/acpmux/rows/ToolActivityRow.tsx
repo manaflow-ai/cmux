@@ -5,11 +5,11 @@ import { type RowProps } from "./rowProps";
 
 /// Tool calls and thoughts as quiet rows (inside an open "Worked for", or live).
 export const ToolActivityRow = memo(
-  function ToolActivityRow({ row, sessionId }: RowProps) {
+  function ToolActivityRow({ row, sessionId, onLoadFold }: RowProps) {
     // A finished step of only quiet thoughts draws nothing: no `.cv-tools` box either, so the row's
     // article is empty and takes no room (model.ts onlyQuietThoughts, conversation.css `:empty`).
     if (onlyQuietThoughts(row)) return null;
-    return <ToolRows row={row} sessionId={sessionId} />;
+    return <ToolRows row={row} sessionId={sessionId} onLoadFold={onLoadFold} />;
   },
   (previous, next) =>
     previous.row.id === next.row.id &&

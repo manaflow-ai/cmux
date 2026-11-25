@@ -22,6 +22,6 @@
   text-decoration: underline;
 }
 .acpmux-composer-copy-status > button:focus-visible {
-  outline: 1.5px solid var(--agent-text);
+  outline: var(--cmux-focus-ring-width) solid var(--agent-text);
   outline-offset: 2px;
 }
