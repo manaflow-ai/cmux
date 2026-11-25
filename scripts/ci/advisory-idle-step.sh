@@ -40,7 +40,9 @@ remote=${CMUX_ADVISORY_REMOTE:-https://github.com/manaflow-ai/cmux.git}
 
 # The merge commit's first parent is the base GitHub merged with, so the diff is what the pull request
 # changes there. Trees only, no blobs; a merge commit of another head (the ref lags a push) is not judged.
-if ! git fetch --quiet --no-tags --no-write-fetch-head --filter=blob:none --depth=2 \
+depth=()
+[[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=2)
+if ! git fetch --quiet --no-tags --no-write-fetch-head --filter=blob:none ${depth[@]+"${depth[@]}"} \
     "$remote" "+refs/pull/$pr/merge:refs/advisory/merge" \
   || ! git rev-parse --verify --quiet refs/advisory/merge^1 > /dev/null \
   || [ "$(git rev-parse refs/advisory/merge^2)" != "$head" ]; then
