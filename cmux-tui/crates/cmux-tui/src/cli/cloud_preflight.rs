@@ -111,10 +111,13 @@ pub(super) fn parse(
     let token = token.unwrap_or_else(|| {
         if env("CMUX_CLOUD_ACCESS_TOKEN").is_some() { TokenSource::Env } else { TokenSource::App }
     });
-    let api = api
-        .or_else(|| env("CMUX_CLOUD_API_URL"))
-        // The person named this API (--api or the env); a redirect off it is still checked.
-        .inspect(|a| cmux_egress::allow_named(a.trim()));
+    let api = match api.or_else(|| env("CMUX_CLOUD_API_URL")) {
+        // The person named this API (--api or the env), and it passed the origin check; a
+        // redirect off it is still checked.
+        Some(api) => Some(super::cloud_client_session::secure_origin(api.trim())?)
+            .inspect(|a| cmux_egress::allow_named(a)),
+        None => None,
+    };
     if api.is_none() && token != TokenSource::App {
         return Err("--api (or CMUX_CLOUD_API_URL) names the cmux API".into());
     }

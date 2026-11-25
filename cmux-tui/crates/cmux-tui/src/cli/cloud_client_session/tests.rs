@@ -756,3 +756,19 @@ fn the_named_cloud_api_passes_the_gate() {
     assert!(cmux_egress::check(host, "test").is_ok());
     assert!(cmux_egress::check("unrelated-cloud-api-session-test.org", "test").is_err());
 }
+
+/// A `CMUX_CLOUD_API_URL` the origin check refuses (plain http to a remote host) names
+/// nothing: its host stays refused by the egress gate.
+#[test]
+fn a_refused_cloud_api_names_nothing() {
+    cmux_egress::set_mode(cmux_egress::Mode::Enforce);
+    let host = "refused-cloud-api-session-test.org";
+    let command = parse(&strings(&["create", "--target", VM])).unwrap();
+    let env = |key: &str| match key {
+        API_ENV => Some(format!("http://{host}")),
+        TOKEN_ENV => Some("cred".to_owned()),
+        _ => None,
+    };
+    assert!(resolve(&command, env).is_err());
+    assert!(cmux_egress::check(host, "test").is_err());
+}

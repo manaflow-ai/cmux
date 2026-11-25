@@ -361,4 +361,9 @@ fn a_pool_503_turn_reads_capacity_while_acpmux_holds_it() {
     assert_eq!(crate::hub::views::lane(&summary)["state"], "working");
     assert_eq!(crate::hub::views::lane(&summary)["since"], 5);
     assert!(super::row_last_turn(None, Some(&retry), true).is_none());
+    // A rate-limit continuation is a capacity hold too (RFD model-overload-smoothing §3.8).
+    let limited = RetrySummary { reason: RetryReason::RateLimit, ..retry };
+    let row = super::row_last_turn(Some(&last), Some(&limited), false).unwrap();
+    assert_eq!(row["status"], "capacity");
+    assert_eq!(row["heldUntil"], 250_000);
 }

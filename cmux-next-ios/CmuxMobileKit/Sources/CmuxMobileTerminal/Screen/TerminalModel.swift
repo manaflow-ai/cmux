@@ -624,6 +624,17 @@ public final class TerminalModel {
     /// moved against the keyboard (down while it shows, up while it hides):
     /// the terminal bouncing.
     public internal(set) var keyboardBounces = 0
+    /// Pinches and double taps that zoomed the alternate screen's grid.
+    public internal(set) var zoomGestures = 0
+    /// The alternate screen's zoom over the Mac's grid (1: readable).
+    public internal(set) var zoomScale: Double = 1
+    /// The settle probe (``TerminalViewController/startSettleProbe``):
+    /// milliseconds from its start to the first display frame that shows the
+    /// full-screen app right; -1 while it runs, -2 when none came in 5 s.
+    public internal(set) var settleMs = -1
+    /// Display frames of a full-screen app drawn at a grid that is not its
+    /// final one (a size change still on its way: "uncompact then squish").
+    public internal(set) var unsettledTUIFrames = 0
     #if DEBUG
     /// DEBUG: every page's `ptyResizesSent` added up (the keyboard pin trace's `rz=`).
     public internal(set) static var debugResizesSentTotal = 0
@@ -632,20 +643,32 @@ public final class TerminalModel {
     public static let debugKeyAccepted = Notification.Name("cmux.debug.terminal.keyAccepted")
     /// DEBUG: the terminal demo driver's last step (`TerminalDemoDriver`).
     var demoNote = "start"
+    /// DEBUG: the grid columns the full-screen app ends at (the mock Mac's
+    /// PTY), nil while a size change is on its way (the settle probe).
+    @ObservationIgnored var demoFinalColumns: (@MainActor () -> Int?)?
     #endif
 
-    /// Refreshes `snapshot` from the live page (the grid is about to show it).
+    /// Refreshes `snapshot` from the live page, rendered here on the main
+    /// thread: for callers that need the picture now (the background save).
     public func captureSnapshot() {
         if let image = controller?.snapshot() {
             cardRenders += 1
             cardSnapshotAt = CACurrentMediaTime()
             snapshot = image
-            #if DEBUG
-            if CommandLine.arguments.contains("-CmuxMobileDumpCard"), let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
-                try? image.pngData()?.write(to: dir.appendingPathComponent("card-snapshot.png"))
-            }
-            #endif
+            Self.dumpCard(image)
         }
+    }
+
+    /// The grid is about to open on this page: the frame is copied here and
+    /// composed off the main thread, and `snapshot` follows once it is
+    /// (`TerminalTabHost.prepareCard`). Rendered in the tap (`captureSnapshot`),
+    /// it was the zoom's first frame: Leo, 2026-11-22, "the button clicking is
+    /// not smooth. it's not 120fps." The zoom draws the live page, and the
+    /// still is first shown when the grid settles (`showsStaticCard`), a
+    /// spring later than the render takes.
+    public func captureSnapshotOffMain() {
+        guard let capture = controller?.capture(hidingCursor: false) else { return }
+        renderCard(capture)
     }
 
     /// The grid is open and the page drew output (D6): its card is taken
@@ -654,17 +677,34 @@ public final class TerminalModel {
     /// with no presented frame keeps the card as it is.
     public func refreshCardSnapshot() {
         guard let capture = controller?.capture(hidingCursor: false), capture.surface != nil || capture.fallback != nil else { return }
+        renderCard(capture)
+    }
+
+    /// Composes `capture` off the main thread into `snapshot`; a newer card
+    /// (another refresh, the grid opening, a main-thread capture) wins.
+    private func renderCard(_ capture: TerminalPageCapture) {
         cardRenders += 1
         let serial = cardRenders
         cardSnapshotAt = CACurrentMediaTime()
-        Task { @MainActor [weak self] in
+        cardRender = Task { @MainActor [weak self] in
             let image = await Task.detached(priority: .userInitiated) { capture.render() }.value
-            // A newer card (another refresh, the grid opening) wins.
             guard let self, let image, serial == self.cardRenders else { return }
             self.snapshot = image
+            Self.dumpCard(image)
         }
     }
+
+    /// The last off-main card render (tests await it).
+    @ObservationIgnored private(set) var cardRender: Task<Void, Never>?
     @ObservationIgnored private var cardRenders = 0
+
+    private static func dumpCard(_ image: UIImage) {
+        #if DEBUG
+        if CommandLine.arguments.contains("-CmuxMobileDumpCard"), let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            try? image.pngData()?.write(to: dir.appendingPathComponent("card-snapshot.png"))
+        }
+        #endif
+    }
 
     public func focusComposer() {
         directTyping = false
