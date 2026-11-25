@@ -245,7 +245,7 @@ fn contributions(package: &Package) -> Vec<Contribution> {
     if let Some(widget) = m.get("implements").and_then(|i| i.get("cmux.widget/1")) {
         rows.extend(widget_contributions(widget, &name));
     }
-    rows.extend(package.palette_commands().iter().map(|command| Contribution {
+    rows.extend(package.palette_commands(None).iter().map(|command| Contribution {
         kind: "command",
         title: command.get("title").map(text).unwrap_or_default(),
     }));
