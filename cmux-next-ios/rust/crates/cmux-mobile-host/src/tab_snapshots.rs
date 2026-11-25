@@ -12,7 +12,9 @@
 //! The feeder fills the producer from the daemon while at least one phone
 //! has `tabs` open: the tab list (refetched on the daemon's tree events) and
 //! each terminal's screen text (read again on `surface-output`, at most once
-//! a second per terminal). It stops when the last phone leaves. Its daemon
+//! a second per terminal), and each agent tab's last turns, read from
+//! acpmux (`tab_agent_screen`) when it is listed, when an event names it, and
+//! every [`AGENT_INTERVAL`] if its log moved. It stops when the last phone leaves. Its daemon
 //! connections say `remote: true`, so the daemon hides incognito workspaces
 //! from it as from a phone. Favicons and thumbnails come from the Mac app:
 //! it writes each to a file in its own cache folder and names it on a
@@ -55,8 +57,10 @@ use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use tokio::sync::{mpsc, watch};
 
+use crate::config::AcpmuxTarget;
 use crate::control::SessionExposure;
 use crate::services::Refusal;
+use crate::tab_agent_screen::{AGENT_SCREEN_COLS, AgentReads, agent_name, agent_session};
 
 /// How many revs a reconnecting phone can resume from.
 const HISTORY_CAP: usize = 256;
@@ -80,6 +84,8 @@ const MAX_PHONE_FRAME: usize = 1 << 20;
 const SCREEN_INTERVAL: Duration = Duration::from_secs(1);
 /// How often the feeder acts on what the daemon said changed.
 const FEED_TICK: Duration = Duration::from_millis(100);
+/// An agent tab's log is checked for new records at least this often.
+const AGENT_INTERVAL: Duration = Duration::from_secs(5);
 const QUERY_WAIT: Duration = Duration::from_secs(5);
 const RECONNECT_WAIT: Duration = Duration::from_secs(1);
 
@@ -193,6 +199,8 @@ pub struct Tabs {
     life: Mutex<Life>,
     /// The phone count, for the feeder to see the last one leave.
     phones: watch::Sender<usize>,
+    /// Where agent tabs' last turns are read (none: agent rows carry no text).
+    acpmux: Mutex<Option<AcpmuxTarget>>,
 }
 
 /// Held by a serving channel; dropping it counts the phone out.
@@ -234,7 +242,22 @@ impl Tabs {
             changed: watch::channel(0).0,
             life: Mutex::new(Life { phones: 0, feeder: false, feeds: 0 }),
             phones: watch::channel(0).0,
+            acpmux: Mutex::new(None),
         }
+    }
+
+    /// Where the feeder reads agent tabs' last turns from now on.
+    pub fn set_acpmux(&self, target: Option<AcpmuxTarget>) {
+        *self.acpmux.lock().unwrap_or_else(PoisonError::into_inner) = target;
+    }
+
+    fn acpmux(&self) -> Option<AcpmuxTarget> {
+        self.acpmux.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    /// Whether listed tab `tab_id` holds screen text.
+    pub fn has_screen(&self, tab_id: &str) -> bool {
+        self.lock().tabs.get(tab_id).is_some_and(|k| k.screen.is_some())
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
@@ -427,7 +450,10 @@ impl Tabs {
                 Some(k) => (k.screen, k.captured_at_ms),
                 None => (None, now_ms()),
             };
-            let screen = screen.map(|s| ScreenInput { cols: tab.cols, rows: tab.rows, ..s });
+            let screen = screen.map(|s| {
+                let (cols, rows) = screen_size(&tab, &s.text);
+                ScreenInput { cols, rows, ..s }
+            });
             state.bound.insert(id.clone(), tab.key.clone());
             state.tabs.insert(id.clone(), Known { tab, screen, captured_at_ms });
             changed |= observe(&mut state, &id);
@@ -445,17 +471,21 @@ impl Tabs {
         changed
     }
 
-    /// A terminal's screen text. Ignored for a tab not listed.
+    /// A terminal's screen text, or an agent tab's last turns
+    /// (`tab_agent_screen::agent_screen`). Ignored for a tab not listed.
     pub fn set_screen(&self, tab_id: &str, text: String) -> bool {
         let mut state = self.lock();
         let Some(known) = state.tabs.get_mut(tab_id) else { return false };
         let text = truncate(text, MAX_SCREEN_BYTES);
-        if known.screen.as_ref().is_some_and(|screen| {
-            screen.text == text && screen.cols == known.tab.cols && screen.rows == known.tab.rows
-        }) {
+        let (cols, rows) = screen_size(&known.tab, &text);
+        if known
+            .screen
+            .as_ref()
+            .is_some_and(|screen| screen.text == text && screen.cols == cols && screen.rows == rows)
+        {
             return false;
         }
-        known.screen = Some(ScreenInput { text, cols: known.tab.cols, rows: known.tab.rows });
+        known.screen = Some(ScreenInput { text, cols, rows });
         known.captured_at_ms = now_ms();
         let changed = observe(&mut state, tab_id);
         drop(state);
@@ -580,6 +610,16 @@ async fn read_picture(path: &Path) -> Result<(Mime, Vec<u8>), &'static str> {
         return Err("not a JPEG or PNG");
     };
     Ok((mime, bytes))
+}
+
+/// The size a tab's screen text is drawn at: a terminal's grid, or for an
+/// agent tab (which has none) the width its turns are laid out to and their lines.
+fn screen_size(tab: &ListedTab, text: &str) -> (u32, u32) {
+    if tab.kind == Kind::Agent && tab.cols == 0 {
+        let cols = u32::try_from(AGENT_SCREEN_COLS).unwrap_or(u32::MAX);
+        return (cols, u32::try_from(text.lines().count()).unwrap_or(u32::MAX));
+    }
+    (tab.cols, tab.rows)
 }
 
 fn truncate(mut text: String, cap: usize) -> String {
@@ -880,7 +920,7 @@ fn daemon_run_key(reply: &Value) -> Option<String> {
 }
 
 /// One pass: connects, follows the daemon's events, and returns on error.
-async fn feed_once(tabs: &Tabs, socket: &Path) -> Result<(), String> {
+async fn feed_once(tabs: &Arc<Tabs>, socket: &Path) -> Result<(), String> {
     let events = UnixStream::connect(socket).await.map_err(|e| e.to_string())?;
     let (events_read, mut events_write) = events.into_split();
     let subscribe = json!({"cmd": "subscribe", "id": "tabs-subscribe", "tree_events": "deltas"});
@@ -906,6 +946,11 @@ async fn feed_once(tabs: &Tabs, socket: &Path) -> Result<(), String> {
     let mut list_dirty = true;
     let mut dirty: HashSet<String> = HashSet::new();
     let mut last_read: HashMap<String, Instant> = HashMap::new();
+    // Agent tabs: by id, the chat each shows and its agent's name.
+    let mut agents: HashMap<String, (String, String)> = HashMap::new();
+    let mut agent_dirty: HashSet<String> = HashSet::new();
+    let mut agent_read: HashMap<String, Instant> = HashMap::new();
+    let agent_reads = Arc::new(AgentReads::default());
     let mut tick = tokio::time::interval(FEED_TICK);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
@@ -913,6 +958,11 @@ async fn feed_once(tabs: &Tabs, socket: &Path) -> Result<(), String> {
             line = events.next_line() => {
                 let Some(line) = line.map_err(|e| e.to_string())? else { return Err("closed".to_owned()) };
                 let Ok(value) = serde_json::from_str::<Value>(&line) else { continue };
+                if let Some(surface) = value.get("surface").and_then(Value::as_u64)
+                    && agents.contains_key(&surface.to_string())
+                {
+                    agent_dirty.insert(surface.to_string());
+                }
                 match value.get("event").and_then(Value::as_str) {
                     Some("surface-output") => {
                         if let Some(surface) = value.get("surface").and_then(Value::as_u64) {
@@ -937,9 +987,30 @@ async fn feed_once(tabs: &Tabs, socket: &Path) -> Result<(), String> {
                         listed.iter().filter(|t| t.kind == Kind::Terminal).map(|t| t.id.as_str()).collect();
                     dirty.retain(|id| terminals.contains(id.as_str()));
                     last_read.retain(|id, _| terminals.contains(id.as_str()));
+                    agents = listed
+                        .iter()
+                        .filter(|t| t.kind == Kind::Agent)
+                        .filter_map(|t| Some((t.id.clone(), (agent_session(&t.raw)?, agent_name(&t.raw)))))
+                        .collect();
+                    agent_dirty.extend(agents.keys().filter(|id| !agent_read.contains_key(*id)).cloned());
+                    agent_dirty.retain(|id| agents.contains_key(id));
+                    agent_read.retain(|id, _| agents.contains_key(id));
                     tabs.set_tabs(listed);
                 }
                 let now = Instant::now();
+                if let Some(target) = tabs.acpmux() {
+                    for (id, (session, agent)) in &agents {
+                        let since = agent_read.get(id).map(|at| now.saturating_duration_since(*at));
+                        let due = since.is_none_or(|since| {
+                            since >= AGENT_INTERVAL || (since >= SCREEN_INTERVAL && agent_dirty.contains(id))
+                        });
+                        if due {
+                            agent_dirty.remove(id);
+                            agent_read.insert(id.clone(), now);
+                            agent_reads.spawn(tabs, target.clone(), id.clone(), session.clone(), agent.clone());
+                        }
+                    }
+                }
                 let due: Vec<String> = dirty
                     .iter()
                     .filter(|id| last_read.get(*id).is_none_or(|at| now.saturating_duration_since(*at) >= SCREEN_INTERVAL))

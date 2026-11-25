@@ -62,6 +62,7 @@ pub mod sealed_notify;
 pub mod services;
 pub mod size_release;
 pub mod surface;
+pub mod tab_agent_screen;
 pub mod tab_snapshots;
 pub mod traffic;
 pub mod viewport_link;
