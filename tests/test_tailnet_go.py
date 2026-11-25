@@ -111,5 +111,28 @@ CHECK
         self.assertTrue((self.root / ".build/go-1.27.1/go/bin/go").is_file())
 
 
+    def test_the_version_comes_from_cmux_tailnets_go_version(self):
+        """The Go the helper downloads is the one cmux-tui/crates/cmux-tailnet/go-version names (build.rs and
+        the workflows' setup-go read it too), never a second pin: a version with no checksums here is refused."""
+        tree = self.root / "tree"
+        (tree / "scripts/ci").mkdir(parents=True)
+        (tree / "scripts/ci/tailnet-go.sh").write_text(HELPER.read_text())
+        (tree / "cmux-tui/crates/cmux-tailnet").mkdir(parents=True)
+        (tree / "cmux-tui/crates/cmux-tailnet/go-version").write_text("1.99.0\n")
+        env = {**os.environ, "PATH": str(self.bin), "CHECKSUM": str(self.root / "checksum")}
+        result = subprocess.run(["/bin/bash", "-c", 'source "$1"; ensure_tailnet_go "$2"', "tailnet-go",
+                                 str(tree / "scripts/ci/tailnet-go.sh"), str(self.root)],
+                                env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 3, result.stderr)
+        self.assertIn("Go 1.99.0", result.stderr)
+        self.assertIn("go-version", result.stderr)
+        self.assertFalse((self.root / "checksum.url").exists())
+
+    def test_the_download_is_the_go_version_release(self):
+        self.run_helper()
+        want = (ROOT / "cmux-tui/crates/cmux-tailnet/go-version").read_text().strip()
+        self.assertEqual((self.root / "checksum.url").read_text(), f"https://go.dev/dl/go{want}.darwin-arm64.tar.gz")
+        self.assertTrue((self.root / f".build/go-{want}/go/bin/go").is_file())
+
 if __name__ == "__main__":
     unittest.main()

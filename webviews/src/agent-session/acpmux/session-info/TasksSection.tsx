@@ -34,6 +34,7 @@ import { COMMAND_STATE } from "./tasksSectionModel";
 import { WindowedRows } from "./WindowedRows";
 import { Clock } from "../../../ui/Typography";
 import { sameValue } from "./sameValue";
+import { WithFacts } from "../chips/FactsHoverCard";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -190,7 +191,9 @@ const CommandRow = memo(function CommandRow({
   const openTasks = useContext(OpenBackgroundTasks);
   const toolCallId = command.toolCallId;
   // What a click opens: the terminal on this Mac (else the call, when the host refuses), the call
-  // elsewhere; with neither, the row is not a button and its tooltip says why.
+  // elsewhere; with neither, the row is not a button and says why in its tooltip and to VoiceOver,
+  // so the command keeps the row (as text the reason squeezed "bun test …" to "bun t…",
+  // cmuxterm-hq#19495).
   const why: StringKey | undefined = !toolCallId
     ? "sessionInfo.tasks.noTerminal.noCall"
     : local || shows
@@ -200,8 +203,10 @@ const CommandRow = memo(function CommandRow({
     <li
       className="acpmux-session-info-task acpmux-session-info-task--command"
       data-state={command.state}
-      data-enter={enters ? "top" : undefined}
+      data-closed={why !== undefined ? "" : undefined}
+      // On the row, not the button: a disabled button takes no hover, so its own tooltip never shows.
       title={why && t(why)}
+      data-enter={enters ? "top" : undefined}
       onAnimationEnd={
         enters ? (event) => event.target === event.currentTarget && onPlayed(arrivalKey(command)) : undefined
       }
@@ -210,6 +215,7 @@ const CommandRow = memo(function CommandRow({
         type="button"
         className="acpmux-session-info-task__open"
         disabled={why !== undefined}
+        aria-description={why && t(why)}
         onClick={() => {
           if (local && openTasks && toolCallId) openTasks(toolCallId);
           else void openCommand(toolCallId, { local, showCall: onShowCall });
@@ -271,20 +277,24 @@ const ScheduledRow = memo(function ScheduledRow({
     </>
   );
   return (
-    <li
-      className={`acpmux-session-info-task${shows ? " acpmux-session-info-task--opens" : ""}`}
-      data-kind={item.kind}
-      data-state={state}
-      title={item.cron && !ended ? `${item.text} (${item.cron})` : item.text}
-    >
-      {shows ? (
-        <button type="button" className="acpmux-session-info-task__open" onClick={() => onShowCall?.(call)}>
-          {body}
-        </button>
-      ) : (
-        body
+    <WithFacts facts={[{ value: item.cron && !ended ? `${item.text} (${item.cron})` : item.text }]}>
+      {(facts) => (
+        <li
+          {...facts}
+          className={`acpmux-session-info-task${shows ? " acpmux-session-info-task--opens" : ""}`}
+          data-kind={item.kind}
+          data-state={state}
+        >
+          {shows ? (
+            <button type="button" className="acpmux-session-info-task__open" onClick={() => onShowCall?.(call)}>
+              {body}
+            </button>
+          ) : (
+            body
+          )}
+        </li>
       )}
-    </li>
+    </WithFacts>
   );
 }, sameValue);
 

@@ -37,8 +37,6 @@ JOB = "nightly-next-one"
 EXEMPT = {
     # Fetches from the host's own build-root clone on local disk, not from a remote.
     ("scripts/ci/nightly-steps/app-host-build-root.sh", "fetch"),
-    # Clones the pinned cmux-cua git bundle, a local file; its network fetch is checked as usual.
-    ("scripts/build-cmux-cua.sh", "clone"),
     # curl_args, built just above the call, carry --max-time and --speed-limit/--speed-time.
     ("scripts/install-cmux-tui-client.sh", "curl"),
 }
@@ -173,8 +171,7 @@ exit 0
 class NightlyNextNetworkBoundsTest(unittest.TestCase):
     def test_the_scan_reaches_the_steps_that_fetch(self):
         sources = job_sources()
-        for path in ("scripts/ci/nightly-steps/app-assemble-computer-use-helper.sh", "scripts/build-cmux-cua.sh",
-                     "scripts/cmux-next/fetch-release-notes-span.sh", "scripts/cmux-next/ensure-cef.sh"):
+        for path in ("scripts/cmux-next/fetch-release-notes-span.sh", "scripts/cmux-next/ensure-cef.sh"):
             self.assertIn(path, sources)
 
     def test_every_fetch_on_the_job_path_is_bounded(self):

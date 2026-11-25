@@ -7,15 +7,34 @@ signed in and its service answered an authenticated call (DogfoodReadiness.swift
 receipt carries the launch's nonce, so a receipt from another launch never answers this one,
 and `session_source` says how the session started: `auto_login` (credentials injected at
 launch) or `restored` (no credentials: the app's own Keychain session). With a Mac named,
-the receipt must also list that Mac as paired and linked, which a phone that is signed out,
-never paired, or cannot reach the Mac never writes.
+the receipt must also name that Mac and say it is linked, which a phone that is signed out,
+never let in, or cannot reach the Mac never writes. The receipt's `paired_macs` is the phone's focused
+Mac only: the one it picked from the account's Mac list (`GET /v1/me/macs`, in its build space), with
+`linked` true once that Mac let it in (its pairing is done) and the link is up. A Mac it merely picked is
+not paired with it, so the check never calls it paired. A phone on another Mac (another tag's dev build
+on the account) says which, by name and id.
 
   handoff_receipt.py check RECEIPT --nonce N --client-id ID --bundle-id B --account EMAIL
                     --session auto_login|restored|signed_out [--mac-id ID] [--git-sha SHA] [--dev-tag TAG]
       signed_out (--no-auth): the receipt says signed out and names no account or Mac; for the
       other sessions a signed-out receipt means "not yet" (exit 1)
+      --build-space SPACE: the receipt's build_space (the cloud data space the app's requests carry) must
+      be SPACE, the tagged Mac's (review_mac.py space); another space is refused at once (exit 3), since
+      a phone in another space never lists its tag's Mac
       --git-sha / --dev-tag: the receipt must come from the build of this run's head and tag
       (Info.plist CmuxMobileSourceCommit, CmuxMobileTag), not an older install of the bundle.
+      --want asking (review.sh --approve-first): with --mac-id, valid once the phone is on the tagged Mac,
+      linked or not ("..., on the tagged Mac NAME, not linked yet"); the Mac's own answer
+      (review_mac.py allow-state) says whether its Allow prompt waits. Default --want linked.
+      With --mac-id the verdict names how the link travels, from the linked Mac's transport, path and
+      tailnet fields: "... paired and linked with NAME over WireGuard, direct LAN" (or "direct over the
+      tailnet", "direct over the internet", "via TURN", "via TURN over TLS"). A linked Mac with path
+      `none` (no route at the moment) is not linked yet (exit 1).
+      --forbid-tailnet: a link whose peer is a tailnet or CGNAT address (`tailnet: true`) fails (exit 3):
+      a user without Tailscale never takes that path
+      --require-turn (review.sh's relay-only relaunch): the link must go through TURN (`turn`, `turn-tls`);
+      a direct one fails (exit 3)
+      Either flag refuses a receipt that names no path (an app from before the path fields).
       exit 0: valid (prints one line); 1: not this launch's yet (keep waiting);
       3: this launch's receipt, and wrong (stop waiting; prints why)
   handoff_receipt.py phone-ids RECEIPT
@@ -56,6 +75,43 @@ def reject(reason):
     raise SystemExit(3)
 
 
+def route_words(mac):
+    """How a linked Mac's link travels (DogfoodReadiness.Route): ("WireGuard", "direct LAN"), or None when the
+    receipt names no path (an app from before the path fields)."""
+    path = mac.get("path")
+    if not isinstance(path, str) or not path:
+        return None
+    transport = mac.get("transport")
+    transport = {"wireguard": "WireGuard", "webrtc": "WebRTC"}.get(transport, transport or "an unknown transport")
+    tailnet = mac.get("tailnet") is True
+    where = {"direct-lan": "direct LAN",
+             "direct-wan": "direct over the tailnet" if tailnet else "direct over the internet",
+             "direct": "direct over the tailnet" if tailnet else "direct (peer address unknown)",
+             "turn": "via TURN", "turn-tls": "via TURN over TLS",
+             "none": "no route at the moment"}.get(path, path)
+    return transport, where
+
+
+def link_route(a, mac, name):
+    """The verdict's words for how the link to `name` travels (" over WireGuard, direct LAN"); rejects a path
+    --forbid-tailnet or --require-turn refuses, and waits on a link with no route yet."""
+    words = route_words(mac)
+    if words is None:
+        if a.forbid_tailnet or a.require_turn:
+            reject(f"the receipt names no link path for {name} (an app from before the receipt's path fields)")
+        return ""
+    transport, where = words
+    if mac["path"] == "none":
+        retry(f"linked with {name}, no route at the moment")
+    if a.require_turn and mac["path"] not in ("turn", "turn-tls"):
+        reject(f"the relay-only launch linked {where} with {name}, not via TURN "
+               "(CMUX_MOBILE_DEV_RELAY_ONLY=1 did not reach the app, or the build ignores it)")
+    if a.forbid_tailnet and mac.get("tailnet") is True:
+        reject(f"linked with {name} over the tailnet (--forbid-tailnet): a user without Tailscale never takes "
+               "this path; turn Tailscale off on the phone or the Mac, or run without --forbid-tailnet")
+    return f" over {transport}, {where}"
+
+
 def check(a):
     try:
         with open(a.receipt, encoding="utf-8") as f:
@@ -78,6 +134,13 @@ def check(a):
         reject("the receipt names another client id (another phone or simulator)")
     if receipt["bundle_id"] != a.bundle_id:
         reject(f"the receipt is from {receipt['bundle_id']}, not {a.bundle_id}")
+    if a.build_space is not None:
+        have = receipt.get("build_space")
+        if not isinstance(have, str):
+            reject("the receipt names no build_space (an app from before build spaces)")
+        if have != a.build_space:
+            reject(f"the app's build space is {have or 'the default space'!r}, not the tagged Mac's "
+                   f"{a.build_space or 'the default space'!r}: it lists none of that Mac's devices")
     for key, want in (("git_sha", a.git_sha), ("dev_tag", a.dev_tag)):
         if want and receipt.get(key) != want:
             reject(f"the installed app is another build: its {key} is {receipt.get(key)!r}, this run's is {want!r}")
@@ -90,10 +153,16 @@ def check(a):
             # The build's own backend: an override review.sh or the app kept from an earlier run (a tag's
             # stack or a preview) must be gone.
             host = (urlparse(have).hostname or "").lower()
-            if host.endswith(".ts.net") or host.startswith("cmux-api-preview-"):
+            if host.endswith(".ts.net") or host.endswith(".wdev.cmux.dev") or host.startswith("cmux-api-preview-"):
                 reject(f"the app still uses the kept Cloud backend {have}")
         elif have.rstrip("/").lower() != a.cloud_backend.rstrip("/").lower():
             reject(f"the app uses the Cloud backend {have}, not {a.cloud_backend}")
+    # A tag's stack (review.sh --backend tag-stack) brings its own mobile Worker, where the tag's Mac registers:
+    # the phone must use it too (CloudBackendOverride.mobileAPI), or it never finds that Mac.
+    if a.mobile_api:
+        have = receipt.get("api_base_url")
+        if not isinstance(have, str) or have.rstrip("/").lower() != a.mobile_api.rstrip("/").lower():
+            reject(f"the app uses the mobile service {have or 'none'}, not the tag stack's {a.mobile_api}")
     signed_out = receipt.get("signed_in") is False or receipt["session_source"] == "signed_out"
     if a.session == "signed_out":
         # --no-auth: the app must sit at the welcome screen, signed in to no account.
@@ -121,11 +190,28 @@ def check(a):
             reject("the receipt lists no paired Macs")
         mine = [m for m in macs if isinstance(m, dict) and m.get("id") == a.mac_id]
         if not mine:
-            # Pairing finishes after sign-in: until the deadline this launch may still pair.
-            retry(f"not paired with the tagged Mac yet ({len(macs)} other paired Mac(s))")
+            # The phone is on another Mac (another tag's dev build on the same account, say): a launch
+            # with a code may first link the Mac it remembered, so this keeps waiting, and at the
+            # deadline review.sh fails with this line.
+            named = [m for m in macs if isinstance(m, dict) and m.get("id")]
+            # The Mac it is linked with, else the first it lists.
+            other = next((m for m in named if m.get("linked") is True), named[0] if named else None)
+            if other:
+                state = "linked with" if other.get("linked") is True else "on"
+                retry(f"{state} another Mac, not this tag's: {other.get('name') or '?'} ({other['id']}), "
+                      f"not the tagged Mac {a.mac_id} (the phone chose another build on the account)")
+            # The phone picks a Mac after sign-in: until the deadline this launch may still pick the tagged one.
+            retry("not on the tagged Mac yet (the phone has picked no Mac so far)")
+        name = mine[0].get("name") or a.mac_id
         if mine[0].get("linked") is not True:
-            retry("paired with the tagged Mac, not linked yet")
-        line += f", paired and linked with {mine[0].get('name') or a.mac_id}"
+            # Picked from the account's Mac list, not let in: no Allow (or code) yet, or no link up.
+            if a.want == "asking":
+                print(f"{line}, on the tagged Mac {name}, not linked yet")
+                return 0
+            retry(f"on the tagged Mac {name}, not linked yet (the phone picked it from the account's Macs; "
+                  "that Mac has not let it in, or their link is not up)")
+        line += f", paired and linked with {name}"
+        line += link_route(a, mine[0], name)
     print(line)
     return 0
 
@@ -232,6 +318,11 @@ def main(argv=None):
     c.add_argument("--git-sha", default="")
     c.add_argument("--dev-tag", default="")
     c.add_argument("--cloud-backend", default="")
+    c.add_argument("--mobile-api", default="")
+    c.add_argument("--build-space", default=None)
+    c.add_argument("--want", default="linked", choices=["linked", "asking"])
+    c.add_argument("--forbid-tailnet", action="store_true")
+    c.add_argument("--require-turn", action="store_true")
     i = sub.add_parser("phone-ids")
     i.add_argument("receipt")
     e = sub.add_parser("env-value")

@@ -13,8 +13,7 @@ for binary in \
   ${app_code[@]+"${app_code[@]}"} \
   "$APP/Contents/Resources/bin/cmux" \
   "$APP/Contents/Resources/bin/ghostty" \
-  "$APP/Contents/Resources/bin/cmux-diff-sidecar" \
-  "$APP/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua"
+  "$APP/Contents/Resources/bin/cmux-diff-sidecar"
 do
   archs="$(lipo -archs "$binary")"
   echo "$binary: $archs"
@@ -28,6 +27,12 @@ done
 if [[ "$CHANNEL_RELEASE_TAG" == "nightly-next" ]]; then
   for helper in optchat-chief cmux-mobile-host; do
     binary="$APP/Contents/Resources/bin/$helper"
+    # The iPhone host is a stale part, not a hold (app-bundle-chief-and-mobile-host.sh noted it), unless
+    # vars.NIGHTLY_COMPONENT_GATES is block.
+    if [ ! -e "$binary" ] && [ "$helper" = cmux-mobile-host ] && [ "${NIGHTLY_COMPONENT_GATES:-}" != block ]; then
+      echo "::warning title=Nightly stale part::cmux-mobile-host: this nightly carries no iPhone host"
+      continue
+    fi
     [ -x "$binary" ] || { echo "nightly-next is missing bin/$helper" >&2; exit 1; }
     archs="$(lipo -archs "$binary")"
     echo "$binary: $archs"
@@ -37,10 +42,9 @@ if [[ "$CHANNEL_RELEASE_TAG" == "nightly-next" ]]; then
       [ "$archs" = "$NIGHTLY_VARIANT" ]
     fi
   done
-  # And the screen sharing executable, inside the Computer Use helper (one permission identity:
-  # scripts/cmux-next/bundle-screen-sharing-helper.sh --into-computer-use).
-  helpers=("$APP/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-screen-sharing")
-  [ -x "${helpers[0]}" ] || { echo "nightly-next is missing Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-screen-sharing" >&2; exit 1; }
+  # And the Screen Sharing helper (plans/cmux-next/screen-sharing-helper.md), named per channel.
+  helpers=("$APP/Contents/Library/"*" Helper.app/Contents/MacOS/cmux-screen-sharing")
+  [ -x "${helpers[0]}" ] || { echo "nightly-next is missing Contents/Library/<app> Helper.app" >&2; exit 1; }
   for binary in "${helpers[@]}"; do
     archs="$(lipo -archs "$binary")"
     echo "$binary: $archs"

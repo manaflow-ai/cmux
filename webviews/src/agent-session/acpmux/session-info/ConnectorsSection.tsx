@@ -4,6 +4,7 @@
 // acpmux says so. Without that, "Needs reconnect" is plain text: nothing here looks clickable that
 // is not.
 import { memo, useState } from "react";
+import { useConnectionQuiet } from "../../../ui/lasting";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -51,20 +52,30 @@ const ConnectorRow = memo(function ConnectorRow({
       <span className="acpmux-session-info-row__name">{server.name}</span>
       {server.status === "failed" && onReconnect ? (
         <ReconnectButton name={server.name} reconnect={onReconnect} />
+      ) : server.status === "pending" ? (
+        <PendingState />
       ) : (
         <span className="acpmux-session-info-row__end" data-state={server.status}>
-          {t(
-            server.status === "failed"
-              ? "sessionInfo.connectors.needsReconnect"
-              : server.status === "pending"
-                ? "rail.connectorPending"
-                : "composer.envConnected",
-          )}
+          {t(server.status === "failed" ? "sessionInfo.connectors.needsReconnect" : "composer.envConnected")}
         </span>
       )}
     </li>
   );
 }, sameValue);
+
+/// A server the harness is still connecting: its row's end says Connecting only once that has lasted the
+/// shared bound (lasting.ts `CONNECTION_QUIET_MS`), so a server that comes up in a few seconds never shows
+/// it. The row mounts this as the server turns pending, so each one waits its own bound. Its way out is the
+/// harness's: the server connects, or fails and the row offers Reconnect.
+function PendingState() {
+  const t = useT();
+  const lasting = useConnectionQuiet(true);
+  return (
+    <span className="acpmux-session-info-row__end" data-state="pending">
+      {lasting ? t("rail.connectorPending") : null}
+    </span>
+  );
+}
 
 /// A failed server's Reconnect: busy while Claude Code tries, and after an error from acpmux it
 /// reads Try again (in the danger color) and tries again. Success needs nothing here: acpmux marks

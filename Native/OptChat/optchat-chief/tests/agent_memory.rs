@@ -312,8 +312,12 @@ fn the_chief_tool_list_is_unchanged() {
         .iter()
         .map(|t| t["name"].as_str().unwrap().to_owned())
         .collect();
-    assert_eq!(names[..4], ["zoom", "date", "spawn", "tell"]);
-    assert!(!names.iter().any(|n| n.starts_with("memory_")), "{names:?}");
+    assert_eq!(names[..5], ["zoom", "date", "recall", "spawn", "tell"]);
+    // The Chief's own memory files (memory_read/write/forget) are its; the
+    // agent-memory server's tools never are.
+    for agent_tool in ["memory_search", "memory_get", "memory_remember"] {
+        assert!(!names.iter().any(|n| n == agent_tool), "{names:?}");
+    }
 }
 
 /// A memory file written while a rebuild reads the sources: its mtime is
@@ -530,5 +534,34 @@ fn the_cli_keeps_chief_flags_inside_note_text() {
     assert!(
         log.contains("start the Chief with --append-after-live"),
         "{log}"
+    );
+}
+
+/// An agent that searches with its whole question still finds the note that answers it: no entry
+/// holds every word of the question, so the search falls back to the entries holding the most of
+/// its words.
+#[test]
+fn a_whole_question_finds_the_note_that_answers_it() {
+    let home = short_home();
+    seed(home.path());
+    let index = index(home.path());
+    let hits = index
+        .search("Which builds need the heavy wrapper on the fleet?", 3)
+        .unwrap();
+    assert!(!hits.is_empty(), "no hits");
+    assert!(
+        hits[0]
+            .text
+            .contains("big-red builds need the heavy wrapper"),
+        "{hits:?}"
+    );
+    // Every word held by one entry is still that entry alone, as before.
+    assert_eq!(index.search("polling loop", 10).unwrap().len(), 1);
+    // A question none of whose words any entry holds is still no hits.
+    assert!(
+        index
+            .search("quantum zebra orchestras", 3)
+            .unwrap()
+            .is_empty()
     );
 }

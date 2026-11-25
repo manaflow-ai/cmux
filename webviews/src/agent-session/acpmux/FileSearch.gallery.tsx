@@ -5,6 +5,7 @@ import { assistant, chat, user } from "../../gallery/fixtures/acpmux";
 import { Composer } from "./Composer";
 import type { Play } from "../../gallery/play";
 import { FileSearch } from "./FileSearch";
+import { configureKeyStyle } from "../../ui/keyStyle";
 import type { FileSearchSource } from "./fileSearchModel";
 
 type Props = ComponentProps<typeof FileSearch>;
@@ -127,6 +128,24 @@ const noResults: Play = async (ctx) => {
   );
 };
 
+// `app.keyStyle` Vim: Esc gives the results the keyboard and j steps them; the play puts Standard
+// back once the highlight moved (nothing draws differently).
+const vimKeys: Play = async (ctx) => {
+  configureKeyStyle({ "app.keyStyle": "vim" });
+  try {
+    await ctx.type("Composer", field);
+    await ctx.waitFor(() => ctx.document.querySelectorAll('[role="option"]').length === composerFiles.length);
+    await ctx.press("Escape");
+    await ctx.waitFor(() => ctx.document.activeElement?.getAttribute("role") === "listbox");
+    await ctx.press("j");
+    await ctx.waitFor(
+      () => ctx.document.querySelectorAll('[role="option"]')[1]?.getAttribute("aria-selected") === "true",
+    );
+  } finally {
+    configureKeyStyle({});
+  }
+};
+
 const closeWithEscape: Play = async (ctx) => {
   await ctx.press("Escape");
   await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-file-search"));
@@ -207,6 +226,11 @@ export default componentEntry<Props>({
             Boolean(ctx.document.querySelector(".acpmux-file-note")?.textContent?.trim()),
         );
       },
+    },
+    vim: {
+      note: "Key style Vim: Esc gives the results the keyboard and j steps them (Standard keeps today's keys).",
+      props: baseProps,
+      play: vimKeys,
     },
     escape: {
       note: "Escape closes the palette and leaves dismissal to the host: the chat's composer stays.",

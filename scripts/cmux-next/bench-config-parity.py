@@ -148,9 +148,10 @@ def one_run(kind, bundle, opts, index, signposts):
     app = App(bundle, out)
     app.launch()
     try:
-        time.sleep(opts.settle)  # the measured settle after launch (launch work done), not a poll
+        # sleep-ok: the protocol's fixed --settle after launch, the same length for both builds so their idle CPU compares.
+        time.sleep(opts.settle)
         cpu0 = app.cpu_seconds()
-        time.sleep(opts.idle)  # the idle window itself
+        time.sleep(opts.idle)  # sleep-ok: the measured idle window itself
         cpu1 = app.cpu_seconds()
         ndjson = os.path.join(out, "run.ndjson")
         command = [sys.executable, os.path.join(HERE, "perf-signposts.py"), "--pid", str(app.process.pid),

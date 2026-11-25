@@ -1,3 +1,4 @@
+import { spaceOfEnv, spacedName } from "./build-space.ts"
 import type { SqlStore } from "@cmux/ownership"
 import { conversation } from "@cmux/home-core"
 import type { Env } from "./env.ts"
@@ -220,11 +221,11 @@ const abortsByPrefix = (bucket: R2Bucket): bucket is R2Bucket & PrefixAborting =
 const deletePrefix = async (env: Env, entity: string): Promise<Array<string>> => {
   const bucket = env.HOME_ATTACHMENTS
   if (!bucket) return []
-  if (abortsByPrefix(bucket)) await bucket.abortMultipartUploads(conversation.attachmentPrefix(entity))
+  if (abortsByPrefix(bucket)) await bucket.abortMultipartUploads(conversation.attachmentPrefix(spacedName(spaceOfEnv(env), entity)))
   const deleted: Array<string> = []
   let cursor: string | undefined
   do {
-    const page = await bucket.list({ prefix: conversation.attachmentPrefix(entity), ...(cursor ? { cursor } : {}) })
+    const page = await bucket.list({ prefix: conversation.attachmentPrefix(spacedName(spaceOfEnv(env), entity)), ...(cursor ? { cursor } : {}) })
     if (page.objects.length) {
       await bucket.delete(page.objects.map((o) => o.key))
       deleted.push(...page.objects.map((o) => o.key))

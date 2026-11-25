@@ -176,6 +176,61 @@ import Testing
         #expect(f.card.isDetailsExpanded && f.panel.activeMorph == nil && f.surface.size == expanded)
     }
 
+    /// Lawrence 2026-11-18 (msg 38370 follow-up): a details press was 4 to 5 ms of main-thread work on cmux-lawrence-2,
+    /// 58% of it the measure's temporary layout engine (`fittingSize`); Hide details hid its rows and showed them again
+    /// for the fold, and the chevron's image was made again on each press. A press now resizes the card from the sizes
+    /// it measured while it rested, keeps Hide details' rows laid out from the press, and reuses the chevron's images.
+    @Test func aDetailsPressMeasuresNothingAndRemakesNothing() throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let f = try Self.fixture()
+        defer { f.tearDown() }
+        Self.settle(f.panel)
+        f.card.prepareSizes()
+        let collapsedChevron = f.card.detailsToggle.shownChevron
+        var measures = (f.panel.contentMeasures, f.card.selfMeasures)
+
+        Self.press(f)
+        try #require(f.panel.activeMorph != nil, "Show details did not resize the card")
+        #expect(f.panel.contentMeasures == measures.0, "Show details measured the card's content in the panel")
+        #expect(f.card.selfMeasures == measures.1, "Show details measured the card in the press")
+        Self.settle(f.panel)
+        f.card.prepareSizes()
+        measures = (f.panel.contentMeasures, f.card.selfMeasures)
+        let hidings = f.card.detailRowsHidings
+
+        Self.press(f)
+        try #require(f.panel.activeMorph != nil, "Hide details did not fold the card")
+        #expect(f.panel.contentMeasures == measures.0, "Hide details measured the card's content in the panel")
+        #expect(f.card.selfMeasures == measures.1, "Hide details measured the card in the press")
+        #expect(f.card.detailRowsHidings == hidings, "Hide details hid its rows in the press and showed them again for the fold")
+        Self.settle(f.panel)
+        #expect(f.card.detailRowsHidings == hidings + 1, "the fold's end did not take the rows")
+        #expect(f.card.detailsToggle.shownChevron === collapsedChevron, "the chevron's image was made again")
+    }
+
+    /// The size the card reports is the size a measure gives, in both details states and after its content changes,
+    /// and the card rests at it.
+    @Test func theCardsReportedSizeIsItsMeasuredSize() throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let f = try Self.fixture()
+        defer { f.tearDown() }
+        Self.settle(f.panel)
+        f.card.prepareSizes()
+        #expect(f.card.reportedFittingSize == f.card.fittingSize, "collapsed: the card reports \(String(describing: f.card.reportedFittingSize)), a measure gives \(f.card.fittingSize)")
+        Self.press(f)
+        Self.settle(f.panel)
+        f.card.prepareSizes()
+        #expect(f.card.reportedFittingSize == f.card.fittingSize, "expanded: the card reports \(String(describing: f.card.reportedFittingSize)), a measure gives \(f.card.fittingSize)")
+        #expect(f.surface.size == f.card.fittingSize, "the card rests at \(f.surface.size), its measure is \(f.card.fittingSize)")
+        // What the card shows changes: the size it reports follows.
+        var content = WorkspaceHoverCardFixture.content
+        content.facts += [.init(icon: .folder, text: "a second fact, long enough to widen the card's text a little", kind: "folder")]
+        f.card.configure(content, now: WorkspaceHoverCardFixture.now)
+        #expect(f.card.reportedFittingSize == f.card.fittingSize, "after a content change the card reports \(String(describing: f.card.reportedFittingSize)), a measure gives \(f.card.fittingSize)")
+    }
+
     @Test func underReduceMotionDetailsChangeTheCardAtOnce() throws {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
