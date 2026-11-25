@@ -178,7 +178,7 @@ public final class AppStore {
         teams[index].macs = macs
     }
 
-    /// The team's picked Mac (``Team/pickedMacID``), which stands for its computer in the lists.
+    /// The team's picked Mac (``Team/pickedMacID``): the one this phone focuses.
     public func setPickedMac(_ macID: String?, teamID: String) {
         guard let index = teams.firstIndex(where: { $0.id == teamID }), teams[index].pickedMacID != macID else { return }
         teams[index].pickedMacID = macID
@@ -236,7 +236,7 @@ public final class AppStore {
     }
 
     /// A Stack Auth team as the account reports it.
-    public struct AccountTeam: Hashable, Sendable {
+    public struct AccountTeam: Hashable, Sendable, Codable {
         public let id: String
         public let name: String
 

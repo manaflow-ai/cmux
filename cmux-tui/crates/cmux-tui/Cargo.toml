@@ -183,6 +183,7 @@ acpmux-build-id = { path = "../acpmux-build-id" }
 # `cmux acp attach` (the app's chat-in-a-terminal-tab, `acp.rs` `chat_tab_command`) and the
 # bundle's `acpmux` symlink open it (acpmux `src/tui_entry.rs`).
 acpmux-tui = { path = "../acpmux-tui" }
+cmux-autocloud = { path = "../cmux-autocloud" }
 # A device row's kind and glyph (`devices/model.rs`).
 cmux-device-kind = { path = "../cmux-device-kind" }
 
