@@ -24,8 +24,12 @@ final class PageInfoChipButton: NSView, PointerHoverReporting {
         let side = OmnibarStyle.chipSize
         guard labelText != nil else { return side }
         let padding = (side - OmnibarStyle.iconPointSize) / 2
+        labelMeasures += 1
         return ceil(side + text.intrinsicContentSize.width + padding)
     }
+
+    /// How many times the chip measured its label's text (OmnibarResizeMeasureTests).
+    private(set) var labelMeasures = 0
 
     private let icon = NSImageView()
     private let text = ChromeLabel(labelWithString: "")
