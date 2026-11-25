@@ -888,20 +888,21 @@ async fn upload(connected: &Connected, size: u64, run: u64, deadline: Instant) -
         .map_err(|_| "upload channel open timed out".to_owned())?
         .map_err(|e| format!("upload channel: {e:?}"))?;
     let (sender, mut receiver) = channel.split();
+    let began = Instant::now();
     let chunk = Bytes::from(vec![(run % 251) as u8; UPLOAD_CHUNK]);
     let sending = async {
         let mut sent = 0u64;
         while sent < size {
             let len = UPLOAD_CHUNK.min((size - sent) as usize);
             // A failed send is not the answer, the reply is (LinkUpload.swift).
-            if sender.send(chunk.slice(..len)).await.is_err() {
-                break;
+            if let Err(error) = sender.send(chunk.slice(..len)).await {
+                return (sent, Some(format!("{error}")));
             }
             sent += len as u64;
         }
-        sent
+        (sent, None)
     };
-    let sent = match tokio::time::timeout_at(deadline, sending).await {
+    let (sent, send_error) = match tokio::time::timeout_at(deadline, sending).await {
         Ok(sent) => sent,
         Err(_) => return Err("upload: not all bytes sent before the bound".into()),
     };
@@ -915,9 +916,20 @@ async fn upload(connected: &Connected, size: u64, run: u64, deadline: Instant) -
                     return Ok(value);
                 }
             }
-            Ok(_) => {
+            Ok(closed) => {
+                // Why it closed, so a failed cell names the cause: the channel's close,
+                // the send's error, and the link's own close reason if the link went down.
+                let link = connected.link.closed_state().borrow().clone();
+                let close = match closed {
+                    Some(ChannelEvent::Closed(info)) => format!("{info:?}"),
+                    _ => "receiver ended".into(),
+                };
                 return serde_json::from_slice::<Value>(&reply).map_err(|_| {
-                    format!("upload: channel closed without a reply ({sent} of {size} bytes sent)")
+                    format!(
+                        "upload: channel closed without a reply ({sent} of {size} bytes sent, at {:.1} s; \
+                         close {close}; send error {send_error:?}; link closed {link:?})",
+                        began.elapsed().as_secs_f64()
+                    )
                 });
             }
         }
