@@ -20,11 +20,13 @@ import argparse
 import glob
 import json
 import os
+import pwd
 import queue
 import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -33,7 +35,26 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ci"))
 import fresh_home_launch_smoke as smoke  # noqa: E402
 
 HANG_S = 0.25
-CUA_CANDIDATES = (os.path.expanduser("~/.local/bin/cua-driver"), "/Applications/CuaDriver.app/Contents/MacOS/cua-driver")
+def account_home():
+    """The account's real HOME: a fleet step runs with HOME=<job>/home, where neither cua-driver nor its socket is."""
+    try:
+        return pwd.getpwuid(os.getuid()).pw_dir
+    except KeyError:
+        return os.path.expanduser("~")
+
+
+def driver_env():
+    """cua-driver's environment (tab_switch_capture.driver_env): `cua-driver mcp` without its own grant proxies to the
+    daemon at $HOME/Library/Caches/cua-driver/cua-driver.sock, which under the step's HOME does not exist, so it
+    waits 10 s and exits ("cua-driver mcp ended" in both flows of step f33bfd82a230aaa2bfd62b7c)."""
+    env = dict(os.environ)
+    env["HOME"] = account_home()
+    env.pop("CFFIXED_USER_HOME", None)
+    return env
+
+
+CUA_CANDIDATES = (os.path.join(account_home(), ".local/bin/cua-driver"),
+                  "/Applications/CuaDriver.app/Contents/MacOS/cua-driver")
 CUA = next((p for p in CUA_CANDIDATES if os.access(p, os.X_OK)), None)
 
 
@@ -42,14 +63,29 @@ class CuaSession:
     socket under HOME, and a fleet step's HOME has none, so every call came back empty (step 14a2d1acaf891719bab01302)."""
 
     def __init__(self, path):
+        # stderr to a file, not a pipe nobody reads: a session that ends must say why.
+        self.stderr = tempfile.TemporaryFile()
         self.p = subprocess.Popen([path, "mcp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                  stderr=subprocess.DEVNULL, text=True)
+                                  stderr=self.stderr, text=True, env=driver_env())
         self.lines = queue.Queue()
         threading.Thread(target=self.read, daemon=True).start()
         self.n = 0
-        self.rpc("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
-                                "clientInfo": {"name": "codex-login-hang", "version": "1"}})
-        self.rpc("notifications/initialized", notify=True)
+        try:
+            self.rpc("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
+                                    "clientInfo": {"name": "codex-login-hang", "version": "1"}})
+            self.rpc("notifications/initialized", notify=True)
+        except (OSError, RuntimeError) as error:
+            said = self.said()
+            self.close()
+            raise RuntimeError(f"{error}: {said}") from None
+
+    def said(self):
+        """cua-driver's own last words on stderr."""
+        try:
+            self.stderr.seek(0)
+            return self.stderr.read().decode("utf-8", "replace").strip()[-300:] or "(nothing on stderr)"
+        except (OSError, ValueError):
+            return "(stderr unreadable)"
 
     def read(self):
         for line in self.p.stdout:
