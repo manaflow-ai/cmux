@@ -493,7 +493,7 @@
     "name": "reply"
   },
   {
-    "description": "Post one or more short messages now in your conversation: Markdown text, attachments (local files: pictures and videos show inline, any other file as a file; or URLs), or both. Over-limit text is split at natural sentence and paragraph boundaries, while links, lists and fenced code stay intact where possible. reply_to: a user message's line id, to put it in that message's thread. Use one send per separate ask. Subagent ids become links, as in any reply. Use long: true when the user explicitly wants one long message. delay_seconds sends it later (a reminder, a check-in at a time the user named) instead of now.",
+    "description": "Post one message now in your conversation: Markdown text, attachments (local files: pictures and videos show inline, any other file as a file; or URLs), or both. reply_to: a user message's line id, to put it in that message's thread. Use one send per separate ask. Subagent ids become links, as in any reply. The first send of a turn whose prose is over 45 words, or with a list line over 35, comes back to cut; tables, pictures and code spans do not count, and a list counts line by line. delay_seconds sends it later (a reminder, a check-in at a time the user named) instead of now.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
