@@ -14,6 +14,7 @@ import {
   type SavedEnvironment,
   environmentDigit,
   environmentForDigit,
+  environmentPickable,
   environmentReady,
   environmentSections,
   environmentUnavailable,
@@ -30,12 +31,12 @@ import { useRowPresence } from "./rowPresence";
 import type { RunModeRows } from "./sandboxRun";
 import {
   SECTION_LABELS,
-  autoCloudCapLabels,
   environmentStateLabel,
   ENVIRONMENT_SEARCH_MIN,
   groupUnavailableRows,
   type UnavailableGroup,
   useMachineRefresh,
+  autoCloudCapLabels,
 } from "./environmentPickerModel";
 import { WithFacts } from "./chips/FactsHoverCard";
 import { AutoIcon } from "./AutoWhere";
@@ -340,8 +341,8 @@ export function EnvironmentPicker({
         : [],
     [offersDevices, environments, sections],
   );
-  // What its row counts: the ones a chat can start on now.
-  const devicesReady = devices.filter(environmentReady).length;
+  // What its row counts: the ones a chat can start on now, a machine still dialing included.
+  const devicesReady = devices.filter((environment) => environmentPickable(environment)).length;
   const searchable =
     machineList &&
     (list === "devices" ? devices.length : environments.length + listedSaved.length) >= ENVIRONMENT_SEARCH_MIN;
@@ -613,11 +614,12 @@ export function EnvironmentPicker({
     ...(cloudRow ? [cloudRow] : []),
     ...(devicesMenu ? [devicesMenu.value] : []),
   ];
-  // Which machine: the machines a chat can start on first, whatever their kind, then the rest
-  // greyed; no Cloud row; Add Machine… last. Saved environments stay behind Machines….
+  // Which machine: the connected ones first, then those still dialing (a pick, drawn the same), then
+  // the rest greyed; no Cloud row; Add Machine… last. Saved environments stay behind Machines….
   const readyFirst = (items: Environment[]) => [
     ...items.filter(environmentReady),
-    ...items.filter((environment) => !environmentReady(environment)),
+    ...items.filter((environment) => !environmentReady(environment) && environmentPickable(environment, groupedAt)),
+    ...items.filter((environment) => !environmentPickable(environment, groupedAt)),
   ];
   const choicesGrouped = grouped(
     [
@@ -738,10 +740,10 @@ export function EnvironmentPicker({
       return;
     }
     const action = actions.find((candidate) => candidate.value === value);
-    // A machine still connecting or down is listed, greyed, in its place, but is no pick: the list
-    // stays open.
+    // A machine down is listed, greyed, in its place, but is no pick: the list stays open. One still
+    // dialing is a pick (`environmentPickable`): the chat waits for its link.
     const machine = positions.get(value)?.environment;
-    if (machine && !environmentReady(machine) && !isCloudMachineRow(machine)) return;
+    if (machine && !environmentPickable(machine, groupedAt) && !isCloudMachineRow(machine)) return;
     // A move that would refuse is no pick either: its row already says why.
     if (action?.reason) return;
     // Move to… opens its targets in place, as Machines… does; the list stays open.
@@ -1075,7 +1077,8 @@ export function EnvironmentPicker({
     if (!position) return null;
     const { environment } = position;
     const number = numbers.get(environment.id);
-    const ready = environmentReady(environment);
+    // A machine still dialing draws as ready: no greying, no Connecting word (environmentPickable).
+    const ready = environmentPickable(environment, groupedAt);
     // An account Cloud machine acpmux does not list is a pick (it resumes or opens), not greyed.
     const greyed = !ready && !isCloudMachineRow(environment);
     return (
@@ -1132,11 +1135,11 @@ export function EnvironmentPicker({
               (environment.connected !== undefined || list === "devices") && (
                 <span
                   className="acpmux-env-status"
-                  data-connected={String(list === "devices" || environment.connected)}
+                  data-connected={String(list === "devices" || environment.connected || !environmentReady(environment))}
                 >
                   <span className="acpmux-env-status-text">
                     {t(
-                      list === "devices" || environment.connected
+                      list === "devices" || environment.connected || !environmentReady(environment)
                         ? "composer.envConnected"
                         : "composer.envNotConnected",
                     )}
