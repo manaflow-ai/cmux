@@ -211,3 +211,33 @@ fn stubs_name_the_call() {
         Some("search:fn main@src")
     );
 }
+
+/// A compaction trigger that tried surgery and sent `/compact` after all counts once per
+/// fallback on the next `turn_result`, then clears; nothing else shows with it.
+#[test]
+fn fallbacks_count_on_the_next_turn_result() {
+    let s = "surgery-fallbacks-test";
+    note_fallback(s);
+    note_fallback(s);
+    let f = turn_fields(s);
+    assert_eq!(f["harnessMagic.surgery.fallbacks"], json!(2));
+    assert!(!f.contains_key("harnessMagic.surgery.runs"));
+    assert!(!f.contains_key("harnessMagic.surgery.refetched"));
+    assert!(turn_fields(s).is_empty());
+}
+
+/// Surgery stands in for `/compact` only when its dry run masks something and lands under the
+/// trigger's line; an applied answer alone skips `/compact`.
+#[test]
+fn surgery_before_compact_decisions() {
+    use super::super::cold_wake::{surgery_applied, surgery_suffices};
+    let dry = |masked: u64, after: u64| -> Result<Value, RpcError> {
+        Ok(json!({"dryRun": true, "maskedResults": masked, "tokensAfter": after}))
+    };
+    assert!(surgery_suffices(&dry(3, 150_000), 200_000));
+    assert!(!surgery_suffices(&dry(3, 210_000), 200_000));
+    assert!(!surgery_suffices(&dry(0, 10_000), 200_000));
+    assert!(!surgery_suffices(&Ok(refused("off")), 200_000));
+    assert!(surgery_applied(&Ok(json!({"applied": true}))));
+    assert!(!surgery_applied(&Ok(refused("busy"))));
+}
