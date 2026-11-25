@@ -12,6 +12,7 @@ use super::*;
 use crate::schema::Schema;
 
 fn repo() -> PathBuf {
+    // affected-reads: examples Resources/cmux-themes Resources/ghostty webviews/src/agent-session webviews/src/pages/shared/desktop.css
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 

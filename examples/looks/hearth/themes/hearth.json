@@ -1,4 +1,4 @@
-// Hearth: warm cream paper. The page a soft cream (#f7f3ea), the sidebar a shade deeper (#efe9dc),
+// Hearth: warm cream paper. The page a soft cream (#f7f3ea), the sidebar a shade deeper (#f7f1e4),
 // warm near-black ink (#2b2722) and a terracotta accent (#b0532f) for focus and links.
 {
   "name": "Hearth",
@@ -22,7 +22,7 @@
   "appearance.metrics.chromeFontSize": 13,
 
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#efe9dc",
+  "appearance.surfaces.sidebar.color": "#f7f1e4",
   "appearance.surfaces.sidebar.opacity": 1,
   "appearance.surfaces.agentPane.color": "#f7f3ea",
   "appearance.surfaces.agentPane.opacity": 1,

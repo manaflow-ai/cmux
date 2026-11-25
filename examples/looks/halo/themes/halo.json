@@ -1,4 +1,4 @@
-// Halo: near-monochrome white. A white page, the sidebar a whisper of gray (#f9f9f9), near-black
+// Halo: near-monochrome white. A white page, the sidebar a whisper of gray (#fcfcfc), near-black
 // ink (#0d0d0d), a neutral gray selection, and black as the accent: no color but the content's.
 {
   "name": "Halo",
@@ -22,7 +22,7 @@
   "appearance.metrics.chromeFontSize": 13,
 
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#f9f9f9",
+  "appearance.surfaces.sidebar.color": "#fcfcfc",
   "appearance.surfaces.sidebar.opacity": 1,
   "appearance.surfaces.agentPane.color": "#ffffff",
   "appearance.surfaces.agentPane.opacity": 1,

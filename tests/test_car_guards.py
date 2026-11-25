@@ -54,7 +54,7 @@ def repo(tmp: str, files: dict[str, str]) -> Path:
     root = Path(tmp) / "repo"
     root.mkdir()
     # The helpers the map imports, from this checkout.
-    for helper in ("select_package_tests.py", "focused_tests.py", "car_guards.py", "cmux_next_route.py",
+    for helper in ("select_package_tests.py", "focused_tests.py", "car_guards.py", "cmux_next_route.py", "cargo_affected.py",
                    "ci_process_tree.py", "gh_expressions.py", "nightly-next-car-guard.sh", "car-guard-python.sh",
                    # The crate-graph map cmux_next_route.py routes the daemon tier from (#45464).
                    "affected-jobs.json"):
@@ -172,6 +172,26 @@ class FocusedTestMap(unittest.TestCase):
             self.assertEqual(got["cargo"], {"changed": True, "files": ["cmux-tui/crates/a/src/lib.rs"]})
             self.assertEqual([n["manifest"] for n in got["native"]], ["Native/OptChat/chief/Cargo.toml"])
             self.assertEqual(got["unmapped"], ["elsewhere/mystery.bin"], "a file no rule maps is reported")
+
+    def test_a_file_outside_cmux_tui_that_a_crate_reads_goes_to_cargo_affected(self):
+        # #50462 (BackdropShader.swift) and looks under examples/looks/ landed cmux-config reds:
+        # its tests read them through CARGO_MANIFEST_DIR paths, and the car ran no cargo.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = repo(tmp, {
+                "cmux-tui/crates/cfg/Cargo.toml": "[package]\nname = \"cfg\"\n",
+                "cmux-tui/crates/cfg/src/lib.rs": (
+                    'const S: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../Sources/Shader.swift");\n'
+                    'fn repo() -> PathBuf {\n    // affected-reads: examples\n'
+                    '    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")\n}\n'),
+                "Sources/Shader.swift": "",
+                "examples/looks/a/themes/a.json": "{}",
+                "elsewhere/mystery.bin": "",
+            })
+            got = plan(root, "Sources/Shader.swift", "examples/looks/a/themes/a.json", "elsewhere/mystery.bin")
+            self.assertEqual(got["cargo"], {"changed": True,
+                                            "files": ["Sources/Shader.swift", "examples/looks/a/themes/a.json"]})
+            self.assertEqual(got["unmapped"], ["elsewhere/mystery.bin"],
+                             "a root reference with affected-reads selects only the paths it lists")
 
     def test_cmux_next_follows_the_committed_target_graph(self):
         """The car guards and the PR's swift test tier select the same CmuxNext targets."""
