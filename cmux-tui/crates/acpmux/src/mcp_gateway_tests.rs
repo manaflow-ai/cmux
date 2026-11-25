@@ -587,6 +587,41 @@ async fn a_wake_is_answered_its_start_with_no_process_and_a_call_starts_one() {
     assert!(next.chat("chat-w").unwrap().kept_answer("tools/list", &json!({})).is_some());
 }
 
+/// The number for item (1) of Leo's 04:31Z ask: a harness start (`initialize` then
+/// `tools/list`) on a chat whose server stopped, answered by starting the server (no kept
+/// answers: a first start, or another build) and from the kept answers (every later wake).
+#[tokio::test]
+async fn a_start_from_kept_answers_skips_the_server_start_numbers() {
+    let home = tempfile::tempdir().unwrap();
+    let g = gateway(home.path(), IDLE_STOP).await;
+    let mut cold = Vec::new();
+    let mut kept = Vec::new();
+    for round in 0..5u64 {
+        let session = format!("chat-n{round}");
+        g.keep(&session, launch(home.path())).unwrap();
+        let started = Instant::now();
+        rpc(&g, &session, init(1)).await;
+        rpc(&g, &session, list(2)).await;
+        cold.push(started.elapsed());
+        let pid = g.server_pid(&session).await.expect("the first start runs the server");
+        hibernated_on(&g, &session);
+        until("the server stops", async || g.server_pid(&session).await.is_none() && gone(pid))
+            .await;
+        let started = Instant::now();
+        rpc(&g, &session, init(3)).await;
+        rpc(&g, &session, list(4)).await;
+        kept.push(started.elapsed());
+        assert_eq!(g.server_pid(&session).await, None, "answered with no process");
+    }
+    cold.sort();
+    kept.sort();
+    eprintln!(
+        "start after an idle stop (initialize + tools/list, median of 5): server start {:?}, kept answers {:?}",
+        cold[2], kept[2]
+    );
+    assert!(kept[2] < cold[2]);
+}
+
 /// Another launch (the person's settings changed it) or another `initialize` (another harness)
 /// is answered by the server, never from what an earlier one was told.
 #[tokio::test]
