@@ -210,6 +210,8 @@ struct Counts {
     cursor: u64,
     /// The seqs of its own chat's `agent_message_chunk` records it heard.
     chunks: Vec<u64>,
+    /// Other chats' row changes it heard (`_acpmux/session_changed`, `_acpmux/session_patch`).
+    other_rows: u64,
     counting: bool,
 }
 
@@ -275,6 +277,12 @@ impl Pane {
                             && params.get("dir").and_then(Value::as_str) == Some("in"));
                     if of_own && stream {
                         c.own_stream += 1;
+                    }
+                    if !of_own
+                        && (method == "_acpmux/session_changed"
+                            || method == "_acpmux/session_patch")
+                    {
+                        c.other_rows += 1;
                     }
                     if method == "_acpmux/lagged" {
                         c.lagged += 1;
@@ -405,6 +413,10 @@ impl Pane {
 
     fn lagged(&self) -> u64 {
         self.counts.lock().unwrap().lagged
+    }
+
+    fn other_rows(&self) -> u64 {
+        self.counts.lock().unwrap().other_rows
     }
 }
 
@@ -582,6 +594,37 @@ async fn a_hidden_quiet_pane_hears_no_stream_until_shown_then_one_lag() {
     quiet.view(true).await;
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(quiet.lagged(), 2, "one more lag for the second hide, none for an empty one");
+}
+
+/// A pane whose every chat is hidden from it, and draws nothing then, hears no other chat's row
+/// change: the app holds every list notice from a page out of sight (`AcpmuxPaneShedding`), so
+/// they crossed the socket for nothing (205 kB/s, 8 chats streaming, 6 hidden). Shown, it hears one
+/// `_acpmux/lagged` with `watch: true` (direct.ts reads the list and its asks again), then the
+/// rows again. A hidden pane that did not ask, and a shown one, hear every row as before.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hidden_quiet_pane_hears_no_other_chats_rows_until_shown_then_one_watch_lag() {
+    let d = Daemon::start("quiet-rows");
+    let (ids, mut quiet, older, shown) = three_panes(&d).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let before = (quiet.other_rows(), quiet.lagged());
+    stream_all(&d, &ids[1..], 30, 0).await;
+    until(|| older.other_rows() > 0 && shown.other_rows() > 0).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let heard = (quiet.other_rows() - before.0, older.other_rows(), shown.other_rows());
+    assert_eq!(heard.0, 0, "the hidden quiet pane heard other chats' rows: {heard:?}");
+    assert!(heard.1 > 0, "a hidden pane that did not ask hears rows as before: {heard:?}");
+    assert!(heard.2 > 0, "the shown pane hears every row: {heard:?}");
+    assert_eq!(quiet.lagged(), before.1, "no lag notice while it stays hidden");
+    quiet.view(true).await;
+    until(|| quiet.lagged() > before.1).await;
+    assert_eq!(quiet.lagged(), before.1 + 1, "one lag notice on show");
+    let lag = quiet.counts.lock().unwrap().lag.clone().expect("a lag notice on show");
+    assert_eq!(lag["watch"], json!(true), "the page reads the list again: {lag}");
+    assert_eq!(lag["reason"], json!("hidden"), "{lag}");
+    let shown_rows = quiet.other_rows();
+    stream_all(&d, &ids[1..2], 10, 0).await;
+    until(|| quiet.other_rows() > shown_rows).await;
+    assert!(quiet.other_rows() > shown_rows, "a shown pane hears other chats' rows again");
 }
 
 /// A chat streams while its quiet pane is hidden: the pane hears none of its chunks, but its turn
