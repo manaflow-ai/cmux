@@ -2360,7 +2360,7 @@ dependencies = [
 name = "cmux-local-url"
 version = "0.1.0"
 dependencies = [
- "regex",
+ "regex-automata",
 ]
 
 [[package]]
@@ -3193,6 +3193,7 @@ dependencies = [
  "cmux-server-core",
  "cmux-signed-bundle",
  "cmux-stack-auth",
+ "cmux-sync",
  "cmux-tailnet-join",
  "cmux-terminal-client",
  "cmux-theme-pack",
