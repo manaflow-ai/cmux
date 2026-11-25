@@ -47,6 +47,11 @@ final class SettingsPageProvider: PageProvider {
     var sharesRevoke: (@MainActor (String) async throws -> JSONValue)?
     /// Settings > Keys (CmuxNextKeys `SettingsKeys`): its `cmux.settings.keys.*` ops and stream; nil in tests without an app.
     var keys: (any PageProvider)?
+    /// Settings > Sounds' play button (`cmux.settings.sound.play {name}`): the app sets the notification
+    /// sounds' own player and master volume.
+    var playSound: @MainActor (String) -> Void = { NotificationSoundPlayer().play($0, volume: 1, banner: false) }
+    /// Notifications > macOS Notifications' button: the prompt, or System Settings (cmux#55600).
+    var allowNotifications: (@MainActor () async throws -> Void)?
     var devicesWatching: (@MainActor (Bool) -> Void)?
     /// Settings > Models (`SettingsModels`, cmux-tui/docs/model-connections.md); nil in tests without an app.
     var models: (any PageProvider)?
@@ -329,7 +334,12 @@ final class SettingsPageProvider: PageProvider {
             return .object([:])
         case "cmux.settings.sound.play":
             guard let name = params["name"]?.stringValue else { throw PageError.invalidParams("name is required") }
-            if name != "default", name != "none" { NSSound(named: NSSound.Name(name))?.play() }
+            // Through the app's sound player, "default" and file paths included, never through notification
+            // permission: a preview plays while macOS denies cmux banners (cmux#55600).
+            playSound(name)
+            return .object([:])
+        case "cmux.settings.notification_permission.allow": // Notifications > macOS Notifications (cmux#55600), the person's click
+            if context.userGesture { try await allowNotifications?() }
             return .object([:])
         default:
             throw PageError.unknownOp(op)

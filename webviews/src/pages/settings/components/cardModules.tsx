@@ -76,6 +76,8 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
     import("./AppUpdateCard").then(({ AppUpdateCard }) => () => <AppUpdateCard />),
   webUpdates: () =>
     import("./WebUpdatesCard").then(({ WebUpdatesCard }) => () => <WebUpdatesCard />),
+  notificationPermission: () =>
+    import("./NotificationPermissionCard").then(({ NotificationPermissionCard }) => () => <NotificationPermissionCard />),
   voiceInput: () =>
     import("./VoiceInputCard").then(({ VoiceInputCard }) => () => <VoiceInputCard />),
   notices: () =>

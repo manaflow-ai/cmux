@@ -72,6 +72,8 @@ extension SettingsWindowService {
             "app_update": services.updater.settingsPageJSON,
             // Chief > Voice input: home.voiceInput, null where the tunable does not exist (Release).
             "voice_input": ChiefVoiceInputPageRoute().hostJSON,
+            // Notifications > macOS permission (cmux#55600): null in a launch that never asks.
+            "notification_permission": services.notifications.desktop.permissionState.pageJSON,
             // Settings > Menus: every right-click menu's rows and the person's arrangement of it.
             "context_menus": contextMenusRoute.hostJSON,
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,

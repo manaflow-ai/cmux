@@ -181,6 +181,8 @@ final class NotificationCenterService {
             self.markRead(banner: id, surface: surface.map(SurfaceID.init(rawValue:)), in: store)
         }
         followApprovals(services)
+        // cmux#55600: sounds never wait on notification permission; a denial is told in the app (showcases never ask).
+        tasks.append(desktop.followPermission(sounds: soundGate, volume: { [weak self] in self?.preferences.sounds.volume ?? 1 }, asks: desktopPostingEnabled) { [weak services] in services?.windows.active?.window ?? NSApp?.mainWindow })
         let store = services.daemon.store
         lastSeen = store.notifications.map(\.notification.rawValue).max() ?? 0
         tasks.append(Task { [weak self] in

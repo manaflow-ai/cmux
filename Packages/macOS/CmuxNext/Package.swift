@@ -499,11 +499,13 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextActions",
                 "CmuxNextAgentPane",
+                "CmuxNextBridge",
                 "CmuxNextCompat",
                 "CmuxNextControl",
                 "CmuxNextDaemon",
                 "CmuxNextDaemonService",
                 "CmuxNextDesign",
+                "CmuxNextDesignTokens",
                 "CmuxNextMobileHost",
                 "CmuxNextSettings",
             ],

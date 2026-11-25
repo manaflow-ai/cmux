@@ -71,6 +71,16 @@ package nonisolated struct SystemNotificationPermission: NotificationPermissionC
 }
 
 nonisolated struct NotificationPermissionStrings {
+    static var deniedNotice: String {
+        String(localized: "notifications.permission.deniedNotice",
+               defaultValue: "macOS is blocking cmux notifications, so banners don’t show. Sounds still play in cmux.",
+               bundle: .localizedModule)
+    }
+
+    static var openSettings: String {
+        String(localized: "notifications.permission.openSettings", defaultValue: "Open System Settings", bundle: .localizedModule)
+    }
+
     static var unavailable: String {
         String(localized: "notifications.permission.unavailable",
                defaultValue: "This cmux process does not use macOS notifications (an automation or test host, or not the cmux app bundle)",

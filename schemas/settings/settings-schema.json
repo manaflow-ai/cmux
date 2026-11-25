@@ -1811,7 +1811,7 @@
         ],
         "id" : "notifications",
         "lead" : [
-
+          "notificationPermission"
         ],
         "symbol" : "bell",
         "title" : {

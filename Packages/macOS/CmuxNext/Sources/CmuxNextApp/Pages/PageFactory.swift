@@ -169,6 +169,8 @@ struct PageFactory {
         let provider = SettingsPageProvider(settings: settings, domains: { [weak services] in
             ["themes": services?.themes.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "ui_font_families": AppFontSetting.installedFamilies, "sounds": SettingsPageDomains.sounds, "recent_fonts": services?.settings?.recentFonts.families ?? []]
         }, hostLists: { [weak services] in services?.settingsWindow.pageHostLists() ?? .null }, wideningGate: services.wideningGate)
+        provider.playSound = { [weak center = services.notifications] in center?.soundGate.preview($0, volume: center?.preferences.sounds.volume ?? 1) }
+        provider.allowNotifications = { [weak services] in try await services?.notifications.desktop.allowFromSettings() }
         provider.removeDevice = { [weak services] id in await services?.devices.remove(id: id) }
         provider.setDeviceFullAccess = { [weak services] id, on in await services?.devices.setFullAccess(id: id, on: on) }
         provider.setJoinConsent = { [weak services] surface, on in

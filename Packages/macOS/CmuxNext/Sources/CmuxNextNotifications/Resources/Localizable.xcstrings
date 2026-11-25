@@ -1318,6 +1318,270 @@
           }
         }
       }
+    },
+    "notifications.permission.deniedNotice": {
+      "comment": "One-time toast when macOS denies cmux notifications (cmux#55600). Banners are the macOS notification popups; sounds still play inside cmux.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS is blocking cmux notifications, so banners don’t show. Sounds still play in cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحظر macOS إشعارات cmux، لذا لا تظهر اللافتات. لا تزال الأصوات تُشغَّل في cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS blokira cmux obavještenja, pa se baneri ne prikazuju. Zvukovi se i dalje reproduciraju u cmuxu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS blokerer notifikationer fra cmux, så bannere vises ikke. Lyde afspilles stadig i cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS blockiert cmux-Mitteilungen, daher werden keine Banner angezeigt. Töne werden weiterhin in cmux abgespielt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS está bloqueando las notificaciones de cmux, así que no se muestran avisos. Los sonidos siguen sonando en cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS bloque les notifications de cmux : les bannières ne s’affichent pas. Les sons sont toujours joués dans cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS sta bloccando le notifiche di cmux, quindi i banner non vengono mostrati. I suoni vengono comunque riprodotti in cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS が cmux の通知をブロックしているため、バナーは表示されません。サウンドは引き続き cmux で再生されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS កំពុងរារាំងការជូនដំណឹង cmux ដូច្នេះផ្ទាំងជូនដំណឹងមិនបង្ហាញទេ។ សំឡេងនៅតែចាក់ក្នុង cmux។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS가 cmux 알림을 차단하고 있어 배너가 표시되지 않습니다. 사운드는 cmux에서 계속 재생됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS blokkerer varsler fra cmux, så bannere vises ikke. Lyder spilles fortsatt av i cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS blokuje powiadomienia cmux, więc banery się nie pojawiają. Dźwięki nadal są odtwarzane w cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O macOS está bloqueando as notificações do cmux, então os banners não aparecem. Os sons continuam tocando no cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS блокирует уведомления cmux, поэтому баннеры не показываются. Звуки по-прежнему воспроизводятся в cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS กำลังบล็อกการแจ้งเตือนของ cmux จึงไม่มีแบนเนอร์แสดง เสียงยังคงเล่นใน cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS, cmux bildirimlerini engelliyor, bu yüzden afişler gösterilmiyor. Sesler cmux’ta çalmaya devam ediyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS блокує сповіщення cmux, тому банери не показуються. Звуки й надалі відтворюються в cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS đang chặn thông báo của cmux nên biểu ngữ không hiển thị. Âm thanh vẫn phát trong cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 正在阻止 cmux 的通知，因此不会显示横幅。声音仍会在 cmux 中播放。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 正在阻擋 cmux 的通知，因此不會顯示橫幅。聲音仍會在 cmux 中播放。"
+          }
+        }
+      }
+    },
+    "notifications.permission.openSettings": {
+      "comment": "Button on the denied-notifications toast that opens System Settings › Notifications at cmux's page.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open System Settings"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح إعدادات النظام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvori postavke sistema"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn Systemindstillinger"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemeinstellungen öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Ajustes del Sistema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir Réglages Système"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri Impostazioni di Sistema"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム設定を開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើកការកំណត់ប្រព័ន្ធ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 설정 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne Systeminnstillinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwórz Ustawienia systemowe"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Ajustes do Sistema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть Системные настройки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดการตั้งค่าระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistem Ayarları’nı Aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкрити Системні параметри"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở Cài đặt hệ thống"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开系统设置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打開系統設定"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

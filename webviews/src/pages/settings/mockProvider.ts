@@ -477,6 +477,12 @@ export class MockSettingsProvider {
           this.setHost({ ...this.host, context_menus: { ...menus, show_customize_item: params.show === true } });
         return {};
       },
+      "cmux.settings.notification_permission.allow": () => {
+        const permission = this.host.notification_permission;
+        if (permission?.authorization === "not_determined")
+          this.setHost({ ...this.host, notification_permission: { authorization: "authorized", sound: true } });
+        return {};
+      },
       "cmux.settings.voice_input.set": (params) => {
         if (this.host.voice_input) this.setHost({ ...this.host, voice_input: { on: params.on === true } });
         return {};
@@ -2292,6 +2298,8 @@ export class MockSettingsProvider {
     },
     // A DEV build: the home.voiceInput tunable exists, on as Leo set it.
     voice_input: { on: true },
+    // NIGHTLY with notifications denied in System Settings (cmux#55600).
+    notification_permission: { authorization: "denied", sound: true },
     context_menus: mockContextMenus(),
     browser_profiles: [
       { id: "p-default", name: "Default", color: null, icon: null, is_default: true, source: null },

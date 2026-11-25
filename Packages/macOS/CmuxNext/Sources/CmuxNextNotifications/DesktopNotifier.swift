@@ -108,7 +108,19 @@ package final class DesktopNotifier: NSObject {
     }
     /// Authorization as the center last reported it ("authorized", "denied", ...);
     /// "automation" when this launch never asks.
-    package private(set) var authorization = DesktopNotifier.usesSystemCenter ? "unknown" : "automation"
+    package var authorization: String {
+        get { permissionState.authorization }
+        set { permissionState.authorization = newValue }
+    }
+    /// What macOS last said about this app's notifications, observed (Settings > Notifications' status row).
+    package let permissionState = NotificationPermissionState(authorization: DesktopNotifier.usesSystemCenter ? "unknown" : "automation")
+    /// Plays the `"default"` sound in the app, for a banner that cannot carry it (denied, not yet asked,
+    /// provisional or with its sound off in System Settings): the app's sound player (cmux#55600).
+    package var playsDefaultSound: (@MainActor () -> Void)?
+    /// macOS denies cmux notifications (read at launch, on activation, or the person's answer to the prompt).
+    package var onDenied: (@MainActor () -> Void)?
+    /// The permission ``refreshPermission()`` reads and asks; nil: the system center (tests set one).
+    package var permissionCenterOverride: (any NotificationPermissionCenter)?
     private var center: UNUserNotificationCenter?
     /// Whether this launch asked for authorization (a banner or `notifications.request`).
     private var askedAuthorization = false
@@ -132,6 +144,8 @@ package final class DesktopNotifier: NSObject {
                              sound: defaultSound ? "default" : nil, attachment: attachment, reply: reply,
                              approval: approval, category: category, incognito: incognito))
         if posted.count > Self.postedLimit { posted.removeFirst(posted.count - Self.postedLimit) }
+        // A banner macOS will not sound (denied, not asked, provisional, sound off) still makes its sound, in the app.
+        if defaultSound, !permissionState.bannersCarrySound { playsDefaultSound?() }
         guard let center = resolvedCenter() else { return }
         let content = UNMutableNotificationContent()
         content.title = title
@@ -247,8 +261,8 @@ package final class DesktopNotifier: NSObject {
         // Asked once; a GUI job (NX_REMOTE=1, CMUX_TEST_REQUIRE_GUI=1) never asks: the banner catches its clicks.
         if !askedAuthorization, Self.asksPermission {
             askedAuthorization = true
-            center.requestAuthorization(options: [.alert, .sound, .badge]) { [weak self] granted, _ in
-                Task { @MainActor in self?.authorization = granted ? "authorized" : "denied" }
+            center.requestAuthorization(options: [.alert, .sound, .badge]) { [weak self] _, _ in
+                Task { @MainActor in await self?.refreshPermission(asking: false) }
             }
         }
         return center
@@ -289,12 +303,33 @@ package final class DesktopNotifier: NSObject {
         guard Self.asksPermission, configuredCenter() != nil else {
             throw ControlError(code: "unavailable", message: NotificationPermissionStrings.unavailable)
         }
-        return SystemNotificationPermission(bundleID: Bundle.main.bundleIdentifier) { [weak self] granted in
+        return SystemNotificationPermission(bundleID: Bundle.main.bundleIdentifier) { [weak self] _ in
             Task { @MainActor in
                 self?.askedAuthorization = true
-                self?.authorization = granted ? "authorized" : "denied"
+                await self?.refreshPermission(asking: false)
             }
         }
+    }
+
+    /// Reads this app's permission into ``permissionState`` without prompting, at launch and each time
+    /// cmux comes forward (the person may have changed it in System Settings). Not yet asked: asks once
+    /// (`asking`, the macOS prompt). Denied: ``onDenied``. A launch that never asks reads nothing.
+    package func refreshPermission(asking: Bool = true) async {
+        let center: any NotificationPermissionCenter
+        if let override = permissionCenterOverride {
+            center = override
+        } else {
+            guard let system = try? permission() else { return }
+            center = system
+        }
+        var permission = await center.status()
+        if asking, permission.authorization == "not_determined", !askedAuthorization {
+            askedAuthorization = true
+            permission = (try? await center.request()) ?? permission
+        }
+        permissionState.update(permission)
+        // Allowed again re-arms the one-time notice, so a later denial is told again.
+        if permission.isDenied { onDenied?() } else if onDenied != nil { _ = NotificationDeniedNotice().claim(for: permission.authorization) }
     }
 
     /// Reply banners' category: one text field whose Send types into the terminal.
