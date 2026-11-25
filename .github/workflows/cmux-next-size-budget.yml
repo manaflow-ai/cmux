@@ -324,12 +324,18 @@ jobs:
     steps:
       # The checker reads the two commits through git only (ls-tree, show, log; the web counts arrive
       # as files in RUNNER_TEMP), so no working tree beyond its own folder is written.
+      # It needs every blob of both commits: `ls-tree -r -l` reads each blob's size. A sparse checkout
+      # with no filter is blob:none (actions/checkout), and the checker then fetched those blobs one
+      # lazy fetch at a time: from 18Z 11-24 the check ran 3.3 min a run on average, and 86 of 101
+      # runs on Freestyle runners hit the 10-minute timeout (872 runner-min in 5 h). blob:limit=1g
+      # takes every blob in the one depth-2 fetch, as the full checkout did, and writes only this folder.
       - name: Checkout
         if: ${{ needs.plan.outputs.tool == 'true' }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           fetch-depth: 2
+          filter: blob:limit=1g
           sparse-checkout: |
             scripts/cmux-next
 
