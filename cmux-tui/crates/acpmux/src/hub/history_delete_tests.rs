@@ -115,3 +115,83 @@ fn the_setting_deletes_nothing_by_default() {
         Some(std::time::Duration::from_secs(7 * 86_400))
     );
 }
+
+#[tokio::test]
+async fn a_dry_run_previews_the_old_chats_and_deletes_nothing() {
+    let root =
+        Root(std::env::temp_dir().join(format!("acpmux-history-del-{}", uuid::Uuid::now_v7())));
+    let mut cfg = Config::default();
+    cfg.store.mode = StoreMode::Local;
+    let now = now_ms();
+    {
+        let store = crate::store::open(&cfg.store, &root.0).unwrap();
+        chat(&*store, "old", "closed", now - 40 * DAY, json!({}));
+        chat(&*store, "pinned", "closed", now - 40 * DAY, json!({"pinned": {"value": "1"}}));
+        chat(&*store, "inside", "closed", now - 10 * DAY, json!({}));
+        store.flush().unwrap();
+    }
+    let hub = open(&root.0);
+    let req = HistoryDeleteRequest { dry_run: true, older_than_days: Some(30), export: None };
+    let report = hub.history_delete_now(req).await.unwrap();
+    assert_eq!(report["wouldDelete"], 1, "{report}");
+    assert_eq!(report["chats"][0]["sessionId"], "old");
+    assert!(report["chats"][0]["idleDays"].as_u64().unwrap() >= 39);
+    assert!(report["bytes"].as_u64().unwrap() > 0, "the preview says what it frees");
+    assert_eq!(report["skipped"]["kept"], 1);
+    assert_eq!(report["skipped"]["recent"], 1);
+    for kept in ["old", "pinned", "inside"] {
+        assert!(hub.resolve(kept).is_ok(), "a preview deletes nothing: {kept}");
+    }
+    // No age at all is refused, not taken as "everything".
+    let none = HistoryDeleteRequest { older_than_days: Some(0), ..Default::default() };
+    assert!(hub.history_delete_now(none).await.is_err());
+    hub.shutdown_all().await;
+}
+
+#[tokio::test]
+async fn an_export_copies_the_chat_before_it_goes_and_a_failed_one_keeps_it() {
+    let root =
+        Root(std::env::temp_dir().join(format!("acpmux-history-del-{}", uuid::Uuid::now_v7())));
+    let export = root.0.join("export");
+    let mut cfg = Config::default();
+    cfg.store.mode = StoreMode::Local;
+    let now = now_ms();
+    {
+        let store = crate::store::open(&cfg.store, &root.0.join("home")).unwrap();
+        chat(&*store, "old", "closed", now - 40 * DAY, json!({}));
+        chat(&*store, "blocked", "closed", now - 41 * DAY, json!({}));
+        store.flush().unwrap();
+    }
+    // Something is already where "blocked" would be exported: that chat must stay.
+    std::fs::create_dir_all(export.join("blocked")).unwrap();
+    let hub = open(&root.0.join("home"));
+    let req = HistoryDeleteRequest {
+        dry_run: false,
+        older_than_days: Some(30),
+        export: Some(export.clone()),
+    };
+    let report = hub.history_delete_now(req).await.unwrap();
+    assert_eq!(report["deleted"], 1, "{report}");
+    assert_eq!(report["skipped"]["export"], 1);
+    assert!(hub.resolve("old").is_err());
+    assert!(hub.resolve("blocked").is_ok(), "a chat whose export failed is kept");
+    let copy = export.join("old");
+    assert!(copy.join("session.json").is_file(), "the export holds its metadata");
+    let saved: Value =
+        serde_json::from_slice(&std::fs::read(copy.join("session.json")).unwrap()).unwrap();
+    assert_eq!(saved["id"], "old");
+    let events: u64 = std::fs::read_dir(copy.join("events"))
+        .unwrap()
+        .map(|e| e.unwrap().metadata().unwrap().len())
+        .sum();
+    assert!(events > 0, "and its log");
+    assert!(
+        !std::fs::read_dir(&export).unwrap().any(|e| e
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .contains(".export-")),
+        "no temporary copy left"
+    );
+    hub.shutdown_all().await;
+}

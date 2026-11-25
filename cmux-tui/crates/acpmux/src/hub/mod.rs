@@ -238,6 +238,7 @@ mod restore_writer;
 pub(crate) use log_load::test_hold;
 #[cfg(test)]
 pub(crate) use log_load::{NOTE_BEFORE_CATCH_UP_LOCK, NOTE_BEFORE_REPLAY_SCAN, NOTE_IN_CATCH_UP};
+pub(crate) mod cloud_offload;
 mod cold_archive;
 mod cold_segments;
 pub(crate) mod history_delete;
@@ -247,6 +248,8 @@ mod machine_info;
 mod repo_sync;
 mod retention;
 mod store_pressure;
+pub use cloud_offload::HistoryOffloadRequest;
+pub use history_delete::HistoryDeleteRequest;
 pub use retention::RetentionRequest;
 pub(crate) mod model_availability;
 pub(crate) use log_load::AdoptionReady;
