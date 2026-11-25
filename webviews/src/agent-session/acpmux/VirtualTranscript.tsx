@@ -202,7 +202,8 @@ import {
 import { jumpUpButton } from "./jumpUp.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
-import { followShownScrollerFade, SHOWN_INK_PROPERTIES } from "../../scrollers";
+import { motionToken, warmMotionTokens } from "../../ui/motion/motionTokens";
+import { SHOWN_INK_PROPERTIES, followShownScrollerFade } from "../../scrollers";
 import { thumbMotion } from "./conversation/thumbMotion.experiment";
 import { editableTarget, wheelScrollsDown } from "./conversation/wheelChain";
 import { heightLeftAbove, type NewerReserve, newerReserve, rowsReplaced } from "./conversation/newerReserve";
@@ -222,6 +223,8 @@ import { NO_ROWS, rowKind, FOLLOW_BOTTOM_DEADBAND_PX, SCROLL_ANCHOR_SETTLE_MS } 
 import { focusRoute } from "../../ui/focusRoute";
 import { continuesLiveResize, LIVE_RESIZE_MS, stepLiveResize } from "./conversation/liveResizeStep";
 import { DOCK_NOTICE } from "./noticeSlotModel";
+import { ThinkingGlyph } from "./conversation/ThinkingGlyph";
+import { useLiveGlyphTrigger } from "./conversation/thinkingGlyphModel";
 import {
   type DrawnHeight,
   type ReportDrawn,
@@ -569,12 +572,13 @@ const FLOOR_HOLD_MS = 1000;
 /// own row and its reply's first rows (acpmux's echo, the live line) land within it.
 const SEND_RISE_MS = 1000;
 
+/// The tokens a send's commit reads on the scroller and the thread (warmMotionTokens keeps them read).
+const SEND_MOTION_TOKENS = ["--agent-motion-send", "--agent-motion-move", "--agent-motion-in"] as const;
+
 /// A send's clock on `node` (`--agent-motion-send`, the scale's send step scaled by the host's speed).
 /// The product's is 0 (Leo, 2026-11-11: "that slow settle animation is just so bad. Like, just do
 /// it."): then the send's rows and the room the composer gives back move at once, never on the chase.
-const sendClockMs = (node: HTMLElement) =>
-  cssTimeMs(node.ownerDocument.defaultView?.getComputedStyle(node).getPropertyValue("--agent-motion-send") ?? "") ??
-  MOTION_SEND_MS;
+const sendClockMs = (node: HTMLElement) => cssTimeMs(motionToken(node, "--agent-motion-send")) ?? MOTION_SEND_MS;
 
 /// How far (px, under a line) a followed reply's new text may lie under the bottom stack while the
 /// follow motion catches up with it (followChase.ts), past the room the live line keeps.
@@ -699,6 +703,7 @@ function TranscriptView({
   loadPromptIndex,
   sessionId,
   onToggleActivity,
+  onLoadFold,
   onOpenDiff,
   expanded,
   registry: givenRegistry,
@@ -814,6 +819,7 @@ function TranscriptView({
   focusComposer?: () => void;
   /// `covers`: the clicked line's other keys (turns.ts `foldCovers`), toggled with it.
   onToggleActivity: (id: string, covers?: readonly string[]) => void;
+  onLoadFold?: (fold: number) => Promise<void>;
   onOpenDiff?: OpenDiff;
   expanded: Folds;
   registry?: NativeRegistry;
@@ -5786,6 +5792,19 @@ function TranscriptView({
     });
     return () => fillRef(inViewNow, undefined);
   }, [inViewNow]);
+  // The send's motion tokens, read in a quiet moment ahead of the send: read in its commit, after the
+  // commit's writes, each recalculated the whole page's style (13.5 ms of a 99 ms Enter at 2,001 rows,
+  // cmuxterm-hq docs/findings/2026-11-23-agent-pane-send-paint.md). motionTokens.ts keeps them per
+  // page and theme.
+  useEffect(() => {
+    const stops = [ref.current, thread.current]
+      .filter((node): node is HTMLDivElement => node !== null)
+      .map((node) => warmMotionTokens(node, SEND_MOTION_TOKENS));
+    // The motion gate's own read (motionMode, on the root).
+    const root = ref.current?.ownerDocument.documentElement;
+    if (root) stops.push(warmMotionTokens(root, ["--agent-motion-in"]));
+    return () => stops.forEach((stop) => stop());
+  }, []);
   // The reader sent a prompt: the view goes to the latest message before the frame paints, even
   // scrolled up, and follows the prompt's row and its reply in (Leo 2026-10-21). Only a scroll up
   // by the reader lets go of it again.
@@ -5909,9 +5928,8 @@ function TranscriptView({
     // Use the rail's shared curve and distance duration, scaled by the host's move token. A send's
     // ride is the send motion instead (`--agent-motion-send`, its settling curve): the clock the sent
     // prompt's bubble and the thinking row come in on (conversation.css SEND-ENTRANCE).
-    const style = node.ownerDocument.defaultView?.getComputedStyle(node);
-    const move = cssTimeMs(style?.getPropertyValue("--agent-motion-move") ?? "");
-    const sendMs = send ? (cssTimeMs(style?.getPropertyValue("--agent-motion-send") ?? "") ?? MOTION_SEND_MS) : 0;
+    const move = cssTimeMs(motionToken(node, "--agent-motion-move"));
+    const sendMs = send ? (cssTimeMs(motionToken(node, "--agent-motion-send")) ?? MOTION_SEND_MS) : 0;
     jumpTarget.current = target;
     // A long way from the end: skip the middle at once and glide only the last viewport, so the rows
     // in between never mount (jumpGlideStart). Set after jumpTarget, so its scroll reads as a glide step.
@@ -6186,6 +6204,11 @@ function TranscriptView({
         setJumpBackHeld(false);
       }
     }
+    // The reader's own scroll down that brings following back is a move toward the latest row, as a wheel down while
+    // following is (`cancelProgrammatic`) and a wheel at the end is (`reader-end`): it asks to follow through the input
+    // hold it leaves. Without the ask, what landed at the end inside that hold (the turn's last rows as the reader got
+    // back) stayed below the view's foot until the hold ran out, the view following 23 px short of its end.
+    if (readerReachedBottom && !followingRef.current) followRequest.current = userScrollIntent(node).request();
     queueScroll(next, scrolledTo.current.atLatest, immediate, "reader-scroll", down?.input ?? null);
     if (onAnchor) {
       clearTimeout(anchorTimer.current);
@@ -6918,6 +6941,11 @@ function TranscriptView({
     keptFrom.current = id;
     onKeepFrom(id, row?.at);
   };
+  // Set in render, as `followRef` and `motionScroll` are: the placement pass and the send effect run before any layout
+  // effect declared here and turn following on (`follow(true, "session" | "send")`), so a ref set in a layout effect
+  // still held the last render's rows and layout there (a row of the chat switched away from, or none on a first
+  // open) when the client was told the row to keep from.
+  keepFromNow.current = () => keepFromInView(ref.current);
   const checkOlder = () => {
     const node = ref.current;
     keepFromInView(node);
@@ -6971,7 +6999,6 @@ function TranscriptView({
   };
   useLayoutEffect(() => {
     checkOlderNow.current = checkOlder;
-    keepFromNow.current = () => keepFromInView(ref.current);
   });
   useLayoutEffect(() => {
     olderScrollTarget.current = undefined;
@@ -7231,6 +7258,7 @@ function TranscriptView({
     onFocus: rowFocus,
     onRowKeyDown: handleRowKeyDown,
     onToggleActivity: toggleRow,
+    onLoadFold,
     onOpenDiff,
     streams,
     sessionId,

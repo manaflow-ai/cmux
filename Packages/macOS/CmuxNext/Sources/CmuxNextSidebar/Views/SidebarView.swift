@@ -94,6 +94,17 @@ public final class SidebarView: NSView {
     /// The footer's Search button, after the profile avatar (plans/cmux-next/sidebar-search.md):
     /// a press runs ``onSearch`` (the centered Search palette). `sidebar.showSearchButton` hides it.
     let searchButton = SidebarIconButton(icon: .search, pointSize: { Metrics.iconSize }, label: Strings.searchButton)
+    /// The footer's Live button, right after the profile avatar (Leo 2026-11-24: "an icon maybe toggle somewhere
+    /// omnipresent... say the bottom left of the sidebar area"): a click runs ``onLiveToggle``, a right-click lists who
+    /// is live (SidebarView+Live). `sidebar.showLiveToggle` hides it.
+    let liveButton = SidebarIconButton(symbol: "dot.radiowaves.left.and.right", pointSize: { Metrics.iconSize }, label: Strings.live)
+    let liveMenuTarget = SidebarLiveMenuTarget()
+    /// What the Live button shows and its menu lists; the App sets it from `presence.live` and the team.
+    public var live = SidebarLiveState() { didSet { if live != oldValue { applyLive() } } }
+    /// The Live button was pressed (or its menu's Turn Live On/Off): the App flips `presence.live`.
+    public var onLiveToggle: (() -> Void)?
+    /// A teammate was picked in the Live menu: the App opens their direct message.
+    public var onLiveOpenPerson: ((String) -> Void)?
     /// The Priority view, its titlebar bell and the bell's dot (SidebarView+Priority); nil `priority` hides all three.
     let priorityPanelView = SidebarPriorityPanelView(), priorityButton = SidebarIconButton(icon: .notification, label: Strings.priorityTitle)
     /// The quiet Update Available button (``showUpdateAvailable(_:)``).
@@ -149,6 +160,8 @@ public final class SidebarView: NSView {
     var observation: Task<Void, Never>?
     private var clipObservers: [any NSObjectProtocol] = []
     var lastState: RenderState?
+    /// The pull request badges the rows drew at the last render that saw them change (`RenderState.pullRequests`).
+    var drawnPullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:]
     var selectionTreeReveal = SidebarSelectionTreeReveal()
     /// A `renderInFrame` draw is queued for this turn's frame.
     var renderQueued = false
@@ -351,6 +364,12 @@ public final class SidebarView: NSView {
             self.onSearch?(self.searchButton)
         }
         addSubview(searchButton)
+        liveButton.setAccessibilityIdentifier("cmux.sidebar.live")
+        liveButton.showsLabelToolTip = false
+        liveButton.onPress = { [weak self] in self?.onLiveToggle?() }
+        liveButton.menuProvider = { [weak self] in self?.liveMenu() }
+        addSubview(liveButton)
+        applyLive()
         profileBar.alphaValue = spacesAlpha(revealed: isChromeRevealed)
         cardSlot.install(in: self)
         buildPriority()
@@ -447,6 +466,7 @@ public final class SidebarView: NSView {
         SidebarHiddenState.apply(!showsProfiles, to: profileBar)
         SidebarHiddenState.apply(noFade, to: footerRegion)
         SidebarHiddenState.apply(noFade, to: searchButton)
+        SidebarHiddenState.apply(noFade || !design.sidebarSections.showLiveToggle, to: liveButton)
         if let liveModeBadge { SidebarHiddenState.apply(noFade, to: liveModeBadge) }
         for fade in [edgeFade, aboveFade, belowFade] { fade.fades = !noFade }
         // R109: the dots under the titlebar row, or in the footer.
