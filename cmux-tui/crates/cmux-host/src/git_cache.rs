@@ -9,6 +9,13 @@
 //! git ignores an include whose file is missing, so a machine without a running proxy reaches
 //! GitHub directly, exactly as before. Off: `/etc/cmux/git-cache.disabled` exists, or
 //! `CMUX_GIT_CACHE=0` in the unit's environment.
+//!
+//! cargo: `/.cargo/config.toml` (read by cargo from every working directory, whatever
+//! `CARGO_HOME` is) is a link to [`CARGO_CONFIG`], which only the running proxy writes
+//! (`cmux_git_cache::crates`: crates.io through this machine's cache). cargo treats a dangling
+//! link as no file, so without a running proxy cargo reaches crates.io directly. A machine that
+//! already has its own `/.cargo/config.toml` keeps it (no link). Off for cargo alone:
+//! `/etc/cmux/crates-cache.disabled`.
 
 use cmux_process::{Command, Stdio};
 use std::path::{Path, PathBuf};
@@ -22,6 +29,9 @@ pub const DISABLED_FILE: &str = "/etc/cmux/git-cache.disabled";
 pub const CACHE_ROOT: &str = "/var/cache/cmux/git-cache";
 pub const EDGE: &str = "https://platform.cmux.internal/v1/cloud/git/github.com";
 const EDGE_HOST: &str = "platform.cmux.internal:443";
+/// The cargo config the proxy writes while it listens, beside the git include (tmpfs).
+pub const CARGO_CONFIG: &str = "/run/cmux/git-cache/cargo-config.toml";
+pub use cmux_git_cache::crates::ROOT_CARGO_CONFIG;
 const STORE_CMUX: &str = "/opt/cmux/current/bin/cmux";
 
 /// The `/etc/gitconfig` stanza that includes the proxy's file.
@@ -79,6 +89,8 @@ pub fn serve_args(host: &[String], tenant: &str, edge: bool) -> Vec<String> {
             INCLUDE,
             "--helper",
             &helper,
+            "--cargo-config",
+            CARGO_CONFIG,
         ]
         .map(str::to_owned),
     );
@@ -86,6 +98,21 @@ pub fn serve_args(host: &[String], tenant: &str, edge: bool) -> Vec<String> {
         args.extend(["--edge".to_owned(), EDGE.to_owned()]);
     }
     args
+}
+
+/// Links `/.cargo/config.toml` to the proxy's cargo config, unless the machine has its own file there.
+pub fn link_root_cargo_config(root_config: &Path, target: &Path) -> std::io::Result<bool> {
+    match std::fs::read_link(root_config) {
+        Ok(current) if current == target => return Ok(true),
+        Ok(_) => return Ok(false),
+        Err(_) if std::fs::symlink_metadata(root_config).is_ok() => return Ok(false),
+        Err(_) => {}
+    }
+    if let Some(dir) = root_config.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::os::unix::fs::symlink(target, root_config)?;
+    Ok(true)
 }
 
 fn disabled() -> bool {
@@ -104,8 +131,12 @@ fn chown_dir(dir: &Path, user: Option<&WorkUser>) -> std::io::Result<()> {
 /// include absent, so git goes to GitHub directly.
 pub fn start(self_argv: &[String], tenant: Option<String>, work: Option<WorkUser>) {
     cmux_git_cache::gitconfig::remove_include(Path::new(INCLUDE));
+    cmux_git_cache::crates::remove_cargo_config(Path::new(CARGO_CONFIG));
     if disabled() {
         return;
+    }
+    if let Err(e) = link_root_cargo_config(Path::new(ROOT_CARGO_CONFIG), Path::new(CARGO_CONFIG)) {
+        eprintln!("cmux host: git cache: {ROOT_CARGO_CONFIG}: {e}");
     }
     let system = std::fs::read_to_string(crate::github_wiring::SYSTEM_GITCONFIG).ok();
     if let Some(next) = plan_system(system.as_deref())
@@ -151,6 +182,7 @@ fn supervise(program: &str, args: &[String], work: Option<&WorkUser>) {
             Err(e) => eprintln!("cmux host: git cache: spawn: {e}"),
         }
         cmux_git_cache::gitconfig::remove_include(Path::new(INCLUDE));
+        cmux_git_cache::crates::remove_cargo_config(Path::new(CARGO_CONFIG));
         if disabled() {
             return;
         }
@@ -210,5 +242,23 @@ mod tests {
         assert!(args.windows(2).any(|w| w == ["--edge", EDGE]));
         assert!(args.windows(2).any(|w| w == ["--include", INCLUDE]));
         assert!(!serve_args(&host, "t", false).contains(&"--edge".to_owned()));
+        assert!(args.windows(2).any(|w| w == ["--cargo-config", CARGO_CONFIG]));
+    }
+
+    #[test]
+    fn root_cargo_config_links_once_and_keeps_a_machines_own() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join(".cargo/config.toml");
+        let target = dir.path().join("run/cargo-config.toml");
+        assert!(link_root_cargo_config(&root, &target).unwrap());
+        assert_eq!(std::fs::read_link(&root).unwrap(), target);
+        assert!(link_root_cargo_config(&root, &target).unwrap());
+        // Dangling until the proxy writes it: cargo sees no file.
+        assert!(!root.exists());
+        let own = dir.path().join("own/.cargo/config.toml");
+        std::fs::create_dir_all(own.parent().unwrap()).unwrap();
+        std::fs::write(&own, "[build]\n").unwrap();
+        assert!(!link_root_cargo_config(&own, &target).unwrap());
+        assert_eq!(std::fs::read_to_string(&own).unwrap(), "[build]\n");
     }
 }
