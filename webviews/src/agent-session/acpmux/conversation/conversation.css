@@ -6694,8 +6694,7 @@ a.cv-sha:focus-visible {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 36px;
-  padding: 0 4px 0 8px;
+  padding: 4px 4px 4px 8px;
 }
 .cv-settings-ask__icon {
   flex: none;
