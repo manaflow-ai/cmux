@@ -118,13 +118,9 @@ struct TerminalPillLook: Equatable {
     /// How much of the terminal's background the pill lays over the glass:
     /// enough that rows scrolling under it never read through the label, as
     /// the agent chat's jump circle (0.72 there, on the app's background).
-    /// The composer card's number (``ComposerCardLook``): pills and card are one material.
-    static let fillOpacity = ComposerCardLook.fillOpacity
+    static let fillOpacity: Double = 0.72
     /// The glass's own tint toward the terminal's background.
-    static let tintOpacity = ComposerCardLook.tintOpacity
-
-    /// The composer card on these colors.
-    var card: ComposerCardLook { .theme(background: background, ink: ink) }
+    static let tintOpacity: Double = 0.35
 }
 
 extension View {

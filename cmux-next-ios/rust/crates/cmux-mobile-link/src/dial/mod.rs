@@ -38,7 +38,7 @@ impl TransportKind {
         match payload {
             SignalPayload::WebrtcOffer { media_for: Some(_), .. } => None,
             SignalPayload::WebrtcOffer { .. } => Some(Self::WebRtc),
-            SignalPayload::WgInit { .. } | SignalPayload::WgResumed { .. } => Some(Self::WireGuard),
+            SignalPayload::WgInit { .. } => Some(Self::WireGuard),
             _ => None,
         }
     }
@@ -460,9 +460,6 @@ pub struct Dialed {
     /// Pings and pongs as datagrams, when both sides listed
     /// [`crate::link::LIVENESS_LANE`] (WireGuard).
     pub liveness: Option<crate::link::LivenessDatagrams>,
-    /// Runs once the link exists (a WireGuard tunnel's lease learns how its
-    /// link closes, [`wireguard::dormant`]).
-    pub on_link: Option<Box<dyn FnOnce(&Link) + Send>>,
     /// Both sides listed [`crate::RELIABLE_LANE`].
     pub reliable: bool,
     /// The tunnel's static keys (WireGuard); `None` on WebRTC.
@@ -752,9 +749,6 @@ async fn connect_on(
     let (dialed, session_id) = dial_transport(signaling, mac, kind, options, early).await?;
     let link_config = reliable_config(link_config, dialed.reliable, None);
     let link = Link::new(dialed.stream, Role::Phone, link_config, Some(dialed.guard));
-    if let Some(on_link) = dialed.on_link {
-        on_link(&link);
-    }
     if let Some(hold) = dialed.hold {
         link.set_hold_hook(hold);
     }
@@ -807,10 +801,6 @@ pub async fn resume(
     link.resume_carrier(dialed.stream, Some(dialed.guard))
         .await
         .map_err(|error| DialError::Transport(error.to_string()))?;
-    // The new tunnel's lease learns how this link closes.
-    if let Some(on_link) = dialed.on_link {
-        on_link(link);
-    }
     if let Some(hold) = dialed.hold {
         link.set_hold_hook(hold);
     }
@@ -913,9 +903,6 @@ pub async fn answer(
             crate::Accepted::New(link) => (link, false),
             crate::Accepted::Resumed(link) => (link, true),
         };
-        if let Some(on_link) = dialed.on_link {
-            on_link(&link);
-        }
         // A resumed link's new carrier is a new transport: its hook replaces
         // the last carrier's.
         if let Some(hold) = dialed.hold {
@@ -942,9 +929,6 @@ pub async fn answer(
     }
     let link =
         Link::new(dialed.stream, Role::Mac, reliable_config(link_config, false, None), Some(dialed.guard));
-    if let Some(on_link) = dialed.on_link {
-        on_link(&link);
-    }
     if let Some(hold) = dialed.hold {
         link.set_hold_hook(hold);
     }

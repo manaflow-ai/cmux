@@ -15,7 +15,8 @@ import UIKit
     static func field(_ lines: Int) -> ComposerUITextView {
         let view = ComposerUITextView()
         view.font = .preferredFont(forTextStyle: .body)
-        view.textContainerInset = .zero
+        let inset = TerminalDockMetrics.textVerticalInset
+        view.textContainerInset = UIEdgeInsets(top: inset, left: 0, bottom: inset, right: 0)
         view.textContainer.lineFragmentPadding = 0
         view.text = (1...lines).map { "echo \($0)" }.joined(separator: "\n")
         view.frame = CGRect(origin: .zero, size: view.fittingSize(proposedWidth: 280))
@@ -70,7 +71,7 @@ import UIKit
         // Typing at the end shows the field's bottom inset under the last
         // line, as at rest, not the line flush against the field's edge.
         #expect(abs(visible.maxY - tall.contentSize.height) < 0.5, "scrolled to the end: \(visible) of \(tall.contentSize)")
-        #expect(tall.textContainerInset == .zero)
+        #expect(tall.textContainerInset.top == TerminalDockMetrics.textVerticalInset)
     }
 
     @Test func terminalKeyInputStaysRaw() {

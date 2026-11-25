@@ -441,7 +441,6 @@ async fn finish(
         // A data channel cannot be held: ICE consent ends it after 30 s of
         // silence whatever the link does.
         hold: None,
-        on_link: None,
         path: path_rx,
         peer: peer_rx,
         guard: Box::new(Guard {

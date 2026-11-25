@@ -554,10 +554,9 @@ pub(super) struct Session {
     inject: mpsc::UnboundedSender<RoamMessage>,
     injected: Mutex<Option<mpsc::UnboundedReceiver<RoamMessage>>>,
     /// Asks the control task to send its latest announcement through
-    /// signaling again: `false` for a new signaling socket, `true` to nudge
-    /// a peer whose route went quiet ([`Self::nudge_peer`]).
-    resignal: mpsc::UnboundedSender<bool>,
-    resignals: Mutex<Option<mpsc::UnboundedReceiver<bool>>>,
+    /// signaling again (a new signaling socket).
+    resignal: mpsc::UnboundedSender<()>,
+    resignals: Mutex<Option<mpsc::UnboundedReceiver<()>>>,
     follow: Mutex<Option<JoinHandle<()>>>,
     announce: Mutex<Option<mpsc::UnboundedSender<Announcement>>>,
     control_task: Mutex<Option<JoinHandle<()>>>,
@@ -935,9 +934,7 @@ impl Session {
 
     /// Hand `turn` to the underlay and watch its stream.
     fn install_turn(self: &Arc<Self>, turn: TurnCarrier, relayed: (Vec<String>, Vec<String>)) {
-        // UDP too: its allocation dies when its server stops answering
-        // (`TurnCarrier::check_server`).
-        let dead = Some(turn.dead());
+        let dead = turn.transport.is_stream().then(|| turn.dead());
         *lock(&self.relayed) = relayed;
         if self.control.send(Control::Turn(turn)).is_err() {
             return;
@@ -960,15 +957,6 @@ impl Session {
 
     fn signaling(&self) -> SignalingClient {
         lock(&self.signaling).clone()
-    }
-
-    /// The signaling socket this session follows now.
-    pub(super) fn signaling_client(&self) -> SignalingClient {
-        self.signaling()
-    }
-
-    pub(super) fn id(&self) -> &str {
-        &self.session_id
     }
 
     /// Watch `events` for the peer's `bye`, replacing the subscription of
@@ -1317,22 +1305,12 @@ impl Session {
         timeline
     }
 
-    /// Our route to the peer went quiet: send the peer our latest endpoint
-    /// announcement again through signaling (generation 0 with none yet).
-    /// Already applied there, it is only acknowledged, inside the tunnel,
-    /// which is the point: the peer sends on its route to us, and that
-    /// starts its silence watch (and, on its TURN allocation, the server
-    /// check) without waiting for its next probe.
-    pub(super) fn nudge_peer(&self) {
-        let _ = self.resignal.send(true);
-    }
-
     fn rehome_onto(&self, client: &SignalingClient) {
         let old = std::mem::replace(&mut *lock(&self.signaling), client.clone());
         old.unsubscribe(&self.session_id);
         self.follow(client.subscribe(&self.session_id));
         // An announcement sent while the old socket was dead is sent again.
-        let _ = self.resignal.send(false);
+        let _ = self.resignal.send(());
         tracing::debug!(session = self.session_id, "WireGuard session moved to a new signaling socket");
     }
 }
@@ -1395,7 +1373,7 @@ struct ControlChannels {
     announce: mpsc::UnboundedReceiver<Announcement>,
     reach: mpsc::UnboundedReceiver<(SocketAddr, Carrier)>,
     injected: mpsc::UnboundedReceiver<RoamMessage>,
-    resignal: mpsc::UnboundedReceiver<bool>,
+    resignal: mpsc::UnboundedReceiver<()>,
     /// The reflexive address of this side's second socket (`None`: gone).
     metered: mpsc::UnboundedReceiver<Option<SocketAddr>>,
     /// Where the peer's mapped endpoints are kept (for `link_stat`).
@@ -1522,20 +1500,9 @@ async fn run_control(
                     pending = None;
                 }
             }
-            Some(nudge) = resignal.recv() => {
-                match &latest {
-                    Some(message) => signal.send(message),
-                    // Nothing announced yet: generation 0, which every peer
-                    // has applied, so it only acknowledges it.
-                    None if nudge => signal.send(&RoamMessage::Endpoints {
-                        generation: 0,
-                        endpoints: Vec::new(),
-                        relayed: Vec::new(),
-                        relayed_tls: Vec::new(),
-                        mapped: Vec::new(),
-                        mapped_by: None,
-                    }),
-                    None => {}
+            Some(()) = resignal.recv() => {
+                if let Some(message) = &latest {
+                    signal.send(message);
                 }
             }
             received = async {
