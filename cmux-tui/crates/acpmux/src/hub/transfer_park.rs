@@ -206,3 +206,7 @@ pub fn take_moved(
     let _ = answer.send(result);
     Ok(json!({}))
 }
+
+#[cfg(test)]
+#[path = "transfer_park_tests.rs"]
+mod tests;

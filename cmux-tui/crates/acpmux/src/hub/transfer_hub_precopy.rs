@@ -192,7 +192,7 @@ impl Hub {
             stage_id,
             session_id,
         );
-        self.scope.spawn_named("transfer-park", park);
+        self.scope.spawn_until_cancelled("transfer-park", park);
         filled
     }
 }
