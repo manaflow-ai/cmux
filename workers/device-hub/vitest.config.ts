@@ -30,6 +30,8 @@ export default defineConfig({
           TURN_KEY_API_TOKEN: "turn-token",
           // Short provisional window for socket-close end reasons (default 3 s).
           CLOSE_GRACE_MS: "300",
+          // Serves dev build spaces (src/buildSpace.ts); wrangler.toml's top level is production, which refuses them.
+          ENVIRONMENT: "test",
         },
       },
     }),

@@ -4896,7 +4896,18 @@ jobs:
         env:
           CMUX_METRICS_WEB_CACHE_OUTCOME: ${{ steps.web-bundle-cache.outcome }}
           CMUX_METRICS_WEB_CACHE_HIT: ${{ steps.web-bundle-r2.outputs.cache-hit == 'true' && 'true' || steps.web-bundle-cache.outputs.cache-hit }}
-        run: python3 ../../../scripts/ci/swiftpm_build_metrics.py --role daemon-test --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
+          # Fleet-built test bundles for this commit (scripts/ci/fleet-test-products.py), off unless
+          # vars.CI_FAST_TIER_PRODUCTS_FLEET is 1. The generated-files checks need the whole build, so a job
+          # that folds them builds here as before; so does any job the fleet has no products for.
+          CMUX_SWIFT_TEST_PRODUCTS: ${{ vars.CI_FAST_TIER_PRODUCTS_FLEET == '1' && env.CMUX_NEXT_FOLD_GENERATED != 'true' && 'fleet' || 'build' }}
+          CMUX_FLEET_CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+          CMUX_PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [[ "$CMUX_SWIFT_TEST_PRODUCTS" == fleet ]]; then
+            python3 ../../../scripts/ci/fleet-test-products.py Packages/macOS/CmuxNext && exit 0
+            echo "::warning title=Fleet test products::none for this commit; building them on this Mac"
+          fi
+          python3 ../../../scripts/ci/swiftpm_build_metrics.py --role daemon-test --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
 
       - name: Upload the test build measurement and log
         continue-on-error: true

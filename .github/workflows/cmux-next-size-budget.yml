@@ -269,10 +269,8 @@ jobs:
 
       - name: Restore the web bundles from the source-keyed cache
         timeout-minutes: 5
-        continue-on-error: true
         id: web-bundle-cache
         if: steps.web-bundle-r2.outputs.cache-hit != 'true'
-        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ runner.temp }}/web
