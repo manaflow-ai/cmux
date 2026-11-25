@@ -1149,7 +1149,7 @@ pub(super) async fn handle_request(
         return agent_credentials_update(hub, conn, &params).await;
     }
     let received = tokio::time::Instant::now();
-    let checks = prepare_request(hub, conn, m, params, sender_token);
+    let checks = heap(|| prepare_request(hub, conn, m, params, sender_token));
     let (m, params, resolved, verdict) =
         if matches!(m, method::SESSION_PROMPT | method::MUX_SEND_QUEUE) {
             prompt_preparation(
