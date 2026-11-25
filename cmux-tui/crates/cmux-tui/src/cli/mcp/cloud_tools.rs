@@ -261,11 +261,13 @@ fn integer(arguments: &Map<String, Value>, key: &str, max: u64) -> Result<Option
     }
 }
 
-/// A Cloud machine id from `machine:<id>` or the bare id: letters, digits, `-` and `_` (the
-/// ids the app lists), so it is safe in a target and a shell word.
+/// A Cloud machine id from `vm:<id>`, `machine:<id>` or the bare id: letters, digits, `-` and `_`
+/// (the ids the app lists), so it is safe in a target and a shell word. `vm:` is the CLI's own
+/// spelling (vm_words.rs respells every printed `machine:` to it, so `start-chat`'s
+/// `follow_up.status` and `follow_up.last` print `--target vm:ID`); both are taken.
 pub(in crate::cli) fn machine_id(value: &str) -> Option<String> {
     let id = value.trim();
-    let id = id.strip_prefix("machine:").unwrap_or(id);
+    let id = id.strip_prefix("vm:").or_else(|| id.strip_prefix("machine:")).unwrap_or(id);
     (!id.is_empty()
         && id.len() <= 128
         && id.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_'))
@@ -484,8 +486,8 @@ impl<B: Backend> Calls<'_, B> {
         }
         if let Some(machine) = text(arguments, "machine")? {
             if machine.starts_with("machine:") {
-                let id =
-                    machine_id(machine).ok_or_else(|| invalid("machine must be machine:<id>"))?;
+                let id = machine_id(machine)
+                    .ok_or_else(|| invalid("machine must be vm:<id> or machine:<id>"))?;
                 words.extend(["--target".to_owned(), format!("machine:{id}")]);
             } else {
                 words.extend(["--name".to_owned(), machine.to_owned()]);
@@ -509,7 +511,8 @@ impl<B: Backend> Calls<'_, B> {
 
     fn chat_target(&self, arguments: &Map<String, Value>) -> Result<(String, String), Value> {
         let machine = required(arguments, "machine")?;
-        let id = machine_id(machine).ok_or_else(|| invalid("machine must be machine:<id>"))?;
+        let id = machine_id(machine)
+            .ok_or_else(|| invalid("machine must be vm:<id> or machine:<id>"))?;
         Ok((id, session_id(arguments)?))
     }
 
@@ -541,7 +544,7 @@ impl<B: Backend> Calls<'_, B> {
         }
         machine_id(&named)
             .map(Computer::Machine)
-            .ok_or_else(|| invalid("machine must be machine:<id> or chief:<id>"))
+            .ok_or_else(|| invalid("machine must be vm:<id>, machine:<id> or chief:<id>"))
     }
 
     /// One verb on the Chief's own computer: the Worker's answer, or its refusal (the person's
@@ -897,6 +900,22 @@ fn desktop_step(op: &str, arguments: &Map<String, Value>) -> Result<DesktopStep,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `start-chat` prints its follow-ups with `--target vm:ID` (the CLI's words), and
+    /// `cloud chat status|last` hands that value here: both prefixes and the bare id are one id.
+    #[test]
+    fn machine_id_takes_vm_and_machine_prefixes() {
+        for value in [
+            "vm:vm_9c3c9760a26f71644643",
+            "machine:vm_9c3c9760a26f71644643",
+            "vm_9c3c9760a26f71644643",
+        ] {
+            assert_eq!(machine_id(value).as_deref(), Some("vm_9c3c9760a26f71644643"), "{value}");
+        }
+        assert_eq!(machine_id("vm:"), None);
+        assert_eq!(machine_id("vm:vm_1; rm -rf /"), None);
+        assert_eq!(machine_id("chief:abc"), None);
+    }
 
     /// The prelude and a step run in a real `sh` against a stand-in `cmux-cua` that logs each
     /// call and answers like the real one (exit 0, a refusal as a `"code"` field or a line);
