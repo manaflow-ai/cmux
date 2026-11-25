@@ -833,15 +833,18 @@ const worktreeButton = () =>
   [...host.querySelectorAll<HTMLButtonElement>(".acpmux-location-button")].find(
     (button) => button.textContent?.trim() === t("worktree.new"),
   );
-// New Worktree from the folder menu.
+// New worktree from the current project's worktree list.
 const newWorktreeFromMenu = async () => {
   const folder = host.querySelector<HTMLButtonElement>(
     `.acpmux-composer-context button[aria-label="${t("composer.folder")}"]`,
   );
   expect(folder, "no folder control").toBeTruthy();
   await act(async () => folder!.click());
-  const action = [...doc().querySelectorAll<HTMLElement>(".acpmux-location-action")].find(
-    (item) => item.textContent?.trim() === t("worktree.new"),
+  const expand = doc().querySelector<HTMLElement>("[data-current] .acpmux-location-worktrees");
+  expect(expand, "no worktree list for the selected project").toBeTruthy();
+  await act(async () => expand!.click());
+  const action = [...doc().querySelectorAll<HTMLElement>("[data-worktree]")].find(
+    (item) => item.textContent?.trim() === t("project.newWorktree"),
   );
   expect(action, "no New Worktree in the folder menu").toBeTruthy();
   await act(async () => action!.click());
@@ -1741,12 +1744,7 @@ test("three chips: Cloud picked shows no machine chip and no New machine anywher
     [...strip.querySelectorAll(".acpmux-location-button")]
       .filter((button) => !button.closest("[inert]"))
       .map((button) => button.getAttribute("aria-label")),
-  ).toEqual([
-    t("composer.folder"),
-    `${t("composer.environment")}: ${t("composer.cloud")}`,
-    // The Environment chip (on by default, CLOUD_ENVIRONMENTS_ENABLED), on Auto: never a machine.
-    `${t("composer.envCloudLabel")}: ${t("composer.envAuto")}`,
-  ]);
+  ).toEqual([t("composer.folder"), `${t("composer.environment")}: ${t("composer.cloud")}`]);
   expect(machineButton()).toBeUndefined();
   expect(host.textContent ?? "").not.toContain(t("composer.newMachine"));
   // Where, opened again: Cloud checked, one line, and still no New machine or setup row.

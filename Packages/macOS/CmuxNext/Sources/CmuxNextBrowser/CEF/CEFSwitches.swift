@@ -278,7 +278,10 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             .split(separator: ":")
             .map(String.init)
             .filter { !$0.isEmpty }
-        #if DEBUG
+        // Bench builds too (Release optimization, CMUX_BENCH_HOOKS): a typing or idle bench turns Chromium's component
+        // updater off with it (a fresh home's updater is half the idle CPU of its first minutes, scripts/cmux-next/
+        // idle_cpu.py BENCH_CEF_SWITCHES). A shipped build has neither flag and reads none.
+        #if DEBUG || CMUX_BENCH_HOOKS
         var extra = dev ? Self.extraSwitches(environment["CMUX_NEXT_CEF_EXTRA_SWITCHES"]) : []
         #else
         var extra: [String] = []

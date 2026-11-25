@@ -109,12 +109,12 @@ fn workspace_name_source_auto_replaces_a_created_default_name() {
 }
 
 #[test]
-fn workspace_name_source_requested_default_name_is_auto() {
+fn workspace_name_source_requested_name_is_auto() {
     assert_eq!(NameSource::for_requested_workspace_name(None), NameSource::Auto);
     assert_eq!(NameSource::for_requested_workspace_name(Some("workspace-151")), NameSource::Auto);
-    assert_eq!(NameSource::for_requested_workspace_name(Some("Billing")), NameSource::User);
-    assert_eq!(NameSource::for_requested_workspace_name(Some("workspace-")), NameSource::User);
-    assert_eq!(NameSource::for_requested_workspace_name(Some("~")), NameSource::User);
+    assert_eq!(NameSource::for_requested_workspace_name(Some("Billing")), NameSource::Auto);
+    assert_eq!(NameSource::for_requested_workspace_name(Some("workspace-")), NameSource::Auto);
+    assert_eq!(NameSource::for_requested_workspace_name(Some("~")), NameSource::Auto);
 }
 
 #[test]
@@ -256,4 +256,16 @@ fn workspace_name_source_release_hands_a_user_name_back_to_auto() {
         .apply(&mut tab(Some("Logs"), NameSource::User, 2), Some("Logs".into()), GENERATION, 2)
         .unwrap_err();
     assert_eq!(resource_code(&error), Some("validation.invalid"));
+}
+
+#[test]
+fn workspace_name_source_explicit_creation_name_is_pinned() {
+    assert_eq!(
+        NameSource::for_created_workspace(Some("56151: Plan bar"), true),
+        (NameSource::User, 1)
+    );
+    assert_eq!(NameSource::for_created_workspace(Some("workspace-3"), true), (NameSource::User, 1));
+    assert_eq!(NameSource::for_created_workspace(Some("  "), true), (NameSource::Auto, 0));
+    assert_eq!(NameSource::for_created_workspace(None, true), (NameSource::Auto, 0));
+    assert_eq!(NameSource::for_created_workspace(Some("Billing"), false), (NameSource::Auto, 0));
 }

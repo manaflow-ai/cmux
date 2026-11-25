@@ -29,6 +29,16 @@ public nonisolated struct CloudMoveCore: Sendable {
         return call("relinked", Request(before: before, now: now, refusedCounts: refusedCounts), as: Reply.self)?.relinked ?? false
     }
 
+    /// Whether an attach reads a machine's record again before it connects (`moves::wait::rereads_record`), for a machine
+    /// with no daemon connection that does not read paused: not when a create's or claim's answer gave it as running
+    /// less than `answeredAgo` ago within Rust's window. An FFI that does not answer reads again, as before.
+    public func rereadsRecord(running: Bool, answeredAgo: Duration?) -> Bool {
+        struct Request: Encodable { var running: Bool, answeredAgoMs: Int64? }
+        struct Reply: Decodable { var rereads: Bool }
+        let ms = answeredAgo.map { $0.components.seconds * 1000 + $0.components.attoseconds / 1_000_000_000_000_000 }
+        return call("rereads_record", Request(running: running, answeredAgoMs: ms.map { max(0, $0) }), as: Reply.self)?.rereads ?? true
+    }
+
     /// Whether an answer is the machine's older daemon refusing it (`machine_outdated`, not `side` `source`).
     public func updatesBeforeCopyingAgain(ok: Bool, errorCode: String?, side: String?) -> Bool {
         struct Request: Encodable { var ok: Bool, errorCode: String?, side: String? }
@@ -123,9 +133,12 @@ extension CloudMachineRequest {
     /// the folder needs past `size`'s own (``chatDiskMb``). `plan`: the start's ledger, whose sent create keeps its
     /// route for every retry (none kept: the relay, ``createRoute(personsOwnCreate:team:)``). `planMax` and `bytes`:
     /// the plan's largest size and the folder's bytes, which keep the vCPUs and memory asked within the plan (``atLeast(cpu:memoryMb:diskMb:)``).
+    /// `environment`: the Cloud environment the chat picked (`env_…`), which boots the machine in it (`cloud.environment.boot`,
+    /// never the person's generic spare); nil (the chip's Auto) keeps the plain create.
     public init(startChatKey key: String, sizedFor pick: CloudWorkPick?, team: String?, size: CloudChatSize? = nil, diskMb: Int? = nil,
-                planMax: CloudChatSize? = nil, bytes: Int64? = nil, plan: CloudMoveCLI.StartChatPlan? = nil) {
+                planMax: CloudChatSize? = nil, bytes: Int64? = nil, plan: CloudMoveCLI.StartChatPlan? = nil, environment: String? = nil) {
         self.init()
+        self.environment = environment
         autosize = pick?.autosize
         chatSize = size
         chatDiskMb = diskMb

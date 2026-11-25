@@ -54,8 +54,13 @@ def target_triple() -> str:
     return f"{arch}-apple-darwin" if sys.platform == "darwin" else f"{arch}-unknown-linux-musl"
 
 
+# files.cmux.com sits behind a CDN that answers Python's default User-Agent ("Python-urllib/3.x") with HTTP 403
+# "error code: 1010" before the bucket is read, so a bare urlopen could never fetch a CLI. Name the client honestly.
+USER_AGENT = "cmux-ci/cli-swap (+https://github.com/manaflow-ai/cmux)"
+
+
 def fetch(url: str) -> bytes:
-    with urllib.request.urlopen(url, timeout=300) as answer:
+    with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": USER_AGENT}), timeout=300) as answer:
         return answer.read()
 
 
