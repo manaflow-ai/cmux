@@ -378,7 +378,7 @@ async fn a_second_copy_hears_no_turn_before_the_first_is_accepted() {
 /// lock (held by the test, as a call that never came back holds it): each is still answered,
 /// queued, within seconds, and the queue runs them all once the lock comes back
 /// (`prompt_admission.rs`). Before, the first held the chat's admission across that await and every
-/// later prompt waited for it unanswered (Mango on cosmic-gray, 66 restored notices).
+/// later prompt waited for it unanswered (one chat: 66 restored notices, none answered).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn prompts_stuck_in_setup_are_answered_queued_within_seconds_and_the_queue_drains() {
     let (hub, s) = chat().await;

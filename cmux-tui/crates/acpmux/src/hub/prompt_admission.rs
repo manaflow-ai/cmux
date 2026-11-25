@@ -5,7 +5,7 @@
 //! never claims the chat while an earlier one still resolves its uploads. It used to be a plain
 //! lock held across every await of that setup (the agent's lock, the inbox, the cold check, the
 //! queue's own waits): one of them that never came back kept every later prompt of the chat
-//! waiting with no answer, while the chat read "ready" (Mango on cosmic-gray: 66 restored agent
+//! waiting with no answer, while the chat read "ready" (one chat: 66 restored agent
 //! notices, none ran, every new delivery retried unanswered).
 //!
 //! Now every bound is here, and there is no other way in:
