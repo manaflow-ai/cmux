@@ -15,7 +15,7 @@
   {
     "id": "app-health-needs-repair-card",
     "what": "Sidebar app-health card/popover that says 'needs a repair' (and its web twin)",
-    "leo": "this is the bullshit i was seeing. the fuck is actionable about \"needs a repair\". if it's unactionable, get rid of it. plus the text is overlapping.",
+    "leo": "what's actionable about \"needs a repair\"? if it's unactionable, get rid of it. plus the text is overlapping. (paraphrased)",
     "ask": "ask-a78f915862",
     "date": "2026-11-22",
     "removed_by": "cmux#55468",
