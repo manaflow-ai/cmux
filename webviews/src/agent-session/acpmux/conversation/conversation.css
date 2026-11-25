@@ -299,7 +299,8 @@
   font-size: var(--cv-font-size);
   line-height: var(--cv-line-height);
   letter-spacing: var(--cv-tracking, var(--instrument-type-chat-tracking, 0px));
-  color: var(--cv-text);
+  /* --cv-user-bubble-text: a look's ink on its own fill (style-tokens.json), e.g. white on a blue pill. */
+  color: var(--cv-user-bubble-text, var(--cv-text));
   white-space: pre-wrap;
   overflow-wrap: break-word;
   -webkit-font-smoothing: antialiased;
@@ -328,7 +329,35 @@
 .acpmux-shell .cv-user__bubble {
   --glass-tint: var(--cv-user-bubble-tint, color-mix(in srgb, var(--agent-text) var(--cv-user-bubble-fill, 14%), transparent));
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
-  --glass-opaque: color-mix(in srgb, var(--agent-text) var(--cv-user-bubble-fill, 14%), var(--glass-surface));
+  --glass-opaque: var(--cv-bubble-plate, color-mix(in srgb, var(--agent-text) var(--cv-user-bubble-fill, 14%), var(--glass-surface)));
+}
+/* A look's bubble ink (--cv-user-bubble-text) carries the bubble's inner text with it: the quiet
+   lines (a quote, Show more, a paste's "Pasted from") at 88% of it, a skill's /name in it, inline
+   code on a wash of it. Each private variable below reads the token with no fallback, so with the
+   token unset it is invalid and every rule falls back to what the bubble draws today. A look that
+   sets both ink and tint keeps its tint as the Reduce Transparency fill too (--cv-bubble-plate is
+   the tint, valid only when the ink is set), so its ink never lands on the grey plate. */
+.cv-user__bubble {
+  --cv-bubble-ink-soft: color-mix(in srgb, var(--cv-user-bubble-text) 88%, transparent);
+  --cv-bubble-ink-wash: color-mix(in srgb, var(--cv-user-bubble-text) 10%, transparent);
+  --cv-bubble-plate: color-mix(in srgb, var(--cv-user-bubble-tint) 100%, var(--cv-user-bubble-text) 0%);
+}
+/* A prompt drawn as Markdown (PromptText.tsx .cv-user__markdown, a .cv-md) and its headings set
+   their own --cv-text color; in the bubble they take the ink. */
+.cv-user__bubble :is(.cv-md, .cv-h) {
+  color: var(--cv-user-bubble-text, var(--cv-text));
+}
+.cv-user__bubble :is(.cv-quote, .cv-user__pasted-from, .cv-expand-row.cv-user__more) {
+  color: var(--cv-bubble-ink-soft, var(--cv-text-muted));
+}
+.cv-user__bubble .cv-expand-row.cv-user__more:hover {
+  color: var(--cv-user-bubble-text, var(--cv-text));
+}
+.cv-user__bubble .cv-skill-word {
+  color: var(--cv-user-bubble-text, var(--agent-link, var(--agent-accent)));
+}
+.cv-user__bubble .cv-code {
+  background: var(--cv-bubble-ink-wash, var(--cv-code-bg));
 }
 /* The transcript look's plain prompt (userMessage.style plain, conversation/transcriptLook.ts): no
    glass, no corner, a 2px rule in the card ring at its leading edge, drawn inset so it takes no room;
