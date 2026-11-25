@@ -243,6 +243,7 @@ pub struct Adopted {
     pub acked_h: u64,
     pub max_out_id: i64,
     pub exited: Option<Option<i32>>,
+    pub launch_credential: super::LaunchCredential,
 }
 
 pub enum Connect {
@@ -579,6 +580,7 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
             acked_h,
             max_out_id,
             exited,
+            launch_credential,
         }) => Adopted {
             version,
             host_build,
@@ -588,6 +590,7 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
             acked_h,
             max_out_id,
             exited,
+            launch_credential,
         },
         Some(HostFrame::Incompatible { min, max, host_build }) => {
             return Ok(Connect::Incompatible { min, max, host_build });
@@ -881,25 +884,5 @@ impl Link {
 }
 
 #[cfg(test)]
-mod launcher_tests {
-    use super::HostLauncher;
-    use std::path::PathBuf;
-
-    /// A daemon whose binary an update replaced still starts agent hosts: on
-    /// Linux its own binary is exec'd from the open inode, never `PATH
-    /// (deleted)`, and argv0 stays the path (a copy named `acpmux` runs as
-    /// acpmux by it). Another binary is exec'd as given.
-    #[test]
-    fn the_host_starts_from_the_open_inode_on_linux() {
-        let launcher = HostLauncher::current().expect("launcher");
-        let exe = std::env::current_exe().expect("current exe");
-        assert_eq!(launcher.exe, exe);
-        if cfg!(target_os = "linux") {
-            assert_eq!(launcher.program(), PathBuf::from("/proc/self/exe"));
-        } else {
-            assert_eq!(launcher.program(), exe);
-        }
-        let other = HostLauncher { exe: PathBuf::from("/opt/cmux/bin/acpmux"), prefix: Vec::new() };
-        assert_eq!(other.program(), PathBuf::from("/opt/cmux/bin/acpmux"));
-    }
-}
+#[path = "link_launcher_tests.rs"]
+mod launcher_tests;

@@ -358,6 +358,7 @@ struct ReplayConversationScreen: View {
                 } else {
                     // placeholder-ok: the chat holds no turns on this phone, so nothing kept can stand in
                     CmuxSpinner(label: Text("Loading this chat's history…")).frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .placeholderBound("chat.history.loading", .milliseconds(2000))
                 }
             case .failed(let message):
                 ContentUnavailableView {

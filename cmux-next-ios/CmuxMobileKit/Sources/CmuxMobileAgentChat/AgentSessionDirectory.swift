@@ -205,6 +205,7 @@ public struct AgentChatDestinationView: View {
             // placeholder-ok: the never-saved tab's spinner above, read aloud
             .accessibilityLabel(Text("Loading chat…"))
             .accessibilityIdentifier("agentChat.destination.loading")
+            .placeholderBound("chat.destination.loading", .milliseconds(2000))
             .onAppear { loadingWords.update(down: true) }
             .onDisappear { loadingWords.update(down: false) }
         } else {
