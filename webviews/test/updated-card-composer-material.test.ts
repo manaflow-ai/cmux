@@ -37,10 +37,12 @@ test("the shared edge is the composer's edge share, one hairline on every side",
 });
 
 /** What a `color-mix(in srgb, A N%, B)` value mixes toward: its last argument, B. */
+/** A theme hook's fallback (`var(--cmux-…, today)` -> `today`): the value drawn when no theme sets it. */
+const unhook = (value: string) => /^var\(--cmux-[a-z-]+,\s*(.*)\)$/.exec(value)?.[1]?.trim() ?? value;
 const mixTarget = (value: string) => /,\s*([^,]+(?:\([^()]*(?:\([^()]*\))?[^()]*\))?)\s*\)$/.exec(value)?.[1]?.trim();
 
 test("the shared edge mixes toward the page under it, as the composer's does, so an opaque theme draws the same line", () => {
-  const composer = mixTarget(declaration(composerStyles, "--acpmux-composer-edge"));
+  const composer = mixTarget(unhook(declaration(composerStyles, "--acpmux-composer-edge")));
   const shared = mixTarget(declaration(material, "--composer-material-edge"));
   expect(composer).toStartWith("var(--agent-page-bg");
   expect(shared).toStartWith("var(--agent-page-bg");
@@ -80,7 +82,10 @@ test("the Updated card paints the shared material at the composer's height", () 
   expect(surface).toContain("box-shadow: var(--composer-material-ring), var(--composer-material-rim)");
   expect(surface).toContain("border-radius: var(--composer-material-radius)");
   const rest = /\.wn-updated \.wn-card-rest \{([^}]*)\}/.exec(card)?.[1] ?? "";
-  expect(rest).toContain("height: var(--composer-material-height)");
+  // At least the composer's one-line box, and as tall as its lines (u51892: a fixed 48 cut the change
+  // line's descenders): never a fixed height.
+  expect(rest).toContain("min-height: var(--composer-material-height)");
+  expect(rest).not.toMatch(/(^|[^-])height:/);
 });
 
 // Review F3 of #37615: the sidebar no longer draws a native glass under the card's page, so the

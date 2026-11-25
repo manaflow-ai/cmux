@@ -21,7 +21,8 @@ TILE_CHANGE_SHARE of its pixels differ (quantized gray, as the judge's). Two thi
                  how much of the window that was. A change of more than half the window there is the tail of the
                  action before, not the load: it stays in.
   blinks         a change of at most BLINK_TILES tiles back to a picture each of them already showed since the mark
-                 (a terminal cursor blinking).
+                 (a terminal cursor blinking), or of at most OSCILLATION_TILES tiles that each went back to an earlier
+                 picture OSCILLATION_RETURNS times (a cursor and a caret blinking together).
 
 Oddity kinds (oddities()), each with the frame index after the mark it is first seen at:
   placement             the tab strip (or the sidebar, for a workspace) first changed away from where it ends changing:
@@ -46,12 +47,43 @@ QUIET_MS = 300.0
 TILE = 16
 TILE_CHANGE_SHARE = 0.02
 BLINK_TILES = 2
+OSCILLATION_RETURNS = 2
+OSCILLATION_TILES = 12
+OSCILLATION_STATES = 3
+OSCILLATION_MATCH_SHARE = 0.15
 AMBIENT_S = 0.5
 AMBIENT_MAX_SHARE = 0.5
 STATES_PER_TILE = 8
 ODDITY_KINDS = ("placement", "retarget", "flicker", "blank", "layout-after-content", "shift", "late-change",
                 "never-settled")
 _NONZERO = re.compile(b"[^\x00]")
+# Two coarse gray grids, the second offset by half a step: a pixel changed when it moved a step in both, so a change of
+# less than 8 gray levels never counts. The recording's compression redraws a still window with +-1 to 6 levels of
+# noise, which flipped the judge's 8-level grid and read as late changes seconds after an action (a CI mini, 2026-11-18).
+COARSE = bytes(v >> 4 for v in range(256))
+COARSE_SHIFTED = bytes(min(255, v + 8) >> 4 for v in range(256))
+
+
+def coarse(g):
+    """`g`'s two coarse grids (COARSE, COARSE_SHIFTED)."""
+    return g.translate(COARSE), g.translate(COARSE_SHIFTED)
+
+
+_ONE = bytes([0] + [1] * 255)
+
+
+def changed_both(a, b, w, h, tile=TILE):
+    """The tiles where enough pixels changed in both coarse grids between coarse pairs `a` and `b` (module doc)."""
+    if a[0] == b[0] or a[1] == b[1] or len(a[0]) != len(b[0]):
+        return changed_tiles(a[0], b[0], w, h, tile) if len(a[0]) != len(b[0]) else set()
+    n = len(a[0])
+
+    def moved(x, y):  # 1 where the pixel moved a step in this grid
+        return int.from_bytes((int.from_bytes(x, "little") ^ int.from_bytes(y, "little")).to_bytes(n, "little")
+                              .translate(_ONE), "little")
+
+    both = (moved(a[0], b[0]) & moved(a[1], b[1])).to_bytes(n, "little")
+    return changed_tiles(both, bytes(n), w, h, tile)
 
 
 def tiles_of(w, h, tile=TILE):
@@ -102,13 +134,13 @@ def ambient(frames, w, h, windows, tile=TILE, max_share=AMBIENT_MAX_SHARE):
     than `max_share` of the window is an action's (the tail of the one before), not the load's motion: left out."""
     out = set()
     cols, rows = tiles_of(w, h, tile)
-    qs = [(t, g.translate(judge.QUANT)) for t, g in frames]
+    qs = [(t, coarse(g)) for t, g in frames]
     for t0, t1 in windows:
         inside = [q for t, q in qs if t0 < t <= t1]
         prior = [q for t, q in qs if t <= t0][-1:]
         seq = prior + inside
         for a, b in zip(seq, seq[1:]):
-            changed = changed_tiles(a, b, w, h, tile)
+            changed = changed_both(a, b, w, h, tile)
             if len(changed) <= max_share * cols * rows:
                 out |= changed
     return out
@@ -123,32 +155,50 @@ def settle(frames, mark, w, h, frame_ms, end=None, ambient_tiles=(), quiet_ms=QU
     if cols * rows:
         out["ambient_share"] = round(len(set(ambient_tiles)) / (cols * rows), 3)
     before = [f for f in frames if f[0] <= mark][-1:] or frames[:1]
-    after = [f for f in frames if f[0] > mark]
+    # The end flip's own frame is the harness's, not the action's: on a CI mini (2026-11-18) it carried a change in the
+    # window in most rounds, "still changing 0 ms before the recording ended" at any record length (3 s and 6 s).
+    after = [f for f in frames if f[0] > mark and (end is None or f[0] < end)]
     if not before or not after:
         out["settle_note"] = "no frames after the action"
         return out
     end = end if end is not None else after[-1][0] + frame_ms / 1000
     skip = set(ambient_tiles)
-    prev = before[0][1].translate(judge.QUANT)
+    prev = coarse(before[0][1])
     seen = {}  # tile -> its pictures since the mark (the one before the mark first)
-    real = []
+    steps = []  # (frame index, changed tiles, whether every one went back to a picture it showed)
+    returns = {}  # tile -> how often it went back to a picture it showed (OSCILLATION_MATCH_SHARE alike)
+    pictures = {}  # tile -> its pictures since the mark, OSCILLATION_MATCH_SHARE alike folded
     for i, (t, g) in enumerate(after):
-        q = g.translate(judge.QUANT)
-        changed = changed_tiles(prev, q, w, h, tile) - skip
+        q = coarse(g)
+        changed = changed_both(prev, q, w, h, tile) - skip
         if changed:
             revisit = True
             for k in changed:
-                states = seen.setdefault(k, [tile_bytes(prev, w, h, k, tile)])
-                now = tile_bytes(q, w, h, k, tile)
+                states = seen.setdefault(k, [tile_bytes(prev[0], w, h, k, tile)])
+                now = tile_bytes(q[0], w, h, k, tile)
                 if not any(judge.diff_share(now, s) <= TILE_CHANGE_SHARE for s in states):
                     revisit = False
                     states.append(now)
                     del states[:-STATES_PER_TILE]
-            if len(changed) <= BLINK_TILES and revisit:
-                out["blinks"] += 1
-            else:
-                real.append(i)
+                # Oscillation matches looser: the recording's compression redraws a blinking caret a little differently.
+                loose = pictures.setdefault(k, [tile_bytes(prev[0], w, h, k, tile)])
+                if any(judge.diff_share(now, s) <= OSCILLATION_MATCH_SHARE for s in loose):
+                    returns[k] = returns.get(k, 0) + 1
+                else:
+                    loose.append(now)
+            steps.append((i, changed, revisit))
         prev = q
+    # A tile that went back to an earlier picture OSCILLATION_RETURNS times or more, among at most OSCILLATION_STATES
+    # pictures (the one before the action, then off and on), blinks: a terminal cursor and a composer caret at once,
+    # more than BLINK_TILES tiles (a CI mini, 2026-11-18). A change of only such tiles is a blink, its first showing
+    # included. A tile cycling through more pictures (a running animation) still counts.
+    oscillating = {k for k, n in returns.items() if n >= OSCILLATION_RETURNS and len(pictures[k]) <= OSCILLATION_STATES}
+    real = []
+    for i, changed, revisit in steps:
+        if (len(changed) <= BLINK_TILES and revisit) or (len(changed) <= OSCILLATION_TILES and changed <= oscillating):
+            out["blinks"] += 1
+        else:
+            real.append(i)
     out["change_frames"] = real[:60]
     if not real:
         out["settle_note"] = "nothing in the window changed after the action"

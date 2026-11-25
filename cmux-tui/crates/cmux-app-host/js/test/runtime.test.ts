@@ -76,6 +76,19 @@ describe("lists", () => {
     globalThis.setItems = setItems
     return { render: () => VStack([ForEach({ items, key: (x) => x.id }, (x) => Text(() => x().t))]) }`)
 
+  test("a movable list publishes stable row keys and receives the final index", () => {
+    const host = new FakeHost(app(`
+      return { render: () => Reorderable({ items: () => ["pin-a", "pin-b"], key: x => x,
+        onMove: (id, index) => globalThis.moved = [id, index] }, x => Text(x)) }`))
+    host.mount("pins", "render")
+    const nodes = host.lastBatch("pins").filter(op => op.op === "create")
+    expect(nodes.filter(node => node.type === "Text").map(node => node.props?.reorderKey)).toEqual(["pin-a", "pin-b"])
+    const list = nodes.find(node => node.type === "Reorderable")!
+    expect(list.props?.onMove).toBe(true)
+    host.dispatch("pins", list.id, "move", { id: "pin-b", index: 0 })
+    expect(host.eval("moved")).toEqual(["pin-b", 0])
+  })
+
   test("keyed reorder emits only a children op", async () => {
     const host = new FakeHost(listApp)
     host.mount("m1", "render")
@@ -139,6 +152,111 @@ describe("events and menus", () => {
     host.mount("m1", "render")
     host.dispatch("m1", host.findNode("m1", (n) => n.type === "Button")!, "tap")
     expect(host.logs.some(([l, m]) => l === "error" && m.includes("bad tap"))).toBe(true)
+  })
+})
+
+// A bound TextField's text: the field reports what it shows with each edit, submit and cancel, and the
+// host sends the app's value back only when it differs from that (the To Do "New item" field kept
+// "Buy milk" after Return, and the next item was typed after it: "Buy milkBook flights").
+describe("TextField text", () => {
+  const todo = app(`
+    const [draft, setDraft] = signal("")
+    globalThis.added = []
+    return { render: () => TextField(draft, { onEdit: setDraft, onSubmit: (t) => { setDraft(""); if (t) added.push(t) }, onCancel: () => setDraft("") }) }`)
+  const textUpdates = (host: FakeHost, id: string, from: number) =>
+    host
+      .batches("m1")
+      .slice(from)
+      .flat()
+      .filter((op) => op.op === "update" && op.id === id && "text" in (op.props ?? {}))
+      .map((op) => op.props!.text)
+
+  test("an edit is not echoed back to the field that sent it", () => {
+    const host = new FakeHost(todo)
+    host.mount("m1", "render")
+    const field = host.findNode("m1", (n) => n.type === "TextField")!
+    const before = host.batches("m1").length
+    for (const text of ["B", "Bu", "Buy", "Buy milk"]) host.dispatch("m1", field, "edit", { text })
+    expect(textUpdates(host, field, before)).toEqual([])
+  })
+
+  test("submit clears the field after edits", () => {
+    const host = new FakeHost(todo)
+    host.mount("m1", "render")
+    const field = host.findNode("m1", (n) => n.type === "TextField")!
+    host.dispatch("m1", field, "edit", { text: "Buy milk" })
+    const before = host.batches("m1").length
+    host.dispatch("m1", field, "submit", { text: "Buy milk" })
+    expect(host.eval("added")).toEqual(["Buy milk"])
+    expect(textUpdates(host, field, before)).toEqual([""])
+  })
+
+  test("submit clears the field when no edit reached the app (the bound value never left \"\")", () => {
+    const host = new FakeHost(todo)
+    host.mount("m1", "render")
+    const field = host.findNode("m1", (n) => n.type === "TextField")!
+    const before = host.batches("m1").length
+    host.dispatch("m1", field, "submit", { text: "Buy milk" })
+    expect(host.eval("added")).toEqual(["Buy milk"])
+    expect(textUpdates(host, field, before)).toEqual([""])
+    host.dispatch("m1", field, "submit", { text: "Book flights" })
+    expect(host.eval("added")).toEqual(["Buy milk", "Book flights"])
+    expect(textUpdates(host, field, before)).toEqual(["", ""])
+  })
+
+  test("cancel with the field's text clears it", () => {
+    const host = new FakeHost(todo)
+    host.mount("m1", "render")
+    const field = host.findNode("m1", (n) => n.type === "TextField")!
+    const before = host.batches("m1").length
+    host.dispatch("m1", field, "cancel", { text: "half typed" })
+    expect(textUpdates(host, field, before)).toEqual([""])
+  })
+
+  test("a field bound to a computed is not sent a stale value on edit", () => {
+    const host = new FakeHost(
+      app(`
+      const [draft, setDraft] = signal("")
+      const shown = computed(() => draft())
+      return { render: () => TextField(shown, { onEdit: setDraft }) }`),
+    )
+    host.mount("m1", "render")
+    const field = host.findNode("m1", (n) => n.type === "TextField")!
+    const before = host.batches("m1").length
+    for (const text of ["a", "ab", "abc"]) host.dispatch("m1", field, "edit", { text })
+    expect(textUpdates(host, field, before)).toEqual([])
+  })
+
+  test("an async submit keeps the typed text until it settles, then the app's value shows", async () => {
+    const host = new FakeHost(
+      app(`
+      const [name, setName] = signal("old")
+      let finish
+      globalThis.finish = () => finish()
+      return { render: () => TextField(name, { onSubmit: () => new Promise((r) => { finish = () => { setName(""); r() } }) }) }`),
+    )
+    host.mount("m1", "render")
+    const field = host.findNode("m1", (n) => n.type === "TextField")!
+    const before = host.batches("m1").length
+    host.dispatch("m1", field, "submit", { text: "new" })
+    await host.settle()
+    expect(textUpdates(host, field, before)).toEqual([])
+    host.eval("finish()")
+    await host.settle()
+    expect(textUpdates(host, field, before)).toEqual([""])
+  })
+
+  test("an app that changes the typed text sends its value back", () => {
+    const host = new FakeHost(
+      app(`
+      const [draft, setDraft] = signal("")
+      return { render: () => TextField(draft, { onEdit: (t) => setDraft(t.toUpperCase()) }) }`),
+    )
+    host.mount("m1", "render")
+    const field = host.findNode("m1", (n) => n.type === "TextField")!
+    const before = host.batches("m1").length
+    host.dispatch("m1", field, "edit", { text: "ab" })
+    expect(textUpdates(host, field, before)).toEqual(["AB"])
   })
 })
 
@@ -264,6 +382,8 @@ describe("node budget accounting", () => {
       await host.settle(1)
     }
     expect(host.logs.filter(([l]) => l === "error")).toEqual([])
+    expect(host.tree("m1").nodes.size).toBe(5)
+    expect(host.findNode("m1", (n) => n.props.text === "a")).toBeUndefined()
   })
 
   test("removing list rows releases their whole subtree", async () => {
@@ -277,5 +397,10 @@ describe("node budget accounting", () => {
       await host.settle(1)
     }
     expect(host.logs.filter(([l]) => l === "error")).toEqual([])
+    expect(host.tree("m1").nodes.size).toBe(402)
+    host.eval("setItems([])")
+    await host.settle()
+    expect(host.tree("m1").nodes.size).toBe(2)
+    expect(host.findNode("m1", (n) => n.type === "Text")).toBeUndefined()
   })
 })

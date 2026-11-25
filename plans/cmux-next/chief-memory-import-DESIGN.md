@@ -87,7 +87,14 @@ plan table with a Write button. Not built in the first commit (see report); the 
    refuses with a turn running; `dry_run` writes nothing.
 
 
-## Bring your history (2026-11-02)
+## Bring your history (2026-11-02, removed 2026-11-20)
+
+Removed on 2026-11-20 (David Beyer's feedback on the Nov 20 call: oddly hidden, and it tied memory to
+the Chief only; Lawrence: remove it). The palette action is unbound, and the page, the Settings > Home
+button, the Chief row's menu item, the first-run page, the Home first-run memory offer and the Set Up
+cmux card's chat history row are gone. Memory already imported stays where it is.
+`optchat-chief memory import-from` stays in the Chief tool. The two `chief.importMemories` catalog
+rows leave with the next app FFI re-pin step. The rest of this section is the history of the design.
 
 Leo: "we should do that, and have flows for dudes coming from grokbot/muse/dot/instinct";
 then "let's do all these".

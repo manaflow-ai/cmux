@@ -19,12 +19,28 @@ const begun: CloudStartProgress = {
 };
 const known = { machine: "paint-dev", size: "4 CPU · 16 GB", secrets: 3, network: "limited" } as const;
 const timing = { startedAt: 10_000, finishedAt: 12_400 } as const;
+const copyProgress = {
+  hasRepository: true,
+  repository: "manaflow-ai/cmux",
+  machine: known.machine,
+  machineFinishedAt: 12_400,
+  clone: { state: "running", phase: "copy", progress: { filesDone: 1_204, filesTotal: 3_310 } },
+} satisfies Partial<CloudStartProgress>;
+const setupRunning = {
+  hasRepository: true,
+  repository: "manaflow-ai/cmux",
+  clone: { state: "done", ...timing },
+  setup: { state: "running", status: "building" },
+} satisfies Partial<CloudStartProgress>;
 
-// Connect GitHub's fixture connection: the host opens GitHub, and the page never becomes the key one again here.
+// Connect GitHub's fixture connection: the host opens GitHub, the page never becomes the key one again here, and
+// no host says GitHub changed. Every hook is the fixture's own: the default ones read `window` when the module
+// loads, and the gallery's bun runners (manifest.ts, touched.ts) load this file with no window.
 const galleryGitHub = createGitHubPicker(
   async () => ({ opened: true }),
   () => () => undefined,
   () => false,
+  () => () => undefined,
 );
 
 // The checklist folds behind its summary; open it to show the clone row's line.
@@ -50,6 +66,50 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
   widths: { narrow: 400, normal: 620, wide: 760 },
   height: 380,
   variants: {
+    // The quiet view a person sees while a start is on its way (no showSteps): one line that names the
+    // stage, then why the chat waits and about how long. `inline` is the shipped look; the
+    // `quiet-stacked-*`, `quiet-hint-*` and `quiet-thinking` variants show the other arms of
+    // `cloud-start-quiet-look` on the same stages.
+    "quiet-machine": {
+      note: "Just sent: the line says the Cloud machine is starting and that it usually takes under a minute.",
+      props: { start: { ...begun, step: "machine" } },
+    },
+    "quiet-copy": {
+      note: "The machine is up and the project copies; with no progress reported, the usual wait.",
+      props: { start: { ...begun, step: "folder", ...known } },
+    },
+    "quiet-copy-progress": {
+      note: "The copy reports its files: the line shows them in place of the usual wait.",
+      props: { start: { ...begun, ...copyProgress } },
+    },
+    "quiet-setup": {
+      note: "The environment's setup script runs for the first time: a few minutes the first time.",
+      props: { start: { ...begun, ...setupRunning } },
+    },
+    "quiet-agent": {
+      note: "Last stage: the agent starts on the machine, usually a few seconds.",
+      props: { start: { ...begun, step: "opening", agent: "Claude Code", ...known } },
+    },
+    "quiet-stacked-machine": {
+      note: "Arm stacked: the stage on the live line, the usual wait as a secondary line under it.",
+      props: { start: { ...begun, step: "machine" }, quietLook: "stacked" },
+    },
+    "quiet-stacked-setup": {
+      note: "Arm stacked, the setup stage.",
+      props: { start: { ...begun, ...setupRunning }, quietLook: "stacked" },
+    },
+    "quiet-hint-copy": {
+      note: "Arm hint: the inline line over one thin segment per stage this start runs (2 of 4).",
+      props: { start: { ...begun, ...copyProgress, setup: { state: "pending" } }, quietLook: "hint" },
+    },
+    "quiet-hint-setup": {
+      note: "Arm hint, the setup stage (3 of 4).",
+      props: { start: { ...begun, ...setupRunning }, quietLook: "hint" },
+    },
+    "quiet-thinking": {
+      note: "Arm thinking (before this change): Thinking alone, no stage and no wait.",
+      props: { start: { ...begun, step: "machine" }, quietLook: "thinking" },
+    },
     sent: {
       note: "Just sent: the message is already in the chat shell with one compact Preparing machine line.",
       props: { start: begun },
@@ -116,7 +176,7 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
           code: "cloud_folder_too_big",
           refusedHere: true,
           message:
-            "~/Projects is too big to copy to a Cloud machine (at least 20.1 GB in 323,831 files). It holds repositories of its own: pick one to start in, or start without a folder.",
+            "~/Projects is too big to copy (at least 20.1 GB in 323,831 files). Pick one of its repositories, or start without a folder.",
           tooBig: {
             folder: "~/Projects",
             repos: ["cmux", "cmux-platform-docs", "dotfiles", "leo-workspace", "paint", "work/api", "work/web"].map(
@@ -143,7 +203,7 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
           code: "cloud_folder_too_big",
           refusedHere: true,
           message:
-            "~/src is too big to copy to a Cloud machine (at least 20 GB in 51,204 files). It holds repositories of its own: pick one to start in, or start without a folder.",
+            "~/src is too big to copy (at least 20 GB in 51,204 files). Pick one of its repositories, or start without a folder.",
           tooBig: {
             folder: "~/src",
             repos: Array.from({ length: 24 }, (_, index) => ({
@@ -169,7 +229,7 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
           code: "cloud_folder_too_big",
           refusedHere: true,
           message:
-            "~/src is too big to copy to a Cloud machine (at least 20 GB in 51,204 files). It holds repositories of its own: pick one to start in, or start without a folder.",
+            "~/src is too big to copy (at least 20 GB in 51,204 files). Pick one of its repositories, or start without a folder.",
           tooBig: {
             folder: "~/src",
             repos: Array.from({ length: 24 }, (_, index) => ({
@@ -194,7 +254,7 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
           code: "cloud_folder_too_big",
           refusedHere: true,
           message:
-            "~/Downloads is too big to copy to a Cloud machine (at least 20 GB in 1,204 files; a copy sends at most 20 GB or 500,000 files). Pick a smaller folder, or start without a folder.",
+            "~/Downloads is too big to copy (at least 20 GB in 1,204 files; the limit is 20 GB or 500,000 files). Pick a smaller folder, or start without one.",
           tooBig: { folder: "~/Downloads", repos: [], more: false },
         },
         onPickFolder: () => undefined,

@@ -33,8 +33,14 @@ extension ChatController {
     /// opens nothing). A card tap is the one time a received card may fetch its preview
     /// (HomeLinkPreviews).
     func openLink(_ hit: MessagesWindowView.Hit, at p: CGPoint) -> Bool {
+        openLink(linkTarget(hit, at: p), ref: hit.row.ref)
+    }
+
+    /// Opens `target`, a link of the part `ref`: a click's (above) or an accessibility press's
+    /// (`TranscriptLinkElement`), so both open the same way. False when there is no link.
+    func openLink(_ target: PaneLinkTarget?, ref: PartRef) -> Bool {
         let other = NSApp.currentEvent?.modifierFlags.intersection(.deviceIndependentFlagsMask).isSuperset(of: [.command, .shift]) == true
-        switch linkTarget(hit, at: p) {
+        switch target {
         case let .text(url)?:
             // An agent-message fold's row: expands or collapses in place (HomeStore.toggleAgentMessages).
             if let url, let group = HomeAgentMessageRow.group(toggledBy: url) {
@@ -44,7 +50,7 @@ extension ChatController {
             // An app link (a workspace, pane, tab, chat or Chief subagent) or a path goes to the host, never to the system.
             if let url, url.isCmuxAppLink || url.isHomePathLink { onAppLink?(url) } else if let url { onOpenLink(url, other) }
         case let .card(raw, url)?:
-            if let url { intents?.linkTapped(hit.row.ref, url: raw); onOpenLink(url, other) }
+            if let url { intents?.linkTapped(ref, url: raw); onOpenLink(url, other) }
         case nil:
             return false
         }

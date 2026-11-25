@@ -27,7 +27,9 @@ public import Foundation
 public final class AppHealthFeeds {
     /// The app's health (the Rust model's host), which every feed writes to.
     public let health: AppHealth
-    /// App health's popover; a trigger (the restore lane's sidebar card) calls `popover.open(over:)`.
+    /// App health's popover; its one trigger (the Restoring sessions card's Details) calls `popover.open(over:)`.
+    /// The sidebar has no health line (Leo, 2026-11-22, ask-eacfb2ec1f: "we dont need it. ever."): the parts
+    /// repair themselves and say nothing.
     public let popover: AppHealthPopover
     private let daemon: DaemonService
     private let stateDirectory: URL?
@@ -36,22 +38,23 @@ public final class AppHealthFeeds {
     public let pageFeed: any PageHealthFeed
     /// The follow of the local daemon connection (`AppHealthConnectionFeed`), for the app's life.
     private var connectionFeed: Task<Void, Never>?
-    /// Each window's footer line (``makeIndicator(over:)``) and the headline they show.
-    private let indicators = NSHashTable<AppHealthIndicatorView>.weakObjects()
-    private var headline: AppHealth.Headline?
+    /// Where each part is (the chat a page shows), for the card's words.
+    private let places: AppHealthPlaces
 
     /// - Parameters:
     ///   - stateDirectory: The session daemon's state directory, whose registry size is read once.
     ///   - work: The app's blocking-work lanes (the size read runs on `.files`).
-    ///   - overlayProcess: The overlay pages' one web content process, for the popover's panel.
-    public init(daemon: DaemonService, stateDirectory: URL?, work: BackgroundWork, overlayProcess: PageOverlayProcess?) {
+    ///   - places: Where each part is; nil: the pages' tabs in `daemon`'s store (``AppHealthPlaces/init(store:)``).
+    public init(daemon: DaemonService, stateDirectory: URL?, work: BackgroundWork, places: AppHealthPlaces? = nil) {
         let health = AppHealth()
         self.health = health
         self.daemon = daemon
         self.stateDirectory = stateDirectory
         self.work = work
+        let places = places ?? AppHealthPlaces(store: daemon.store)
+        self.places = places
         pageFeed = AppHealthPageFeed(health: health)
-        popover = AppHealthPopover(health: health, overlayProcess: overlayProcess)
+        popover = AppHealthPopover(health: health, places: places)
     }
 
     /// Before the daemon starts (its first ensure is a health fact). The debug socket's `debug.health`
@@ -59,11 +62,6 @@ public final class AppHealthFeeds {
     public func start() {
         guard connectionFeed == nil else { return }
         let health = health
-        // The footer lines follow the snapshot, in order, on main (one subscription for the app's life, as this object's).
-        health.subscribe { [self] snapshot in
-            let headline = AppHealth.headline(of: snapshot)
-            MainDelivery().later { self.show(headline) } // always queued, so the lines keep the snapshots' order
-        }
         // A restore that still makes progress holds the watch's automatic replace.
         daemon.recovery.holdsReplace = { health.holdsReplace }
         // The session daemon: the launcher's facts, and once the registry's size.
@@ -94,21 +92,6 @@ public final class AppHealthFeeds {
         health.setInjector(.acpmux) { [weak daemon] _, fault in await Self.dropConnection(daemon, fault: fault) }
         health.setInjector(.pageHost) { [weak daemon] _, fault in await Self.removeListenerFile(daemon, fault: fault) }
         #endif
-    }
-
-    /// A window's footer line: hidden while all is well, a press opens the popover over `window`.
-    public func makeIndicator(over window: @escaping @MainActor () -> NSWindow?) -> AppHealthIndicatorView {
-        let view = AppHealthIndicatorView()
-        view.onPress = { [popover] in popover.open(over: window()) }
-        view.show(headline)
-        indicators.add(view)
-        return view
-    }
-
-    private func show(_ headline: AppHealth.Headline?) {
-        guard headline != self.headline else { return }
-        self.headline = headline
-        for view in indicators.allObjects { view.show(headline) }
     }
 
     nonisolated static func note(_ signal: DaemonHealthSink.Signal, health: AppHealth) {
@@ -255,6 +238,31 @@ final class AppHealthStoppedOwner {
             return Darwin.kill(stopped, SIGCONT) == 0
         default:
             return false
+        }
+    }
+}
+#endif
+
+#if DEBUG || CMUX_BENCH_HOOKS
+extension AppHealthFeeds {
+    /// `debug.app_health_card {state, close?}` (DEBUG and bench builds), for captures of app health's card over the
+    /// main window: `state` failed (Agent chat needs a repair, with Repair Now), repairing, or quiet (all clear),
+    /// from a fixture snapshot; the model is not touched. `close` takes the card away.
+    public func debugMethod() -> ControlMethod {
+        .mainActor("debug.app_health_card") { [weak self] call in
+            guard let self else { return .value(.null) }
+            if call.params["close"]?.boolValue == true {
+                popover.close()
+                popover.fixture = nil
+                return .value(["shown": false])
+            }
+            let state = call.params["state"]?.stringValue ?? "failed"
+            popover.fixture = AppHealthCard.fixture(state: state)
+            popover.close()
+            popover.open(over: NSApp.mainWindow ?? NSApp.windows.first { $0.isVisible && $0.canBecomeMain })
+            // A capture host's app is not active: the card stays up as it would over the person's active window.
+            popover.panel?.hidesWhenInactive = false
+            return .value(["shown": true, "state": .string(state)])
         }
     }
 }

@@ -35,22 +35,63 @@ extension CEFTab: PageInfoProviding {
         return .grouping(cookieDomains: cookies.map(\.domain), pageHost: pageHost, thirdPartyPolicy: .allowed)
     }
 
-    public func pageInfoDeleteSiteData(domains: [String]) async {
-        guard let browserID else { return }
+    public func pageInfoDeleteSiteData(domains: [String]) async throws(PageInfoSiteDataDeleteError) {
+        guard let browserID else { throw .tabClosed }
+        let runtime = runtime
+        try await Self.deleteSiteData(
+            domains: domains,
+            readCookies: { try await runtime.cookies(browserID) },
+            deleteCookie: { cookie in _ = try await runtime.deleteCookies(browserID, url: "https://\(cookie.host)/", name: cookie.name) },
+            clearStorage: { origin in
+                _ = try await runtime.devTools(browserID, method: "Storage.clearDataForOrigin",
+                                               params: ["origin": origin, "storageTypes": "all"])
+            })
+    }
+
+    /// Deletes the cookies of `domains`' sites, then clears their storage
+    /// (local, session, IndexedDB, cache, service workers: no CEF API, so
+    /// DevTools per origin). Storage is cleared even when the cookies fail;
+    /// the first failure (an unreadable jar before all) is thrown after,
+    /// never answered as success.
+    static func deleteSiteData(
+        domains: [String],
+        readCookies: () async throws -> [CEFCookie],
+        deleteCookie: (CEFCookie) async throws -> Void,
+        clearStorage: (String) async throws -> Void
+    ) async throws(PageInfoSiteDataDeleteError) {
         let targets = Set(domains.map(SiteDomain.registrable))
-        let cookies = (try? await runtime.cookies(browserID)) ?? []
-        var deleted: Set<CEFCookie> = []
-        for cookie in cookies where targets.contains(SiteDomain.registrable(cookie.domain)) && deleted.insert(cookie).inserted {
-            _ = try? await runtime.deleteCookies(browserID, url: "https://\(cookie.host)/", name: cookie.name)
+        var failure: PageInfoSiteDataDeleteError?
+        do {
+            let cookies = try await readCookies()
+            var deleted: Set<CEFCookie> = []
+            var kept = 0
+            var reason = ""
+            for cookie in cookies where targets.contains(SiteDomain.registrable(cookie.domain)) && deleted.insert(cookie).inserted {
+                do {
+                    try await deleteCookie(cookie)
+                } catch {
+                    kept += 1
+                    reason = PageInfoSiteDataDeleteError.describe(error)
+                }
+            }
+            if kept > 0 { failure = .cookiesNotDeleted(count: kept, reason: reason) }
+        } catch {
+            failure = .cookiesUnreadable(reason: PageInfoSiteDataDeleteError.describe(error))
         }
-        // Storage (local, session, IndexedDB, cache, service workers) has no
-        // CEF API; DevTools clears it per origin.
-        for domain in targets {
+        var uncleared = 0
+        var reason = ""
+        for domain in targets.sorted() {
             for scheme in ["https", "http"] {
-                _ = try? await runtime.devTools(browserID, method: "Storage.clearDataForOrigin",
-                                                params: ["origin": "\(scheme)://\(domain)", "storageTypes": "all"])
+                do {
+                    try await clearStorage("\(scheme)://\(domain)")
+                } catch {
+                    uncleared += 1
+                    reason = PageInfoSiteDataDeleteError.describe(error)
+                }
             }
         }
+        if let failure { throw failure }
+        if uncleared > 0 { throw .storageNotCleared(count: uncleared, reason: reason) }
     }
 
     /// Chromium's site exceptions for `origin`: kinds whose value differs

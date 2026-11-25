@@ -223,7 +223,7 @@ pub fn status_candidate(name: &str, host_pressure: &Value, at_ms: u64) -> Candid
     if host_pressure.get("ok").is_some_and(|ok| !ok.is_null()) {
         health.set("pressure", host_pressure.clone());
     }
-    Candidate { name: name.to_owned(), local: true, health, health_at: Some(at_ms) }
+    Candidate { name: name.to_owned(), local: true, health, health_at: Some(at_ms), via_hub: false }
 }
 
 /// This machine as a candidate from readings that never wait: the meter's last
@@ -237,6 +237,7 @@ pub fn local_candidate() -> Candidate {
         local: true,
         health: local_health(&local_readings(), pressure),
         health_at: Some(crate::store::now_ms()),
+        via_hub: false,
     }
 }
 

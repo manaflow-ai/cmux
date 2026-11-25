@@ -107,7 +107,7 @@
 }
 /* The other looks (placeholder.experiment.ts), compared in the gallery: none moves. */
 .acpmux-chat-minimap__placeholder[data-look="skeleton"] {
-  background: color-mix(in srgb, var(--agent-text) 12%, transparent);
+  background: var(--ds-surface-inset);
 }
 .acpmux-chat-minimap__placeholder[data-look="dotted"] {
   background: none;

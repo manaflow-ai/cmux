@@ -17,6 +17,10 @@ public struct MobileHostAppearance: Sendable, Equatable {
     /// The theme's own accent, or the art's hue under Art Color.
     public var accentColor: String?
     public var backgroundOpacity: Double
+    /// The window's material as the Mac resolved it, in Ghostty's `background-blur` C encoding: 0 none
+    /// (opaque or plain see-through), > 0 a frost radius in points, -1 regular Liquid Glass, -2 clear
+    /// Liquid Glass (`WindowBackdrop`: glass the Mac cannot draw is already its frost radius here).
+    public var backgroundBlur: Int
     /// A phone-sized JPEG of the picture the windows show, nil with none.
     public var wallpaper: URL?
     /// The tint the windows lay over that picture, 0...1.
@@ -31,7 +35,7 @@ public struct MobileHostAppearance: Sendable, Equatable {
 
     public init(background: String, foreground: String, palette: [String], selectionBackground: String? = nil,
                 selectionForeground: String? = nil, cursor: String? = nil, accent: String = "neutral",
-                accentColor: String? = nil, backgroundOpacity: Double = 1, wallpaper: URL? = nil,
+                accentColor: String? = nil, backgroundOpacity: Double = 1, backgroundBlur: Int = 0, wallpaper: URL? = nil,
                 wallpaperTintOpacity: Double = 0, terminal: [String] = [], look: Look? = nil) {
         self.background = background
         self.foreground = foreground
@@ -42,6 +46,7 @@ public struct MobileHostAppearance: Sendable, Equatable {
         self.accent = accent
         self.accentColor = accentColor
         self.backgroundOpacity = backgroundOpacity
+        self.backgroundBlur = backgroundBlur
         self.wallpaper = wallpaper
         self.wallpaperTintOpacity = wallpaperTintOpacity
         self.terminal = terminal
@@ -114,6 +119,7 @@ extension MobileHostLaunch {
         var theme: [String: Any] = [
             "background": appearance.background, "foreground": appearance.foreground, "palette": appearance.palette,
             "accent": appearance.accent, "background_opacity": appearance.backgroundOpacity,
+            "background_blur": appearance.backgroundBlur,
         ]
         if let value = appearance.selectionBackground { theme["selection_background"] = value }
         if let value = appearance.selectionForeground { theme["selection_foreground"] = value }

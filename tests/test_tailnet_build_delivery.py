@@ -152,15 +152,18 @@ class ShippedAcpmuxCarriesItsFeaturesTests(unittest.TestCase):
             self.assertEqual(features.get(name), [f"acpmux/{name}"], name)
 
     def test_every_shipped_unix_acpmux_build_passes_the_shipping_features(self):
-        lines = self.WORKFLOW.read_text().splitlines()
-        builds = [(n, line) for n, line in enumerate(lines, 1)
-                  if re.search(r"-p acpmux(-standalone)? --bin", line) and "windows" not in line]
-        self.assertGreaterEqual(len(builds), 3, builds)
-        for n, line in builds:
-            text = line + (lines[n] if line.rstrip().endswith("\\") else "")
-            self.assertIn("acpmux_features", text, f"{self.WORKFLOW.name}:{n} builds acpmux without its features")
-        script = "\n".join(lines)
-        self.assertIn("acpmux-build-features.sh crates/acpmux-standalone/Cargo.toml", script)
+        # The Mac-built macOS legs' cargo builds are in scripts/ci/cmux-tui-mac-cargo-builds.sh.
+        count = 0
+        for path in (self.WORKFLOW, ROOT / "scripts/ci/cmux-tui-mac-cargo-builds.sh"):
+            lines = path.read_text().splitlines()
+            builds = [(n, line) for n, line in enumerate(lines, 1)
+                      if re.search(r"-p acpmux(-standalone)? --bin", line) and "windows" not in line]
+            count += len(builds)
+            for n, line in builds:
+                text = line + (lines[n] if line.rstrip().endswith("\\") else "")
+                self.assertIn("acpmux_features", text, f"{path.name}:{n} builds acpmux without its features")
+        self.assertGreaterEqual(count, 3)
+        self.assertIn("acpmux-build-features.sh crates/acpmux-standalone/Cargo.toml", self.WORKFLOW.read_text())
 
     def test_the_apps_acpmux_carries_the_hub_carrier(self):
         """The app's acpmux is the cmux binary (bin/acpmux aliases bin/cmux), which took acpmux with no features:

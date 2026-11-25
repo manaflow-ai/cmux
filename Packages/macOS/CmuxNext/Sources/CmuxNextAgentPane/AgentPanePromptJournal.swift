@@ -33,9 +33,8 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     /// The app's journal: `<Application Support>/<bundle id>/agent-pane-unsent-prompts.json`. Nil
     /// outside an app bundle (package tests, tools), so they never write the app's file.
     public static let shared: AgentPanePromptJournal? = {
-        guard Bundle.main.bundleURL.pathExtension == "app", let bundle = Bundle.main.bundleIdentifier, !bundle.isEmpty,
-              let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
-        return AgentPanePromptJournal(url: support.appending(path: bundle).appending(path: fileName))
+        guard Bundle.main.bundleURL.pathExtension == "app", let bundle = Bundle.main.bundleIdentifier, !bundle.isEmpty else { return nil }
+        return AgentPanePromptJournal(url: NextSupport.applicationSupportDirectory().appending(path: bundle).appending(path: fileName))
     }()
 
     /// One prompt waiting for acpmux's acknowledgement.
@@ -222,6 +221,16 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
             return state.entries.count != before
         }
         return claimed
+    }
+
+    /// Whether prompt `promptId` is still kept for `daemon`, unacknowledged and not past
+    /// ``maximumAge``: the relay sends a refused resend again only while it is.
+    func keeps(daemon: String, promptId: String) -> Bool {
+        let cutoff = now().addingTimeInterval(-Self.maximumAge)
+        return state.withLock { state in
+            load(&state)
+            return state.entries.contains { $0.daemon == daemon && $0.promptId == promptId && $0.at >= cutoff }
+        }
     }
 
     /// Claimed prompts connection `owner` did not send after all: left over again.

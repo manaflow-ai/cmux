@@ -1,0 +1,42 @@
+{
+  "cmuxProfile": 1,
+  "name": "glass-chrome",
+  "description": "Liquid Glass on the controls only: a glass sidebar with glass cards and group headers, a glass tab strip and address bar over Monet, and solid panes for everything you read.",
+  "created_ms": 0,
+  "settings": {
+    "appearance.themeFile": "glass-chrome",
+    "layout.paneCornerRadius": 12,
+    "sidebar.groupHeader.background": "glass",
+    "sidebar.groupPalette": "glass",
+    "agentPane.display.font.preset": "system",
+    "sidebar.side": "left",
+    "sidebar.showProfileControl": true,
+    "sidebar.showSearchButton": true,
+    "sidebar.showNewWorkspaceChooser": true,
+    "sidebar.workspacesAsTabs": false,
+    "sidebar.chromeGroups": true,
+    "sidebar.sideBySide": false,
+    "sidebar.noFade": false,
+    "sidebar.groupHeader.memberCount": true,
+    "sidebar.groupHeader.unreadCount": true,
+    "sidebar.workspaceRow.directory": true,
+    "sidebar.workspaceRow.branch": true,
+    "sidebar.workspaceRow.agentStatus": true,
+    "sidebar.workspaceRow.tabCount": true,
+    "sidebar.workspaceRow.lastActivity": true,
+    "sidebar.workspaceRow.secondLineOrder": [
+      "notification",
+      "directory",
+      "branch",
+      "agentStatus",
+      "lastActivity"
+    ],
+    "sidebar.style": "standard",
+    "sidebar.workspaceRow.icon": true,
+    "sidebar.workspaceRow.notification": true,
+    "workspaceColors.indicatorStyle": "leftRail"
+  },
+  "files": {
+    "themes/glass-chrome.json": "// Glass: chrome. Liquid Glass where the controls are (the sidebar, its cards and group headers, the\n// tab strip and the address bar) and solid panes for everything you read: the platform's rule that\n// glass is the layer floating over content, never the content.\n// Monet's water lilies sit behind it, so the glass has color to bend.\n{\n  \"name\": \"Glass: chrome\",\n  \"description\": \"Liquid Glass sidebar, tab strip and address bar over Monet; solid terminal, chat and pages.\",\n\n  \"appearance.theme\": \"Apple System Colors\",\n  \"colors\": { \"background\": \"#121417\", \"foreground\": \"#e8ecef\", \"selection\": \"#2a3b33\", \"accent\": \"#8fd6a8\" },\n  \"appearance.accent\": \"theme\",\n\n  // The window: regular Liquid Glass over the painting, a little of it showing through the chrome.\n  \"appearance.background\": \"monet-water-lilies\",\n  \"appearance.backgroundBlur\": \"glass\",\n  \"appearance.backgroundOpacity\": 0.7,\n  \"appearance.glassTransparency\": 0.35,\n  \"appearance.wallpaperTint\": true,\n\n  // The chrome: glass. A separate sidebar at 40%, the tab strip at 45%, sections and group headers\n  // as glass cards, a hairline edge.\n  \"appearance.sidebarSurface\": \"separate\",\n  \"appearance.surfaces.sidebar.color\": \"#101214\",\n  \"appearance.surfaces.sidebar.opacity\": 0.4,\n  \"appearance.surfaces.tabBar.color\": \"#101214\",\n  \"appearance.surfaces.tabBar.opacity\": 0.45,\n  \"appearance.surfaces.browserChrome.color\": \"#101214\",\n  \"appearance.surfaces.browserChrome.opacity\": 0.45,\n  \"sidebar.border\": true,\n  \"sidebar.borderWidth\": 0.5,\n  \"sidebar.sectionLook\": \"card\",\n  \"browser.omnibar.glass\": \"regular\",\n  \"browser.omnibar.glassTint\": \"accent\",\n  \"browser.omnibar.glassTintStrength\": 0.25,\n\n  // The content: solid, so text never sits on glass.\n  \"appearance.surfaces.terminal.color\": \"#121417\",\n  \"appearance.surfaces.terminal.opacity\": 1,\n  \"appearance.surfaces.agentPane.color\": \"#121417\",\n  \"appearance.surfaces.agentPane.opacity\": 1,\n  \"appearance.surfaces.internalPage.color\": \"#121417\",\n  \"appearance.surfaces.internalPage.opacity\": 1,\n  \"appearance.surfaces.markdown.color\": \"#121417\",\n  \"appearance.surfaces.markdown.opacity\": 1,\n\n  // Panes as cards floating on the glass, rounded like the glass around them.\n  \"appearance.chromeStyle\": \"card\",\n\n  // Shape, not only color (Leo: \"customizing the tabs/sidebars a lot deeper\"): glass chrome: 10 pt tabs and rows on a 270 pt sidebar.\n  \"density\": { \"basedOn\": \"cozy\", \"tokens\": {\"tabCornerRadius\": 10, \"verticalTabCornerRadius\": 10, \"sidebarCornerRadius\": 10, \"itemCornerRadius\": 8, \"sidebarWidth\": 270, \"sidebarRowGap\": 2, \"tabGap\": 4 } },\n  \"window.titlebarButtons\": \"always\",\n  \"tabs.plusButton\": \"always\",\n  \"agentPane.display.sessionInfo.placement\": \"overlay\"\n}\n"
+  }
+}

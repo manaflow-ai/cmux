@@ -53,8 +53,8 @@ const rgbaOf = (color: ThemeRGB) => ({ r: color.red * 255, g: color.green * 255,
 const SURFACES = {
   "assistant text": 0,
   "user bubble": 0.14, // .acpmux-shell .cv-user__bubble --glass-tint
-  "inline code": 0.11, // --cv-code-bg
-  "code block": 0.075, // --cv-codeblock-bg
+  "inline code": 0.08, // --cv-code-bg: the inset level (design-scale surfaces)
+  "code block": 0.04, // --cv-codeblock-bg: the card level
 } as const;
 
 /** `var(--name, fallback)` resolved against `variables`, as the engine does; JSDOM leaves it as is. */
