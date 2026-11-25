@@ -3512,6 +3512,11 @@ COMPILE_RECEIPT_SECONDS = 20
 # (error code 1010, a refused client signature), so every read was refused and no compile red could be judged
 # (cmux#39582, 2026-11-09). Name the client.
 COMPILE_RECEIPT_USER_AGENT = "cmux-base-red-excuse"
+# The body of that refusal. It comes from the CDN's edge, not the receipts host, so it says nothing about the service:
+# it is neither "down" (ReceiptUnreachable, which hands the red to GitHub) nor a receipt answer, and its refusal says
+# which it is, so nobody reads it as the results service being down (2026-11-10: the probe of the same host failed
+# three runs in a row this way while the receiver was up).
+CDN_REFUSED_SIGNATURE = "error code: 1010"
 COMPILE_RECEIPT_RECIPE = (2, "release-onone")
 FLEET_COMPILE_JOB = "cmux-next fleet Release compile"
 FLEET_COMPILE_FAIL = re.compile(r"^##\[error\]\s*cmux-next/compile is not a pass for [0-9a-f]{40} \(fail\)")
@@ -3547,6 +3552,19 @@ class ReceiptUnreachable(Refused):
     receipt either, so a caller may ask GitHub instead (github_compile_red)."""
 
 
+def receipt_http_refusal(error) -> str:
+    """What a 4xx answer to a receipt read says: "HTTP N", or, for the CDN's refused client signature, that the
+    reader's User-Agent was refused at the edge and the receipts host was never asked."""
+    try:
+        detail = (error.read(300) or b"").decode(errors="replace").strip()
+    except Exception:  # noqa: BLE001 - an unreadable body is only a bare status
+        detail = ""
+    if error.code == 403 and CDN_REFUSED_SIGNATURE in detail:
+        return (f"HTTP 403: {CDN_REFUSED_SIGNATURE}: the CDN refused this reader's signature (its User-Agent), "
+                "so the receipts host was not reached: name the client (COMPILE_RECEIPT_USER_AGENT)")
+    return f"HTTP {error.code}"
+
+
 @once_per_judgement("receipt")
 def compile_receipt(repo: str, sha: str) -> dict | None:
     """The fleet's compile receipt for SHA (one anonymous read, no wait), or None when it has none (404). Any other
@@ -3563,7 +3581,7 @@ def compile_receipt(repo: str, sha: str) -> dict | None:
             return None
         if error.code >= COMPILE_RECEIPT_DOWN:
             raise ReceiptUnreachable(f"the compile receipt of {sha[:12]}: HTTP {error.code}") from error
-        raise Refused(f"the compile receipt of {sha[:12]}: HTTP {error.code}") from error
+        raise Refused(f"the compile receipt of {sha[:12]}: {receipt_http_refusal(error)}") from error
     except OSError as error:  # URLError, a refused connection, a timeout: the service did not answer
         raise ReceiptUnreachable(f"the compile receipt of {sha[:12]}: {type(error).__name__}: {error}") from error
     except ValueError as error:
@@ -5845,7 +5863,8 @@ GUARD_WORKFLOWS = {
                          "fast-tier-rerun-placement", "fast-tier-handback-placement", "dev-daily-place",
                          "dev-landing-place", "release-compile-fast-admission", "compile-status-handoff"), _PLACE),
         **dict.fromkeys(("web-bundles", "same-tree-cmux-tui", "swift-canary-fleet", "app-compile-fleet",
-                         "swift-canary", "fast-tier-fleet", "fast-tier", "fast-tier-cargo", "swift-test",
+                         "cmux-scheme-compile-fleet", "swift-canary", "fast-tier-fleet", "fast-tier", "fast-tier-cargo",
+                         "swift-test",
                          "daemon-test", "generated-files", "generated-verdict", "release-compile-fast",
                          "release-compile", "swift-exports-cache", "cmux-scheme-compile", "crash-ends-app",
                          "dev-landing-compile", "release-compile-revert", "compile-status"), _PRODUCT),
@@ -6262,7 +6281,7 @@ def touches(path: str, read: str) -> bool:
 # not risk:high, (3) GitHub does not call it conflicting, (4) the job was red at the PR's merge-base and (5) passes on
 # the newest base after it, and (6) none of the PR's files feeds the check. (5) and (6) are the rule above; this adds
 # (1)-(4), so a lane's own land and autoland's agree. Any one missing keeps the red: the head takes a base merge and a
-# run on the combined tree. The receipt grammar is risk_tier.py's (its one copy, as defaults_guard reads it). A merged
+# run on the combined tree. The receipt grammar is risk_tier.py's (its one copy). A merged
 # pull request (merge_audit) has no conflict to read.
 SCRIPT_DIR = Path(__file__).resolve().parent
 FIXED_ON_BASE_RISK = "risk:high"
@@ -7354,6 +7373,7 @@ def quarantined_only(view: "FailedView | Unplaced", known: dict) -> bool:
 WS_CHECK = "ws-check"
 WS_CHECK_REPOS = {"teamleaderleo/leo-workspace": "manaflow-ai/cmuxterm-hq"}  # repo: the repo its runs are in
 WS_CHECK_COMMITS = 30  # base commits read for a verdict, newest first (most main commits get none)
+WS_CHECK_TESTED_TIPS = 20  # base commits whose squash tree a run may have tested (one local merge-tree each)
 # leo-workspace tools/ws-check describes a failure "N of M steps failed: STEP", cut to 139 characters. It may lead with
 # "base red (main SHA8 fails it too) " (main's own run fails those steps) and end the step with a hint ("STEP; lints
 # before the next push: ..."); ws_check_names_step reads the step text.
@@ -7376,11 +7396,11 @@ WS_CHECK_GIT_CONFIG_STEP = "global git config changed by a step"
 WS_CHECK_GIT_CONFIG_LINE = "ws-check: a step changed the global git config"
 
 
-def ws_check_discount(lines: list[str], at: int, failed: list[str]) -> tuple[list[str], int, str] | None:
-    """(the run's own failed labels, sorted, how many it discounted, the main it reran them on) as tools/ws-check
-    discount_base_reds counts them from LINES before AT: every FAILED label less those its one base pass failed on main
-    too. None when the log holds no such pass (none, several, or one that reran nothing), or a failed step has no
-    FAILED line (ws-check discounts nothing then)."""
+def ws_check_own_base(lines: list[str], at: int, failed: list[str]) -> dict | None:
+    """The run's own base pass, read from LINES before AT the way tools/ws-check discount_base_reds reads it:
+    {"main": the main commit its failed units ran again in the tree of, "on_main": the FAILED labels that failed there
+    too, "head_only": the labels that did not}. None when the log holds no such pass (none, several, or one that reran
+    nothing), or a failed step has no FAILED line (ws-check discounts nothing then)."""
     ours = {m[1] for line in lines[:at] if (m := WS_CHECK_FAILED_LABEL.match(line))}
     passes = [m[1] or m[2] for line in lines[:at] if (m := WS_CHECK_BASE_PASS.match(line))]
     if not ours or len(passes) != 1 or set(failed) - {label.split(" [", 1)[0] for label in ours}:
@@ -7388,7 +7408,16 @@ def ws_check_discount(lines: list[str], at: int, failed: list[str]) -> tuple[lis
     theirs = {m[1] for line in lines[:at] if (m := WS_CHECK_BASE_FAILED.match(line))}
     if not ours & theirs:
         return None
-    return sorted(ours - theirs), len(ours & theirs), passes[0]
+    return {"main": passes[0], "on_main": frozenset(ours & theirs), "head_only": frozenset(ours - theirs)}
+
+
+def ws_check_discount(lines: list[str], at: int, failed: list[str]) -> tuple[list[str], int, str] | None:
+    """(the run's own failed labels, sorted, how many it discounted, the main it reran them on) as tools/ws-check
+    discount_base_reds counts them: ws_check_own_base's reading of the same lines, None for the same reasons."""
+    found = ws_check_own_base(lines, at, failed)
+    if found is None:
+        return None
+    return sorted(found["head_only"]), len(found["on_main"]), found["main"]
 
 
 def ws_check_described(named: re.Match, failed: list[str], steps, lines: list[str], at: int) -> bool:
@@ -7659,22 +7688,45 @@ def ws_check_squash_tree(repo: str, head: str, tip: str, branches: Callable[[], 
     return cut
 
 
-def ws_check_tested_tree(repo: str, base: str, sha: str, snapshot: dict, tip: str, github=None) -> None:
-    """Refused unless the head SHA's snapshot run (SNAPSHOT: {"run", "tree"}, ws_check_verdict) tested the tree a pinned
-    squash of SHA onto BASE's tip TIP makes (ws_check_squash_tree), compared by tree id only. A run that tested an older
-    base, another head, or names no tree is no verdict on what lands."""
+def ws_check_tested_tree(repo: str, base: str, sha: str, snapshot: dict, tips, github=None) -> str:
+    """The BASE commit the head SHA's snapshot run (SNAPSHOT: {"run", "tree"}, ws_check_verdict) tested SHA against: the
+    newest of TIPS (BASE's commits newest first, or one sha) whose pinned squash with SHA (ws_check_squash_tree) makes
+    the tree the run tested, compared by tree id only. The tip is tried first, and a run that tested an older tip is
+    still a verdict on the tree that tip made: ws_check_red holds its red against that same commit and the ones before
+    it, never a newer one. Refused when the run names no tree, or no commit in TIPS makes its tree: that run tested
+    another head, or a base older than the window, and is no verdict on SHA.
+
+    A single tip is not enough: a base that moves faster than one run of its own checks can never be matched by its tip
+    (2026-11-24, leo-workspace main: 16.8 merges/hour, median gap 104 s, 99.7% of gaps under one 2000 s ws-check run),
+    so every head was refused "it tested another base or head" and the remedy that refusal names (merge the base in and
+    run again) could never finish either."""
     where = f"'{WS_CHECK}' on {sha}: run {snapshot.get('run')}"
     tested = snapshot.get("tree")
     if not (isinstance(tested, str) and HEX40.fullmatch(tested)):
         raise Refused(f"{where} names no tested tree in its receipt, so it cannot be held to {sha[:12]} merged with "
                       f"{base}")
-    if not HEX40.fullmatch(tip or ""):
+    if isinstance(tips, str):
+        tips = [tips]
+    window = [tip for tip in tips[:WS_CHECK_TESTED_TIPS] if isinstance(tip, str) and HEX40.fullmatch(tip)]
+    if not window:
         raise Refused(f"{where}: {base} has no tip to merge {sha[:12]} with")
     WS_CHECK_BRANCHES[(repo, sha)] = lambda: ws_check_branches(repo, base, sha, github)
-    want = ws_check_squash_tree(repo, sha, tip)
-    if tested != want:
-        raise Refused(f"{where} tested tree {tested[:12]}, not {sha[:12]} merged with {base}'s tip {tip[:12]} "
-                      f"({want[:12]}): it tested another base or head. Run ws-check again at this head")
+    made, unread = [], []
+    for tip in window:
+        try:
+            want = ws_check_squash_tree(repo, sha, tip)
+        except Refused as error:  # one commit git cannot merge is no verdict on the others
+            unread.append(f"{tip[:12]}: {error}")
+            continue
+        if tested == want:
+            return tip
+        made.append(f"{tip[:12]} ({want[:12]})")
+    if not made:
+        raise Refused(f"{where}: {sha[:12]} merges with none of {base}'s {len(window)} newest commits, so its tested "
+                      f"tree {tested[:12]} cannot be placed: {unread[0]}"[:400])
+    raise Refused(f"{where} tested tree {tested[:12]}, not {sha[:12]} merged with any of {base}'s {len(window)} newest "
+                  f"commits (tip {made[0]}, oldest tried {made[-1]}): it tested another base or head. Run ws-check "
+                  f"again at this head")
 
 
 def ws_check_status(repo: str, sha: str, github) -> dict | None:
@@ -7903,6 +7955,10 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
         found["snapshot"] = {"run": link[1], "tree": receipt.get("source_tree")}
     if not ws_check_described(named, failed, result.get("steps"), lines, at):
         raise Refused(f"{where}: its status (\"{description}\") does not match run {link[1]}'s WS_CHECK_RESULT")
+    # The run's own base pass, kept for ws_check_own_base_excuse: the units it saw fail in main's tree too.
+    own_base = ws_check_own_base(lines, at, failed)
+    if own_base is not None:
+        found["own_base"] = own_base
     steps = {}
     for step in failed:
         if step == WS_CHECK_GIT_CONFIG_STEP:
@@ -7946,6 +8002,23 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
 def failure_text(verdict: dict, step: str, test: str) -> frozenset:
     """TEST's failure text (normalised lines) in STEP of a ws_check_verdict fail VERDICT; empty when none was read."""
     return verdict["steps"].get(step, {}).get("failures", {}).get(test, frozenset())
+
+
+def ws_check_step_keys(verdict: dict, step: str) -> list[str]:
+    """The VERDICT step key(s) a head's STEP is compared against. A step label names a workflow step, not a failure's
+    identity: a PR that renames, splits or shards a step moves every unit key with it (leo-workspace#10806 split one
+    catch-all step into 1130 of them), and keyed on the label alone the base's own red stops matching and reads as the
+    head's own red (13 land stops on 2026-11-25, every one naming that split step). With the head's label on the
+    verdict, that label alone; without it, every step the verdict has - a failure is still matched by test name and
+    failure text there, so the base's red is found wherever the base ran it."""
+    return [step] if step in verdict.get("steps", {}) else sorted(verdict.get("steps", {}))
+
+
+def ws_check_step_key(verdict: dict, step: str, test: str) -> str:
+    """The one VERDICT step key to read TEST's failure text from (ws_check_step_keys): STEP when the verdict has it,
+    else the step that ran TEST, else STEP (no failure text)."""
+    keys = ws_check_step_keys(verdict, step)
+    return next((key for key in keys if test in verdict["steps"][key]["tests"]), step)
 
 
 def ws_check_units(steps: dict) -> list[tuple[str, str, str]]:
@@ -8070,6 +8143,55 @@ def ws_check_names_paths(lines, paths: list[str]) -> bool:
     return any(name in line for line in lines for name in names)
 
 
+def ws_check_own_base_excuse(base: str, sha: str, units: list, head: dict, changed, unreadable: list[str]
+                            ) -> dict | None:
+    """The verdict excusing SHA's red ws-check by its own run's base pass, for a BASE no commit of which carries a
+    ws-check verdict to compare with; None when that evidence does not cover every red, so the caller refuses as
+    before. Since leo-workspace#9404 a run reruns its failed units in main's tree and tools/ws-check discounts those
+    that fail there too (discount_base_reds): a unit red in main's tree was red without this PR's changes in it, the
+    same fact a base commit's red verdict carries, read off the head's own run. Held to what the per-suite base red
+    is held to: every red unit names a suite the rerun saw fail on main, no shard of that suite passed there, and the
+    PR changes none of the suite's files (ws_check_suite_touched; unread paths count as touched). A red unit with no
+    suite (a lint, a whole step) is never excused this way: its new offender would be the head's own.
+    2026-11-25: lw#8742 at 712f2b07 was refused "none of the 30 newest main commits has a ws-check verdict to compare
+    with" though its own run had rerun every red (test_reach.py shards the PR does not touch) in main's tree and seen
+    them fail there."""
+    own = head.get("own_base")
+    if not own:
+        return None
+
+    def suites_of(labels) -> dict:
+        """{step: the suites of its labels}, a label being "STEP [UNIT]"; a label naming no unit is dropped."""
+        found: dict = {}
+        for label in labels:
+            step, bracket, unit = label.partition(" [")
+            if bracket and unit.endswith("]") and step in head["steps"]:
+                found.setdefault(step, set()).add(WS_CHECK_SHARD.sub("", unit[:-1]).strip())
+        return found
+
+    on_main, head_only = suites_of(own["on_main"]), suites_of(own["head_only"])
+    excused = {step: suites - head_only.get(step, set()) for step, suites in on_main.items()}
+    for step, kind, item in units:
+        suites = ({ws_check_test_suite(item)} if kind == "test"
+                  else head["steps"][step].get("line_suites", {}).get(item, frozenset()))
+        if not suites or not all(suite and suite in excused.get(step, ()) for suite in suites):
+            return None
+        if any(ws_check_suite_touched(suite, changed()) for suite in suites):
+            return None
+    named = sorted(f"{step} [{suite}]" for step, suites in excused.items() for suite in suites)
+    seen = f"red in {base} {own['main'][:12]}'s tree too, in this run's own base pass"
+    said = (f"excused '{WS_CHECK}': every failure on {sha[:12]} is {seen} ({len(named)} unit(s) whose suites this PR "
+            f"does not touch: {', '.join(named)[:300]}); no {base} commit in the window has a ws-check verdict to "
+            "compare with"
+            + (f" ({len(unreadable)} unreadable, first {unreadable[0]})" if unreadable else ""))
+    audit = [said]
+    audit += [f"excused '{WS_CHECK}' test '{step} :: {test}': {seen}"
+              for step, red in head["steps"].items() for test in sorted(red["tests"])]
+    audit += [f"excused '{WS_CHECK}' step '{step}' (no test names): {seen}"
+              for step, red in head["steps"].items() if not red["tests"]]
+    return {"kind": "base_red", "fix": "", "message": said, "audit": audit}
+
+
 def ws_check_red(repo: str, base: str, sha: str, github, evidence: "Evidence | None" = None) -> dict:
     """The one verdict on SHA's ws-check status against BASE: {"kind" (one of WS_CHECK_KINDS), "fix" (the fixing base
     commit, for "fixed_on_base", else ""), "message" (what a refusal says), "audit" (the lines an excuse prints)}.
@@ -8087,7 +8209,23 @@ def ws_check_red(repo: str, base: str, sha: str, github, evidence: "Evidence | N
     merge_base = evidence.merge_base(sha)
     commits = evidence.status_commits(WS_CHECK_COMMITS)
     if head.get("snapshot"):
-        ws_check_tested_tree(repo, base, sha, head["snapshot"], commits[0] if commits else "", github)
+        # The run tested the head on one of the base's commits, not always its tip: compare with that commit and the
+        # ones before it. A newer base commit never tested this tree, and could only have fixed what the run found.
+        anchor = ws_check_tested_tree(repo, base, sha, head["snapshot"], commits, github)
+        commits = commits[commits.index(anchor):]
+    pr_paths: list = []  # [the PR's changed paths, or None when unread], read once on the first suite asked about
+    def changed() -> "list[str] | None":
+        if not pr_paths:
+            try:
+                files = github.json(f"repos/{repo}/compare/{base}...{sha}").get("files")
+            except Refused:
+                files = None
+            ok = isinstance(files, list) and 0 < len(files) < COMPARE_FILES_CAP
+            pr_paths.append(sorted({path for found in files for path in (found.get("filename"),
+                                                                          found.get("previous_filename"))
+                                    if isinstance(path, str) and path}) if ok else None)
+        return pr_paths[0]
+
     unreadable: list[str] = []
 
     def readable(found: tuple) -> bool:
@@ -8098,6 +8236,9 @@ def ws_check_red(repo: str, base: str, sha: str, github, evidence: "Evidence | N
     verdicts = (found for found in verdicts if readable(found))
     newest = next(verdicts, None)
     if newest is None:
+        own = ws_check_own_base_excuse(base, sha, units, head, changed, unreadable)
+        if own is not None:
+            return own
         raise Refused(f"'{WS_CHECK}': none of the {WS_CHECK_COMMITS} newest {base} commits has a ws-check verdict to "
                       "compare with" + (f" ({len(unreadable)} unreadable, first {unreadable[0]})" if unreadable else ""))
     tip, tip_kind, tip_verdict = newest
@@ -8108,17 +8249,18 @@ def ws_check_red(repo: str, base: str, sha: str, github, evidence: "Evidence | N
 
     def has(verdict: dict, unit) -> bool:
         step, kind, item = unit
-        if step not in verdict["steps"]:
+        reds = [verdict["steps"][key] for key in ws_check_step_keys(verdict, step)]
+        if not reds:
             return False
-        red = verdict["steps"][step]
         if kind != "test":
-            return item in red["lines"]
+            return any(item in red["lines"] for red in reds)
         # A failing test is the base's red only when it fails there the same way: every line of its failure text
         # (normalised: numbers masked, file names kept) is in the base's failure of that test. 2026-11-17:
         # leo-workspace#5683 at 16b96c09 merged with its test_text_io_encoding.py red excused by name, main d240eaab
         # failing that test too, though the head's failure listed a new offender (tools/test_merge_hold.py) main's
         # did not.
-        return item in red["tests"] and failure_text(head, step, item) <= failure_text(verdict, step, item)
+        return any(item in red["tests"] and failure_text(head, step, item) <= red["failures"].get(item, frozenset())
+                   for red in reds)
 
     if tip_kind == "pass":
         header = f"'{WS_CHECK}' is green on {base} {tip[:12]}, red on {sha[:12]}\n"
@@ -8176,27 +8318,15 @@ def ws_check_red(repo: str, base: str, sha: str, github, evidence: "Evidence | N
     def mb_note() -> str:
         return f" or at the merge-base {merge_base[:12]}" if at_merge_base else ""
 
-    pr_paths: list = []  # [the PR's changed paths, or None when unread], read once on the first suite asked about
     by_suite_seen: set[tuple[str, str]] = set()
-
-    def changed() -> "list[str] | None":
-        if not pr_paths:
-            try:
-                files = github.json(f"repos/{repo}/compare/{base}...{sha}").get("files")
-            except Refused:
-                files = None
-            ok = isinstance(files, list) and 0 < len(files) < COMPARE_FILES_CAP
-            pr_paths.append(sorted({path for found in files for path in (found.get("filename"),
-                                                                          found.get("previous_filename"))
-                                    if isinstance(path, str) and path}) if ok else None)
-        return pr_paths[0]
 
     def by_suite(step: str, suites, new=()) -> bool:
         """Whether every unit of STEP in SUITES is a per-suite base red: red on the tip too, untouched by the PR, and
         none of the head's lines NEW that the tip does not print names a path the PR changes (a repo-wide lint test's
         new offender, leo-workspace#5683: its suite red on main too, its new line naming the PR's own file)."""
         ok = bool(suites) and tip_fresh and all(
-            suite and suite in tip_verdict["steps"].get(step, {}).get("suites", ()) for suite in suites)
+            suite and any(suite in tip_verdict["steps"].get(key, {}).get("suites", ())
+                          for key in ws_check_step_keys(tip_verdict, step)) for suite in suites)
         if ok and (any(ws_check_suite_touched(suite, changed()) for suite in suites)
                    or ws_check_names_paths(new, changed() or [])):
             return False
@@ -8239,16 +8369,19 @@ def ws_check_red(repo: str, base: str, sha: str, github, evidence: "Evidence | N
                 lines.append(f"excused '{WS_CHECK}' test '{step} :: {test}': {where(found)} "
                              f"({found[1]['url'] or 'no run'})")
             elif by_suite(step, {ws_check_test_suite(test)},
-                          failure_text(head, step, test) - failure_text(tip_verdict, step, test)):
+                          failure_text(head, step, test)
+                          - failure_text(tip_verdict, ws_check_step_key(tip_verdict, step, test), test)):
                 lines.append(f"excused '{WS_CHECK}' test '{step} :: {test}': "
                              f"{suite_said(step, {ws_check_test_suite(test)})}")
             else:
                 # Red by name on a base verdict, but failing another way there: the failure lines none of those
                 # verdicts' failures of it print, a few (a lint's new offender is often not its first new line).
                 named = [verdict for _, verdict in window + at_merge_base
-                         if test in verdict["steps"].get(step, {}).get("tests", ())]
+                         if any(test in verdict["steps"].get(key, {}).get("tests", ())
+                                for key in ws_check_step_keys(verdict, step))]
                 new = sorted(line for line in failure_text(head, step, test)
-                             if not any(line in failure_text(verdict, step, test) for verdict in named))
+                             if not any(line in failure_text(verdict, ws_check_step_key(verdict, step, test), test)
+                                        for verdict in named))
                 if named and new:
                     missing.append(f"'{step} :: {test}' failure '{new[0][:200]}'")
                     shown = "".join(f", then '{line[:200]}'" for line in new[1:3])

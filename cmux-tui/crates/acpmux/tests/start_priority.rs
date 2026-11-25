@@ -102,15 +102,16 @@ fn nice_of(pid: u32) -> Option<i32> {
     }
 }
 
-/// `normal`: what the hermetic environment gives a stand-in (`daemon_env::vars`).
+/// `normal`: what the hermetic environment gives a stand-in (`daemon_env::vars`), and the product's
+/// default. On macOS it keeps the daemon's priority; on Linux it yields to the agent tier.
 #[test]
 fn a_harness_starts_at_the_daemons_priority_and_yields_once_started() {
     starts_at_the_daemons_priority_and_yields("normal");
 }
 
-/// `background`: the product's default for every harness but a Claude Code launcher
-/// (`cpu_class::DEFAULT`). Linux has no background class, so the agent tier's nice is all the
-/// lowering it gets there; on macOS the harness is also in background class.
+/// `background` (opt-in; `normal` is the product's default, `cpu_class::DEFAULT`). Linux has no
+/// background class, so the agent tier's nice is all the lowering it gets there; on macOS the
+/// harness is also in background class.
 #[test]
 fn a_background_class_harness_also_yields_to_the_agent_tier() {
     starts_at_the_daemons_priority_and_yields("background");
@@ -167,9 +168,15 @@ fn starts_at_the_daemons_priority_and_yields(class: &str) {
     // The start ran at the daemon's priority (this process's: the daemon inherits it), not under
     // the agent tier its host used to enter first thing.
     assert_eq!(at_start, own, "the harness answered session/new at nice {at_start}");
-    // Once the start is over the harness yields; the daemon lowers it right after the start.
+    // Once the start is over the harness yields; the daemon lowers it right after the start. A
+    // `normal` harness on macOS keeps the daemon's priority, as a terminal's shell does.
     let deadline = Instant::now() + Duration::from_secs(10);
-    let expected = own.max(agent);
+    let expected =
+        if cfg!(target_os = "macos") && class == "normal" { own } else { own.max(agent) };
+    if expected == own {
+        // Nothing to wait for: give a wrong renice the time the daemon takes to make it.
+        std::thread::sleep(Duration::from_secs(2));
+    }
     let mut now = nice_of(pid);
     while now != Some(expected) && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(50));

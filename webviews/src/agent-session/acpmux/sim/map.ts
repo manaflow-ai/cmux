@@ -202,6 +202,14 @@ export const MAP: MapEntry[] = [
     scenario: "received-sent-as-activity",
   },
   {
+    id: "messages-steer-mid-turn",
+    when: "Other agents' messages steer into a running turn between its commands, two back to back.",
+    wrong:
+      'Leo, 2026-11-22: "sometimes you get these way-too-big gaps. i think it\'s the message recieving not properly getting treated like the tool call ish thing it should be".',
+    expected: "Rule d: each received line sits on the tool rows' pitch, at most a step's gap from its neighbours.",
+    scenario: "messages-mid-turn",
+  },
+  {
     id: "background-shell",
     when: "A turn leaves a shell running; it ends later and the agent works on its own.",
     wrong: "The agent's own turn drew no head, or its line pinned under the turn before.",
@@ -214,6 +222,14 @@ export const MAP: MapEntry[] = [
     wrong: "The subagent's row folded away while it still ran.",
     expected: "Rule b: the subagent's row stays drawn, open, until the turn ends.",
     scenario: "subagent",
+  },
+  {
+    id: "subagent-fork",
+    when: "A chat forked from a subagent (Fork with <model>… on its composer chips) opens on the subagent's history.",
+    wrong: "The Forked from line could land inside the history's turn, or the fork's own turn fold into it.",
+    expected:
+      "Rules a, b, c: the subagent's history keeps its turn, the Forked from line stands between it and the fork's own turn, which folds only when it ends.",
+    scenario: "subagent-fork",
   },
   {
     id: "compaction-mid-turn",

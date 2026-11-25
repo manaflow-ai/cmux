@@ -159,7 +159,11 @@ await requireBrowserLane("working-loops-compositor.test.tsx", async () => {
         }
       });
 
-      test("the shimmer band spans the running label and timer row", async () => {
+      // Leo, 2026-11-25: "and the overlap when the glimmer goes to the end". The band (inset 0) took
+      // the whole row as its box, time and all, so the glimmer ran past the words onto "50s" at the
+      // end of each pass. Its box is now the words' own, at every row width and at every point of
+      // the pass.
+      test("the shimmer band stays inside the running label's box, never over its timer", async () => {
         if (!browser) return;
         const page = await open("no-preference");
         try {
@@ -169,50 +173,39 @@ await requireBrowserLane("working-loops-compositor.test.tsx", async () => {
             const label = row.querySelector<HTMLElement>(".cv-thinking")!;
             const timer = row.querySelector<HTMLElement>(".cv-worked__time")!;
             const lit = row.querySelector<HTMLElement>(".cv-shimmer__lit")!;
-            const litLabel = row.querySelector<HTMLElement>(".cv-shimmer__lit-label")!;
-            const litTimer = row.querySelector<HTMLElement>(".cv-shimmer__lit-time")!;
             const animation = [...document.getAnimations()].find(
               (entry) => (entry as CSSAnimation).animationName === "cmux-cadenced-shimmer-band",
             );
+            const duration = animation?.effect?.getTiming().duration;
             band.style.animation = "none";
             lit.style.animation = "none";
-            band.style.transform = "none";
-            lit.style.transform = "none";
-            const slots = (width: number) => {
+            const at = (width: number) => {
               row.style.width = `${width}px`;
               row.style.maxWidth = `${width}px`;
-              const actualLabel = label.getBoundingClientRect();
-              const actualTimer = timer.getBoundingClientRect();
-              const shimmerLabel = litLabel.getBoundingClientRect();
-              const shimmerTimer = litTimer.getBoundingClientRect();
+              const words = label.getBoundingClientRect();
+              const time = timer.getBoundingClientRect();
+              // The pass's far end: the band at its last step (125%), clipped by nothing but its box.
+              band.style.transform = "none";
+              const box = band.getBoundingClientRect();
               return {
-                actualTimerOffset: actualTimer.left - actualLabel.right,
-                shimmerTimerOffset: shimmerTimer.left - shimmerLabel.right,
-                actualTimerRight: actualTimer.right,
-                shimmerTimerRight: shimmerTimer.right,
+                boxLeft: box.left - words.left,
+                boxRight: box.right - words.right,
+                timeGap: time.left - box.right,
               };
             };
-            const wide = slots(600);
-            const narrow = slots(180);
             return {
-              row: row.getBoundingClientRect().toJSON(),
-              bandWidth: Number.parseFloat(getComputedStyle(band).width),
-              label: label.getBoundingClientRect().toJSON(),
-              timer: timer.getBoundingClientRect().toJSON(),
               text: lit.textContent,
-              timerText: litTimer.getAttribute("data-text"),
-              wide,
-              narrow,
-              duration: animation?.effect?.getTiming().duration,
+              litTime: row.querySelector(".cv-shimmer__lit-time") !== null,
+              slots: [at(600), at(180)],
+              duration,
             };
           });
           expect(measure.text).toBe("");
-          expect(measure.timerText).toBe("50s");
-          expect(measure.bandWidth).toBeCloseTo(measure.row.width, 1);
-          for (const slots of [measure.wide, measure.narrow]) {
-            expect(slots.actualTimerOffset).toBeCloseTo(6, 1);
-            expect(slots.shimmerTimerOffset).toBeCloseTo(6, 1);
-            expect(slots.shimmerTimerRight).toBeCloseTo(slots.actualTimerRight, 1);
+          expect(measure.litTime).toBe(false);
+          for (const slot of measure.slots) {
+            expect(slot.boxLeft).toBeCloseTo(0, 1);
+            expect(slot.boxRight).toBeCloseTo(0, 1);
+            expect(slot.timeGap).toBeGreaterThanOrEqual(0);
           }
           expect(measure.duration).toBe(1_000);
         } finally {
