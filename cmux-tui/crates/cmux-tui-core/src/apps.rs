@@ -165,9 +165,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 use crate::panic_free::RecoverPoison;
 
 #[cfg(unix)]
-pub(crate) use git_install::store_op_fetches;
-#[cfg(unix)]
 pub(crate) use chat_actions::{ChatActionRequest, ChatMessage};
+#[cfg(unix)]
+pub(crate) use git_install::store_op_fetches;
 #[cfg(unix)]
 pub(crate) use mirror::{HiddenAccess, Origin, SetOp};
 #[cfg(unix)]
