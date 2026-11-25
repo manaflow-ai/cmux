@@ -72,7 +72,8 @@ impl Dir {
 
     fn path(&self, key: &[u8; 32]) -> PathBuf {
         let name = hex(key);
-        self.root.join(&name[..2]).join(name)
+        let fan = name.get(..2).unwrap_or_default().to_owned();
+        self.root.join(fan).join(name)
     }
 }
 
