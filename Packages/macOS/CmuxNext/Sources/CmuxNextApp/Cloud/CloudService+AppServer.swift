@@ -70,9 +70,7 @@ extension CloudService {
             try checkScope()
             if let name, !name.isEmpty { try? await renameMachine(id, to: name) }
             try checkScope()
-            var record = try await machineRecord(id)
-            record.environmentId = environment
-            return record
+            return setup.machineEnvironment(try await machineRecord(id), ensured: environment, account: scope, defaults: move.ledger)
         }
         let currentTeam: @Sendable () async throws -> String = { MacInstallIdentity.team(ofToken: try await identity.installToken()) ?? "" }
         // The team the relay's create bills: the install token's team claim, captured now (the direct route sends it as

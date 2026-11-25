@@ -143,8 +143,16 @@ pub const AGENT_SESSION_START_SUBSCRIPTION_CREDENTIALS_CAPABILITY: &str =
 pub(in crate::server) const CLAUDE_MACHINE_LOGIN_CAPABILITY: &str =
     "agent-session-start-claude-machine-login-v1";
 
+/// A Cloud VM creator's start can select Claude's team gateway for the new chat.
+pub(in crate::server) const CLAUDE_TEAM_ROUTE_CAPABILITY: &str =
+    "agent-session-start-claude-team-route-v1";
+
 pub(in crate::server) const CREDENTIAL_REATTACH_CAPABILITY: &str =
     "agent-session-credential-reattach-v1";
+
+/// Credential writes require the tab's durable session id, and launches accept a scoped connection.
+pub(in crate::server) const BOUND_CREDENTIALS_CAPABILITY: &str =
+    "agent-session-bound-credentials-v1";
 
 /// The names a credential may set (acpmux `agent_credentials::NAMES`).
 const CREDENTIAL_NAMES: &[&str] = &[
@@ -182,12 +190,20 @@ enum EndpointKind {
 
 impl StartCredentials {
     pub(super) fn valid(&self) -> bool {
-        self.connection.as_deref().is_none_or(|id| {
+        self.connection.as_deref().is_none_or(|connection| {
+            let (id, digest) = connection
+                .split_once(':')
+                .map_or((connection, None), |(id, digest)| (id, Some(digest)));
             (1..=64).contains(&id.len())
                 && !id.starts_with('-')
                 && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+                && digest.is_none_or(|digest| {
+                    digest.len() == 64
+                        && digest.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                })
                 && !self.env.values().any(|value| {
-                    id == value.as_str() || (value.len() >= 6 && id.contains(value.as_str()))
+                    connection == value.as_str()
+                        || (value.len() >= 6 && connection.contains(value.as_str()))
                 })
         }) && self.env.len() == 1
             && self.env.iter().all(|(name, value)| {
@@ -521,6 +537,8 @@ pub(super) struct StartParams {
     credentials: Option<StartCredentials>,
     #[serde(default)]
     claude_machine_login: bool,
+    #[serde(default)]
+    claude_team_route: bool,
 }
 
 impl StartParams {
@@ -610,6 +628,15 @@ pub(super) fn start(
     }
     // A credential only from the owner's own app on the owner's own Cloud VM.
     if chooses_credential && !credentials_admitted(mux, client, &params.vm_kind) {
+        return refuse(writer, id, Refusal::OwnerOnly);
+    }
+    // A team route carries no personal credential. The Cloud VM's creator can select it
+    // on a shared VM as well, under the start's existing host and phone gates.
+    if params.claude_team_route
+        && (!mux.control_clients.agent_sessions.starts.on_cloud_vm()
+            || vm_word(&params.vm_kind) != Some("owner")
+            || mux.control_clients.supports_capability(client, super::CLOUD_MOBILE_CHAT_CAPABILITY))
+    {
         return refuse(writer, id, Refusal::OwnerOnly);
     }
     // On the caller's own Cloud VM a new chat with no folder gets a fresh
@@ -1043,7 +1070,11 @@ fn start_and_bind(
     // any agent process exists: a Codex alias or a default harness of a
     // refused family never starts (but on the caller's own Cloud VM).
     let family = start_family(catalog, params.harness.as_deref())?;
-    if params.claude_machine_login && (family != "claude" || params.credentials.is_some()) {
+    if (params.claude_machine_login || params.claude_team_route)
+        && (family != "claude"
+            || params.credentials.is_some()
+            || (params.claude_machine_login && params.claude_team_route))
+    {
         return Err(Refusal::BadRequest.into());
     }
     // A phone's family is held to its own floor instead: acpmux refuses Codex as a Web family,
@@ -1093,6 +1124,9 @@ fn start_and_bind(
     }
     if params.claude_machine_login {
         meta.insert("claudeMachineLogin", json!(true));
+    }
+    if params.claude_team_route {
+        meta.insert("claudeTeamRoute", json!(true));
     }
     // The workspace of the tab, read here and never taken from the client:
     // acpmux gives the session that workspace's display (none without it).

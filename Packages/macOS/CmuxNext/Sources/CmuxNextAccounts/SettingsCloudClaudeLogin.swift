@@ -62,6 +62,7 @@ package struct SettingsCloudClaudeLogin {
     package func install(on models: SettingsModels, setup: CloudSetup) {
         models.cloudClaudeLogin = { state(preferred: $0, environment: $1, name: $2) }
         models.prepareCloudClaudeLogin = { try await prepare(preferred: $0, environment: $1, name: $2) }
+        models.refreshCloudClaudeMachines = host.refreshMachines
         models.observeCloudClaudeAccount { host.account() }
         models.onCloudClaudeSignIn = { setup.claudeSignInCompleted(machine: $0) }
     }
@@ -83,7 +84,7 @@ package struct SettingsCloudClaudeLogin {
         let choose = { choice(preferred: preferred, requirePreferred: preferred != nil, environment: environment, name: name) }
         do {
             try check()
-            if !host.hasLoadedMachines() || [.create, .unavailable].contains(choose()) {
+            if name != nil || !host.hasLoadedMachines() || [.create, .unavailable].contains(choose()) {
                 guard await host.refreshMachines() else { throw Self.startFailure }
                 try check()
             }

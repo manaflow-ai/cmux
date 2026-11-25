@@ -1949,7 +1949,13 @@ mod launch_key_redaction_tests {
 
     #[test]
     fn local_route_keys_are_redacted_without_becoming_cloud_credentials() {
-        for name in ["OPENROUTER_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "XAI_API_KEY"] {
+        for name in [
+            "OPENROUTER_API_KEY",
+            "GEMINI_API_KEY",
+            "GOOGLE_API_KEY",
+            "XAI_API_KEY",
+            crate::agent_credentials::CHATGPT_TOKEN,
+        ] {
             let key = "fixture-local-provider-key";
             let spec: SpawnSpec = serde_json::from_value(serde_json::json!({
                 "session_id": "chat",

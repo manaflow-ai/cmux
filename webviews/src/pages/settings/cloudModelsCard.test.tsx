@@ -266,6 +266,42 @@ test("the CLI can open Claude setup for its exact new machine name", async () =>
   });
 });
 
+test.each([true, false])(
+  "a named Settings visit hides the old Claude connection (status succeeds: %s)",
+  async (succeeds) => {
+    const refresh = Promise.withResolvers<void>();
+    const login = { phase: "connected", error: null, machine: "vm_a", machineName: "Named VM" } as const;
+    const rendered = (page = await renderPage({
+      path: "/settings/models?provider=claude&machineName=Named%20VM&open=cli",
+      setup: (provider) => {
+        provider.models = { ...mockModels.empty, cloudClaudeLogin: login };
+        provider.holdNamedClaudeStatus = refresh.promise;
+      },
+    }));
+    expect(ids(rendered)).not.toContain("claude-cloud-login");
+    expect(panel()?.dataset.modelsDialog).toBe("claude");
+    await act(async () => {
+      if (succeeds) {
+        rendered.provider.setModels({ ...mockModels.empty, cloudClaudeLogin: { ...login, machine: "vm_b" } });
+        refresh.resolve();
+      } else {
+        refresh.reject(new Error("The status bridge is unavailable"));
+      }
+    });
+    await settle();
+    if (!succeeds) {
+      expect(ids(rendered)).not.toContain("claude-cloud-login");
+      expect(panel()?.dataset.modelsDialog).toBe("claude");
+      return;
+    }
+    expect(ids(rendered)).toContain("claude-cloud-login");
+    expect(panel()).toBeNull();
+    await click(card(rendered).querySelector('[data-menu="connection-claude-cloud-login"]')!);
+    await click(document.querySelector('[role="menuitem"][data-value="signOutClaude"]')!);
+    expect(rendered.provider.modelRuns).toContainEqual({ action: "signOutClaude", cloud: true, machine: "vm_b" });
+  },
+);
+
 test("a rejected Claude token can recover on an already signed-in target", async () => {
   const rendered = await render(
     { ...mockModels.empty, cloudClaudeLogin: { phase: "connected", error: null, machine: "vm_b" } },
@@ -335,6 +371,39 @@ test("Claude Connect waits for a Cloud approval on another machine", async () =>
   expect(rendered.provider.modelRuns).toContainEqual({ action: "connectClaude", cloud: true, machine: "vm_b" });
 });
 
+test("the Cloud Claude dialog shows a prep failure for the requested environment and can retry after an update", async () => {
+  const scope = { machine: "vm_b", environment: "env_b" };
+  const rendered = await render(
+    { ...mockModels.empty, cloudClaudeLogin: { ...scope, phase: "failed", error: "machine_start_failed" } },
+    "/settings/models?provider=claude&machine=vm_b&environment=env_b&open=retry",
+  );
+  expect(panel()?.querySelector('[role="alert"]')?.textContent).toContain("Your Cloud machine did not start");
+  await act(async () =>
+    rendered.provider.setModels({
+      ...mockModels.empty,
+      cloudClaudeLogin: { ...scope, phase: "disabled", error: "update_claude" },
+    }),
+  );
+  expect(panel()?.querySelector('[role="alert"]')?.textContent).toBe("Update Claude Code");
+  const submit = panel()?.querySelector<HTMLButtonElement>('button[type="submit"]');
+  expect(submit?.disabled).toBe(false);
+  await click(submit!);
+  expect(rendered.provider.modelRuns).toContainEqual({ action: "connectClaude", cloud: true, ...scope });
+});
+
+test("the Cloud Claude dialog shows a daemon busy refusal and still offers retry", async () => {
+  await render(
+    {
+      ...mockModels.empty,
+      cloudClaudeLogin: { machine: "vm_b", recoverySession: "chat-b", phase: "failed", error: "busy" },
+    },
+    "/settings/models?provider=claude&machine=vm_b&recoverySession=chat-b&open=busy",
+  );
+  expect(panel()?.querySelector('[role="alert"]')?.textContent).toContain("Another sign-in is in progress.");
+  expect(panel()?.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(false);
+  expect(panel()?.querySelector('input[type="password"]')).toBeNull();
+});
+
 test("Cloud models can enable and disable a key added in Models without removing the local row", async () => {
   const rendered = await render(mockModels.empty, "/settings/models?focus=models.add.openai");
   await changeValue(panel()!.querySelector('input[type="password"]')!, "fixture-api-key");
@@ -382,6 +451,38 @@ test("Cloud models adds a key with Cloud use enabled", async () => {
   expect(rendered.provider.modelRuns.at(-1)).toMatchObject({ action: "addKey", servesCloud: true });
   expect(card(rendered).querySelector('[data-connection="openai-key"]')?.textContent).toContain("API key");
 });
+
+test.each(["The provider refused the key (HTTP 401).", "the endpoint was not reached: check the base URL"])(
+  "Cloud models lets a person save after the Mac's probe reports %s",
+  async (failure) => {
+    const rendered = (page = await renderPage({
+      path: "/settings/cloud?focus=cloudModels.add.openai",
+      mock: { modelAccess: { failure } },
+      setup: (provider) => {
+        provider.models = mockModels.empty;
+      },
+    }));
+    const key = "fixture-api-key";
+    await changeValue(panel()!.querySelector('input[type="password"]')!, key);
+    const submit = () => panel()!.querySelector('[data-models-action="addKey"]')!;
+    await click(submit());
+    expect(panel()?.querySelector('[role="alert"]')?.textContent).toBe(failure);
+    expect(submit().textContent).toContain("Save Without Verification");
+    expect(ids(rendered)).toEqual([]);
+    await click(submit());
+    expect(panel()).toBeNull();
+    expect(ids(rendered)).toEqual(["openai-key"]);
+    expect(rendered.provider.modelRuns).toEqual(
+      [true, false].map((verifyAccess) => ({
+        action: "addKey",
+        provider: "openai",
+        key,
+        verifyAccess,
+        servesCloud: true,
+      })),
+    );
+  },
+);
 
 test("Cloud models updates a saved endpoint using its existing profile revision and key", async () => {
   const rendered = await render(mockModels.empty, "/settings/cloud?focus=cloudModels.add.deepseek");

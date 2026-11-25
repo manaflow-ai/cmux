@@ -197,6 +197,36 @@ impl LaunchEndpoint {
     }
 }
 
+// Older daemons deny unknown route and profile keys. A reserved first-line comment keeps
+// the identity in the same atomic file as the connection while allowing their parsers to read it.
+const INSTANCE_COMMENT: &str = "# cmux-credential-instance: ";
+
+pub(crate) fn stored_instance(text: &str) -> Option<String> {
+    let instance = text.lines().next()?.strip_prefix(INSTANCE_COMMENT)?;
+    uuid::Uuid::parse_str(instance).ok().map(|id| id.to_string())
+}
+
+pub(crate) fn with_stored_instance(text: &str, instance: &str) -> String {
+    let text = if text.starts_with(INSTANCE_COMMENT) {
+        text.split_once('\n').map_or("", |(_, remaining)| remaining)
+    } else {
+        text
+    };
+    format!("{INSTANCE_COMMENT}{instance}\n{text}")
+}
+
+// The bound form is a local route id and the Mac-scoped connection digest.
+fn valid_connection(connection: &str) -> bool {
+    match connection.split_once(':') {
+        Some((id, digest)) => {
+            crate::routes::is_route_id(id)
+                && digest.len() == 64
+                && digest.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        }
+        None => crate::routes::is_route_id(connection),
+    }
+}
+
 /// A launch credential: the variables one agent gets. Its `Debug` never shows a value.
 #[derive(Clone, PartialEq, Eq)]
 pub struct AgentCredential {
@@ -274,7 +304,7 @@ impl AgentCredential {
                 value
                     .as_str()
                     .filter(|id| {
-                        crate::routes::is_route_id(id)
+                        valid_connection(id)
                             && !out.values().any(|secret| {
                                 *id == secret.as_str()
                                     || (secret.len() >= 6 && id.contains(secret.as_str()))

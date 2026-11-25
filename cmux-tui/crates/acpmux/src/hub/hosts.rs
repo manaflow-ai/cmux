@@ -794,6 +794,8 @@ impl Hub {
         // A fork through an adopted agent asks for the list it started with
         // (`spawn.rs` decides it at session/new for a spawned one).
         let meta = session.meta();
+        let claude_recovery = super::credentials::claude_login_needs_restart(&meta)
+            || super::credentials::has_saved_claude_token(session, &meta);
         let (_, env) = self.harness_env(&meta).await;
         let (all, kind) = {
             let cfg = self.config.read().await;
@@ -819,8 +821,22 @@ impl Hub {
         let stalls = std::env::var_os("ACPMUX_TEST_REPLAY_INCOMPLETE").is_some();
         #[cfg(not(debug_assertions))]
         let stalls = false;
-        let replayed =
+        let mut replayed =
             !stalls && child.wait_replayed(adopted.last_h, REPLAY_STALL, REPLAY_CEILING).await;
+        session.floor.left_host_read.store(false, Ordering::SeqCst);
+        let managed = off.off();
+        // Claude login recovery uses the rebuilt work state to decide whether it may end this
+        // host. The replay must reach the Resume boundary before that state is read.
+        if claude_recovery || managed {
+            replayed = replayed
+                && match child.learn_replay_end(REPLAY_STALL).await {
+                    Some(end) => child.wait_replayed(end, REPLAY_STALL, REPLAY_CEILING).await,
+                    None => false,
+                };
+        } else {
+            let learning = child.clone();
+            tokio::spawn(async move { learning.learn_replay_end(REPLAY_STALL).await });
+        }
         if !replayed {
             tracing::warn!(session = %session.id, "agent host replay incomplete; recovering from the partial log");
         }
@@ -834,17 +850,8 @@ impl Hub {
         // read the log before the replay reached it. With MDM unset the agent is handed out, and
         // the next off reads the log the replay added to: an earlier read of it no longer holds
         // (review 2 of #26057).
-        // The replay runs to what the host numbered before it handled this daemon's `Resume`, which
-        // may be past its hello's `last_h` (review 3 of #26057): under MDM's off that end is learned
-        // and waited for before the judgement; with MDM unset it is learned in the background and
-        // nothing waits on it, as before.
-        session.floor.left_host_read.store(false, Ordering::SeqCst);
-        if off.off() {
-            let replayed = replayed
-                && match child.learn_replay_end(REPLAY_STALL).await {
-                    Some(end) => child.wait_replayed(end, REPLAY_STALL, REPLAY_CEILING).await,
-                    None => false,
-                };
+        // The Resume boundary may be past the hello's `last_h` (review 3 of #26057).
+        if managed || (claude_recovery && off.off()) {
             let ended = if replayed {
                 self.end_if_runs_full_access(session, true).await
             } else {
@@ -857,9 +864,6 @@ impl Hub {
                 }
                 return Ok(());
             }
-        } else {
-            let learning = child.clone();
-            tokio::spawn(async move { learning.learn_replay_end(REPLAY_STALL).await });
         }
         self.append(
             session,
@@ -882,8 +886,15 @@ impl Hub {
             let told = replayed && adopted.version >= agent_host::QUEUED_VERSION;
             Self::hold_unwritten(session, hold, &record, told, &work);
         }
+        let recovery_complete = claude_recovery
+            && replayed
+            && adopted.acked_h <= resume_after
+            && !work.receipts_unproven;
         let changes = session.status_changes.load(Ordering::SeqCst);
         self.recover_work(session, &child, &incarnation, work).await;
+        if recovery_complete {
+            child.mark_recovery_replay_complete();
+        }
         // The status after recovery, not before it: set before, `ready` was logged and shown
         // between `host_adopted` and a turn the host still runs (an idle chat that was working).
         // Recovery sets the turn and `running` under the spawn lock every new prompt waits on, so

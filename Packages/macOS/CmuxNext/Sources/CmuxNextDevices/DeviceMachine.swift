@@ -12,12 +12,12 @@ import IOKit
 /// the same value and the host's Always answer about this Mac covers all of them. The hardware
 /// UUID alone is no secret (any app on the Mac can read it), so the key is what stops a device
 /// elsewhere from naming this Mac; nil where there is no hardware UUID (not a Mac) or no secret.
-struct DeviceMachine: Sendable, Equatable {
-    let id: String?
+package struct DeviceMachine: Sendable, Equatable {
+    package let id: String?
 
     /// This Mac's, read once.
     /// Only a Mac names one: elsewhere there is no hardware UUID, so no secret is made either.
-    static let current: DeviceMachine = {
+    package static let current: DeviceMachine = {
         guard let uuid = platformUUID() else { return DeviceMachine(hardwareUUID: nil, secret: nil) }
         return DeviceMachine(hardwareUUID: uuid, secret: DeviceMachineSecret.load(at: DeviceMachineSecret.defaultURL))
     }()

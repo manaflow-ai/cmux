@@ -499,7 +499,7 @@ public nonisolated struct CloudMoveCLI: Sendable {
         guard read.answer.ok, let id = object?["machine"]?.stringValue else {
             throw CloudAppOpFailure(code: read.answer.errorCode ?? "cmux.cloud.bad_response", message: read.answer.error ?? "the workspace ensure answered no machine")
         }
-        guard object?["selected_environment"]?.stringValue == environment else {
+        if let selected = object?["selected_environment"]?.stringValue, selected != environment {
             throw CloudAppOpFailure(code: "environment_mismatch", message: "The chosen machine cannot serve the selected Cloud environment.")
         }
         return id
@@ -663,11 +663,17 @@ public nonisolated struct CloudMoveCLI: Sendable {
     private func run<Call: Encodable>(_ call: Call, reading: String = "plain", stdin: Data? = nil,
                                       stderrLine: (@Sendable (String) -> Void)? = nil, limit: Duration? = nil) async throws -> Read {
         let result = try await output(call, stdin: stdin, stderrLine: stderrLine, bound: limit)
-        let request = ReadRequest(reading: reading, stdout: String(decoding: result.stdout, as: UTF8.self),
-                              stderr: String(decoding: result.stderr, as: UTF8.self), status: result.status)
+        let stdout = String(decoding: result.stdout, as: UTF8.self)
+        let request = ReadRequest(reading: reading, stdout: stdout,
+                                  stderr: String(decoding: result.stderr, as: UTF8.self), status: result.status)
         var read = CloudMoveCore().call("cli_read", request, as: Read.self)
             ?? Read(answer: Answer(ok: false, errorCode: Self.badAnswer, error: "exit \(result.status)"))
-        read.answer = Self.withSeedFields(read.answer, stdout: request.stdout)
+        read.answer = Self.withSeedFields(read.answer, stdout: stdout)
+        if reading == "start-chat-plan", read.answer.ok, read.plan?.ensuredEnvironment == nil,
+           let line = stdout.split(whereSeparator: \.isNewline).last(where: { $0.hasPrefix("{") }),
+           let reply = try? JSONDecoder().decode(JSONValue.self, from: Data(line.utf8)) {
+            read.plan?.ensuredEnvironment = reply["ensured"]?["selected_environment"]?.stringValue
+        }
         return read
     }
 }

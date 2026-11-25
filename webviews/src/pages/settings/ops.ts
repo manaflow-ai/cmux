@@ -2193,7 +2193,7 @@ export type SettingsOps = {
   /** Native: Settings > Models, the person's and the organization's connections (model-connections.md). */
   "cmux.settings.models.state": [Record<string, never>, ModelsState];
   /** Native: one Settings > Models gesture; a refusal rejects with the host's text. */
-  "cmux.settings.models.run": [ModelsRun, Partial<{ models: string[]; failure: string }>];
+  "cmux.settings.models.run": [ModelsRun, Partial<{ models: string[]; failure: string; verificationFailed: boolean }>];
   /** Native: acpmux's harnesses (Settings > Agents). */
   "cmux.settings.harnesses.state": [Record<string, never>, HarnessesState];
   /** Native: one Harnesses gesture (a terminal tab for sign-in, or a refresh). */

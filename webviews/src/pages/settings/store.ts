@@ -943,16 +943,17 @@ export class SettingsStore {
   }
 
   /** Reads Settings > Models (a host without it rejects, and the part stays null). */
-  async refreshModels(): Promise<void> {
-    await this.fetchNative(settingsKeys.models);
+  async refreshModels(): Promise<boolean> {
+    return this.fetchNative(settingsKeys.models);
   }
 
-  /** One Settings > Models gesture, then a fresh read of the part; answers the host's refusal in plain
-   * words (userMessage), null when it took the gesture. */
-  async runModels(run: ModelsRun): Promise<string | null> {
+  /** One Settings > Models gesture, then a fresh read of the part and the host's result. */
+  async runModels(run: ModelsRun): Promise<{ failure: string | null; verificationFailed?: boolean }> {
     const reply = await this.request("cmux.settings.models.run", run);
     if (run.action !== "checkClaudeLogin" && run.action !== "closeKeyPage") await this.refreshModels();
-    return reply.ok ? (reply.value.failure ?? null) : userMessage(reply.error, SETTINGS_SENTENCES);
+    return reply.ok
+      ? { failure: reply.value.failure ?? null, verificationFailed: reply.value.verificationFailed }
+      : { failure: userMessage(reply.error, SETTINGS_SENTENCES) };
   }
 
   /** Reads the provider's model list without refreshing or changing saved connections. */
@@ -1542,9 +1543,12 @@ export class SettingsStore {
     return { ok: true };
   }
 
-  private async fetchNative(queryKey: readonly string[]): Promise<void> {
-    if (this.disposed) return;
-    await this.queryClient.fetchQuery({ queryKey, staleTime: 0 }).catch(() => undefined);
+  private async fetchNative(queryKey: readonly string[]): Promise<boolean> {
+    if (this.disposed) return false;
+    return this.queryClient.fetchQuery({ queryKey, staleTime: 0 }).then(
+      () => true,
+      () => false,
+    );
   }
 
   /** One of the host's own reads, for its query; rejects with the host's error. */

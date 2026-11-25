@@ -26,7 +26,7 @@ import Testing
         let claudeSignedIn = OSAllocatedUnfairLock(initialState: false)
         let claudeFinishFails = OSAllocatedUnfairLock(initialState: false)
         let committedClaudeToken = OSAllocatedUnfairLock(initialState: false)
-        let refuseKeyCheck = OSAllocatedUnfairLock(initialState: false)
+        let keyCheckFailure = OSAllocatedUnfairLock<String?>(initialState: nil)
         let refuseKeyAdd = OSAllocatedUnfairLock(initialState: false)
         let beginURL = OSAllocatedUnfairLock(initialState: "https://auth.openai.com/oauth/authorize?client_id=app_EMoamEEZ73f0CkXaXp7hrann")
         let nativeProvider = OSAllocatedUnfairLock<String?>(initialState: nil)
@@ -119,10 +119,10 @@ import Testing
                     daemon.committedClaudeToken.withLock { $0 = false }
                     return Data(#"{"connections":[],"replaced_secret":"keychain:cmux-model-key/claude-token-test"}"#.utf8)
                 case .routeTest:
-                    let response = daemon.refuseKeyCheck.withLock { $0 }
-                        ? #"{"failure":"The provider refused the key (HTTP 401)."}"#
-                        : #"{"models":["fixture-model"]}"#
-                    return Data(response.utf8)
+                    if let failure = daemon.keyCheckFailure.withLock({ $0 }) {
+                        return try JSONSerialization.data(withJSONObject: ["failure": failure])
+                    }
+                    return Data(#"{"models":["fixture-model"]}"#.utf8)
                 case .connectionsKeyAdd:
                     if daemon.refuseKeyAdd.withLock({ $0 }) { throw AcpmuxRPCError(code: -32602, name: "connections.bad_secret", message: "refused") }
                     return Self.connections(plan: false)
@@ -252,6 +252,127 @@ import Testing
         #expect(presented.count == 1)
         #expect(dismissed == presented)
         #expect(!models.state.compactText.contains("cloud-id"))
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func aSecondSettingsWindowShowsBusyAndLeavesTheFirstClaudeApprovalOpen() async throws {
+        let daemon = Daemon()
+        let firstBrowser = Opened(), secondBrowser = Opened()
+        let first = make(daemon: daemon, opened: firstBrowser), second = make(daemon: daemon, opened: secondBrowser)
+        var pending = false
+        var finished: [String] = []
+        let (cancellations, reportCancellation) = AsyncStream<String>.makeStream()
+        defer { reportCancellation.finish() }
+        let machine = SettingsModels.CloudClaudeMachine(id: "vm_b", environment: "env_b", request: { op, fields in
+            switch op {
+            case "start":
+                if pending { return Data(#"{"refused":{"reason":"busy"}}"#.utf8) }
+                pending = true
+                return Data(#"{"loginId":"approval","url":"https://claude.ai/oauth/manual"}"#.utf8)
+            case "finish":
+                guard pending, fields["loginId"] == "approval", let chat = fields["recoverySession"] else { throw NoAnswer() }
+                finished.append(chat)
+                pending = false
+                return Data(#"{"signedIn":true}"#.utf8)
+            case "cancel":
+                pending = false
+                reportCancellation.yield(fields["loginId"] ?? "")
+                reportCancellation.finish()
+                return Data("{}".utf8)
+            default:
+                throw NoAnswer()
+            }
+        }, openCallback: { _, _, _ in false })
+        first.cloudClaudeLogin = { _, _, _ in .ready(machine) }
+        second.cloudClaudeLogin = { _, _, _ in .ready(machine) }
+        let secondSubscription = try await second.subscribe("cmux.settings.models.changed", filter: .object([:]), context: click) { _ in }
+        func connect(_ chat: String) -> JSONValue {
+            ["action": "connectClaude", "cloud": true, "machine": "vm_b", "environment": "env_b", "recoverySession": .string(chat)]
+        }
+        let connectFirst = connect("chat-a")
+        let connectSecond = connect("chat-b")
+        _ = try await first.run(connectFirst, context: click)
+        await first.claudeLoginTasks[.cloud]?.value
+        _ = try await second.run(connectSecond, context: click)
+        await second.claudeLoginTasks[.cloud]?.value
+        #expect(first.state["cloudClaudeLogin"]?["phase"] == "code")
+        #expect(second.state["cloudClaudeLogin"]?["error"] == "busy")
+        #expect(second.state["cloudClaudeLogin"]?["recoverySession"] == "chat-b")
+        #expect(firstBrowser.urls.count == 1)
+        #expect(secondBrowser.urls.isEmpty)
+
+        _ = try await first.run(["action": "finishClaudeLogin", "cloud": true, "code": "fixture", "recoverySession": "chat-a"], context: click)
+        await first.claudeLoginTasks[.cloud]?.value
+        #expect(first.state["cloudClaudeLogin"]?["phase"] == "connected")
+        #expect(finished == ["chat-a"])
+        _ = try await second.run(connectSecond, context: click)
+        await second.claudeLoginTasks[.cloud]?.value
+        #expect(second.state["cloudClaudeLogin"]?["phase"] == "code")
+        #expect(secondBrowser.urls.count == 1)
+        secondSubscription.cancel()
+        for await id in cancellations { #expect(id == "approval") }
+        #expect(!pending)
+    }
+
+    @Test func cloudClaudePreparationFailureKeepsItsRequestedEnvironment() async throws {
+        let models = make(daemon: Daemon())
+        models.prepareCloudClaudeLogin = { _, _, _ in throw SettingsCloudClaudeLogin.startFailure }
+        _ = try await models.run(["action": "connectClaude", "cloud": true, "machine": "vm_b", "environment": "env_b"], context: click)
+        #expect(models.state["cloudClaudeLogin"]?["environment"] == "env_b")
+        await models.claudeLoginTasks[.cloud]?.value
+        let login = models.state["cloudClaudeLogin"]
+        #expect(login?["phase"] == "failed")
+        #expect(login?["error"] == "machine_start_failed")
+        #expect(login?["machine"] == "vm_b")
+        #expect(login?["environment"] == "env_b")
+    }
+
+    @Test(arguments: [false, true])
+    func cloudClaudeCanRetryAfterUpdatingTheCLI(connect: Bool) async throws {
+        let models = make(daemon: Daemon())
+        var updated = false
+        var operations: [String] = []
+        let machine = SettingsModels.CloudClaudeMachine(id: "vm_b", environment: "env_b", request: { op, _ in
+            operations.append(op)
+            return Data((updated ? #"{"signedIn":true}"# : #"{"refused":{"reason":"update_claude"}}"#).utf8)
+        }, openCallback: { _, _, _ in false })
+        models.cloudClaudeLogin = { _, _, _ in .ready(machine) }
+        await models.checkClaudeLogin(.cloud, machine: "vm_b", environment: "env_b")
+        #expect(models.state["cloudClaudeLogin"]?["phase"] == "disabled")
+        #expect(models.state["cloudClaudeLogin"]?["error"] == "update_claude")
+        updated = true
+        if connect {
+            _ = try await models.run(["action": "connectClaude", "cloud": true, "machine": "vm_b", "environment": "env_b"], context: click)
+            await models.claudeLoginTasks[.cloud]?.value
+        } else {
+            await models.checkClaudeLogin(.cloud, machine: "vm_b", environment: "env_b")
+        }
+        #expect(operations == ["status", connect ? "start" : "status"])
+        #expect(models.state["cloudClaudeLogin"]?["phase"] == "connected")
+    }
+
+    @Test(arguments: [false, true])
+    func namedClaudeStatusRefreshesBeforeCheckingTheMachine(refreshSucceeds: Bool) async {
+        let models = make(daemon: Daemon())
+        var refreshed = false
+        var probed: [String] = []
+        func machine(_ id: String) -> SettingsModels.CloudClaudeMachine {
+            .init(id: id, name: "Named VM", request: { _, _ in
+                probed.append(id)
+                return Data(#"{"signedIn":true}"#.utf8)
+            }, openCallback: { _, _, _ in false })
+        }
+        models.claudeLogins[.cloud] = .init(phase: "disabled", error: "unsupported", machine: "vm_a", machineName: "Named VM")
+        models.cloudClaudeLogin = { _, _, _ in .ready(machine(refreshed ? "vm_b" : "vm_a")) }
+        models.refreshCloudClaudeMachines = { refreshed = refreshSucceeds; return refreshSucceeds }
+        await models.checkClaudeLogin(.cloud, machine: nil, name: "Named VM")
+        #expect(probed == (refreshSucceeds ? ["vm_b"] : []))
+        if refreshSucceeds {
+            #expect(models.state["cloudClaudeLogin"]?["machine"] == "vm_b")
+            #expect(models.state["cloudClaudeLogin"]?["phase"] == "connected")
+        } else {
+            #expect(models.state["cloudClaudeLogin"]?["phase"] == "idle")
+        }
     }
 
     @Test func cloudClaudeSignOutKeepsTheRowsMachineWhenItsLinkDrops() async throws {
@@ -439,6 +560,8 @@ import Testing
         #expect(rows[0] == [
             "id": "codex-login", "kind": "codex-login", "provider": "openai", "families": ["codex"], "label": "ChatGPT",
             "email": .null, "plan": "plus", "signedIn": true, "enabled": true, "defaultFor": ["codex"], "servesCloud": false,
+            "signInReason": .null, "canServeCloud": false, "cloudFamilies": ["codex"], "canCheckAccess": false,
+            "canReplaceKey": false, "endpoint": .null, "launchHarness": .null, "expiresAt": .null,
         ])
         #expect(rows[1]["signedIn"] == .bool(false))
         #expect(rows[1]["serves_cloud"] == nil)
@@ -484,7 +607,7 @@ import Testing
     @Test(arguments: [false, true])
     func verifyAndAddKeyUsesOneGestureAndDoesNotStoreARefusedKey(refused: Bool) async throws {
         let daemon = Daemon()
-        daemon.refuseKeyCheck.withLock { $0 = refused }
+        daemon.keyCheckFailure.withLock { $0 = refused ? "The provider refused the key (HTTP 401)." : nil }
         let keys = Keys()
         let models = make(daemon: daemon, keys: keys)
         let key = "sk-ant-api03-fixture"
@@ -503,6 +626,31 @@ import Testing
             let add = try #require(calls.first { $0.method == AcpmuxHarnessMethod.connectionsKeyAdd.rawValue })
             #expect(add.params == ["provider": "anthropic", "secret": "keychain:cmux-model-key/anthropic-test"])
         }
+    }
+
+    @Test(arguments: ["The provider refused the key (HTTP 401).", "the endpoint was not reached: check the base URL"])
+    func aCloudKeyCanBeSavedAfterTheMacFailsToVerifyIt(failure: String) async throws {
+        let daemon = Daemon()
+        daemon.keyCheckFailure.withLock { $0 = failure }
+        let keys = Keys()
+        let models = make(daemon: daemon, keys: keys)
+        let key = "sk-proj-fixture"
+        let refused = try await models.run([
+            "action": "addKey", "provider": "openai", "key": .string(key), "verifyAccess": true, "servesCloud": true,
+        ], context: click)
+        #expect(refused["failure"] == .string(failure))
+        #expect(refused["verificationFailed"] == true)
+        #expect(keys.stored.withLock { $0 }.isEmpty)
+
+        _ = try await models.run([
+            "action": "addKey", "provider": "openai", "key": .string(key), "verifyAccess": false, "servesCloud": true,
+        ], context: click)
+        let calls = daemon.calls.withLock { $0 }
+        #expect(calls.filter { $0.method == AcpmuxHarnessMethod.routeTest.rawValue }.count == 1)
+        #expect(calls.contains(Call(method: AcpmuxHarnessMethod.connectionsKeyAdd.rawValue, params: [
+            "provider": "openai", "secret": "keychain:cmux-model-key/openai-test", "servesCloud": "true",
+        ])))
+        #expect(keys.stored.withLock { $0 } == ["keychain:cmux-model-key/openai-test": key])
     }
 
     @Test func aRefusedKeyAddTakesTheKeychainItemBackOut() async throws {

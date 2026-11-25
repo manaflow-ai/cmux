@@ -480,6 +480,7 @@ mod tests {
         let (dir, state) = (root.join("routes"), root.join("state"));
         std::fs::create_dir_all(&dir).unwrap();
         let file = RouteFile {
+            credential_instance: None,
             name: Some("Work key".into()),
             kind: RouteKind::DirectApiKey,
             families: vec!["claude".into()],

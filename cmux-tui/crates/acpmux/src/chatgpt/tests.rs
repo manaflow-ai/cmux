@@ -893,6 +893,7 @@ async fn signing_in_again_on_a_route_with_no_sign_in_here_takes_that_route() {
     let s = setup().await;
     let dir = s.places.routes.as_deref();
     let mut stale = crate::routes::RouteFile {
+        credential_instance: None,
         name: Some("ChatGPT plan (alex@example.com)".into()),
         kind: RouteKind::ChatgptPlan,
         families: vec!["codex".into()],

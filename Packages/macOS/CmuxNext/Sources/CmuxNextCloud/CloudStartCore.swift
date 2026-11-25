@@ -34,8 +34,9 @@ public nonisolated struct CloudStartCore: Sendable {
     }
 
     public func matchesEnvironment(_ selected: String?, machine: CloudMachine, ensured: String? = nil) -> Bool {
-        guard let selected else { return true }
-        return (machine.environmentId ?? ensured) == selected
+        guard let selected, let actual = machine.environmentId ?? ensured else { return true }
+        return actual == selected
+            || (ensured == selected && selected.hasPrefix("env_") && actual.hasPrefix("denv_"))
     }
 
     // MARK: The start's own checks (`start`)

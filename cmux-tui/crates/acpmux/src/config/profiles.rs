@@ -257,6 +257,8 @@ pub struct ProfileMeta {
     pub source_path: String,
     #[serde(skip)]
     pub content_revision: Option<String>,
+    #[serde(skip)]
+    pub credential_instance: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cloud_enabled: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -634,7 +636,12 @@ pub fn parse_profile_toml(
     let file: ProfileFile = toml::from_str(text).map_err(|e| {
         vec![Diagnostic::error(&shown, stem, e.message().to_string(), toml_fix(&e, text))]
     })?;
-    build(file, path, stem, source, None, source == ProfileSource::Managed)
+    build(file, path, stem, source, None, source == ProfileSource::Managed).map(
+        |(id, profile, mut meta, warnings)| {
+            meta.credential_instance = crate::agent_credentials::stored_instance(text);
+            (id, profile, meta, warnings)
+        },
+    )
 }
 
 /// Parse a folder profile (`<folder>/.cmux/harnesses/<id>.toml`, H4) with the
@@ -923,6 +930,7 @@ fn build(
         source,
         source_path: shown,
         content_revision: None,
+        credential_instance: None,
         cloud_enabled: file.cloud_enabled,
         endpoint_preset: file.endpoint_preset,
         display_name: file.name,

@@ -290,6 +290,24 @@ struct CloudStartSessionTests {
         #expect(machine?.id == "vm_b")
     }
 
+    @Test func aNamedClaudeStartRefreshesBeforeRefusingMissingSetup() async throws {
+        var machine = CloudMachine(id: "vm_b", displayName: "old-name")
+        var fresh = false
+        let setup = CloudSetup(read: { .init(personal: [], organization: []) })
+        setup.claudeMachines = { [machine] }
+        setup.readClaudeMachineLogin = { $0 == "vm_b" }
+        let request = CloudStartSession.Request(name: "dev", agent: "claude")
+        #expect(setup.claudeMachine(named: "dev") == nil)
+        let preflight = try await request.preflight(setup: setup, scheme: "cmux", refreshNamed: {
+            try await request.requireFreshNamedList(isFresh: { fresh }, refresh: {
+                machine = CloudMachine(id: "vm_b", displayName: "dev")
+                fresh = true
+            }, check: {})
+        })
+        #expect(preflight == request)
+        #expect(await preflight.launchReadiness(setup: setup, machine: "vm_b").choice == .claudeMachineLogin)
+    }
+
     @Test func anAutomaticCLIStartOnlyPinsAReadyClaudeMachineForItsLogin() async throws {
         let setup = CloudSetup(read: { .init(personal: [], organization: []) })
         setup.claudeMachines = { [CloudMachine(id: "vm_a", displayName: "dev")] }

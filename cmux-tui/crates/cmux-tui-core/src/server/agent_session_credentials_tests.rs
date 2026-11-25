@@ -113,26 +113,34 @@ fn the_owners_start_relays_the_credential_to_acpmux_with_the_agent_launch() {
 }
 
 #[test]
-fn the_owner_can_select_the_claude_machine_login_for_a_start() {
-    for (label, host, phone, expected) in [
-        ("claude-own", AgentStartHost::OwnerCloud, false, true),
-        ("claude-team", AgentStartHost::TeamVm, false, false),
-        ("claude-phone", AgentStartHost::OwnerCloud, true, false),
+fn the_owner_can_select_claude_auth_for_a_start() {
+    for (field, meta_key, route) in [
+        ("claude_machine_login", "claudeMachineLogin", "own"),
+        ("claude_team_route", "claudeTeamRoute", "team"),
     ] {
-        let mut chat = connect(label, host, phone);
-        let started = chat.client.request(json!({
-            "cmd": "agent-session-start", "surface": chat.surface, "cwd": chat.cwd,
-            "harness": "claude", "vm_kind": "owner", "claude_machine_login": true
-        }));
-        assert_eq!(started["ok"], expected, "{started}");
-        let sent = chat.sent("session/new");
-        if expected {
-            assert_eq!(sent.len(), 1);
-            let meta = &sent[0]["params"]["_meta"]["acpmux"];
-            assert_eq!(meta["claudeMachineLogin"], true);
-            assert!(meta.get("credentials").is_none());
-        } else {
-            assert!(sent.is_empty(), "{label}: no agent starts");
+        for (where_, host, phone, expected) in [
+            ("owner", AgentStartHost::OwnerCloud, false, true),
+            ("shared", AgentStartHost::TeamVm, false, route == "team"),
+            ("phone", AgentStartHost::OwnerCloud, true, false),
+        ] {
+            let label = format!("claude-{route}-{where_}");
+            let mut chat = connect(&label, host, phone);
+            let mut start = json!({
+                "cmd": "agent-session-start", "surface": chat.surface, "cwd": chat.cwd,
+                "harness": "claude", "vm_kind": "owner"
+            });
+            start[field] = json!(true);
+            let started = chat.client.request(start);
+            assert_eq!(started["ok"], expected, "{started}");
+            let sent = chat.sent("session/new");
+            if expected {
+                assert_eq!(sent.len(), 1);
+                let meta = &sent[0]["params"]["_meta"]["acpmux"];
+                assert_eq!(meta[meta_key], true);
+                assert!(meta.get("credentials").is_none());
+            } else {
+                assert!(sent.is_empty(), "{label}: no agent starts");
+            }
         }
     }
 }
@@ -159,7 +167,7 @@ fn a_credential_is_refused_anywhere_but_the_owners_own_cloud_vm() {
 fn the_owners_start_and_reattach_use_the_named_connection() {
     let mut chat = connect("cred-restore", AgentStartHost::OwnerCloud, false);
     let mut credential = env(TOKEN);
-    credential["connection"] = json!("anthropic-personal");
+    credential["connection"] = json!(format!("anthropic-personal:{}", "a".repeat(64)));
     assert_eq!(chat.start(credential.clone(), json!("owner"))["ok"], json!(true));
     let sent = chat.sent("session/new");
     assert_eq!(sent.len(), 1);
@@ -206,6 +214,7 @@ fn a_malformed_credential_is_a_bad_request() {
         json!({"env": {"CMUX_GROK_PLAN_ACCESS_TOKEN": "fixture"}}),
         json!({"env": {"CMUX_COPILOT_GITHUB_TOKEN": "fixture"}}),
         json!({"env": {"ANTHROPIC_API_KEY": TOKEN}, "connection": "-not-a-route"}),
+        json!({"env": {"ANTHROPIC_API_KEY": TOKEN}, "connection": "anthropic-key:abc"}),
         json!({"env": {"ANTHROPIC_AUTH_TOKEN": "endpoint-only"}}),
         json!({"env": {"CMUX_BYO_API_KEY": "fixture"}}),
         json!({"env": {"CMUX_BYO_API_KEY": "fixture"}, "endpoint": {
@@ -227,7 +236,7 @@ fn the_owners_refresh_reaches_the_tabs_own_session_only_from_the_owner() {
     let _ = chat.sent("session/new");
     let refresh = |vm_kind: Value, surface: u64| {
         let mut frame = json!({"cmd":"agent-session-credentials","surface":surface,
-            "env":{"ANTHROPIC_API_KEY":"sk-ant-api03-new"}});
+            "session":SESSION,"env":{"ANTHROPIC_API_KEY":"sk-ant-api03-new"}});
         if !vm_kind.is_null() {
             frame["vm_kind"] = vm_kind;
         }
@@ -251,11 +260,29 @@ fn the_owners_refresh_reaches_the_tabs_own_session_only_from_the_owner() {
 }
 
 #[test]
+fn credential_writes_refuse_a_surface_reused_by_another_chat() {
+    let mut chat = connect("cred-reused-slot", AgentStartHost::OwnerCloud, false);
+    assert_eq!(chat.start(env(TOKEN), json!("owner"))["ok"], true);
+    let _ = chat.sent("session/new");
+
+    // The old daemon used this same surface for a different durable chat.
+    for env in [json!({"ANTHROPIC_API_KEY": TOKEN}), json!({})] {
+        let frame = json!({"cmd":"agent-session-credentials","surface":chat.surface,
+            "session":"chat-from-before-restart","vm_kind":"owner","env":env});
+        assert_code(&chat.client.request(frame), "agent_session.unknown_tab");
+    }
+    let no_session = json!({"cmd":"agent-session-credentials","surface":chat.surface,
+        "vm_kind":"owner","env":{}});
+    assert_code(&chat.client.request(no_session), "agent_session.bad_request");
+    assert!(chat.sent("agent/credentials.update").is_empty());
+}
+
+#[test]
 fn the_owners_copilot_revocation_reaches_only_the_tabs_session() {
     let mut chat = connect("cred-copilot-remove", AgentStartHost::OwnerCloud, false);
     assert_eq!(chat.start(env(TOKEN), json!("owner"))["ok"], json!(true));
     let _ = chat.sent("session/new");
-    let mut revoke = json!({"cmd":"agent-session-credentials","surface":chat.surface,"env":{}});
+    let mut revoke = json!({"cmd":"agent-session-credentials","surface":chat.surface,"session":SESSION,"env":{}});
     assert_eq!(chat.client.request(revoke.clone())["ok"], json!(false));
     assert!(chat.sent("agent/credentials.update").is_empty());
     revoke["vm_kind"] = json!("owner");

@@ -605,6 +605,7 @@ pub(super) fn save(
         .filter(|r| r.file.kind == RouteKind::ChatgptPlan)
         .is_some_and(|r| r.file.disabled);
     let file = RouteFile {
+        credential_instance: None,
         name: Some(match &record.email {
             Some(email) => format!("ChatGPT ({email})"),
             None => "ChatGPT".to_owned(),

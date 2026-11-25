@@ -105,6 +105,31 @@ async fn local_chatgpt_refresh_resumes_the_chat_before_the_next_turn() {
 }
 
 #[tokio::test]
+async fn a_local_chatgpt_plan_token_echo_is_redacted_from_the_journal() {
+    let root = tempfile::tempdir().unwrap();
+    let (hub, _) = fixture(root.path());
+    let token = "fixture-chatgpt-credential-echo";
+    save_chatgpt(root.path(), token);
+    let session = hub
+        .new_session(NewRequest { cwd: Some(root.path().to_owned()), ..NewRequest::default() })
+        .await
+        .unwrap();
+    hub.prompt(
+        &session,
+        vec![json!({"type": "text", "text": format!("env: {CHATGPT_TOKEN}")})],
+        "test",
+        false,
+    )
+    .await
+    .unwrap();
+    let records = hub.events(&session.id, 0, 100_000).unwrap();
+    let log = serde_json::to_string(&records).unwrap();
+    assert!(log.contains(&format!("{CHATGPT_TOKEN}=[redacted]")));
+    assert!(!log.contains(token));
+    hub.shutdown_all().await;
+}
+
+#[tokio::test]
 async fn local_kimi_refresh_replaces_the_launch_grant_before_a_turn() {
     let root = tempfile::tempdir().unwrap();
     let id = "kimi-test";

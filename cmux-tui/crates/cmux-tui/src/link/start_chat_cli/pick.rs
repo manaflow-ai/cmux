@@ -71,10 +71,9 @@ pub(crate) fn destination(
             || candidates.iter().any(|machine| machine.id == pinned)
             || stored.contains(&pinned)
         {
-            if environment.is_some()
-                && !candidates
-                    .iter()
-                    .any(|vm| vm.id == pinned && vm.matches_environment(environment))
+            if candidates
+                .iter()
+                .any(|vm| vm.id == pinned && vm.conflicts_with_environment(environment))
             {
                 return Destination::EnvironmentMismatch;
             }
@@ -99,6 +98,11 @@ impl Candidate {
                 .and_then(|mb| u64::try_from(mb).ok())
                 .map(|mb| mb.saturating_mul(1024 * 1024)),
         }
+    }
+
+    /// An explicit or pinned destination can predate environment metadata in the app FFI.
+    pub(crate) fn conflicts_with_environment(&self, selected: Option<&str>) -> bool {
+        matches!((selected, self.environment.as_deref()), (Some(selected), Some(actual)) if selected != actual)
     }
 
     pub(crate) fn matches_environment(&self, selected: Option<&str>) -> bool {

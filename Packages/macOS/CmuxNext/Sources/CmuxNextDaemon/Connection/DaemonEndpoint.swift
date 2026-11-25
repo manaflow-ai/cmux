@@ -389,7 +389,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case agentSessionStartModel = "agent-session-start-model-v1"
     /// `agent-session-start` takes `claude_machine_login` from the owner: a Cloud Claude launch that is
     /// ready through the machine's own sign-in uses that sign-in, not a recorded team preference.
+    case agentSessionBoundCredentials = "agent-session-bound-credentials-v1"
     case agentSessionStartClaudeMachineLogin = "agent-session-start-claude-machine-login-v1"
+    /// An owner Cloud start can explicitly select the team route for Claude.
+    case agentSessionStartClaudeTeamRoute = "agent-session-start-claude-team-route-v1"
     case agentSessionStartPermissionMode = "agent-session-start-permission-mode-v1"
     /// `mode` on `agent-session-start`: the person's mode pick, applied on their own Cloud VM only.
     case agentSessionStartMode = "agent-session-start-mode-v1"
@@ -672,7 +675,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .chiefLive, .cloudChiefLive, .conversationRuns, .conversationRunAnswers, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .agentSessionFork, .agentSessionSide, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
-             .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionStartClaudeMachineLogin, .agentSessionStartPermissionMode, .agentSessionStartMode, .agentSessionTrustVMKind, .agentSessionFolders,
+             .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionBoundCredentials, .agentSessionStartClaudeMachineLogin, .agentSessionStartClaudeTeamRoute, .agentSessionStartPermissionMode, .agentSessionStartMode, .agentSessionTrustVMKind, .agentSessionFolders,
              .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .agentSessionShareEvents, .agentSessionLoginMachine, .agentSessionLoginSettings, .agentSessionContext, .agentSessionBtw, .agentSessionPageBytes, .agentSessionSteer, .agentSessionQueueDecision, .agentSessionMember, .pageTabs, .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
              .chiefEvents, .cloudConversations, .cloudHostReplica, .cloudAttachments, .cloudSelfHost,

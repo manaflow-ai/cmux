@@ -84,6 +84,7 @@ fn builtin_routes() -> Vec<Route> {
     let codex_login = Route {
         id: CODEX_LOGIN_ROUTE_ID.into(),
         file: RouteFile {
+            credential_instance: None,
             name: Some("ChatGPT (Codex CLI login)".into()),
             kind: RouteKind::DirectSubscription,
             families: vec!["codex".into()],
@@ -110,6 +111,7 @@ fn builtin_routes() -> Vec<Route> {
         Route {
             id: CMUX_ROUTE_ID.into(),
             file: RouteFile {
+                credential_instance: None,
                 name: Some("cmux model router".into()),
                 kind: RouteKind::CmuxRouter,
                 families: vec![],
@@ -267,6 +269,9 @@ pub struct RouteFile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     pub kind: RouteKind,
+    /// The durable identity from this file's metadata comment.
+    #[serde(skip)]
+    pub credential_instance: Option<String>,
     /// Harness families it serves (`claude`, `codex`, …); empty: every family
     /// its endpoint shape fits.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -658,28 +663,24 @@ fn validate_contents(file: &RouteFile) -> Result<(), RouteError> {
                 .into(),
         ));
     }
+    if file.kind == RouteKind::ClaudeToken
+        && (file.secret.is_none() || file.families.as_slice() != ["claude"])
+    {
+        return Err(RouteError::BadParams(
+            "a claude-token route serves claude and needs secret (keychain:ITEM)".into(),
+        ));
+    }
     crate::route_account::validate(file)
 }
 
 const CLAUDE_TOKEN_NOTES: &str = "claude setup-token: served to Cloud machines' Claude agents";
 
-fn is_managed_claude_token(id: &str, file: &RouteFile) -> bool {
-    file.kind == RouteKind::ClaudeToken
-        && (id == "claude-token"
-            || id
-                .strip_prefix("claude-token-")
-                .and_then(|suffix| suffix.parse::<u16>().ok())
-                .is_some_and(|suffix| {
-                    (2..1000).contains(&suffix) && id == format!("claude-token-{suffix}")
-                }))
-        && file.provider.as_deref() == Some("anthropic")
-        && file.families.as_slice() == ["claude"]
-        && file.notes.as_deref() == Some(CLAUDE_TOKEN_NOTES)
-        && file.secret.is_some()
-        && file.auth.is_none()
-        && file.headers.is_empty()
-        && file.anthropic_base_url.is_none()
-        && file.openai_base_url.is_none()
+fn file_from_toml(text: &str) -> Result<RouteFile, RouteError> {
+    let mut file: RouteFile =
+        toml::from_str(text).map_err(|e| RouteError::Failed(e.to_string()))?;
+    validate_contents(&file)?;
+    file.credential_instance = crate::agent_credentials::stored_instance(text);
+    Ok(file)
 }
 
 /// Every route in `dir`, sorted by id, and the problems of the files that do
@@ -704,15 +705,7 @@ pub fn load(dir: Option<&Path>) -> (Vec<Route>, Vec<String>) {
         }
         let parsed = std::fs::read_to_string(&path)
             .map_err(|e| e.to_string())
-            .and_then(|t| toml::from_str::<RouteFile>(&t).map_err(|e| e.to_string()))
-            .and_then(|f| {
-                let result = if is_managed_claude_token(&id, &f) {
-                    validate_contents(&f)
-                } else {
-                    validate(&f)
-                };
-                result.map(|()| f).map_err(|e| e.to_string())
-            });
+            .and_then(|text| file_from_toml(&text).map_err(|e| e.to_string()));
         match parsed {
             Ok(file) => routes.push(Route { id, file, path }),
             Err(e) => problems.push(format!("{}: {e}", path.display())),
@@ -734,6 +727,13 @@ pub fn find(dir: Option<&Path>, id: &str) -> Result<Route, RouteError> {
 
 /// The route file the RPC `add`/`edit` params (camelCase) describe.
 pub fn file_from_json(params: &Value) -> Result<RouteFile, RouteError> {
+    file_from_edit(params, false)
+}
+
+pub(crate) fn file_from_edit(
+    params: &Value,
+    keep_claude_token: bool,
+) -> Result<RouteFile, RouteError> {
     let text = |k: &str| {
         params.get(k).and_then(Value::as_str).filter(|v| !v.is_empty()).map(str::to_owned)
     };
@@ -774,6 +774,7 @@ pub fn file_from_json(params: &Value) -> Result<RouteFile, RouteError> {
         })
         .unwrap_or_default();
     let file = RouteFile {
+        credential_instance: None,
         name: text("name"),
         kind,
         families: strings("families"),
@@ -796,12 +797,35 @@ pub fn file_from_json(params: &Value) -> Result<RouteFile, RouteError> {
         },
         provider: text("provider"),
     };
-    validate(&file)?;
+    if keep_claude_token && file.kind == RouteKind::ClaudeToken {
+        validate_contents(&file)?;
+    } else {
+        validate(&file)?;
+    }
     Ok(file)
 }
 
 fn write_file(path: &Path, file: &RouteFile) -> Result<(), RouteError> {
     let text = toml::to_string_pretty(file).map_err(|e| RouteError::Failed(e.to_string()))?;
+    let text = match &file.credential_instance {
+        Some(instance) => crate::agent_credentials::with_stored_instance(&text, instance),
+        None => text,
+    };
+    write_route_text(path, &text)
+}
+
+fn read_route_text(path: &Path) -> Result<String, RouteError> {
+    use std::io::Read;
+    let mut text = String::new();
+    crate::home_fs::OpenOptions::new()
+        .read(true)
+        .open(path)
+        .and_then(|mut file| file.read_to_string(&mut text))
+        .map_err(|e| RouteError::Failed(e.to_string()))?;
+    Ok(text)
+}
+
+fn write_route_text(path: &Path, text: &str) -> Result<(), RouteError> {
     if let Some(parent) = path.parent() {
         crate::home_fs::create_dirs(parent).map_err(|e| RouteError::Failed(e.to_string()))?;
     }
@@ -835,11 +859,18 @@ pub(crate) fn edit<R>(
 ) -> Result<(Route, R), RouteError> {
     let _guard = lock_route_files(dir)?;
     let mut file = find(dir, id)?.file;
-    let token_ref = file.secret.clone().filter(|_| is_managed_claude_token(id, &file));
+    let kind = file.kind;
+    let provider = file.provider().to_owned();
+    let instance = file.credential_instance.clone();
+    let token_ref = file.secret.clone().filter(|_| kind == RouteKind::ClaudeToken);
     let result = change(&mut file)?;
+    // An edit can replace the key of an existing connection, but a new provider or kind is
+    // a different connection. Never let an edit choose its own identity.
+    file.credential_instance =
+        if kind == file.kind && provider == file.provider() { instance } else { None };
     let keep_token =
-        token_ref.is_some() && token_ref == file.secret && is_managed_claude_token(id, &file);
-    let route = write_route(dir, id, &file, true, keep_token)?;
+        token_ref.is_some() && token_ref == file.secret && file.kind == RouteKind::ClaudeToken;
+    let route = write_route(dir, id, file, true, keep_token)?;
     Ok((route, result))
 }
 
@@ -852,6 +883,7 @@ pub(crate) fn add_claude_token(
     let _guard = lock_route_files(dir)?;
     let dir = dir.ok_or_else(|| RouteError::Failed("no cmux config folder".into()))?;
     let file = RouteFile {
+        credential_instance: None,
         name: Some(
             label.map(str::trim).filter(|l| !l.is_empty()).unwrap_or("Claude Code token").into(),
         ),
@@ -877,7 +909,7 @@ pub(crate) fn add_claude_token(
         .chain((2..1000).map(|n| format!("claude-token-{n}")))
         .find(|id| !dir.join(format!("{id}.toml")).exists())
         .ok_or_else(|| RouteError::BadParams("too many Claude tokens".into()))?;
-    write_route(Some(dir), &id, &file, false, true)
+    write_route(Some(dir), &id, file, false, true)
 }
 
 /// Write a new route (`replace`: over an existing one).
@@ -888,15 +920,18 @@ pub fn add(
     replace: bool,
 ) -> Result<Route, RouteError> {
     let _guard = lock_route_files(dir)?;
+    let mut file = file.clone();
+    file.credential_instance = None;
     if replace
-        && file.kind == RouteKind::DirectApiKey
-        && file.cloud_enabled.is_none()
         && let Ok(previous) = find(dir, id)
-        && previous.file.kind == RouteKind::DirectApiKey
+        && previous.file.kind == file.kind
     {
-        let mut file = file.clone();
-        file.cloud_enabled = previous.file.cloud_enabled;
-        return write_route(dir, id, &file, true, false);
+        if previous.file.provider() == file.provider() {
+            file.credential_instance = previous.file.credential_instance;
+        }
+        if file.kind == RouteKind::DirectApiKey && file.cloud_enabled.is_none() {
+            file.cloud_enabled = previous.file.cloud_enabled;
+        }
     }
     write_route(dir, id, file, replace, false)
 }
@@ -904,7 +939,7 @@ pub fn add(
 fn write_route(
     dir: Option<&Path>,
     id: &str,
-    file: &RouteFile,
+    mut file: RouteFile,
     replace: bool,
     managed_claude_token: bool,
 ) -> Result<Route, RouteError> {
@@ -914,18 +949,56 @@ fn write_route(
         )));
     }
     if managed_claude_token {
-        validate_contents(file)?;
+        validate_contents(&file)?;
     } else {
-        validate(file)?;
+        validate(&file)?;
     }
     let dir = dir.ok_or_else(|| RouteError::Failed("no cmux config folder".into()))?;
     let path = dir.join(format!("{id}.toml"));
     if path.exists() && !replace {
         return Err(RouteError::Exists(format!("a route {id:?} exists (pass replace)")));
     }
-    crate::route_account::prepare(file)?;
-    write_file(&path, file)?;
-    Ok(Route { id: id.to_owned(), file: file.clone(), path })
+    crate::route_account::prepare(&file)?;
+    assign_credential_instance(&mut file);
+    write_file(&path, &file)?;
+    Ok(Route { id: id.to_owned(), file, path })
+}
+
+fn assign_credential_instance(file: &mut RouteFile) -> bool {
+    if matches!(
+        file.kind,
+        RouteKind::DirectApiKey | RouteKind::ClaudeToken | RouteKind::ChatgptPlan
+    ) || crate::subscriptions::Provider::for_kind(file.kind).is_some()
+    {
+        if file.credential_instance.is_none() {
+            file.credential_instance = Some(uuid::Uuid::new_v4().to_string());
+            return true;
+        }
+    }
+    false
+}
+
+/// Read the route for delivery, assigning an identity to pre-existing files under the edit lock.
+pub(crate) fn for_credential(dir: Option<&Path>, id: &str) -> Result<Route, RouteError> {
+    let mut route = find(dir, id)?;
+    if route.file.credential_instance.is_none() && !route.path.as_os_str().is_empty() {
+        let Ok(_guard) = lock_route_files(dir) else { return Ok(route) };
+        route = find(dir, id)?;
+        if route.file.credential_instance.is_none() && !route.path.as_os_str().is_empty() {
+            let text = read_route_text(&route.path)?;
+            route.file = file_from_toml(&text)?;
+            if assign_credential_instance(&mut route.file)
+                && let Some(instance) = &route.file.credential_instance
+            {
+                let text = crate::agent_credentials::with_stored_instance(&text, instance);
+                if write_route_text(&route.path, &text).is_err() {
+                    // Read-only legacy routes can still start an agent with an unbound credential.
+                    route.file.credential_instance = None;
+                }
+            }
+        }
+    }
+    Ok(route)
 }
 
 /// Move a route to the backup folder; the backup's name restores it.
@@ -989,6 +1062,14 @@ pub fn restore(dir: Option<&Path>, home: &Path, backup: &str) -> Result<Route, R
         return Err(RouteError::Exists(format!("a route {id:?} exists again")));
     }
     crate::home_fs::create_dirs(dir).map_err(|e| RouteError::Failed(e.to_string()))?;
+    let text = read_route_text(&from)?;
+    if crate::agent_credentials::stored_instance(&text).is_some() {
+        let text = crate::agent_credentials::with_stored_instance(
+            &text,
+            &uuid::Uuid::new_v4().to_string(),
+        );
+        write_route_text(&from, &text)?;
+    }
     crate::home_fs::rename(&from, &to).map_err(|e| RouteError::Failed(e.to_string()))?;
     find(Some(dir), &id)
 }

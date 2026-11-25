@@ -761,7 +761,7 @@ test.each([
   ["disabled", "cli_missing", "Couldn’t start Claude sign-in.", true],
   ["disabled", "shared_machine", "Only the machine's owner can connect Claude here", true],
   ["disabled", "unsupported", "Update", true],
-  ["disabled", "update_claude", "Update Claude Code", true],
+  ["disabled", "update_claude", "Update Claude Code", false],
   ["connected", null, "Connected", true],
 ] as const)("Claude Cloud shows %s (%s)", async (phase, error, copy, disabled) => {
   await render(
@@ -1048,6 +1048,7 @@ test("a refusal from an access check stays visible in the form", async () => {
   const error = panel()?.querySelector('[role="alert"]');
   expect(error?.textContent).toContain("HTTP 401");
   expect(error?.querySelector("svg")).not.toBeNull();
+  expect(action(form, "addKey")?.textContent).not.toContain("Save Without Verification");
   expect(connectionIds(page)).toEqual([]);
 });
 

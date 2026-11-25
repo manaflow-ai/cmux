@@ -2406,6 +2406,61 @@ fn claude_plans_keep_the_explicit_machine_and_environment() {
 }
 
 #[test]
+fn explicit_and_pinned_machines_can_predate_ffi_environment_metadata() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let mut request = json!({
+        "key": key(), "account": ACCOUNT, "loaded": true, "environment": ENV,
+        "machine": "vm_a", "machines": [{"id": "vm_a"}]
+    });
+    assert_eq!(plan(&path, &request.to_string())["machine"], "vm_a");
+    request["machine"] = Value::Null;
+    assert_eq!(plan(&path, &request.to_string())["machine"], "vm_a");
+    request["machines"] = json!([]);
+    request["stored"] = json!(["vm_a"]);
+    assert_eq!(plan(&path, &request.to_string())["machine"], "vm_a");
+    request["machines"] = json!([{"id": "vm_a", "environment": "env_fedcba9876543210fedcba98"}]);
+    assert_eq!(plan(&path, &request.to_string())["error_code"], "environment_mismatch");
+}
+
+#[test]
+fn a_ready_machine_releases_the_unused_compose_reservation() {
+    use super::reservations::{Action, Call};
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let compose = key();
+    let team = "team_0123456789abcdef0123";
+    let request = json!({
+        "key": key(), "account": ACCOUNT, "loaded": true, "claude_machine_login": true,
+        "size": "md", "machines": [{"id": "vm_ready", "claude_ready": true, "disk_mb": 131072}],
+        "reservation_key": compose, "credential_on_stdin": true
+    })
+    .to_string();
+    let calls = std::cell::Cell::new(0);
+    let credential = format!("test-session\n{}\n", super::spare_warm::install_token(team));
+    let release = |call: &Call, token: &str| {
+        calls.set(calls.get() + 1);
+        assert_eq!(call.action, Action::Release);
+        assert_eq!(call.compose_key, compose.to_lowercase());
+        assert!(call.send_key.is_none());
+        assert_eq!(call.team.as_deref(), Some(team));
+        assert_eq!(token, "test-session");
+        Ok(Value::Null)
+    };
+    for _ in 0..2 {
+        let result = super::plan_with_calls(
+            &path,
+            &request,
+            &mut credential.as_bytes(),
+            &|_, _| panic!("ready machine needs no ensure"),
+            &release,
+        );
+        assert_eq!(result["machine"], "vm_ready");
+        assert_eq!(calls.get(), 1);
+    }
+}
+
+#[test]
 fn a_cloud_route_keeps_the_default_plan_even_if_a_machine_has_a_claude_login() {
     let dir = scratch();
     let path = ledger_in(dir.path());

@@ -190,14 +190,16 @@ struct CloudStartSession {
                           revealing: Bool) async throws -> [String: ActionResultValue] {
         let still = { [services] (machine: String) throws in try Self.checked(account, now: services.cloud.account, original.asked(machine: machine)) }
         try still(original.name ?? original.machineID ?? "")
-        let request: Request
-        do { request = try await original.preflight(setup: services.cloud.setup, scheme: services.linkScheme, heldRefusal: { services.cloud.computerControl.heldRefusal(invocation, machine: $0) }) }
-        catch let refusal as Request.Refusal { throw ActionFailure(message: refusal.message) }
+        let request: Request, cloud = services.cloud
+        do {
+            request = try await original.preflight(setup: cloud.setup, scheme: services.linkScheme, refreshNamed: {
+                try await original.requireFreshNamedList(isFresh: { cloud.hasCurrentList(within: Self.listFresh) }, refresh: { _ = await cloud.refresh() }, check: { try still(original.destinationName) })
+            }, heldRefusal: { cloud.computerControl.heldRefusal(invocation, machine: $0) })
+        } catch let refusal as Request.Refusal { throw ActionFailure(message: refusal.message) }
         try still(request.name ?? request.machineID ?? "")
         if let local = request.fromFolder, let refused = await services.cloud.move.refusedSource(local, home: NSHomeDirectory(), acpmuxHome: QuitAgents.environment(services)?.home.path, message: { Self.message($0, folder: local) }) { throw ActionFailure(message: refused) } // before any machine
         if let local = request.fromFolder, let cli = services.cloud.move.cli { do { _ = try await CloudMoveCLI(binary: cli).startChatSize(local: local) } catch let refusal as CloudMoveCLI.StartChatPreflightRefusal { throw ActionFailure(message: refusal.message) } } // past the copy's limits, or past the largest machine
-        let steps = CloudStartSteps(logger: services.cloud.logger)
-        let gateway = services.cloud.gateway.onlineBeside(within: .seconds(10)) // No login step: only the first turn needs this Mac's gateway, so it comes up beside the steps
+        let steps = CloudStartSteps(logger: cloud.logger), gateway = cloud.gateway.onlineBeside(within: .seconds(10)) // Only the first turn needs this Mac's gateway.
         let (session, made) = try await machine(request, invocation, account: account, byPerson: byPerson, capCard: capCard, askedBy: askedBy)
         steps.done("machine") // the list read and the take, or the create's answer
         return try await releasing(made: made, name: session.machine.title, id: session.machineID, account: account, delete: { [services] in try await services.cloud.deleteMachine(session.machineID) }) {
@@ -230,8 +232,8 @@ struct CloudStartSession {
         try still(name)
         steps.done("approvals")
         let connection = await setup.launchConnection(choice.connectionID)
-        if connection != nil || choice == .claudeMachineLogin {
-            let capability = choice == .claudeMachineLogin ? AgentSessionAttachClient.startClaudeMachineLoginCapability : AgentSessionAttachClient.credentialsCapability(harness: agent, endpoint: connection?.endpointCredentials == true, subscription: connection?.subscriptionCredentials == true)
+        if connection != nil || choice.claudeAuth != nil {
+            let capability = choice.claudeAuth?.capability ?? AgentSessionAttachClient.credentialsCapability(harness: agent, endpoint: connection?.endpointCredentials == true, subscription: connection?.subscriptionCredentials == true)
             await CloudOutdatedMachine.updateBeforeUsingCapability(
                 holds: { session.daemon.supports(capability) },
                 update: { [services] in await CloudMachineUpdates.updateNow(id, services: services) }
@@ -261,7 +263,7 @@ struct CloudStartSession {
         try still(name)
         let started: AgentTabRemoteStart.Started, tabKey = opened.key
         do {
-            let tabs = services.agentTabs; services.cloud.agentCredentials.use(connection: choice.connectionID, chat: tabKey, machine: id, harness: agent, useMachineLogin: choice == .claudeMachineLogin)
+            let tabs = services.agentTabs; services.cloud.agentCredentials.use(connection: choice.connectionID, chat: tabKey, machine: id, harness: agent, claudeAuth: choice.claudeAuth)
             await Self.trust(copy, surface: opened.surface.rawValue, on: session) // before the start, as the composer's: it refuses an untrusted folder
             let listed = await CloudWait.holds(within: .seconds(60)) { [services] in services.locateTab(tabKey, onMachine: id) != nil }
             try Self.check(account, now: services.cloud.account, request.asked(machine: name))

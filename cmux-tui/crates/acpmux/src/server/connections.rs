@@ -99,6 +99,8 @@ pub(super) fn changes_connections(m: &str) -> bool {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub(super) struct Connection {
     pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub credential_instance: Option<String>,
     pub kind: &'static str,
     pub provider: String,
     pub families: Vec<String>,
@@ -202,7 +204,7 @@ fn model_endpoint(provider: &Provider) -> Option<(&str, crate::byo_endpoint::Kin
 }
 
 fn standard_key_endpoint(file: &RouteFile) -> Option<(&'static str, crate::byo_endpoint::Kind)> {
-    let provider = provider(file.provider.as_deref()?)?;
+    let provider = provider(file.provider())?;
     if file.kind != RouteKind::DirectApiKey
         || file.secret.is_none()
         || !file.headers.is_empty()
@@ -353,6 +355,7 @@ fn connection(route: &Route, facts: Facts, b: &Bindings) -> Connection {
         serves_cloud(facts.kind, &facts.provider) && (facts.kind != "api-key" || standard_endpoint);
     Connection {
         id: route.id.clone(),
+        credential_instance: route.file.credential_instance.clone(),
         kind: facts.kind,
         provider: facts.provider,
         families,
@@ -453,6 +456,7 @@ fn endpoint_connection(
     profile: &HarnessProfile,
     display_name: Option<&str>,
     revision: Option<String>,
+    credential_instance: Option<String>,
     cloud_enabled: Option<bool>,
     preset: Option<String>,
 ) -> Option<Connection> {
@@ -465,6 +469,7 @@ fn endpoint_connection(
         profile_endpoint(id, profile).is_some_and(|(_, reference)| reference.is_some());
     Some(Connection {
         id: id.to_owned(),
+        credential_instance,
         kind: "endpoint",
         provider: id.to_owned(),
         families: vec![id.to_owned()],
@@ -621,6 +626,7 @@ fn list(
     let route = Route {
         id: CLAUDE_LOGIN_ID.into(),
         file: RouteFile {
+            credential_instance: None,
             name: Some("Claude Code login".into()),
             kind: RouteKind::DirectSubscription,
             families: vec!["claude".into()],
@@ -663,6 +669,7 @@ fn list(
                 &profile,
                 meta.display_name.as_deref(),
                 if editable { meta.content_revision } else { None },
+                meta.credential_instance,
                 meta.cloud_enabled,
                 meta.endpoint_preset,
             )
@@ -797,6 +804,7 @@ pub(super) fn add_key(
         .find(|id| routes::find(dir, id).is_err())
         .ok_or_else(|| RpcError::invalid_params("too many keys for this provider"))?;
     let file = RouteFile {
+        credential_instance: None,
         name: Some(label.map(str::trim).filter(|l| !l.is_empty()).unwrap_or(p.label).to_owned()),
         kind: RouteKind::DirectApiKey,
         families: p.families.iter().map(|f| (*f).to_owned()).collect(),
@@ -831,7 +839,7 @@ fn replace_key(
     sources: &ProfileSources,
 ) -> Result<Value, RpcError> {
     let (_, previous) = routes::edit(dir, id, |file| {
-        if file.provider.as_deref() != Some(provider) || standard_key_endpoint(file).is_none() {
+        if file.provider() != provider || standard_key_endpoint(file).is_none() {
             return Err(routes::RouteError::BadParams(
                 "replacement needs a matching API-key connection".into(),
             ));
@@ -855,18 +863,26 @@ fn replace_key(
 /// What a Cloud machine's agent needs from a secret-reference connection: its family, kind,
 /// the variable it is delivered in and the reference. A ChatGPT plan is not one (its token is
 /// the daemon's own, `chatgpt::Service::token_lasting`).
-pub(super) fn credential_plan(
+fn credential_plan(
     dir: Option<&Path>,
     home: &Path,
     id: &str,
-) -> Result<(String, &'static str, &'static str, Option<String>), RpcError> {
+) -> Result<(String, &'static str, &'static str, Option<String>, Option<String>), RpcError> {
+    let route = match routes::for_credential(dir, id) {
+        Ok(route) => Some(route),
+        Err(routes::RouteError::NotFound(_)) => None,
+        Err(error) => return Err(route_error(&error)),
+    };
     let found = list(dir, home, &routes::bindings(home), &ProfileSources::none())
         .into_iter()
         .find(|c| c.id == id)
         .ok_or_else(|| RpcError::not_found(format!("no connection {id:?}")))?;
     if !found.serves_cloud {
-        return Err(RpcError::invalid_params(format!("{id} does not serve Cloud chats"))
-            .with_data(json!({"reason": "connections.not_cloud", "id": id})));
+        return Err(not_cloud(id));
+    }
+    let route = route.ok_or_else(|| RpcError::not_found(format!("no connection {id:?}")))?;
+    if found.credential_instance != route.file.credential_instance {
+        return Err(RpcError::invalid_params("the connection changed during credential delivery"));
     }
     if !found.enabled {
         return Err(RpcError::invalid_params(format!("{id} is turned off"))
@@ -892,18 +908,23 @@ pub(super) fn credential_plan(
         ("api-key", "vertex-express") => "GOOGLE_API_KEY",
         ("api-key", "xai") => "XAI_API_KEY",
         ("chatgpt-plan", _) => {
-            return Ok((family, "chatgpt-plan", "CMUX_CHATGPT_ACCESS_TOKEN", None));
+            return Ok((
+                family,
+                "chatgpt-plan",
+                "CMUX_CHATGPT_ACCESS_TOKEN",
+                None,
+                route.file.credential_instance,
+            ));
         }
         ("api-key", "anthropic") => "ANTHROPIC_API_KEY",
         ("api-key", _) => "OPENAI_API_KEY",
         _ => unreachable_kind(id)?,
     };
-    let route = routes::find(dir, id).map_err(|e| route_error(&e))?;
     let secret = route.file.secret.ok_or_else(|| {
         RpcError::invalid_params(format!("{id} has no secret"))
             .with_data(json!({"reason": "connections.no_secret", "id": id}))
     })?;
-    Ok((family, found.kind, var, Some(secret)))
+    Ok((family, found.kind, var, Some(secret), route.file.credential_instance))
 }
 
 fn not_cloud(id: &str) -> RpcError {
@@ -915,6 +936,7 @@ struct EndpointPlan {
     endpoint: LaunchEndpoint,
     reference: String,
     model: String,
+    credential_instance: Option<String>,
 }
 
 #[cfg(test)]
@@ -938,7 +960,8 @@ fn endpoint_plan_with_catalog(
         if route.file.kind != RouteKind::DirectApiKey || route.file.provider() != "openrouter" {
             return Ok(None);
         }
-        if route.file.cloud_enabled == Some(false) {
+        let route = routes::for_credential(dir, id).map_err(|e| route_error(&e))?;
+        if !route.is_openrouter() || route.file.cloud_enabled == Some(false) {
             return Err(not_cloud(id));
         }
         if route.file.disabled {
@@ -960,7 +983,12 @@ fn endpoint_plan_with_catalog(
             let endpoint = LaunchEndpoint::checked(kind, base, &[model.to_owned()])
                 .ok_or_else(|| not_cloud(id))?;
             let model = endpoint_launch_model(&endpoint, None)?;
-            return Ok(Some(EndpointPlan { endpoint, reference: reference.to_owned(), model }));
+            return Ok(Some(EndpointPlan {
+                endpoint,
+                reference: reference.to_owned(),
+                model,
+                credential_instance: route.file.credential_instance,
+            }));
         }
         let model = match model.unwrap_or("default") {
             alias @ ("default" | "sonnet" | "opus" | "haiku") => {
@@ -1020,7 +1048,12 @@ fn endpoint_plan_with_catalog(
         let endpoint = LaunchEndpoint::checked(Kind::Anthropic, base_url, &[model])
             .ok_or_else(|| not_cloud(id))?;
         let model = endpoint_launch_model(&endpoint, None)?;
-        return Ok(Some(EndpointPlan { endpoint, reference: reference.to_owned(), model }));
+        return Ok(Some(EndpointPlan {
+            endpoint,
+            reference: reference.to_owned(),
+            model,
+            credential_instance: route.file.credential_instance,
+        }));
     }
     let Some((profile, meta)) = profiles.profiles.get(id) else { return Ok(None) };
     if Kind::of_env(&profile.env).is_none() {
@@ -1032,7 +1065,12 @@ fn endpoint_plan_with_catalog(
     let (endpoint, reference) = profile_endpoint(id, profile).ok_or_else(|| not_cloud(id))?;
     let reference = reference.ok_or_else(|| not_cloud(id))?;
     let model = endpoint_launch_model(&endpoint, model)?;
-    Ok(Some(EndpointPlan { endpoint, reference: reference.to_owned(), model }))
+    Ok(Some(EndpointPlan {
+        endpoint,
+        reference: reference.to_owned(),
+        model,
+        credential_instance: meta.credential_instance.clone(),
+    }))
 }
 
 fn endpoint_launch_model(
@@ -1057,21 +1095,21 @@ fn endpoint_launch_model(
 }
 
 fn endpoint_reply(plan: &EndpointPlan, value: &str) -> Result<Value, RpcError> {
-    launch_endpoint_reply(&plan.endpoint, &plan.model, value, None)
+    launch_endpoint_reply(&plan.endpoint, &plan.model, value, plan.credential_instance.as_deref())
 }
 
 fn launch_endpoint_reply(
     endpoint: &LaunchEndpoint,
     model: &str,
     value: &str,
-    expires_at: Option<i64>,
+    credential_instance: Option<&str>,
 ) -> Result<Value, RpcError> {
     let harness = endpoint.harness();
     let wire = json!({"env": {endpoint.kind.secret_key(): value}, "endpoint": endpoint});
     AgentCredential::parse(&wire)?;
     Ok(json!({
         "family": harness, "kind": "endpoint", "harness": harness, "model": model,
-        "env": wire["env"], "endpoint": wire["endpoint"], "expires_at": expires_at,
+        "env": wire["env"], "endpoint": wire["endpoint"], "expires_at": null, "credential_instance": credential_instance,
     }))
 }
 
@@ -1123,6 +1161,7 @@ const NATIVE_SIGN_INS: [(Agent, &str, &str); 3] = [
 fn native_sign_in(agent: Agent, id: &str, label: &str, cli: &Cli) -> Option<Connection> {
     cli.has_stored_sign_in(agent).then(|| Connection {
         id: id.into(),
+        credential_instance: None,
         kind: "native-login",
         provider: agent.name().into(),
         families: vec![agent.name().into()],
@@ -1541,8 +1580,8 @@ pub(super) async fn handle(
             let id = need("id")?;
             if text("model") == Some("openrouter/default") {
                 let (folder, route_id) = (dir.clone(), id.clone());
-                let (base, kind, value) = blocking(move || {
-                    let route = routes::find(folder.as_deref(), &route_id)
+                let (base, kind, value, instance) = blocking(move || {
+                    let route = routes::for_credential(folder.as_deref(), &route_id)
                         .map_err(|error| route_error(&error))?;
                     if !route.is_openrouter()
                         || route.file.disabled
@@ -1555,7 +1594,7 @@ pub(super) async fn handle(
                     let reference =
                         route.file.secret.as_deref().ok_or_else(|| not_cloud(&route_id))?;
                     let value = resolve(&route_id, reference)?;
-                    Ok((base, kind, zeroize::Zeroizing::new(value)))
+                    Ok((base, kind, zeroize::Zeroizing::new(value), route.file.credential_instance))
                 })
                 .await??;
                 let models = crate::byo_endpoint::fetch_model_list(
@@ -1572,16 +1611,31 @@ pub(super) async fn handle(
                 let endpoint = LaunchEndpoint::checked(kind, base, &models[..models.len().min(1)])
                     .ok_or_else(|| not_cloud(&id))?;
                 let model = endpoint_launch_model(&endpoint, None)?;
-                return launch_endpoint_reply(&endpoint, &model, &value, None);
+                return launch_endpoint_reply(&endpoint, &model, &value, instance.as_deref());
             }
             let (d, h, i) = (dir.clone(), home.clone(), id.clone());
-            let (family, kind, var, reference) = {
+            let (family, kind, var, reference, instance) = {
                 let model = text("model").map(str::to_owned);
                 let endpoint_id = id.clone();
                 let endpoint_dir = dir.clone();
                 let catalog = hub.catalog.current();
                 if let Some(reply) = blocking(move || {
-                    let profiles = config::profiles::load(&sources);
+                    let mut profiles = config::profiles::load(&sources);
+                    if let Some((profile, meta)) = profiles.profiles.get(&endpoint_id)
+                        && meta.credential_instance.is_none()
+                        && meta.cloud_enabled != Some(false)
+                        && profile_endpoint(&endpoint_id, profile)
+                            .is_some_and(|(_, reference)| reference.is_some())
+                        && meta.source == config::profiles::ProfileSource::UserFile
+                        && let Some(dir) = &sources.user_dir
+                        && Path::new(&meta.source_path)
+                            == dir.join(format!("{endpoint_id}.toml")).as_path()
+                    {
+                        // A read-only profile can still launch without a reattach binding.
+                        let _ =
+                            crate::harness_admin::identify_endpoint(Path::new(&meta.source_path));
+                        profiles = config::profiles::load(&sources);
+                    }
                     endpoint_plan_with_catalog(
                         endpoint_dir.as_deref(),
                         &endpoint_id,
@@ -1613,6 +1667,15 @@ pub(super) async fn handle(
                             }
                             failure(error)
                         })?;
+                    let current_id = id.clone();
+                    let current = blocking(move || routes::find(dir.as_deref(), &current_id))
+                        .await?
+                        .map_err(|e| route_error(&e))?;
+                    if current.file.credential_instance != instance {
+                        return Err(RpcError::invalid_params(
+                            "the connection changed during credential delivery",
+                        ));
+                    }
                     (token, Some(expires_at))
                 }
                 // The keychain may ask: off the runtime's threads.
@@ -1621,7 +1684,7 @@ pub(super) async fn handle(
             let wire = json!({"env": {var: value}});
             AgentCredential::parse(&wire)?;
             Ok(
-                json!({"family": family, "kind": kind, "env": wire["env"], "expires_at": expires_at}),
+                json!({"family": family, "kind": kind, "env": wire["env"], "expires_at": expires_at, "credential_instance": instance}),
             )
         }
         method::MUX_CONNECTIONS_CHATGPT_IMPORT => {
@@ -1650,6 +1713,7 @@ mod tests {
     fn conn(id: &str, kind: &'static str, signed_in: bool, default_for: &[&str]) -> Connection {
         Connection {
             id: id.into(),
+            credential_instance: None,
             kind,
             provider: "openai".into(),
             families: vec!["codex".into()],
@@ -1718,6 +1782,79 @@ mod tests {
             .iter()
             .map(|c| c["id"].as_str().unwrap().to_owned())
             .collect()
+    }
+
+    #[test]
+    fn connection_incarnation_survives_key_replacement_but_not_id_reuse() {
+        let first = dirs();
+        let second = dirs();
+        let sources = ProfileSources::none();
+        let connection = |d: &Dirs, key: &str| {
+            let (id, _) =
+                add_key(Some(&d.routes), &d.home, "anthropic", key, None, &sources, None).unwrap();
+            let (_, _, _, _, instance) = credential_plan(Some(&d.routes), &d.home, &id).unwrap();
+            (id, instance.unwrap())
+        };
+        let (id, original) = connection(&first, "keychain:first");
+        let (other_id, other_instance) = connection(&second, "keychain:second");
+        assert_eq!(id, other_id);
+        assert_ne!(original, other_instance);
+
+        replace_key(
+            Some(&first.routes),
+            &first.home,
+            &id,
+            "anthropic",
+            "keychain:rotated",
+            &sources,
+        )
+        .unwrap();
+        let (_, _, _, reference, instance) =
+            credential_plan(Some(&first.routes), &first.home, &id).unwrap();
+        assert_eq!(reference.as_deref(), Some("keychain:rotated"));
+        assert_eq!(instance.as_deref(), Some(original.as_str()));
+
+        routes::remove(Some(&first.routes), &first.home, &id).unwrap();
+        let (reused_id, new_instance) = connection(&first, "keychain:new");
+        assert_eq!(reused_id, id);
+        assert_ne!(new_instance, original);
+    }
+
+    #[test]
+    fn legacy_anthropic_keys_without_an_explicit_provider_serve_cloud() {
+        let d = dirs();
+        let dir = Some(d.routes.as_path());
+        let path = d.routes.join("work.toml");
+        std::fs::write(
+            &path,
+            r#"
+# Existing route
+kind = "direct-api-key"
+families = ["claude"]
+anthropic_base_url = "https://api.anthropic.com"
+secret = "keychain:work"
+"#,
+        )
+        .unwrap();
+        let row = connection_state(dir, &d.home, "work", &ProfileSources::none());
+        assert_eq!(row["connection"]["serves_cloud"], true);
+        let lock = d.routes.join(".route-write.lock");
+        std::fs::create_dir(&lock).unwrap();
+        assert!(credential_plan(dir, &d.home, "work").unwrap().4.is_none());
+        std::fs::remove_dir(&lock).unwrap();
+
+        let (family, kind, var, secret, instance) = credential_plan(dir, &d.home, "work").unwrap();
+        assert_eq!(
+            (family.as_str(), kind, var, secret.as_deref()),
+            ("claude", "api-key", "ANTHROPIC_API_KEY", Some("keychain:work"))
+        );
+        assert!(instance.is_some());
+        assert_eq!(routes::find(dir, "work").unwrap().file.credential_instance, instance);
+
+        // Legacy readers can still decode the same TOML document, and its comments survived.
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(toml::from_str::<RouteFile>(&text).unwrap().credential_instance.is_none());
+        assert!(text.contains("# Existing route"));
     }
 
     #[test]
@@ -1927,7 +2064,7 @@ mod tests {
             routes::env_for(&route, "claude", &d.home).unwrap(),
             routes::RouteEnv::default()
         );
-        let (family, kind, var, reference) = credential_plan(dir, &d.home, id).unwrap();
+        let (family, kind, var, reference, _) = credential_plan(dir, &d.home, id).unwrap();
         assert_eq!(
             (family.as_str(), kind, var),
             ("claude", "claude-token", "ANTHROPIC_AUTH_TOKEN")
@@ -1945,6 +2082,7 @@ mod tests {
     fn chatgpt_and_claude_login_turn_off_and_a_disabled_plan_gets_no_credential() {
         let d = dirs();
         let plan = RouteFile {
+            credential_instance: None,
             name: Some("ChatGPT plan".into()),
             kind: RouteKind::ChatgptPlan,
             families: vec!["codex".into()],
@@ -2128,7 +2266,7 @@ mod tests {
             let env = routes::env_for(&route, family, &d.home).unwrap();
             assert_eq!(env.set[variable], "${keychain:fixture}");
             assert!(!env.set.contains_key("OPENAI_API_KEY"));
-            let (launch_family, _, launch_variable, _) =
+            let (launch_family, _, launch_variable, _, _) =
                 credential_plan(Some(&d.routes), &d.home, &id).unwrap();
             assert_eq!((launch_family.as_str(), launch_variable), (family, variable));
         }
@@ -2201,7 +2339,7 @@ mod tests {
         assert_eq!(connection["serves_cloud"], true);
         assert!(!settings.to_string().contains(token));
 
-        let (family, kind, var, secret) = credential_plan(dir, &d.home, &route.id).unwrap();
+        let (family, kind, var, secret, _) = credential_plan(dir, &d.home, &route.id).unwrap();
         assert_eq!(
             (family.as_str(), kind, var),
             ("claude", "claude-token", "ANTHROPIC_AUTH_TOKEN")
@@ -2279,10 +2417,10 @@ mod tests {
             None,
         )
         .unwrap();
-        let (family, kind, var, _) =
+        let (family, kind, var, _, _) =
             credential_plan(Some(&d.routes), &d.home, "anthropic-key").unwrap();
         assert_eq!((family.as_str(), kind, var), ("claude", "api-key", "ANTHROPIC_API_KEY"));
-        let (family, _, var, secret) =
+        let (family, _, var, secret, _) =
             credential_plan(Some(&d.routes), &d.home, "openai-key").unwrap();
         assert_eq!((family.as_str(), var), ("codex", "OPENAI_API_KEY"));
         assert_eq!(resolve("openai-key", &secret.unwrap()).unwrap(), "sk-proj-1");
@@ -2319,6 +2457,7 @@ mod tests {
         };
         chatgpt::store::write(&d.home, "chatgpt", &record).unwrap();
         let file = RouteFile {
+            credential_instance: None,
             name: Some("ChatGPT plan".into()),
             kind: RouteKind::ChatgptPlan,
             families: vec!["codex".into()],
@@ -2347,7 +2486,7 @@ mod tests {
         assert_eq!(plan.email.as_deref(), Some("alex@example.com"));
         assert_eq!(plan.plan.as_deref(), Some("plus"));
         assert!(plan.serves_cloud);
-        let (family, kind, var, secret) =
+        let (family, kind, var, secret, _) =
             credential_plan(Some(&d.routes), &d.home, "chatgpt").unwrap();
         assert_eq!(
             (family.as_str(), kind, var),

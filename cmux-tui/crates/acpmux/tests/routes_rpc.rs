@@ -150,6 +150,51 @@ async fn a_chat_switches_from_proxy_a_to_proxy_b_without_a_restart() {
     let hub = hub(&root);
     let mut local = client(&hub, Origin::Local);
 
+    // A setup-token connection may have used a custom id and notes before this upgrade.
+    let routes = root.join("config").join("routes");
+    std::fs::create_dir_all(&routes).unwrap();
+    std::fs::write(
+        routes.join("work-claude.toml"),
+        r#"
+kind = "claude-token"
+families = ["claude"]
+provider = "anthropic"
+secret = "keychain:work-claude"
+notes = "The work account"
+"#,
+    )
+    .unwrap();
+    let legacy = local.ok("_acpmux/route/show", json!({"id": "work-claude"})).await;
+    assert_eq!(legacy["notes"], "The work account");
+    let connections = local.ok("_acpmux/connections", json!({})).await;
+    assert!(
+        connections["connections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| { row["id"] == "work-claude" && row["serves_cloud"] == true })
+    );
+    std::fs::remove_file(routes.join("work-claude.toml")).unwrap();
+
+    // The generic edit RPC can rename a managed setup-token route without changing its key.
+    local
+        .ok("_acpmux/connections/claude_token.add", json!({"secret": "keychain:fixture-token"}))
+        .await;
+    let managed = routes.join("claude-token.toml");
+    let before = std::fs::read_to_string(&managed).unwrap();
+    let before = before.lines().next().unwrap();
+    assert!(before.starts_with("# cmux-credential-instance: "));
+    let renamed =
+        local.ok("_acpmux/route/edit", json!({"id": "claude-token", "name": "Renamed"})).await;
+    assert_eq!(renamed["name"], "Renamed");
+    assert_eq!(renamed["secret"], "keychain:fixture-token");
+    let after = std::fs::read_to_string(&managed).unwrap();
+    assert_eq!(Some(before), after.lines().next());
+    local
+        .err("_acpmux/route/edit", json!({"id": "claude-token", "secret": "keychain:different"}))
+        .await;
+    std::fs::remove_file(&managed).unwrap();
+
     // Routes are files; a secret is a reference, never the value.
     let a = local
         .ok(

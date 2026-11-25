@@ -70,15 +70,7 @@ impl Hub {
     ) -> Result<bool, RpcError> {
         let _spawn = session.spawn_lock.lock().await;
         let previous = session.meta();
-        let holds_token = session
-            .credential
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .as_ref()
-            .is_some_and(AgentCredential::uses_claude_subscription_token);
-        if !holds_token
-            && !previous.credential_connection.as_deref().is_some_and(is_saved_claude_token)
-        {
+        if !has_saved_claude_token(session, &previous) {
             return Ok(false);
         }
         {
@@ -100,70 +92,64 @@ impl Hub {
         Ok(true)
     }
 
-    /// Under the turn lock, recover a missed host's work before deciding whether it can end.
+    /// Under the turn and spawn locks, recover a missed host's work before deciding whether it can end.
     /// Returns whether the restart should prewarm a replacement.
     pub(super) async fn end_previous_claude_host(
         self: &Arc<Self>,
         session: &Arc<Session>,
     ) -> Result<bool, RpcError> {
-        let _spawn = self.spawn_lease(session).await;
-        if !session.read_meta(claude_login_needs_restart) {
-            return Ok(false);
-        }
         let current = session.child.lock().await.clone();
-        let child = if current.is_none() && !Self::host_record_gone(&session.id) {
-            Box::pin(self.readopt(session)).await
-        } else {
-            current
+        let child = match current {
+            Some(child) if child.is_alive().await && !child.is_stopped() => Some(child),
+            _ if Self::host_record_gone(&session.id) => None,
+            _ => Some(Box::pin(self.readopt(session)).await.ok_or_else(claude_login_busy)?),
         };
+        let _link = match &child {
+            Some(child) => child.try_hold_host_link().map_err(|_| claude_login_busy())?,
+            None => None,
+        };
+        if let Some(child) = &child
+            && (!child.recovery_replay_complete()
+                || !Self::drain_inbound(session).await
+                || !child.is_alive().await
+                || child.is_stopped()
+                || child.is_retired())
+        {
+            return Err(claude_login_busy());
+        }
         if session.turn().is_some()
+            || session.harness_turn.load(Ordering::SeqCst)
+            || session.asks_in_flight.load(Ordering::SeqCst) != 0
             || !session.pending_permissions().is_empty()
             || self.holds_work_below(session)
         {
-            return Err(RpcError::invalid_params(
-                "This chat is moving to this machine's Claude sign-in. Send again when its background work ends.",
-            )
-            .with_data(json!({"reason": "credentials.claude_login_busy"})));
+            return Err(claude_login_busy());
         }
         session.route_switch.store(false, Ordering::SeqCst);
+        let Some(child) = &child else { return Ok(false) };
         // The old host's incarnation, read before it ends: its end is proven by its own live lock.
-        let old_nonce = child
-            .as_ref()
-            .and_then(|child| child.host_record())
-            .map(|record| record.start_nonce)
-            .or_else(|| {
-                let (good, _) =
-                    crate::agent_host::load_records(&crate::agent_host::hosts_dir()).ok()?;
-                good.into_iter()
-                    .find(|(_, record)| record.session_id == session.id)
-                    .map(|(_, record)| record.start_nonce)
-            });
-        let had_host = old_nonce.is_some() || !Self::host_record_gone(&session.id);
-        if child.is_some() {
-            self.detach_child(session).await;
-        } else if had_host {
-            self.end_unadopted_host(session).await;
-        }
+        let old_host = child.host_record();
+        self.detach_claude_recovery_child(session).await;
         // A host that took its terminate releases its live lock as it exits, shortly after the
         // detach returns: wait for that end, bounded, before calling the host unreachable.
-        let host_ended = match old_nonce {
-            Some(nonce) => {
+        let host_ended = match old_host {
+            Some(record) => {
                 crate::agent_host::wait_dead_async(
                     crate::agent_host::hosts_dir(),
                     session.id.clone(),
-                    nonce,
+                    record.start_nonce,
                     std::time::Duration::from_secs(5),
                 )
                 .await
             }
-            None => !had_host || Self::host_record_gone(&session.id),
+            None => true,
         };
         if session.child.lock().await.is_some() || !host_ended {
             return Err(RpcError::internal(
                 "this session's agent host is still running, cannot be reached and did not end; close the session to end it",
             ));
         }
-        Ok(child.is_some() || had_host)
+        Ok(true)
     }
 
     /// Sets `credential` on session `id` (its exact id, a session of this daemon) and restarts its
@@ -232,6 +218,14 @@ impl Hub {
         let (session, _family) = self.credential_session(id).await?;
         let _spawn = session.spawn_lock.lock().await;
         let meta = session.meta();
+        // Adoption takes the same spawn lock. A recorded host can still have the key in
+        // its environment, so refuse until we can detach its adopted child.
+        let child = session.child.lock().await.clone();
+        if self.hands_off(&session) || (child.is_none() && !Self::host_record_gone(&session.id)) {
+            return Err(withdrawal_pending());
+        }
+        let host_nonce =
+            child.and_then(|child| child.host_record().map(|record| record.start_nonce));
         let removed = session.credential.lock().unwrap_or_else(|e| e.into_inner()).take();
         if removed.is_none() && meta.credential_connection.is_none() {
             return Ok(json!({"sessionId": session.id, "restart": "none"}));
@@ -241,6 +235,21 @@ impl Hub {
             crate::agent::copilot_auth::remove_session(&session.id);
         }
         self.detach_child(&session).await;
+        let host_ended = match host_nonce {
+            Some(nonce) => {
+                crate::agent_host::wait_dead_async(
+                    crate::agent_host::hosts_dir(),
+                    session.id.clone(),
+                    nonce,
+                    std::time::Duration::from_secs(5),
+                )
+                .await
+            }
+            None => Self::host_record_gone(&session.id),
+        };
+        if session.child.lock().await.is_some() || !host_ended {
+            return Err(withdrawal_pending());
+        }
         Ok(json!({"sessionId": session.id, "restart": "none"}))
     }
 
@@ -265,7 +274,13 @@ impl Hub {
     }
 }
 
+fn withdrawal_pending() -> RpcError {
+    RpcError::internal("the agent host is not ready for credential withdrawal")
+        .with_data(json!({"reason": "credentials.host_pending"}))
+}
+
 fn is_saved_claude_token(id: &str) -> bool {
+    let id = id.split_once(':').map_or(id, |(id, _)| id);
     id == "claude-token"
         || id.strip_prefix("claude-token-").is_some_and(|suffix| suffix.parse::<u64>().is_ok())
 }
@@ -276,6 +291,23 @@ pub(super) fn uses_claude_machine_login(meta: &SessionMeta) -> bool {
 
 pub(super) fn claude_login_needs_restart(meta: &SessionMeta) -> bool {
     uses_claude_machine_login(meta) && meta.claude_login_restart_pending != Some(false)
+}
+
+pub(super) fn has_saved_claude_token(session: &Session, meta: &SessionMeta) -> bool {
+    meta.credential_connection.as_deref().is_some_and(is_saved_claude_token)
+        || session
+            .credential
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .is_some_and(AgentCredential::uses_claude_subscription_token)
+}
+
+pub(super) fn claude_login_busy() -> RpcError {
+    RpcError::invalid_params(
+        "This chat is moving to this machine's Claude sign-in. Send again when its background work ends.",
+    )
+    .with_data(json!({"reason": "credentials.claude_login_busy"}))
 }
 
 #[cfg(test)]
@@ -484,7 +516,7 @@ mod tests {
         let before = hub.child_for(&session).await.unwrap().generation;
         let (shown, turn_shown) = tokio::sync::oneshot::channel();
         let (resume, wait) = tokio::sync::oneshot::channel();
-        *hub.turn_shown_seam.lock().unwrap() = Some((shown, wait));
+        *hub.family_write_seam.lock().unwrap() = Some((shown, wait));
         let turn = tokio::spawn({
             let (hub, session) = (hub.clone(), session.clone());
             async move {
@@ -509,6 +541,51 @@ mod tests {
         assert!(!launched(&session).contains_key(CLAUDE_OAUTH));
         assert_eq!(launched(&session).get("CMUX_CLAUDE_AUTH").map(String::as_str), Some("own"));
         assert_eq!(session.meta().claude_login_restart_pending, Some(false));
+        hub.shutdown_all().await;
+    }
+
+    #[tokio::test]
+    async fn recovery_saved_after_prompt_preflight_refuses_the_old_child() {
+        let hub = hub();
+        let session = hub
+            .new_session(NewRequest {
+                cwd: Some(std::env::temp_dir()),
+                credential: Some(credential(FIRST)),
+                ..NewRequest::default()
+            })
+            .await
+            .unwrap();
+        let old = hub.child_for(&session).await.unwrap();
+        let (shown, turn_shown) = tokio::sync::oneshot::channel();
+        let (resume, wait) = tokio::sync::oneshot::channel();
+        *hub.turn_shown_seam.lock().unwrap() = Some((shown, wait));
+        let send = tokio::spawn({
+            let (hub, session) = (hub.clone(), session.clone());
+            async move {
+                hub.prompt(
+                    &session,
+                    vec![json!({"type": "text", "text": "racing Claude recovery"})],
+                    "test",
+                    false,
+                )
+                .await
+            }
+        });
+        turn_shown.await.unwrap();
+        assert!(hub.use_claude_machine_login(&session).await.unwrap());
+        let only = std::collections::BTreeSet::from([session.id.clone()]);
+        assert_eq!(hub.restart_harnesses(None, Some(&only)).await.after_turn, 1);
+        assert!(old.is_alive().await);
+
+        resume.send(()).unwrap();
+        let error = send.await.unwrap().unwrap_err();
+        assert_eq!(error.data.unwrap()["reason"], "credentials.claude_login_busy");
+        assert!(!written(&hub, &session.id).contains("echo: racing Claude recovery"));
+        hub.prompt(&session, vec![json!({"type": "text", "text": "next"})], "test", false)
+            .await
+            .unwrap();
+        assert_ne!(hub.child_for(&session).await.unwrap().generation, old.generation);
+        assert!(!launched(&session).contains_key(CLAUDE_OAUTH));
         hub.shutdown_all().await;
     }
 

@@ -31,6 +31,7 @@ export function ModelKeyForm({
 }) {
   const [key, setKey] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [verificationFailed, setVerificationFailed] = useState(false);
   const [useVertex, setUseVertex] = useState(false);
   const apiKey = key.trim();
   const mayUseVertex = !edit && provider.id === "google" && apiKey.startsWith("AQ.");
@@ -41,13 +42,16 @@ export function ModelKeyForm({
     setSubmitted(true);
     if (
       !apiKey ||
-      (await run({
-        action: "addKey",
-        provider: vertex ? "vertex-express" : provider.id,
-        key: apiKey,
-        verifyAccess: canCheck && !vertex,
-        ...(edit ? { replace: edit.id } : cloud ? { servesCloud: true } : {}),
-      }))
+      (await run(
+        {
+          action: "addKey",
+          provider: vertex ? "vertex-express" : provider.id,
+          key: apiKey,
+          verifyAccess: canCheck && !vertex && !verificationFailed,
+          ...(edit ? { replace: edit.id } : cloud ? { servesCloud: true } : {}),
+        },
+        cloud ? () => setVerificationFailed(true) : undefined,
+      ))
     ) {
       if (edit && apiKey) onKeyReplaced?.();
       setKey("");
@@ -70,7 +74,11 @@ export function ModelKeyForm({
         help={edit ? t("settingsWindow.models.key.keep") : undefined}
         value={key}
         disabled={busy}
-        onChange={setKey}
+        onChange={(value) => {
+          setKey(value);
+          setSubmitted(false);
+          setVerificationFailed(false);
+        }}
       />
       {mayUseVertex && (
         <Button
@@ -78,7 +86,11 @@ export function ModelKeyForm({
           size="sm"
           aria-pressed={useVertex}
           disabled={busy}
-          onClick={() => setUseVertex(!useVertex)}
+          onClick={() => {
+            setUseVertex(!useVertex);
+            setSubmitted(false);
+            setVerificationFailed(false);
+          }}
         >
           {t("settingsWindow.models.key.useVertexExpress")}
         </Button>
@@ -94,7 +106,13 @@ export function ModelKeyForm({
         disabled={!valid}
         busy={busy}
         loading={busy}
-        label={edit ? t("settingsWindow.density.save") : undefined}
+        label={
+          verificationFailed
+            ? t("settingsWindow.models.key.saveWithoutVerification")
+            : edit
+              ? t("settingsWindow.density.save")
+              : undefined
+        }
         failed={submitted && !!error}
         connectAction="addKey"
       />

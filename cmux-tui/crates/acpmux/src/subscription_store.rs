@@ -37,31 +37,17 @@ impl KeychainProbe {
 #[cfg(not(test))]
 struct Vault;
 
-#[cfg(not(test))]
+#[cfg(all(not(test), not(target_os = "macos")))]
 impl Vault {
-    fn store() -> Result<std::sync::Arc<dyn crate::vault::store::SecretStore>, Error> {
-        use crate::vault::store;
-        #[cfg(target_os = "macos")]
-        {
-            static PROBE: std::sync::Mutex<KeychainProbe> =
-                std::sync::Mutex::new(KeychainProbe::Unchecked);
-            let mut state = PROBE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-            if !state.available(std::time::Instant::now(), || {
-                store::probe_as(&store::OsStore, &format!("{}.subscription", store::probe_name()))
-            }) {
-                return Err(Error::KeychainLocked);
-            }
-            Ok(std::sync::Arc::new(store::OsStore))
-        }
-        #[cfg(not(target_os = "macos"))]
-        Ok(store::for_daemon())
+    fn store() -> std::sync::Arc<dyn crate::vault::store::SecretStore> {
+        crate::vault::store::for_daemon()
     }
 }
 
-#[cfg(not(test))]
+#[cfg(all(not(test), not(target_os = "macos")))]
 impl Keychain for Vault {
     fn read(&self, scope: &str, account: &str) -> Result<Option<Vec<u8>>, Error> {
-        Self::store()?
+        Self::store()
             .get(&format!(".subscription/{scope}/{account}"))
             .map(|value| value.map(|value| value.as_bytes().to_vec()))
             .map_err(|_| Error::KeychainLocked)
@@ -69,7 +55,7 @@ impl Keychain for Vault {
 
     fn write(&self, scope: &str, account: &str, value: &[u8]) -> Result<bool, Error> {
         let name = format!(".subscription/{scope}/{account}");
-        let store = Self::store()?;
+        let store = Self::store();
         let created = store.get(&name).map_err(|_| Error::KeychainLocked)?.is_none();
         let value = std::str::from_utf8(value).map_err(|_| Error::Storage)?;
         store.put(&name, value).map_err(|_| Error::KeychainLocked)?;
@@ -77,10 +63,65 @@ impl Keychain for Vault {
     }
 
     fn delete(&self, scope: &str, account: &str) -> Result<(), Error> {
-        Self::store()?
+        Self::store()
             .delete(&format!(".subscription/{scope}/{account}"))
             .map_err(|_| Error::KeychainLocked)
     }
+}
+
+#[cfg(target_os = "macos")]
+use crate::vault::store::macos::{OTHER_BUILD, SubscriptionItems};
+
+#[cfg(all(not(test), target_os = "macos"))]
+impl Vault {
+    fn store() -> Result<SubscriptionItems, Error> {
+        static PROBE: std::sync::Mutex<KeychainProbe> =
+            std::sync::Mutex::new(KeychainProbe::Unchecked);
+        let items = SubscriptionItems::open().map_err(vault_error)?;
+        let mut state = PROBE.lock().unwrap_or_else(|e| e.into_inner());
+        if !state.available(std::time::Instant::now(), || items.usable()) {
+            return Err(Error::KeychainLocked);
+        }
+        Ok(items)
+    }
+}
+
+#[cfg(all(not(test), target_os = "macos"))]
+impl Keychain for Vault {
+    fn read(&self, scope: &str, account: &str) -> Result<Option<Vec<u8>>, Error> {
+        Keychain::read(&Self::store()?, scope, account)
+    }
+
+    fn write(&self, scope: &str, account: &str, value: &[u8]) -> Result<bool, Error> {
+        Keychain::write(&Self::store()?, scope, account, value)
+    }
+
+    fn delete(&self, scope: &str, account: &str) -> Result<(), Error> {
+        Keychain::delete(&Self::store()?, scope, account)
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Keychain for SubscriptionItems {
+    fn read(&self, scope: &str, account: &str) -> Result<Option<Vec<u8>>, Error> {
+        self.read(&format!(".subscription/{scope}/{account}"))
+            .map(|value| value.map(|value| value.as_bytes().to_vec()))
+            .map_err(vault_error)
+    }
+
+    fn write(&self, scope: &str, account: &str, value: &[u8]) -> Result<bool, Error> {
+        let value = std::str::from_utf8(value).map_err(|_| Error::Storage)?;
+        self.write(&format!(".subscription/{scope}/{account}"), value).map_err(vault_error)
+    }
+
+    fn delete(&self, scope: &str, account: &str) -> Result<(), Error> {
+        self.delete(&format!(".subscription/{scope}/{account}")).map_err(vault_error)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn vault_error(code: &str) -> Error {
+    if code == OTHER_BUILD { Error::KeychainOtherBuild } else { Error::KeychainLocked }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -408,10 +408,6 @@ fn plan_with_calls(
             "the size is not a Cloud machine size (sm, md, lg, xl, 2xl)",
         );
     }
-    // A machine larger than the chat size is never a warm spare (every spare is `sm`): no reservation goes for it.
-    if larger_than_chat(request.size.as_deref()) {
-        request.reservation_key = None;
-    }
     let workspace = request.workspace.as_deref();
     if workspace.is_some_and(|workspace| !valid_workspace(workspace)) {
         return refused(
@@ -425,7 +421,9 @@ fn plan_with_calls(
     if request.reservation_key.as_deref().is_some_and(|key| !valid_key(key)) {
         return refused("bad_request", "the reservation key is not a UUID");
     }
-    if request.environment.is_some() {
+    // A larger or environment-specific machine cannot bind the warm spare.
+    let compose_key = request.reservation_key.clone();
+    if request.environment.is_some() || larger_than_chat(request.size.as_deref()) {
         request.reservation_key = None;
     }
     let selected = request.machine.as_ref();
@@ -435,7 +433,7 @@ fn plan_with_calls(
     }
     let environment = request.environment.as_deref();
     if selected.is_some_and(|id| {
-        !request.machines.iter().any(|vm| &vm.id == id && vm.matches_environment(environment))
+        request.machines.iter().any(|vm| &vm.id == id && vm.conflicts_with_environment(environment))
     }) {
         return environment_mismatch();
     }
@@ -469,6 +467,7 @@ fn plan_with_calls(
             .is_none();
     }
     let planned = Ledger::update(ledger, |pins| {
+        let pinned = pins.machine(&send);
         let destination = if let Some(id) = selected {
             Destination::Machine(id.clone())
         } else {
@@ -489,13 +488,15 @@ fn plan_with_calls(
                 pick::claim(pins, workspace, &request.account, id);
             }
         }
-        destination
+        let reused_ready = matches!(&destination, Destination::Machine(id)
+            if selected.is_none() && pinned.as_ref() != Some(id));
+        (destination, reused_ready)
     });
-    if matches!(&planned, Ok(Destination::EnvironmentMismatch)) {
+    if matches!(&planned, Ok((Destination::EnvironmentMismatch, _))) {
         return environment_mismatch();
     }
     let repo = request.local.as_deref().and_then(folder_repo);
-    let project_key = if matches!(&planned, Ok(Destination::New)) {
+    let project_key = if matches!(&planned, Ok((Destination::New, _))) {
         match request.local.as_deref().map(|local| project::folder_key(ledger, local)).transpose() {
             Ok(key) => key.flatten(),
             Err(error) => return refused("ledger_failed", format!("{error:#}")),
@@ -506,15 +507,17 @@ fn plan_with_calls(
     // Read the credential once: project ensure and reservation bind use the same human session.
     let (mut credential, mut install) = (String::new(), String::new());
     if request.credential_on_stdin
-        && (request.reservation_key.is_some() || ensures(&request, project_key.as_deref()))
+        && (request.reservation_key.is_some()
+            || (compose_key.is_some() && matches!(&planned, Ok((_, true))))
+            || ensures(&request, project_key.as_deref()))
     {
         let _ = stdin.read_line(&mut credential).and_then(|_| stdin.read_line(&mut install));
     }
     let credential = (credential.trim(), install.as_str()); // the bind's team: the install token's
     let mut line = keys.json();
     let fields = match planned {
-        Ok(Destination::EnvironmentMismatch) => return environment_mismatch(),
-        Ok(Destination::Machine(id)) => {
+        Ok((Destination::EnvironmentMismatch, _)) => return environment_mismatch(),
+        Ok((Destination::Machine(id), reused_ready)) => {
             let (pane, made) = match Ledger::update(ledger, |pins| pins.retry_facts(&send, &id)) {
                 Ok(facts) => facts,
                 Err(error) => return refused("ledger_failed", format!("{error:#}")),
@@ -533,9 +536,24 @@ fn plan_with_calls(
             {
                 return refusal;
             }
+            // This send picked an existing ready machine, leaving the composer spare unused.
+            // A retry on an existing pin may have bound the reservation and takes no release path.
+            if let Some(key) = compose_key.filter(|_| reused_ready && !credential.0.is_empty()) {
+                let _ = reservation(
+                    &reservations::Call {
+                        action: reservations::Action::Release,
+                        compose_key: key.to_lowercase(),
+                        send_key: None,
+                        environment: request.environment.clone(),
+                        platform: request.platform.clone(),
+                        team: spare_warm::install_team(credential.1),
+                    },
+                    credential.0,
+                );
+            }
             json!({"ok": true, "machine": id, "target_pane": pane, "ensured": made})
         }
-        Ok(Destination::New) if ensures(&request, project_key.as_deref()) => {
+        Ok((Destination::New, _)) if ensures(&request, project_key.as_deref()) => {
             let ask = Ensure {
                 // The send's own create key, never the Mac workspace's id: the platform binds
                 // one machine per workspace it is named, so a second chat from the same Mac
@@ -644,7 +662,7 @@ fn plan_with_calls(
                 Err(error) => return ensure_answer(Err(error)),
             }
         }
-        Ok(Destination::New) => {
+        Ok((Destination::New, _)) => {
             reservation_destination(ledger, &request, &send, workspace, credential, reservation)
         }
         Err(error) => return refused("ledger_failed", format!("{error:#}")),

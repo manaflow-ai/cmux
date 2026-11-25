@@ -7,6 +7,7 @@ import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDevices
 import CmuxNextHomeEngine
 import CmuxNextPhoneAccess
 import Foundation
@@ -55,7 +56,7 @@ final class CloudService {
     /// Chief hands: levels, the presence key and requests waiting for the owner (cx-om025).
     @ObservationIgnored let hands: HandsService
     /// The owner's model credentials for Cloud chats and their refresh (``CloudAgentCredentials``); read wired in AgentTabs+Wiring.
-    @ObservationIgnored let agentCredentials = CloudAgentCredentials()
+    @ObservationIgnored let agentCredentials = CloudAgentCredentials(machineIdentity: DeviceMachine.current.id)
     @ObservationIgnored let gateway: PersonalGateway // this Mac answers its person's Cloud machines' model calls (``PersonalGateway``)
     @ObservationIgnored let setup = CloudSetup() // Cloud first use: whether a connection serves the picker's model (CloudStartChat.wireSetup)
     @ObservationIgnored let machines: MachineRegistry
@@ -273,7 +274,7 @@ final class CloudService {
         installIDs.preload(localStore: machines.local.store)
         auth.start(); changes.start(); changes.startPush(machineAPI.statePush(baseURL: configuration.relayAPIBaseURL()), connection: { [machines] in machines.local.connection }) { [weak self] record in if let self, let session = machines.session(record.id) { apply(record, to: session, read: beginRecordRead(machineID: record.id)) } }
         startCredentialProvider()
-        // task-owner: observers; redeliver in-memory Copilot credentials when a guest reconnects.
+        // task-owner: observers; reconcile tracked credentials when a guest reconnects.
         observers.append(Task { [weak self] in
             for await _ in ObservationStream({ [weak self] in
                 self?.machines.cloud.map { $0.daemon.liveIdentity == nil ? nil : $0.daemon.store.connectionEpoch }

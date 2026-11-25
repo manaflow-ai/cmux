@@ -39,6 +39,63 @@ struct CloudStartChatMachineTests {
         }
     }
 
+    @Test func cloudAPIEnvironmentSurvivesThePinnedMachineFFIAndPlannerEntry() async throws {
+        let selected = "env_0123456789abcdef01234567"
+        let raw: JSONValue = .object(["id": .string("vm_test"), "environment_id": .string(selected)])
+        let decoded = try #require(CloudMachine(next: raw))
+        let withoutEnvironment = try #require(CloudMachine(next: .object(["id": .string("vm_test")])))
+        let listed = decoded.listed(over: withoutEnvironment, connectedSinceRead: false)
+        #expect(listed.environmentId == selected)
+        #expect(listed.startChatPlanEntry(connected: false, chats: nil)["environment"] as? String == selected)
+        #expect(CloudStartCore().matchesEnvironment(selected, machine: withoutEnvironment))
+        let other = "env_fedcba9876543210fedcba98"
+        #expect(!CloudStartCore().matchesEnvironment(other, machine: listed))
+        let setup = CloudSetup()
+        setup.claudeMachines = { [withoutEnvironment] }
+        setup.readClaudeMachineLogin = { _ in true }
+        #expect(setup.machineMatchesEnvironment(withoutEnvironment.id, environment: selected))
+        #expect(await setup.readyClaudeMachines(machine: withoutEnvironment.id, environment: selected) == [withoutEnvironment.id])
+        #expect(await setup.readyClaudeMachines(environment: selected).isEmpty)
+        setup.claudeMachines = { [listed] }
+        #expect(!setup.machineMatchesEnvironment(listed.id, environment: other))
+    }
+
+    @Test(arguments: [false, true])
+    func aProvisionedPlanCanStartThroughThePinnedFFI(withEnvironment: Bool) async throws {
+        let selected = "env_0123456789abcdef01234567"
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let binary = root.appendingPathComponent("fixture")
+        let proof = withEnvironment ? #", "selected_environment":"\#(selected)""# : ""
+        let script = """
+        #!/bin/sh
+        printf '%s\\n' '{"ok":true,"machine":"vm_test","create_key":"create","tab_key":"tab","ensured":{"created":true\(proof)}}'
+        """
+        try Data(script.utf8).write(to: binary)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: binary.path)
+
+        let plan = try CloudMoveStrings.checked(await CloudMoveCLI(binary: binary).startChatPlan(request: "{}"))
+        let record = try #require(CloudMachine(next: .object(["id": .string("vm_test")])))
+        #expect(plan.machine == record.id)
+        #expect(plan.ensuredEnvironment == (withEnvironment ? selected : nil))
+        #expect(CloudStartCore().matchesEnvironment(selected, machine: record, ensured: plan.ensuredEnvironment))
+        if withEnvironment {
+            let derived = try #require(CloudMachine(next: .object([
+                "id": .string("vm_test"), "environment_id": .string("denv_fedcba9876543210fedcba98"),
+            ])))
+            #expect(CloudStartCore().matchesEnvironment(selected, machine: derived, ensured: plan.ensuredEnvironment))
+            let suite = "cloud-start-environment-" + UUID().uuidString
+            let defaults = try #require(UserDefaults(suiteName: suite))
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let setup = CloudSetup(), account: [String?] = [Self.me, nil]
+            let provisioned = setup.machineEnvironment(derived, ensured: plan.ensuredEnvironment, account: account, defaults: defaults)
+            #expect(provisioned.environmentId == selected)
+            _ = setup.machineEnvironment(provisioned, account: account, defaults: defaults)
+            #expect(setup.machineEnvironment(derived, account: account, defaults: defaults).environmentId == selected)
+        }
+    }
+
     @Test func aRetryUsesTheDurablePaneAfterReorderingAndHandleReuse() throws {
         let store = DaemonStore()
         func tree(_ reordered: Bool) -> DaemonTree {

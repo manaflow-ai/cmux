@@ -69,6 +69,7 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [handled, setHandled] = useState<string | null>(null);
   const [setupVisit, setSetupVisit] = useState<SetupVisit | null>(null);
+  const [checkedNamedVisit, setCheckedNamedVisit] = useState<string | null>(null);
   const [formError, setFormError] = useState(false);
   const spreadId = useId();
   const section = useRef<HTMLElement>(null);
@@ -80,20 +81,16 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   const cloudRows = connections.filter(
     (c) => !isLocalOnlyPlan(c) && (isCloudSubscription(c) || (c.canServeCloud ?? c.servesCloud)),
   );
-  const localRows = connections.map((connection) =>
-    connection.kind === "claude-login" && typeof models?.claudeLogin?.signedIn === "boolean"
-      ? { ...connection, signedIn: models.claudeLogin.signedIn }
-      : connection,
-  );
-  const routeRows = cloud ? cloudRows : localRows.filter((c) => c.kind !== "native-login");
+  const routeRows = cloud ? cloudRows : connections.filter((c) => c.kind !== "native-login");
   const cloudClaude = models?.cloudClaudeLogin;
+  const namedVisit = machineName ? request : null;
   const claudeLogin = cloud
-    ? (!machine || !cloudClaude?.machine || cloudClaude.machine === machine) &&
+    ? (!namedVisit || checkedNamedVisit === namedVisit) &&
+      (!machine || !cloudClaude?.machine || cloudClaude.machine === machine) &&
       (!environment ||
-        !cloudClaude?.machine ||
-        cloudClaude.environment === environment ||
-        cloudClaude.phase === "preparing") &&
-      (!machineName || !cloudClaude?.machine || cloudClaude.machineName === machineName)
+        (!cloudClaude?.machine && !cloudClaude?.environment) ||
+        cloudClaude.environment === environment) &&
+      (!machineName || (!cloudClaude?.machine && !cloudClaude?.machineName) || cloudClaude.machineName === machineName)
       ? cloudClaude
       : undefined
     : models?.claudeLogin;
@@ -116,19 +113,30 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   const displayed = cloud
     ? [...(nativeCloud ? [nativeCloud] : []), ...routeRows]
     : // The old Claude token only ever served Cloud: it lives in Cloud models.
-      [...routeRows.filter((c) => c.kind !== "claude-token"), ...localRows.filter((c) => c.kind === "native-login")];
+      [...routeRows.filter((c) => c.kind !== "claude-token"), ...connections.filter((c) => c.kind === "native-login")];
   const claudeAvailable = models?.claudeCodeAvailable;
-  const cloudUnavailable = cloud && claudeLogin?.phase === "disabled";
-  const cloudClaudeMachine = cloud && claudeLogin?.machineName;
+  const cloudUnavailable =
+    cloud && !namedVisit && claudeLogin?.phase === "disabled" && claudeLogin.error !== "update_claude";
+  const cloudClaudeMachine = cloud && !namedVisit && claudeLogin?.machineName;
   useEffect(() => {
     if (available && (cloud ? !cloudUnavailable : claudeAvailable !== false)) {
-      void store.runModels({
+      const checked = store.runModels({
         action: "checkClaudeLogin",
         cloud,
         ...(machine ? { machine } : {}),
         ...(environment ? { environment } : {}),
         ...(machineName ? { machineName } : {}),
       });
+      if (namedVisit) {
+        let current = true;
+        void checked.then(async ({ failure }) => {
+          if (!current || failure !== null) return;
+          if ((await store.refreshModels()) && current) setCheckedNamedVisit(namedVisit);
+        });
+        return () => {
+          current = false;
+        };
+      }
     }
   }, [
     available,
@@ -139,6 +147,7 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
     machine,
     environment,
     machineName,
+    namedVisit,
     store,
   ]);
   const now = Date.now();
@@ -188,6 +197,7 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   }, [reveal, family, open]);
   if (available && handled !== request && !locked) {
     setHandled(request);
+    setCheckedNamedVisit(null);
     setFormError(false);
     setOpenMenuId(cloudOff?.id ?? null);
     setPickerOpen((focus === add && !family) || !!requestedDisabled);
@@ -303,7 +313,7 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
     }
     return run(gesture);
   };
-  const panelRun: Run = (gesture) => {
+  const panelRun: Run = (gesture, onVerificationFailure) => {
     setFormError(true);
     if (gesture.action === "finishClaudeLogin") return run({ ...gesture, ...claudeScope });
     if (gesture.action === "connectClaude") {
@@ -314,7 +324,7 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
         ...(machineName ? { machineName } : {}),
       });
     }
-    if (gesture.action !== "connectChatGPTDevice") return run(gesture);
+    if (gesture.action !== "connectChatGPTDevice") return run(gesture, onVerificationFailure);
     startingDevice.current = true;
     return run(gesture).finally(() => {
       startingDevice.current = false;
@@ -426,6 +436,7 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
         cloud={cloud}
         recoverClaude={!!visitRecovery}
         claudeAttemptBlocked={claudePending && !visitLogin}
+        useSettingsClaudeLogin={setup?.useSettingsClaudeLogin}
         provider={available ? active : undefined}
         models={models && cloud ? { ...models, cloudClaudeLogin: visitLogin } : (models ?? undefined)}
         busy={locked}

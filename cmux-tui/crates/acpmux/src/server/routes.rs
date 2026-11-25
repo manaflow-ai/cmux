@@ -125,11 +125,6 @@ pub(super) async fn handle(
             let route = tokio::task::spawn_blocking(move || {
                 if !editing {
                     let file = routes::file_from_json(&params)?;
-                    if file.kind == routes::RouteKind::ClaudeToken {
-                        return Err(routes::RouteError::BadParams(
-                            "sign in with Claude Code on this machine".into(),
-                        ));
-                    }
                     let replace = params.get("replace").and_then(Value::as_bool).unwrap_or(false);
                     return routes::add(dir.as_deref(), &id, &file, replace);
                 }
@@ -146,7 +141,8 @@ pub(super) async fn handle(
                             }
                         }
                     }
-                    let mut file = routes::file_from_json(&base)?;
+                    let mut file =
+                        routes::file_from_edit(&base, old.kind == routes::RouteKind::ClaudeToken)?;
                     if file.kind == routes::RouteKind::DirectApiKey && file.kind == old.kind {
                         file.cloud_enabled = old.cloud_enabled;
                     }

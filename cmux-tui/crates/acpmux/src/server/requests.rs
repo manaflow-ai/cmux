@@ -1072,6 +1072,9 @@ pub(super) async fn handle_request(
     if m == crate::agent_credentials::UPDATE_METHOD {
         return agent_credentials_update(hub, conn, &params).await;
     }
+    if super::agent_login::METHODS.contains(&m) {
+        super::agent_login::authorize(conn, &params)?;
+    }
     // A bare name or prefix on this machine's socket names the one live session here or on a
     // peer; every check below reads the route it found (`hub/key_route.rs`).
     if conn.origin == Origin::Local {
@@ -1840,16 +1843,22 @@ async fn dispatch_request_with_identity(
             let credential = crate::agent_credentials::requested(meta)?;
             let claude_machine_login =
                 meta.and_then(|meta| meta.get("claudeMachineLogin")) == Some(&Value::Bool(true));
-            if credential.is_some() || claude_machine_login {
+            let claude_team_route =
+                meta.and_then(|meta| meta.get("claudeTeamRoute")) == Some(&Value::Bool(true));
+            if credential.is_some() || claude_machine_login || claude_team_route {
                 crate::agent_credentials::admit(conn.origin == Origin::Local, conn.caller())?;
             }
-            if claude_machine_login {
-                if credential.is_some() {
-                    return Err(RpcError::invalid_params(
-                        "a Claude machine login cannot carry a delivered credential",
-                    ));
-                }
-                env.insert("CMUX_CLAUDE_AUTH".into(), "own".into());
+            if (claude_machine_login || claude_team_route) && credential.is_some() {
+                return Err(RpcError::invalid_params(
+                    "an explicit Claude auth choice cannot carry a delivered credential",
+                ));
+            }
+            if claude_machine_login && claude_team_route {
+                return Err(RpcError::invalid_params("conflicting Claude auth choices"));
+            }
+            if claude_machine_login || claude_team_route {
+                let auth = if claude_machine_login { "own" } else { "team" };
+                env.insert("CMUX_CLAUDE_AUTH".into(), auth.into());
             }
             let disallowed_tools = disallowed_tools(meta)?;
             let additional_directories = crate::hub::additional_dirs::requested(&params).await?;
@@ -3342,7 +3351,7 @@ async fn dispatch_request_with_identity(
             super::harness_enable::handle(hub, conn.origin, &params).await
         }
         name if super::agent_login::METHODS.contains(&name) => {
-            super::agent_login::handle(hub, conn, name, &params).await
+            super::agent_login::handle(hub, name, &params).await
         }
         name if super::harness_admin::METHODS.contains(&name) => {
             heap(|| super::harness_admin::handle(hub, conn.origin, name, &params)).await

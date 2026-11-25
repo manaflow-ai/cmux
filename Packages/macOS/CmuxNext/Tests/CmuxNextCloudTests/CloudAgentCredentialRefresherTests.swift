@@ -249,13 +249,68 @@ struct CloudAgentCredentialRefresherTests {
         #expect(asked.last == "route-claude")
     }
 
-    @Test func copilotRedeliversReplacementAndRevokesOnlyAfterAConfirmedRemoval() async throws {
+    @Test func anotherMacCannotDeliverOrWithdrawTheSameNamedConnection() async throws {
+        let instance = UUID().uuidString
+        let data = try keyReply(kind: "api-key", instance: instance, key: "fixture-key")
+        let owner = CloudAgentCredentials(machineIdentity: "first-mac") { _ in data }
+        let credential = try await owner.credential(forConnection: "anthropic-key")
+        let expected = try #require(owner.credentialBinding(credential))
+
+        // Even a copied route file with the same instance does not prove ownership on this Mac.
+        let other = CloudAgentCredentials(machineIdentity: "second-mac") { _ in data }
+        #expect(try await other.boundCredential(expected, model: nil, harness: "claude") == nil)
+        other.readCredentialConnections = {
+            [.init(id: "anthropic-key", families: ["claude"], enabled: false, credentialInstance: instance)]
+        }
+        #expect(await other.connection(forBinding: expected) == nil)
+        other.readCredentialConnections = { [] }
+        #expect(await other.connection(forBinding: expected) == nil)
+    }
+
+    @Test func replacingAKeyKeepsTheBindingAndDeletingThenAddingBreaksIt() async throws {
         let machine = Machine()
-        var listed: Set<String>? = ["copilot"]
-        var grant = "fixture-first"
-        let credentials = CloudAgentCredentials { _ in
-            try JSONSerialization.data(withJSONObject: ["family": "github-copilot", "kind": "copilot-plan",
-                                                       "env": ["CMUX_COPILOT_GITHUB_TOKEN": grant]])
+        let original = UUID().uuidString
+        var instance = original
+        var key = "fixture-first"
+        var listed: [CloudSetup.Connection]? = [.init(id: "anthropic-key", families: ["claude"], credentialInstance: instance)]
+        let credentials = CloudAgentCredentials(machineIdentity: "mac") { _ in
+            try keyReply(kind: "api-key", instance: instance, key: key)
+        }
+        credentials.readCredentialConnections = { listed }
+        let first = try await credentials.credential(forConnection: "anthropic-key")
+        let expected = try #require(credentials.credentialBinding(first))
+        credentials.started(chat: "chat", machine: "guest", on: first, push: machine.push)
+        await credentials.keySync?.value
+        #expect(machine.pushes == [first.env])
+
+        key = "fixture-rotated"
+        credentials.credentialConnectionsChanged()
+        await credentials.keySync?.value
+        #expect(try await credentials.boundCredential(expected, model: nil, harness: "claude")?.env["ANTHROPIC_API_KEY"] == key)
+        #expect(machine.pushes.last?["ANTHROPIC_API_KEY"] == key)
+
+        listed = []
+        credentials.credentialConnectionsChanged()
+        await credentials.keySync?.value
+        #expect(await credentials.connection(forBinding: expected) == nil)
+        #expect(machine.pushes.count == 2)
+
+        instance = UUID().uuidString
+        key = "fixture-new-connection"
+        listed = [.init(id: "anthropic-key", families: ["claude"], credentialInstance: instance)]
+        credentials.credentialConnectionsChanged()
+        await credentials.keySync?.value
+        #expect(try await credentials.boundCredential(expected, model: nil, harness: "claude") == nil)
+        #expect(await credentials.connection(forBinding: expected) == nil)
+        #expect(machine.pushes.count == 2)
+    }
+
+    @Test func copilotRevokesOnlyAfterTheMatchingConnectionIsDisabled() async throws {
+        let machine = Machine()
+        let instance = UUID().uuidString
+        var listed: [CloudSetup.Connection]? = [.init(id: "copilot", families: ["github-copilot"], credentialInstance: instance)]
+        let credentials = CloudAgentCredentials(machineIdentity: "mac") { _ in
+            try keyReply(kind: "copilot-plan", instance: instance, key: "fixture-first")
         }
         credentials.readCredentialConnections = { listed }
         let first = try await credentials.credential(forConnection: "copilot")
@@ -268,13 +323,7 @@ struct CloudAgentCredentialRefresherTests {
         await credentials.keySync?.value
         #expect(machine.pushes == [first.env])
 
-        listed = ["copilot"]
-        grant = "fixture-replacement"
-        credentials.credentialConnectionsChanged()
-        await credentials.keySync?.value
-        #expect(machine.pushes.last?["CMUX_COPILOT_GITHUB_TOKEN"] == grant)
-
-        listed = []
+        listed = [.init(id: "copilot", families: ["github-copilot"], enabled: false, credentialInstance: instance)]
         machine.answer = .failed
         credentials.credentialConnectionsChanged()
         await credentials.keySync?.value
@@ -282,9 +331,17 @@ struct CloudAgentCredentialRefresherTests {
         machine.answer = .delivered
         credentials.credentialConnectionsChanged()
         await credentials.keySync?.value
-        #expect(machine.pushes.count == 4 && machine.pushes.last == [:])
+        #expect(machine.pushes.count == 3 && machine.pushes.last == [:])
         credentials.credentialConnectionsChanged()
         #expect(credentials.keySync == nil)
+    }
+
+    private func keyReply(kind: String, instance: String, key: String) throws -> Data {
+        let copilot = kind == "copilot-plan"
+        return try JSONSerialization.data(withJSONObject: [
+            "family": copilot ? "github-copilot" : "claude", "kind": kind, "credential_instance": instance,
+            "env": [copilot ? "CMUX_COPILOT_GITHUB_TOKEN" : "ANTHROPIC_API_KEY": key]
+        ])
     }
 
     @Test func machineSignInAndRecoveryStayOnTheChatMachine() async throws {
@@ -301,7 +358,7 @@ struct CloudAgentCredentialRefresherTests {
             return Data()
         })
         credentials.setup = setup
-        credentials.use(connection: nil, chat: "draft", machine: "vm_b", useMachineLogin: true)
+        credentials.use(connection: nil, chat: "draft", machine: "vm_b", claudeAuth: .own)
         credentials.move(chat: "draft", to: "chat", machine: "vm_b")
         #expect(try await credentials.launchCredential(chat: "chat", machine: "vm_b", harness: "claude") == nil)
         credentials.openModelConnectionSettings(machine: "vm_b", harness: "claude-work", session: "session-b")

@@ -5,8 +5,8 @@
 //! Who may ask: this machine's unix socket and app, and the owner's own peer
 //! daemon (the person's Mac, forwarding its app's card for a chat that lives
 //! here: `vm_boundary::owner`). Never a Web client, a paired device, or a peer
-//! forwarding for one: the sign-in becomes this machine's, for every chat on
-//! it. The program is always the agent's own CLI; nothing the caller sends
+//! forwarding for one, or an agent-bound connection. The sign-in becomes this machine's,
+//! for every chat on it. The program is always the agent's own CLI; nothing the caller sends
 //! names a program, path or env.
 //!
 //! A request that names a chat (`sessionId`) is forwarded whole to the peer
@@ -88,10 +88,23 @@ fn recovery_id(params: &Value) -> Result<Option<&str>, RpcError> {
 pub(super) fn allowed(origin: Origin, auth: ConnAuth, params: &Value) -> bool {
     let control = super::remote_guard::control_of(origin, auth, params);
     match origin {
-        Origin::Local | Origin::LocalApp => control == Control::Local,
+        Origin::Local => auth == ConnAuth::LocalSocket && control == Control::Local,
+        Origin::LocalApp => auth == ConnAuth::LocalApp && control == Control::Local,
         Origin::Peer => crate::hub::vm_boundary::owner(auth, control, params),
         Origin::Web => false,
     }
+}
+
+/// Check the owner carrier before routing can lose the original caller's identity.
+pub(super) fn authorize(conn: &Conn, params: &Value) -> Result<(), RpcError> {
+    if conn.caller().is_some() || conn.agent_side() || !allowed(conn.origin, conn.auth, params) {
+        return Err(RpcError::new(
+            -32000,
+            "an agent sign-in runs only from this machine, its cmux app, or its owner's own machine",
+        )
+        .with_data(json!({"reason": REMOTE_REFUSED})));
+    }
+    Ok(())
 }
 
 /// How this daemon starts `agent` (`crate::agent_login` docs): the `claude`,
@@ -323,19 +336,7 @@ pub(crate) async fn use_gateway(
     Ok(done.now > 0)
 }
 
-pub(super) async fn handle(
-    hub: &Arc<Hub>,
-    conn: &Conn,
-    m: &str,
-    params: &Value,
-) -> Result<Value, RpcError> {
-    if !allowed(conn.origin, conn.auth, params) {
-        return Err(RpcError::new(
-            -32000,
-            "an agent sign-in runs only from this machine, its cmux app, or its owner's own machine",
-        )
-        .with_data(json!({"reason": REMOTE_REFUSED})));
-    }
+pub(super) async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcError> {
     // A named chat this daemon does not have: never run the sign-in here in its place (a chat
     // on a peer was forwarded before this; one that resolves nowhere is stale or not mirrored
     // yet, and this machine's own sign-in is not the one asked for).
@@ -395,8 +396,10 @@ pub(super) async fn handle(
                 && text(params, "sessionId").is_none()
                 && params["reuseExisting"] == true
             {
+                login::check_claude_login_available(&cli).await.map_err(error)?;
                 let status = login::claude_status(&machine(hub), &cli).await.map_err(error)?;
                 if status["signedIn"] == true {
+                    login::check_claude_login_available(&cli).await.map_err(error)?;
                     signed_in(hub, agent, params, &cli.store(agent), recovery).await?;
                     return Ok(status);
                 }

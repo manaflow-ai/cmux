@@ -2387,16 +2387,18 @@ impl Hub {
     /// Waits until the inbound loop handled every agent message queued before
     /// now. Bounded: a loop that is gone (closed channel) or stuck never holds
     /// a turn's settlement past the bound.
-    pub(super) async fn drain_inbound(session: &Session) {
+    pub(super) async fn drain_inbound(session: &Session) -> bool {
         let (done, handled) = tokio::sync::oneshot::channel();
         let queued = tokio::time::timeout(
             std::time::Duration::from_secs(5),
             session.inbound_tx.send(crate::agent::Inbound::Barrier(done)),
         )
         .await;
-        if matches!(queued, Ok(Ok(()))) {
-            let _ = tokio::time::timeout(std::time::Duration::from_secs(5), handled).await;
-        }
+        matches!(queued, Ok(Ok(())))
+            && matches!(
+                tokio::time::timeout(std::time::Duration::from_secs(5), handled).await,
+                Ok(Ok(()))
+            )
     }
 
     /// Keep the outcome of the last turn on the session (`lastTurn` in the
@@ -3128,6 +3130,15 @@ impl Hub {
 
     /// Stop the child but keep the session resumable.
     pub async fn detach_child(&self, session: &Arc<Session>) {
+        self.detach_child_inner(session, true).await;
+    }
+
+    /// Recovery may terminate only the host whose work it checked on its live link.
+    pub(super) async fn detach_claude_recovery_child(&self, session: &Arc<Session>) {
+        self.detach_child_inner(session, false).await;
+    }
+
+    async fn detach_child_inner(&self, session: &Arc<Session>, force_end_host: bool) {
         // A shutdown that hands this agent to the next daemon began: the agent, its turn and its
         // permission prompts are that daemon's (`shutdown.rs`). Read under the child lock, held
         // until the agent is gone: the shutdown takes it only after it began, so it finds either
@@ -3147,9 +3158,11 @@ impl Hub {
             // nonce, within a bound too, and what waited on the agent is answered (no exit is
             // read for it). Under the child lock, so no new agent starts beside it.
             if child.host_unended() {
-                tracing::warn!(session = %session.id, "its agent's host did not end it in time; the host is ended");
                 child.fail_pending().await;
-                self.end_unadopted_host(session).await;
+                if force_end_host {
+                    tracing::warn!(session = %session.id, "its agent's host did not end it in time; ending it by its record");
+                    self.end_unadopted_host(session).await;
+                }
             }
         }
         session.detaching.store(false, Ordering::SeqCst);

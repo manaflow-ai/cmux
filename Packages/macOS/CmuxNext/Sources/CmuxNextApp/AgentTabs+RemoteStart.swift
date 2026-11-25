@@ -117,7 +117,7 @@ extension AgentTabStore {
         do { result = .success(try await client.start(cwd: fallback, harness: machineHarness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink, model: machineModel, permissionMode: startPermissionMode(),
                                                       startMode: ownerLink != nil && harness == seed?.harness ? seed?.mode : nil, // the Cloud send's mode pick, own machine only
                                                       credentials: credential?.env, launchEndpoint: credential?.endpoint,
-                                                      credentialConnection: credential?.connectionID, claudeMachineLogin: ownerLink != nil && cloudCredentials?.usesMachineLogin(chat: key, machine: machine, harness: harness) == true)) } catch { result = .failure(error) }
+                                                      credentialConnection: credential.map { cloudCredentials?.credentialBinding($0) ?? $0.connectionID }, claudeAuth: ownerLink != nil ? cloudCredentials?.claudeAuth(chat: key, machine: machine, harness: harness) : nil)) } catch { result = .failure(error) }
         let phases = await client.startPhases
         await client.close()
         switch result {
@@ -125,7 +125,7 @@ extension AgentTabStore {
             // The daemon bound the session on its tab (it is the record's writer); this is the view mirror.
             if self.record(for: scopedKey) != nil { sessions[scopedKey] = session }
             if let credential {
-                trackModelConnection(credential, tab: key, machine: machine, surface: surface, harness: harness,
+                trackModelConnection(credential, tab: key, machine: machine, surface: surface, sessionID: session, harness: harness,
                                      ownerLink: ownerLink, reconnect: reconnect, endpoint: endpoint)
             }
             onRemoteChatStarted?(record.host, session, fallback, machineHarness)
@@ -133,10 +133,6 @@ extension AgentTabStore {
         case .failure(let error as AgentSessionAttachError):
             // A start whose answer was lost already bound the tab: show that chat.
             if error.code == "agent_session.bound", let session = self.record(for: scopedKey)?.record.session {
-                if let credential {
-                    trackModelConnection(credential, tab: key, machine: machine, surface: surface, harness: harness,
-                                         ownerLink: ownerLink, reconnect: reconnect, endpoint: endpoint)
-                }
                 onRemoteChatStarted?(record.host, session, fallback, harness)
                 return .init(surface: surface, session: session)
             }
@@ -159,11 +155,11 @@ extension AgentTabStore {
             throw error
         }
     }
-    func restoreModelConnection(tab: String, machine: String, surface: UInt64,
+    func restoreModelConnection(tab: String, machine: String, surface: UInt64, sessionID: String,
                                 ownerLink: @escaping AgentSessionAttachClient.OwnerLink,
                                 reconnect: AgentSessionAttachClient.Reconnect?,
                                 endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async {
-        await cloudCredentials?.restoreModelConnection(chat: tab, machine: machine, surface: surface, ownerLink: ownerLink,
+        await cloudCredentials?.restoreModelConnection(chat: tab, machine: machine, surface: surface, sessionID: sessionID, ownerLink: ownerLink,
                                                        reconnect: reconnect, endpoint: endpoint, onDelivered: { [weak self] in
             self?.existingView(tab, machine: machine)?.clearModelConnectionNotice()
         }, onRefusal: { [weak self] failure, harness in
@@ -172,11 +168,11 @@ extension AgentTabStore {
         })
     }
 
-    private func trackModelConnection(_ credential: CloudAgentCredential, tab: String, machine: String, surface: UInt64,
+    private func trackModelConnection(_ credential: CloudAgentCredential, tab: String, machine: String, surface: UInt64, sessionID: String,
                                       harness: String?, ownerLink: AgentSessionAttachClient.OwnerLink?,
                                       reconnect: AgentSessionAttachClient.Reconnect?,
                                       endpoint: @escaping AgentSessionAttachClient.EndpointProvider) {
-        cloudCredentials?.trackModelConnection(credential, chat: tab, machine: machine, surface: surface, ownerLink: ownerLink,
+        cloudCredentials?.trackModelConnection(credential, chat: tab, machine: machine, surface: surface, sessionID: sessionID, ownerLink: ownerLink,
                                                reconnect: reconnect, endpoint: endpoint) { [weak self] in
             guard let self else { return }
             let text = credentialRefusal(.refused(reason: "chatgpt.reauth_required"), harness: harness)

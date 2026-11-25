@@ -46,7 +46,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// and never kept. Nil for a machine that is not a Cloud machine.
     var ownerLink: AgentSessionAttachClient.OwnerLink?
     /// Redelivers a tracked Copilot grant when this chat reattaches to its guest daemon.
-    var restoreCloudCredential: (@Sendable (UInt64) async -> Void)?
+    var restoreCloudCredential: (@Sendable (UInt64, String) async -> Void)?
     /// Brings the machine's daemon to this app's build now and answers whether an update turn ran
     /// (``DaemonUpdatePolicy/updateNow(_:)``); nil where the app cannot. A start that the machine's
     /// older daemon refused (``AgentRemoteStartRefusal/olderDaemonCodes``, which says which) runs it, then tries once
@@ -98,7 +98,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         let ask = AgentTabRemoteClient.trust(tab: tab, reconnect: reconnect, endpoint: endpoint, ownerLink: ownerLink)
         let machineLogin = AgentTabRemoteClient.machineLogin(tab: tab, reconnect: reconnect, endpoint: endpoint, ownerLink: ownerLink)
         if let session {
-            if mode == .attach { await restoreCloudCredential?(surface) }
+            if mode == .attach { await restoreCloudCredential?(surface, session) }
             route = AgentPaneRemoteRoute(machine: machine, hostID: hostID, approvals: approvals) { [surface, session, endpoint, reconnect, personName, machineSignIn] in
                 let client = AgentSessionAttachClient(surface: surface, mode: mode, reconnect: reconnect, personName: personName, endpoint: endpoint)
                 let cloudRepository = AgentSessionAttachClient.forwardingCloudRepository(surface: surface, reconnect: reconnect, endpoint: endpoint)

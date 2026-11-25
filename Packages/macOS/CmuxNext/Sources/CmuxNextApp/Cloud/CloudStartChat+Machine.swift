@@ -55,7 +55,7 @@ extension CloudStartChat {
 
     /// Connects the send's pinned machine or creates and pins one sized for the chat.
     func machine(for start: AgentPaneCloudStart, from origin: Origin, cli: CloudMoveCLI, invocation: ActionInvocation,
-                 direct: Bool = true, pick: () async -> CloudWorkPick?) async throws -> (CloudMachineSession, CloudMoveCLI.StartChatPlan, Bool) {
+                 direct: Bool = true, pick: () async -> CloudWorkPick?) async throws -> (CloudMachineSession, CloudMoveCLI.StartChatPlan, AgentSessionAttachClient.ClaudeAuth?) {
         let (machines, cloud, account, workspace, connection) = (services.machines, services.cloud, origin.account, origin.workspace, origin.connection)
         await CloudWait.firstList(loaded: { cloud.hasLoadedCurrentMachines }, signedIn: { cloud.isSignedIn }) { _ = await cloud.refresh() } // Rust's `list_wait`; the card shows the machine step meanwhile
         try await importKeptSends(cli)
@@ -80,7 +80,7 @@ extension CloudStartChat {
             // A remembered machine that is gone (deleted, other backend) is dropped: the send makes a new one (DEV 9fa9b1c3).
             if machines.session(id) == nil {
                 cloud.logger.info("cloud start chat: the planned machine \(id, privacy: .public) is gone; making a new one")
-                plan.machine = nil
+                plan.machine = nil; plan.ensuredEnvironment = nil
                 plan.createSent = false
             }
         }
@@ -142,7 +142,7 @@ extension CloudStartChat {
             if connection == nil, refusal?.family == "claude" { throw CloudMachineRoute.NeedsClaudeLogin(machine: machineID) }
             if start.machine != nil || machineLogin {
                 let owned = await CloudMachineLinks(appLink: session.appLink).ownerLink() != nil
-                if owned && machineLogin { return (session, plan, true) }
+                if owned && machineLogin { return (session, plan, .own) }
                 if !owned, start.machine != nil { throw CloudMove.Failure(message: CloudMoveStrings.noSuchMachine(machineID)) }
             }
             try await CloudMachineRoute(api: cloud.machineAPI, machineID: machineID, start: { @MainActor [invocation] in try await CloudWait.startStopped(status: { session.machine.shownStatus }, within: CloudStartSession.connectWait, read: { await session.refresher?($0) }) { do { try await session.resumer?(machineID, CloudHandlers.connectOrigin(for: invocation)) } catch where !CloudMachineRoute.keepsItsError(error) && CloudMachineCreation.proRefusal(error) == nil { throw CloudMove.Failure(message: CloudMoveStrings.moveFailed(CloudStrings.errorText(error)), retry: .move(machineID: machineID)) } }; _ = try await CloudMove.connected(session, invocation) }).prepare(serves: {
@@ -152,7 +152,7 @@ extension CloudStartChat {
                 ahead: cloud.spareReadiness.takeRouteReport(machineID, scope: cloud.account, instance: AcpmuxRemotePersonKeys.shared.instance(machine: machineID)).flatMap { session.machine.status == .running && session.machine.pendingChange == nil ? $0 : nil },
                 requiresCredentialCapability: endpoint) { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(machineID, services: services) } // checked first: updated only when it lacks what a start uses
             timeline?.mark("machine.route")
-            return (session, plan, false)
+            return (session, plan, choice.claudeAuth == .team && connection == nil ? .team : nil)
         }
     }
 

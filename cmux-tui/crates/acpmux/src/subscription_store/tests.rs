@@ -88,6 +88,43 @@ impl Keychain for MemoryKeychain {
     }
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn a_large_chatgpt_grant_migrates_and_rotates_in_the_login_keychain() {
+    use security_framework::os::macos::keychain::CreateOptions;
+
+    let home = tempfile::tempdir().unwrap();
+    let keychain = CreateOptions::new()
+        .password("fixture-password")
+        .create(home.path().join("subscriptions.keychain"))
+        .unwrap();
+    let items = SubscriptionItems::in_keychain(keychain);
+    let store = Store { home: home.path(), provider: "chatgpt", keychain: Some(&items) };
+    let id = "chatgpt";
+    let path = store.path(id).unwrap();
+    let mut record = json!({
+        "client_id": "fixture", "sub": "fixture-user", "expires_at": 100,
+        "access_token": "a".repeat(2_000),
+        "refresh_token": "b".repeat(2_000),
+        "id_token": "c".repeat(2_000)
+    });
+    let bytes = serde_json::to_vec(&record).unwrap();
+    assert!(bytes.len() > 4096);
+    crate::chatgpt::store::write_atomic(&path, &bytes).unwrap();
+
+    assert!(store.read::<Value>(id).is_ok_and(|value| value.as_ref() == Some(&record)));
+    let index: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert!(index["keychain"].is_string());
+    for token in ["access_token", "refresh_token", "id_token"] {
+        assert!(index.get(token).is_none());
+    }
+    record["refresh_token"] = json!("d".repeat(3_000));
+    store.write(id, &record).unwrap();
+    assert!(store.read::<Value>(id).is_ok_and(|value| value.as_ref() == Some(&record)));
+    store.delete(id).unwrap();
+    assert!(Keychain::read(&items, &store.service(), id).is_ok_and(|value| value.is_none()));
+}
+
 #[test]
 fn subscription_migration_retries_a_failed_keychain_write_and_reads_the_rotated_record() {
     use std::sync::atomic::Ordering;

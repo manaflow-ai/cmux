@@ -51,7 +51,9 @@ package struct CloudStartSessionRequest: Equatable {
 
     package var destinationName: String { name ?? "cloud-chats" }
 
-    @MainActor package func preflight(setup: CloudSetup, scheme: String, heldRefusal: (String) -> String? = { _ in nil }) async throws -> Self {
+    @MainActor package func preflight(setup: CloudSetup, scheme: String, refreshNamed: @MainActor () async throws -> Void = {},
+                                     heldRefusal: (String) -> String? = { _ in nil }) async throws -> Self {
+        if agent == "claude", machineID == nil, name != nil { try await refreshNamed() }
         let ready = agent == "claude" ? await setup.readyClaudeMachines(machine: machineID, name: machineID == nil ? name : nil).first : nil
         let (choice, refusal) = await setup.launchReadiness(harness: agent, model: model, readyClaude: ready != nil)
         let named = agent == "claude" ? setup.claudeMachine(named: destinationName) : nil
@@ -66,16 +68,22 @@ package struct CloudStartSessionRequest: Equatable {
         return request
     }
 
-    /// A named start uses only the current list, refreshing it when the cached list is stale.
-    @MainActor package func freshNamedMachine<Machine>(
-        isFresh: () -> Bool, refresh: @MainActor () async -> Void, check: () throws -> Void,
-        find: (String) -> Machine?
-    ) async throws -> Machine? {
+    /// Both setup and placement use only the current list to resolve a name.
+    @MainActor package func requireFreshNamedList(
+        isFresh: () -> Bool, refresh: @MainActor () async -> Void, check: () throws -> Void
+    ) async throws {
         if !isFresh() { await refresh() }
         try check()
         guard isFresh() else {
             throw Refusal(message: CloudStartSessionStrings.listUnread(asked(machine: destinationName)))
         }
+    }
+
+    @MainActor package func freshNamedMachine<Machine>(
+        isFresh: () -> Bool, refresh: @MainActor () async -> Void, check: () throws -> Void,
+        find: (String) -> Machine?
+    ) async throws -> Machine? {
+        try await requireFreshNamedList(isFresh: isFresh, refresh: refresh, check: check)
         return find(destinationName)
     }
 

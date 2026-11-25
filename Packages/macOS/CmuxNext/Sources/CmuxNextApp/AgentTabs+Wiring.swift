@@ -465,8 +465,8 @@ extension AgentTabStore {
                 host.claudeSignedIn = { [weak services] in await services?.chatSignIn.closeChatApproval(key.key, onMachine: machineID) }
             }
             if host.cloudMachineID != nil, let ownerLink = links?.ownerLink {
-                host.restoreCloudCredential = { [weak tabs] surface in
-                    await tabs?.restoreModelConnection(tab: key.key, machine: key.machine, surface: surface, ownerLink: ownerLink,
+                host.restoreCloudCredential = { [weak tabs] surface, session in
+                    await tabs?.restoreModelConnection(tab: key.key, machine: key.machine, surface: surface, sessionID: session, ownerLink: ownerLink,
                                                        reconnect: reconnect, endpoint: endpoint)
                 }
             }

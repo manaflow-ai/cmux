@@ -610,6 +610,7 @@ struct ExistingEndpoint {
     item: Option<String>,
     cloud_enabled: Option<bool>,
     preset: Option<String>,
+    credential_instance: Option<String>,
 }
 
 /// The endpoint profile `text` (one `add_endpoint` wrote), or None for any other profile.
@@ -637,7 +638,25 @@ fn existing_endpoint(text: &str) -> Option<ExistingEndpoint> {
         .map(str::to_owned);
     let cloud_enabled = value.get("cloud_enabled").and_then(toml::Value::as_bool);
     let preset = value.get("endpoint_preset").and_then(toml::Value::as_str).map(str::to_owned);
-    Some(ExistingEndpoint { kind, base_url, item, cloud_enabled, preset })
+    let credential_instance = crate::agent_credentials::stored_instance(text);
+    Some(ExistingEndpoint { kind, base_url, item, cloud_enabled, preset, credential_instance })
+}
+
+/// Give an older endpoint profile an identity before it first delivers a Cloud credential.
+pub(crate) fn identify_endpoint(path: &Path) -> Result<(), AdminError> {
+    let dir = path.parent().ok_or_else(|| AdminError::Invalid("missing endpoint folder".into()))?;
+    let _one = lock_endpoint_adds(dir)?;
+    let text = std::fs::read_to_string(path).map_err(failed)?;
+    if existing_endpoint(&text).is_some_and(|endpoint| endpoint.credential_instance.is_none()) {
+        write_endpoint_instance(path, &text)?;
+    }
+    Ok(())
+}
+
+fn write_endpoint_instance(path: &Path, text: &str) -> Result<(), AdminError> {
+    let text =
+        crate::agent_credentials::with_stored_instance(text, &uuid::Uuid::new_v4().to_string());
+    crate::config::write_atomic(path, text.as_bytes()).map_err(failed)
 }
 
 /// Update the form's fields in the existing document, keeping the rest of the profile.
@@ -992,6 +1011,11 @@ fn add_endpoint(
     }
     let cloud_enabled =
         p.cloud_enabled.or_else(|| existing.as_ref().and_then(|old| old.cloud_enabled));
+    let instance = existing
+        .as_ref()
+        .filter(|old| old.kind == kind)
+        .and_then(|old| old.credential_instance.clone())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let generated = byo_endpoint::profile_text(&byo_endpoint::Endpoint {
         cloud_enabled,
         preset,
@@ -1016,6 +1040,7 @@ fn add_endpoint(
         }
         _ => generated,
     };
+    let text = crate::agent_credentials::with_stored_instance(&text, &instance);
     ensure_dir(dir)?;
     let delete = |account: &str| {
         let _ = (key.store)(&crate::cli::harness_secret::delete_command(
@@ -1312,6 +1337,10 @@ pub fn restore(
             "{} exists; remove or rename it first",
             to.display()
         )));
+    }
+    let text = std::fs::read_to_string(&from).map_err(failed)?;
+    if existing_endpoint(&text).is_some() {
+        write_endpoint_instance(&from, &text)?;
     }
     move_file(&from, &to)?;
     Ok(Restored { id, path: to })

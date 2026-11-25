@@ -58,6 +58,7 @@ public final class SettingsModels {
     @ObservationIgnored public var cloudClaudeLogin: (@MainActor (String?, String?, String?) -> CloudClaudeLogin)?
     /// Prepares an owned machine for Connect. Nil means the Cloud create card handled the request.
     @ObservationIgnored public var prepareCloudClaudeLogin: (@MainActor (String?, String?, String?) async throws -> CloudClaudeMachine?)?
+    @ObservationIgnored var refreshCloudClaudeMachines: (@MainActor () async -> Bool)?
     @ObservationIgnored var cloudClaudeAccount: (@MainActor @Sendable () -> [String?]?)?
     @ObservationIgnored var cloudClaudeAccountWatch: Task<Void, Never>?
     @ObservationIgnored var cloudClaudeStateAccount: [String?]?
@@ -325,6 +326,15 @@ public final class SettingsModels {
         cloudRunnerTimers.removeAll()
         watch?.cancel()
         watch = nil
+        if claudeLogins.values.contains(where: { ["preparing", "approving", "code"].contains($0.phase) }) {
+            // task-owner: the page's last subscription ended. Release any approval this model owns.
+            Task {
+                for target in [ClaudeLoginTarget.mac, .cloud] {
+                    guard watchers == 0, let state = claudeLogins[target] else { continue }
+                    await cancelClaudeLogin(target, machine: state.machine, recoverySession: state.recoverySession)
+                }
+            }
+        }
     }
 
     // MARK: Runs
@@ -437,8 +447,15 @@ public final class SettingsModels {
                 guard Self.providers.contains(provider), Self.isModelAPIKey(trimmed) else {
                     throw PageError.invalidParams("addKey needs a known provider and a key with no spaces")
                 }
-                let result = try await checkAccess(["provider": .string(provider), "key": .string(trimmed)])
-                if let failure = result["failure"]?.stringValue { return ["failure": .string(failure)] }
+                let result: JSONValue
+                do {
+                    result = try await checkAccess(["provider": .string(provider), "key": .string(trimmed)])
+                } catch let error as PageError where error.code == "cmux.protocol.unavailable" || error.code == "cmux.page.unavailable" {
+                    return ["failure": .string(error.message), "verificationFailed": true]
+                }
+                if let failure = result["failure"]?.stringValue {
+                    return ["failure": .string(failure), "verificationFailed": true]
+                }
                 guard result["models"]?.arrayValue != nil else {
                     throw PageError.unavailable("the local acpmux could not check model access")
                 }

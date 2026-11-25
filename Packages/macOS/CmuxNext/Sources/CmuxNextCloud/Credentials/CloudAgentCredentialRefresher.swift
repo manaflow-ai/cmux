@@ -39,6 +39,7 @@ public final class CloudAgentCredentialRefresher {
     public static let giveUp: Duration = .seconds(86_400)
 
     private struct Agent {
+        let instance: String?
         let push: Push
         let replace: Replace?
         let onReauth: @MainActor () -> Void
@@ -64,7 +65,7 @@ public final class CloudAgentCredentialRefresher {
                       replace: Replace? = nil, push: @escaping Push) -> UUID? {
         guard credential.refreshes, let expires = credential.expiresAt else { return nil }
         let id = UUID()
-        agents[credential.connectionID, default: [:]][id] = Agent(push: push, replace: replace, onReauth: onReauth, delivered: expires)
+        agents[credential.connectionID, default: [:]][id] = Agent(instance: credential.instance, push: push, replace: replace, onReauth: onReauth, delivered: expires)
         if !refreshing.contains(credential.connectionID) { schedule(credential.connectionID, after: nil) }
         return id
     }
@@ -121,6 +122,11 @@ public final class CloudAgentCredentialRefresher {
         }
         var retry = false
         for (id, agent) in due {
+            guard agents[connection]?[id] != nil else { continue }
+            guard fresh.instance == agent.instance else {
+                agents[connection]?[id] = nil
+                continue
+            }
             guard let expires = fresh.expiresAt, expires > agent.delivered else {
                 // This Mac's acpmux gave no newer token yet.
                 retry = true
@@ -142,14 +148,14 @@ public final class CloudAgentCredentialRefresher {
 
 extension CloudAgentCredentialRefresher {
     /// Replaces a live Cloud chat's credential via the owner's link.
-    public static func machineReplace(surface: UInt64, ownerLink: AgentSessionAttachClient.OwnerLink?,
+    public static func machineReplace(surface: UInt64, sessionID: String, ownerLink: AgentSessionAttachClient.OwnerLink?,
                                       reconnect: AgentSessionAttachClient.Reconnect?,
                                       endpoint: @escaping AgentSessionAttachClient.EndpointProvider) -> Replace {
         { credential in
             let client = AgentSessionAttachClient(surface: surface, reconnect: reconnect, endpoint: endpoint)
             let outcome: PushOutcome
             do {
-                _ = try await client.updateCredentials(credential?.env ?? [:], ownerLink: ownerLink, launchEndpoint: credential?.endpoint)
+                _ = try await client.updateCredentials(credential?.env ?? [:], sessionID: sessionID, ownerLink: ownerLink, launchEndpoint: credential?.endpoint)
                 outcome = .delivered
             } catch let error as AgentSessionAttachError
                         where error.code == "agent_session.unknown_tab" || error.code == AgentSessionAttachClient.startUnsupported {
@@ -163,16 +169,16 @@ extension CloudAgentCredentialRefresher {
     }
 
     /// The push to the chat on tab `surface` of a Cloud machine's daemon: `agent-session-credentials`
-    /// over the owner answer of its link (``AgentSessionAttachClient/updateCredentials(_:ownerLink:)``).
+    /// over the owner answer of its link (``AgentSessionAttachClient/updateCredentials(_:sessionID:ownerLink:launchEndpoint:)``).
     /// A tab its machine no longer has (closed, or a daemon that takes no credential) is gone.
-    public static func machinePush(surface: UInt64, ownerLink: AgentSessionAttachClient.OwnerLink?,
+    public static func machinePush(surface: UInt64, sessionID: String, ownerLink: AgentSessionAttachClient.OwnerLink?,
                                    reconnect: AgentSessionAttachClient.Reconnect?,
                                    endpoint: @escaping AgentSessionAttachClient.EndpointProvider) -> Push {
         { env in
             let client = AgentSessionAttachClient(surface: surface, reconnect: reconnect, endpoint: endpoint)
             let outcome: PushOutcome
             do {
-                _ = try await client.updateCredentials(env, ownerLink: ownerLink)
+                _ = try await client.updateCredentials(env, sessionID: sessionID, ownerLink: ownerLink)
                 outcome = .delivered
             } catch let error as AgentSessionAttachError
                         where error.code == "agent_session.unknown_tab" || error.code == AgentSessionAttachClient.startUnsupported {

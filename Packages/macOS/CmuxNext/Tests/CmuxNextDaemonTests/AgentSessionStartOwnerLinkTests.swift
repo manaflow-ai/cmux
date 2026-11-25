@@ -114,6 +114,27 @@ import Testing
     }
 
     @Test(arguments: [false, true])
+    func credentialWritesRequireTheDurableSessionCapability(supported: Bool) async throws {
+        var capabilities = ["agent-session-attach-v1", AgentSessionAttachClient.startCredentialsCapability]
+        if supported { capabilities.append(DaemonCapability.agentSessionBoundCredentials.rawValue) }
+        let daemon = try PresenceDaemon(capabilities: capabilities)
+        defer { daemon.stop() }
+        for env in [["ANTHROPIC_API_KEY": "fixture-key"], [:]] {
+            let client = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
+            do {
+                _ = try await client.updateCredentials(env, sessionID: "durable-chat", ownerLink: link(3, 3))
+                #expect(supported)
+            } catch let error as AgentSessionAttachError {
+                #expect(!supported && error.code == AgentSessionAttachClient.startUnsupported)
+            }
+            await client.close()
+        }
+        let writes = daemon.frames.filter { $0["cmd"] as? String == "agent-session-credentials" }
+        #expect(writes.count == (supported ? 2 : 0))
+        #expect(writes.allSatisfy { $0["session"] as? String == "durable-chat" })
+    }
+
+    @Test(arguments: [false, true])
     func claudePrewarmUsesTheSameCredentialNameAsStart(supportsEndpointCredentials: Bool) async throws {
         var capabilities = ["agent-session-attach-v1", "agent-session-start-v1",
                             DaemonCapability.agentSessionStartVMKind.rawValue, AgentSessionAttachClient.startCredentialsCapability]

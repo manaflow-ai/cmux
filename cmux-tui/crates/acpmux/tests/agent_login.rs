@@ -29,6 +29,14 @@ use tokio::sync::mpsc;
 /// listener, which `$FAKE_DIR/approve` stands for here. `$FAKE_DIR/no-listener`
 /// leaves the browser out (a CLI with no listener).
 const FAKE_CLAUDE: &str = r#"#!/bin/sh
+if [ "$1 $2 $3" = "auth status --json" ]; then
+  if [ -f "$CLAUDE_CONFIG_DIR/.credentials.json" ]; then
+    printf '{"loggedIn":true,"authMethod":"claude.ai"}\n'
+  else
+    printf '{"loggedIn":false}\n'
+  fi
+  exit 0
+fi
 [ "$1 $2 $3" = "auth login --claudeai" ] || exit 64
 for v in ANTHROPIC_API_KEY ANTHROPIC_BASE_URL CLAUDE_CODE_OAUTH_TOKEN OPENAI_API_KEY DISPLAY; do
   eval "x=\${$v-}"; [ -z "$x" ] || { echo "leaked $v" >&2; exit 65; }
@@ -259,23 +267,26 @@ async fn agent_login_over_the_wire() {
         .unwrap_err();
     assert_eq!(reason(&e), "unknown_login");
 
-    // A new start stops the one before it.
+    // A different Settings connection cannot replace the pending approval.
     let first = c.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "claude"})).await.unwrap();
-    let s = c.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "claude"})).await.unwrap();
-    let e = c
-        .call(method::MUX_AGENT_LOGIN_FINISH, json!({"loginId": first["loginId"], "code": "x"}))
+    let (mut other, _) = C::new(hub.clone(), Origin::Local).await;
+    let e =
+        other.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "claude"})).await.unwrap_err();
+    assert_eq!(reason(&e), "busy");
+    let e = other
+        .call(method::MUX_AGENT_LOGIN_START, json!({"agent": "claude", "reuseExisting": true}))
         .await
         .unwrap_err();
-    assert_eq!(reason(&e), "unknown_login");
+    assert_eq!(reason(&e), "busy");
     // Not a cmux Cloud image yet: no own-choice file.
     let r = c
         .call(
             method::MUX_AGENT_LOGIN_FINISH,
-            json!({"loginId": s["loginId"], "code": "good-code#state"}),
+            json!({"loginId": first["loginId"], "code": "good-code#state"}),
         )
         .await
         .unwrap();
-    assert_eq!(r, json!({"signedIn": true, "restarted": false}));
+    assert_eq!(r, json!({"signedIn": true, "restarted": false, "agent": "claude"}));
     assert!(d.join("claude-home/.credentials.json").is_file());
     let home = dirs::home_dir().unwrap();
     assert!(!home.join(".config/cmux/agent-auth/claude").exists());
@@ -329,7 +340,7 @@ async fn agent_login_over_the_wire() {
         .unwrap_err();
     assert_eq!(reason(&e), "unknown_session");
     let r = c.call(method::MUX_AGENT_LOGIN_FINISH, json!({"loginId": s["loginId"]})).await.unwrap();
-    assert_eq!(r, json!({"signedIn": true, "restarted": false}));
+    assert_eq!(r, json!({"signedIn": true, "restarted": false, "agent": "codex"}));
     // The device-auth card is complete only when the CLI's own auth.json landed in the
     // configured Codex home; a signedIn RPC result alone would miss a broken copy path.
     let auth: Value =
@@ -446,7 +457,7 @@ async fn gemini_and_grok_login_over_the_wire() {
     assert_eq!(s["needsCode"], false);
     assert!(s.get("autoUrl").is_none());
     let r = c.call(method::MUX_AGENT_LOGIN_FINISH, json!({"loginId": s["loginId"]})).await.unwrap();
-    assert_eq!(r, json!({"signedIn": true, "restarted": false}));
+    assert_eq!(r, json!({"signedIn": true, "restarted": false, "agent": "grok"}));
     assert!(d.join("grok-home/auth.json").is_file());
     let state = c.call(method::MUX_CONNECTIONS, json!({})).await.unwrap();
     assert_native_connection(&state, "grok");
@@ -508,7 +519,7 @@ async fn cursor_login_without_a_chat_uses_the_local_cli_store() {
     assert!(start.get("userCode").is_none());
     let finish =
         c.call(method::MUX_AGENT_LOGIN_FINISH, json!({"loginId": start["loginId"]})).await.unwrap();
-    assert_eq!(finish, json!({"signedIn": true, "restarted": false}));
+    assert_eq!(finish, json!({"signedIn": true, "restarted": false, "agent": "cursor"}));
     if cfg!(target_os = "macos") {
         assert!(d.join("cursor-home/.cursor/auth.json").is_file());
     } else {
@@ -593,7 +604,7 @@ const AUTO_URL: &str = "https://claude.com/cai/oauth/authorize?code=true&client_
 
 /// Claude signed in with no code pasted: the approve reaches the CLI's own
 /// listener and it exits; a paste still works while that finish waits; a new
-/// start is never held up by it; a CLI that gave no automatic link still
+/// start is refused while an approval is pending; a CLI without an automatic link
 /// needs the code.
 #[cfg(unix)]
 async fn claude_with_no_code(hub: &Arc<Hub>, c: &mut C, d: &Path) {
@@ -610,7 +621,7 @@ async fn claude_with_no_code(hub: &Arc<Hub>, c: &mut C, d: &Path) {
     });
     let r = c.call(method::MUX_AGENT_LOGIN_FINISH, finish(&s["loginId"])).await.unwrap();
     approving.await.unwrap();
-    assert_eq!(r, json!({"signedIn": true, "restarted": false}));
+    assert_eq!(r, json!({"signedIn": true, "restarted": false, "agent": "claude"}));
     assert!(creds.is_file());
 
     // A paste while that wait runs: both finishes see the one sign-in.
@@ -632,16 +643,20 @@ async fn claude_with_no_code(hub: &Arc<Hub>, c: &mut C, d: &Path) {
     assert_eq!(waiting.await.unwrap().unwrap()["signedIn"], true);
     assert!(creds.is_file());
 
-    // Starting again while a finish waits for the approve: the old one stops.
+    // Reusing the signed-in account is refused during reauthentication too.
     let s = c.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "claude"})).await.unwrap();
     let (mut other, _) = C::new(hub.clone(), Origin::Local).await;
-    let params = finish(&s["loginId"]);
-    let waiting =
-        tokio::spawn(async move { other.call(method::MUX_AGENT_LOGIN_FINISH, params).await });
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    let again = c.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "claude"})).await.unwrap();
-    assert!(waiting.await.unwrap().is_err());
-    c.call(method::MUX_AGENT_LOGIN_CANCEL, json!({"loginId": again["loginId"]})).await.unwrap();
+    let e = other
+        .call(method::MUX_AGENT_LOGIN_START, json!({"agent": "claude", "reuseExisting": true}))
+        .await
+        .unwrap_err();
+    assert_eq!(reason(&e), "busy");
+    c.call(method::MUX_AGENT_LOGIN_CANCEL, finish(&s["loginId"])).await.unwrap();
+    let reused = other
+        .call(method::MUX_AGENT_LOGIN_START, json!({"agent": "claude", "reuseExisting": true}))
+        .await
+        .unwrap();
+    assert_eq!(reused["signedIn"], true);
 
     // No automatic link (the CLI handed its BROWSER nothing): the code is needed.
     std::fs::write(d.join("no-listener"), "").unwrap();

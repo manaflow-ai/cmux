@@ -544,6 +544,17 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_named_cloud_connection_can_read_its_subagent_transcript() {
+        let home = scoped_store("named-connection");
+        let hub = transcript_hub(&home);
+        replace_meta(&hub, "chat", json!({"credentialConnection": "claude-token"}));
+        let own = handle(&hub, &transcript_request("wf_own")).await.unwrap();
+        assert_eq!(own["lines"], 4);
+        assert!(!own["updates"].as_array().unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    #[tokio::test]
     async fn peer_and_paired_device_read_only_readable_fork_ancestors() {
         use crate::server::{ConnAuth, Origin, serve_connection_authed};
         let home = scoped_store("peer-scope");

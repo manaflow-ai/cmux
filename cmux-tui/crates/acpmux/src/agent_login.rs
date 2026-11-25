@@ -8,7 +8,8 @@
 //!   --device-auth` in a private temp folder, reads its output for at most
 //!   [`URL_WAIT`] and [`OUTPUT_CAP`] bytes, and answers the link to open (only
 //!   an https link on a host of `parse::ALLOWED_HOSTS`) and Codex's one-time
-//!   code. One sign-in per agent: a new start stops the previous one. A
+//!   code. A pending Claude sign-in owns its account store until it ends.
+//!   For other agents, a new start can stop the previous one. A
 //!   sign-in is stopped after [`EXPIRY`], on `cancel`, and with this daemon
 //!   (its own process group, killed on drop).
 //!   Claude also gets a `BROWSER` of its own: a shim in the sign-in's private
@@ -1008,6 +1009,19 @@ pub fn running(login_id: &str) -> bool {
 /// Serialize Claude's CLI account changes, including the time before a login ID is published.
 static CLAUDE_ACCOUNT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+fn refuse_pending_claude(store: &Path) -> Result<(), LoginError> {
+    if lock_table().contains_key(&(Agent::Claude, store.to_path_buf())) {
+        return Err(LoginError::new(reason::BUSY, "Claude Code is signing in"));
+    }
+    Ok(())
+}
+
+/// Reusing an already signed-in account also needs to respect a pending approval.
+pub(crate) async fn check_claude_login_available(cli: &Cli) -> Result<(), LoginError> {
+    let _guard = CLAUDE_ACCOUNT.lock().await;
+    refuse_pending_claude(&cli.store(Agent::Claude))
+}
+
 pub(crate) async fn claude_status(machine: &Machine, cli: &Cli) -> Result<Value, LoginError> {
     machine.refuse_shared()?;
     let output = claude_auth_command(cli, &["auth", "status", "--json"]).await?;
@@ -1105,9 +1119,11 @@ pub async fn start_in(
     machine.refuse_shared()?;
     let _claude_guard =
         if agent == Agent::Claude { Some(CLAUDE_ACCOUNT.lock().await) } else { None };
-    // One sign-in per agent: the previous one stops, unless its finish is
-    // running (it may be writing the sign-in now).
     let store = cli.store(agent);
+    if agent == Agent::Claude {
+        // The account guard covers lookup through publication of the login ID.
+        refuse_pending_claude(&store)?;
+    }
     let slot: Slot = (agent, store.clone());
     let previous = {
         let table = lock_table();

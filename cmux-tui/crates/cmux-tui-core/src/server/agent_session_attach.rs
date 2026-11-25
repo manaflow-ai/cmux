@@ -1304,7 +1304,7 @@ fn start(
     agent_session_start::start(mux, client, id, socket, params, writer)
 }
 
-/// `agent-session-credentials {surface, env, vm_kind}`: the owner's refreshed model credential
+/// `agent-session-credentials {surface, session, env, vm_kind}`: the owner's refreshed model credential
 /// for the chat tab `surface` shows (a refreshed ChatGPT token), relayed to acpmux as
 /// `agent/credentials.update` on that tab's own session, which restarts its agent on it and
 /// resumes the chat. Only the owner's own app on the owner's own Cloud VM
@@ -1313,6 +1313,7 @@ fn start(
 #[serde(deny_unknown_fields)]
 struct CredentialsParams {
     surface: SurfaceId,
+    session: Option<String>,
     env: Option<std::collections::BTreeMap<String, String>>,
     endpoint: Option<agent_session_start::StartEndpoint>,
     #[serde(default, deserialize_with = "crate::server::command_args::present_nullable")]
@@ -1326,10 +1327,11 @@ fn credentials(
     params: serde_json::Map<String, Value>,
     writer: &MessageWriter,
 ) -> bool {
-    let CredentialsParams { surface, env, endpoint, vm_kind } = match bad_field::decode(params) {
-        Ok(params) => params,
-        Err(field) => return bad_field::refuse_field(writer, id, field.as_deref()),
-    };
+    let CredentialsParams { surface, session: expected, env, endpoint, vm_kind } =
+        match bad_field::decode(params) {
+            Ok(params) => params,
+            Err(field) => return bad_field::refuse_field(writer, id, field.as_deref()),
+        };
     let credential =
         env.map(|env| agent_session_start::StartCredentials { env, endpoint, connection: None });
     // An empty environment is the owner withdrawing a credential from this tab.
@@ -1342,7 +1344,10 @@ fn credentials(
     if !agent_session_start::credentials_admitted(mux, client, &vm_kind) {
         return refuse(writer, id, Refusal::OwnerOnly);
     }
-    // The tab's own session, of a tab this store hosts: never a session id the caller names.
+    if credential.is_some() && expected.as_deref().is_none_or(str::is_empty) {
+        return bad_field::refuse_field(writer, id, Some("session"));
+    }
+    // Check the durable identity before writing. A daemon restart can reuse the surface.
     let session =
         mux.surface(surface).and_then(|runtime| match mux.conversation_tab_of(&runtime) {
             Some(ConversationTabRecord::AgentSession { host, session: Some(session), .. })
@@ -1352,7 +1357,8 @@ fn credentials(
             }
             _ => None,
         });
-    let Some(session) = session else {
+    let Some(session) = session.filter(|session| expected.as_ref().is_none_or(|id| id == session))
+    else {
         return refuse(writer, id, Refusal::UnknownTab);
     };
     let Some(socket) = mux.control_clients.agent_sessions.socket() else {

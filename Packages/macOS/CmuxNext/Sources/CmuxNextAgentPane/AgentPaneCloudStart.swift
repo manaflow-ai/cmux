@@ -321,8 +321,8 @@ struct AgentPaneHandOff {
             start.machine = completion?.machine ?? start.machine
             start.usesMachineLogin = completion?.usesMachineLogin == true
             let reply = await run(start)
-            // A chat that started on the machine keeps the hold: this pane never starts one too,
-            // also when the App could not close it. Its reservation is spent with it.
+            // A chat that started on the machine keeps the hold, even if the App could not close this pane.
+            // Placement handles the reservation when it binds the spare or picks a ready machine.
             if reply["ok"] as? Bool != true { replacements.endSandbox() } else if let key = start.reservationKey { model.cloudReservationBound(key) }
             return reply
         }

@@ -188,7 +188,7 @@ export default settingsPageEntry({
       ...cloud,
       models: {
         ...mockModels.empty,
-        cloudClaudeLogin: { phase: "connected", error: null },
+        cloudClaudeLogin: { phase: "connected", error: null, machine: "vm_claude", machineName: "Claude Cloud" },
       },
     },
     "claude-cloud-ready-to-connect": dialog("claude", {

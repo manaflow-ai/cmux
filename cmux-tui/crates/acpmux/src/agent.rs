@@ -221,6 +221,8 @@ struct Hosted {
     /// not known (from a reattach or an adoption until it is learned, or for good when the host did
     /// not say).
     replay_to: std::sync::atomic::AtomicU64,
+    /// Whether adoption rebuilt the daemon's work state after the entire replay was logged.
+    recovery_replay_complete: std::sync::atomic::AtomicBool,
     /// The reader of the current link stopped otherwise (the link closed, or an acknowledgement
     /// failed while its socket still looked open): the agent is not heard through this link
     /// (`is_stopped`, review 68 of #23322); a reattach clears it. Under MDM's off only: with it
@@ -2486,7 +2488,29 @@ impl ChildAgent {
         if let Some(h) = &self.hosted {
             let _current = h.link.write_or_recover();
             h.replay_to.store(u64::MAX, Ordering::SeqCst);
+            h.recovery_replay_complete.store(false, Ordering::SeqCst);
         }
+    }
+
+    pub(crate) fn mark_recovery_replay_complete(&self) {
+        if let Some(h) = &self.hosted {
+            h.recovery_replay_complete.store(true, Ordering::SeqCst);
+        }
+    }
+
+    pub(crate) fn recovery_replay_complete(&self) -> bool {
+        !self.replay_pending()
+            && self
+                .hosted
+                .as_ref()
+                .is_none_or(|h| h.recovery_replay_complete.load(Ordering::SeqCst))
+    }
+
+    /// Keep recovery's work check and termination on the same host link.
+    pub(crate) fn try_hold_host_link(
+        &self,
+    ) -> Result<Option<tokio::sync::MutexGuard<'_, ()>>, tokio::sync::TryLockError> {
+        self.hosted.as_ref().map(|h| h.reattach_turn.try_lock()).transpose()
     }
 
     /// Learns how far the host replays on its current link (`Link::replay_end_within`), and keeps
@@ -2599,6 +2623,7 @@ impl ChildAgent {
                 broken: std::sync::atomic::AtomicBool::new(false),
                 broken_retry: std::sync::atomic::AtomicBool::new(false),
                 replay_to: std::sync::atomic::AtomicU64::new(0),
+                recovery_replay_complete: std::sync::atomic::AtomicBool::new(true),
                 stopped: std::sync::atomic::AtomicBool::new(false),
                 unlogged_answers: std::sync::Mutex::new(Vec::new()),
                 reattach_turn: tokio::sync::Mutex::new(()),

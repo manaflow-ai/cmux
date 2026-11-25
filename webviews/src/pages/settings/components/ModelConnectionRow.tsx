@@ -256,7 +256,9 @@ export function ModelConnectionRow({
                   data-value="signInAgain"
                   onSelect={() => {
                     if (!cloud && connection.kind === "claude-login") {
-                      const fallback = () => void run({ action: "connectClaude" });
+                      const fallback = () => {
+                        if (menu.current) onSetup({ id: "claude-login", useSettingsClaudeLogin: true }, menu.current);
+                      };
                       if (!signIn.inPlace) return fallback();
                       const own = (listed ?? [])
                         .flatMap((raw) => parseAccountRow(raw) ?? [])

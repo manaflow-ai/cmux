@@ -92,6 +92,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_FOLDERS_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_KEYED_REASON_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_VM_KIND_CAPABILITY);
+        capabilities.push(agent_session_attach::agent_session_start::CLAUDE_TEAM_ROUTE_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_MODEL_CAPABILITY);
         // The start takes `permission_mode` wherever it is served; only a start on the caller's
         // own Cloud VM acts on it (agent_session_start.rs `start_policy`).
@@ -112,6 +113,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
             .push(agent_session_attach::agent_session_start::CLAUDE_MACHINE_LOGIN_CAPABILITY);
         capabilities
             .push(agent_session_attach::agent_session_start::CREDENTIAL_REATTACH_CAPABILITY);
+        capabilities.push(agent_session_attach::agent_session_start::BOUND_CREDENTIALS_CAPABILITY);
         // A Codex credential's provider reaches app-server (acpmux agent_credentials.rs, cmux#45774).
         capabilities.push(AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_ENDPOINT_CREDENTIALS_CAPABILITY);

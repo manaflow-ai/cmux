@@ -1,3 +1,4 @@
+public import CmuxNextDaemon
 public import Foundation
 import os
 
@@ -28,15 +29,17 @@ public final class CloudSetup {
         public var launchHarness: String?
         public var subscriptionCredentials: Bool
         public var kind: String?
+        package var credentialInstance: String?
 
         public init(id: String, families: [String], signedIn: Bool = true, enabled: Bool = true, servesCloud: Bool = true, canServeCloud: Bool? = nil,
-                    endpointProfile: Bool = false, endpointCredentials: Bool = false, launchHarness: String? = nil, subscriptionCredentials: Bool = false, kind: String? = nil) {
+                    endpointProfile: Bool = false, endpointCredentials: Bool = false, launchHarness: String? = nil, subscriptionCredentials: Bool = false, kind: String? = nil, credentialInstance: String? = nil) {
             (self.id, self.families, self.signedIn, self.enabled, self.servesCloud) = (id, families, signedIn, enabled, servesCloud)
             self.canServeCloud = canServeCloud ?? servesCloud
             (self.endpointProfile, self.endpointCredentials) = (endpointProfile, endpointCredentials)
             self.launchHarness = launchHarness
             self.subscriptionCredentials = subscriptionCredentials
             self.kind = kind
+            self.credentialInstance = credentialInstance
         }
 
         /// A `Connection` object of `_acpmux/connections`; nil for anything without an id.
@@ -49,7 +52,7 @@ public final class CloudSetup {
                       endpointProfile: json["kind"] as? String == "endpoint",
                       endpointCredentials: json["endpoint_credentials"] as? Bool == true, launchHarness: json["launch_harness"] as? String,
                       subscriptionCredentials: ["grok-plan", "copilot-plan"].contains(json["kind"] as? String ?? ""),
-                      kind: json["kind"] as? String)
+                      kind: json["kind"] as? String, credentialInstance: json["credential_instance"] as? String)
         }
     }
 
@@ -137,6 +140,15 @@ public final class CloudSetup {
         /// The snapshot has unknown readiness.
         case fallback
 
+        /// The guest authentication source selected by readiness for Claude.
+        public var claudeAuth: AgentSessionAttachClient.ClaudeAuth? {
+            switch self {
+            case .claudeMachineLogin: .own
+            case .gateway(let family) where family == "claude": .team
+            default: nil
+            }
+        }
+
         /// This Mac's connection whose credential the chat's agent launch carries; nil for every other choice.
         public var connectionID: String? {
             if case .connection(let id, _) = self { return id }
@@ -219,7 +231,8 @@ public final class CloudSetup {
         await loadCloudMachines?()
         guard !Task.isCancelled, scope == accountScope?() else { return [] }
         let candidates = (claudeMachines?() ?? []).filter {
-            (machine == nil || $0.id == machine) && (environment == nil || $0.environmentId == environment)
+            (machine == nil || $0.id == machine)
+                && (environment == nil || $0.environmentId == environment || (machine != nil && $0.environmentId == nil))
                 && (name == nil || $0.title == name)
                 && [.running, .provisioning, .starting, .unknown].contains($0.shownStatus)
         }.map(\.id).sorted()
@@ -234,12 +247,22 @@ public final class CloudSetup {
     public func machineEnvironment(_ record: CloudMachine, ensured: String? = nil, account: [String?], defaults: UserDefaults?) -> CloudMachine {
         let key = "cloudMachineEnvironment." + CloudStartCore().accountText(account) + "." + record.id
         var record = record
-        if let environment = record.environmentId ?? ensured {
-            if defaults?.string(forKey: key) != environment { defaults?.set(environment, forKey: key) }
-            record.environmentId = environment
+        let derivedKey = key + ".derived"
+        let saved = defaults?.string(forKey: key), derived = defaults?.string(forKey: derivedKey)
+        if let actual = record.environmentId {
+            if let ensured, ensured.hasPrefix("env_"), actual.hasPrefix("denv_") {
+                if actual != derived { defaults?.set(actual, forKey: derivedKey) }
+                record.environmentId = ensured
+            } else if actual == derived {
+                record.environmentId = saved ?? actual
+            } else if derived != nil, actual != saved {
+                defaults?.removeObject(forKey: derivedKey)
+            }
         } else {
-            record.environmentId = defaults?.string(forKey: key)
+            if let ensured, ensured != saved, derived != nil { defaults?.removeObject(forKey: derivedKey) }
+            record.environmentId = ensured ?? saved
         }
+        if let environment = record.environmentId, environment != saved { defaults?.set(environment, forKey: key) }
         return record
     }
 
@@ -248,7 +271,7 @@ public final class CloudSetup {
     }
 
     public func machineMatchesEnvironment(_ machine: String, environment: String) -> Bool {
-        claudeMachines?().contains { $0.id == machine && $0.environmentId == environment } == true
+        claudeMachines?().contains { $0.id == machine && CloudStartCore().matchesEnvironment(environment, machine: $0) } == true
     }
 
     /// Opens Settings > Cloud > Cloud models for the family selected in the picker.

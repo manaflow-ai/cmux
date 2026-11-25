@@ -1379,6 +1379,7 @@ fn byo_endpoint_remove_then_undo_brings_back_a_working_endpoint_with_its_key() {
     let added = admin::add_endpoint_keyed(&p, &src, &key).unwrap();
     assert_eq!(log.lock().unwrap().len(), 1);
     let (profile, meta) = load(&added.path, "team");
+    let original = meta.credential_instance.clone().unwrap();
     let cfg = config("team", profile, meta);
     // Settings' Remove (with Undo): the profile goes to the backups, the key stays in the Keychain.
     let removed = admin::remove("team", &cfg, &src, &home, None).unwrap();
@@ -1388,7 +1389,8 @@ fn byo_endpoint_remove_then_undo_brings_back_a_working_endpoint_with_its_key() {
     assert!(backup.contains("cmux-harness/team/CMUX_BYO_API_KEY"), "{backup}");
     // Undo: the same profile, and its env resolves the key from the item that stayed.
     let restored = admin::restore(&removed.backup, &src, &home).unwrap();
-    let (profile, _) = load(&restored.path, "team");
+    let (profile, meta) = load(&restored.path, "team");
+    assert_ne!(meta.credential_instance.unwrap(), original);
     let mut env = profile.env.clone();
     let own = own_account(&profile, "team", OPENAI_KEY_ENV);
     assert!(log.lock().unwrap()[0].contains(&own), "Undo names another item than was stored");
@@ -1620,14 +1622,16 @@ fn byo_endpoint_a_replace_stores_its_key_in_a_new_item_the_old_profile_never_rea
     };
     let p = params("openai-endpoint", "team", "https://one.example.com/v1", "m", None);
     admin::add_endpoint_keyed(&p, &src, &key(GOOD_KEY)).unwrap();
-    let (profile, _) = load(&path, "team");
+    let (profile, original) = load(&path, "team");
     let first = own_account(&profile, "team", OPENAI_KEY_ENV);
     // A replace with a new key at a new URL: the new key goes to a new item (the profile still
     // there, at the old URL, reads its own item up to the rename), and the old item goes after.
     let mut again = params("openai-endpoint", "team", "https://two.example.com/v1", "m", None);
     again.replace = true;
     admin::add_endpoint_keyed(&again, &src, &key(BAD_KEY)).unwrap();
-    let (profile, _) = load(&path, "team");
+    let (profile, replacement) = load(&path, "team");
+    assert!(original.credential_instance.is_some());
+    assert_eq!(original.credential_instance, replacement.credential_instance);
     let second = own_account(&profile, "team", OPENAI_KEY_ENV);
     assert_ne!(first, second);
     {

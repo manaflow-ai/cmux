@@ -55,30 +55,41 @@ struct AgentTabRemoteStartTests {
         #expect(request["harness"] as? String == "claude")
     }
 
-    @Test(arguments: [false, true])
-    func claudeReadinessSendsAnExplicitMachineLoginForAppAndCLI(fromCLI: Bool) async throws {
-        let setup = CloudSetup(read: { .init(personal: [], organization: []) })
-        setup.gateway = { ["codex"] }
-        setup.claudeMachines = { [CloudMachine(id: "Cloud fixture")] }
-        setup.readClaudeMachineLogin = { $0 == "Cloud fixture" }
-        let choice: CloudSetup.Choice
-        if fromCLI {
-            let request = CloudStartSessionRequest(machineID: "Cloud fixture", agent: "claude")
-            choice = await request.launchReadiness(setup: setup, machine: "Cloud fixture").choice
-        } else {
-            let draft = AgentPaneCloudStart(task: "test", cwd: nil, harness: "claude", key: "start")
-            choice = await setup.launchReadiness(for: draft.onMachine("Cloud fixture")).choice
-        }
-        #expect(choice == .claudeMachineLogin)
-        let request = try await start(harness: "claude", model: nil, launchChoice: choice)
-        #expect(request["claude_machine_login"] as? Bool == true)
-        #expect(request["credentials"] == nil)
+    enum ClaudeStart: CaseIterable, Sendable { case appAutomatic, appExplicit, cliTargeted, cliTargetless }
 
-        setup.gateway = { ["claude"] }
-        let routed = await setup.launchReadiness(harness: "claude", model: nil, readyClaude: true)
-        #expect(routed.choice == .gateway(family: "claude"))
-        let team = try await start(harness: "claude", model: nil, launchChoice: routed.choice)
-        #expect(team["claude_machine_login"] == nil)
+    @Test(arguments: ClaudeStart.allCases)
+    func claudeReadinessSendsTheExplicitAuthChoiceToTheVM(entry: ClaudeStart) async throws {
+        let machine = CloudMachine(id: "Cloud fixture", displayName: "cloud-chats")
+        let setup = CloudSetup(read: { .init(personal: [], organization: []) })
+        setup.claudeMachines = { [machine] }
+        setup.readClaudeMachineLogin = { $0 == machine.id }
+        for team in [false, true] {
+            setup.gateway = { team ? ["claude"] : ["codex"] }
+            let choice: CloudSetup.Choice
+            switch entry {
+            case .appAutomatic, .appExplicit:
+                let draft = AgentPaneCloudStart(task: "test", cwd: nil, harness: "claude", key: "start")
+                let placed = entry == .appExplicit ? draft.onMachine(machine.id) : draft
+                _ = await setup.plannerReadiness(for: placed)
+                choice = await setup.launchReadiness(for: placed.onMachine(machine.id)).choice
+            case .cliTargeted, .cliTargetless:
+                let request = CloudStartSessionRequest(machineID: entry == .cliTargeted ? machine.id : nil, agent: "claude")
+                let preflight = try await request.preflight(setup: setup, scheme: "cmux")
+                let usesName = entry == .cliTargetless && team
+                #expect(preflight.machineID == (usesName ? nil : machine.id))
+                let destination = try await preflight.freshNamedMachine(isFresh: { true }, refresh: {}, check: {}) {
+                    $0 == machine.title ? machine.id : nil
+                }
+                let resolved = try #require(preflight.machineID ?? destination)
+                #expect(resolved == machine.id)
+                choice = await preflight.launchReadiness(setup: setup, machine: resolved).choice
+            }
+            #expect(choice == (team ? .gateway(family: "claude") : .claudeMachineLogin))
+            let frame = try await start(harness: "claude", model: nil, launchChoice: choice)
+            #expect(frame["claude_machine_login"] as? Bool == (team ? nil : true))
+            #expect(frame["claude_team_route"] as? Bool == (team ? true : nil))
+            #expect(frame["credentials"] == nil)
+        }
     }
 
     @Test func aModernCloudDaemonReceivesNoFolderForRustToChoose() async throws {
@@ -188,7 +199,7 @@ struct AgentTabRemoteStartTests {
         tabs.remoteFolder = { _ in remoteFolder }
         tabs.cloudCredentials = CloudAgentCredentials()
         tabs.cloudCredentials?.use(connection: launchChoice.connectionID, chat: key, machine: "Cloud fixture", harness: harness,
-                                   useMachineLogin: launchChoice == .claudeMachineLogin)
+                                   claudeAuth: launchChoice.claudeAuth)
         var recorded: [(String, String, String?, String?)] = []
         tabs.onRemoteChatStarted = { recorded.append(($0, $1, $2, $3)) }
         let daemon = try RemoteStartDaemon(supportsNoCwd: supportsNoCwd)
@@ -296,7 +307,7 @@ private nonisolated final class RemoteStartDaemon: Sendable {
                     var capabilities = [
                         "agent-session-attach-v1", "agent-session-start-v1",
                         "agent-session-start-model-v1", "agent-session-start-vm-kind-v1", "agent-session-folders-v1",
-                        AgentSessionAttachClient.startClaudeMachineLoginCapability,
+                        AgentSessionAttachClient.startClaudeMachineLoginCapability, AgentSessionAttachClient.startClaudeTeamRouteCapability,
                     ]
                     if supportsNoCwd { capabilities.append("agent-session-start-no-cwd-v1") }
                     data = ["app": "cmux-tui", "protocol": 12, "generation": "remote-start-fixture", "capabilities": capabilities]

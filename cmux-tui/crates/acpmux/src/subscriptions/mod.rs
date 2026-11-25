@@ -640,6 +640,7 @@ fn save(
         return Ok(());
     }
     let file = RouteFile {
+        credential_instance: None,
         name: Some(login.map_or_else(
             || provider.label().to_owned(),
             |login| format!("{} ({login})", provider.label()),

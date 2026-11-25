@@ -590,10 +590,11 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("claude"), "own\n").unwrap();
         assert_eq!(pair(&m, &[], true).await, None);
-        // `cr use team` over a sign-in of its own: team.
-        std::fs::write(dir.join("claude"), "team\n").unwrap();
         std::fs::write(m.home.join(".claude/.credentials.json"), r#"{"claudeAiOauth":{"a":1}}"#)
             .unwrap();
+        assert!(pair(&m, &[("CMUX_CLAUDE_AUTH", "team")], true).await.is_some());
+        // `cr use team` over a sign-in of its own: team.
+        std::fs::write(dir.join("claude"), "team\n").unwrap();
         assert!(pair(&m, &[], true).await.is_some());
         // No choice: the sign-in keeps own.
         std::fs::remove_file(dir.join("claude")).unwrap();

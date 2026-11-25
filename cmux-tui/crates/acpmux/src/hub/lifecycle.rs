@@ -731,6 +731,17 @@ impl Hub {
         self.touch(session);
         let _using = session.harness_use.read().await;
         let _spawning = self.spawn_lease(session).await;
+        if session.read_meta(super::credentials::claude_login_needs_restart) {
+            let child = session.child.lock().await.clone();
+            if let Some(child) = child
+                && child.is_alive().await
+            {
+                return Err(super::credentials::claude_login_busy());
+            }
+            if !Self::host_record_gone(&session.id) {
+                return Err(super::credentials::claude_login_busy());
+            }
+        }
         let (profile, digest, defaults) = launch;
         let spawn = self.spawn_profile(session, profile, digest, defaults).await?;
         let profile = &spawn;
@@ -1998,6 +2009,11 @@ impl Hub {
             // (`host_unheard`, review 68 of #23322).
             && !(child.is_stopped() && self.full_access_managed_off())
         {
+            // A turn may have passed its preflight before recovery saved the switch. Read it
+            // under the same spawn lock as the save, when handing the child to the caller.
+            if session.read_meta(super::credentials::claude_login_needs_restart) {
+                return Err(super::credentials::claude_login_busy());
+            }
             return Ok(child.clone());
         }
         // Its own host first, when one ran at the start (a second agent would take its turn),

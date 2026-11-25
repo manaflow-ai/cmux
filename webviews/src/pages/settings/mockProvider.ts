@@ -759,7 +759,10 @@ export class MockSettingsProvider {
       },
       "cmux.settings.models.run": async (params) => {
         const run = params as ModelsRun;
-        if (run.action === "checkClaudeLogin") return {};
+        if (run.action === "checkClaudeLogin") {
+          if (run.machineName) await this.holdNamedClaudeStatus;
+          return {};
+        }
         this.modelRuns.push(run);
         if (!this.models) throw new ProtocolError("cmux.settings.unavailable", "this host has no Models part");
         if (run.action === "checkAccess") {
@@ -768,7 +771,7 @@ export class MockSettingsProvider {
         }
         if (run.action === "addKey" && run.verifyAccess) {
           await this.holdModelAccess;
-          if ("failure" in this.modelAccess) return this.modelAccess;
+          if ("failure" in this.modelAccess) return { ...this.modelAccess, verificationFailed: true };
         }
         try {
           const completed = run.action === "connectChatGPTDevice" ? this.chatgptDeviceCompletion : undefined;
@@ -1183,6 +1186,7 @@ export class MockSettingsProvider {
   private readonly modelAccess: ModelsAccessResult;
   private readonly chatgptDeviceCompletion?: ModelsState;
   holdModelAccess: Promise<void> | null = null;
+  holdNamedClaudeStatus: Promise<void> | null = null;
   /** Models gestures the page sent (pasted keys included, so tests can check what was sent). */
   readonly modelRuns: ModelsRun[] = [];
   private readonly modelsChanged = new Set<EventSourceContext>();

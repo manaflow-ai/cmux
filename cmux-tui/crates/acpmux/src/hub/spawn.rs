@@ -6,6 +6,19 @@ use super::*;
 use crate::config::check_preset_args;
 use cmux_json::JsonSet as _;
 
+fn require_launch_credential(
+    meta: &SessionMeta,
+    credential: Option<&crate::agent_credentials::AgentCredential>,
+) -> Result<(), RpcError> {
+    if meta.credential_connection.is_some() && credential.is_none() {
+        return Err(RpcError::invalid_params(
+            "This chat needs its model connection from your Mac.",
+        )
+        .with_data(serde_json::json!({"reason": "credentials.needed"})));
+    }
+    Ok(())
+}
+
 fn pi_session_for(root: &Path, agent_id: &str) -> std::io::Result<Option<PathBuf>> {
     let Ok(entries) = std::fs::read_dir(root) else { return Ok(None) };
     for entry in entries {
@@ -214,6 +227,7 @@ impl Hub {
         let opencode = super::policy_mode::is_opencode(&meta, profile);
         // The owner's Cloud credential, held for this session only (`agent_credentials.rs`).
         let credential = session.credential.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        require_launch_credential(&meta, credential.as_ref())?;
         let (profile, preset_digest, account_home) = self
             .spawn_profile_read(&meta, forking, profile, defaults_env, credential.as_ref())
             .await?;
@@ -228,7 +242,7 @@ impl Hub {
         profile: &HarnessProfile,
         defaults_env: &std::collections::BTreeMap<String, String>,
     ) -> Result<HarnessProfile, RpcError> {
-        self.spawn_profile_with(meta, profile, defaults_env, None).await
+        self.spawn_profile_read(meta, false, profile, defaults_env, None).await.map(|(p, ..)| p)
     }
 
     /// `spawn_profile_for` on the owner's Cloud credential a chat launches with (the session
@@ -240,6 +254,7 @@ impl Hub {
         defaults_env: &std::collections::BTreeMap<String, String>,
         credential: Option<&crate::agent_credentials::AgentCredential>,
     ) -> Result<HarnessProfile, RpcError> {
+        require_launch_credential(meta, credential)?;
         self.spawn_profile_read(meta, false, profile, defaults_env, credential)
             .await
             .map(|(p, ..)| p)
@@ -255,12 +270,6 @@ impl Hub {
         defaults_env: &std::collections::BTreeMap<String, String>,
         credential: Option<&crate::agent_credentials::AgentCredential>,
     ) -> Result<(HarnessProfile, Option<String>, Option<std::path::PathBuf>), RpcError> {
-        if meta.credential_connection.is_some() && credential.is_none() {
-            return Err(RpcError::invalid_params(
-                "This chat needs its model connection from your Mac.",
-            )
-            .with_data(serde_json::json!({"reason": "credentials.needed"})));
-        }
         let mut p = profile.clone();
         let mut digest = None;
         for (k, v) in defaults_env {

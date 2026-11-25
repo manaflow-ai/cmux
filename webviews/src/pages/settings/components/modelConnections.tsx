@@ -13,6 +13,7 @@ export type SetupSelection = {
   target?: string;
   machine?: string;
   edit?: boolean;
+  useSettingsClaudeLogin?: boolean;
   onKeyReplaced?(): void;
 };
 
@@ -70,7 +71,7 @@ export function moveId(ids: string[], id: string, to: number): string[] {
   return rest;
 }
 
-export type Run = (gesture: ModelsRun) => Promise<boolean>;
+export type Run = (gesture: ModelsRun, onVerificationFailure?: () => void) => Promise<boolean>;
 
 /** A card's gestures to the host: `run` sends one and resolves whether the host took it; `busy` while
  * one is out, `error` the last refusal's text (shown under the card). */
@@ -85,7 +86,7 @@ export function useModelsRun(): {
   const latest = useRef(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const run: Run = (gesture) => {
+  const run: Run = (gesture, onVerificationFailure) => {
     const cancel = gesture.action === "cancelChatGPTDevice" || gesture.action === "cancelClaudeLogin";
     // A cancellation has to reach the host on its own click, including while Connect is settling.
     if (inFlight.current && !cancel) return Promise.resolve(false);
@@ -96,9 +97,12 @@ export function useModelsRun(): {
     return store
       .runModels(gesture)
       .then(
-        (refusal) => {
-          if (attempt === latest.current) setError(refusal);
-          return refusal === null;
+        ({ failure, verificationFailed }) => {
+          if (attempt === latest.current) {
+            setError(failure);
+            if (verificationFailed) onVerificationFailure?.();
+          }
+          return failure === null;
         },
         (failure: unknown) => {
           if (attempt === latest.current) setError(userMessage(failure, SETTINGS_SENTENCES));

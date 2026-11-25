@@ -127,6 +127,10 @@ impl Hub {
                 .await
                 .map_err(|error| connection_error(&error.code, "ChatGPT"))?;
             env.insert(crate::agent_credentials::CHATGPT_TOKEN.into(), token);
+            env.insert(
+                crate::agent_credentials::LOCAL_REDACTION.into(),
+                crate::agent_credentials::CHATGPT_TOKEN.into(),
+            );
             env.insert(crate::chatgpt::LOCAL_EXPIRY_ENV.into(), expires_at.to_string());
         }
         if let Some(provider) = crate::subscriptions::Provider::for_kind(moved.file.kind) {
@@ -474,16 +478,19 @@ impl Hub {
         if self.shutting_down() {
             return Err(super::shutdown::shutting_down_error());
         }
-        if session.read_meta(super::credentials::claude_login_needs_restart) {
-            if !self.end_previous_claude_host(session).await? {
-                return Ok(());
+        {
+            let _spawn = self.spawn_lease(session).await;
+            if session.read_meta(super::credentials::claude_login_needs_restart) {
+                if !self.end_previous_claude_host(session).await? {
+                    return Ok(());
+                }
+            } else {
+                session.route_switch.store(false, Ordering::SeqCst);
+                if session.child.lock().await.is_none() {
+                    return Ok(());
+                }
+                self.detach_child(session).await;
             }
-        } else {
-            session.route_switch.store(false, Ordering::SeqCst);
-            if session.child.lock().await.is_none() {
-                return Ok(());
-            }
-            self.detach_child(session).await;
         }
         self.child_for(session).await.map(|_| ())
     }

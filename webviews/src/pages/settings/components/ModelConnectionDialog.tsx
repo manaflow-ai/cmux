@@ -35,6 +35,7 @@ export function ModelConnectionDialog({
   cloud,
   recoverClaude,
   claudeAttemptBlocked,
+  useSettingsClaudeLogin,
   provider,
   models,
   busy,
@@ -53,6 +54,7 @@ export function ModelConnectionDialog({
   cloud: boolean;
   recoverClaude?: boolean;
   claudeAttemptBlocked?: boolean;
+  useSettingsClaudeLogin?: boolean;
   provider?: CatalogProvider;
   models?: ModelsState;
   busy: boolean;
@@ -80,7 +82,7 @@ export function ModelConnectionDialog({
     (row) => row.id === target && row.kind === "chatgpt-plan",
   );
   const accountFamily =
-    !cloud && accountSignIn.inPlace
+    !cloud && !useSettingsClaudeLogin && accountSignIn.inPlace
       ? directClaude
         ? "claude"
         : (provider?.id === "chatgpt" && !standaloneChatGPT) || provider?.id === "codex-login"
@@ -236,6 +238,7 @@ export function ModelConnectionDialog({
               replace={target}
               recover={recoverClaude}
               blocked={claudeAttemptBlocked}
+              allowConnected={useSettingsClaudeLogin}
               error={error}
             />
           )}
