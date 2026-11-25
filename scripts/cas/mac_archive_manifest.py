@@ -27,6 +27,7 @@ import hashlib
 import json
 import os
 import stat
+import tempfile
 import zlib
 import sys
 from pathlib import Path
@@ -108,11 +109,20 @@ def _store_put(store: Path | None, digest: str, piece: bytes) -> None:
     if store is None:
         return
     dest = store / digest[:2] / digest
-    if not dest.exists():
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        tmp = dest.with_name(f"{dest.name}.{os.getpid()}.tmp")
-        tmp.write_bytes(piece)
+    if dest.exists():
+        return  # content-addressed: whoever wrote it first wrote the same bytes
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    # A unique temp name per writer (pid plus random suffix), so parallel
+    # builds sharing one store never rename each other's file.
+    fd, tmp = tempfile.mkstemp(prefix=f"{digest}.{os.getpid()}.", suffix=".tmp", dir=dest.parent)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(piece)
         os.replace(tmp, dest)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        if not dest.exists():
+            raise
 
 
 def _chunk_list(data: bytes, store: Path | None) -> list[dict]:

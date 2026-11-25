@@ -83,6 +83,22 @@ class MacArchiveManifestTest(unittest.TestCase):
             self.assertEqual(d["fetch_chunks"], 1)
             self.assertIn("fetch_bytes_compressed", d)
 
+    def test_parallel_writers_share_one_store(self) -> None:
+        # Two builds of overlapping inputs into one store used to race on a
+        # shared .tmp name (FileNotFoundError on rename).
+        import concurrent.futures
+        data = blob(5, 2 * 1024 * 1024)
+        with tempfile.TemporaryDirectory() as d:
+            store = Path(d) / "store"
+            src = Path(d) / "a.bin"
+            src.write_bytes(data)
+            with concurrent.futures.ProcessPoolExecutor(8) as pool:
+                outs = list(pool.map(mam.build_manifest, [src] * 8, [store] * 8))
+            self.assertEqual(len({o["sha256"] for o in outs}), 1)
+            self.assertEqual([p for p in store.rglob("*.tmp")], [])
+            mam.assemble(outs[0], store, Path(d) / "re.bin")
+            self.assertEqual((Path(d) / "re.bin").read_bytes(), data)
+
 
 if __name__ == "__main__":
     unittest.main()
