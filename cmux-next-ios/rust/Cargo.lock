@@ -548,6 +548,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-braid-carrier"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-build-space"
 version = "0.1.0"
 dependencies = [
@@ -571,6 +575,13 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "cmux-felt"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
@@ -632,6 +643,7 @@ dependencies = [
  "async-trait",
  "base64",
  "bytes",
+ "cmux-braid-carrier",
  "cmux-build-space",
  "cmux-mobile-link",
  "cmux-rd-core",
@@ -676,6 +688,7 @@ dependencies = [
  "cmux-rd-link",
  "cmux-rd-proto",
  "cmux-share-approval",
+ "cmux-tab-snapshots",
  "cmux-terminal-prediction",
  "cmux-terminal-projection",
  "cmux-window-rules",
@@ -814,6 +827,9 @@ dependencies = [
 [[package]]
 name = "cmux-terminal-prediction"
 version = "0.1.0"
+dependencies = [
+ "cmux-felt",
+]
 
 [[package]]
 name = "cmux-terminal-projection"

@@ -59,3 +59,14 @@ fn a_scroll_up_is_line_feeds_on_the_last_row() {
     assert!(text.contains("\x1b[32;1H\n\n"), "{text:?}");
     assert!(!text.contains("\x1b[2J"));
 }
+
+/// A curly underline goes as `4:3`; a plain one stays `4`.
+#[test]
+fn an_underline_keeps_its_line() {
+    let mut out = String::new();
+    sgr(&mut out, Style { attrs: UNDERLINE | crate::UNDERLINE_CURLY | BOLD, ..Style::PLAIN });
+    assert_eq!(out, "\x1b[0;1;4:3m");
+    out.clear();
+    sgr(&mut out, Style { attrs: UNDERLINE, ..Style::PLAIN });
+    assert_eq!(out, "\x1b[0;4m");
+}

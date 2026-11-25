@@ -60,7 +60,7 @@ export interface CloudAttentionPush {
 
 export interface CloudAttentionSendResult {
   readonly token: string
-  readonly outcome: ApnsOutcome | "retry_later"
+  readonly outcome: ApnsOutcome | "retry_later" | "skipped"
   readonly status: number
   readonly reason?: string
   /** APNs' opaque receipt id; safe to return to the caller, unlike the device token. */
@@ -101,7 +101,7 @@ export const sendCloudAttention = async (
       },
     },
   })
-  return Promise.all(targets.map(async (target) => {
+  return sendEachApns(targets, async (target): Promise<CloudAttentionSendResult> => {
     const host = target.environment === "production" ? "api.push.apple.com" : "api.sandbox.push.apple.com"
     try {
       const controller = new AbortController()
@@ -131,7 +131,7 @@ export const sendCloudAttention = async (
     } catch (error) {
       return { token: target.token, outcome: "retry_later" as const, status: 0, reason: error instanceof DOMException && error.name === "AbortError" ? "timeout" : "network" }
     }
-  }))
+  }, (target, by) => ({ token: target.token, outcome: "skipped", status: by.status, ...(by.reason ? { reason: by.reason } : {}) }), "cloud attention")
 }
 
 /** Apple wants one provider token reused for 20 to 60 minutes: one per key per isolate, renewed after 50 or when refused. */
@@ -679,16 +679,88 @@ export const sealedPayload = (e: NotifyEvent, sealed: SealedBox, opts: { preview
 
 export type ApnsOutcome = "sent" | "drop_target" | "failed"
 
+/**
+ * APNs reasons that judge the key, its environment or the topic, never the device token: every other send to the
+ * same environment and topic in this invocation would get the same answer. A registration is never dropped for one.
+ */
+export const KEY_OR_TOPIC_REASONS: ReadonlySet<string> = new Set([
+  "TopicDisallowed",
+  "BadEnvironmentKeyInToken",
+  "InvalidProviderToken",
+  "ExpiredProviderToken",
+  "MissingTopic",
+  "BadTopic"
+])
+
 export const classifyApns = (status: number, reason: string | undefined): ApnsOutcome => {
   if (status === 200) return "sent"
+  if (reason !== undefined && KEY_OR_TOPIC_REASONS.has(reason)) return "failed"
   if (status === 410 || reason === "BadDeviceToken" || reason === "Unregistered" || reason === "DeviceTokenNotForTopic") return "drop_target"
   return "failed"
+}
+
+/**
+ * How many APNs requests one invocation keeps in flight: Cloudflare lets a Worker invocation hold 6 outbound
+ * connections open at once and queues the rest, so starting more at once only queues them out of our sight.
+ */
+export const APNS_IN_FLIGHT = 6
+
+/**
+ * Sends to every target, APNS_IN_FLIGHT at a time, the environments and topics interleaved so each one's first
+ * send starts in the first wave. Once a send's answer is key- or topic-level (KEY_OR_TOPIC_REASONS), the targets of
+ * that environment and topic not yet started are not sent: SKIPPED stands in for each, and the skips are logged
+ * once. Results keep the targets' order.
+ */
+export const sendEachApns = async <R extends { readonly status: number; readonly reason?: string }>(
+  targets: ReadonlyArray<PushRegistration>,
+  send: (target: PushRegistration) => Promise<R>,
+  skipped: (target: PushRegistration, by: R) => R,
+  what: string
+): Promise<Array<R>> => {
+  const group = (t: PushRegistration) => `${t.environment} ${t.topic}`
+  const groups = new Map<string, Array<number>>()
+  targets.forEach((t, i) => {
+    const g = groups.get(group(t))
+    if (g) g.push(i)
+    else groups.set(group(t), [i])
+  })
+  const order: Array<number> = []
+  for (let round = 0; order.length < targets.length; round++) for (const g of groups.values()) if (round < g.length) order.push(g[round]!)
+  const refused = new Map<string, R>()
+  const skips = new Map<string, number>()
+  const results = new Array<R>(targets.length)
+  let next = 0
+  const lane = async () => {
+    while (next < order.length) {
+      const i = order[next++]!
+      const t = targets[i]!
+      const by = refused.get(group(t))
+      if (by) {
+        results[i] = skipped(t, by)
+        skips.set(group(t), (skips.get(group(t)) ?? 0) + 1)
+        continue
+      }
+      const r = await send(t)
+      results[i] = r
+      if (r.reason !== undefined && KEY_OR_TOPIC_REASONS.has(r.reason) && !refused.has(group(t))) refused.set(group(t), r)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(APNS_IN_FLIGHT, targets.length) }, lane))
+  if (skips.size) {
+    const groupsSkipped = [...skips].map(([g, n]) => {
+      const [environment, topic] = g.split(" ")
+      return { environment, topic, reason: refused.get(g)!.reason, skipped: n }
+    })
+    console.log(JSON.stringify({ msg: "apns skipped", what, skipped: [...skips.values()].reduce((a, b) => a + b, 0), groups: groupsSkipped }))
+  }
+  return results
 }
 
 export interface ApnsSendResult {
   readonly token: string
   readonly environment: PushRegistration["environment"]
-  readonly outcome: ApnsOutcome
+  /** `skipped`: not sent, since another send to its environment and topic got a key- or topic-level refusal. */
+  readonly outcome: ApnsOutcome | "skipped"
   readonly status: number
   readonly reason?: string
 }
@@ -717,7 +789,7 @@ export const notifyFailures = (results: ReadonlyArray<ApnsSendResult>): Array<No
       reason: r.status === 0 ? "network" : typeof r.reason === "string" && APNS_REASON.test(r.reason) ? r.reason : "unknown"
     }))
 
-/** Sends one event to every target; never throws. */
+/** Sends one event to every target, but for the ones sendEachApns skips; never throws. */
 export const sendApns = async (
   config: ApnsConfig,
   targets: ReadonlyArray<PushRegistration>,
@@ -727,8 +799,9 @@ export const sendApns = async (
 ): Promise<Array<ApnsSendResult>> => {
   if (targets.length === 0) return []
   const tokens = await tokensByEnvironment(config, targets, now)
-  return Promise.all(
-    targets.map(async (t) => {
+  return sendEachApns(
+    targets,
+    async (t): Promise<ApnsSendResult> => {
       try {
         const res = await fetcher(apnsRequest(t, e, tokens.get(t.environment)!, now, config.sentAtProbe ? Date.now() : undefined))
         const body = res.status === 200 ? undefined : ((await res.json().catch(() => ({}))) as { reason?: unknown } | null)?.reason
@@ -739,6 +812,8 @@ export const sendApns = async (
       } catch (err) {
         return { token: t.token, environment: t.environment, outcome: "failed" as const, status: 0, reason: String(err).slice(0, 120) }
       }
-    })
+    },
+    (t, by) => ({ token: t.token, environment: t.environment, outcome: "skipped", status: by.status, ...(by.reason ? { reason: by.reason } : {}) }),
+    "notify"
   )
 }
