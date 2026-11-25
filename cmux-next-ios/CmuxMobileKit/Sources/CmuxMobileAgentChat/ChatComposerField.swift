@@ -22,6 +22,9 @@ struct ChatComposerField: UIViewRepresentable {
     /// The draft gained or lost a line (typed, or set from outside): the bottom stack's next
     /// height change moves on `ComposerLineMotion`, not the stack's slower spring.
     var onLineChange: (() -> Void)?
+    /// Points of the card over the field taken by the attachment strip: the field gives them up
+    /// (`ComposerReturnTextView.shareCard`), so attaching never makes the card taller than its tallest.
+    var reservedTop: CGFloat = 0
 
     static let maxLines = ComposerFieldHeight.defaultMaxLines
     static let accessibilityIdentifier = "chat.composer.field"
@@ -79,6 +82,7 @@ struct ChatComposerField: UIViewRepresentable {
             if view.lineCountChangePending { onLineChange?() }
             view.invalidateIntrinsicContentSize()
         }
+        view.shareCard(reserved: reservedTop, baseMaxLines: Self.maxLines)
         if view.placeholder != placeholder { view.placeholder = placeholder }
         // Focus follows the binding both ways; the change waits for the
         // current update (a responder change inside it re-enters SwiftUI), and
@@ -102,6 +106,9 @@ struct ChatComposerField: UIViewRepresentable {
     private func markReadyIfShown() {
         guard !faceHidden else { return }
         LaunchMarks.shared.markNextFrame("chat_composer_ready")
+        #if DEBUG
+        OpenMarks.shared?.noteNextFrame("chat_composer_ready")
+        #endif
     }
 
     /// A field torn down while focused (the permission bar replaced it) leaves no focus behind.

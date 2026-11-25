@@ -143,6 +143,26 @@ fn set_tabs_orders_removes_and_keeps_screens() {
 }
 
 #[test]
+fn equal_screen_refresh_emits_no_snapshot_or_row_delta() {
+    let tabs = Tabs::new("e");
+    tabs.set_tabs(vec![tab("1", Kind::Terminal, json!({})), tab("2", Kind::Terminal, json!({}))]);
+    assert!(tabs.set_screen("1", "same".to_owned()));
+    let rev = tabs.rev();
+    assert!(!tabs.set_screen("1", "same".to_owned()));
+    println!("SILENT_DELTA rust_screen_equal before=1 after=0");
+    assert_eq!(tabs.rev(), rev);
+    let delta = tabs.lock().producer.delta_since(rev).expect("current revision has a delta");
+    assert!(delta.changed.is_empty());
+
+    assert!(tabs.set_screen("1", "changed".to_owned()));
+    assert_eq!(tabs.rev(), rev + 1);
+    let delta = tabs.lock().producer.delta_since(rev).expect("changed row delta");
+    println!("SILENT_DELTA rust_screen_changed rows={}", delta.changed.len());
+    assert_eq!(delta.changed.len(), 1);
+    assert_eq!(delta.changed[0].tab_id, "1");
+}
+
+#[test]
 fn exposure_hides_tabs_of_blocked_chats_and_everything_when_unavailable() {
     let tabs = Tabs::new("e");
     tabs.set_tabs(vec![

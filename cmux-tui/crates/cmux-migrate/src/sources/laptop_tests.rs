@@ -450,6 +450,11 @@ fn carry_lists_machine_wide_items_with_sizes() {
         assert!(has(kind, path).is_some(), "{kind:?} {path}: {:?}", plan.carry);
     }
     assert_eq!(has(CarryKind::Shell, "~/.zshrc").unwrap().bytes, 12);
+    // Shell history can hold typed tokens: listed, never carried unless checked.
+    assert!(!has(CarryKind::ShellHistory, "~/.zsh_history").unwrap().checked);
+    assert!(has(CarryKind::Shell, "~/.zshrc").unwrap().checked);
+    assert!(!plan.steps().iter().any(|s| matches!(s,
+        crate::Step::CarryFiles { paths } if paths.iter().any(|p| p.ends_with("_history")))));
     assert_eq!(has(CarryKind::AgentSettings, "~/.claude/skills").unwrap().bytes, 5);
     assert_eq!(has(CarryKind::AgentHistory, "~/.claude/projects").unwrap().bytes, 10);
     assert_eq!(has(CarryKind::AgentHistory, "~/.codex/sessions").unwrap().bytes, 5);

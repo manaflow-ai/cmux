@@ -427,12 +427,15 @@ home.server
 imessage.automationSkipped
 imessage.enabled
 labs.agentCustomization
+labs.appStore
 labs.classicHome
+labs.commentThreads
 labs.liveCode
 labs.liveTree
 labs.machineJoin
 labs.pauseAgentMachines
 labs.previewFeatures
+labs.previousBuild
 labs.voiceRoom
 labs.voiceRoomURL
 layout.centerFocusedColumn
@@ -547,6 +550,7 @@ phone.cloudReplica
 phone.keepAwake
 phone.startSessions
 picker.pinned
+presence.live
 remote.enabled
 remote.endSharingOnQuit
 remote.screenSharingProfile
@@ -612,10 +616,12 @@ sidebar.sections.hidden
 sidebar.sections.order
 sidebar.sessionTree
 sidebar.settleFinished
+sidebar.showAgentSessions
 sidebar.showAutomaticSessions
 sidebar.showChats
 sidebar.showColors
 sidebar.showCounts
+sidebar.showLiveToggle
 sidebar.showLocalMachine
 sidebar.showNewWorkspaceChooser
 sidebar.showProfileControl
