@@ -97,7 +97,7 @@ pub(super) fn request(
     let request_id = made["request_id"].as_str().unwrap_or_default().to_string();
     // This agent's alone: only a status read that brings it gets a secret's
     // value (another chat's agent can list the request, not read it).
-    let read_token = made["read_token"].as_str().map(str::to_string);
+    let read_token = made.get("read_token").and_then(Value::as_str).map(str::to_string);
     let deadline = Instant::now() + timeout;
     let mut withdraws = 0;
     loop {
