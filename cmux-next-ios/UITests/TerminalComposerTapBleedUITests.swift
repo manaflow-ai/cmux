@@ -89,9 +89,17 @@ final class TerminalComposerTapBleedUITests: XCTestCase {
         XCTAssertGreaterThan(columns.count, 4, "too few keys found: \(columns)")
         // The card's own buttons (+, Send, an attachment's preview and remove badge) open a menu,
         // send, preview or remove: tap beside them, not on them. They are the composer's, never a key's.
-        let avoid = app.buttons.allElementsBoundByIndex
+        var avoid: [CGRect] = app.buttons.allElementsBoundByIndex
             .filter { !$0.identifier.hasPrefix("terminal.key.") && $0.frame.intersects(cardFrame.insetBy(dx: 0, dy: -12)) }
             .map { $0.frame.insetBy(dx: -6, dy: -6) }
+        // The attachment tiles (a tap opens a preview): their whole strip, not only the labels
+        // inside a file's chip that read as buttons.
+        let tiles = app.descendants(matching: .any).matching(identifier: "terminal.attachment").allElementsBoundByIndex
+            .reduce(CGRect.null) { $0.union($1.frame) }
+        if !tiles.isNull {
+            avoid.append(CGRect(x: tiles.minX - 16, y: cardFrame.minY - 12, width: tiles.width + 32,
+                                height: tiles.maxY - cardFrame.minY + 24))
+        }
 
         // The card's top edge, just inside it (1 to 8 pt), and the gap between the row and the
         // card: points that are the composer's or nobody's, never a key's.
