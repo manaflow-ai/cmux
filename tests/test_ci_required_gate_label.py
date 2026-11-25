@@ -97,6 +97,14 @@ class RequiredGateLabelTest(unittest.TestCase):
         self.assertTrue(reporting, "no job reports a required check")
         self.assertLessEqual(reporting, set(GATE_JOBS))
 
+    def test_expression_named_required_gate_runs_without_migration_changes(self) -> None:
+        # GitHub does not evaluate an expression name when a skippable job is skipped. Keep the required
+        # fallback name, while ensuring the no-migration path reaches the gate and reports it.
+        gate = load("backend-migrations.yml")["jobs"]["gate"]
+        self.assertIn("${{", gate["name"])
+        self.assertIn("'backend migrations applied'", gate["name"])
+        self.assertNotIn("needs.plan.outputs.migrations != 'true'", str(gate["if"]))
+
     def test_every_gate_job_leads_with_the_gate_label(self) -> None:
         for (name, job_id), check in sorted(GATE_JOBS.items()):
             if (name, job_id) in STAGED:
