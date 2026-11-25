@@ -21,7 +21,9 @@ import UniformTypeIdentifiers
     }
 
     @Test func keepsTransparencyWhenOptimizingPNG() throws {
-        let image = try #require(makeImage(width: 3000, height: 2200, alpha: true))
+        // A smooth gradient, like a screenshot: a repeating pattern grows when downscaled, and the
+        // optimizer rightly keeps those originals.
+        let image = try #require(makeImage(width: 3000, height: 2200, alpha: true, smooth: true))
         let original = try encode(image, type: UTType.png.identifier as CFString)
         let optimized = AgentImageOptimizer.optimize(original)
 
@@ -55,7 +57,7 @@ import UniformTypeIdentifiers
         #expect(AgentImageOptimizer.optimize(animated) == animated)
     }
 
-    private func makeImage(width: Int, height: Int, alpha: Bool) -> CGImage? {
+    private func makeImage(width: Int, height: Int, alpha: Bool, smooth: Bool = false) -> CGImage? {
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         let bitmapInfo = alpha ? CGImageAlphaInfo.premultipliedLast.rawValue : CGImageAlphaInfo.noneSkipLast.rawValue
         guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
@@ -64,6 +66,15 @@ import UniformTypeIdentifiers
         for y in 0..<height {
             for x in 0..<width {
                 let offset = (y * width + x) * 4
+                if smooth {
+                    // Premultiplied: each colour is at most its alpha.
+                    let a = x * 255 / width
+                    bytes[offset] = UInt8(a * y / height)
+                    bytes[offset + 1] = UInt8(a * (height - y) / height)
+                    bytes[offset + 2] = UInt8(a / 2)
+                    bytes[offset + 3] = alpha ? UInt8(a) : 255
+                    continue
+                }
                 bytes[offset] = UInt8(truncatingIfNeeded: x * 31 + y * 17)
                 bytes[offset + 1] = UInt8(truncatingIfNeeded: x * 13 + y * 29)
                 bytes[offset + 2] = UInt8(truncatingIfNeeded: x * 7 + y * 43)
