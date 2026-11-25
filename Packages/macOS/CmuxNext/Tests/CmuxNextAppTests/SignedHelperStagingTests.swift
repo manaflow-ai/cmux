@@ -152,6 +152,29 @@ struct SignedHelperStagingTests {
         #expect(Self.read(staged.appending(path: "Contents/MacOS/helper")) == "one")
     }
 
+    /// A HOME under /tmp, as Foundation names it (without the /private realpath gives), stages:
+    /// every walk home (`/private/tmp/cmux-walk-home.*`) read back as /tmp and lost its Screen Sharing
+    /// helper (connection-reconnect-screen-sharing, 2026-11-24T20:56Z). A home behind any other link stays refused.
+    @Test func aTmpHomeStagesAndAHomeBehindAnyOtherLinkDoesNot() async throws {
+        let name = "signed-helper-\(UUID().uuidString)"
+        let real = URL(fileURLWithPath: "/private/tmp/\(name)", isDirectory: true)
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: real) }
+        let tmpHome = URL(fileURLWithPath: "/tmp/\(name)", isDirectory: true)
+        let source = real.appending(path: "v1/cmux TEST Helper.app")
+        try Self.bundle(at: source, body: "one")
+        let staged = try #require(await Self.staging(home: tmpHome, operations: Self.operations()).stage(source))
+        #expect(Self.read(staged.appending(path: "Contents/MacOS/helper")) == "one")
+        #expect(SignedHelperStaging.isRealDirectory(real.appending(path: "Library/Application Support/cmux-next/helper").path))
+
+        let link = real.appending(path: "linked-home")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+        #expect(await Self.staging(home: link, operations: Self.operations()).stage(source) == nil)
+        #expect(SignedHelperStaging.withPrivatePrefix("/tmp/x") == "/private/tmp/x")
+        #expect(SignedHelperStaging.withPrivatePrefix("/tmpx/y") == "/tmpx/y")
+        #expect(SignedHelperStaging.withPrivatePrefix("/Users/a") == "/Users/a")
+    }
+
     @Test func theOldPerScopeFolderIsRemovedAndNothingElse() async throws {
         let home = try Self.home()
         defer { try? FileManager.default.removeItem(at: home) }
