@@ -91,7 +91,6 @@
    "CmuxNextSettings": 1,
    "CmuxNextTabs": 5,
    "CmuxNextTerminal": 6,
-   "CmuxUpdater": 1,
    "MessagesLabHome": 14,
    "MessagesLabSidebar": 2
   }
@@ -171,6 +170,7 @@
     "CmuxNextSignposts": 1,
     "CmuxNextTabs": 1,
     "CmuxNextVSCodeServer": 2,
+    "CmuxUpdaterCore": 1,
     "CmuxVNC": 3,
     "CmuxVNCDemoServer": 3,
     "CmuxVNCWebRTC": 23,
