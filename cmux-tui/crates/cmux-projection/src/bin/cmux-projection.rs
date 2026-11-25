@@ -481,6 +481,7 @@ mod cli {
 
         let phase = Instant::now();
         let (commit, commit_s) = git::resolve(&git_dir, &rev)?;
+        let format = git::object_format(&git_dir)?;
         // Kept by the commit's tree, so a remount of the same files skips `ls-tree`. Blobs are
         // fetched on first read; only a blob whose size no kept listing has is fetched before.
         let listing = args
@@ -518,7 +519,7 @@ mod cli {
         let phase = Instant::now();
         // SAFETY: getuid and getgid cannot fail.
         let owner = unsafe { (libc::getuid(), libc::getgid()) };
-        let index = git::index_bytes_sparse(&projection.index, &skipped, owner.0, owner.1)?;
+        let index = git::index_bytes_sparse(&projection.index, &skipped, format, owner.0, owner.1)?;
         if let Some(parent) = index_file.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -606,6 +607,7 @@ mod cli {
 
         let phase = Instant::now();
         let (commit, commit_s) = git::resolve(&git_dir, &rev)?;
+        let format = git::object_format(&git_dir)?;
         // Kept by the commit's tree, so a remount of the same files skips `ls-tree`. Blobs are
         // fetched on first read; only a blob whose size no kept listing has is fetched before.
         let listing = args
@@ -660,7 +662,8 @@ mod cli {
             || !admin.join("index").exists()
             || !Worktree::sparse_matches(&admin, sparse.as_ref())
         {
-            let index = git::index_bytes_sparse(&projection.index, &skipped, owner.0, owner.1)?;
+            let index =
+                git::index_bytes_sparse(&projection.index, &skipped, format, owner.0, owner.1)?;
             Worktree::write(&git_dir, &name, &at, &commit, &index, &projection.real_dirs)?
                 .set_sparse(&git_dir, sparse.as_ref())?;
         }
