@@ -240,7 +240,7 @@ impl Hub {
             }
         };
         let started = async {
-            let init = child.request(method::INITIALIZE, initialize_params()).await?;
+            let init = crate::hub::acp_version::initialize(&child, initialize_params()).await?;
             let new_result = if claude {
                 None
             } else {
