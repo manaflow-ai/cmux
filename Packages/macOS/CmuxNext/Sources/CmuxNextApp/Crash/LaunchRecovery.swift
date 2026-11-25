@@ -51,6 +51,14 @@ nonisolated struct PreviousRun: Codable, Equatable, Sendable {
     /// running (`kill -9`, jetsam, power loss) did not crash; its next
     /// launch restores the same way, without the restart notice.
     var crashed: Bool { signal != nil || exception != nil }
+
+    /// A signal-less, unrequested end after a high-footprint snapshot is the
+    /// launch marker's only reliable indication of an OOM kill: SIGKILL and
+    /// jetsam do not run the app's signal handler.
+    var wasLikelyOOM: Bool {
+        guard signal == nil, exception == nil, !endedAsAsked else { return false }
+        return (context?.footprintMegabytes ?? 0) >= MemoryPressureReporter.defaultHighFootprintMegabytes
+    }
 }
 
 /// How this launch follows the previous one. Pure: `AppRunMarker` supplies
