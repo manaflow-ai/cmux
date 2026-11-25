@@ -315,6 +315,10 @@ async function settle(rootPid: number, focused: Page): Promise<boolean> {
   return false;
 }
 
+/// The last rung's load collection (renderer CPU ms), kept for the summary printed at the end.
+let lastLoadMs = 0;
+const loadMs: Record<string, number> = {};
+
 async function measure(rootPid: number, items: Item[], focused: Page): Promise<Sample> {
   // Loading a rung leaves garbage (the seeded chats' parse and render temporaries: x50 held 1.8-2.2 GB live against 855 MB
   // after a collection) that V8 collects at a moment of its own: one major collection of 4-6 s of ThreadPoolForeground CPU
@@ -332,9 +336,8 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
         ]),
       ),
   );
-  console.log(
-    `SIM-LADDER   load collection ${Math.round(((gcPids.reduce((sum, pid) => sum + cpuTicks(pid), 0) - gcTicks0) / ticksPerSecond) * 1000)} ms of renderer CPU`,
-  );
+  lastLoadMs = Math.round(((gcPids.reduce((sum, pid) => sum + cpuTicks(pid), 0) - gcTicks0) / ticksPerSecond) * 1000);
+  console.log(`SIM-LADDER   load collection ${lastLoadMs} ms of renderer CPU`);
   const settled = await settle(rootPid, focused);
   if (!settled) console.log(`SIM-LADDER   not settled in ${SETTLE_MS} ms`);
   const pids = renderers(rootPid);
@@ -686,6 +689,7 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
       await focused.bringToFront();
       startChurn(RATE);
       samples[rung] = await measure(rootPid, items, focused);
+      loadMs[`${axis}.${rung}`] = lastLoadMs;
       console.log(
         `SIM-LADDER ${axis} x${rung} ${JSON.stringify(samples[rung])} renderers ${renderers(rootPid).length}`,
       );
@@ -840,6 +844,19 @@ try {
   if (!PROFILE) {
     report.ratio_max = worst?.[1] ?? null;
     report.worst = worst?.[0] ?? null;
+  }
+  // CI keeps only the last lines of a run's log, so the per-rung numbers are printed again here, last: every rung of every
+  // axis with its load collection.
+  if (!PROFILE) {
+    report.load_collection_ms = loadMs;
+    for (const axis of AXES)
+      for (const rung of RUNGS) {
+        const x = (report[axis] as Record<number, Sample> | undefined)?.[rung];
+        if (x)
+          console.log(
+            `SIM-LADDER-SUMMARY ${axis} x${rung} cpu_window ${x.cpu_window_ms_per_s} cpu ${x.cpu_ms_per_s} pss ${x.pss_mb} heap ${x.heap_mb} load_collection ${loadMs[`${axis}.${rung}`]} ms`,
+          );
+      }
   }
   if (!PROFILE) console.log(`SIM-LADDER ratio_max ${worst?.[1]} (${worst?.[0]})`);
   if (worst)
