@@ -1062,7 +1062,7 @@ fn projection_carry(folder: &Path) -> Option<CarryFiles> {
         return None;
     }
     let output = |args: &[&str]| {
-        std::process::Command::new("git")
+        cmux_process::Command::new("git")
             .current_dir(folder)
             .args(args)
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
