@@ -117,14 +117,34 @@ ATTACH_NAME = "cmux-attach-e2e.mov"
 ATTACH_LINE = re.compile(r"demo step: live-attach (\S+) ?(.*)")
 
 
-def mac_workspace(app, sock, home, session=None):
-    """A terminal workspace on the Mac, made by its bundled CLI (`cmux workspace create`, as
-    relaunch_restore_check does): "created <id8>, terminal <id8>", or why not."""
+def mac_workspace(app, sock, home, session=None, rpc=None):
+    """A terminal workspace on the Mac: "created <id8>, terminal <id8> (how)", or why not.
+
+    First the app's own control socket, `action.run newSurface` (a person's first terminal, as
+    scripts/measure/launch-ready.swift asks): the app's daemon makes it, wherever its owner listens. The
+    CLI (`cmux workspace create`) guessed that socket and missed it: the app runs its owner with a per-build
+    CMUX_TUI_STATE_DIR and CMUX_TUI_RUNTIME_SCOPE (DaemonLauncher), so neither TEMP/cmux-tui-UID/SESSION.sock
+    nor /tmp's was there, and `daemon ensure` then started a second daemon the phone never saw (run
+    45624760704 attempt 2: ids came back, the phone found no terminal). The CLI stays as the fallback."""
+    def workspaces():
+        topo = (rpc("snapshot.get").get("topology") or {}) if rpc else {}
+        return [w for w in topo.get("workspaces") or [] if isinstance(w, dict)]
+
+    if rpc:
+        before = {w.get("id") for w in workspaces()}
+        asked = rpc("action.run", {"action": "newSurface"}, timeout=60)
+        fresh = wait_for(lambda: next((w for w in workspaces() if w.get("id") not in before), None)
+                         or (workspaces()[0] if workspaces() else None), 30, every=1)
+        if fresh:
+            return f"created {str(fresh.get('id'))[:8]} ({len(workspaces())} in the app's topology; app newSurface)"
+        why = redact(json.dumps(asked))[-200:]
+    else:
+        why = "no app socket"
+
     cli = os.path.join(app, "Contents/Resources/bin/cmux")
     env = {"HOME": home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_PATH": sock, "CMUX_QUIET": "1"}
     # The app starts its terminal daemon with TMPDIR set to the user's Darwin temp folder
-    # (DaemonLauncher.userTemporaryDirectory), so its socket is TEMP/cmux-tui-UID/SESSION.sock. Without the same
-    # TMPDIR the CLI looked under /tmp and found "no cmux session is running" (run 45551555308).
+    # (DaemonLauncher.userTemporaryDirectory); without the same TMPDIR the CLI looked under /tmp (run 45551555308).
     try:
         temp = subprocess.run(["/usr/bin/getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True,
                               stdin=subprocess.DEVNULL, timeout=10).stdout.strip()
@@ -132,40 +152,22 @@ def mac_workspace(app, sock, home, session=None):
         temp = ""
     if temp:
         env["TMPDIR"] = temp
-    # A new tag's app may not have its daemon up yet when the iPhone card goes online (run 45594864471
-    # attempt 2: "no daemon running at TEMP/cmux-tui-501/SESSION.sock" 10 s after launch). Wait up to 45 s for
-    # the socket at either place the daemon listens (TEMP, or /tmp when TEMP is too long for sun_path), then ask
-    # the CLI to `daemon ensure` the same session, as its own error says to.
-    how = "waited"
-    if session:
-        leaf = f"cmux-tui-{os.getuid()}/{session}.sock"
-        places = [p for p in ([os.path.join(temp, leaf)] if temp else []) + ["/tmp/" + leaf] if len(p.encode()) <= 103]
-        found = wait_for(lambda: next((p for p in places if os.path.exists(p)), None), 45, every=1)
-        if found:
-            how = f"daemon at {'TEMP' if temp and found.startswith(temp) else '/tmp'} after wait"
-        else:
-            try:
-                ensured = subprocess.run([cli, "--json", "--app-socket", sock, "--session", session, "daemon", "ensure"],
-                                         env=env, cwd=home, capture_output=True, text=True, stdin=subprocess.DEVNULL,
-                                         timeout=60)
-                how = f"no daemon socket in 45 s; daemon ensure exit {ensured.returncode}"
-            except (OSError, subprocess.TimeoutExpired) as error:
-                how = f"no daemon socket in 45 s; daemon ensure {type(error).__name__}"
     try:
-        # The app names its home daemon session itself (snapshot.get topology.sessions, `session_name`); the CLI
-        # guessed it from the app socket's file name and found nothing there (run 45562601448).
+        # The app names its home daemon session itself (snapshot.get topology.sessions, `session_name`).
         named = ["--session", session] if session else []
         done = subprocess.run([cli, "--json", "--app-socket", sock, *named, "workspace", "create", "--name", "pair-e2e"],
                               env=env, cwd=home, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
         lines = [line for line in done.stdout.splitlines() if line.strip()]
         made = json.loads(lines[-1]) if lines else {}
     except (OSError, ValueError, subprocess.TimeoutExpired) as error:
-        return f"NOT created ({type(error).__name__})"
-    made = made.get("result", made) if isinstance(made, dict) else {}
+        return f"NOT created (app newSurface: {why}; CLI {type(error).__name__})"
+    # Daemon verbs answer {"value": {...}}, agents verbs {"result": {...}} (relaunch_restore_check.unwrap).
+    if isinstance(made, dict):
+        made = next((made[k] for k in ("value", "result") if isinstance(made.get(k), dict)), made)
     ws, term = (made.get("workspace_id"), made.get("terminal_id")) if isinstance(made, dict) else (None, None)
     if not ws:
-        return f"NOT created ({how}; exit {done.returncode}: {redact((done.stderr or done.stdout).strip())[-200:]})"
-    return f"created {str(ws)[:8]}, terminal {str(term)[:8] if term else 'none'} ({how})"
+        return f"NOT created (app newSurface: {why}; CLI exit {done.returncode}: {redact((done.stderr or done.stdout).strip())[-200:]})"
+    return f"created {str(ws)[:8]}, terminal {str(term)[:8] if term else 'none'} (CLI; app newSurface: {why})"
 
 
 def attach_leg(simctl,udid, bundle_id, phone_env, phone_log, phone_shot, work, note):
@@ -602,7 +604,7 @@ def main():
             home_session = next((s.get("session_name") for s in sessions
                                  if isinstance(s, dict) and s.get("home") is True), None)
             note(f"- Mac terminal workspace: "
-                 f"{mac_workspace(a.mac_app, sock, pwd.getpwuid(os.getuid()).pw_dir, home_session)}"
+                 f"{mac_workspace(a.mac_app, sock, pwd.getpwuid(os.getuid()).pw_dir, home_session, rpc)}"
                  f" (home session {home_session or 'not reported'})")
 
         # ---- the phone ------------------------------------------------------
