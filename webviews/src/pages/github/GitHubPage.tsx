@@ -39,6 +39,7 @@ import {
 } from "./conversationFilter";
 import { GitHubMarkdown } from "./GitHubMarkdown";
 import { ReadinessBlock, type ReadinessLayout } from "./ReadinessBlock";
+import { ReviewBox, ThreadActions } from "./ReviewBox";
 import type { Blocker } from "./readiness";
 import type { GitHubSnapshot, GitHubStore } from "./store";
 import type { ConversationEntry, FilePatch, LinkedPullRequest, PullRequestDetails } from "./types";
@@ -135,10 +136,15 @@ export function GitHubPage({
   readinessLayout = "list",
   readinessShown,
   conversationFilter = "all",
+  reviewDraft,
+  replyOpen,
+  onIssues,
 }: {
   store: GitHubStore;
   strings: Strings;
   now?: () => number;
+  /** Opens the repository's issues in this page (its Issues button); no button without it. */
+  onIssues?: (repo: string) => void;
   layout?: GitHubLayout;
   checksPlacement?: ChecksPlacement;
   width?: PageWidth;
@@ -147,6 +153,9 @@ export function GitHubPage({
   /** The blocker whose detail starts open, and the conversation's first filter (gallery states). */
   readinessShown?: Blocker["kind"];
   conversationFilter?: ConversationFilter;
+  /** The review box's starting words, and the thread whose reply box starts open (gallery states). */
+  reviewDraft?: string;
+  replyOpen?: string;
 }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const { t } = strings;
@@ -189,6 +198,10 @@ export function GitHubPage({
   const conversation = pr && (
     <Conversation
       details={details}
+      snapshot={snapshot}
+      store={store}
+      reviewDraft={reviewDraft}
+      replyOpen={replyOpen}
       strings={strings}
       now={now}
       open={open}
@@ -215,7 +228,14 @@ export function GitHubPage({
   const linked = details && details.linked.length > 0 && <Linked details={details} strings={strings} open={open} />;
   return (
     <main className="gh" data-layout={layout} data-width={width} aria-busy={waitingFirst}>
-      <Header snapshot={snapshot} store={store} strings={strings} now={now} waitingFirst={waitingFirst} />
+      <Header
+        snapshot={snapshot}
+        store={store}
+        strings={strings}
+        now={now}
+        waitingFirst={waitingFirst}
+        onIssues={onIssues}
+      />
       {pr && (
         <ReadinessBlock
           pr={pr}
@@ -253,12 +273,14 @@ function Header({
   strings,
   now,
   waitingFirst,
+  onIssues,
 }: {
   snapshot: GitHubSnapshot;
   store: GitHubStore;
   strings: Strings;
   now: () => number;
   waitingFirst: boolean;
+  onIssues?: (repo: string) => void;
 }) {
   const { t } = strings;
   const { target, pullRequest: pr, details } = snapshot;
@@ -281,6 +303,11 @@ function Header({
           <button type="button" className="gh-button" disabled={!pr} onClick={() => void store.openDiff()}>
             {t("github.viewAllChanges")}
           </button>
+          {onIssues && (
+            <button type="button" className="gh-button" onClick={() => onIssues(target!.repo)}>
+              {t("github.issues")}
+            </button>
+          )}
           <button type="button" className="gh-button" onClick={() => store.openOnGitHub()}>
             {t("github.openOnGitHub")}
           </button>
@@ -463,6 +490,10 @@ function Description({
  *  section draws again only when its details, filter or order change (not on a file's toggle). */
 const Conversation = memo(function Conversation({
   details,
+  snapshot,
+  store,
+  reviewDraft,
+  replyOpen,
   strings,
   now,
   open,
@@ -470,6 +501,10 @@ const Conversation = memo(function Conversation({
   initialFilter,
 }: {
   details?: PullRequestDetails;
+  snapshot: GitHubSnapshot;
+  store: GitHubStore;
+  reviewDraft?: string;
+  replyOpen?: string;
   strings: Strings;
   now: () => number;
   open: (url: string) => void;
@@ -535,10 +570,20 @@ const Conversation = memo(function Conversation({
       ) : (
         <ol className="gh-timeline">
           {entries.map((entry, index) => (
-            <Entry key={entry.url ?? index} entry={entry} strings={strings} now={now} open={open} />
+            <Entry
+              key={entry.url ?? index}
+              entry={entry}
+              snapshot={snapshot}
+              store={store}
+              replyOpen={replyOpen}
+              strings={strings}
+              now={now}
+              open={open}
+            />
           ))}
         </ol>
       )}
+      <ReviewBox snapshot={snapshot} store={store} strings={strings} initialBody={reviewDraft} />
     </Section>
   );
 });
@@ -546,11 +591,17 @@ const Conversation = memo(function Conversation({
 /** One comment or review; drawn again only when its entry changes (the store keeps unchanged ones). */
 const Entry = memo(function Entry({
   entry,
+  snapshot,
+  store,
+  replyOpen,
   strings,
   now,
   open,
 }: {
   entry: ConversationEntry;
+  snapshot: GitHubSnapshot;
+  store: GitHubStore;
+  replyOpen?: string;
   strings: Strings;
   now: () => number;
   open: (url: string) => void;
@@ -581,6 +632,16 @@ const Entry = memo(function Entry({
                 {comment.line != null && `:${comment.line}`}
               </span>
               <GitHubMarkdown source={comment.body} html={comment.html} open={open} />
+              {comment.thread && snapshot.pullRequest?.state === "open" && (
+                <ThreadActions
+                  thread={comment.thread}
+                  resolved={comment.resolved === true}
+                  snapshot={snapshot}
+                  store={store}
+                  strings={strings}
+                  initialReplying={replyOpen === comment.thread}
+                />
+              )}
             </li>
           ))}
         </ul>
