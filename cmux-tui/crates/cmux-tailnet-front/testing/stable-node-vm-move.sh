@@ -59,6 +59,23 @@ else
 fi
 d() { "${DOCKER[@]}" "$@"; }
 
+# Pull every image up front, retrying: a shared runner's containerd can drop a
+# pull mid-extract ("lease does not exist"), which is no fault of the move.
+pull_image() {
+  local image=$1 try
+  d image inspect "$image" >/dev/null 2>&1 && return 0
+  for try in 1 2 3 4; do
+    d pull -q "$image" >/dev/null 2>&1 && return 0
+    echo "pull $image failed (try $try of 4); retrying" >&2
+    sleep $((try * 5))
+  done
+  echo "FAIL setup: could not pull $image after 4 tries" >&2
+  return 1
+}
+for image in "$HEADSCALE_IMAGE" "$TAILSCALE_IMAGE" "$RUNTIME_IMAGE"; do
+  pull_image "$image" || exit 2
+done
+
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/cmux-stable-node-vm-move.XXXXXX")
 chmod 700 "$WORK"
 mkdir -m 700 "$WORK/keys"
