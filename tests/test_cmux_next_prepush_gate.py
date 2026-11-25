@@ -2019,11 +2019,22 @@ let package = Package(
 
         output = result.stdout + result.stderr
         self.assertNotEqual(result.returncode, 0, output)
-        self.assertIn("must update plans/cmux-next/sidebar-owner.md", output)
+        self.assertIn("must add its entry under plans/cmux-next/sidebar-owner/", output)
 
     def test_a_visual_sidebar_change_with_the_note_passes(self):
         self.write(self.SIDEBAR_VIEW, "struct RowView {\n    let inset = 6\n}\n")
         self.write("plans/cmux-next/sidebar-owner.md", "# owner\n- titles at the inset (Lawrence 11405)\n")
+        self.commit("sidebar: title at the inset\n\nSidebar-Look: Lawrence 11405 text as left as possible")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_visual_sidebar_change_with_an_entry_file_passes(self):
+        # One file per entry (scripts/ci/entry_logs.py): two PRs logging looks never share a line of the note.
+        self.write(self.SIDEBAR_VIEW, "struct RowView {\n    let inset = 6\n}\n")
+        self.write("plans/cmux-next/sidebar-owner/2026-11-25-title-inset.md",
+                   "- 2026-11-25 (lane/x): Sidebar-Look: Lawrence 11405: titles at the inset\n")
         self.commit("sidebar: title at the inset\n\nSidebar-Look: Lawrence 11405 text as left as possible")
 
         result = self.push()
@@ -2069,6 +2080,23 @@ let package = Package(
 
         self.assertEqual(logged.returncode, 0, logged.stdout + logged.stderr)
 
+    def test_a_sidebar_change_logged_in_an_entry_file_passes_in_the_ci_sweep(self):
+        self.write(self.SIDEBAR_VIEW, "struct RowView {\n    let flash = true\n}\n")
+        self.commit("scrollers: flash on enter")
+        first = self.git("rev-parse", "HEAD").stdout.strip()
+        base = self.git("rev-parse", "HEAD^").stdout.strip()
+        gate = self.repo / "scripts/cmux-next/prepush-gate.py"
+        sweep = lambda: subprocess.run(["python3", "-I", str(gate), "--only", "sidebar", "--commits", f"{base}..HEAD"],
+                                       cwd=self.repo, env=self.env, text=True, capture_output=True)
+        self.assertNotEqual(sweep().returncode, 0)
+        self.write("plans/cmux-next/sidebar-owner/2026-11-25-scrollers.md",
+                   f"- {first[:11]} scrollers (a595), no look change\n")
+        self.commit("plans: log the scroller commit")
+
+        logged = sweep()
+
+        self.assertEqual(logged.returncode, 0, logged.stdout + logged.stderr)
+
     def test_a_pull_request_sweep_warns_on_a_base_commit_and_errors_on_its_own(self):
         # 2026-10-29: two feat-cmux-next commits without the owner's record (#24073, #24295) put an ##[error] on
         # every pull request's checks, and next-autoland read it as the PR's own red (#27454). A pull request is
@@ -2092,7 +2120,7 @@ let package = Package(
         self.assertNotIn("::error", output)
         self.assertIn("::warning title=Sidebar look owner (base commit)::", output)
         self.assertIn(on_base[:11], output)
-        self.assertIn("plans/cmux-next/sidebar-owner.md", output)
+        self.assertIn("plans/cmux-next/sidebar-owner/", output)
         self.assertIn("no `Sidebar-Look:` trailer. Add", output, "the warning carries the whole finding")
 
         # The branch's push sweep (no --own-range) still fails on the same base commit.
