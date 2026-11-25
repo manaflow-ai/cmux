@@ -60,7 +60,6 @@ export function PendingSteer({
           {row.text?.trim() && <MessageCopy text={row.text} />}
           {queued?.retry}
           {queued?.fork}
-          {queued?.save}
           {promptId && unsteer && (
             <button
               type="button"
