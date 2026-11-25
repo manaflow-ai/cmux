@@ -48,6 +48,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import workflow_jobs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
+POOL_AWARE_FILTER = "${{ !startsWith(runner.name, 'cmux-runner-pool-') && 'blob:none' || '' }}"
 WORKFLOW = ROOT / ".github/workflows/cmux-next-fast-gates.yml"
 GUARDS = ROOT / ".github/workflows/cmux-next-guards.yml"
 SCRIPT = ROOT / "scripts/ci/cmux_next_fast_gates.py"
@@ -142,11 +143,22 @@ class WorkflowShape(unittest.TestCase):
                 for runner in cells:
                     self.assertNotIn("macos", runner.lower())
 
+    def test_pool_checkouts_fetch_unfiltered_from_the_mirror(self):
+        # 2026-11-25: blob:none on a pool VM made git copy ~3 GB of promisor objects from the mirror (60-66 s a
+        # checkout, resolve p90 107 s against a 30 s budget); unfiltered there, the fetch sends what the mirror lacks.
+        doc = workflow()
+        for key, name in (("resolve", "Checkout the merge ref"),
+                          ("fast-check-route", "Checkout the merge commit's router (trees only)"),
+                          ("fast-gates", "Checkout")):
+            with self.subTest(job=key):
+                self.assertEqual(step_named(doc["jobs"][key]["steps"], name)["with"]["filter"], POOL_AWARE_FILTER)
+
     def test_checkout_holds_every_gate_input_and_walks_commits_only(self):
         inputs = json.loads((ROOT / "scripts/ci/fast-check-inputs.json").read_text())[
             "workflows"][".github/workflows/cmux-next-fast-gates.yml"]["fast-gates"]["inputs"]
         step = step_named(job(workflow())["steps"], "Checkout")
-        self.assertEqual(step["with"]["filter"], "blob:none")
+        # blob:none everywhere but a pool VM, whose mirror makes the unfiltered fetch the fast one.
+        self.assertEqual(step["with"]["filter"], POOL_AWARE_FILTER)
         patterns = step["with"]["sparse-checkout"].split()
         for path in inputs:
             with self.subTest(input=path):
