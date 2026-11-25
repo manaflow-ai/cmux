@@ -496,6 +496,10 @@ pub mod method {
     pub const MUX_HERE_BEAT: &str = "_acpmux/here/beat";
     /// Every person and agent on this machine now, across devices (`hub/here.rs`).
     pub const MUX_HERE: &str = "_acpmux/here";
+    /// The chat titles and read marks a replica lacks since its version vector (`hub/synced.rs`).
+    pub const MUX_SYNC_PULL: &str = "_acpmux/sync/pull";
+    /// Another replica's title and read-mark edits, merged here (`hub/synced.rs`).
+    pub const MUX_SYNC_PUSH: &str = "_acpmux/sync/push";
     pub const MUX_DETACH: &str = "_acpmux/detach";
     pub const MUX_WATCH: &str = "_acpmux/watch";
     pub const MUX_RENAME: &str = "_acpmux/rename";
@@ -629,6 +633,9 @@ pub mod method {
     pub const MUX_ATTACHMENT: &str = "_acpmux/attachment";
     /// A turn's before and after picture of the chat's page (`hub/turn_shots.rs`).
     pub const MUX_TURN_SHOTS: &str = "_acpmux/turn_shots";
+    /// A turn's frames of the chat's page as it formed, the newest since a seq, or a look now
+    /// (`hub/turn_frames.rs`).
+    pub const MUX_TURN_FRAMES: &str = "_acpmux/turn_frames";
     /// A wrap-up card's Try it on, Keep or Revert: `cmux customize` run from a typed, allowlisted
     /// request (`customize_run.rs`).
     pub const MUX_CUSTOMIZE_RUN: &str = "_acpmux/customize_run";
@@ -1175,6 +1182,10 @@ pub mod method {
     /// To local watchers when a new chat's start mode may have changed (a
     /// mode pick, a config reload): ask `_acpmux/start_mode` again. `{}`.
     pub const MUX_START_MODE_CHANGED: &str = "_acpmux/start_mode_changed";
+    /// To a connection whose `_acpmux/attach` said `fill: true` (capability `autocloud-fill-v1`) for a chat whose folder is still
+    /// filling (a Cloud seed's head-first checkout): `{sessionId, fill, _meta: {acpmux: {fill}}}`,
+    /// 0..=100, on each change and a last 100 when it is whole (`server/fill.rs`, RFD 0139).
+    pub const MUX_FILL: &str = "_acpmux/fill";
     /// To watchers on each change of a peer link's state: `{peer, state, lastSeen, error, at}`
     /// (`protocol/peer_state.rs`).
     pub const MUX_PEER_STATE_CHANGED: &str = "_acpmux/peer_state_changed";

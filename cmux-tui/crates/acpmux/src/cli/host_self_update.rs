@@ -57,6 +57,9 @@ use rd::{RdOutcome, RdPaths};
 
 #[path = "host_self_update_tui.rs"]
 pub(super) mod tui;
+
+#[path = "host_update_watch.rs"]
+pub(super) mod watch;
 use tui::{TuiOutcome, TuiSource};
 
 /// Where CI publishes the cmux-tui builds: public, no credentials.

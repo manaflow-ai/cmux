@@ -43,17 +43,6 @@ await requireBrowserLane("feel-composer-hat.test.ts", async () => {
     component: "composer-hat",
     viewport: { width: 480, height: 240 },
     prepare: async (page) => void (await page.waitForSelector(HEAD)),
-    // Twenty joining widen the subagent icon row (HatFaces.tsx) from 2 icons to its 140 px cap, and the
-    // kinds and time after it move over by that width: 0.013 against 0.01 in this 480 x 240 stage, on
-    // every arm. Measured by each layout-shift entry's sources (the kinds, the time, the icons), 2026-11-22.
-    // The row's count is held 1.6 s, so it is one move, not twenty, and the kinds glide there on transform
-    // (useGlide); Chrome scores the layout move under the glide all the same. A score of 0 needs the words
-    // never to move: the row after them, or its full width reserved. That is the icon header's design
-    // (#49824), a question for Leo, not this file's.
-    known: {
-      "join-20":
-        "the subagent icon row widening to its cap moves the kinds after it once, glided (0.013): a header design choice",
-    },
   });
 
   /** Presses the stage's `button` (outside the pane: the feed, not the cursor) `times` times, one

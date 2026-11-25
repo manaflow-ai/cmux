@@ -427,6 +427,7 @@ imessage.automationSkipped
 imessage.enabled
 labs.agentCustomization
 labs.classicHome
+labs.commentThreads
 labs.liveCode
 labs.liveTree
 labs.machineJoin
