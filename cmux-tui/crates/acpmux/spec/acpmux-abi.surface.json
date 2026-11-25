@@ -295,6 +295,62 @@
           "\"offline\"",
           "\"reconnecting\""
         ]
+      },
+      "/status": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/status/action": {
+        "ty": "untagged_union|literal",
+        "nullable": true,
+        "values": [
+          "\"reconnect\"",
+          "\"resumeQueue\"",
+          "\"signIn\"",
+          "\"update\""
+        ]
+      },
+      "/status/kind": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"agentService\"",
+          "\"harnessSandbox\"",
+          "\"machineLink\"",
+          "\"queuePaused\"",
+          "\"rateLimited\"",
+          "\"restoringSessions\"",
+          "\"sendsHeld\"",
+          "\"stuck\""
+        ]
+      },
+      "/status/level": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"attention\"",
+          "\"info\"",
+          "\"problem\""
+        ]
+      },
+      "/status/showAt": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/status/since": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/status/subject": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/status/until": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/status/words": {
+        "ty": "string",
+        "required": true
       }
     },
     "event:_acpmux/permission_pending": {
@@ -490,6 +546,112 @@
       },
       "/session/children": {
         "ty": "uint32",
+        "required": true
+      },
+      "/session/composerStatus": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/session/composerStatus/facts": {
+        "ty": "array",
+        "required": true
+      },
+      "/session/composerStatus/facts/*": {
+        "ty": "object"
+      },
+      "/session/composerStatus/facts/*/atRest": {
+        "ty": "boolean"
+      },
+      "/session/composerStatus/facts/*/count": {
+        "ty": "uint32",
+        "nullable": true
+      },
+      "/session/composerStatus/facts/*/fraction": {
+        "ty": "float",
+        "nullable": true
+      },
+      "/session/composerStatus/facts/*/kind": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"branch\"",
+          "\"context\"",
+          "\"folder\"",
+          "\"harness\"",
+          "\"machine\"",
+          "\"model\"",
+          "\"queued\"",
+          "\"subagents\"",
+          "\"turn\""
+        ]
+      },
+      "/session/composerStatus/facts/*/live": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/session/composerStatus/facts/*/since": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/session/composerStatus/facts/*/text": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/session/composerStatus/items": {
+        "ty": "array",
+        "required": true
+      },
+      "/session/composerStatus/items/*": {
+        "ty": "object"
+      },
+      "/session/composerStatus/items/*/action": {
+        "ty": "untagged_union|literal",
+        "nullable": true,
+        "values": [
+          "\"reconnect\"",
+          "\"resumeQueue\"",
+          "\"signIn\"",
+          "\"update\""
+        ]
+      },
+      "/session/composerStatus/items/*/kind": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"agentService\"",
+          "\"harnessSandbox\"",
+          "\"machineLink\"",
+          "\"queuePaused\"",
+          "\"rateLimited\"",
+          "\"restoringSessions\"",
+          "\"sendsHeld\"",
+          "\"stuck\""
+        ]
+      },
+      "/session/composerStatus/items/*/level": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"attention\"",
+          "\"info\"",
+          "\"problem\""
+        ]
+      },
+      "/session/composerStatus/items/*/showAt": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/session/composerStatus/items/*/since": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/session/composerStatus/items/*/subject": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/session/composerStatus/items/*/until": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/session/composerStatus/items/*/words": {
+        "ty": "string",
         "required": true
       },
       "/session/createdAt": {
@@ -1045,6 +1207,15 @@
       "/session/queue/*/inboxNotice": {
         "ty": "json",
         "required": true
+      },
+      "/session/queue/*/origin": {
+        "ty": "untagged_union|literal",
+        "nullable": true,
+        "values": [
+          "\"acpmux\"",
+          "\"agent\"",
+          "\"person\""
+        ]
       },
       "/session/queue/*/prompt": {
         "ty": "string",
@@ -8211,6 +8382,12 @@
         "nullable": true
       }
     },
+    "request:_acpmux/chat_move": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/chat_open": {
       "/*untyped*": {
         "ty": "json",
@@ -8403,6 +8580,30 @@
         "nullable": true
       }
     },
+    "request:_acpmux/connections/claude_token.begin": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/connections/claude_token.cancel": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/connections/claude_token.code": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/connections/claude_token.wait": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/connections/credential": {
       "/*untyped*": {
         "ty": "json",
@@ -8410,6 +8611,12 @@
       }
     },
     "request:_acpmux/connections/key.add": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/connections/key.check": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -26169,6 +26376,12 @@
         "nullable": true
       }
     },
+    "request:_acpmux/team/listen": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/team/read": {
       "/*untyped*": {
         "ty": "json",
@@ -26182,6 +26395,18 @@
       }
     },
     "request:_acpmux/team_audit": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/trace/spans": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/trace/status": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -28425,6 +28650,12 @@
       }
     },
     "request:agent-session-turn-prepare": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:agent/credentials.update": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -30926,6 +31157,112 @@
         "ty": "uint32",
         "required": true
       },
+      "/data/session/composerStatus": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/session/composerStatus/facts": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/session/composerStatus/facts/*": {
+        "ty": "object"
+      },
+      "/data/session/composerStatus/facts/*/atRest": {
+        "ty": "boolean"
+      },
+      "/data/session/composerStatus/facts/*/count": {
+        "ty": "uint32",
+        "nullable": true
+      },
+      "/data/session/composerStatus/facts/*/fraction": {
+        "ty": "float",
+        "nullable": true
+      },
+      "/data/session/composerStatus/facts/*/kind": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"branch\"",
+          "\"context\"",
+          "\"folder\"",
+          "\"harness\"",
+          "\"machine\"",
+          "\"model\"",
+          "\"queued\"",
+          "\"subagents\"",
+          "\"turn\""
+        ]
+      },
+      "/data/session/composerStatus/facts/*/live": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/session/composerStatus/facts/*/since": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/session/composerStatus/facts/*/text": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/session/composerStatus/items": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/session/composerStatus/items/*": {
+        "ty": "object"
+      },
+      "/data/session/composerStatus/items/*/action": {
+        "ty": "untagged_union|literal",
+        "nullable": true,
+        "values": [
+          "\"reconnect\"",
+          "\"resumeQueue\"",
+          "\"signIn\"",
+          "\"update\""
+        ]
+      },
+      "/data/session/composerStatus/items/*/kind": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"agentService\"",
+          "\"harnessSandbox\"",
+          "\"machineLink\"",
+          "\"queuePaused\"",
+          "\"rateLimited\"",
+          "\"restoringSessions\"",
+          "\"sendsHeld\"",
+          "\"stuck\""
+        ]
+      },
+      "/data/session/composerStatus/items/*/level": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"attention\"",
+          "\"info\"",
+          "\"problem\""
+        ]
+      },
+      "/data/session/composerStatus/items/*/showAt": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/session/composerStatus/items/*/since": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/session/composerStatus/items/*/subject": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/session/composerStatus/items/*/until": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/session/composerStatus/items/*/words": {
+        "ty": "string",
+        "required": true
+      },
       "/data/session/configOptions": {
         "ty": "json"
       },
@@ -31495,6 +31832,15 @@
       "/data/session/queue/*/inboxNotice": {
         "ty": "json",
         "required": true
+      },
+      "/data/session/queue/*/origin": {
+        "ty": "untagged_union|literal",
+        "nullable": true,
+        "values": [
+          "\"acpmux\"",
+          "\"agent\"",
+          "\"person\""
+        ]
       },
       "/data/session/queue/*/prompt": {
         "ty": "string",
@@ -32216,6 +32562,12 @@
         "nullable": true
       }
     },
+    "response:_acpmux/chat_move": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/chat_open": {
       "/data/*untyped*": {
         "ty": "json",
@@ -32408,6 +32760,30 @@
         "nullable": true
       }
     },
+    "response:_acpmux/connections/claude_token.begin": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/connections/claude_token.cancel": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/connections/claude_token.code": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/connections/claude_token.wait": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/connections/credential": {
       "/data/*untyped*": {
         "ty": "json",
@@ -32415,6 +32791,12 @@
       }
     },
     "response:_acpmux/connections/key.add": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/connections/key.check": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -34453,6 +34835,112 @@
         "ty": "uint32",
         "required": true
       },
+      "/data/sessions/*/composerStatus": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/facts": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/sessions/*/composerStatus/facts/*": {
+        "ty": "object"
+      },
+      "/data/sessions/*/composerStatus/facts/*/atRest": {
+        "ty": "boolean"
+      },
+      "/data/sessions/*/composerStatus/facts/*/count": {
+        "ty": "uint32",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/facts/*/fraction": {
+        "ty": "float",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/facts/*/kind": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"branch\"",
+          "\"context\"",
+          "\"folder\"",
+          "\"harness\"",
+          "\"machine\"",
+          "\"model\"",
+          "\"queued\"",
+          "\"subagents\"",
+          "\"turn\""
+        ]
+      },
+      "/data/sessions/*/composerStatus/facts/*/live": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/sessions/*/composerStatus/facts/*/since": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/facts/*/text": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/items": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/sessions/*/composerStatus/items/*": {
+        "ty": "object"
+      },
+      "/data/sessions/*/composerStatus/items/*/action": {
+        "ty": "untagged_union|literal",
+        "nullable": true,
+        "values": [
+          "\"reconnect\"",
+          "\"resumeQueue\"",
+          "\"signIn\"",
+          "\"update\""
+        ]
+      },
+      "/data/sessions/*/composerStatus/items/*/kind": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"agentService\"",
+          "\"harnessSandbox\"",
+          "\"machineLink\"",
+          "\"queuePaused\"",
+          "\"rateLimited\"",
+          "\"restoringSessions\"",
+          "\"sendsHeld\"",
+          "\"stuck\""
+        ]
+      },
+      "/data/sessions/*/composerStatus/items/*/level": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"attention\"",
+          "\"info\"",
+          "\"problem\""
+        ]
+      },
+      "/data/sessions/*/composerStatus/items/*/showAt": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/items/*/since": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/items/*/subject": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/items/*/until": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/items/*/words": {
+        "ty": "string",
+        "required": true
+      },
       "/data/sessions/*/createdAt": {
         "ty": "uint64",
         "required": true
@@ -35006,6 +35494,15 @@
       "/data/sessions/*/queue/*/inboxNotice": {
         "ty": "json",
         "required": true
+      },
+      "/data/sessions/*/queue/*/origin": {
+        "ty": "untagged_union|literal",
+        "nullable": true,
+        "values": [
+          "\"acpmux\"",
+          "\"agent\"",
+          "\"person\""
+        ]
       },
       "/data/sessions/*/queue/*/prompt": {
         "ty": "string",
@@ -35850,6 +36347,12 @@
         "nullable": true
       }
     },
+    "response:_acpmux/team/listen": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/team/read": {
       "/data/*untyped*": {
         "ty": "json",
@@ -35863,6 +36366,18 @@
       }
     },
     "response:_acpmux/team_audit": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/trace/spans": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/trace/status": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -36296,6 +36811,112 @@
       },
       "/data/sessions/*/children": {
         "ty": "uint32",
+        "required": true
+      },
+      "/data/sessions/*/composerStatus": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/facts": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/sessions/*/composerStatus/facts/*": {
+        "ty": "object"
+      },
+      "/data/sessions/*/composerStatus/facts/*/atRest": {
+        "ty": "boolean"
+      },
+      "/data/sessions/*/composerStatus/facts/*/count": {
+        "ty": "uint32",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/facts/*/fraction": {
+        "ty": "float",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/facts/*/kind": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"branch\"",
+          "\"context\"",
+          "\"folder\"",
+          "\"harness\"",
+          "\"machine\"",
+          "\"model\"",
+          "\"queued\"",
+          "\"subagents\"",
+          "\"turn\""
+        ]
+      },
+      "/data/sessions/*/composerStatus/facts/*/live": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/sessions/*/composerStatus/facts/*/since": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/facts/*/text": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/items": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/sessions/*/composerStatus/items/*": {
+        "ty": "object"
+      },
+      "/data/sessions/*/composerStatus/items/*/action": {
+        "ty": "untagged_union|literal",
+        "nullable": true,
+        "values": [
+          "\"reconnect\"",
+          "\"resumeQueue\"",
+          "\"signIn\"",
+          "\"update\""
+        ]
+      },
+      "/data/sessions/*/composerStatus/items/*/kind": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"agentService\"",
+          "\"harnessSandbox\"",
+          "\"machineLink\"",
+          "\"queuePaused\"",
+          "\"rateLimited\"",
+          "\"restoringSessions\"",
+          "\"sendsHeld\"",
+          "\"stuck\""
+        ]
+      },
+      "/data/sessions/*/composerStatus/items/*/level": {
+        "ty": "untagged_union|literal",
+        "values": [
+          "\"attention\"",
+          "\"info\"",
+          "\"problem\""
+        ]
+      },
+      "/data/sessions/*/composerStatus/items/*/showAt": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/items/*/since": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/items/*/subject": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/items/*/until": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/sessions/*/composerStatus/items/*/words": {
+        "ty": "string",
         "required": true
       },
       "/data/sessions/*/createdAt": {
@@ -36851,6 +37472,15 @@
       "/data/sessions/*/queue/*/inboxNotice": {
         "ty": "json",
         "required": true
+      },
+      "/data/sessions/*/queue/*/origin": {
+        "ty": "untagged_union|literal",
+        "nullable": true,
+        "values": [
+          "\"acpmux\"",
+          "\"agent\"",
+          "\"person\""
+        ]
       },
       "/data/sessions/*/queue/*/prompt": {
         "ty": "string",
@@ -37485,6 +38115,12 @@
       }
     },
     "response:agent-session-turn-prepare": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:agent/credentials.update": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
