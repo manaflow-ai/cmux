@@ -696,12 +696,12 @@ async fn restarts_after_every_failure_neither_lose_a_subagent_nor_reset_its_atte
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Duress, many at once: `DURESS_FAULTS` chats (default 8) each lose a subagent to an injected
+/// Duress, many at once: `DURESS_FAULTS` chats (default 16) each lose a subagent to an injected
 /// 503, and the daemon restarts while every retry waits. Counts the subagents the restarted
 /// daemon resumes (its attempt fires) and those it loses; prints `DURESS lost L of N`.
 #[tokio::test]
 async fn a_restart_during_many_waiting_retries_loses_none() {
-    let n: usize = std::env::var("DURESS_FAULTS").ok().and_then(|n| n.parse().ok()).unwrap_or(8);
+    let n: usize = std::env::var("DURESS_FAULTS").ok().and_then(|n| n.parse().ok()).unwrap_or(16);
     let dir = std::env::temp_dir().join(format!("acpmux-duress-n-{}", uuid::Uuid::now_v7()));
     let hub = durable(&dir, BTreeMap::new(), vec![60_000]);
     let mut c = connect_to(&hub).await;
