@@ -33,7 +33,8 @@
 //! [`handoff`] (hand-off reports for the machine's agent sessions, over the
 //! same socket), [`mcp_call`] (cmux Cloud's hosted MCP server for the machine's agent
 //! sessions, the bearer kept here), `github_minter` (the thread that answers both off the poll
-//! loop),
+//! loop), [`auto_session`] (Auto mode's store for the machine's daemon: one line per store
+//! route) and `auto_session_server` (its own socket and threads),
 //! [`additions`] (a person's image additions list, sent at idle only under their usage-sharing
 //! choice), `additions_thread` (its listing and send, off the poll loop),
 //! [`page_cache`] (the sync and clean page-cache drop the platform runs before a pause),
@@ -57,6 +58,11 @@ mod apps_call_tests;
 pub mod apps_spawn;
 #[cfg(all(test, unix))]
 mod apps_spawn_tests;
+pub mod auto_session;
+#[cfg(unix)]
+pub mod auto_session_server;
+#[cfg(all(test, unix))]
+mod auto_session_tests;
 #[cfg(target_os = "linux")]
 mod bootstrap_role;
 #[cfg(unix)]
@@ -78,6 +84,8 @@ pub mod mcp_call;
 #[cfg(all(test, unix))]
 mod mcp_call_tests;
 pub mod page_cache;
+#[cfg(target_os = "linux")]
+mod poster_http;
 #[cfg(target_os = "linux")]
 pub mod role;
 pub mod sender;
