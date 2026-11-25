@@ -159,6 +159,10 @@ impl Hub {
             Ok(Sealed { manifest, stats, extended: false })
         })();
         let _ = crate::home_fs::remove_dir_all(&work);
+        if sealed.is_err() {
+            // Whatever failed, the next seal trusts nothing: it packs whole and re-verifies.
+            self.pack_checked.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+        }
         let sealed = sealed?;
         self.pack_checked.lock().unwrap_or_else(|e| e.into_inner()).insert(id.to_owned(), stamp);
         Ok(Some(sealed))
