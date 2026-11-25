@@ -13,6 +13,11 @@
 //! A listed key the call already gives is never overwritten, and a key with no match is left
 //! as it was, for the tool to judge. Each rename is told in one line added to the result.
 //!
+//! [`lists`] reads a scalar given for a key the schema types as an array as a list of that one
+//! value, for every listed key, not only a renamed one: `wrap_up {"learned": "a fact"}` was
+//! refused 11 times in 24 h on one host (2026-11-22), each refusal losing a whole well-formed
+//! recap, where the tool itself already *trims* a field past its bound instead of refusing it.
+//!
 //! [`values`] does the same for the *values* a schema lists (`"enum"`). A value the schema does
 //! not list is read as the listed value it spells with other case or separators, else as the one
 //! [`crate::mcp_hint::nearest`] finds close to it; a word that means every one of them ([`EVERY`])
@@ -34,6 +39,9 @@ const GROUPS: &[&[&str]] = &[
     &["repo", "repository"],
     &["pr", "number", "prNumber", "pr_number"],
     &["run", "runId", "run_id"],
+    // What a recap is written under: on 2026-11-22 two wrap_up calls carried a complete recap
+    // keyed `summary` and were refused "recap is required", losing it.
+    &["recap", "summary", "recapText", "recap_text", "summaryText", "summary_text"],
 ];
 
 /// Words that mean every one of the values a schema lists, so a filter with one of them is no
@@ -227,10 +235,54 @@ pub fn normalize(tools: &Value, params: &mut Value) -> Vec<Renamed> {
     renamed
 }
 
+/// Whether the schema types this property as an array (`"type": "array"`, or a type list that
+/// holds it, as a nullable list is written).
+fn wants_list(property: &Value) -> bool {
+    match property.get("type") {
+        Some(Value::String(t)) => t == "array",
+        Some(Value::Array(ts)) => ts.iter().any(|t| t.as_str() == Some("array")),
+        _ => false,
+    }
+}
+
+/// Reads a scalar given for a key tool `params.name`'s schema types as an array as a list of
+/// that one value, and returns the keys it read that way. Run it after [`normalize`] (which
+/// does the same for a key it renames) and before [`values`], so a list's own listed values are
+/// read per entry.
+///
+/// Why: one fact is the shape of one fact. `wrap_up {"learned": "..."}` with a single
+/// well-formed fact was refused 11 times in 24 h on one host, and each refusal threw away the
+/// recap in the same call -- a round trip and a lost answer for a value the tool could read.
+pub fn lists(tools: &Value, params: &mut Value) -> Vec<String> {
+    let name = params.get("name").and_then(Value::as_str).unwrap_or_default().to_owned();
+    let Some(listed) = properties(tools, &name) else { return Vec::new() };
+    let keys: Vec<(String, bool)> =
+        listed.iter().map(|(k, v)| (k.clone(), wants_list(v))).collect();
+    let Some(args) = params.get_mut("arguments").and_then(Value::as_object_mut) else {
+        return Vec::new();
+    };
+    let mut wrapped = Vec::new();
+    for (key, list) in keys {
+        if !list {
+            continue;
+        }
+        // Null is not a value given: a key set to null is the caller leaving it out, and
+        // `[null]` is a list with an entry in it.
+        match args.get(&key) {
+            None | Some(Value::Null) | Some(Value::Array(_)) => continue,
+            Some(_) => {}
+        }
+        let Some(one) = args.remove(&key) else { continue };
+        args.insert(key.clone(), json!([one]));
+        wrapped.push(key);
+    }
+    wrapped
+}
+
 /// The one line that tells a call's renames and value reads: `(read argument session as name)`,
 /// `(read argument state "all" as every state)`.
-pub fn line(renamed: &[Renamed], reread: &[Reread]) -> Option<String> {
-    if renamed.is_empty() && reread.is_empty() {
+pub fn line(renamed: &[Renamed], reread: &[Reread], wrapped: &[String]) -> Option<String> {
+    if renamed.is_empty() && reread.is_empty() && wrapped.is_empty() {
         return None;
     }
     let mut each: Vec<String> =
@@ -239,12 +291,13 @@ pub fn line(renamed: &[Renamed], reread: &[Reread]) -> Option<String> {
         Some(v) => format!("{} {:?} as {v:?}", r.key, r.given),
         None => format!("{} {:?} as every one of them (no filter)", r.key, r.given),
     }));
+    each.extend(wrapped.iter().map(|key| format!("{key} as a list of the one value given")));
     Some(format!("(read argument {}; the schema's names are canonical)", each.join(", ")))
 }
 
 /// Adds [`line`] to a tool result's content, as its last text.
-pub fn tell(result: &mut Value, renamed: &[Renamed], reread: &[Reread]) {
-    let Some(text) = line(renamed, reread) else { return };
+pub fn tell(result: &mut Value, renamed: &[Renamed], reread: &[Reread], wrapped: &[String]) {
+    let Some(text) = line(renamed, reread, wrapped) else { return };
     // Claude Code shows the structured result, not the text, when there is one.
     if let Some(structured) = result.get_mut("structuredContent").and_then(Value::as_object_mut) {
         structured.insert("argumentsRead".to_owned(), json!(text));

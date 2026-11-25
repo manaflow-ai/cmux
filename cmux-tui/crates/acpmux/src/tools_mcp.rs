@@ -394,13 +394,16 @@ pub(crate) fn answer(servers: &[Served], message: &Value) -> Answer {
             // An argument under another name than the schema's (`session` for `name`) is
             // read as the schema's, and the result says so (`mcp_args.rs`).
             let renamed = crate::mcp_args::normalize(&served.tools, &mut params);
+            // One value given for a list is read as a list of it, so one fact for `learned`
+            // runs instead of bouncing with the recap in the same call.
+            let wrapped = crate::mcp_args::lists(&served.tools, &mut params);
             // And a value the schema lists under another spelling, or a filter word that means
             // every one of them (`{"state": "all"}`), is read the same way.
             let reread = crate::mcp_args::values(&served.tools, &mut params);
             let call = (served.call)(served.session.clone(), params);
             Answer::Call(Box::pin(async move {
                 let mut result = call.await;
-                crate::mcp_args::tell(&mut result, &renamed, &reread);
+                crate::mcp_args::tell(&mut result, &renamed, &reread, &wrapped);
                 response(&id, result)
             }))
         }

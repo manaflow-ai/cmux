@@ -105,13 +105,13 @@ fn the_result_tells_each_rename_in_one_line() {
     ];
     let mut result =
         json!({"content": [{"type": "text", "text": "Sent."}], "structuredContent": {}});
-    tell(&mut result, &renamed, &[]);
+    tell(&mut result, &renamed, &[], &[]);
     let line =
         "(read argument session as sessionId, message as text; the schema's names are canonical)";
     assert_eq!(result["content"][1]["text"], line);
     assert_eq!(result["structuredContent"]["argumentsRead"], line);
     let mut untouched = json!({"content": []});
-    tell(&mut untouched, &[], &[]);
+    tell(&mut untouched, &[], &[], &[]);
     assert_eq!(untouched, json!({"content": []}));
 }
 
@@ -214,4 +214,71 @@ fn a_required_value_and_an_unknown_one_are_left_for_the_tool_to_judge() {
         assert_eq!(got, Value::Object(args), "{tool}");
         assert!(reread.is_empty(), "{tool}: {reread:?}");
     }
+}
+
+fn read_lists(tools: &Value, name: &str, arguments: Value) -> (Value, Vec<String>) {
+    let mut params = json!({"name": name, "arguments": arguments});
+    normalize(tools, &mut params);
+    let wrapped = lists(tools, &mut params);
+    (params["arguments"].clone(), wrapped)
+}
+
+#[test]
+fn one_fact_given_for_a_list_is_read_as_a_list_of_it() {
+    // 2026-11-22, big-red: 11 of one day's 34 wrap_up errors were this, each losing the whole
+    // recap in the same call ("learned is a list of up to three short facts").
+    let tools = crate::acpmux_mcp::tools();
+    let (args, wrapped) =
+        read_lists(&tools, "wrap_up", json!({"recap": "Done.", "learned": "Use pnpm, not npm."}));
+    assert_eq!(args, json!({"recap": "Done.", "learned": ["Use pnpm, not npm."]}));
+    assert_eq!(wrapped, vec!["learned".to_owned()]);
+    // The same for every other list a tool takes, with no list of its own kept here.
+    let (args, wrapped) = read_lists(
+        &tools,
+        "wrap_up",
+        json!({"recap": "Done.", "ask": "Ship it?", "actions": "Yes"}),
+    );
+    assert_eq!(args["actions"], json!(["Yes"]));
+    assert_eq!(wrapped, vec!["actions".to_owned()]);
+}
+
+#[test]
+fn a_list_already_given_as_one_and_a_key_left_out_are_untouched() {
+    let tools = crate::acpmux_mcp::tools();
+    let (args, wrapped) =
+        read_lists(&tools, "wrap_up", json!({"recap": "Done.", "learned": ["a", "b"]}));
+    assert_eq!(args, json!({"recap": "Done.", "learned": ["a", "b"]}));
+    assert!(wrapped.is_empty());
+    // A key set to null is the caller leaving it out: `[null]` would be a list with an entry.
+    let (args, wrapped) = read_lists(&tools, "wrap_up", json!({"recap": "Done.", "learned": null}));
+    assert_eq!(args, json!({"recap": "Done.", "learned": null}));
+    assert!(wrapped.is_empty());
+    // A string for a string is a string.
+    let (args, wrapped) = read_lists(&tools, "wrap_up", json!({"recap": "Done."}));
+    assert_eq!(args, json!({"recap": "Done."}));
+    assert!(wrapped.is_empty());
+}
+
+#[test]
+fn a_recap_written_under_summary_is_read_as_the_recap() {
+    // Two of the same day's errors: a complete recap keyed `summary`, refused "recap is
+    // required" and lost.
+    let tools = crate::acpmux_mcp::tools();
+    for key in ["summary", "summary_text", "recapText"] {
+        let (args, renamed) = call(&tools, "wrap_up", json!({key: "Fixed the bound."}));
+        assert_eq!(args, json!({"recap": "Fixed the bound."}), "{key}");
+        assert_eq!(renamed, vec![Renamed { given: key.into(), canonical: "recap".into() }]);
+    }
+    // A recap the call already gives is never overwritten by a synonym.
+    let (args, _) = call(&tools, "wrap_up", json!({"recap": "Mine.", "summary": "Theirs."}));
+    assert_eq!(args["recap"], json!("Mine."));
+}
+
+#[test]
+fn the_result_tells_a_value_read_as_a_list() {
+    let mut result = json!({"content": [], "structuredContent": {}});
+    tell(&mut result, &[], &[], &["learned".to_owned()]);
+    let line = "(read argument learned as a list of the one value given; the schema's names are \
+canonical)";
+    assert_eq!(result["content"][0]["text"], line);
 }
