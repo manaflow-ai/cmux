@@ -53,14 +53,16 @@ ports and address ranges a client needs for relay and connectivity.
 
 The host list below is checked in CI (`tests/test_outbound_hosts.py`) and at run time. The daemon's Rust makes its
 HTTP clients through one egress gate (`cmux-tui/crates/cmux-egress`), whose resolver checks each host before it is
-looked up: in dev and nightly builds a host with no `connects` row is refused and logged (`egress.unlisted host=...
+looked up; the Mac and iPhone apps' Swift makes its sessions, WebSockets and network connections through the same
+gate's Swift side (`Packages/Shared/CmuxEgress`): in dev and nightly builds a host with no `connects` row is refused and logged (`egress.unlisted host=...
 site=...`); a release build logs it. `CMUX_EGRESS=enforce|log|off` overrides the mode. Hosts you configure yourself
 (a self-hosted server, an API endpoint, an SSH or git host) pass because you named them; loopback, IP addresses and
-reserved names pass. The gate's host list is generated from this page, so the two stay equal.
+reserved names, single-label names and private-network names (`.ts.net`, `.internal`, `.lan`) pass. Both gates'
+host lists are generated from this page, so they stay equal.
 
 Not every client goes through the gate yet. `tests/test_egress_gate.py` finds every client the code makes by hand
-(Rust and Swift); `tests/egress_ungated.json` lists the ones not moved yet (165 today), and that list may only
-shrink. The Mac and iPhone apps' Swift gate and the web pages' Content Security Policy come next.
+(Rust and Swift); `tests/egress_ungated.json` lists the ones not moved yet, and that list may only shrink. The web
+pages' Content Security Policy comes next.
 
 ## Hosts
 
@@ -104,12 +106,14 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `api.cloudflare.com` | connects | the Cloudflare API, only when you run `cmux keys connect cloudflare` or `cmux keys mint` |
 | `cdnjs.cloudflare.com` | connects | scripts and styles an agent's rendered page may load |
 | `cmux.com` | connects | cmux's website and API: sign-in callback, hang reports (when telemetry is on), billing, docs and deep links |
+| `*.r2.cloudflarestorage.com` | connects | a large chat attachment you upload or open in cmux Cloud: the file's bytes go to cmux's storage bucket through a presigned URL the cmux API made |
 | `files.cmux.com` | connects | downloads: updates, release notes, art, the cmux CLI |
-| `files-next.cmux.com` | connects | downloads for the nightly NEXT channel: appcast and release notes |
+| `files-next.cmux.com` | connects | downloads for the nightly NEXT channel: appcast, release notes and the in-app browser's Chromium runtime |
 | `www.cmux.com` | connects | the same site as cmux.com; deep links and sign-in |
 | `html.duckduckgo.com` | connects | web search for an agent's search tool, when an agent searches |
 | `github.com` | connects | git, the GitHub CLI and the GitHub API for repos, PRs and Cloud machines; release media |
 | `api.github.com` | connects | the GitHub API, through the GitHub CLI or the app, for repos and PRs you open |
+| `codeload.github.com` | connects | a GitHub repository's archive at one commit, when you install an extension from it |
 | `api.githubcopilot.com` | connects | GitHub's hosted MCP server, for the GitHub tools an agent on a Cloud machine calls |
 | `uploads.github.com` | connects | GitHub uploads, through the GitHub CLI |
 | `avatars.githubusercontent.com` | connects | images in GitHub pages and agent replies |
@@ -255,6 +259,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `substack.com` | opens | a site the address bar suggests before it is in your history |
 | `tailscale.com` | opens | a Tailscale page, opened when you add a device |
 | `login.tailscale.com` | opens | a Tailscale page, opened when you add a device |
+| `controlplane.tailscale.com` | identifier | Tailscale's default control server, compared with the one a machine is already signed in to before cmux adds it to your tailnet; the machine's own `tailscale` connects to it, never the app |
 | `twitter.com` | opens | a site the address bar suggests before it is in your history |
 | `vercel.com` | opens | a site the address bar suggests; also a docs host an agent catalog entry may link to |
 | `x.com` | opens | cmux on X, a link in Settings |
@@ -320,6 +325,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `trycloudflare.com` | identifier | a shared hosting domain, so sites under it are told apart |
 | `vs-ssh.visualstudio.com` | identifier | a git host name, so it is not shown as one of your computers |
 | `m.youtube.com` | identifier | YouTube host names, to find captions in a page you have open |
+| `meet.google.com` | identifier | the Google Meet host name, so an agent finds the call you have open in a cmux browser tab to read its captions; never fetched by the app |
 | `youtu.be` | identifier | a YouTube host name, so a pasted video address can be a background (read as its video id); never fetched |
 | `youtube-nocookie.com` | identifier | a YouTube host name, so a pasted video address can be a background (read as its video id); never fetched |
 | `fly.dev` | identifier | a shared hosting domain, so sites under it are told apart |
@@ -371,7 +377,12 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | Host | Kind | What for |
 |---|---|---|
 | `command.io` | not-a-host | an error code for a custom command's file error |
+| `acpmux.io` | not-a-host | an error code for a failed write to the local acpmux socket in the SSH benchmark |
+| `cmux.app` | not-a-host | the app bundle name `cmux app try` builds and copies |
+| `failed.app` | not-a-host | the app bundle `cmux app try` sets aside when a swap fails |
 | `prior.app` | not-a-host | the app bundle `cmux app try` sets aside |
+| `replaced.app` | not-a-host | the app bundle `cmux app try` sets aside when it replaces a copy |
+| `undone.app` | not-a-host | the app bundle `cmux app try undo` sets aside |
 | `rejected.app` | not-a-host | the app bundle `cmux app try` sets aside when a swap is refused |
 | `runner-fork-guard.sh` | not-a-host | a script file name in the VM pool runner |
 | `runner-guest.sh` | not-a-host | a script file name in the VM pool runner |
