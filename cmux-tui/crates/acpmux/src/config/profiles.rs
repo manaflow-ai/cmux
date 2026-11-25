@@ -7,7 +7,7 @@
 //! 1. managed: `/Library/Application Support/cmux/harnesses/*.toml` (macOS),
 //!    `/etc/cmux/harnesses/*.toml` (other unix);
 //! 2. user files: `$XDG_CONFIG_HOME/cmux/harnesses/*.toml`, default
-//!    `~/.config/cmux/harnesses/`;
+//!    `~/.config/cmux/harnesses/` (`~/.config/cmux-next/harnesses/` on macOS);
 //! 3. cmux.json `agents.harnesses`.
 //!
 //! acpmux's own config.json and PATH discovery rank below all three
@@ -60,7 +60,7 @@ pub struct ProfileSources {
     /// The user's harness folder: every write (`cmux harness add`, icons,
     /// endpoints) goes here.
     pub user_dir: Option<PathBuf>,
-    /// The person's folder (`~/.config/cmux/harnesses`) when a DEV build keeps
+    /// The person's folder (`~/.config/cmux/harnesses`, `cmux-next` on macOS) when a DEV build keeps
     /// `user_dir` in its own acpmux home: read below `user_dir`, never written,
     /// so a DEV build offers the person's own harnesses (`claude-sr2`) without
     /// putting its test profiles in front of shipped builds.
@@ -75,9 +75,12 @@ impl ProfileSources {
     pub fn current() -> Self {
         let xdg = std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty());
         let explicit_config = xdg.is_some();
-        let config_dir = xdg
-            .map(|v| PathBuf::from(v).join("cmux"))
-            .or_else(|| dirs::home_dir().map(|home| home.join(".config").join("cmux")));
+        let config_base =
+            xdg.map(PathBuf::from).or_else(|| dirs::home_dir().map(|h| h.join(".config")));
+        // cmux NEXT's own folder (`cmux-next` on macOS) holds the harnesses;
+        // classic `cmux.json` stays where cmux Classic keeps it.
+        let config_dir = config_base.as_ref().map(|base| base.join(cmux_config::NEXT_DIR));
+        let classic_json = config_base.map(|base| base.join("cmux").join("cmux.json"));
         let managed = if std::env::consts::OS == "macos" {
             PathBuf::from("/Library/Application Support/cmux/harnesses")
         } else {
@@ -87,14 +90,16 @@ impl ProfileSources {
         let build_dir = (!explicit_config)
             .then(|| build_harness_dir(&crate::config::home(), &crate::config::default_home()))
             .flatten();
-        Self::with_build_dir(managed, config_dir, build_dir)
+        Self::with_build_dir(managed, config_dir, classic_json, build_dir)
     }
 
     /// The sources for the managed folder, the person's config folder
-    /// (`~/.config/cmux`) and a DEV build's own harness folder, if any.
+    /// (`~/.config/cmux`, `~/.config/cmux-next` on macOS), classic
+    /// `cmux.json` and a DEV build's own harness folder, if any.
     fn with_build_dir(
         managed: PathBuf,
         config_dir: Option<PathBuf>,
+        cmux_json: Option<PathBuf>,
         build_dir: Option<PathBuf>,
     ) -> Self {
         let person = config_dir.as_ref().map(|d| d.join("harnesses"));
@@ -102,12 +107,7 @@ impl ProfileSources {
             Some(build) => (Some(build), person),
             None => (person, None),
         };
-        Self {
-            managed: vec![managed],
-            user_dir,
-            person_dir,
-            cmux_json: config_dir.map(|d| d.join("cmux.json")),
-        }
+        Self { managed: vec![managed], user_dir, person_dir, cmux_json }
     }
 
     /// Every folder profile files load from, in precedence order.

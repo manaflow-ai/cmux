@@ -472,7 +472,7 @@ fn reconcile_remote(dir: &Path) -> Result<(), String> {
             &remote,
         ],
     );
-    if merge.is_err() {
+    if let Err(merge_error) = merge {
         let conflicts = match git(dir, &["diff", "--name-only", "--diff-filter=U"]) {
             Ok(conflicts) => conflicts,
             Err(error) => {
@@ -482,7 +482,7 @@ fn reconcile_remote(dir: &Path) -> Result<(), String> {
         };
         if conflicts.is_empty() {
             let _ = git(dir, &["merge", "--abort"]);
-            return Err(merge.unwrap_err());
+            return Err(merge_error);
         }
         for path in conflicts.lines() {
             if !(path.starts_with("main/") || path.starts_with("tree/")) {
@@ -610,16 +610,16 @@ impl Backup {
                 attempts: *attempts,
             };
         }
-        if let Some(at) = self.due {
-            if now < at {
-                return Outcome::Waiting {
-                    error: self
-                        .last_error
-                        .clone()
-                        .unwrap_or_else(|| "backup retry is pending".to_owned()),
-                    retry: at.saturating_duration_since(now),
-                };
-            }
+        if let Some(at) = self.due
+            && now < at
+        {
+            return Outcome::Waiting {
+                error: self
+                    .last_error
+                    .clone()
+                    .unwrap_or_else(|| "backup retry is pending".to_owned()),
+                retry: at.saturating_duration_since(now),
+            };
         }
         let outcome = self.attempt(dir, now);
         match &outcome {
