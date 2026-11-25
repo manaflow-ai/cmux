@@ -156,8 +156,7 @@ impl Hub {
         if bg_generation(dir, false).ok().as_deref() != Some(record.generation.as_str()) {
             return;
         }
-        let session =
-            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(session_id).cloned();
+        let session = self.session_get(session_id);
         let Some(session) = session else { return };
         if session.closing.load(Ordering::SeqCst)
             || session.purged.load(Ordering::SeqCst)
@@ -306,8 +305,7 @@ impl Hub {
         else {
             return;
         };
-        let session =
-            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(session_id).cloned();
+        let session = self.session_get(session_id);
         let Some(session) = session else { return };
         let dir = self.bg_dir(&session);
         let Some(record) = bg_run::read_record(&dir, id)

@@ -59,6 +59,10 @@ struct ChatComposerField: UIViewRepresentable {
     }
 
     func updateUIView(_ view: ChatComposerTextView, context: Context) {
+        ComposerKeyStamp.viewUpdate(view) { update(view, context: context) }
+    }
+
+    private func update(_ view: ChatComposerTextView, context: Context) {
         context.coordinator.parent = self
         markReadyIfShown()
         view.onPasteAttachments = onPasteAttachments == nil ? nil : { [weak coordinator = context.coordinator] in

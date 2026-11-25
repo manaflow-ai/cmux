@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 9dae40e9a91d9653a152d869db666939b2c8725ede52f1d9338cb1d888180110. */
+/* cmux-tui mux protocol 12, IR 4e34384345c5952de0733e534f694b5beca2a99236d90b5735bb411ba22aa32c. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -603,6 +603,7 @@ export type IdMapping = {
 
 export type IdentifyResult = {
   "api_revision"?: (number) | null;
+  "api_version"?: (string) | null;
   "app": "cmux-tui";
   "build_commit"?: (string) | null;
   "build_id"?: (string) | null;
@@ -623,6 +624,7 @@ export type IdentifyResult = {
   "machine_platform"?: MachinePlatform;
   "machine_symbol"?: string;
   "min_api_revision"?: (number) | null;
+  "min_api_version"?: (string) | null;
   "pid": number;
   "protocol": number;
   "registry_id": string;
@@ -722,6 +724,11 @@ export type ListWorkspacesKnown = {
   "terminal_revision"?: (bigint) | null;
   "tree_revision"?: (string) | null;
   "workspace_revision"?: (bigint) | null;
+};
+
+export type ListWorkspacesSince = {
+  "epoch": string;
+  "seq": bigint;
 };
 
 export type LivePane = {
@@ -1364,6 +1371,11 @@ export type SetCellPixelsResult = {
   "resizes": Array<CellPixelResize>;
 };
 
+export type SetClientInfoResult = {
+  "api_revision"?: number;
+  "api_version"?: string;
+};
+
 export type SetHostSizePolicyResult = {
   "policy": HostSizePolicy;
 };
@@ -1847,10 +1859,16 @@ export type TerminalResumeCommandResult = {
 };
 
 export type Tree = {
+  "changed"?: Array<Workspace>;
+  "delta"?: boolean;
+  "epoch"?: string;
   "generation"?: string;
   "next"?: bigint;
+  "order"?: Array<Id>;
   "pane_revision"?: bigint;
   "registry_id"?: string;
+  "removed"?: Array<Id>;
+  "seq"?: bigint;
   "terminal_revision"?: bigint;
   "total"?: bigint;
   "tree_revision"?: string;

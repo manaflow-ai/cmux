@@ -31,19 +31,31 @@ public struct TerminalHostGridLayout: Equatable, Sendable {
     public var hostRows: Int?
     /// The phone's TUI rows (toolbar to composer).
     public var visibleRows: Int
+    /// Wide (the key row's Wide key; Leo, 2026-11-23: "we necessarily need
+    /// logic for you to be able to like 'horizontally scroll'"): the phone's
+    /// own grid is this many columns, more than the page fits, so a wide
+    /// table or a long line stays one row and the page pans sideways to it.
+    /// Nil: the phone's grid is the page's width.
+    public var wideColumns: Int?
+
+    /// Wide's columns: as wide as a wide Mac window, and well inside the
+    /// widest surface the phone draws (about 340 columns at 3x).
+    public static let defaultWideColumns = 200
 
     /// Widest surface Ghostty's layer draws (as `TerminalMirrorRows`: 8192 px).
     static let maxSurfacePixels: CGFloat = 8192
     /// Cells kept between the cursor and the edge it pans toward.
     static let cursorMargin = 4
 
-    public init(viewportWidth: CGFloat, cell: CGSize, scale: CGFloat, hostColumns: Int?, hostRows: Int?, visibleRows: Int) {
+    public init(viewportWidth: CGFloat, cell: CGSize, scale: CGFloat, hostColumns: Int?, hostRows: Int?, visibleRows: Int,
+                wideColumns: Int? = nil) {
         self.viewportWidth = viewportWidth
         self.cell = cell
         self.scale = scale
         self.hostColumns = hostColumns
         self.hostRows = hostRows
         self.visibleRows = visibleRows
+        self.wideColumns = wideColumns
     }
 
     /// The Mac's columns the mirror follows: none on the primary screen while
@@ -65,11 +77,25 @@ public struct TerminalHostGridLayout: Equatable, Sendable {
         cell.width > 0 ? max(1, Int(floor(viewportWidth / cell.width))) : 0
     }
 
-    /// The mirror's columns: the Mac's (capped to the widest surface), else the phone's.
+    /// The most columns the widest surface draws at this cell width.
+    private var widestColumns: Int {
+        max(1, Int(floor(Self.maxSurfacePixels / (cell.width * max(1, scale)))))
+    }
+
+    /// The grid the phone claims as its own: the page's columns, or Wide's
+    /// when Wide is on and it is more (capped to the widest surface).
+    public var ownColumns: Int {
+        guard let wideColumns, cell.width > 0 else { return phoneColumns }
+        return max(phoneColumns, min(wideColumns, widestColumns))
+    }
+
+    /// Whether the phone's own grid is wider than the page (Wide is on).
+    public var isWide: Bool { ownColumns > phoneColumns }
+
+    /// The mirror's columns: the Mac's (capped to the widest surface), else the phone's own.
     public var columns: Int {
-        guard let hostColumns, hostColumns > 0, cell.width > 0 else { return phoneColumns }
-        let widest = Int(floor(Self.maxSurfacePixels / (cell.width * max(1, scale))))
-        return min(hostColumns, max(1, widest))
+        guard let hostColumns, hostColumns > 0, cell.width > 0 else { return ownColumns }
+        return min(hostColumns, widestColumns)
     }
 
     /// The Mac's grid is wider than the widest surface the phone draws
@@ -85,7 +111,8 @@ public struct TerminalHostGridLayout: Equatable, Sendable {
 
     /// The mirror's width. Ghostty fits `floor(width / cell)` columns (no
     /// padding), so half a cell more makes exactly `columns`, whatever the
-    /// pixel rounding. The phone's own grid keeps the page's width.
+    /// pixel rounding. The phone's own grid at the page's width keeps the
+    /// page's width.
     public var surfaceWidth: CGFloat {
         guard followsHost else { return viewportWidth }
         return (CGFloat(columns) + 0.5) * cell.width
@@ -142,7 +169,7 @@ public struct TerminalHostGridLayout: Equatable, Sendable {
     /// Whether the Mac's grid differs from what the phone would show (the note shows).
     public var differsFromPhone: Bool {
         guard let hostColumns, let hostRows else { return false }
-        return isCapped || hostColumns != phoneColumns || hostRows != visibleRows
+        return isCapped || hostColumns != ownColumns || hostRows != visibleRows
     }
 
     /// The primary screen's bottom inset that pins a shorter grid to the
