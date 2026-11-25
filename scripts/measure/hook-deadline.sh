@@ -27,7 +27,7 @@ trap cleanup EXIT
 depth=()
 [[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
 helpers=()
-for sha in "${shas[@]}"; do
+for sha in ${shas[@]+"${shas[@]}"}; do
   git -C "$root" cat-file -e "$sha^{commit}" 2>/dev/null \
     || git -C "$root" fetch -q --no-tags --no-recurse-submodules ${depth[@]+"${depth[@]}"} origin "$sha"
   full="$(git -C "$root" rev-parse "$sha^{commit}")" || exit 1
@@ -42,4 +42,4 @@ for sha in "${shas[@]}"; do
   cp "$scratch/target/release/cmux-tui-hook" "$scratch/hook-${full:0:12}"
   helpers+=("${full:0:12}=$scratch/hook-${full:0:12}")
 done
-python3 "$root/scripts/measure/hook-deadline.py" "${helpers[@]}" ${pass[@]+"${pass[@]}"}
+python3 "$root/scripts/measure/hook-deadline.py" ${helpers[@]+"${helpers[@]}"} ${pass[@]+"${pass[@]}"}
