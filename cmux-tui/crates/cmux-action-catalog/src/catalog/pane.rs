@@ -41,6 +41,24 @@ pub static ACTIONS: &[Action] = &[
         cli_name: "pane screenshot",
         ..Action::DEFAULT
     },
+    // Insert Photo: an image-only file panel, then the chosen pictures go into the focused pane. An
+    // agent chat takes them into its composer as an unsent draft (as a drop does); a terminal gets
+    // their shell-quoted paths pasted into its input, the form Claude Code and Codex read an image
+    // from. A `path` argument (action.run, MCP) inserts that file without the panel.
+    Action {
+        id: "insertPhoto",
+        group: GROUP,
+        title: t("ActionCatalog", "action.insertPhoto", "Insert Photo…"),
+        keywords: &["photo", "image", "picture", "screenshot", "attach", "insert", "png", "jpeg"],
+        category: "pane",
+        symbol: "photo.badge.plus",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("liveInput")), context_menu_exemption: Some("liveInput"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::PATH.optional()],
+        targets: &["pane"],
+        cli_name: "pane insert-photo",
+        ..Action::DEFAULT
+    },
     Action {
         id: "newColumn",
         group: GROUP,
