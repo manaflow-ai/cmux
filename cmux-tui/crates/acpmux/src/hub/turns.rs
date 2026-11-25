@@ -217,6 +217,19 @@ impl Hub {
         // behind adoption's recovered turn below.
         self.session_log(session).await;
         self.wait_adopted(session).await;
+        // An Auto chat another holder runs takes the prompt through its Cloud inbox
+        // (`auto_hold.rs`); nothing starts here.
+        if self.auto_held(session) {
+            // Only the prompt's id goes across the wait: the options hold what no other thread
+            // may. On the heap (`heap_future.rs`): a prompt is polled deep in a worker's stack.
+            let away_id = opts.prompt_id.clone();
+            let away = crate::heap_future::heap(|| {
+                self.auto_away_prompt(session, &blocks, client, away_id.as_deref())
+            });
+            if let Some(answer) = away.await {
+                return answer;
+            }
+        }
         // A watched Claude chat whose app still runs it takes the prompt into that app (`bridge.rs`).
         if let Some(answer) = self.bridged_prompt(session, &blocks, client, &mut opts).await {
             return answer;
@@ -1787,6 +1800,15 @@ impl Hub {
             _ => None,
         };
         self.schedule_auto_resume(session, &turn_id, cut);
+        // A turn that ended well on a capacity fallback puts the chat's own model back
+        // (`auto_resume/capacity_failover.rs`).
+        if !detached
+            && result
+                .as_ref()
+                .is_ok_and(|v| v.get("stopReason").and_then(Value::as_str) != Some("cancelled"))
+        {
+            self.restore_after_capacity(session);
+        }
         // The agent a Stop ended starts again on the same conversation now, while this turn's
         // lock is still held: the next queued turn finds it running (`cancel.rs`).
         self.respawn_stopped_agent(session, &turn_id, stops).await;

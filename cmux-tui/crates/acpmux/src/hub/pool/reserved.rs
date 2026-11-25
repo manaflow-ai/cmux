@@ -8,7 +8,10 @@
 //! resolves, kept as long as a spare) and writes the ticket `~/chats/.reserved` naming it.
 //! `cmux-tui-core`'s `owner_cloud_cwd` gives the first home chat that folder by renaming the
 //! ticket (one atomic winner, `agent_session_folders.rs`), so its `session/new` keys the warm
-//! entry and takes it. The next home chat gets `~/chats/<surface id>` as before.
+//! entry and takes it. That take reserves a fresh folder and warms it at once
+//! ([`Hub::refill_reserved_home`]), so the second and every later home chat on the machine takes
+//! a warm agent too: production app-chat probes on the 11-24 nightly paid `session_new` 3.6 to
+//! 10.4 s on a second chat (52 s once) against 0.8 to 1.6 s warm.
 //!
 //! A chat that names a model connection (a credential in its key), or runs with
 //! `CMUX_AGENT_DISPLAYS=per-workspace` (the workspace id is in the key), misses and starts cold.
@@ -96,6 +99,30 @@ impl Hub {
     /// its entry wanted again. `wait`: answer once the agent is ready (or failed, or the wait
     /// ran out). Local, trusted callers only (the handler checks).
     pub async fn reserve_home_warm(self: &Arc<Self>, wait: bool) -> Result<Value, RpcError> {
+        self.reserve_home_warm_after(None, wait).await
+    }
+
+    /// A home chat just took the reserved entry for `taken`: reserve the next folder and warm it,
+    /// in the background.
+    pub(super) fn refill_reserved_home(&self, taken: PathBuf) {
+        let Some(hub) = self.hub_ref.get().and_then(std::sync::Weak::upgrade) else { return };
+        self.scope.spawn_named("pool-reserve-refill", async move {
+            match hub.reserve_home_warm_after(Some(taken), false).await {
+                Ok(answer) => tracing::info!(%answer, "the next home chat's folder is reserved"),
+                Err(error) => {
+                    tracing::info!(?error, "the next home chat's folder was not reserved")
+                }
+            }
+        });
+    }
+
+    /// [`reserve_home_warm`](Self::reserve_home_warm); `taken`: the folder a chat just took,
+    /// never warmed again (its ticket still names it when the chat came without taking it).
+    async fn reserve_home_warm_after(
+        self: &Arc<Self>,
+        taken: Option<PathBuf>,
+        wait: bool,
+    ) -> Result<Value, RpcError> {
         if crate::launch_policy::agent_launch_disabled() {
             return Ok(
                 json!({"accepted": false, "reason": crate::launch_policy::DISABLED_MESSAGE}),
@@ -118,6 +145,10 @@ impl Hub {
             .ok_or_else(|| {
                 RpcError::invalid_params("the reserved chat folder could not be made")
             })?;
+        if taken.as_ref() == Some(&folder) {
+            return Ok(json!({"accepted": false,
+                "reason": "the reserved folder's ticket still names the folder a chat took"}));
+        }
         self.wait_startup().await;
         // The default harness and model, as a home chat's `session/new` with no pick takes them.
         let spec = self.pool_spec_in(None, None, folder, None, &PrewarmShape::default()).await?;
@@ -141,5 +172,45 @@ impl Hub {
 }
 
 #[cfg(test)]
-#[path = "reserved_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    fn home(tag: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("acpmux-reserved-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::canonicalize(dir).unwrap()
+    }
+
+    #[test]
+    fn a_reserved_folder_is_private_named_by_its_ticket_and_kept_until_taken() {
+        let home = home("ensure");
+        let first = ensure_folder(&home).expect("a folder");
+        let name = first.file_name().unwrap().to_str().unwrap().to_owned();
+        assert!(is_reserved_name(&name), "{name}");
+        assert!(!name.bytes().all(|b| b.is_ascii_digit()), "never a surface id");
+        assert!(private_dir(&home.join("chats")) && private_dir(&first));
+        assert_eq!(std::fs::read_to_string(home.join("chats/.reserved")).unwrap(), name);
+        // Asked again before a chat took it: the same folder, no second one.
+        assert_eq!(ensure_folder(&home), Some(first.clone()));
+        // A chat took the ticket: the next ask makes a new folder.
+        std::fs::rename(home.join("chats/.reserved"), home.join("chats/.claimed-7")).unwrap();
+        let second = ensure_folder(&home).expect("a new folder");
+        assert_ne!(second, first);
+        assert!(first.is_dir(), "the taken folder is the chat's");
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_in_place_of_the_chats_folder_is_never_followed() {
+        let home = home("link");
+        let elsewhere = home.join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, home.join("chats")).unwrap();
+        assert_eq!(ensure_folder(&home), None);
+        assert_eq!(std::fs::read_dir(&elsewhere).unwrap().count(), 0);
+        let _ = std::fs::remove_dir_all(home);
+    }
+}

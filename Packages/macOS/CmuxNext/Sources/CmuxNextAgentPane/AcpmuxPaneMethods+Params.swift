@@ -63,8 +63,10 @@ nonisolated extension AcpmuxPaneMethods {
         // `afterSeq`: a reconnect that holds the chat's rows asks only the records after them
         // (attachParams.ts plainAttach, forward attach, #47119); refused, every reconnect said "cmux
         // blocked opening this chat" over the composer (Leo, 2026-11-22).
+        // `attending`: the reader's hand on a shown chat, apart from `visible` (on screen); `quietHidden`: the
+        // page draws nothing while hidden, so acpmux leaves the agent's stream out until it shows (CMUX-571).
         // schemas/agent-pane/attach-params.json lists every key the page sends here.
-        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "attending", "waitLogs", "settled", "hold", "afterSeq"], []),
+        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "attending", "quietHidden", "waitLogs", "settled", "hold", "afterSeq"], []),
         "_acpmux/detach": (["sessionId"], []),
         "_acpmux/view": (["sessionId", "visible", "attending", "seenSeq", "cutoverSeq"], []),
         "_acpmux/seen": (["sessionId", "seq"], []),
@@ -185,6 +187,12 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/archive": (["sessionId", "archived"], []),
         "_acpmux/cold_archive": (["sessionId", "archived"], []),
         "_acpmux/prompt_coach": (["sessionId", "coachId"], []),
+        // Auto (plans/cmux-next/auto-mode/DESIGN.md): `keepInCloud` only while the Cloud runs the chat.
+        "_acpmux/auto_session/set": (["sessionId", "auto", "keepInCloud"], []),
+        // `action`: show, apply or discard.
+        "_acpmux/auto_session/leftover": (["sessionId", "action"], []),
+        // The Cloud's events after seq `after`; `version`: the read the page speaks.
+        "_acpmux/auto_session/transcript": (["sessionId", "after", "version"], []),
         "_acpmux/run_elsewhere/plan": (["sessionId", "command"], []),
         "_acpmux/run_elsewhere/start": (["sessionId", "command", "peer", "digest", "sendSecrets"], []),
         "_acpmux/bg/output": (["sessionId", "id", "fromByte", "maxBytes"], []), // maxBytes: bgTail, a finished task line's tail.
