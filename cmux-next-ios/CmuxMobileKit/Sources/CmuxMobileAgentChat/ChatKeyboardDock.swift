@@ -67,6 +67,12 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// Like the embedded terminal, iOS 26 also needs a gradient fallback:
     /// a bare top edge container alone does not obscure text under the clock.
     private let topFade = TopFadeView()
+    /// The bottom stack's region (its top to the page's bottom: the stack and, in a tab, the
+    /// toolbar under it), registered as the bottom scroll edge's container so rows scrolled
+    /// under the composer, its status line or the error capsule blur instead of colliding with
+    /// them. A stand-in view for both placements: the owned dock's host is 640 pt tall, and a
+    /// tab's stack is drawn by TabsKit outside this view.
+    private let bottomShelf = UIView()
     private let emptyHost: UIHostingController<AnyView>
     private var dockHost: UIHostingController<AnyView>?
     private var dockContainer: PassthroughView?
@@ -263,7 +269,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         scrollView.keyboardDismissMode = .interactive
         scrollView.alwaysBounceVertical = true
         scrollView.backgroundColor = .cmuxMobileBackground
-        scrollView.topEdgeEffect.style = .soft
+        // A hard edge: text scrolled under the header stops at it instead of showing through
+        // into the title (iOS release bar read-back, 2026-11-22, shot 08; tbd d-189cea06b1).
+        scrollView.topEdgeEffect.style = .hard
         list.scrollDelegate = self
         // Safari's bottom bar: a tap on the page while the field is being edited ends the
         // editing and lowers the keyboard (CMUX-34). The draft stays in the composer, and the
@@ -288,6 +296,13 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
                 view.addSubview(topFade)
             }
         }
+        bottomShelf.isUserInteractionEnabled = false
+        bottomShelf.isAccessibilityElement = false
+        view.addSubview(bottomShelf)
+        let bottomEdge = UIScrollEdgeElementContainerInteraction()
+        bottomEdge.scrollView = scrollView
+        bottomEdge.edge = .bottom
+        bottomShelf.addInteraction(bottomEdge)
 
         for host in [emptyHost] + [dockHost, jumpHost].compactMap({ $0 }) {
             addChild(host)
@@ -461,6 +476,10 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             if topShelf.frame != chromeFrame { topShelf.frame = chromeFrame }
             if topFade.superview != nil, topFade.frame != chromeFrame { topFade.frame = chromeFrame }
         }
+        // The stack's top as drawn this frame (its height can lead the guide's) to the bottom.
+        let stackTop = min(dockGuide.layoutFrame.minY, dockGuide.layoutFrame.maxY - stackHeight)
+        let shelfFrame = CGRect(x: 0, y: stackTop, width: view.bounds.width, height: max(0, view.bounds.maxY - stackTop))
+        if bottomShelf.frame != shelfFrame { bottomShelf.frame = shelfFrame }
 
         // As in Messages, a transcript drag takes the keyboard once the finger
         // reaches the stack's top edge.
@@ -569,7 +588,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         guard !scrollView.isTracking else { return }
         if !positionedInitially, contentHeight > 0 || surfaceIsEmpty {
             positionedInitially = true
-            scrollView.contentOffset = bottomOffset
+            scrollView.contentOffset = restoredOffset() ?? bottomOffset
         } else if positionedInitially, surface.following {
             // Inside the keyboard's animation: the newest turn rides the
             // stack frame by frame and the top of the transcript is covered.
@@ -884,7 +903,10 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             layout()
             return
         }
-        UIView.animate(withDuration: remaining, delay: 0, options: [.beginFromCurrentState]) { layout() }
+        // Interruptible: without `.allowUserInteraction` UIKit drops every
+        // touch on the views this pass moves (composer, transcript) until the
+        // keyboard settles: a tap inside the keyboard's animation did nothing.
+        UIView.animate(withDuration: remaining, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) { layout() }
     }
 
     /// The keyboard's top in this view from a frame notification (the
@@ -966,6 +988,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         followDraggedKeyboard(false)
+        if !decelerate { noteReadingPlace() }
         #if DEBUG
         if decelerate, Self.jumpsMidFling { jumpMidFling() }
         #endif
@@ -1015,6 +1038,10 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             shown = jumpVisibility.update(offsetY: scrollView.contentOffset.y, minOffsetY: -scrollView.contentInset.top,
                                           maxOffsetY: bottomOffset.y, keyboardDragging: keyboardDragging)
         }
+        // The soft bottom edge only while rows are under the stack: resting on the newest turn,
+        // nothing is under it and the last row stays crisp (the terminal's rule, 2026-10-14).
+        let under = !isEmpty && scrolledDistanceFromBottom > 1
+        if scrollView.bottomEdgeEffect.isHidden == under { scrollView.bottomEdgeEffect.isHidden = !under }
         guard surface.showJump != shown else { return }
         withAnimation(.cmuxMobileSnap.unlessReduceMotion) { surface.showJump = shown }
         jumpHost?.view.isUserInteractionEnabled = shown
@@ -1027,6 +1054,37 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         surface.following = !toTop
         view.layoutIfNeeded()
         scroll(to: toTop ? CGPoint(x: 0, y: -scrollView.contentInset.top) : bottomOffset, animated: animated)
+        // Back on the newest turn: that is where the next launch opens.
+        if !toTop { surface.onReadingAnchor?(nil) }
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        noteReadingPlace()
+    }
+
+    /// The reader came to rest: the row at the top and how far past its top, or nil on the
+    /// newest turn (`AgentChatSurface.onReadingAnchor`, kept for the next launch).
+    private func noteReadingPlace() {
+        guard let note = surface.onReadingAnchor else { return }
+        let y = scrollView.contentOffset.y + scrollView.adjustedContentInset.top
+        guard !surface.following, let row = list.layout.firstRow(below: y) else { return note(nil) }
+        note(ChatReadingAnchor(row: row.id, offset: Double(y - row.top)))
+    }
+
+    /// The first position of a chat with a reading place kept from the last run
+    /// (`AgentChatSurface.restoreAnchor`), used once: its row's top plus the offset, in range. Nil
+    /// (the newest turn) when the row is not among the rows laid out, or the place is that close
+    /// to the bottom that the chat would follow anyway.
+    private func restoredOffset() -> CGPoint? {
+        // The tab grid's card is not where the person reads: the page keeps the place for itself.
+        guard !surface.holdsTranscript, let anchor = surface.restoreAnchor else { return nil }
+        surface.restoreAnchor = nil
+        guard anchor.offset.isFinite, let top = list.layout.top(of: anchor.row) else { return nil }
+        let bottom = bottomOffset.y
+        let y = min(max(-scrollView.contentInset.top, top + CGFloat(anchor.offset) - scrollView.adjustedContentInset.top), bottom)
+        guard bottom - y > 80 else { return nil }
+        surface.following = false
+        return CGPoint(x: 0, y: y)
     }
 
     /// Room the find bar takes under the header (its 44 pt row and its margins).
