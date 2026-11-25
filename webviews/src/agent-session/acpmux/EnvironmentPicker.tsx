@@ -30,6 +30,7 @@ import { useRowPresence } from "./rowPresence";
 import type { RunModeRows } from "./sandboxRun";
 import {
   SECTION_LABELS,
+  autoCloudCapLabels,
   environmentStateLabel,
   ENVIRONMENT_SEARCH_MIN,
   groupUnavailableRows,
@@ -1104,6 +1105,12 @@ export function EnvironmentPicker({
               </span>
               {listRows === "run" && runDetails && isLocal(environment) && (
                 <span className="acpmux-menu-description">{runDetails.local}</span>
+              )}
+              {/* An AutoCloud Mac says what it can build (RFD 0172 caps). */}
+              {list !== "devices" && environment.autoCloud && autoCloudCapLabels(environment).length > 0 && (
+                <span className="acpmux-menu-description" data-autocloud-caps="">
+                  {autoCloudCapLabels(environment).join(" · ")}
+                </span>
               )}
               {/* Other devices' rows say how each connects, in the words the search matches. */}
               {list === "devices" && (
