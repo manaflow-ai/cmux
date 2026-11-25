@@ -23,7 +23,7 @@ describe("uniqueById", () => {
 
 describe("queueSummary", () => {
   test("names what the list holds, never a bare count", () => {
-    const t = (key: string, vars?: Record<string, unknown>) => `${key}:${vars?.n}`;
+    const t = (key: string, vars?: Record<string, unknown>) => `${key}:${String(vars?.n)}`;
     expect(queueSummary(5, t as never)).toBe("composer.queueSummary:5");
   });
 });
