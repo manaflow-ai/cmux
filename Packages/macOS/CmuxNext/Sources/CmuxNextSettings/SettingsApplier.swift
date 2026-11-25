@@ -145,6 +145,7 @@ public final class SettingsApplier {
         }
 
         design.setPaneChrome(snapshot.paneChrome)
+        Self.applyMenuLook(snapshot, to: design)
         // `experiments.menuStyleV2` for the right-click NSMenu (CmuxNextActions reads no DesignSettings).
         let menuStyleV2 = design.experiment("menuStyleV2")
         if registry.contextMenuStyleV2 != menuStyleV2 { registry.contextMenuStyleV2 = menuStyleV2 }
