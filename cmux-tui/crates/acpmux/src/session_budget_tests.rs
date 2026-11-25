@@ -62,10 +62,14 @@ fn disk_defaults_to_the_lane_share_else_a_tenth_of_home_clamped() {
     let no_lanes = Host { disk_total: 247 * GIB, ..Host::default() };
     assert_eq!(disk_default(&no_lanes), 247 * GIB / 10);
     assert_eq!(disk_default(&Host { disk_total: 2000 * GIB, ..Host::default() }), 64 * GIB);
-    assert_eq!(disk_default(&Host { disk_total: 10 * GIB, ..Host::default() }), 2 * GIB);
-    // Unknown disk: still the floor, never more than the disk when it is known.
-    assert_eq!(disk_default(&Host::default()), 2 * GIB);
-    assert_eq!(disk_default(&Host { disk_total: GIB, ..Host::default() }), GIB);
+    // A Cloud VM's disk: room for a blobless cmux clone (1.3 GiB) and a build of it.
+    assert_eq!(disk_default(&Host { disk_total: 30 * GIB, ..Host::default() }), DISK_FLOOR);
+    assert_eq!(disk_default(&Host { disk_total: 100 * GIB, ..Host::default() }), 10 * GIB);
+    // A small disk: half of it, never the whole disk to one session.
+    assert_eq!(disk_default(&Host { disk_total: 10 * GIB, ..Host::default() }), 5 * GIB);
+    assert_eq!(disk_default(&Host { disk_total: GIB, ..Host::default() }), GIB / 2);
+    // Unknown disk: the floor.
+    assert_eq!(disk_default(&Host::default()), DISK_FLOOR);
 }
 
 #[test]

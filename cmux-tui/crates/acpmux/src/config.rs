@@ -1327,7 +1327,7 @@ pub struct SessionResourceConfig {
     pub lanes: Option<u64>,
     /// `diskMb`: each session's disk budget in MiB, which the daemon's watcher measures
     /// (`hub/session_budget_watch.rs`); 0 is off. Unset: `ACPMUX_SESSION_DISK_MB`, else the
-    /// registry's `lanes.disk_per_lane_gb`, else a tenth of the home filesystem (2 to 64 GiB).
+    /// registry's `lanes.disk_per_lane_gb`, else a tenth of the home filesystem (8 to 64 GiB, at most half).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disk_mb: Option<u64>,
     /// `cpuClass`: the CPU class a macOS session's harness runs at once its

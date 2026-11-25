@@ -34,7 +34,8 @@
 //!   on, and a 100 MB/s cap took the neighbor's fsync p99 from 231-336 ms to 779-859 ms. The disk
 //!   watcher (`hub/session_budget_watch.rs`) is the session's disk limit.
 //! - disk: `ACPMUX_SESSION_DISK_MB` / `session.diskMb`, default this host's registry
-//!   `lanes.disk_per_lane_gb`, else a tenth of the home filesystem between 2 and 64 GiB. The
+//!   `lanes.disk_per_lane_gb`, else a tenth of the home filesystem between 8 and 64 GiB (at most
+//!   half of it). The
 //!   kernel has no per-scope disk limit here, so `hub/session_budget_watch.rs` measures it.
 //! - store: what a chat keeps in acpmux's own store (its event log and background output),
 //!   `ACPMUX_SESSION_STORE_MB`, default an eighth of the disk budget (`session_store.rs`).
@@ -204,12 +205,20 @@ pub(crate) fn memory_default(host: &Host) -> u64 {
     }
 }
 
-/// A session's default disk budget on `host` (0: unknown).
+/// The least disk budget a session gets by default, from a tenth of the disk: a repository and
+/// a build of it. A blobless clone of manaflow-ai/cmux alone is 1.3 GiB, so the old 2 GiB floor
+/// sank a Cloud chat that cloned it (the AutoCloud Claude proof, 2026-11-25).
+pub(crate) const DISK_FLOOR: u64 = 8 * GIB;
+
+/// A session's default disk budget on `host` (0: unknown): the registry's lane share, else a
+/// tenth of the disk between [`DISK_FLOOR`] and 64 GiB, never more than half a known disk (a
+/// floor that would let one session fill a small machine).
 pub(crate) fn disk_default(host: &Host) -> u64 {
-    host.disk_per_lane
-        .filter(|n| *n > 0)
-        .unwrap_or_else(|| (host.disk_total / 10).clamp(2 * GIB, 64 * GIB))
-        .min(if host.disk_total > 0 { host.disk_total } else { u64::MAX })
+    if let Some(share) = host.disk_per_lane.filter(|n| *n > 0) {
+        return share.min(if host.disk_total > 0 { host.disk_total } else { u64::MAX });
+    }
+    let tenth = (host.disk_total / 10).clamp(DISK_FLOOR, 64 * GIB);
+    if host.disk_total > 0 { tenth.min(host.disk_total / 2) } else { tenth }
 }
 
 impl Budget {
