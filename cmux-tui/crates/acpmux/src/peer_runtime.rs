@@ -419,61 +419,68 @@ impl Peer {
     /// the remote daemon's peer token of this launch (configured, else none
     /// when the remote has none: an older daemon serves this one as Web),
     /// read over the same ssh access at each connect.
+    /// One of the host's ssh logins in flight (`peer_ssh_logins.rs`); inside the link's ssh dial
+    /// it shares the dial's.
     pub(super) async fn remote_tokens(&self) -> Result<(String, Option<String>), String> {
-        let (host, _) = self.ssh_parts().ok_or_else(|| "not an ssh peer".to_owned())?;
-        if let (Some(t), Some(p)) = (&self.token, &self.peer_token) {
-            return Ok((t.clone(), Some(p.clone())));
-        }
-        let mut child = self
-            .ssh_command()
-            .args(read_config_argv(&host, self.ssh_connect_secs()))
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|e| format!("read remote config: {e}"))?;
-        let errors = ssh_errors::Capture::start(child.stderr.take());
-        let read = tokio::time::timeout(self.timings.connect, child.wait_with_output());
-        // A stop ends the read (its ssh is killed on drop), so no tunnel follows it.
-        let out = tokio::select! {
-            out = read => out,
-            _ = self.stop_signal.notified() => {
-                // Put the permit back for `run` and `serve`, which wait on it too.
-                self.stop_signal.notify_one();
-                return Err("peer stopped".to_owned());
+        self.ssh_login(async {
+            let (host, _) = self.ssh_parts().ok_or_else(|| "not an ssh peer".to_owned())?;
+            if let (Some(t), Some(p)) = (&self.token, &self.peer_token) {
+                return Ok((t.clone(), Some(p.clone())));
             }
-        };
-        let out = out
-            .map_err(|_| {
-                format!(
-                    "reading the remote config timed out after {}s",
-                    self.timings.connect.as_secs()
-                )
-            })?
-            .map_err(|e| format!("read remote config: {e}"))?;
-        // The read ends with the token `cat`, which fails when there is no
-        // token: only an empty answer is a failed ssh.
-        if out.stdout.is_empty() && !out.status.success() {
-            let reason = errors.finish().await;
-            self.note_ssh_failure(reason);
-            return Err(ssh_errors::describe(
-                format!("ssh to {host} failed ({})", out.status),
-                reason,
-            ));
-        }
-        let (config, peer) = split_remote_read(&out.stdout);
-        let peer = self.peer_token.clone().or(peer);
-        if let Some(t) = &self.token {
-            return Ok((t.clone(), peer));
-        }
-        let remote = remote_daemon_config(config).map_err(|why| match why {
-            RemoteConfigError::Unreadable => {
-                format!("remote {host} has no readable {REMOTE_ACPMUX_CONFIG_PATH}")
+            let mut child = self
+                .ssh_command()
+                .args(read_config_argv(&host, self.ssh_connect_secs()))
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .kill_on_drop(true)
+                .spawn()
+                .map_err(|e| format!("read remote config: {e}"))?;
+            let errors = ssh_errors::Capture::start(child.stderr.take());
+            let read = tokio::time::timeout(self.timings.connect, child.wait_with_output());
+            // A stop ends the read (its ssh is killed on drop), so no tunnel follows it.
+            let out = tokio::select! {
+                out = read => out,
+                _ = self.stop_signal.notified() => {
+                    // Put the permit back for `run` and `serve`, which wait on it too.
+                    self.stop_signal.notify_one();
+                    return Err("peer stopped".to_owned());
+                }
+            };
+            let out = out
+                .map_err(|_| {
+                    format!(
+                        "reading the remote config timed out after {}s",
+                        self.timings.connect.as_secs()
+                    )
+                })?
+                .map_err(|e| format!("read remote config: {e}"))?;
+            // The read ends with the token `cat`, which fails when there is no
+            // token: only an empty answer is a failed ssh.
+            if out.stdout.is_empty() && !out.status.success() {
+                let reason = errors.finish().await;
+                self.note_ssh_failure(reason);
+                return Err(ssh_errors::describe(
+                    format!("ssh to {host} failed ({})", out.status),
+                    reason,
+                ));
             }
-            RemoteConfigError::NoToken => format!("remote {host} config has no websocket token"),
-        })?;
-        Ok((remote.token, peer))
+            let (config, peer) = split_remote_read(&out.stdout);
+            let peer = self.peer_token.clone().or(peer);
+            if let Some(t) = &self.token {
+                return Ok((t.clone(), peer));
+            }
+            let remote = remote_daemon_config(config).map_err(|why| match why {
+                RemoteConfigError::Unreadable => {
+                    format!("remote {host} has no readable {REMOTE_ACPMUX_CONFIG_PATH}")
+                }
+                RemoteConfigError::NoToken => {
+                    format!("remote {host} config has no websocket token")
+                }
+            })?;
+            Ok((remote.token, peer))
+        })
+        .await
     }
 
     /// `remote_tokens`, read again (`TOKEN_REREADS`) while the remote has

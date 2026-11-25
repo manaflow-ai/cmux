@@ -137,6 +137,28 @@ impl DialGate {
         Slots::take(&self.slots, wanted).await.map(|slot| slot.entered(entered))
     }
 
+    /// Run `work` holding one slot, with no burst and no spread: a free slot at once, else the
+    /// next one given back (wanted first). The slot goes back when `work` ends or after the
+    /// gate's hold, whichever is first; `work` runs to its end either way.
+    pub async fn hold<F: std::future::Future>(&self, wanted: bool, work: F) -> F::Output {
+        let slot = match Slots::try_take(&self.slots) {
+            Some(slot) => Some(slot),
+            None => {
+                self.waited.fetch_add(1, Ordering::Relaxed);
+                Slots::take(&self.slots, wanted).await
+            }
+        };
+        let mut slot = Some(slot);
+        let hold = tokio::time::sleep(self.hold);
+        tokio::pin!(work, hold);
+        loop {
+            tokio::select! {
+                out = &mut work => return out,
+                () = &mut hold, if slot.is_some() => slot = None,
+            }
+        }
+    }
+
     /// Dials holding a slot now.
     pub fn in_flight(&self) -> usize {
         self.size.saturating_sub(self.slots.lock().free)
