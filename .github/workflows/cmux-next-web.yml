@@ -159,6 +159,14 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
+            scripts/ci/toolchain-r2.sh
+            scripts/ci/toolchain-archives.sha256
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
+            scripts/ci/toolchain-r2.sh
+            scripts/ci/toolchain-archives.sha256
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
           # The bisector reads the reconciler's read-only last-known-green ref below.
           # Credentials stay disabled; the read step scopes its token to one fetch.
           persist-credentials: false
@@ -199,6 +207,11 @@ jobs:
           python3 scripts/ci/webviews_test_history.py fetch "$RUNNER_TEMP/webviews-test-history/history.json" \
             --repo "$GITHUB_REPOSITORY" --branch "$BRANCH"
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -208,6 +221,8 @@ jobs:
       # Saved only on feat-cmux-next, whose scope every ref reads; a hand dispatch on another ref (tick=true) only
       # restores, so it adds no copy that only that ref reads again (handbook run-scoped-cache-key-evicts-the-store).
       - name: Cache Bun package cache
+        timeout-minutes: 3
+        continue-on-error: true
         if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -215,6 +230,8 @@ jobs:
           key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
+        timeout-minutes: 5
+        continue-on-error: true
         if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -235,7 +252,13 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
 
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+
       - name: Setup Node
+        timeout-minutes: 5
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
