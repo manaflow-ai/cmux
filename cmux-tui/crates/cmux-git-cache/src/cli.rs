@@ -85,11 +85,9 @@ pub async fn serve(opts: Serve) -> Result<(), String> {
         opts.cfg.peers.len()
     );
     let shutdown = async {
-        let mut term =
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).ok();
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {}
-            _ = async { match term.as_mut() { Some(t) => { t.recv().await; } None => std::future::pending().await } } => {}
+            () = terminated() => {}
         }
     };
     let result = axum::serve(listener, app(state))
@@ -103,6 +101,22 @@ pub async fn serve(opts: Serve) -> Result<(), String> {
         crate::crates::remove_cargo_config(path);
     }
     result
+}
+
+/// SIGTERM, on Unix; elsewhere (Windows) only Ctrl-C stops the server, so this never resolves.
+#[cfg(unix)]
+async fn terminated() {
+    match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+        Ok(mut term) => {
+            term.recv().await;
+        }
+        Err(_) => std::future::pending().await,
+    }
+}
+
+#[cfg(not(unix))]
+async fn terminated() {
+    std::future::pending::<()>().await;
 }
 
 /// Entry for `cmux host git-cache <args>`.
