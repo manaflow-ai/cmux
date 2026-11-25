@@ -263,6 +263,7 @@ private struct BannerHost: View {
                 Group {
                     if let chip = state.chip {
                         ConnectionChip(chip, downSince: downSince ?? ConnectionChip.justDropped, retry: state.offersRetry ? retry.map { action -> @MainActor () async -> Void in { action() } } : nil)
+                            .placeholderBound("status.connection.chip", .milliseconds(0))
                     } else {
                         ConnectionBanner(state, retry: retry)
                     }

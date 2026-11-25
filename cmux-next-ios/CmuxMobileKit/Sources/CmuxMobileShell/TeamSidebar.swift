@@ -37,6 +37,7 @@ struct TeamSidebar: View {
                         CmuxSpinner(label: Text("Loading teams…"))
                             .padding(.horizontal, theme.metrics.sideMargin)
                             .padding(.vertical, 8)
+                            .placeholderBound("teams.loading", .milliseconds(2000))
                             .accessibilityIdentifier("sidebar.teams.loading")
                     } else if store.teams.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {

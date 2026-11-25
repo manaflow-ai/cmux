@@ -394,7 +394,7 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         session.chatsError = "acpmux channel closed"
         session.daemonError = "list-workspaces reply is not an object"
         live.phaseChanged(session)
-        #expect(store.macLinkStatus["m1"] == "Connected")
+        #expect(store.macLinkStatus["m1"] == nil, "a connected Mac says nothing in its header")
         #expect(store.macLinkDiagnostics["m1"]?.contains("acpmux channel closed") == true)
         #expect(store.macLinkDiagnostics["m1"]?.contains("list-workspaces reply is not an object") == true)
 

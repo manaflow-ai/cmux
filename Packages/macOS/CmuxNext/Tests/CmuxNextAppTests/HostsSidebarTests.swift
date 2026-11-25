@@ -68,16 +68,17 @@ struct HostsSidebarTests {
                         Self.machine("resuming", "Waking", connected: false, connecting: true, state: .resuming, kind: .cloud),
                         Self.machine("failed", "Broken", connected: false, state: .failed, kind: .server)]
         let rows = HostsSidebar.rows(machines: machines, expanded: true)
-        #expect(rows.dropFirst().map(\.info.caption) == ["Add Host…", "Connecting…", "Offline", "Resuming…", "Failed"])
-        #expect(rows.first { $0.item.id.rawValue.hasSuffix("connecting") }?.info.activity == .working)
-        #expect(rows.first { $0.item.id.rawValue.hasSuffix("offline") }?.info.isMissing == true)
+        #expect(rows.dropFirst().map(\.info.caption) == ["Add Host…", nil, "Offline", "Resuming…", "Failed"])
+        #expect(rows.first { $0.item.id.rawValue.hasSuffix("connecting") }?.info.activity == .idle)
+        #expect(rows.first { $0.item.id.rawValue.hasSuffix("offline") }?.info.isMissing == false)
     }
 
     /// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up". A machine's row said
     /// "Connecting…" with a spinner from the first frame of every launch connect and redial, with nothing to press
     /// and no bound. It now says nothing for ``NoticeTiming/connectionQuiet``; a connect that lasts says so, and a
-    /// resume the person started still says "Resuming…" at once.
-    @Test func aConnectSaysNothingUntilItLastsTheBound() async throws {
+    /// resume the person started still says "Resuming…" at once. Leo, 2026-11-24: "let's just keep
+    /// optimistically connecting": a connect that lasts says nothing either.
+    @Test func aConnectSaysNothingEvenPastTheBound() async throws {
         let machines = [Self.machine("connecting", "Joining", connected: false, connecting: true),
                         Self.machine("resuming", "Waking", connected: false, connecting: true, state: .resuming, kind: .cloud)]
         let quiet = HostsSidebar(host: .init(rows: { machines }, add: {}, openConnected: { _ in }, openJoined: { _ in }))
@@ -91,13 +92,9 @@ struct HostsSidebarTests {
                                    connectQuiet: .milliseconds(1))
         defer { lasting.stop() }
         _ = lasting.rows()
-        var said: SidebarTransientItem?
-        for _ in 0..<200 {
-            said = lasting.rows().first { $0.item.id.rawValue.hasSuffix("connecting") }
-            if said?.info.caption == "Connecting…" { break }
-            try await Task.sleep(for: .milliseconds(5)) // wakeup-allow: bounded test wait for the 1 ms hold
-        }
-        #expect(said?.info.caption == "Connecting…" && said?.info.activity == .working, "a connect that lasts says so")
+        try await Task.sleep(for: .milliseconds(50)) // wakeup-allow: bounded test wait past the 1 ms hold
+        let said = lasting.rows().first { $0.item.id.rawValue.hasSuffix("connecting") }
+        #expect(said?.info.caption == nil && said?.info.activity == .idle, "a connect that lasts still says nothing")
     }
 
     @Test func addAndHostClicksUseTheSharedMachineRows() throws {

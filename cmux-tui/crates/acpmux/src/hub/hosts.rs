@@ -653,12 +653,12 @@ impl Hub {
     }
 
     pub(super) fn session_by_id(&self, id: &str) -> Option<Arc<Session>> {
-        self.sessions.lock().unwrap().get(id).cloned()
+        self.session_get(id)
     }
 
     pub(super) fn mark_unadoptable(&self, session: &Arc<Session>, detail: Value) {
         self.append(session, "mux", "host_unadoptable", detail);
-        self.set_status(session, SessionStatus::Disconnected);
+        self.set_status(session, NotWaiting::Disconnected);
         self.save_meta(session);
     }
 
@@ -755,7 +755,7 @@ impl Hub {
             record,
             resume_after,
             Vec::new(),
-            session.inbound_tx.clone(),
+            session.inbound_tx().clone(),
             tap,
         )
         .await?;
@@ -787,7 +787,11 @@ impl Hub {
         // back from the agent's own env, so its next start runs on it again (`agent_credentials.rs`).
         // Not from an agent that already exited: its host was reaped, so its pid may now be
         // another agent's (another session's credential on this one).
-        if adopted.exited.is_none() {
+        // The host's own word comes first: it launched the agent, so it says the credential even
+        // when the agent's env no longer shows it (cmux#52399).
+        if !self.hold_launch_credential(session, &adopted.launch_credential.0)
+            && adopted.exited.is_none()
+        {
             self.recover_credential(session, adopted.harness_pid);
         }
         let proven = self.adopt_caller_token(&session.id, caller_token, &incarnation);
@@ -894,9 +898,10 @@ impl Hub {
         // that an answer takes.
         if session.status_changes.load(Ordering::SeqCst) == changes && session.turn().is_none() {
             let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
-            let asking = !state.pending.is_empty() || self.secrets.waiting_in(&session.id);
-            let status = if asking { SessionStatus::Waiting } else { SessionStatus::Ready };
-            self.set_status(session, status);
+            match self.open_ask(session, &state) {
+                Some(reason) => self.set_waiting(session, reason),
+                None => self.set_status(session, super::NotWaiting::Ready),
+            }
             drop(state);
         }
         self.restart_unproven(session, proven);
@@ -1022,7 +1027,7 @@ impl Hub {
                     *session.open_tools.lock().unwrap_or_else(|e| e.into_inner()) =
                         work.open_tools.clone();
                     self.watch_stalled_turn(session, Some(work.heard_at.max(started_at)));
-                    self.set_status(session, SessionStatus::Running);
+                    self.set_status(session, NotWaiting::Running);
                     // Its cap counts from its start, as logged (`turn_cap.rs`).
                     self.arm_turn_cap(session, &turn_id);
                     // The answer is either logged already, or still to come
@@ -1352,7 +1357,7 @@ impl Hub {
                    "personInstance": self.person.instance(), "request": request.clone(),
                    "agentRequestId": agent_request_id.clone()}),
         );
-        self.set_status(session, SessionStatus::Waiting);
+        self.set_waiting(session, super::WaitReason::of_request(&request));
         // A chat restored as Waiting changes no status here, so its parent's count of asks below
         // is decided now: a new daemon starts every count at none (`asks_below.rs`).
         self.refresh_parent_asks_below(session);
@@ -1372,17 +1377,13 @@ impl Hub {
             hub.append(&s, "mux", "permission_decision", decision);
             {
                 let state = s.permissions.lock().unwrap_or_else(|e| e.into_inner());
-                if state.pending.is_empty()
-                    && s.status() == SessionStatus::Waiting
-                    && !hub.secrets.waiting_in(&s.id)
-                {
-                    let next = if s.turn().is_some() {
-                        SessionStatus::Running
+                hub.settle_after_ask(&s, &state, || {
+                    if s.turn().is_some() {
+                        super::NotWaiting::Running
                     } else {
-                        SessionStatus::Ready
-                    };
-                    hub.set_status(&s, next);
-                }
+                        super::NotWaiting::Ready
+                    }
+                });
             }
             // An ancestor's answer: written under its fence (`subsession_answer.rs`).
             let fence = hub.answer_fences.lock().unwrap().remove(&permission_id);
@@ -1726,7 +1727,7 @@ impl Hub {
             record.clone(),
             0,
             Vec::new(),
-            session.inbound_tx.clone(),
+            session.inbound_tx().clone(),
             tap,
         )
         .await;

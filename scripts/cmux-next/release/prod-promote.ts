@@ -328,16 +328,34 @@ const runVerdict = async (run: { id: number; head_sha: string }): Promise<Stagin
   return { sha: run.head_sha, at: Date.parse(job.completed_at), green: job.conclusion === "success" && smoke?.conclusion === "success" && passed("test") && passed("migrations-push-guard") }
 }
 
-/** One GitHub GraphQL query with the job's token. GraphQL has its own hour, apart from the REST hour every workflow spends. */
-export const ghGraphql = async (query: string, variables: Record<string, unknown>): Promise<any> => {
+/**
+ * One GitHub GraphQL query with the job's token. GraphQL has its own hour, apart from the REST hour every workflow spends.
+ * A query reads only, so a 5xx, a network error or an answer with errors and no data is retried after DELAYS: on
+ * 2026-11-24 14:27Z the REST hour was spent 25 minutes before its reset, and the fallback's one 502 (then an empty
+ * error) failed promote-gates, so production waited for the next backend push instead of the next try.
+ */
+export const ghGraphql = async (query: string, variables: Record<string, unknown>, delays: ReadonlyArray<number> = GH_RETRY_DELAYS_MS): Promise<any> => {
   const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN
   if (!token) throw new Error("GITHUB_TOKEN is not set")
-  const r = await fetch("https://api.github.com/graphql", {
-    method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ query, variables }),
-  })
-  const body = (await r.json().catch(() => null)) as { data?: any; errors?: Array<{ message?: string }> } | null
-  if (!r.ok || !body?.data || body.errors?.length) throw new Error(`GitHub GraphQL: HTTP ${r.status} ${(body?.errors ?? []).map((e) => e.message).join("; ").slice(0, 300)}`)
-  return body.data
+  for (let attempt = 0; ; attempt++) {
+    let failure: Error
+    let retryable = true
+    try {
+      const r = await fetch("https://api.github.com/graphql", {
+        method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ query, variables }),
+      })
+      const body = (await r.json().catch(() => null)) as { data?: any; errors?: Array<{ message?: string; type?: string }> } | null
+      if (r.ok && body?.data && !body.errors?.length) return body.data
+      failure = new Error(`GitHub GraphQL: HTTP ${r.status} ${(body?.errors ?? []).map((e) => (e.type ? `${e.type}: ${e.message}` : e.message)).join("; ").slice(0, 300)}`)
+      // A 4xx other than a rate limit (a bad query, a permission) answers the same on every try.
+      retryable = !(r.status >= 400 && r.status < 500 && r.status !== 403 && r.status !== 429)
+    } catch (e) {
+      failure = e instanceof Error ? e : new Error(String(e))
+    }
+    if (!retryable || attempt >= delays.length) throw failure
+    console.error(`prod-promote: ${failure.message.trim()}; retrying in ${Math.round(delays[attempt]! / 1000)} s`)
+    await new Promise((done) => setTimeout(done, delays[attempt]!))
+  }
 }
 
 /** backend.yml's workflow node (GET /repos/manaflow-ai/cmux/actions/workflows/backend.yml .node_id; fixed while the file keeps its name). */

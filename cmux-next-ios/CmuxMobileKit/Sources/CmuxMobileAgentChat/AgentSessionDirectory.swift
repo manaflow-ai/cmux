@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxSpinner
 import SwiftUI
@@ -144,6 +145,9 @@ public struct AgentChatDestinationView: View {
     @State private var remembered = Remembered()
     /// The tab stayed missing on a connected Mac past the grace: it closed.
     @State private var confirmedClosed = false
+    /// The loading state's words wait out ``QuietStatusGate/threshold``: a cold open usually
+    /// lands first, with only the spinner shown (iOS release bar read-back, 2026-11-22, shot 14).
+    @State private var loadingWords = QuietStatusGate()
 
     private var current: (workspace: Workspace, tab: WorkspaceTab)? {
         guard let workspace = appStore.workspaces.first(where: { $0.id == destination.workspaceID }),
@@ -167,9 +171,22 @@ public struct AgentChatDestinationView: View {
         } else if isLoading {
             // The workspaces are still on their way (a cold open from a notification): the
             // chat loads, it is not "closed".
-            CmuxSpinner(label: Text("Loading chat…"))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .accessibilityIdentifier("agentChat.destination.loading")
+            VStack(spacing: 12) {
+                CmuxSpinner()
+                // Keeps its room while hidden, so the spinner never moves when it shows.
+                Text("Loading chat…")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .opacity(loadingWords.isShown ? 1 : 0)
+                    .animation(.cmuxMobileSmooth.unlessReduceMotion, value: loadingWords.isShown)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text("Loading chat…"))
+            .accessibilityIdentifier("agentChat.destination.loading")
+            .placeholderBound("chat.destination.loading", .milliseconds(2000))
+            .onAppear { loadingWords.update(down: true) }
+            .onDisappear { loadingWords.update(down: false) }
         } else {
             ContentUnavailableView("Tab closed", systemImage: "sparkle", description: Text("This agent tab is no longer open."))
         }

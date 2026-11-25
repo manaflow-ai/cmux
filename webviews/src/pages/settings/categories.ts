@@ -43,6 +43,7 @@ export const CATEGORY_CARDS = [
   "extensions",
   "contextMenus",
   "sharedLinks",
+  "archivedWorkspaces",
   "customizeLibrary",
   "customizeChecklist",
   "tailnet",
