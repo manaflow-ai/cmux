@@ -162,7 +162,10 @@ impl<C: AutoCloud + 'static> Loop<C> {
             Command::Listed { result } => self.listed(result).await,
             Command::Assigned(assignment) => self.assigned(*assignment).await,
             Command::Away { id, post, reply } => self.away(&id, post, reply),
-            Command::Copied { id, copy, result } => self.copied(&id, copy, result).await,
+            Command::Copied { id, copy, result } => {
+                self.copied(&id, copy, result).await;
+                self.leave_when_home(&id).await;
+            }
             Command::Imported { id, epoch, result } => self.imported(&id, epoch, result).await,
             Command::Leftover { id, result } => self.leftover_written(&id, result),
             Command::Registered { id, request, result } => {
@@ -171,6 +174,14 @@ impl<C: AutoCloud + 'static> Loop<C> {
             Command::Closed { id, result } => self.closed(&id, result).await,
             Command::Kept { id, result, reply } => self.kept(&id, result, reply),
             Command::LaneDone { id, drained } => self.lane_done(&id, drained),
+            Command::TurnStopped { id, stop, needs_run } => {
+                self.turn_stopped(&id, stop, needs_run).await;
+            }
+            Command::Move { id, to, reply } => self.move_chat(&id, to, false, reply),
+            Command::Local { id, reply } => self.go_local(&id, reply).await,
+            Command::Moved { id, to, leave, result, reply } => {
+                self.moved(&id, (to, leave), result, reply).await;
+            }
         }
     }
 
@@ -203,6 +214,8 @@ impl<C: AutoCloud + 'static> Loop<C> {
             self.effect(id, session.as_ref(), effect).await;
         }
         self.sync(id);
+        // The turn a give stopped goes on here when the chat stayed, ahead of the inbox.
+        self.carried_settles(id);
         // A chat that may run here again takes what the Cloud holds for it and what an
         // earlier drain still owes it. The drain's end reads its work, which copies it.
         if !before.may_run() && chat.may_run() && chat.here() {

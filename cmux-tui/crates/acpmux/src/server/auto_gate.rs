@@ -1,12 +1,13 @@
 //! Who may call the daemon's Auto methods (`auto_session/surface.rs`).
 //!
-//! The chat's own machine switches Auto and settles its kept changes, so none of the three is
-//! served to a remote connection or a peer. On this machine they are the person's:
+//! The chat's own machine switches Auto, moves the chat and settles its kept changes, so none of
+//! the four is served to a remote connection or a peer. On this machine they are the person's:
 //!
 //! - `set` copies the chat and its folder to the Cloud (the setting is the person's to turn on),
-//!   and `leftover` with `apply` or `discard` changes the folder or deletes the kept changes. Both
-//!   need the person: the app's pane, a connection that proved it is the person, or the local
-//!   socket with no agent behind it. This is the line `_acpmux/set_turn_cap` draws.
+//!   `move` stops the chat's turn and changes the machine it runs on, and `leftover` with `apply`
+//!   or `discard` changes the folder or deletes the kept changes. All three need the person: the
+//!   app's pane, a connection that proved it is the person, or the local socket with no agent
+//!   behind it. This is the line `_acpmux/set_turn_cap` draws.
 //! - `wake` stops every Auto chat's processes until the store answers, so an agent's connection
 //!   never sends it.
 //! - `leftover` with `show` only reads, and any local connection may.
@@ -17,6 +18,7 @@ use serde_json::Value;
 
 use super::requests::person_asks;
 use super::{Conn, Origin, session_key};
+use crate::auto_session::surface::Ask;
 use crate::hub::Hub;
 use crate::rpc::{RpcError, method};
 
@@ -26,7 +28,7 @@ fn persons(conn: &Conn) -> bool {
     person_asks(conn) || (conn.origin == Origin::Local && !conn.agent_side())
 }
 
-/// One of `_acpmux/auto_session/set`, `leftover` and `wake`, for `conn`.
+/// One of `_acpmux/auto_session/set`, `move`, `leftover` and `wake`, for `conn`.
 pub(super) async fn request(
     hub: &Arc<Hub>,
     conn: &Conn,
@@ -44,12 +46,16 @@ pub(super) async fn request(
         }
         return Ok(crate::auto_session::surface::wake(hub));
     }
-    let set = m == method::MUX_AUTO_SESSION_SET;
-    let reads = !set && params.get("action").and_then(Value::as_str) == Some("show");
+    let (ask, what) = match m {
+        method::MUX_AUTO_SESSION_SET => (Ask::Set, "switching Auto mode"),
+        method::MUX_AUTO_SESSION_MOVE => (Ask::Move, "moving a chat"),
+        _ => (Ask::Leftover, "settling a chat's kept changes"),
+    };
+    let reads =
+        ask == Ask::Leftover && params.get("action").and_then(Value::as_str) == Some("show");
     if !reads && !persons(conn) {
-        let what = if set { "switching Auto mode" } else { "settling a chat's kept changes" };
         return Err(conn.person_only(what));
     }
     let s = hub.resolve(session_key(params)?)?;
-    crate::auto_session::surface::chat(hub, &s, params, set).await
+    crate::auto_session::surface::chat(hub, &s, params, ask).await
 }
