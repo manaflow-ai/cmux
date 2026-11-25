@@ -101,6 +101,7 @@ pub mod deps;
 pub mod desktop_bridge;
 pub mod desktop_link;
 pub mod directory_input;
+pub mod disk_evict;
 pub mod disk_usage;
 pub(crate) mod disk_writer;
 pub mod folder_instructions;
