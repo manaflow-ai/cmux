@@ -3232,6 +3232,15 @@ body {
     mask-image: linear-gradient(90deg, transparent 0%, #000 20% 30%, transparent 50% 100%);
     transform: translateX(-50%);
   }
+  /* Between passes the band rests left of the words (its stripe at 20-30% of a layer moved back by half
+     its own width) and paints nothing, but that rest offset is a share of the line's width: a status change
+     mid-turn ("Thinking" to "Read greeting.ts") moved its start point, and Chromium counted every such
+     change as a layout shift (snappy-bench mid-turn: 1.75 shifts per transition, all of them this band;
+     Leo, 2026-11-25: "when you press enter, the stuff should just start playing"). Hidden at rest, it is
+     out of the shift count; a pass (cadenced or continuous) shows it as before. */
+  :root:not([data-status-indicators="static"]) .cv-shimmer__band:not(.is-shimmer-active, .is-shimmer-continuous) {
+    visibility: hidden;
+  }
   /* A running call's own clock (RunningTime.tsx) sits after the words in the row, with no lit copy of
      its time: the band would span the row, so its lit words ran on under the clock and the clock drew
      over their cut end while the glimmer crossed (Leo, 2026-11-25: "when the glimmer happens ... there's
