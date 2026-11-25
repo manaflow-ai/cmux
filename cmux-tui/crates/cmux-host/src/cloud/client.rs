@@ -828,6 +828,20 @@ impl<H: Http> CloudClient<H> {
         self.post_as_install(super::github::TOKEN_PATH, &body, now_wall_ms)
     }
 
+    /// A short-lived Slack, Linear or VM-provider token for this machine's team.
+    /// The broker derives the team from this install and never accepts a caller-supplied team.
+    pub fn integration_token(
+        &mut self,
+        ask: &super::integration::TokenAsk,
+        now_wall_ms: u64,
+    ) -> Answer {
+        self.post_as_install(
+            &super::integration::path(&ask.provider),
+            &ask.api_body(&self.bound.team),
+            now_wall_ms,
+        )
+    }
+
     /// A hand-off report for one of this machine's sessions (`POST
     /// /v1/handoffs/<id>/report` as its `vm` install). The hand-off is named
     /// from the install's user and the session, as the store names it.

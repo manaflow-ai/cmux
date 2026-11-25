@@ -81,6 +81,7 @@ pub mod github_minter;
 pub mod github_repos;
 pub mod github_status;
 pub mod handoff;
+pub mod integration;
 pub mod machine_request;
 pub mod mcp_call;
 #[cfg(all(test, unix))]
@@ -111,6 +112,8 @@ pub mod workload;
 mod github_tests;
 #[cfg(all(test, unix))]
 mod handoff_tests;
+#[cfg(test)]
+mod integration_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
