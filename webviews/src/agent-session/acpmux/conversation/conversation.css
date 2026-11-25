@@ -26,7 +26,7 @@
      The tertiary ink (--agent-soft) is a mark ink held at 3:1: on a card it read 3.52:1 light, 3.94:1 dark. */
   --cv-text-dim: var(--agent-muted);
   /* Background activity follows Claude Code's secondary reading level. */
-  --cv-activity-text: color-mix(in srgb, var(--cv-fg) 58%, transparent);
+  --cv-activity-text: color-mix(in srgb, var(--cv-fg) var(--instrument-ink-tool-row, 58%), transparent);
   --cv-fg: var(--agent-text);
   --cv-rule: color-mix(in srgb, var(--cv-fg) 8%, transparent); /* #383934 */
   --cv-bubble: color-mix(in srgb, var(--cv-fg) 5%, transparent); /* #31322d */
@@ -8487,7 +8487,10 @@ a.cv-sha:focus-visible {
   -webkit-line-clamp: 3;
   line-clamp: 3;
   overflow: hidden;
-  padding: 2px 0 2px 8px;
+  /* Above and below is a transparent border, not padding: overflow clips at the padding edge, so padding would show
+     the top of a fourth line (Leo, 2026-11-23: "not show the sliver of the second line."). */
+  padding: 0 0 0 8px;
+  border-block: 2px solid transparent;
   border-left: 2px solid var(--agent-border);
   overflow-wrap: anywhere;
 }
@@ -8832,7 +8835,7 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   box-sizing: border-box;
   /* Small-radius rects, not capsules (agent-pane-no-capsules.test.ts). */
   border-radius: var(--ds-radius-control);
-  background: color-mix(in srgb, var(--acpmux-needs-you-mark) 16%, transparent);
+  background: color-mix(in srgb, var(--acpmux-needs-you-mark) var(--instrument-ink-pill, 16%), transparent);
   /* The words in the needs-you ink (the mark toward the text), not the raw mark on its own tint: the
      raw mark was 2.64:1 in light; the dot keeps the mark's hue. */
   color: var(--acpmux-needs-you-ink);
@@ -9200,12 +9203,30 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
    counts after it stay buttons of their own. */
 .cv-worked__toggle {
   all: unset;
+  display: inline-grid;
+  grid-template-columns: minmax(0, max-content);
+  align-items: center;
+  justify-items: start;
+  min-width: 0;
+  height: 100%;
+  cursor: default;
+}
+/* The label and its chevron, hugging (#55615), and an unseen copy of them at the widest time in the
+   same cell: the cell is as wide as the wider, so the slack while the seconds tick sits after the
+   chevron. test: WorkingForChevron.test.tsx, test/turn-header-steady-browser.test.ts. */
+.cv-worked__hug,
+.cv-worked__toggle-sizer {
+  grid-area: 1 / 1;
   display: inline-flex;
   align-items: center;
   gap: var(--grid-gap);
   min-width: 0;
-  height: 100%;
-  cursor: default;
+  max-width: 100%;
+}
+.cv-worked__toggle-sizer {
+  visibility: hidden;
+  overflow: hidden;
+  white-space: nowrap;
 }
 .cv-worked__toggle:is(:hover, :focus-visible) * {
   color: var(--cv-text);
