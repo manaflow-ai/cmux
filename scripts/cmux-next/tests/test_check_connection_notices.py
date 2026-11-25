@@ -466,21 +466,21 @@ class NativeShapes(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("GitHubStatus shows a connection state", out)
 
-    def test_a_button_component_the_unit_draws_is_an_action(self):
-        """A card that draws its own button component (GitHubConnectCard's `<ConnectButton onConnect=...>`, whose
-        onClick sits in ConnectButton's unit) carries the person's action; a component that is not a button does not."""
-        card = ('export function ConnectCard() {\n'
-                '  return <div><span>Reconnecting\u2026</span><ConnectButton onConnect={go} /></div>;\n}\n')
-        label = ('export function ReconnectRow() {\n'
-                 '  return <div><span>Reconnecting\u2026</span><ButtonLabel text="x" /></div>;\n}\n')
+    def test_a_web_button_component_is_an_action(self):
+        """The Connect GitHub card ("GitHub isn't connected for this repo") draws its own `<ConnectButton>` with the
+        tap handler inside it (GitHubConnectCard.tsx); the same line with no button component does not pass."""
+        button = ('export function ConnectCard() {\n'
+                  '  return <div>Reconnecting to GitHub<ConnectButton onConnect={go} /></div>;\n}\n')
+        bare = ('export function ConnectLine() {\n'
+                '  return <div>Reconnecting to GitHub<ConnectIcon /></div>;\n}\n')
         tree = Tree(self)
-        tree.write(f"{WEB}/ConnectCard.tsx", card)
+        tree.write(f"{WEB}/ConnectCard.tsx", button)
         code, out = tree.check()
         self.assertEqual(code, 0, out)
-        tree.write(f"{WEB}/ReconnectRow.tsx", label)
+        tree.write(f"{WEB}/ConnectLine.tsx", bare)
         code, out = tree.check()
         self.assertEqual(code, 1, out)
-        self.assertIn("ReconnectRow shows a connection state", out)
+        self.assertIn("ConnectLine shows a connection state", out)
 
     def test_a_scheduler_signature_is_not_a_run_action(self):
         """`run: () => void` is a timer's parameter type, not a row the person clicks."""
