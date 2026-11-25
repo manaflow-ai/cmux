@@ -28,6 +28,10 @@ public final class BrowserExternalApps {
     ]
     private static let defaultsKey = "CmuxNextBrowser.externalSchemes"
     private let defaults: UserDefaults
+    /// This app's own links a page hands back (GitHub's install redirect to `<scheme>://integration/complete`, the
+    /// Cloud sign-in callback): the app finishes them in place and answers true, so a page in cmux's own browser
+    /// never asks to open cmux, nor launches another cmux build that registered the same scheme. Set by the app.
+    public var ownLinks: (@MainActor (URL) -> Bool)?
 
     #if DEBUG
     /// The URLs a recording build would have opened, oldest first.
@@ -48,6 +52,7 @@ public final class BrowserExternalApps {
     /// prompt, including schemes that open immediately from a click.
     func open(_ url: URL, from page: URL?, engine: BrowserEngineKind = .webkit, userGesture: Bool,
               ask: (BrowserPromptKind, String, @escaping (BrowserPromptResponse) -> Void) -> Void) {
+        if ownLinks?(url) == true { return }
         guard let scheme = url.scheme?.lowercased(), let app = NSWorkspace.shared.urlForApplication(toOpen: url) else { return }
         // A non-gesture navigation can be a redirect whose source is the
         // previously committed page, so it cannot safely inherit that site's

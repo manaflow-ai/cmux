@@ -164,6 +164,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                    heldKeyReplay: { event, _, _ in NSApp.sendEvent(event) }, work: launchReads.work, mainWork: mainWork,
                                    launchImages: launchReads.images, relaunchWake: launchReads.wake, peerApprover: PeerApprovalsApp.approver())
         AppProcessRoot.shared.adopt(services)
+        // GitHub's install redirect (and the sign-in callback) reached in cmux's own browser: finished here, no "open cmux" prompt.
+        BrowserExternalApps.shared.ownLinks = { [auth = services.cloud.auth] in auth.finishOwnLink($0) }
         self.services = services; services.launchReveal.pages.bind(firstFrame) { DebugTimings.markLaunch($0) } // no page view before the first frame (startup-tti)
         services.home.ensure.ensuresAtLaunch = true // before the restore asks: the launch waits for Home, which may start after the first frame
         // Where each agent chat rests, beside the snapshot, so a relaunch reopens it there (cx-6bgzj).
@@ -547,12 +549,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.input.endRelaunchBehind("external open")
         let auth = services.cloud.auth // GitHub's install redirect handed back here: the app finishes it itself (#46018)
         guard !CloudGitHubCompletion.handle(url, auth: auth), OpenedURLRouting(isAuthCallback: { auth.isCallback($0) }, open: { services.externalOpen.open($0) }).route(url) == .auth else { return }
-        Task {
-            guard await !auth.handleCallback(url) else { return }
-            await auth.awaitRestored()
-            guard auth.signInFailed, !auth.isSignedIn, !auth.isSigningIn else { return }
-            try? services.settingsWindow.show(section: .accounts)
-        }
+        auth.finishOpenedCallback(url) { try? services.settingsWindow.show(section: .accounts) }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
