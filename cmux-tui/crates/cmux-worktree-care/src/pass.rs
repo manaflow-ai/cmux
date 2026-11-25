@@ -98,10 +98,37 @@ impl Report {
     }
 }
 
+/// A pass's scan: its report with every verdict (nothing acted on yet, but
+/// a prunable worktree's record pruned with `apply`) and what acting on an
+/// item needs.
+pub struct Scan {
+    pub report: Report,
+    repos: Vec<inventory::Repo>,
+    /// Per report item: the repository it belongs to.
+    slots: Vec<usize>,
+    pressure: Pressure,
+    finished: Arc<inventory::FinishedMemo>,
+    now: u64,
+}
+
 /// Runs one pass.
 pub fn run(options: &Options, store: &Store) -> Result<Report, String> {
     // Housekeeping: every git the pass starts yields to the person at the
     // machine (background CPU and disk priority), on this thread only.
+    let _background = cmux_git::run::background();
+    let mut scan = scan(options, store)?;
+    for index in 0..scan.report.items.len() {
+        if options.apply
+            && scan.report.items.get(index).is_some_and(|i| i.verdict.action != Action::Keep)
+        {
+            act_on(&mut scan, index, options, store);
+        }
+    }
+    finish(scan, options, store)
+}
+
+/// Reads every worktree and decides; acts on nothing.
+pub fn scan(options: &Options, store: &Store) -> Result<Scan, String> {
     let _background = cmux_git::run::background();
     // No process list, no action: a worktree some program uses could go.
     let processes = (options.uses)()?;
@@ -121,6 +148,8 @@ pub fn run(options: &Options, store: &Store) -> Result<Report, String> {
         errors: Vec::new(),
         expired: Vec::new(),
     };
+    let mut repos = Vec::new();
+    let mut slots = Vec::new();
     let now = now_ms();
     let finished = Arc::new(inventory::FinishedMemo::load(store.finished_path()));
     for common in repositories {
@@ -164,11 +193,7 @@ pub fn run(options: &Options, store: &Store) -> Result<Report, String> {
             let bytes = (options.measure && verdict.action != Action::Keep)
                 .then(|| measure(worktree, verdict.action, facts));
             report.reclaimable += bytes.unwrap_or(0);
-            let outcome = (options.apply && verdict.action != Action::Keep)
-                .then(|| outcome(act(&repo, &worktree.path, &verdict, options, pressure, store)));
-            if let Some(outcome) = &outcome {
-                report.freed += outcome.freed;
-            }
+            slots.push(repos.len());
             report.items.push(Item {
                 path: worktree.path.clone(),
                 repository: repo.main_root.clone().unwrap_or_else(|| repo.common_dir.clone()),
@@ -176,10 +201,30 @@ pub fn run(options: &Options, store: &Store) -> Result<Report, String> {
                 verdict,
                 facts: facts.cloned(),
                 bytes,
-                outcome,
+                outcome: None,
             });
         }
+        repos.push(repo);
     }
+    Ok(Scan { report, repos, slots, pressure, finished, now })
+}
+
+/// Acts on item `index` of a scan (see [`act`]), recording its outcome.
+pub fn act_on(scan: &mut Scan, index: usize, options: &Options, store: &Store) {
+    let Some(item) = scan.report.items.get(index) else { return };
+    let Some(repo) = scan.slots.get(index).and_then(|slot| scan.repos.get(*slot)) else { return };
+    let result = act(repo, &item.path, &item.verdict, options, scan.pressure, store);
+    let done = outcome(result);
+    scan.report.freed += done.freed;
+    if let Some(item) = scan.report.items.get_mut(index) {
+        item.outcome = Some(done);
+    }
+}
+
+/// Ends a scan: remembers what it learned and, for a pass over every
+/// worktree that acted, drops the archives past their age.
+pub fn finish(scan: Scan, options: &Options, store: &Store) -> Result<Report, String> {
+    let Scan { mut report, finished, now, .. } = scan;
     finished.flush();
     if options.apply && options.only.is_empty() {
         let keep = options.settings.keep_archive_days * 24 * 60 * 60 * 1000;

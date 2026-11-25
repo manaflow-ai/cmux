@@ -271,6 +271,7 @@ pub mod fleet_elastic;
 pub mod place_mode;
 pub mod placement;
 // `acpmux machine cells`: lane hosts against their caps and the registry (RFD 0181 B2).
+pub mod care_machine;
 pub mod cell_report;
 pub mod plan_build_records;
 #[cfg(not(unix))]

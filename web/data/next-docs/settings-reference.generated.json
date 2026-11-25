@@ -2287,7 +2287,7 @@
           "title": "Clean Up Build Caches",
           "help": "Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Storage"
         }
       ]
