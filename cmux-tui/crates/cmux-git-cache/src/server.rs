@@ -47,6 +47,9 @@ pub struct Config {
     pub codeload: String,
     /// The release asset and archive cache's size in bytes (`archive`).
     pub archive_cap: u64,
+    /// crates.io's sparse index and download bases (`crates`).
+    pub crates_index: String,
+    pub crates_dl: String,
 }
 
 impl Config {
@@ -63,6 +66,8 @@ impl Config {
             stats_file: None,
             codeload: "https://codeload.github.com".to_owned(),
             archive_cap: crate::archive::DEFAULT_CAP,
+            crates_index: crate::crates::INDEX_UPSTREAM.to_owned(),
+            crates_dl: crate::crates::DL_UPSTREAM.to_owned(),
         }
     }
 }
@@ -151,6 +156,7 @@ pub struct State {
     /// Follows no redirect: reads GitHub's redirect for a release asset or archive.
     pub(crate) probe: reqwest::Client,
     pub(crate) archives: crate::archive::Archives,
+    pub crate_stats: crate::crates::CrateStats,
     /// Repositories the edge answered for callers without credentials.
     via_edge: std::sync::Mutex<std::collections::HashSet<String>>,
     /// Owns each local upload-pack's stdin writer and reaper.
@@ -179,6 +185,7 @@ impl State {
             auth: AuthCache::new(cfg.auth_ttl),
             mirrors: Mirrors::new(cfg.cache_root.clone()),
             stats: Arc::new(Stats::default()),
+            crate_stats: crate::crates::CrateStats::default(),
             cfg,
             http,
             via_edge: std::sync::Mutex::new(std::collections::HashSet::new()),
@@ -236,12 +243,18 @@ impl State {
 pub fn router(state: Arc<State>) -> Router {
     Router::new()
         .route("/_cmux/git-cache/health", axum::routing::get(health))
+        .merge(crate::crates::routes())
         .fallback(handle)
         .with_state(state)
 }
 
 async fn health(axum::extract::State(state): axum::extract::State<Arc<State>>) -> Response {
     let mut body = state.stats.json();
+    if let (Some(m), serde_json::Value::Object(c)) =
+        (body.as_object_mut(), state.crate_stats.json())
+    {
+        m.extend(c);
+    }
     body["ok"] = true.into();
     body["upstream"] = state.cfg.upstream.clone().into();
     body["tenant"] = state.cfg.tenant.clone().into();
