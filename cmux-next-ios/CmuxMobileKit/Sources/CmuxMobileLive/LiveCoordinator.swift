@@ -5,6 +5,9 @@ import CmuxMobileBrowserStream
 import CmuxMobileChief
 import CmuxMobileDesign
 import CmuxMobileFeed
+#if canImport(CmuxMobileLinkFFI)
+import CmuxMobileLinkFFI
+#endif
 import CmuxMobileModel
 import CmuxMobileNotifications
 import CmuxMobileTransport
@@ -214,7 +217,8 @@ public final class LiveCoordinator {
     /// go (the new team's Macs fill it on connect): an old team's ask answered here went to
     /// the new team's Mac and failed, or reached the wrong one.
     @ObservationIgnored private var feedTeamID: String?
-    @ObservationIgnored var feedSavePending = false
+    @ObservationIgnored private var feedArchive: FeedArchive?
+    @ObservationIgnored private var feedSaveTask: Task<Void, Never>?
     /// The Feed's answers (`FeedStore.actions` is weak: this keeps them alive).
     @ObservationIgnored var feedActions: MultiMacFeedActions?
     /// How long a connected Mac may take to send its workspace list before
@@ -284,16 +288,19 @@ public final class LiveCoordinator {
         // the Mac Chief below stays reachable beside it.
         // In the same build space as the mobile service (a dev build's own cloud data).
         ChiefSources.shared.start(userID: userID, config: .current(buildSpace: api.buildSpace)) { try await apiForLink.accessToken($0) }
-        // The Feed as this phone last saw it; the Mac's history merges in on connect.
-        let archive = FeedArchive.forAccount(userID)
+        // The Feed as this phone last saw it. A team is not known until the
+        // account/team snapshot or the account list arrives, so the legacy
+        // account-only archive is never shown under an arbitrary team.
         feedStore.useReadMarks(readMarks ?? .forAccount(userID))
-        // Events past the Feed's window wait on disk while the app runs, not in memory.
-        feedStore.useSpill(.inCaches("feed", scope: userID))
-        feedStore.replaceAll(archive.load())
+        feedStore.onItemsChange = nil
+        feedStore.onKnownData = nil
+        feedStore.resetKnownData()
+        feedStore.replaceAll([])
         feedStore.onItemsChange = { [weak self] items in
-            self?.scheduleFeedSave(archive)
+            self?.scheduleFeedSave()
             for session in self?.sessions.values ?? [:].values { session.terminalFeed.itemsChanged(items) }
         }
+        feedStore.onKnownData = { [weak self] in self?.scheduleFeedSave() }
         let feedActions = MultiMacFeedActions(coordinator: self)
         self.feedActions = feedActions
         feedStore.actions = feedActions
@@ -505,6 +512,9 @@ public final class LiveCoordinator {
     private func restoreSnapshot() {
         guard let snapshot = snapshots.loadFirstScreen(accountID: userID) else { return }
         self.snapshot = snapshot
+        // A chat opened before its workspace is listed (a notification while the list loads, a
+        // row past the first screen) draws from the saved copy, not "Loading chat…".
+        store.savedWorkspace = { [weak self] id in self?.savedWorkspace(id: id) }
         store.teams = [Team(id: snapshot.teamID, name: snapshot.teamName, macs: snapshot.macs)]
         store.activeTeamID = snapshot.teamID
         var workspaces: [Workspace] = []
@@ -536,8 +546,27 @@ public final class LiveCoordinator {
         // presence: a cached "offline" waits for a real dial to say so.
         if let focusedMacID { sessions[focusedMacID]?.link.send(.open) }
         startedTeamID = snapshot.teamID
-        feedTeamID = snapshot.teamID
+        activateFeed(for: snapshot.teamID)
         teamTask = Task { [weak self] in await self?.startTeam(snapshot.teamID, warm: true) }
+    }
+
+    /// The rest of the saved rows, read at most once by ``savedWorkspace(id:)`` ahead of `restoreRest`.
+    @ObservationIgnored private var savedRestRead: [String: LiveSnapshot.MacWorkspaces]?
+
+    /// The workspace `id` as the snapshot on disk saved it: the first screen's rows, else the rest
+    /// (read now, once, when `restoreRest` has not landed yet). Nil when it was never saved.
+    func savedWorkspace(id: String) -> Workspace? {
+        guard let snapshot, !stopped, snapshot.teamID == store.activeTeamID else { return nil }
+        for list in snapshot.workspaces.values {
+            if let found = list.workspaces.first(where: { $0.id == id }) { return found }
+        }
+        guard snapshot.workspaces.values.contains(where: { !$0.isComplete }) else { return nil }
+        let rest = savedRestRead ?? snapshots.restNow(snapshot, accountID: userID)
+        savedRestRead = rest
+        for list in rest.values {
+            if let found = list.workspaces.first(where: { $0.id == id }) { return found }
+        }
+        return nil
     }
 
     /// The rest of the cached rows, read after the first screen: each Mac still showing exactly
@@ -588,23 +617,31 @@ public final class LiveCoordinator {
 
     // MARK: Teams
 
-    private var personal: AppStore.AccountTeam {
-        AppStore.AccountTeam(id: Self.personalTeamID(userID: userID), name: "Personal")
+    private static func personalTeam(for userID: String) -> AppStore.AccountTeam {
+        AppStore.AccountTeam(id: personalTeamID(userID: userID), name: "Personal")
     }
+
+    private var personal: AppStore.AccountTeam { Self.personalTeam(for: userID) }
 
     /// Applies the account's teams (or the personal space) and starts the
     /// active one. The personal space stays listed next to Stack teams while
     /// one of the account's Macs is in it. Starts Mac discovery.
     public func applyAccountTeams(_ teams: [AppStore.AccountTeam], selectedID: String?) {
+        Self.showAccountTeams(teams, selectedID: selectedID, userID: userID, in: store)
+        activeTeamChanged()
+        for team in store.teams { loadPrefs(team.id) }
+        discovery.start { [weak self] in await self?.lookForMacs() }
+    }
+
+    /// Populate the sidebar without treating cached memberships as a new service answer.
+    public static func showAccountTeams(_ teams: [AppStore.AccountTeam], selectedID: String?, userID: String, in store: AppStore) {
+        let personal = personalTeam(for: userID)
         var list = teams.isEmpty ? [personal] : teams
         let keepsPersonal = store.activeTeamID == personal.id || store.teams.contains(where: { $0.id == personal.id && !$0.macs.isEmpty })
         if !teams.isEmpty, keepsPersonal { list.append(personal) }
         // A team the phone already shows (picked, or followed to a Mac) stays active.
         let keep = list.contains { $0.id == store.activeTeamID } ? store.activeTeamID : selectedID
         store.applyLiveTeams(list, selectedID: keep)
-        activeTeamChanged()
-        for team in list { loadPrefs(team.id) }
-        discovery.start { [weak self] in await self?.lookForMacs() }
     }
 
     /// The user chose their personal space (setup's "Choose a space"): it
@@ -618,22 +655,100 @@ public final class LiveCoordinator {
         activeTeamChanged(byUser: true)
     }
 
+    /// Restores the team's Feed before its fresh membership and service discovery arrive.
+    public func restoreFeedForActiveTeam() {
+        if !store.activeTeamID.isEmpty { activateFeed(for: store.activeTeamID) }
+    }
+
+    /// Coalesce a burst of events. The latest rows go to the team active when the write began.
+    private func scheduleFeedSave() {
+        guard !stopped, feedArchive != nil, feedSaveTask == nil,
+              feedStore.hasKnownData || !feedStore.items.isEmpty else { return }
+        feedSaveTask = Task { @MainActor [weak self] in
+            guard let self, !Task.isCancelled else { return }
+            flushFeedSave()
+        }
+    }
+
+    private func flushFeedSave() {
+        guard let pending = feedSaveTask else { return }
+        pending.cancel()
+        feedSaveTask = nil
+        feedArchive?.saveInBackground(feedStore.items)
+    }
+
+    /// Activates the persisted Feed for one account/team. During a switch the
+    /// old callbacks are muted so replacing rows cannot save them into the new
+    /// archive or turn an uncached team into a known-empty snapshot.
+    private func activateFeed(for teamID: String) {
+        guard feedTeamID != teamID || feedArchive == nil else { return }
+        let archive = FeedArchive.forAccount(userID, teamID: teamID)
+        flushFeedSave()
+        let itemsChange = feedStore.onItemsChange
+        let knownData = feedStore.onKnownData
+        feedStore.onItemsChange = nil
+        feedStore.onKnownData = nil
+        feedArchive = archive
+        feedTeamID = teamID
+        feedStore.resetKnownData()
+        feedStore.syncState = .connecting
+        feedStore.useSpill(.forThisRun("feed", scope: UUID().uuidString))
+        let snapshot = archive.loadIfPresent()
+        feedStore.replaceAll(snapshot ?? [])
+        if snapshot != nil { feedStore.markKnown() }
+        feedStore.onItemsChange = itemsChange
+        feedStore.onKnownData = knownData
+    }
+
     /// Call after `store.selectTeam`: re-registers, reloads Macs, re-targets
     /// the link. `byUser` marks a sidebar pick, which discovery respects.
     public func activeTeamChanged(byUser: Bool = false) {
         let teamID = store.activeTeamID
         if byUser { pinnedTeamID = teamID }
-        guard !teamID.isEmpty, teamID != registeredTeamID, teamID != startedTeamID else { return }
+        guard !teamID.isEmpty else { return }
+        guard teamID != registeredTeamID, teamID != startedTeamID else {
+            activateFeed(for: teamID)
+            return
+        }
         startedTeamID = teamID
-        if let feedTeamID, feedTeamID != teamID { feedStore.replaceAll([]) }
-        feedTeamID = teamID
         teamTask?.cancel()
         presence?.stop()
         presence = nil
         registeredTeamID = nil
         store.teamDataState = .loading
         closeAllSessions()
+        restoreTeamCache(teamID)
+        activateFeed(for: teamID)
         teamTask = Task { [weak self] in await self?.startTeam(teamID) }
+    }
+
+    /// A switch to a team this phone showed before (on this launch or an earlier one) draws its
+    /// last rows at once, as a launch does, and the team's Macs then correct them in place: the
+    /// list draws placeholder rows only for a team it never listed. Leo, 2026-11-24: "holy shit
+    /// this is a huge problem in ios... wer need to chase all these placeholders doen and prevent
+    /// them". A Mac whose rows the store still holds (shown earlier in this launch) keeps them.
+    private func restoreTeamCache(_ teamID: String) {
+        guard snapshot?.teamID != teamID, let cached = snapshots.loadFirstScreen(accountID: userID, teamID: teamID) else { return }
+        snapshot = cached
+        if let team = store.teams.first(where: { $0.id == teamID }), team.macs.isEmpty {
+            store.setMacs(cached.macs, teamID: teamID)
+        }
+        var restored = 0
+        for (macID, saved) in cached.workspaces
+        where (store.macData[macID]?.source ?? .none) == .none && !store.workspaces.contains(where: { $0.macID == macID }) {
+            store.replaceWorkspaces(macID: macID, with: saved.workspaces)
+            store.handleMacData(.restored(count: saved.total, savedAt: saved.savedAt), macID: macID)
+            restored += saved.workspaces.count
+        }
+        ConnectTimeline.shared.mark("team_snapshot_restored", detail: "\(restored) workspaces")
+        guard cached.workspaces.values.contains(where: { !$0.isComplete }) else { return }
+        let snapshots = snapshots
+        let userID = userID
+        restTask?.cancel()
+        restTask = Task { [weak self] in
+            let rest = await snapshots.loadRest(cached, accountID: userID)
+            self?.restoreRest(rest)
+        }
     }
 
     /// Registers both device ids, then loads the Macs and starts presence.
@@ -751,6 +866,9 @@ public final class LiveCoordinator {
 
     /// Macs registered by another member (a shared team): listed, never
     /// dialed. Protocol v1 admits only the Mac owner's own phones.
+    /// Display-only peer records for Settings. A coordinator retains its own account's cache handle.
+    public var terminalSizingPeers: TerminalSizingPeers?
+
     @ObservationIgnored private var othersMacs: Set<String> = []
 
     /// A Mac its owner deleted (here or on another device): gone from every
@@ -769,6 +887,7 @@ public final class LiveCoordinator {
         lastShown[id] = nil
         let known = store.forgetMac(id)
         othersMacs.remove(id)
+        terminalSizingPeers?.forget(id)
         discoveredMacIDs?.remove(id)
         previouslyOnline = previouslyOnline?.filter { !$0.hasPrefix("\(id)\u{0}") }
         if snapshot?.linkedMacID == id { snapshot?.linkedMacID = nil }
@@ -782,8 +901,10 @@ public final class LiveCoordinator {
         for mac in macs {
             if let owner = mac.ownerUserId, owner != userID { othersMacs.insert(mac.deviceId) } else { othersMacs.remove(mac.deviceId) }
         }
-        store.setMacs(macs.map { MacDevice(id: $0.deviceId, name: $0.name, isOnline: $0.online, lastSeenAt: $0.lastSeenDate,
-                                           ownerUserID: $0.ownerUserId, machineID: $0.machineId, quietMs: $0.quietMs) }, teamID: teamID)
+        let devices = macs.map { MacDevice(id: $0.deviceId, name: $0.name, isOnline: $0.online, lastSeenAt: $0.lastSeenDate,
+                                           ownerUserID: $0.ownerUserId, machineID: $0.machineId, quietMs: $0.quietMs) }
+        store.setMacs(devices, teamID: teamID)
+        terminalSizingPeers?.replace(teamID: teamID, devices: devices, accountID: userID)
         #if DEBUG
         if let id = dogfoodFocusMacID, macs.contains(where: { $0.deviceId.lowercased() == id.lowercased() }) {
             UserDefaults.standard.set(id, forKey: "cmuxMobile.live.mac.\(teamID)")
@@ -800,8 +921,8 @@ public final class LiveCoordinator {
         guard let team = store.activeTeam, registeredTeamID == team.id else { return }
         let remembered = UserDefaults.standard.string(forKey: "cmuxMobile.live.mac.\(team.id)")
             ?? (snapshot?.teamID == team.id ? snapshot?.linkedMacID : nil)
-        // The remembered Mac stands for its computer (a build this phone picked, beside
-        // another build of the same computer), in the focus and in every list (``MacRoster``).
+        // The remembered Mac (one this phone picked) is the team's picked Mac: it takes the focus.
+        // Every build is listed on its own (``MacRoster``).
         store.setPickedMac(remembered, teamID: team.id)
         let next = LinkMachine.target(in: listedMacs(store.activeTeam ?? team), remembered: remembered, current: focusedMacID)
         // The focused Mac's session exists before the focus moves to it.
@@ -810,20 +931,16 @@ public final class LiveCoordinator {
         applyLinks()
     }
 
-    /// The Macs the phone focuses and the screens list: the owner's own, one
-    /// build per computer (``MacRoster``).
+    /// The Macs the phone focuses and the screens list: the owner's own, each
+    /// build as its own Mac (``MacRoster``).
     private func listedMacs(_ team: Team) -> [MacDevice] {
         MacRoster(team.macs.filter { !othersMacs.contains($0.id) }, preferring: team.pickedMacID).visible
     }
 
-    /// The Macs this phone may link: the listed ones, and another build on a
-    /// listed Mac while something names it (a Feed answer or a notification of
-    /// that build, `touch`, or a link it still holds until idle), so an ask
-    /// from that build is still answered on it.
+    /// The Macs this phone may link: every listed one (each build is listed as its
+    /// own Mac); ``MacLinkPolicy`` picks which of them hold a link.
     private func dialableMacs(_ team: Team) -> [MacDevice] {
-        let own = team.macs.filter { !othersMacs.contains($0.id) }
-        let listed = Set(MacRoster(own, preferring: team.pickedMacID).visible.map(\.id))
-        return own.filter { listed.contains($0.id) || lastShown[$0.id] != nil }
+        listedMacs(team)
     }
 
     /// The focused Mac changed: the last one stays linked while it is recent
@@ -845,9 +962,7 @@ public final class LiveCoordinator {
         guard let team = store.activeTeam, registeredTeamID == team.id else { return }
         let macs = dialable ?? dialableMacs(team)
         let now = instants.now()
-        // nil (Workspaces, the Feed): every listed Mac. Another build of a listed Mac is
-        // never "shown" by that: it keeps its link only for the idle window after
-        // something named it (`touch`), then closes.
+        // nil (Workspaces, the Feed): every listed Mac.
         let showing = showingMacs ?? Set(listedMacs(team).map(\.id))
         for id in showing { lastShown[id] = now }
         for (id, session) in sessions { session.link.onScreen = showing.contains(id) }
@@ -1095,6 +1210,7 @@ public final class LiveCoordinator {
 
     /// Sign-out: stops discovery, presence and the link.
     public func stop() {
+        flushFeedSave()
         stopped = true
         restTask?.cancel()
         restTask = nil
@@ -1248,6 +1364,11 @@ public final class LiveCoordinator {
         presence?.backgrounded = false
         presence?.kick()
         discovery.resume()
+        // Time away is not outage the person waited through: a link that dropped while the app
+        // was away counts its bounds from now, so its terminals stay reattaching (Send queued in
+        // the session's hold, no "Mac offline") instead of offline at once (LinkOutageClock).
+        let now = instants.now()
+        for session in sessions.values where session.linkDownSince != nil { outageRestarted(session, at: now) }
         // How long iOS kept the app away decides whether the links are kept (LinkMachine.shortSuspend).
         for session in sessions.values { session.link.send(away.map { .resumed(after: $0) } ?? .resume) }
         #if canImport(CmuxMobileLinkFFI)
@@ -1295,9 +1416,35 @@ final class PendingAgentSource: AgentSessionSource {
     /// `AcpmuxSessionSource.heldPromptWindow`, so a send while the chat loads rides out a blip
     /// the way a send on a loaded chat does (Leo, 2026-11-14: "i also want all our connectivity
     /// stuff to shut the fuck up and load faster").
-    var holdWindow: Duration = .seconds(10)
+    var holdWindow: Duration = .seconds(10) {
+        didSet {
+            #if canImport(CmuxMobileLinkFFI)
+            outbox.setHoldMs(holdMs: ChatPromptClock.milliseconds(holdWindow))
+            #endif
+        }
+    }
+    /// Each held prompt's intent, by its `promptId`.
+    private var intents: [String: AgentClientIntent] = [:]
+
+    #if canImport(CmuxMobileLinkFFI)
+    /// The prompts sent before the chat loaded (Rust, `cmux_composer_send::chat`, its link never
+    /// up): their order, their hold, and the ones given back past it.
+    private let outbox = ChatPromptOutbox(holdMs: 10_000, seed: 0)
+    private var wake: Task<Void, Never>?
+
     /// Prompts sent before the chat loaded, oldest first, with when each was sent.
+    var held: [(intent: AgentClientIntent, at: ContinuousClock.Instant)] {
+        var held: [(intent: AgentClientIntent, at: ContinuousClock.Instant)] = []
+        for id in outbox.unwritten() {
+            guard let intent = intents[id] else { continue }
+            held.append((intent: intent, at: tapped[id] ?? ContinuousClock.now))
+        }
+        return held
+    }
+    private var tapped: [String: ContinuousClock.Instant] = [:]
+    #else
     private(set) var held: [(intent: AgentClientIntent, at: ContinuousClock.Instant)] = []
+    #endif
 
     /// A prompt is held for the chat's real source (``takeHeld()``); anything else has nothing
     /// to act on yet and says why.
@@ -1308,35 +1455,86 @@ final class PendingAgentSource: AgentSessionSource {
     /// Holds `intent`, aged from `since` (a prompt handed over from an earlier loading source
     /// keeps its first send's time, so the hold is one window in all).
     func hold(_ intent: AgentClientIntent, since at: ContinuousClock.Instant) {
-        guard case .prompt = intent else {
+        guard case .prompt(let text, _, _, let promptID, let resend) = intent else {
             let reason = "Connecting to \(summary.macName)…"
             for continuation in continuations { continuation.yield(.clientError(reason)) }
             return
         }
+        #if canImport(CmuxMobileLinkFFI)
+        guard outbox.push(promptId: promptID, text: text, uploadIds: [], resend: resend,
+                          tappedMs: ChatPromptClock.milliseconds(at),
+                          nowMs: ChatPromptClock.milliseconds(at)) else { return }
+        intents[promptID] = intent
+        tapped[promptID] = at
+        expireDue()
+        #else
+        _ = (text, promptID, resend)
         held.append((intent, at))
-        let wait = max(.zero, holdWindow - (ContinuousClock.now - at))
-        Task { [weak self] in
-            try? await Task.sleep(for: wait)
-            self?.expire(sentAt: at)
-        }
+        #endif
     }
 
     /// The held prompts with their send times, for the chat's next source (the coordinator, as
     /// it builds it). They are no longer this source's to return.
     func takeHeld() -> [(intent: AgentClientIntent, at: ContinuousClock.Instant)] {
+        #if canImport(CmuxMobileLinkFFI)
+        var taken: [(intent: AgentClientIntent, at: ContinuousClock.Instant)] = []
+        for prompt in outbox.drainUnwritten() {
+            guard let intent = intents[prompt.promptId] else { continue }
+            taken.append((intent: intent, at: tapped[prompt.promptId] ?? ChatPromptClock.instant(prompt.tappedMs)))
+        }
+        intents = [:]
+        tapped = [:]
+        wake?.cancel()
+        return taken
+        #else
         defer { held = [] }
         return held
+        #endif
     }
 
     /// The prompt sent at `sentAt` waited out the window: it and every prompt after it come back
     /// to the composer (none goes after an earlier one that did not), as `AcpmuxSessionSource` does.
     func expire(sentAt: ContinuousClock.Instant) {
+        #if canImport(CmuxMobileLinkFFI)
+        guard let id = outbox.unwritten().first(where: { tapped[$0] == sentAt }) else { return }
+        gaveBack(ids: outbox.giveUpFrom(promptId: id).map(\.promptId))
+        #else
         guard let index = held.firstIndex(where: { $0.at == sentAt }) else { return }
         let dropped = held[index...]
         held.removeSubrange(index...)
-        let seconds = max(1, Int(holdWindow.components.seconds))
-        let reason = "Not sent: \(summary.macName) was unreachable for more than \(seconds) seconds. Send again when it's back."
-        for (intent, _) in dropped {
+        gaveBack(dropped.map(\.intent))
+        #endif
+    }
+
+    #if canImport(CmuxMobileLinkFFI)
+    /// Gives back what is past the hold now, and wakes for the next hold.
+    private func expireDue() {
+        let nowMs = ChatPromptClock.milliseconds(ContinuousClock.now)
+        gaveBack(ids: outbox.expire(nowMs: nowMs).map(\.promptId))
+        wake?.cancel()
+        guard let wait = outbox.nextWakeMs(nowMs: nowMs) else { wake = nil; return }
+        wake = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(Int64(clamping: wait)))
+            guard !Task.isCancelled else { return }
+            self?.expireDue()
+        }
+    }
+
+    private func gaveBack(ids: [String]) {
+        var dropped: [AgentClientIntent] = []
+        for id in ids {
+            tapped[id] = nil
+            if let intent = intents.removeValue(forKey: id) { dropped.append(intent) }
+        }
+        gaveBack(dropped)
+    }
+    #endif
+
+    private func gaveBack(_ dropped: [AgentClientIntent]) {
+        // Short, with nothing to decode: the draft is back in the composer and Send is the action
+        // (Leo 2026-11-23: the old copy was "way too long and unactionable").
+        let reason = "Not sent: \(summary.macName) is offline."
+        for intent in dropped {
             guard case .prompt(let text, let attachments, _, let promptID, _) = intent else { continue }
             for continuation in continuations {
                 continuation.yield(.promptNotSent(text: text, attachments: attachments, promptID: promptID, reason: reason))

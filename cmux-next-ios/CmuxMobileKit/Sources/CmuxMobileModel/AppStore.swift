@@ -178,7 +178,7 @@ public final class AppStore {
         teams[index].macs = macs
     }
 
-    /// The team's picked Mac (``Team/pickedMacID``), which stands for its computer in the lists.
+    /// The team's picked Mac (``Team/pickedMacID``): the one this phone focuses.
     public func setPickedMac(_ macID: String?, teamID: String) {
         guard let index = teams.firstIndex(where: { $0.id == teamID }), teams[index].pickedMacID != macID else { return }
         teams[index].pickedMacID = macID
@@ -197,12 +197,18 @@ public final class AppStore {
     public func updateWorkspaces(macID: String, rows: [Workspace]) {
         var rows = rows
         groupEdits.apply(to: &rows, now: now())
+        // One write for the whole push: each `workspaces[index] = row` was a copy, a
+        // whole-list compare and a notification of every reader, per row, on main.
+        var next = workspaceStorage
+        var changed = false
         for row in rows {
             guard !pendingWorkspaceIDs.contains(row.id),
-                  let index = workspaces.firstIndex(where: { $0.macID == macID && $0.id == row.id }),
-                  workspaces[index] != row else { continue }
-            workspaces[index] = row
+                  let index = next.firstIndex(where: { $0.macID == macID && $0.id == row.id }),
+                  next[index] != row else { continue }
+            next[index] = row
+            changed = true
         }
+        if changed { workspaces = next }
     }
 
     /// `current` with one Mac's rows replaced by `next` in place: the Mac's
@@ -230,7 +236,7 @@ public final class AppStore {
     }
 
     /// A Stack Auth team as the account reports it.
-    public struct AccountTeam: Hashable, Sendable {
+    public struct AccountTeam: Hashable, Sendable, Codable {
         public let id: String
         public let name: String
 
@@ -319,6 +325,12 @@ public final class AppStore {
         let id = resolvedWorkspaceID(id)
         return workspaces.first { $0.id == id }
     }
+
+    /// The workspace as this phone last saved it (the live snapshot on disk), for a screen that
+    /// opens before `workspaces` lists it: a cold open from a notification while the list loads,
+    /// a workspace past the first screen of cached rows. Nil when the phone never saved it.
+    /// Live mode sets it (`LiveCoordinator`); it is never observed and reads no network.
+    @ObservationIgnored public var savedWorkspace: (String) -> Workspace? = { _ in nil }
 
     /// Follows a created placeholder to its real workspace id.
     public func resolvedWorkspaceID(_ id: String) -> String {
