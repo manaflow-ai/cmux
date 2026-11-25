@@ -306,7 +306,11 @@ public struct CmuxEgress {
         static let namePrefix = "CmuxEgressGate."
 
         static var site: String {
+            #if canImport(ObjectiveC)
             let name = NSStringFromClass(self)
+            #else
+            let name = String(reflecting: self)
+            #endif
             return name.hasPrefix(namePrefix) ? String(name.dropFirst(namePrefix.count)) : "urlsession"
         }
 
@@ -348,18 +352,3 @@ public struct CmuxEgress {
 private extension Character {
     var isASCIIDigit: Bool { isASCII && isNumber }
 }
-
-#if !canImport(os)
-/// Linux has no `os` module: the iPhone kit's Linux test job (CMUX_SWIFTPM_TARGET_LINUX) builds this package for
-/// CmuxMobileModel and CmuxMobileRealtime, so the same `withLock` over an NSLock.
-private final class OSAllocatedUnfairLock<State>: @unchecked Sendable {
-    private let lock = NSLock()
-    private var state: State
-    init(initialState: State) { state = initialState }
-    func withLock<R>(_ body: (inout State) throws -> R) rethrows -> R {
-        lock.lock()
-        defer { lock.unlock() }
-        return try body(&state)
-    }
-}
-#endif
