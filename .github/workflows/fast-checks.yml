@@ -177,12 +177,24 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      - name: Restore pinned Bun from the CI cache bucket
+        if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/.fast-checks-checkout/scripts/ci/toolchain-r2.sh" restore bun ${{ steps.bun-pin.outputs.version }} || true
+
       - name: Set up Bun
         if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: ${{ steps.bun-pin.outputs.version }}
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+
+      - name: Restore pinned Node from the CI cache bucket
+        if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/.fast-checks-checkout/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
 
       - name: Set up Node
         if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
