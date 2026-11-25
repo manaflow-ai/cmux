@@ -21,7 +21,6 @@ use crate::{AgentState, MuxEvent};
 
 pub(crate) const CAPABILITY: &str = "vm-activity-v1";
 const MIN_INTERVAL: Duration = Duration::from_secs(1);
-const MAX_SUBSCRIBERS: usize = 16;
 /// `set-client-info` kinds a person drives; automation connections never count.
 const PERSON_KINDS: [&str; 4] = ["tui", "web", "mac", "frontend"];
 
@@ -154,14 +153,9 @@ impl ActivityStream {
     ) -> anyhow::Result<Value> {
         let times = {
             let mut state = self.shared.state.lock().unwrap_or_else(PoisonError::into_inner);
-            // Closed connections leave before the cap counts (and at their
-            // disconnect, and at the next send).
+            // Closed connections leave here (and at their disconnect, and at the next send).
+            // A subscriber is one map entry on the one shared worker, so their count is not capped.
             state.subscribers.retain(|_, w| w.is_open());
-            anyhow::ensure!(
-                state.subscribers.len() < MAX_SUBSCRIBERS
-                    || state.subscribers.contains_key(&client),
-                "too many activity subscribers"
-            );
             state.mux = Arc::downgrade(mux);
             state.subscribers.insert(client, writer.clone());
             self.shared.subscribed.store(true, Ordering::SeqCst);

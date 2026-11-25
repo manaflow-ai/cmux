@@ -1826,6 +1826,22 @@ class WebviewsChecksGate(unittest.TestCase):
                          ["test/composer-row-layout.test.ts: typescript(TS2339): "
                           "Property 'muted' does not exist on type 'Row'."])
 
+    def test_a_vite_config_stack_names_no_new_finding_on_the_merge(self):
+        def crash(stamp: str, line: int) -> str:
+            return (f"    at markdownHost (file:///r/webviews/node_modules/.vite-temp/"
+                    f"vite.config.ts.timestamp-{stamp}.mjs:{line}:23)\n")
+        merge, base = crash("1795526354921-166d4b4b7bbf6", 3240), crash("1795526301002-0a1b2c3d4e5f", 3238)
+        self.assertEqual(self.module.added(merge, base), [])
+        self.assertEqual(len(self.module.added(merge + "    at other (x.mjs:1:1)\n", base)), 1)
+
+    def test_a_base_frame_in_the_shared_node_modules_is_the_merges(self):
+        # The base's webviews/node_modules links to the merge's, so the base's stack names the merge's root.
+        frame = "    at async resolveConfig (file:///m/webviews/node_modules/vite/dist/node.js:42734:22)\n"
+        own = "    at x (file:///b/base/webviews/src/a.ts:1:1)\n"
+        merge = frame + own.replace("/b/base", "/m")
+        self.assertEqual(self.module.added(merge, frame + own, "/m", "/b/base"), [])
+        self.assertEqual(len(self.module.added(merge, own, "/m", "/b/base")), 1)
+
     def test_a_push_with_no_base_charges_every_red(self):
         self.findings({"typecheck": type_error("TS2307", "Cannot find module './x.json'.", "src/a.ts:4:21")}, "red")
         env = {**os.environ, "PATH": f"{self.bin}:{os.environ['PATH']}"}
@@ -1927,6 +1943,14 @@ class WebviewsChecksGate(unittest.TestCase):
     # and its log keeps only `##[warning]MESSAGE`, so a new finding printed as that raw line names no file.
     UNUSED = ("::warning file=src/agent-session/acpmux/ModelPicker.tsx,line={line},endLine={line},col=34,"
               "endColumn=52,title=eslint(no-unused-expressions)::Expected expression to be used\n")
+
+    def test_a_vite_config_stack_differing_only_by_its_temp_bundle_name_is_the_base_one(self):
+        def stack(stamp: str) -> str:
+            return ("failed to load config from /w/webviews/vite.config.ts\n"
+                    f"    at markdownHost (file:///w/webviews/node_modules/.vite-temp/vite.config.ts.timestamp-{stamp}.mjs:3240:23)\n")
+        new, old = self.module.compare(stack("1795534024051-bd9bea275ee978"), stack("1795533990112-0a1b2c3d4e5f60"))
+        self.assertEqual(new, [])
+        self.assertEqual(len(old), 2)
 
     def test_an_annotation_finding_that_only_moved_lines_is_the_base_one(self):
         merge = self.UNUSED.format(line=803) + "Found 1 warning and 0 errors.\n"

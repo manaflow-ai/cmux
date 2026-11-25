@@ -45,8 +45,8 @@ harness's own subagent (Claude Code's Task/Agent tool), whose result comes back 
   `send_message`.
 - `offer_session` (`cmux.sessions_offer_session`): one suggestion mid-turn for work you noticed
   outside the task (a bug, a cleanup). The person starts it or not; do not do that work here.
-- `suggest_tasks` (`cmux.sessions_suggest_tasks`): at the end of a turn, up to 5 follow-ups the
-  person may want, drawn as one card.
+- `suggest_tasks` (`cmux.sessions_suggest_tasks`): at the end of a turn, a few follow-ups
+  (usually 2 to 5) the person may want, drawn as one card.
 - Not for: quick lookups, a handful of tool calls, or pieces of one change. Never start a
   session the person did not ask for; offer it instead.
 - To show a session's chat, `app_agent_open` (server `cmux`) with its sessionId.
