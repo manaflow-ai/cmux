@@ -1162,6 +1162,14 @@ impl Overlay {
         matches!(self.named(ino), Some((_, Node::Lower(_))))
     }
 
+    /// Whether this file already has local bytes, including a file unlinked while open.
+    pub fn is_upper(&self, ino: u64) -> bool {
+        match self.named(ino) {
+            Some((_, node)) => matches!(node, Node::Upper(_)),
+            None => self.open_file_of(ino).is_some(),
+        }
+    }
+
     pub fn getattr(&self, ino: u64) -> Result<Attr, i32> {
         if let Some((path, node)) = self.named(ino) {
             return Ok(self.attr(&path, &node));
