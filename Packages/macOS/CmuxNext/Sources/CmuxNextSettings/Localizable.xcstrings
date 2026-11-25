@@ -1,6 +1,60 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.labs.previousBuild": {
+      "comment": "Settings > Advanced > Labs: toggle that shows the Go Back to Previous Build row on the Updates card",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Go Back to Previous Build"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "العودة إلى الإصدار السابق"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Vrati se na prethodnu verziju"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Gå tilbage til forrige build"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Zum vorherigen Build zurückkehren"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Volver a la compilación anterior"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Revenir à la version précédente"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Torna alla build precedente"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "以前のビルドに戻す"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ត្រឡប់ទៅកំណែមុន"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "이전 빌드로 되돌리기"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Gå tilbake til forrige versjon"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Wróć do poprzedniej wersji"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Voltar para a versão anterior"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Вернуться к предыдущей сборке"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ย้อนกลับไปยังบิลด์ก่อนหน้า"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Önceki sürüme geri dön"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Повернутися до попередньої збірки"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Quay lại bản dựng trước"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "返回上一个版本"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "返回上一個版本"}}
+      }
+    },
+    "settings.labs.previousBuild.help": {
+      "comment": "Settings > Advanced > Labs > Go Back to Previous Build: what the toggle does. Updates is the name of the Settings card.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Show the build cmux kept before the last update on the Updates card, with a button to go back to it."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "اعرض الإصدار الذي احتفظ به cmux قبل آخر تحديث في بطاقة التحديثات، مع زر للعودة إليه."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Prikaži verziju koju je cmux zadržao prije posljednjeg ažuriranja na kartici Ažuriranja, s dugmetom za povratak na nju."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Vis det build, cmux gemte før den seneste opdatering, på kortet Opdateringer med en knap til at gå tilbage til det."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Zeigt auf der Karte „Updates“ den Build, den cmux vor dem letzten Update behalten hat, mit einer Taste zum Zurückkehren."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Muestra en la tarjeta Actualizaciones la compilación que cmux guardó antes de la última actualización, con un botón para volver a ella."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Affiche sur la carte Mises à jour la version que cmux a conservée avant la dernière mise à jour, avec un bouton pour y revenir."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Mostra nella scheda Aggiornamenti la build che cmux ha conservato prima dell’ultimo aggiornamento, con un pulsante per tornarci."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "前回のアップデート前に cmux が保持したビルドを「アップデート」カードに表示し、そのビルドに戻すボタンを付けます。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បង្ហាញកំណែដែល cmux បានរក្សាទុកមុនការធ្វើបច្ចុប្បន្នភាពចុងក្រោយ នៅលើកាតបច្ចុប្បន្នភាព ជាមួយប៊ូតុងដើម្បីត្រឡប់ទៅវាវិញ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "마지막 업데이트 전에 cmux가 보관한 빌드를 업데이트 카드에 표시하고, 그 빌드로 되돌리는 버튼을 제공합니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Vis versjonen cmux beholdt før siste oppdatering på Oppdateringer-kortet, med en knapp for å gå tilbake til den."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pokazuje na karcie Aktualizacje wersję zachowaną przez cmux przed ostatnią aktualizacją, z przyciskiem powrotu do niej."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Mostra no cartão Atualizações a versão que o cmux guardou antes da última atualização, com um botão para voltar a ela."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Показывает на карточке «Обновления» сборку, сохранённую cmux перед последним обновлением, с кнопкой возврата к ней."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แสดงบิลด์ที่ cmux เก็บไว้ก่อนการอัปเดตครั้งล่าสุดบนการ์ดอัปเดต พร้อมปุ่มสำหรับย้อนกลับไปใช้"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "cmux’un son güncellemeden önce sakladığı sürümü Güncellemeler kartında, ona geri dönmek için bir düğmeyle gösterir."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Показує на картці «Оновлення» збірку, яку cmux зберіг перед останнім оновленням, із кнопкою повернення до неї."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Hiển thị bản dựng cmux đã giữ lại trước lần cập nhật gần nhất trên thẻ Cập nhật, kèm nút để quay lại bản đó."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "在“更新”卡片上显示 cmux 在上次更新前保留的版本，并提供返回该版本的按钮。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "在「更新」卡片上顯示 cmux 在上次更新前保留的版本，並提供返回該版本的按鈕。"}}
+      }
+    },
     "settings.sidebar.showLiveToggle": {
       "comment": "Settings > Appearance > Sidebar: title of the toggle that shows the footer Live button.",
       "extractionState": "manual",
@@ -196317,138 +196371,6 @@
         }
       }
     },
-    "notifications.sound.choose.message": {
-      "comment": "Open panel message when choosing a notification sound file; keep ~/Library/Sounds as is",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "اختر صوتًا للإشعارات. ينسخه cmux إلى ~/Library/Sounds."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Odaberite zvuk za obavještenja. cmux ga kopira u ~/Library/Sounds."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vælg en lyd til notifikationer. cmux kopierer den til ~/Library/Sounds."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wähle einen Ton für Mitteilungen. cmux kopiert ihn nach ~/Library/Sounds."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Choose a sound for notifications. cmux copies it to ~/Library/Sounds."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Elige un sonido para las notificaciones. cmux lo copia a ~/Library/Sounds."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Choisissez un son pour les notifications. cmux le copie dans ~/Library/Sounds."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Scegli un suono per le notifiche. cmux lo copia in ~/Library/Sounds."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "通知のサウンドを選択してください。cmux が ~/Library/Sounds にコピーします。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ជ្រើសរើសសំឡេងសម្រាប់ការជូនដំណឹង។ cmux ចម្លងវាទៅ ~/Library/Sounds។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "알림 사운드를 선택하세요. cmux가 ~/Library/Sounds에 복사합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Velg en lyd for varsler. cmux kopierer den til ~/Library/Sounds."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wybierz dźwięk powiadomień. cmux skopiuje go do ~/Library/Sounds."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Escolha um som para as notificações. O cmux o copia para ~/Library/Sounds."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Выберите звук для уведомлений. cmux скопирует его в ~/Library/Sounds."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เลือกเสียงสำหรับการแจ้งเตือน cmux จะคัดลอกไปที่ ~/Library/Sounds"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bildirimler için bir ses seçin. cmux onu ~/Library/Sounds konumuna kopyalar."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Виберіть звук для сповіщень. cmux скопіює його до ~/Library/Sounds."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chọn âm thanh cho thông báo. cmux sẽ sao chép vào ~/Library/Sounds."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "选择通知声音。cmux 会将其复制到 ~/Library/Sounds。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "選擇通知聲音。cmux 會將其拷貝到 ~/Library/Sounds。"
-          }
-        }
-      }
-    },
     "notifications.sound.choose.prompt": {
       "comment": "Open panel button that picks the notification sound file",
       "extractionState": "manual",
@@ -196577,138 +196499,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "使用聲音"
-          }
-        }
-      }
-    },
-    "notifications.sound.refusal.importFailed": {
-      "comment": "Refusal when copying a notification sound failed: %@ is the file name; keep ~/Library/Sounds as is",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تعذّر نسخ %@ إلى ~/Library/Sounds."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nije moguće kopirati %@ u ~/Library/Sounds."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kunne ikke kopiere %@ til ~/Library/Sounds."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ konnte nicht nach ~/Library/Sounds kopiert werden."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Could not copy %@ to ~/Library/Sounds."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No se pudo copiar %@ a ~/Library/Sounds."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Impossible de copier %@ dans ~/Library/Sounds."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Impossibile copiare %@ in ~/Library/Sounds."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ を ~/Library/Sounds にコピーできませんでした。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "មិនអាចចម្លង %@ ទៅ ~/Library/Sounds បានទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@을(를) ~/Library/Sounds에 복사할 수 없습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kunne ikke kopiere %@ til ~/Library/Sounds."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nie można skopiować %@ do ~/Library/Sounds."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Não foi possível copiar %@ para ~/Library/Sounds."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Не удалось скопировать %@ в ~/Library/Sounds."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "คัดลอก %@ ไปที่ ~/Library/Sounds ไม่ได้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@, ~/Library/Sounds konumuna kopyalanamadı."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Не вдалося скопіювати %@ до ~/Library/Sounds."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Không thể sao chép %@ vào ~/Library/Sounds."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "无法将 %@ 复制到 ~/Library/Sounds。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "無法將 %@ 拷貝到 ~/Library/Sounds。"
           }
         }
       }
@@ -227540,6 +227330,270 @@
         }
       }
     },
+    "settings.developerTools.overloadNotice": {
+      "comment": "Settings > Advanced > Developer Tools: toggle that shows the agent chat's 'This Mac is overloaded' banner",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحذير التحميل الزائد في المحادثات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upozorenje o preopterećenju u razgovorima"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advarsel om overbelastning i chats"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Überlastungswarnung in Chats"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overload Warning in Chats"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aviso de sobrecarga en los chats"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alerte de surcharge dans les discussions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avviso di sovraccarico nelle chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットでの過負荷警告"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការព្រមានពីការផ្ទុកលើសក្នុងការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅의 과부하 경고"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advarsel om overbelastning i chatter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ostrzeżenie o przeciążeniu w czatach"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aviso de sobrecarga nos chats"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предупреждение о перегрузке в чатах"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำเตือนเครื่องทำงานหนักเกินในแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbetlerde aşırı yük uyarısı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попередження про перевантаження в чатах"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cảnh báo quá tải trong cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天中的过载警告"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天中的過載警告"
+          }
+        }
+      }
+    },
+    "settings.developerTools.overloadNotice.help": {
+      "comment": "Settings > Advanced > Developer Tools: help under the Overload Warning in Chats toggle",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض شريطًا فوق مربع الكتابة عندما يكون الحمل أو التبديل على هذا الـ Mac مرتفعًا جدًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikazuje traku iznad polja za pisanje kada je opterećenje ili swap ovog Maca previsok."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser et banner over skrivefeltet, når denne Macs belastning eller swap er for høj."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt über dem Eingabefeld ein Banner, wenn Last oder Swap dieses Mac zu hoch sind."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows a banner above the composer when this Mac's load or swap is too high."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra un banner sobre el redactor cuando la carga o el swap de este Mac son demasiado altos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche une bannière au-dessus de la zone de saisie quand la charge ou le swap de ce Mac est trop élevé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra un banner sopra il compositore quando il carico o lo swap di questo Mac è troppo alto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac の負荷やスワップが高すぎるとき、入力欄の上にバナーを表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញបដាពីលើប្រអប់សរសេរ នៅពេលបន្ទុក ឬ swap របស់ Mac នេះខ្ពស់ពេក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 부하나 스왑이 너무 높을 때 입력창 위에 배너를 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser et banner over skrivefeltet når belastningen eller swap på denne Macen er for høy."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuje baner nad polem wiadomości, gdy obciążenie lub swap tego Maca są zbyt wysokie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra um banner acima do compositor quando a carga ou o swap deste Mac estão altos demais."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывает баннер над полем ввода, когда нагрузка или подкачка этого Mac слишком высоки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงแบนเนอร์เหนือช่องพิมพ์เมื่อโหลดหรือ swap ของ Mac เครื่องนี้สูงเกินไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac'in yükü veya takas alanı çok yüksek olduğunda yazma alanının üstünde bir başlık gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показує банер над полем введення, коли навантаження або підкачка цього Mac надто високі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện biểu ngữ phía trên ô soạn thảo khi tải hoặc swap của máy Mac này quá cao."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当此 Mac 的负载或交换空间过高时，在输入框上方显示横幅。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當此 Mac 的負載或交換空間過高時，在輸入框上方顯示橫幅。"
+          }
+        }
+      }
+    },
     "settings.developerTools.appPages": {
       "extractionState": "manual",
       "localizations": {
@@ -238577,6 +238631,270 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "在主題檔案設定它們時你變更過的設定。你的值優先於檔案的值；重設該列會恢復檔案的值。選擇其他主題檔案會清空此列表。"
+          }
+        }
+      }
+    },
+    "settings.experiments.composerHatGroups": {
+      "comment": "Settings > Experimental row title: the composer hat groups subagents and background tasks.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Composer Hat: Two Groups"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Composer Hat: Two Groups"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Composer Hat: Two Groups"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Composer Hat: Two Groups"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Composer Hat: Two Groups"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Composer Hat: Two Groups"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Composer Hat: Two Groups"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Composer Hat: Two Groups"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Composer Hat: Two Groups"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Composer Hat: Two Groups"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Composer Hat: Two Groups"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Composer Hat: Two Groups"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Composer Hat: Two Groups"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Composer Hat: Two Groups"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Composer Hat: Two Groups"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Composer Hat: Two Groups"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Composer Hat: Two Groups"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Composer Hat: Two Groups"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Composer Hat: Two Groups"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Composer Hat: Two Groups"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Composer Hat: Two Groups"
+          }
+        }
+      }
+    },
+    "settings.experiments.composerHatGroups.help": {
+      "comment": "Settings > Experimental > Composer Hat: Two Groups help: the running tray uses two groups and aligns with the plus glyph.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph."
           }
         }
       }
@@ -252857,6 +253175,60 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "帶載入指示的提示條會在原處變成結果；關閉分頁或工作區、封存聊天後會出現「還原」。"}}
       }
     },
+    "settings.experiments.toastGlass": {
+      "comment": "Settings > Experimental row title: toasts (small notices that appear and go away) in chats drawn on the app's own glass.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "زجاج الإشعارات المنبثقة"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Staklo obavijesti"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Glas til meddelelser"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Glas für Hinweise"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Toast Glass"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Cristal de avisos"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Verre des notifications"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Vetro degli avvisi"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "トーストのガラス"}},
+        "km": {"stringUnit": {"state": "translated", "value": "កញ្ចក់ការជូនដំណឹងខ្លី"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "토스트 유리"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Glass for varsler"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Szkło powiadomień"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Vidro dos avisos"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Стекло всплывающих уведомлений"}},
+        "th": {"stringUnit": {"state": "translated", "value": "กระจกของการแจ้งเตือนแบบป๊อปอัป"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bildirim camı"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Скло спливних сповіщень"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Kính của thông báo nhanh"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "提示条玻璃"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "提示條玻璃"}}
+      }
+    },
+    "settings.experiments.toastGlass.help": {
+      "comment": "Settings > Experimental > Toast Glass help: toasts in chats use the same glass material as the app's native toasts.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "تظهر الإشعارات المنبثقة في المحادثات على الزجاج نفسه الذي تستخدمه إشعارات التطبيق."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Obavijesti u chatovima stoje na istom staklu kao i obavijesti same aplikacije."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Meddelelser i chats ligger på det samme glas som appens egne meddelelser."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Hinweise in Chats liegen auf demselben Glas wie die eigenen Hinweise der App."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Toasts in chats sit on the same glass as the app's own toasts."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Los avisos de los chats usan el mismo cristal que los avisos propios de la app."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Les notifications des discussions utilisent le même verre que les notifications de l’app."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Gli avvisi nelle chat usano lo stesso vetro degli avvisi dell’app."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "チャット内のトーストが、アプリ自体のトーストと同じガラスに表示されます。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ការជូនដំណឹងខ្លីក្នុងការជជែក ប្រើកញ្ចក់ដូចគ្នានឹងការជូនដំណឹងរបស់កម្មវិធីផ្ទាល់។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "채팅의 토스트가 앱 자체 토스트와 같은 유리 위에 표시됩니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Varsler i chatter ligger på det samme glasset som appens egne varsler."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Powiadomienia w czatach leżą na tym samym szkle co powiadomienia samej aplikacji."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Os avisos nos chats usam o mesmo vidro que os avisos do próprio app."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Всплывающие уведомления в чатах лежат на том же стекле, что и уведомления самого приложения."}},
+        "th": {"stringUnit": {"state": "translated", "value": "การแจ้งเตือนแบบป๊อปอัปในแชทจะอยู่บนกระจกเดียวกับการแจ้งเตือนของแอปเอง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Sohbetlerdeki bildirimler, uygulamanın kendi bildirimleriyle aynı camın üzerinde durur."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Спливні сповіщення в чатах лежать на тому самому склі, що й сповіщення самого застосунку."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Thông báo nhanh trong cuộc trò chuyện nằm trên cùng lớp kính với thông báo của chính ứng dụng."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "聊天中的提示条使用与应用自身提示条相同的玻璃。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "聊天中的提示條使用與 App 本身提示條相同的玻璃。"}}
+      }
+    },
     "settings.experiments.quietConnect": {
       "comment": "Settings > Experimental row title: connection notices (Resuming…, Connecting…) stay quiet while a connection comes up quickly.",
       "extractionState": "manual",
@@ -253071,6 +253443,60 @@
         "vi": {"stringUnit": {"state": "translated", "value": "Cmd-F trong terminal tìm trong toàn bộ lịch sử, với tùy chọn chữ hoa/thường, nguyên từ và regex."}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "在终端中按 Cmd-F 会搜索其全部历史，可选区分大小写、全词匹配和正则表达式。"}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "在終端機按 Cmd-F 會搜尋其全部歷史，可選區分大小寫、全字比對和正規表示式。"}}
+      }
+    },
+    "settings.experiments.themedPrompts": {
+      "comment": "Settings > Experimental row title: prompts that float over other apps (a teammate asking to control this Mac) use the theme's glass and colors.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "مطالبات عائمة بالسمة"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Plutajući upiti s temom"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Svævende prompter med tema"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Schwebende Abfragen im Design"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Themed Floating Prompts"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Avisos flotantes con tema"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Invites flottantes thématisées"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Richieste fluttuanti con tema"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "テーマ付きフローティングプロンプト"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ប្រអប់សួរអណ្តែតតាមរចនាប័ទ្ម"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "테마 적용 플로팅 프롬프트"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Flytende forespørsler med tema"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Pływające monity z motywem"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Avisos flutuantes com tema"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Плавающие запросы в стиле темы"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ข้อความถามแบบลอยตามธีม"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Temalı Kayan İstemler"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Плаваючі запити в стилі теми"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Lời nhắc nổi theo chủ đề"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "主题化浮动提示"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "主題化浮動提示"}}
+      }
+    },
+    "settings.experiments.themedPrompts.help": {
+      "comment": "Settings > Experimental row help for Themed Floating Prompts.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "تستخدم المطالبات فوق التطبيقات الأخرى، مثل طلب زميل التحكم في هذا الـ Mac، زجاج سمتك وألوانها."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Upiti preko drugih aplikacija, npr. kad kolega traži kontrolu nad ovim Macom, koriste staklo i boje vaše teme."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Prompter over andre apps, f.eks. når en kollega beder om at styre denne Mac, bruger dit temas glas og farver."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Abfragen über anderen Apps, etwa wenn ein Teammitglied diesen Mac steuern möchte, nutzen Glas und Farben deines Designs."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Prompts over other apps, such as a teammate asking to control this Mac, use your theme's glass and colors."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Los avisos sobre otras apps, como cuando un compañero pide controlar este Mac, usan el cristal y los colores de tu tema."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Les invites au-dessus des autres apps, comme un coéquipier qui demande à contrôler ce Mac, utilisent le verre et les couleurs de votre thème."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Le richieste sopra le altre app, ad esempio un collega che chiede di controllare questo Mac, usano il vetro e i colori del tuo tema."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "チームメイトがこの Mac の操作を求めるときなど、他のアプリの上に出るプロンプトがテーマのガラスと色を使います。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ប្រអប់សួរនៅលើកម្មវិធីផ្សេង ដូចជាមិត្តរួមក្រុមសុំគ្រប់គ្រង Mac នេះ ប្រើកញ្ចក់ និងពណ៌នៃរចនាប័ទ្មរបស់អ្នក។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "팀원이 이 Mac 제어를 요청할 때처럼 다른 앱 위에 뜨는 프롬프트가 테마의 글래스와 색상을 사용합니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Forespørsler over andre apper, for eksempel når en kollega ber om å styre denne Macen, bruker temaets glass og farger."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Monity nad innymi aplikacjami, np. gdy członek zespołu prosi o sterowanie tym Makiem, używają szkła i kolorów Twojego motywu."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Avisos sobre outros apps, como um colega pedindo para controlar este Mac, usam o vidro e as cores do seu tema."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Запросы поверх других приложений, например когда коллега просит управлять этим Mac, используют стекло и цвета вашей темы."}},
+        "th": {"stringUnit": {"state": "translated", "value": "ข้อความถามที่อยู่เหนือแอปอื่น เช่น เมื่อเพื่อนร่วมทีมขอควบคุม Mac เครื่องนี้ จะใช้กระจกและสีของธีมคุณ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Diğer uygulamaların üzerindeki istemler, örneğin bir ekip arkadaşınızın bu Mac'i denetlemek istemesi, temanızın camını ve renklerini kullanır."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Запити поверх інших застосунків, наприклад коли колега просить керувати цим Mac, використовують скло й кольори вашої теми."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Lời nhắc trên các ứng dụng khác, như khi đồng đội xin điều khiển máy Mac này, dùng kính và màu của chủ đề bạn."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "浮在其他应用上方的提示（例如队友请求控制这台 Mac）使用你主题的玻璃和颜色。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "浮在其他 App 上方的提示（例如隊友要求控制這台 Mac）使用你主題的玻璃和顏色。"}}
       }
     },
     "settings.experiments.composerButtonsVisible": {
@@ -253524,6 +253950,270 @@
         "vi": {"stringUnit": {"state": "translated", "value": "Biểu tượng loại tệp đính kèm"}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "附件类型图标"}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "附件類型圖示"}}
+      }
+    },
+    "settings.experiments.cloudDiskBar": {
+      "comment": "Settings > Experiments: the Cloud Disk Bar taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Disk Bar"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط قرص السحابة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traka diska u oblaku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diskbjælke i skyen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Datenträgerleiste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de disco en la nube"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barre de disque cloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra del disco cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドのディスクバー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របារថាសពពក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 디스크 막대"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diskstolpe i skyen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasek dysku w chmurze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de disco na nuvem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Полоса диска в облаке"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถบดิสก์คลาวด์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bulut disk çubuğu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Смуга диска в хмарі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thanh ổ đĩa đám mây"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云端磁盘条"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雲端磁碟列"
+          }
+        }
+      }
+    },
+    "settings.experiments.cloudDiskBar.help": {
+      "comment": "Settings > Experiments: the Cloud Disk Bar taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud machine cards show disk use as a bar split into system, project and caches."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعرض بطاقات أجهزة السحابة استخدام القرص كشريط مقسّم إلى النظام والمشروع وذاكرات التخزين المؤقت."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kartice mašina u oblaku prikazuju upotrebu diska kao traku podijeljenu na sistem, projekat i keš."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kort for skymaskiner viser diskforbrug som en bjælke opdelt i system, projekt og cache."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Maschinenkarten zeigen die Datenträgernutzung als Leiste, aufgeteilt in System, Projekt und Caches."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las tarjetas de máquinas en la nube muestran el uso del disco como una barra dividida en sistema, proyecto y cachés."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les cartes des machines cloud affichent l’utilisation du disque sous forme de barre répartie entre système, projet et caches."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le schede delle macchine cloud mostrano l’uso del disco come una barra divisa in sistema, progetto e cache."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドマシンのカードに、ディスク使用量をシステム、プロジェクト、キャッシュに分けたバーで表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កាតម៉ាស៊ីនពពកបង្ហាញការប្រើថាសជារបារ ដែលចែកជាប្រព័ន្ធ គម្រោង និងឃ្លាំងសម្ងាត់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 머신 카드에 디스크 사용량을 시스템, 프로젝트, 캐시로 나눈 막대로 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kort for skymaskiner viser diskbruk som en stolpe delt i system, prosjekt og hurtigbuffer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karty maszyn w chmurze pokazują użycie dysku jako pasek podzielony na system, projekt i pamięć podręczną."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os cartões das máquinas na nuvem mostram o uso do disco como uma barra dividida em sistema, projeto e caches."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Карточки облачных машин показывают использование диска полосой, разделённой на систему, проект и кэши."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การ์ดเครื่องคลาวด์แสดงการใช้ดิสก์เป็นแถบที่แบ่งเป็นระบบ โปรเจกต์ และแคช"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bulut makine kartları disk kullanımını sistem, proje ve önbellek olarak bölünmüş bir çubukla gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Картки хмарних машин показують використання диска смугою, поділеною на систему, проєкт і кеші."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thẻ máy đám mây hiển thị dung lượng đĩa đã dùng dưới dạng thanh chia thành hệ thống, dự án và bộ nhớ đệm."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云端机器卡片以条形显示磁盘用量，分为系统、项目和缓存。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雲端機器卡片以長條顯示磁碟用量，分為系統、專案與快取。"
+          }
+        }
       }
     },
     "settings.experiments.attachmentTypeIcons.help": {
@@ -256637,6 +257327,270 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "覆寫對話記錄外觀的權杖值。"
+          }
+        }
+      }
+    },
+    "settings.experiments.browserProfileCard": {
+      "comment": "Settings > Advanced > Experiments: the title of the switch that opens the browser toolbar profile menu with a profile card (large avatar, name) and a Signed in as line",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser Profile Card"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بطاقة ملف المتصفح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kartica profila preglednika"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browserprofilkort"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browserprofil-Karte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarjeta de perfil del navegador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carte du profil de navigateur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scheda profilo del browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザプロファイルカード"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កាតប្រវត្តិរូបកម្មវិធីរុករក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 프로필 카드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nettleserprofilkort"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karta profilu przeglądarki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cartão do perfil do navegador"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Карточка профиля браузера"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การ์ดโปรไฟล์เบราว์เซอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarayıcı Profili Kartı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Картка профілю браузера"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thẻ hồ sơ trình duyệt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器配置文件卡片"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽器設定檔卡片"
+          }
+        }
+      }
+    },
+    "settings.experiments.browserProfileCard.help": {
+      "comment": "Settings > Advanced > Experiments: the help line under the Browser Profile Card switch",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The browser's profile menu opens with a profile card."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُفتح قائمة ملف المتصفح ببطاقة الملف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meni profila preglednika otvara se karticom profila."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browserens profilmenu åbner med et profilkort."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Profilmenü des Browsers öffnet sich mit einer Profilkarte."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El menú de perfil del navegador se abre con una tarjeta de perfil."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le menu de profil du navigateur s'ouvre sur une carte de profil."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il menu del profilo del browser si apre con una scheda del profilo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザのプロファイルメニューがプロファイルカードから始まります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ឺនុយប្រវត្តិរូបរបស់កម្មវិធីរុករកបើកជាមួយកាតប្រវត្តិរូប។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 프로필 메뉴가 프로필 카드와 함께 열립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nettleserens profilmeny åpnes med et profilkort."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu profilu przeglądarki otwiera się kartą profilu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O menu de perfil do navegador abre com um cartão do perfil."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Меню профиля браузера открывается с карточкой профиля."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมนูโปรไฟล์ของเบราว์เซอร์จะเปิดพร้อมการ์ดโปรไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarayıcının profil menüsü bir profil kartıyla açılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Меню профілю браузера відкривається з карткою профілю."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu hồ sơ của trình duyệt mở ra với thẻ hồ sơ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器的配置文件菜单以配置文件卡片开头。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽器的設定檔選單以設定檔卡片開頭。"
           }
         }
       }
@@ -276050,6 +277004,534 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "你自己標記為已完成的清單步驟。"
+          }
+        }
+      }
+    },
+    "settings.notifications.sounds.maxSeconds": {
+      "comment": "Settings > Notifications > Sounds > Sound Duration: how long a sound plays, in seconds",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sound Duration"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مدة الصوت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trajanje zvuka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lydens varighed"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tondauer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Duración del sonido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Durée du son"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Durata del suono"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サウンドの長さ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រយៈពេលសំឡេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사운드 길이"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lydens varighet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czas trwania dźwięku"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Duração do som"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Длительность звука"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ระยะเวลาของเสียง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ses Süresi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тривалість звуку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thời lượng âm thanh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "声音时长"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聲音長度"
+          }
+        }
+      }
+    },
+    "settings.notifications.sounds.maxSeconds.help": {
+      "comment": "Settings > Notifications > Sounds > Sound Duration: help text",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sounds cmux plays itself stop after this long. 0 plays the whole sound."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تتوقف الأصوات التي يشغّلها cmux بنفسه بعد هذه المدة. القيمة 0 تشغّل الصوت كاملًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zvukovi koje cmux sam reprodukuje zaustavljaju se nakon ovog vremena. 0 reprodukuje cijeli zvuk."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lyde, som cmux selv afspiller, stopper efter så lang tid. 0 afspiller hele lyden."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Töne, die cmux selbst abspielt, enden nach dieser Zeit. 0 spielt den ganzen Ton."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los sonidos que cmux reproduce por sí mismo se detienen tras este tiempo. 0 reproduce el sonido completo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les sons que cmux joue lui-même s’arrêtent après cette durée. 0 joue le son en entier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I suoni che cmux riproduce da sé si fermano dopo questo tempo. 0 riproduce il suono intero."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux が自分で再生するサウンドは、この時間で止まります。0 にすると最後まで再生します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សំឡេងដែល cmux ចាក់ដោយខ្លួនឯងឈប់បន្ទាប់ពីរយៈពេលនេះ។ 0 ចាក់សំឡេងទាំងមូល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 직접 재생하는 사운드는 이 시간이 지나면 멈춥니다. 0이면 끝까지 재생합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lyder cmux spiller selv, stopper etter så lang tid. 0 spiller hele lyden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dźwięki odtwarzane przez cmux zatrzymują się po tym czasie. 0 odtwarza cały dźwięk."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Os sons que o cmux toca sozinho param depois desse tempo. 0 toca o som inteiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Звуки, которые cmux воспроизводит сам, останавливаются через это время. 0 воспроизводит звук целиком."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เสียงที่ cmux เล่นเองจะหยุดหลังจากเวลานี้ 0 คือเล่นจนจบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'un kendi çaldığı sesler bu süreden sonra durur. 0 sesin tamamını çalar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Звуки, які cmux відтворює сам, зупиняються через цей час. 0 відтворює звук повністю."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Âm thanh do cmux tự phát sẽ dừng sau khoảng thời gian này. 0 phát hết âm thanh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 自己播放的声音在这段时间后停止。0 表示播放完整声音。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 自行播放的聲音會在這段時間後停止。0 表示播放完整聲音。"
+          }
+        }
+      }
+    },
+    "notifications.sound.refusal.copyFailed": {
+      "comment": "Refusal when copying a notification sound into cmux's sounds folder failed: %@ is the file name",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not copy %@ into cmux's sounds folder."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر نسخ %@ إلى مجلد أصوات cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije moguće kopirati %@ u cmux mapu zvukova."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke kopiere %@ til cmux' lydmappe."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ konnte nicht in den Tonordner von cmux kopiert werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo copiar %@ a la carpeta de sonidos de cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de copier %@ dans le dossier des sons de cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile copiare %@ nella cartella dei suoni di cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ を cmux のサウンドフォルダにコピーできませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចចម្លង %@ ទៅថតសំឡេងរបស់ cmux បានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 파일을 cmux 사운드 폴더에 복사할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke kopiere %@ til lydmappen til cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można skopiować %@ do folderu dźwięków cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível copiar %@ para a pasta de sons do cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось скопировать %@ в папку звуков cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คัดลอก %@ ไปยังโฟลเดอร์เสียงของ cmux ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ cmux'un ses klasörüne kopyalanamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося скопіювати %@ до теки звуків cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể sao chép %@ vào thư mục âm thanh của cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法将 %@ 复制到 cmux 的声音文件夹。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法將 %@ 複製到 cmux 的聲音資料夾。"
+          }
+        }
+      }
+    },
+    "notifications.sound.choose.keepsCopy": {
+      "comment": "Open panel message when choosing a notification sound file",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a sound for notifications. cmux keeps its own copy."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اختر صوتًا للإشعارات. يحتفظ cmux بنسخة خاصة به."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odaberite zvuk za obavještenja. cmux čuva vlastitu kopiju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vælg en lyd til notifikationer. cmux gemmer sin egen kopi."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wähle einen Ton für Mitteilungen. cmux behält eine eigene Kopie."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elige un sonido para las notificaciones. cmux guarda su propia copia."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Choisissez un son pour les notifications. cmux en garde sa propre copie."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scegli un suono per le notifiche. cmux ne conserva una copia."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "通知のサウンドを選択してください。cmux は専用のコピーを保存します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជ្រើសសំឡេងសម្រាប់ការជូនដំណឹង។ cmux រក្សាច្បាប់ចម្លងផ្ទាល់ខ្លួន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "알림 사운드를 선택하세요. cmux가 자체 사본을 보관합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Velg en lyd for varsler. cmux beholder sin egen kopi."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wybierz dźwięk powiadomień. cmux zachowa własną kopię."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Escolha um som para as notificações. O cmux guarda uma cópia própria."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выберите звук для уведомлений. cmux сохранит собственную копию."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลือกเสียงสำหรับการแจ้งเตือน cmux จะเก็บสำเนาไว้เอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bildirimler için bir ses seçin. cmux kendi kopyasını saklar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Виберіть звук для сповіщень. cmux зберігає власну копію."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chọn âm thanh cho thông báo. cmux giữ một bản sao riêng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "选择通知声音。cmux 会保留一份自己的副本。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "選擇通知聲音。cmux 會保留一份自己的副本。"
           }
         }
       }

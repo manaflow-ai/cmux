@@ -2,7 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import { base64Decode, isValidDeviceKey, keyFingerprint, lowSHex } from "./crypto";
 import { DEVICE_ID, REPLAY_WINDOW_MS, checkDeviceSignature, readDeviceHeaders } from "./deviceAuth";
 import { relayEntitlement } from "./billing";
-import { HOST_RELAY_HEADER, ORIGIN_HEADER, SCOPE_HEADER, SESSION_DEVICE_HEADER, STACK_TOKEN_HEADER, USER_HEADER, type Env } from "./env";
+import { HOST_RELAY_HEADER, ORIGIN_HEADER, SCOPE_HEADER, SESSION_DEVICE_HEADER, SPACE_HEADER, STACK_TOKEN_HEADER, USER_HEADER, type Env } from "./env";
 import { ApiError, badRequest, errorResponse, json, notFound } from "./errors";
 import { internalCall, why } from "./internalCall";
 import { REATTACH_TTL_S, TICKET_TTL_S, type Scope, mintTicket } from "./tickets";
@@ -362,6 +362,8 @@ export class UserDO extends DurableObject<Env> {
     }
     const owner = this.sql.exec("SELECT v FROM meta WHERE k = 'user_id'").toArray()[0];
     if (owner) this.setOwner(owner.v as string);
+    const space = this.sql.exec("SELECT v FROM meta WHERE k = 'build_space'").toArray()[0];
+    if (space) this.space = space.v as string;
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
     // Sockets restored from hibernation need the silence check armed: a socket
     // accepted before this check existed has no clock until a sweep stamps it.
@@ -371,6 +373,19 @@ export class UserDO extends DurableObject<Env> {
   // ---- owner (v1: always the user; team sharing later adds 'team' rows) ----
 
   private ownerId = "";
+  /**
+   * The build space this DO is the user's object in (src/buildSpace.ts; "" for the default space), from its
+   * first request. Its name already says it (`dev:<slug>|<user>`); its Session DOs report back to it by it.
+   */
+  private space = "";
+
+  /** Records this DO's build space; a request of another space never reaches it (index.ts names DOs by space). */
+  private setSpace(space: string) {
+    if (this.space === space) return;
+    if (this.space || this.ownerId) throw new Error(`user DO of build space "${this.space}" got a request of "${space}"`);
+    this.space = space;
+    this.sql.exec("INSERT INTO meta(k, v) VALUES ('build_space', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v", space);
+  }
 
   /** Records the user this DO belongs to and backfills rows written before owner columns existed. */
   private setOwner(userId: string) {
@@ -524,6 +539,7 @@ export class UserDO extends DurableObject<Env> {
       if (url.pathname.startsWith("/internal/")) return await this.internal(url.pathname, request);
       const userId = request.headers.get(USER_HEADER);
       if (!userId) throw new ApiError(401, "unauthorized", "missing user");
+      this.setSpace(request.headers.get(SPACE_HEADER) ?? "");
       this.setOwner(userId);
       const origin = request.headers.get(ORIGIN_HEADER) ?? url.origin;
       const stackToken = request.headers.get(STACK_TOKEN_HEADER);
@@ -1283,6 +1299,7 @@ export class UserDO extends DurableObject<Env> {
       {
         sid: s.id,
         userId: c.userId,
+        space: this.space,
         scope: s.scope,
         viewer: { id: viewer.id, key: viewer.signing_key },
         host: { id: host.id, key: host.signing_key },
