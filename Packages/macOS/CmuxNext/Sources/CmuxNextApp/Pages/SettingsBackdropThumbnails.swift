@@ -56,8 +56,7 @@ final class SettingsBackdropThumbnails: PageDynamicResourceSource {
               let id = request.path[0].removingPercentEncoding, let selection = BackdropSelection(id: id) else { return nil }
         if case .live(let slug) = selection {
             guard DesignSettings.shared.motionBackgrounds, let wallpaper = LiveWallpaper.named(slug) else { return nil }
-            let data = await BackdropImageStore.shared.livePrograms.stillPNG(wallpaper, width: 240, height: 135, tokens: ThemeScope.app.tokens)
-            return data.map { PageResource(data: $0, mimeType: "image/png") }
+            return await BackdropImageStore.shared.livePrograms.stillPNG(wallpaper, width: 240, height: 135, tokens: ThemeScope.app.tokens).map { PageResource(data: $0, mimeType: "image/png") }
         }
         guard allowed.contains(id) || refreshedAllowed(id) || userImages?.contains(selection) == true else { return nil }
         if let data = cache[id] { return PageResource(data: data, mimeType: "image/png") }
