@@ -3235,6 +3235,8 @@ jobs:
     outputs:
       # The commit whose blocking webview checks failed; nightly-next-one and retry-nightly-next skip that commit.
       red_sha: ${{ steps.checks.outcome == 'failure' && needs.decide.outputs.head_sha || '' }}
+      # fixit-compile found no machine fix for the type check: the fixit-handoff job dispatches its revert.
+      fixit_nofix: ${{ steps.fixit-nofix.outputs.nofix }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -3260,6 +3262,12 @@ jobs:
       - name: Webview checks on the tip commit
         id: checks
         run: python3 scripts/ci/fast_gate_webviews_checks.py --repo . --advisory-out "$RUNNER_TEMP/webview-lint.json"
+      # The one-job loop's only type check: nightly-next-one skips a commit this job found red, so without this the
+      # red reached no fixer (2026-11-25 01:59-04:26Z, four nightlies; fixit-handoff.yml had never run).
+      - name: Hand a type error with no machine fix to fixit-handoff
+        id: fixit-nofix
+        if: ${{ failure() && steps.checks.outcome == 'failure' }}
+        run: python3 -I scripts/ci/oops/fixit_handoff.py signal >> "$GITHUB_OUTPUT"
 
   prepare-nightly-variant-primary:
     # No environment and no secrets. It runs no code from the bundle; the
@@ -7954,8 +7962,8 @@ jobs:
   # 2026-11-22: "if the fix is clear i think you guys should be able to unilaterally push commits directly." A job of
   # its own that only dispatches; check-nightly-webviews stays read-only.
   fixit-handoff:
-    needs: [resolve-nightly-cmux-tui-client, check-nightly-webviews, nightly-next-one]
-    if: ${{ !cancelled() && vars.FIXIT_HANDOFF != '0' && (needs.check-nightly-webviews.outputs.fixit_nofix == 'true' || needs.nightly-next-one.outputs.fixit_nofix == 'true') }}
+    needs: [resolve-nightly-cmux-tui-client, check-nightly-webviews, nightly-next-one, early-nightly-webviews]
+    if: ${{ !cancelled() && vars.FIXIT_HANDOFF != '0' && (needs.check-nightly-webviews.outputs.fixit_nofix == 'true' || needs.nightly-next-one.outputs.fixit_nofix == 'true' || needs.early-nightly-webviews.outputs.fixit_nofix == 'true') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     timeout-minutes: 5
     permissions:
@@ -7968,7 +7976,8 @@ jobs:
         env:
           GH_BUDGET_WAIT_MAX_SECONDS: "0"
           GH_TOKEN: ${{ github.token }}
-          SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          # early-nightly-webviews checks the tip (decide's head), which can be newer than the build commit.
+          SHA: ${{ needs.early-nightly-webviews.outputs.fixit_nofix == 'true' && needs.early-nightly-webviews.outputs.red_sha || needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           ORIGIN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: gh workflow run fixit-handoff.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f sha="$SHA" -f check=webviews -f origin="$ORIGIN"
 
