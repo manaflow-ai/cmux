@@ -95253,6 +95253,137 @@
       }
     }
   },
+    "action.agentPaneReload": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Agent Chat: Reload"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "エージェントチャット: 再読み込み"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "دردشة الوكيل: إعادة التحميل"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chat s agentom: Ponovo učitaj"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Agentchat: Genindlæs"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Agent-Chat: Neu laden"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chat del agente: Recargar"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chat de l’agent : Recharger"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chat dell’agente: Ricarica"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ការជជែកជាមួយភ្នាក់ងារ៖ ផ្ទុកឡើងវិញ"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "에이전트 채팅: 새로고침"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Agentchat: Last inn på nytt"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Czat z agentem: Odśwież"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chat do agente: Recarregar"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Чат с агентом: Перезагрузить"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "แชตเอเจนต์: โหลดใหม่"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Ajan sohbeti: Yeniden Yükle"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Чат з агентом: Перезавантажити"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Trò chuyện với tác tử: Tải lại"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "智能体聊天：重新加载"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "代理聊天：重新載入"
+        }
+      }
+    }
+  },
     "action.notifications.dismissHighlight": {
       "extractionState": "manual",
       "localizations": {
