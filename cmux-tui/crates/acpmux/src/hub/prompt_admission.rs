@@ -372,7 +372,7 @@ impl Hub {
                 return Err(restore_deadline());
             }
             session.queued.fetch_add(1, Ordering::SeqCst);
-            self.enqueue(session, &slot, &turn_id, limits, claimed, |row, _| {
+            self.enqueue_admitted(session, &slot, &turn_id, limits, claimed, |row, _| {
                 let outcome = super::prompt_ledger::recover(session, &row.prompt_id);
                 row.restored = true;
                 row.resume = true;
