@@ -794,8 +794,7 @@ impl KeptCircuits {
         }
     }
 
-    /// Every slot, with its machine and lane, whose kept circuit ended under it and wants opening
-    /// again.
+    /// Every machine's slot whose kept circuit ended under it and wants opening again.
     pub(crate) fn to_reopen(&self) -> Vec<(String, Lane, Arc<tokio::sync::Mutex<Kept>>)> {
         let by_machine = self.by_machine.lock().unwrap_or_else(|e| e.into_inner());
         by_machine
