@@ -23,13 +23,15 @@ extension CmuxRemoteService {
             guard let self else { throw CmuxRemoteError.unavailable }
             return try await openChannel("screen-sharing").socket
         })
+        let buildSpace = deviceHub.buildSpace
         deviceHub.makeRemoteHub = { [weak self] url, _ in
             guard let self else { return nil }
             remoteHub = nil
             guard try await configuredAvailability() else { return nil }
             do {
                 let identity = try await devices.identity()
-                let hub = devices.makeHub(url: url, identity: identity, bundleID: bundleID, loginKeychain: loginKeychain, tokens: tokens)
+                let hub = devices.makeHub(url: url, identity: identity, bundleID: bundleID, loginKeychain: loginKeychain,
+                                          buildSpace: buildSpace, tokens: tokens)
                 remoteHub = hub
                 return hub
             } catch {
@@ -39,6 +41,8 @@ extension CmuxRemoteService {
         }
         deviceHub.hubChanged = { [weak self, weak pages] hub, user, url in
             guard let self else { return }
+            // In a dev build space DeviceHubService never asks for the worker's hub: the app's own serves, and the
+            // worker hears `hub.signed_out`, so it never renews this Mac in the default space.
             // The app owns the current `cmux.rd/1` host while it is running. The worker's host
             // path speaks the older ScreenStreamHost protocol, so its app channel is explicitly
             // relay-only; it retains identity, signing and push delivery, and can host again only

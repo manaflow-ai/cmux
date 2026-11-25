@@ -44,9 +44,25 @@
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
-/// How long a prompt waits for the link before it comes back to the composer: the chat's
-/// `heldPromptWindow` (the terminal's key hold), measured from when it began to wait.
-pub const DEFAULT_HOLD: Duration = Duration::from_secs(10);
+/// The quiet window of a prompt: how long it may go with no progress at all (nothing heard from
+/// the Mac, no write taken, no upload chunk) before it comes back to the composer. Each progress
+/// starts it over, so it bounds a stall, never a send that is moving (Leo, 2026-11-24: "10s
+/// timeout for messages being sendsble is a shame. if it's making good progress, it shiukd be
+/// allowed to keep going?"). 30 s as on the Mac, where the same window was 10 s.
+pub const DEFAULT_HOLD: Duration = Duration::from_secs(30);
+
+/// The first wait before a prompt goes again after the Mac said "not now" (busy, starting,
+/// restarting, ...), doubling to [`REFUSAL_RETRY_CAP`]; the Mac's own `_cmux/prompt_resend`
+/// outbox uses the same 1 s to 30 s.
+pub const REFUSAL_RETRY_FIRST: Duration = Duration::from_secs(1);
+
+/// The longest wait between retries after a "not now".
+pub const REFUSAL_RETRY_CAP: Duration = Duration::from_secs(30);
+
+/// How long a prompt is retried through "not now" answers before the last one is taken as final:
+/// a Mac that is still busy after this is not coming back soon, and its own words go to the
+/// person.
+pub const REFUSAL_PATIENCE: Duration = Duration::from_secs(300);
 
 /// The first retry's wait after a failed write or a lost answer (the chat's old
 /// single 500 ms re-flush). Each further failure doubles it.
@@ -70,6 +86,86 @@ pub fn retry_delay(attempt: u32, unit: f64) -> Duration {
     let full = RETRY_FIRST.saturating_mul(1u32 << doublings).min(RETRY_CAP);
     let unit = if unit.is_finite() { unit.clamp(0.0, 1.0) } else { 0.0 };
     full / 2 + (full / 2).mul_f64(unit)
+}
+
+/// The wait before retry number `attempt` (1 = the first) after a "not now": 1 s, 2 s, 4 s ... up
+/// to 30 s. Not jittered: the person is told this wait ([`PromptOutbox::retry_in`]).
+pub fn refusal_delay(attempt: u32) -> Duration {
+    let doublings = attempt.saturating_sub(1).min(16);
+    REFUSAL_RETRY_FIRST.saturating_mul(1u32 << doublings).min(REFUSAL_RETRY_CAP)
+}
+
+/// Whether an error answer to a prompt only says "not now" (a just-restarted acpmux, a busy or
+/// draining one, the host's own wait, a timeout) and never "no": it is retried, not given back.
+/// Anything the daemon itself marks `origin: native` is the host or transport talking, not
+/// acpmux refusing the prompt. The markers match those of the Mac's prompt outbox
+/// (`AgentPanePromptRelay.transient`).
+pub fn is_transient_refusal(
+    origin: Option<&str>,
+    code: Option<&str>,
+    reason: Option<&str>,
+) -> bool {
+    const MARKERS: [&str; 13] = [
+        "busy",
+        "unproven",
+        "starting",
+        "not_ready",
+        "notready",
+        "restarting",
+        "unavailable",
+        "loading",
+        "timed_out",
+        "timeout",
+        "not_connected",
+        "draining",
+        "retry",
+    ];
+    if origin == Some("native") {
+        return true;
+    }
+    [reason, code].into_iter().flatten().any(|word| {
+        let word = word.to_lowercase();
+        MARKERS.iter().any(|marker| word.contains(marker))
+    })
+}
+
+/// What the owner does after an error answer ([`PromptOutbox::refusal`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Refusal {
+    /// "Not now": the prompt goes again after `retry_in` (attempt number `attempt` of the retries).
+    /// It stays on screen as sent, looking [`PromptLook::Retrying`].
+    Retry { attempt: u32, retry_in: Duration },
+    /// A real refusal (or one that went on past [`REFUSAL_PATIENCE`]): the prompt is given back.
+    Final(PromptDone),
+}
+
+/// What the Mac's prompt outbox says of a prompt it sends again for this phone
+/// (`_cmux/prompt_resend`, field `state`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResendState {
+    /// On the wire to acpmux.
+    Sent,
+    /// acpmux took it.
+    Accepted,
+    /// acpmux said not now: the Mac goes again after `retry_in` (when it says).
+    Retrying { retry_in: Option<Duration> },
+    /// acpmux refused it for good.
+    Refused,
+}
+
+impl ResendState {
+    /// The notice's `state` string (and `retryInMs`), or `None` for a state this does not know.
+    pub fn parse(state: &str, retry_in_ms: Option<u64>) -> Option<ResendState> {
+        match state {
+            "sent" => Some(ResendState::Sent),
+            "accepted" => Some(ResendState::Accepted),
+            "retrying" => {
+                Some(ResendState::Retrying { retry_in: retry_in_ms.map(Duration::from_millis) })
+            }
+            "refused" => Some(ResendState::Refused),
+            _ => None,
+        }
+    }
 }
 
 /// How a prompt looks on screen.
@@ -130,6 +226,29 @@ pub struct PromptDone {
     pub cancel_uploads: Vec<String>,
 }
 
+/// One prompt still on its way, as the chat draws it with what the person can do to it
+/// ([`PromptOutbox::pending`]). Every pending send has an exit: Stop ([`PromptOutbox::cancel`],
+/// its text back in the composer to edit and send again) and Delete ([`PromptOutbox::delete`])
+/// at any point, and Send now ([`PromptOutbox::retry_now`]) while it waits on a backoff.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingSend {
+    pub id: String,
+    pub text: String,
+    /// Its attachments' upload ids, in order.
+    pub attachments: Vec<String>,
+    pub look: PromptLook,
+    /// Until it goes again after a "not now" (its own retry or the Mac's), when it waits on one.
+    pub retry_in: Option<Duration>,
+    /// The chat shows its row: it has attachments (their upload takes a while), it waits
+    /// ([`PromptLook::Retrying`]), or it is being stopped. A text prompt that goes at once shows
+    /// no row (its bubble comes with the Mac's echo).
+    pub shown: bool,
+    /// Send now is offered: the link is up and it is unwritten and waiting (a backoff, a "not now").
+    pub can_send_now: bool,
+    /// It was stopped after it may have reached the Mac: the Mac's queue removal is awaited.
+    pub stopping: bool,
+}
+
 /// One attempt to make: write `session/prompt` with this `promptId` and `resend`, its
 /// attachments at their Mac paths.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -187,6 +306,11 @@ struct Entry {
     /// When it began to wait for the link (its tap, a hold, its uploads ending, the drop that
     /// lost it): its age against the hold.
     waiting_since: Instant,
+    /// The last progress toward its send since it began to wait (bytes heard on the link while
+    /// it waits its turn, an upload chunk taken): its hold runs from the later of this and
+    /// `waiting_since`, so a send that keeps moving is never given up (Leo, 2026-11-24: "if it's
+    /// making good progress, it should be allowed to keep going").
+    progress_at: Option<Instant>,
     state: State,
     /// Every attempt from now is a resend (one was written, or it came in as one).
     resend: bool,
@@ -195,6 +319,12 @@ struct Entry {
     attempts: u32,
     /// Failures in a row since the last write that took.
     failures: u32,
+    /// "Not now" answers in a row from the Mac (it is there, and said to wait).
+    refusals: u32,
+    /// When the first of them came.
+    refused_since: Option<Instant>,
+    /// The Mac's own outbox said it retries this at the instant (`_cmux/prompt_resend`).
+    mac_retry_at: Option<Instant>,
     not_before: Option<Instant>,
     /// When the write now under way began (to know what a failed one took).
     write_started: Option<Instant>,
@@ -203,6 +333,11 @@ struct Entry {
 impl Entry {
     fn uploaded(&self) -> bool {
         self.slots.iter().all(|s| matches!(s.state, UploadState::Uploaded { .. }))
+    }
+
+    /// Since when it has made no progress: its hold is measured from here.
+    fn stalled_since(&self) -> Instant {
+        crate::progress::stalled_since(self.waiting_since, self.progress_at)
     }
 
     fn may_be_on_mac(&self) -> bool {
@@ -327,11 +462,15 @@ impl PromptOutbox {
             slots,
             tapped,
             waiting_since: if waits { now } else { tapped },
+            progress_at: None,
             state: State::Queued,
             resend,
             written_once: false,
             attempts: 0,
             failures: 0,
+            refusals: 0,
+            refused_since: None,
+            mac_retry_at: None,
             not_before: None,
             write_started: None,
         };
@@ -339,6 +478,32 @@ impl PromptOutbox {
             self.entries.iter().position(|e| e.tapped > tapped).unwrap_or(self.entries.len());
         self.entries.insert(index, entry);
         true
+    }
+
+    /// The link made progress at `now` (bytes heard from the Mac, a channel bound, a write
+    /// taken): every unwritten prompt waiting its turn behind it is still moving, so its hold
+    /// starts over from `now`. One whose own write failed since it last took is not helped by
+    /// other traffic: it keeps its wait until a write of its own takes.
+    pub fn progressed(&mut self, now: Instant) {
+        for entry in self.entries.iter_mut().filter(|e| e.state == State::Queued && e.failures == 0)
+        {
+            if entry.progress_at.is_none_or(|at| at < now) {
+                entry.progress_at = Some(now);
+            }
+        }
+    }
+
+    /// The upload `upload` took a chunk at `now`: the prompt holding it is moving, so its hold
+    /// starts over from `now`. An id no unwritten prompt holds is ignored.
+    pub fn upload_progressed(&mut self, upload: &str, now: Instant) {
+        for entry in self.entries.iter_mut().filter(|e| {
+            e.state == State::Queued
+                && e.slots.iter().any(|s| s.id == upload && s.state == UploadState::Pending)
+        }) {
+            if entry.progress_at.is_none_or(|at| at < now) {
+                entry.progress_at = Some(now);
+            }
+        }
     }
 
     /// The upload `upload` ended on the Mac at `mac_path`. When it was a prompt's last, that
@@ -396,7 +561,7 @@ impl PromptOutbox {
         // are on the Mac (Leo, 2026-11-24: a send must never sit blocked behind a load).
         let entry = self.entries.iter_mut().find(|e| e.state == State::Queued && e.uploaded())?;
         if entry.not_before.is_some_and(|at| now < at)
-            || now.saturating_duration_since(entry.waiting_since) >= hold
+            || now.saturating_duration_since(entry.stalled_since()) >= hold
         {
             return None;
         }
@@ -421,6 +586,7 @@ impl PromptOutbox {
     }
 
     /// The prompt's write took: its answer is awaited. From now on every attempt is a resend.
+    /// A write taking is progress for the ones waiting behind it: call [`progressed`](Self::progressed).
     pub fn wrote(&mut self, id: &str) {
         if let Some(entry) = self.entry_mut(id) {
             entry.resend = true;
@@ -488,6 +654,86 @@ impl PromptOutbox {
         let entry = self.entries.remove(index)?;
         self.remember_failed(entry.id.clone());
         Some(entry.done(PromptOutcome::Refused))
+    }
+
+    /// The Mac answered the prompt with an error: `transient` (see [`is_transient_refusal`]) says
+    /// it only said "not now". Nothing ran either way. A "not now" is not final: the prompt goes
+    /// again after [`refusal_delay`] (1 s doubling to 30 s), its quiet window starting over at that
+    /// retry (the Mac answered, so the link is moving), and it looks [`PromptLook::Retrying`].
+    /// Only a real refusal, or "not now" answers that went on for [`REFUSAL_PATIENCE`], give the
+    /// prompt back ([`Refusal::Final`], the same as [`refused`](Self::refused)). `None` when `id`
+    /// is not here.
+    pub fn refusal(&mut self, id: &str, transient: bool, now: Instant) -> Option<Refusal> {
+        let entry = self.entries.iter_mut().find(|e| e.id == id)?;
+        let since = *entry.refused_since.get_or_insert(now);
+        if !transient
+            || entry.state == State::Cancelling
+            || now.saturating_duration_since(since) >= REFUSAL_PATIENCE
+        {
+            return self.refused(id).map(Refusal::Final);
+        }
+        entry.refusals = entry.refusals.saturating_add(1);
+        let retry_in = refusal_delay(entry.refusals);
+        let retry_at = now + retry_in;
+        entry.state = State::Queued;
+        entry.write_started = None;
+        entry.mac_retry_at = None;
+        entry.not_before = Some(retry_at);
+        entry.progress_at = Some(entry.progress_at.map_or(retry_at, |at| at.max(retry_at)));
+        Some(Refusal::Retry { attempt: entry.refusals, retry_in })
+    }
+
+    /// The Mac's own prompt outbox told this phone what became of the prompt it sends again
+    /// (`_cmux/prompt_resend`). Sent and accepted: it is on the Mac, its answer is awaited (the
+    /// Mac's outbox owns the resend, so this one does not write it too). Retrying: the Mac goes
+    /// again after `retry_in`, and the prompt looks [`PromptLook::Retrying`] meanwhile. Refused:
+    /// final, [`Some`] with the prompt back. Each notice is a word from the Mac, so the quiet
+    /// window starts over.
+    pub fn resend_notice(
+        &mut self,
+        id: &str,
+        state: ResendState,
+        now: Instant,
+    ) -> Option<PromptDone> {
+        if state == ResendState::Refused {
+            return self.refused(id);
+        }
+        let entry = self.entry_mut(id)?;
+        if entry.state == State::Cancelling {
+            return None;
+        }
+        entry.resend = true;
+        entry.written_once = true;
+        entry.state = State::Written;
+        entry.not_before = None;
+        entry.write_started = None;
+        entry.failures = 0;
+        entry.progress_at = Some(entry.progress_at.map_or(now, |at| at.max(now)));
+        match state {
+            ResendState::Retrying { retry_in } => {
+                entry.refusals = entry.refusals.saturating_add(1);
+                let wait = retry_in.unwrap_or_else(|| refusal_delay(entry.refusals));
+                entry.mac_retry_at = Some(now + wait);
+            }
+            _ => {
+                entry.refusals = 0;
+                entry.refused_since = None;
+                entry.mac_retry_at = None;
+            }
+        }
+        None
+    }
+
+    /// How long until the prompt `id` goes again after a "not now" (its own retry, or the Mac's
+    /// outbox's), for the chat to say; `None` when it is not waiting on one.
+    pub fn retry_in(&self, id: &str, now: Instant) -> Option<Duration> {
+        let entry = self.entries.iter().find(|e| e.id == id)?;
+        let at = match entry.state {
+            State::Queued if entry.refusals > 0 => entry.not_before,
+            State::Written => entry.mac_retry_at,
+            _ => None,
+        }?;
+        Some(at.saturating_duration_since(now))
     }
 
     /// The person cancels the prompt `id`, at any point. One that never left comes back at once
@@ -558,11 +804,15 @@ impl PromptOutbox {
             slots: Entry::slots_for(&attachments, &old.slots),
             tapped: old.tapped,
             waiting_since: now,
+            progress_at: None,
             state: State::Queued,
             resend: false,
             written_once: false,
             attempts: 0,
             failures: 0,
+            refusals: 0,
+            refused_since: None,
+            mac_retry_at: None,
             not_before: None,
             write_started: None,
         };
@@ -578,6 +828,8 @@ impl PromptOutbox {
         }
         entry.not_before = None;
         entry.failures = 0;
+        entry.refusals = 0;
+        entry.refused_since = None;
         entry.waiting_since = now;
         true
     }
@@ -594,7 +846,7 @@ impl PromptOutbox {
             if link_up && !entry.uploaded() {
                 break;
             }
-            if now.saturating_duration_since(entry.waiting_since) >= hold {
+            if now.saturating_duration_since(entry.stalled_since()) >= hold {
                 due = true;
                 break;
             }
@@ -657,9 +909,13 @@ impl PromptOutbox {
     /// never here) looks sent.
     pub fn look(&self, id: &str, now: Instant) -> PromptLook {
         if let Some(entry) = self.entries.iter().find(|e| e.id == id) {
-            let waiting = matches!(entry.state, State::Queued | State::Writing)
-                && entry.uploaded()
-                && now.saturating_duration_since(entry.waiting_since) >= RETRYING_AFTER;
+            // A "not now" from the Mac shows at once: it is the Mac's own word that it goes again.
+            let not_now = (entry.state == State::Queued && entry.refusals > 0)
+                || (entry.state == State::Written && entry.mac_retry_at.is_some());
+            let waiting = not_now
+                || (matches!(entry.state, State::Queued | State::Writing)
+                    && entry.uploaded()
+                    && now.saturating_duration_since(entry.waiting_since) >= RETRYING_AFTER);
             return if waiting { PromptLook::Retrying } else { PromptLook::Sent };
         }
         if self.failed.iter().any(|f| f == id) { PromptLook::Failed } else { PromptLook::Sent }
@@ -685,7 +941,7 @@ impl PromptOutbox {
                 // As in `expire`: it and every one behind it wait for its upload, not the link.
                 break;
             }
-            earlier(entry.waiting_since + self.hold);
+            earlier(entry.stalled_since() + self.hold);
             if self.link_up
                 && first_queued
                 && let Some(retry) = entry.not_before
@@ -706,6 +962,30 @@ impl PromptOutbox {
             .filter(|at| *at > now)
             .min()
             .map(|at| at.saturating_duration_since(now))
+    }
+
+    /// Every prompt still on its way, in tap order, with the actions each has (Stop, Delete,
+    /// Send now): the chat's pending rows. Nothing here ever lacks an exit.
+    pub fn pending(&self, now: Instant) -> Vec<PendingSend> {
+        self.entries
+            .iter()
+            .map(|e| {
+                let look = self.look(&e.id, now);
+                let stopping = e.state == State::Cancelling;
+                PendingSend {
+                    id: e.id.clone(),
+                    text: e.text.clone(),
+                    attachments: e.slots.iter().map(|s| s.id.clone()).collect(),
+                    look,
+                    retry_in: self.retry_in(&e.id, now),
+                    shown: !e.slots.is_empty() || look == PromptLook::Retrying || stopping,
+                    can_send_now: self.link_up
+                        && e.state == State::Queued
+                        && look == PromptLook::Retrying,
+                    stopping,
+                }
+            })
+            .collect()
     }
 
     /// The unwritten prompts' ids (queued, uploading or backing off), in tap order.
