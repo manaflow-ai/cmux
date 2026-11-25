@@ -484,7 +484,9 @@ public struct AgentChatScreen: View {
                         .contentTransition(.opacity)
                     HStack(spacing: 5) {
                         Circle().fill(statusColor).frame(width: 6, height: 6)
-                        Text("\(store.summary.agentName) · \(store.summary.workspaceTitle)").font(.footnote).foregroundStyle(.secondary)
+                        // The saved copy's age past the quiet bound of an outage (``AgentChatStore/offlineLine(now:)``).
+                        Text(store.offlineLine() ?? "\(store.summary.agentName) · \(store.summary.workspaceTitle)")
+                            .font(.footnote).foregroundStyle(.secondary)
                     }
                 }
                 .foregroundStyle(.primary)

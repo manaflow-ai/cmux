@@ -479,11 +479,15 @@ public final class WorkspaceTabsSource: TabsDataSource {
         switch tab.kind {
         case .agent:
             // A new session takes its title from the agent, or its first prompt, after a turn.
-            let session = AgentSessionDirectory.shared.existingStore(id: tab.id, macID: workspace.macID)?.displayTitle ?? tab.subtitle ?? tab.title
+            let store = AgentSessionDirectory.shared.existingStore(id: tab.id, macID: workspace.macID)
+            let session = store?.displayTitle ?? tab.subtitle ?? tab.title
+            // Past the quiet bound of an outage the pill says how old the saved copy on screen is
+            // ("Mac offline · updated 3 min ago"), as a terminal tab's does (Leo, 2026-11-25).
+            let status = store?.offlineLine()
             return TabsKitTab(
                 id: tab.id, kind: TabsKitTabKind("agent"), title: session, subtitle: "\(tab.title) · \(workspace.title)",
                 systemImage: tab.isPinned ? "pin.fill" : "sparkle",
-                address: .title(session, subtitle: "\(tab.title) · \(workspace.title)"),
+                address: .title(session, subtitle: status ?? "\(tab.title) · \(workspace.title)"),
                 // Back leaves the workspace: the tab has no history of its own.
                 navigation: TabsKitNavigationState(canGoBack: true),
                 features: [.history, .pageMenu]

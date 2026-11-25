@@ -427,6 +427,19 @@ public final class AgentChatStore {
         return "Connecting to \(summary.macName)…"
     }
 
+    /// The chat's title subtitle while its Mac can't be reached and the saved copy shows:
+    /// "Mac offline · updated 3 min ago", as the terminal page's pill says it. Nil while live,
+    /// for the first ``QuietStatusGate/threshold`` of an outage, and for a chat with no turns
+    /// (its loading state speaks instead). The rows stay readable and scrollable the whole
+    /// time; nothing covers them. Leo, 2026-11-25: "And just be able to still like interact
+    /// with the rest of the app with that saved copy and whatnot."
+    public func offlineLine(now: Date = Date()) -> String? {
+        guard quietStatus.isShown, hasTurns, summary.status == .disconnected || isOffline else { return nil }
+        let base = String(localized: "mobile.agentChat.offline", defaultValue: "Mac offline", bundle: .module)
+        guard let at = source.savedCopyAt else { return base }
+        return "\(base) · \(SavedCopyAge.phrase(since: at, now: now))"
+    }
+
     /// Feeds ``quietStatus`` from the link state: the session's own status, or a source that can't
     /// reach its Mac (``loadingText`` says "Connecting" for either once the bound passes). A
     /// history still loading on a live link does not feed it: its spinner says nothing, since a
