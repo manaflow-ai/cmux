@@ -22,6 +22,7 @@ mod last_place;
 mod link_side;
 pub mod local_link;
 mod mac_screen;
+mod mailbox_client;
 mod pair_requests;
 mod read_store;
 mod share_approval;
