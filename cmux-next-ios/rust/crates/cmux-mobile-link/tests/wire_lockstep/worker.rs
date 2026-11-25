@@ -33,8 +33,7 @@ fn forwarded_kinds() -> Vec<String> {
 // The Worker has no separate registry for these codes: the literal arguments
 // at its WebSocket close and signaling-error sends are the protocol vocabulary.
 pub(super) fn control_names() -> BTreeSet<String> {
-    // Worker admission and endpoint decoding are distinct. In particular the Worker
-    // forwards wg-relay even though this revision of the Rust decoder lacks it.
+    // Worker admission and endpoint decoding are distinct: what it forwards is its own list.
     let mut names: BTreeSet<_> =
         forwarded_kinds().iter().map(|kind| format!("control:worker-forward/{kind}")).collect();
     for call in TEAM_HUB.split(".close(").skip(1) {
@@ -56,6 +55,8 @@ pub(super) fn control_names() -> BTreeSet<String> {
     names
 }
 
+// tungstenite's handshake callback returns its own `ErrorResponse`; its size is not ours to change.
+#[allow(clippy::result_large_err)]
 async fn accept_worker(stream: TcpStream, tap: &Tap) -> WebSocketStream<TcpStream> {
     tokio_tungstenite::accept_hdr_async(stream, |request: &Request, response: Response| {
         for key in request.headers().keys() {
@@ -255,7 +256,6 @@ async fn signaling_dial_against_base_worker() {
 
 /// The 0.17 Worker forwards this signal to the other device on an existing session.
 #[tokio::test]
-#[ignore = "0.17 Worker forwards wg-relay but the Rust peer drops the unknown payload.kind"]
 async fn worker_wg_relay_reaches_the_peer() {
     use cmux_mobile_link::signaling::SessionEvent;
     use cmux_mobile_link::testing::{FakeOptions, FakeSignaling};
@@ -282,16 +282,12 @@ async fn worker_wg_relay_reaches_the_peer() {
 }
 
 // This is the admission registry used by the in-tree Worker on every forwarded
-// signal. A second Worker-only kind must fail even while wg-relay is outstanding.
+// signal: every kind it forwards, the link reads.
 #[test]
 fn worker_forwarded_payloads_are_known_to_the_link() {
     let kinds = forwarded_kinds();
     let worker: BTreeSet<_> = kinds.iter().map(String::as_str).collect();
     let rust = super::signals::payload_tags();
-    assert_eq!(
-        worker.difference(&rust).copied().collect::<Vec<_>>(),
-        ["wg-relay"],
-        "Worker-only payload kinds"
-    );
+    assert_eq!(worker.difference(&rust).next(), None, "the link drops a Worker-forwarded payload kind");
     assert_eq!(rust.difference(&worker).next(), None, "the Worker refuses a Rust payload kind");
 }
