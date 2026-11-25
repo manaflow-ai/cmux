@@ -563,7 +563,7 @@ impl Peer {
                 let stream = dial_link(&socket, host).await?;
                 Ok((Box::new(stream), "ws://localhost/".to_owned()))
             }
-            Via::Tailnet => self.tailnet_stream().await,
+            Via::Tailnet => self.tailnet_stream().await.map_err(DialError::from),
             #[cfg(feature = "hub-carrier")]
             Via::Hub => Ok((Box::new(self.hub_stream().await?), "ws://localhost/".to_owned())),
             other => Err(format!("{} is not a direct stream path", other.as_str()).into()),
