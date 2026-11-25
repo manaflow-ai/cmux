@@ -5,6 +5,7 @@
 // Reconnect under way) are kept here, since the App's rows have none.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usePaneLanguage, useT } from "../../i18n";
+import { useConnectionQuiet } from "../../../../ui/lasting";
 import type { AcpmuxRow } from "../../model";
 import { planDone, type SessionInfoPlan } from "../progressSectionModel";
 import { postNative } from "../../native";
@@ -238,6 +239,10 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   const [openLists, setOpenLists] = useState<ReadonlySet<string>>(new Set());
   const [reconnecting, setReconnecting] = useState<Readonly<Record<string, "reconnecting" | "failed">>>({});
   const reconnectingServers = useRef(new Set<string>());
+  // A connector still connecting says so only once that has lasted the shared bound (connectors.ts).
+  const connectorsPendingShown = useConnectionQuiet(
+    (props.summary?.mcpServers ?? []).some((server) => server.status === "pending"),
+  );
   const [changesAll, setChangesAll] = useState(false);
   const [outputsAll, setOutputsAll] = useState(false);
   const [usageAll, setUsageAll] = useState(false);
@@ -413,6 +418,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           open: state.sections.connectors,
           reconnecting,
           imessage,
+          pendingShown: connectorsPendingShown,
         },
         actions,
         t,
