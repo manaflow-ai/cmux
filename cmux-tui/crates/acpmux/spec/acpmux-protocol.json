@@ -1266,6 +1266,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/customize_run",
+      "params": {
+        "$ref": "#/types/CustomizeRunParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/mail/send",
       "params": {
         "$ref": "#/types/MailSendParams"
@@ -3931,6 +3939,16 @@
           "type": "string"
         }
       ]
+    },
+    "CustomizeRunParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "run": true
+      },
+      "type": "object"
     },
     "DeliveryReceipt": {
       "properties": {
