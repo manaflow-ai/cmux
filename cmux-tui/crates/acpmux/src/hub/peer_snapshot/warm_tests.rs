@@ -81,7 +81,8 @@ fn a_copy_is_read_past_what_it_covers_or_replaced_when_too_far_behind_or_of_anot
     let now = Instant::now();
     let rows = [row("a", 500, 0), row("b", 900, 1)];
     let caught_up = Covers::kept(HashMap::from([("a".to_owned(), (Some(42), 500))]));
-    let (asks, planned, _) = plan(PEER, false, &rows[..1], &caught_up, &HashMap::new(), (NOW_MS, now));
+    let (asks, planned, _) =
+        plan(PEER, false, &rows[..1], &caught_up, &HashMap::new(), (NOW_MS, now));
     assert!(asks.is_empty(), "a copy that covers the row's last seq is not read again");
     assert!(planned.contains("a"));
 
@@ -112,7 +113,8 @@ fn a_chat_read_within_the_interval_waits_for_its_end_and_is_then_read() {
     let now = Instant::now();
     let rows = [row("a", 5, 0), row("b", 5, 1)];
     let read_at = HashMap::from([((PEER.to_owned(), "a".to_owned()), (42, now))]);
-    let (asks, planned, later) = plan(PEER, false, &rows, &Covers::default(), &read_at, (NOW_MS, now));
+    let (asks, planned, later) =
+        plan(PEER, false, &rows, &Covers::default(), &read_at, (NOW_MS, now));
     assert_eq!(muxes(&asks), ["b"]);
     assert!(planned.contains("a"), "still planned, so its read time is kept");
     assert_eq!(later, Some(now + WARM_EVERY));
@@ -147,7 +149,8 @@ fn a_chat_a_bound_evicted_is_not_read_ahead_and_a_kept_one_waits_the_longer_inte
     // A kept copy is brought up to date at most each WARM_AGAIN: each read rewrites its file.
     let read_at = HashMap::from([((PEER.to_owned(), "b".to_owned()), (42, now))]);
     let kept = Covers::kept(covers.kept.clone());
-    let (asks, _, later) = plan(PEER, false, &rows[1..], &kept, &read_at, (NOW_MS, now + WARM_EVERY));
+    let (asks, _, later) =
+        plan(PEER, false, &rows[1..], &kept, &read_at, (NOW_MS, now + WARM_EVERY));
     assert!(asks.is_empty(), "read within WARM_AGAIN");
     assert_eq!(later, Some(now + WARM_AGAIN));
     let (asks, ..) = plan(PEER, false, &rows[1..], &kept, &read_at, (NOW_MS, now + WARM_AGAIN));
