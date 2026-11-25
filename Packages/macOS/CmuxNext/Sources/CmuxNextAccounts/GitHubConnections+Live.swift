@@ -15,7 +15,7 @@ extension GitHubConnections {
     /// fixture launches) is always signed out. The GitHub App installation page opens through LinkRouter.
     public static func live(auth: CloudAuth, ownerAPI: URL, preview: Bool) -> GitHubConnections {
         let (current, call) = liveCall(auth: auth, ownerAPI: ownerAPI, preview: preview)
-        let model = GitHubConnections(scope: current, call: call, open: { url in LinkRouter.shared.open(url) })
+        let model = GitHubConnections(scope: current, call: call, open: { url in LinkRouter.shared.openGitHubConnect(url) })
         model.completionLink = CloudGitHubCompletion.link(scheme: auth.configuration.callbackScheme)
         // The app finished an install GitHub handed back to it: the card reads its connections again.
         model.changes = Task { [weak model] in
