@@ -225,12 +225,15 @@ async function edgeRun(setup: { resolv?: string; link?: boolean; agentDropIn?: s
   if (setup.agentDropIn !== undefined) writeFileSync(path.join(dropIns, FREESTYLE_TLS_DROP_IN), setup.agentDropIn);
   if (setup.ours !== undefined) writeFileSync(path.join(dropIns, EDGE_RESOLVER_DROP_IN), setup.ours);
   const reloads = path.join(dir, "reloads");
+  const reload = path.join(dir, "reload");
+  writeFileSync(reload, `#!/bin/sh\necho reload >> '${reloads}'\n`);
+  chmodSync(reload, 0o755);
   const result = await runChild("/bin/sh", [script], {
     env: {
       PATH: "/usr/bin:/bin",
       CMUX_RESOLV_CONF: resolv,
       CMUX_RESOLVED_DROP_IN_DIR: dropIns,
-      CMUX_RESOLVED_RELOAD: setup.reloadFails ? "false" : `sh -c 'echo reload >> ${reloads}'`,
+      CMUX_RESOLVED_RELOAD: setup.reloadFails ? "false" : reload,
       CMUX_RESOLVED_RELOAD_PENDING: path.join(dir, "pending"),
     },
     timeout: 30_000,

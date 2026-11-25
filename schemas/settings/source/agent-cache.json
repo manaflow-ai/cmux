@@ -37,7 +37,7 @@
         {
           "key": "agents.cacheCompact.minContextPercent",
           "name": "cacheCompactMinContext",
-          "note": "The share of the context window (percent) a chat must be using before the timer compacts it. ACPMUX_CACHE_COMPACT_MIN_CONTEXT_PERCENT=N in the acpmux daemon's environment overrides it (clamped to the same range).",
+          "note": "The share of the context window (percent) a chat must be using before the timer compacts it; agents.cacheCompact.minContextTokens arms it too, whichever is reached first. ACPMUX_CACHE_COMPACT_MIN_CONTEXT_PERCENT=N in the acpmux daemon's environment overrides it (clamped to the same range).",
           "title": {
             "key": "settings.agents.cacheCompact.minContext",
             "text": "Only Above Context Used (%)"
@@ -58,6 +58,34 @@
             "cache",
             "compact",
             "threshold",
+            "context"
+          ]
+        },
+        {
+          "key": "agents.cacheCompact.minContextTokens",
+          "name": "cacheCompactMinTokens",
+          "note": "The context (tokens) from which the timer compacts a chat, whatever its window; it arms at this or at agents.cacheCompact.minContextPercent, whichever is reached first. A percent alone never fired on a 1M-token window: 30% is 300K, past the 178.5K where Claude Code autocompacts. 60000 by default. ACPMUX_CACHE_COMPACT_MIN_CONTEXT_TOKENS=N in the acpmux daemon's environment overrides it (clamped to the same range).",
+          "title": {
+            "key": "settings.agents.cacheCompact.minTokens",
+            "text": "Or Above Context Used (Tokens)"
+          },
+          "help": {
+            "key": "settings.agents.cacheCompact.minTokens.help",
+            "text": "Chats with at least this much context are compacted, whatever their window."
+          },
+          "kind": "number",
+          "range": {
+            "min": 10000,
+            "max": 500000,
+            "step": 5000,
+            "unit": "count"
+          },
+          "default": 60000,
+          "keywords": [
+            "cache",
+            "compact",
+            "threshold",
+            "tokens",
             "context"
           ]
         },
@@ -112,7 +140,7 @@
         {
           "key": "agents.coldWake.compactAboveTokens",
           "name": "coldWakeCompactAbove",
-          "note": "The context (tokens) from which a cold batch compacts first. 50000 by default: the cold batches measured on one lane VM over 48 h were 76K-89K and each post-idle wake rewrote 64K-123K tokens into the cache (Leo, 2026-11-25: \"if we know for a fact 50k is beter, if people can adjust it, fine\"). ACPMUX_COLD_COMPACT_ABOVE_TOKENS=N in the acpmux daemon's environment overrides it (clamped to the same range).",
+          "note": "The context (tokens) from which a cold batch compacts first. 100000 by default, above the break-even: a cold compaction costs about the context plus 76K tokens (the summary call and the rewrite after it), a plain wake about twice the context, so compacting pays from about 76K (Leo, 2026-11-25: \"if we know for a fact 50k is beter, if people can adjust it, fine. else, fix forward\"). ACPMUX_COLD_COMPACT_ABOVE_TOKENS=N in the acpmux daemon's environment overrides it (clamped to the same range).",
           "title": {
             "key": "settings.agents.coldWake.compactAbove",
             "text": "Compact Cold Chats Above (Tokens)"
@@ -128,7 +156,7 @@
             "step": 5000,
             "unit": "count"
           },
-          "default": 50000,
+          "default": 100000,
           "keywords": [
             "cache",
             "cold",

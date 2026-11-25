@@ -89,9 +89,9 @@ pub(super) fn own_switch(command: &[String], flag: &str) -> bool {
     ours && matches!(flag, "--wait" | "--no-wait")
 }
 
-/// The `chat` verbs other modules own (chief/chat_scope.rs, chat_cd.rs and the app's `chat …` actions).
+/// The `chat` verbs other modules own (chief/chat_scope.rs, chat_cd.rs, chat_move.rs and the app's `chat …` actions).
 pub(super) const OTHER_VERBS: &[&str] =
-    &["send", "cd", "read", "wait", "list", "create", "replies", "colors"];
+    &["send", "cd", "move", "read", "wait", "list", "create", "replies", "colors"];
 
 /// The environment variable that names the target when `--on` is absent.
 pub(super) const TARGET_ENV: &str = "CMUX_ON";
