@@ -279,7 +279,7 @@ mod tests {
             props[k] = v.clone();
         }
         json!({ "type": "object", "properties": props, "required": ["id"],
-                "additionalProperties": false })
+                "additionalProperties": false }) // skew: strict test fixture: exercises lowering of a closed schema, never a wire decoder
     }
 
     fn r() -> Value {
