@@ -93,24 +93,24 @@ fn rust_edition(dir: &Path) -> String {
     let mut current = Some(dir);
     while let Some(root) = current {
         let manifest = root.join("Cargo.toml");
-        if let Ok(text) = std::fs::read_to_string(&manifest)
-            && let Ok(doc) = text.parse::<toml::Value>()
-        {
-            if let Some(edition) = doc
-                .get("package")
-                .and_then(|package| package.get("edition"))
-                .and_then(toml::Value::as_str)
-                .filter(|edition| *edition != "workspace")
-            {
-                return edition.to_owned();
-            }
-            if let Some(edition) = doc
-                .get("workspace")
-                .and_then(|workspace| workspace.get("package"))
-                .and_then(|package| package.get("edition"))
-                .and_then(toml::Value::as_str)
-            {
-                return edition.to_owned();
+        if let Ok(text) = std::fs::read_to_string(&manifest) {
+            if let Ok(doc) = text.parse::<toml::Value>() {
+                if let Some(edition) = doc
+                    .get("package")
+                    .and_then(|package| package.get("edition"))
+                    .and_then(toml::Value::as_str)
+                    .filter(|edition| *edition != "workspace")
+                {
+                    return edition.to_owned();
+                }
+                if let Some(edition) = doc
+                    .get("workspace")
+                    .and_then(|workspace| workspace.get("package"))
+                    .and_then(|package| package.get("edition"))
+                    .and_then(toml::Value::as_str)
+                {
+                    return edition.to_owned();
+                }
             }
         }
         current = root.parent();
@@ -365,10 +365,14 @@ async fn run_check(
             }
             (full, check.clone())
         }
-        Check::Rustfmt { file } => (
-            run_cmd(parent(file), "rustfmt", &["--check", "--edition", "2021", &s(file)]).await?,
-            check.clone(),
-        ),
+        Check::Rustfmt { file } => {
+            let edition = rust_edition(parent(file));
+            (
+                run_cmd(parent(file), "rustfmt", &["--check", "--edition", &edition, &s(file)])
+                    .await?,
+                check.clone(),
+            )
+        }
         Check::Tsc { dir, plain_js } => {
             let tsc = local_tool(dir, "tsc")?;
             let r = run_cmd(dir, &s(&tsc), &["--noEmit", "-p", &s(dir)]).await?;
