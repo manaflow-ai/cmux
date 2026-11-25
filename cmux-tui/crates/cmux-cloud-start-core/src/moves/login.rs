@@ -22,9 +22,9 @@ pub const CAPABILITY: &str = "agent-transfer-credentials-v1";
 /// Most bytes read from stdin: one token is far below it.
 pub const MAX_STDIN_BYTES: usize = 64 * 1024;
 
-/// A login read from stdin: the agent's environment variables.
+/// A login read from stdin: the agent's environment variables. A field a newer app adds beside
+/// `env` is ignored, so an older cmux-tui still moves the chat with the login.
 #[derive(Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Login {
     env: BTreeMap<String, String>,
 }

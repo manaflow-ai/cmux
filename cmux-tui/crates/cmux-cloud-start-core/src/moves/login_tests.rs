@@ -21,10 +21,13 @@ fn a_logins_debug_and_every_refusal_never_hold_the_value() {
         assert!(!refusal.code().contains(TOKEN));
     }
     // A malformed stdin that holds the value: the refusal is the fixed text, not serde's echo.
-    let bad = format!(r#"{{"env":{{"CLAUDE_CODE_OAUTH_TOKEN":"{TOKEN}"}},"extra":"{TOKEN}"}}"#);
-    let refused = read(bad.as_bytes()).expect_err("unknown field");
+    let bad = format!(r#"{{"env":{{"CLAUDE_CODE_OAUTH_TOKEN":["{TOKEN}"]}}}}"#);
+    let refused = read(bad.as_bytes()).expect_err("a value that is no string");
     assert_eq!(refused, Refusal::Unreadable);
     assert!(!format!("{refused:?}").contains(TOKEN));
+    // A field a newer app adds is ignored: the login reads the same.
+    let newer = format!(r#"{{"env":{{"CLAUDE_CODE_OAUTH_TOKEN":"{TOKEN}"}},"later":1}}"#);
+    assert_eq!(read(newer.as_bytes()), Ok(login));
 }
 
 #[test]
