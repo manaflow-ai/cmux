@@ -205,10 +205,13 @@ extension TerminalSurface {
             }
             return privateDirectoryCheck.makePrivate(atPath: shimDirectory.path)
         }
-        // A cmux built before the lock can still publish this surface's
-        // directory between the look and the move. A second attempt replaces
-        // what it left.
-        guard publish() || publish() else { return nil }
+        if !publish() {
+            // A cmux built before the lock can still publish this surface's
+            // directory between the look and the move. A second attempt
+            // replaces what it left, after reading its claim on it.
+            shimCleanup.recordOwners(inStagingDirectory: stagingDirectory, replacing: shimDirectory)
+            guard publish() else { return nil }
+        }
         return TerminalSurfaceAgentCommandShimSet(
             directoryPath: shimDirectory.path,
             shims: shims
