@@ -1,0 +1,76 @@
+{
+ "title": "Meet Chief, step 2, what Chief can do on this Mac (Bypass, Auto, Manual): a fresh install opens on it on the empty Chief chat (dark and light; a capture keeps one shot per appearance). Record it with: cmux-ci capture SHA --state tour:chief-onboarding-access",
+ "steps": [
+  {
+   "title": "Launch a fresh install",
+   "wait": 6,
+   "shot": false
+  },
+  {
+   "title": "Meet Chief started by itself",
+   "rpc": {
+    "method": "debug.onboarding",
+    "params": {
+     "action": "meet_chief_state"
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Dark",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "dark"
+    }
+   },
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Dark, step 2, what Chief can do on this Mac (Bypass, Auto, Manual)",
+   "rpc": {
+    "method": "debug.onboarding",
+    "params": {
+     "action": "meet_chief",
+     "step": "access"
+    }
+   },
+   "wait": 2
+  },
+  {
+   "title": "Light",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "light"
+    }
+   },
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Light, step 2, what Chief can do on this Mac (Bypass, Auto, Manual)",
+   "rpc": {
+    "method": "debug.onboarding",
+    "params": {
+     "action": "meet_chief",
+     "step": "access"
+    }
+   },
+   "wait": 2
+  },
+  {
+   "title": "Back to the system appearance",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "system"
+    }
+   },
+   "wait": 1,
+   "shot": false
+  }
+ ]
+}

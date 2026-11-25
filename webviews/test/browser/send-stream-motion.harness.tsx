@@ -48,6 +48,7 @@ import "../../src/agent-session/acpmux/composerControls.css";
 import "../../src/agent-session/acpmux/composerStates.css";
 import "../../src/agent-session/acpmux/bottomStack.css";
 import "../../src/agent-session/acpmux/markdownField.css";
+import { TRANSCRIPT_ROW } from "../../src/agent-session/acpmux/transcriptSelectors";
 
 const query = new URLSearchParams(location.search);
 const arm = query.get("arm");
@@ -69,6 +70,8 @@ if (query.get("motion") === "off") {
 }
 
 const expanded = new Set<string>();
+/// `?family=claude`: the session's harness family, which picks how a finished turn folds (turnFoldStyle.ts).
+const agentFamily = query.get("family") ?? undefined;
 /// `?history=N`: the chat's history has N finished turns (three rows each), 7 by default.
 const historyTurns = Number(query.get("history")) || undefined;
 
@@ -90,7 +93,7 @@ function Pane() {
         <div className="acpmux-stage">
           <header className="acpmux-header" />
           <VirtualTranscript
-            rows={turnView(state.rows, expanded, { working: state.working })}
+            rows={turnView(state.rows, expanded, { working: state.working, agentFamily })}
             sessionId="send-stream-motion"
             working={state.working}
             sends={state.sends}
@@ -153,6 +156,9 @@ export type Sample = {
   animations: number;
   /// Animations started since the run began (CSS animations and Web Animations), cumulative.
   started: number;
+  /// The text the reader reads while following: the newest reply row's text box, by row id, and its
+  /// top in the viewport where this frame paints it (px). A fold above it moves it as a scroll does.
+  reader?: { id: string; top: number };
 };
 
 /// One drawn row in a frame: its id, its box in the viewport, its ink's opacity (the row's and its
@@ -195,6 +201,9 @@ const endPhase = (name: string) => name === "end" || name === "after";
 // `?tailGlide=`: how the rows under a change move (tailGlide.ts looks), for the arms' numbers.
 const tailLook = query.get("tailGlide");
 if (tailLook) document.documentElement.setAttribute("data-tail-glide", tailLook);
+// `?liveSwap=`: how the live line hands its words over to a call (conversation.css `data-live-swap`).
+const liveSwap = query.get("liveSwap");
+if (liveSwap) document.body.setAttribute("data-live-swap", liveSwap);
 // `?foldLook=`: how a reader's toggle folds (fold.ts FoldLook), for the looks' numbers.
 const foldLookParam = query.get("foldLook");
 if (foldLookParam) document.documentElement.setAttribute("data-fold-look", foldLookParam);
@@ -213,7 +222,7 @@ function rowSamples(scroller: HTMLElement, thread: HTMLElement): RowSample[] {
     if (finite(animation)) moving.add(row);
   }
   const out: RowSample[] = [];
-  for (const row of scroller.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")) {
+  for (const row of scroller.querySelectorAll<HTMLElement>(TRANSCRIPT_ROW)) {
     const box = row.getBoundingClientRect();
     if (box.height === 0) continue;
     const style = getComputedStyle(row);
@@ -306,7 +315,10 @@ const sampleFrame = () => {
     }
   }
   const dock = document.querySelector<HTMLElement>(".acpmux-composer-box")?.getBoundingClientRect().top ?? 0;
+  const readerRow = newest?.closest<HTMLElement>(".acpmux-row");
   samples.push({
+    ...(newest &&
+      readerRow?.dataset.rowId && { reader: { id: readerRow.dataset.rowId, top: newest.getBoundingClientRect().top } }),
     tail: dock - bottom,
     t: frameAt,
     phase,
@@ -640,7 +652,7 @@ async function heldFold({ settleMs = 450 }: { settleMs?: number } = {}): Promise
       bottom: view.bottom,
       composer: document.querySelector<HTMLElement>(".acpmux-composer-box")?.getBoundingClientRect().top ?? 0,
     },
-    rows: [...scroller.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")]
+    rows: [...scroller.querySelectorAll<HTMLElement>(TRANSCRIPT_ROW)]
       .map((row) => ({ row, at: row.getBoundingClientRect() }))
       .sort((a, b) => a.at.top - b.at.top)
       .slice(-8)

@@ -35,6 +35,7 @@
 // may end with one open.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+import { attachmentWithoutCwd } from "./support/attachmentWithoutCwd";
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import {
@@ -54,6 +55,7 @@ import path from "node:path";
 import { chromium, type Browser, type BrowserContext, type CDPSession, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { COMPOSER_EDITOR, PLUS_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 /// `none`: the baseline, the composer with nothing attached.
 type Way = "paste" | "drop" | "menu" | "none";
@@ -83,6 +85,7 @@ type Case = {
   chunkMs?: number;
   /// How long the host takes to answer `chat.attach.dropped`.
   droppedMs?: number;
+  noCwd?: boolean;
 };
 type Block = { type: string; name?: string; uri?: string; mimeType?: string; text?: number; data?: number };
 type Row = {
@@ -161,7 +164,7 @@ await requireBrowserLane("agent-pane-attach-huge-files.test.ts", async () => {
   const KEY_MAX_MS = 50;
   /// The longest the main thread may stall while a file attaches (agent-pane-paste-large-screenshots),
   /// or the baseline row's own stall (the same steps with nothing attached) and STALL_ADDED_MS.
-  const MAX_STALL_MS = 120;
+  const MAX_STALL_MS = 120; // motion-allow: a stall budget, not motion
   const STALL_ADDED_MS = 50;
   /// The tile is there this soon after the paste, drop or choice.
   const TILE_MS = 100;
@@ -177,7 +180,7 @@ await requireBrowserLane("agent-pane-attach-huge-files.test.ts", async () => {
   /// slowest key, so a real freeze fails either way.
   const TYPED = "hello while loading! every key lands while the file attaches";
   // The editor itself, not an attachment atom placed in it (contenteditable="false").
-  const PROMPT = '.acpmux-composer-prompt [contenteditable="true"]';
+  const PROMPT = COMPOSER_EDITOR;
   setDefaultTimeout(900_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -226,6 +229,15 @@ await requireBrowserLane("agent-pane-attach-huge-files.test.ts", async () => {
   const TEXT_BYTES = 100 * MB;
   const CASES: Case[] = [
     { id: "baseline: nothing attached", way: "none", mode: "remote", heapBudget: 300 * MB },
+    {
+      id: "local disk path without a session cwd",
+      way: "drop",
+      mode: "local",
+      file: MOV,
+      heapBudget: 300 * MB,
+      finish: true,
+      noCwd: true,
+    },
     ...(["local", "remote"] as const).flatMap((mode) =>
       (["drop", "paste", "menu"] as const).map((way): Case => ({
         id: `0 .mov 300 MB ${way} ${mode}`,
@@ -391,6 +403,7 @@ os.replace(path + ".part", path)
     jpeg(JPEG);
     vite = await createServer({
       configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+      plugins: [attachmentWithoutCwd],
       server: { port: 0, host: "127.0.0.1", strictPort: false, watch: { ignored: () => true } },
       logLevel: "error",
     });
@@ -532,7 +545,13 @@ os.replace(path + ".part", path)
     });
     // The page replaces its actions map as its chat connects (App.tsx): count each chat.send in it.
     type Actions = Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
-    let actions: Actions | undefined = { ready: async () => ({ protocolVersion: 1, transport: "mock" }) };
+    let actions: Actions | undefined = {
+      ready: async () => ({
+        protocolVersion: 1,
+        transport: "mock",
+        ...(location.search.includes("noCwd") ? { sessionId: "mock-session" } : {}),
+      }),
+    };
     Object.defineProperty(window, "cmuxAcpmuxActions", {
       configurable: true,
       get: () => actions,
@@ -754,7 +773,7 @@ os.replace(path + ".part", path)
   /// Pastes, drops or chooses the case's file (or text); returns the gesture's time on the page.
   async function gesture(page: Page, c: Case): Promise<number> {
     if (c.way === "menu") {
-      await page.locator(".acpmux-composer-plus .acpmux-picker-button").click();
+      await page.locator(PLUS_PICKER).click();
       const chooser = page.waitForEvent("filechooser", { timeout: 5_000 });
       await page.locator('[role="menu"] [role="menuitem"][data-value="add.files"]').click();
       await (await chooser).setFiles(path.join(dir, c.file!.name));
@@ -1083,7 +1102,7 @@ os.replace(path + ".part", path)
     try {
       await cdp.send("Performance.enable");
       const { port } = vite!.httpServer!.address() as { port: number };
-      await page.goto(`http://127.0.0.1:${port}/`);
+      await page.goto(`http://127.0.0.1:${port}/${c.noCwd ? "?mock&noCwd" : ""}`);
       await page.locator(PROMPT).waitFor();
       // These cases measure the strip's tiles (loading, ×, the prompt's typed words): the strip view
       // (Settings), as inline placement became the default (#26545).
@@ -1339,6 +1358,12 @@ os.replace(path + ".part", path)
           blocks = went ? await promptBlocks(page, count) : [];
         }
         row.videoBlocks = blocks.filter((block) => names(block, name));
+        if (c.mode === "local") {
+          const uri = `file:///Users/dev/Desktop/${encodeURIComponent(name)}`;
+          if (!row.videoBlocks.some((block) => block.type === "resource_link" && block.uri === uri))
+            problem("the local prompt did not carry the original file URL");
+          if ((await probes(page)).begins > 0) problem("the local attachment opened an upload");
+        }
         if (!row.videoBlocks.length)
           problem(`the recording never reached the agent: the prompt carried ${JSON.stringify(blocks)}`);
       }

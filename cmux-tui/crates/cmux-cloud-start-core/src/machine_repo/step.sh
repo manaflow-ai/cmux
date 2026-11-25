@@ -5,7 +5,7 @@ set -u
 d=$(cd "$(dirname "$0")" && pwd)
 url='@URL@'; ref='@REF@'; dir="$HOME/@DIRECTORY@"; github=@GITHUB@
 host='@HOST@'; key="credential.https://$host"
-cred=none; helper=""; status=failed; sha=""; why=""; fresh=""; tip=""; warm=""; fill=none
+cred=none; helper=""; rewrite=""; status=failed; sha=""; why=""; fresh=""; tip=""; warm=""; fill=none
 result() {
   printf '{"status":"%s","url":"%s","ref":"%s","dir":"%s","credential":"%s","sha":"%s","fill":"%s"}\n' \
     "$status" "$url" "$ref" "$dir" "$cred" "$sha" "$fill" >"$d/repo-status.json.tmp" && mv -f "$d/repo-status.json.tmp" "$d/repo-status.json"
@@ -24,9 +24,17 @@ if [ "$github" = 1 ] && [ -x "$HOME/.local/bin/lane-gh-credential" ] &&
   git config --global --includes --get-all credential.https://github.com.helper 2>/dev/null | grep -qxF -- "$lane"; then
   creds="lane-gh"
 fi
-if [ "$github" = 1 ] && [ -S /run/cmux-vm-agent/agent.sock ] && cm=$(command -v cmux); then creds="$creds cmux-github"; fi
+# The machine's cmux: the PATH's, else the store's (the path the image's git config names). The
+# bootstrap runner's PATH is systemd's default, which has no store folder in it.
+cm=$(command -v cmux) || { [ -x /opt/cmux/current/bin/cmux ] && cm=/opt/cmux/current/bin/cmux; } || cm=""
+# The platform edge (cmux-platform GitHubEgress.ts): where the machine's platform name resolves
+# (its edge rule writes the hosts entry), git reaches github.com through the platform, which adds
+# the repository token on the way out. No helper runs and no token ever reaches this machine.
+edge="https://platform.cmux.internal/v1/cloud/git/github.com/"
+if [ "$github" = 1 ] && getent hosts platform.cmux.internal >/dev/null 2>&1; then creds="$creds edge"; fi
+if [ "$github" = 1 ] && [ -S /run/cmux-vm-agent/agent.sock ] && [ -n "$cm" ]; then creds="$creds cmux-github"; fi
 # Off GitHub: the person's token for this host, sealed to the machine (`cmux gitlab credential`).
-if [ "$github" = 0 ] && [ -f "$HOME/.config/cmux/git-hosts/$host" ] && cm=$(command -v cmux); then creds="cmux-gitlab"; fi
+if [ "$github" = 0 ] && [ -f "$HOME/.config/cmux/git-hosts/$host" ] && [ -n "$cm" ]; then creds="cmux-gitlab"; fi
 creds="$creds anonymous"
 # From here git reads no user or system config (a username that is a secret, an askpass, a
 # helper, a trace target): the chosen helper comes on the command line.
@@ -39,6 +47,10 @@ use() {
     cmux-gitlab) helper="!'$cm' gitlab credential" ;;
     *) helper="" ;;
   esac
+  case "$1" in
+    edge) rewrite="url.$edge.insteadOf=https://github.com/" ;;
+    *) rewrite="" ;;
+  esac
 }
 # An empty credential.helper on the command line drops every helper git read before it (a
 # checkout's own config may hold one); the chosen one comes after it, so only it is asked.
@@ -47,6 +59,7 @@ g() {
   if [ -n "$helper" ]; then
     set -- -c "$key.helper=$helper" -c "$key.useHttpPath=true" "$@"
   fi
+  if [ -n "$rewrite" ]; then set -- -c "$rewrite" "$@"; fi
   git -c credential.helper= -c core.askPass= -c credential.username= -c "$key.username=" "$@"
 }
 # A clone or fetch with each path until one works; the checkout after it keeps that path.
@@ -84,7 +97,7 @@ root() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo -n "$@"; fi; }
 # or no systemd-run, clones the whole repository as before. So does a start with a bootstrap
 # script (anything but machine_bootstrap.rs `NO_SCRIPT`): the runner runs it right after this
 # step, and nothing holds it at the barrier.
-head_dirs=".claude .codex .cursor .gemini .github .vscode .devcontainer"
+head_dirs=".agents .claude .codex .cursor .gemini .github .vscode .devcontainer"
 # The start runs no bootstrap script of its own (machine_bootstrap.rs `NO_SCRIPT`).
 no_script() { printf '#!/bin/sh\nexit 0\n' | cmp -s - "$d/script"; }
 holder() {
@@ -179,6 +192,12 @@ keep_helper() {
       git -C "$dir" config --local --add "$key.helper" "$helper" &&
       git -C "$dir" config --local "$key.useHttpPath" true ||
       echo "cmux repo: cannot keep the $host path in $dir, so a push there needs credentials" >&2
+  fi
+  # Through the edge: the checkout keeps the rewrite (a URL, no secret), so its push and pull go
+  # the same way, unless it rewrites github.com itself.
+  if [ "$cred" = edge ] && ! git -C "$dir" config --local --get-regexp '^url\..*\.insteadof$' >/dev/null; then
+    git -C "$dir" config --local "url.$edge.insteadOf" https://github.com/ ||
+      echo "cmux repo: cannot keep the platform edge path in $dir, so a push there needs credentials" >&2
   fi
 }
 # A warm start's update inline, when no hold can run it behind the chat: the update a start

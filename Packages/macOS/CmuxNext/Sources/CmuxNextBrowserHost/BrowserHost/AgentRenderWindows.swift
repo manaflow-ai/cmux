@@ -154,6 +154,12 @@ package final class AgentRenderPanel: NSPanel {
         contentView = content
     }
 
+    /// The parked page's input window sits with this panel, off every screen: out of Mission Control (cmux#48535).
+    package override func addChildWindow(_ childWin: NSWindow, ordered place: NSWindow.OrderingMode) {
+        ChromiumPageWindowMissionControl.keepOut(childWin)
+        super.addChildWindow(childWin, ordered: place)
+    }
+
     // WebKit reads these from framework callbacks; the panel stays main-thread owned.
     package nonisolated override var canBecomeKey: Bool { false }
     package nonisolated override var canBecomeMain: Bool { false }
@@ -172,6 +178,7 @@ package final class AgentRenderPanel: NSPanel {
         // Parked hidden in a pane until now: it shows here (a Chromium tab
         // presents on unhide).
         chrome.isHidden = false
+        // focus-route: an agent render window, never a person's window; BrowserHost sits below the route
         if let webView { makeFirstResponder(webView) }
         content.layoutSubtreeIfNeeded()
     }

@@ -4,13 +4,26 @@ names the ones alive past LINGER_LIMIT_S, and ends none of them. It also watches
 `Contents/Resources/bin/` (acpmux, cmux-browser-host): an idle acpmux outlived every quit while the probe, which read
 only `Contents/MacOS/`, reported none (PR #30090). Fake bundle processes (`sleep` copied into a bundle path, or run
 with that path as its argv[0]), no app. Run: python3 -I scripts/cmux-next/tests/test_bench_startup_linger.py"""
-import importlib.util, io, os, shutil, subprocess, sys, tempfile, time, unittest
+import importlib.util, io, os, re, shutil, subprocess, sys, tempfile, time, unittest
 from contextlib import redirect_stdout
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location("bench_startup", os.path.join(HERE, "..", "bench-startup.py"))
 bench_startup = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bench_startup)
+
+
+def copy_sleep(dest):
+    """Copy `sleep` to DEST, a path inside a fake app bundle, as a binary that runs there. macOS's own sleep is an
+    Apple platform binary whose launch constraint lets it run only from the system volume: a copy run from a bundle
+    path is killed at exec (AMFI "Launch Constraint Violation"), and for a bundle's Contents/MacOS executable macOS
+    then shows `"cmux DEV <tag>" is damaged and can't be opened` on the Mac's screen (a CI mini, 2026-11-16;
+    manaflow-ai/cmuxterm-hq#12838). An ad hoc signature gives the copy its own code identity, outside the constraint."""
+    shutil.copy(shutil.which("sleep"), dest)
+    if sys.platform == "darwin":
+        subprocess.run(["/usr/bin/codesign", "--force", "--sign", "-", dest], check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return dest
 
 
 class Linger(unittest.TestCase):
@@ -21,7 +34,7 @@ class Linger(unittest.TestCase):
         helper = os.path.join(app, "Contents/Frameworks/cmux DEV Helper (Renderer).app/Contents/MacOS")
         os.makedirs(helper)
         self.helper = os.path.join(helper, "cmux DEV Helper (Renderer)")
-        shutil.copy(shutil.which("sleep"), self.helper)
+        copy_sleep(self.helper)
         self.bin = os.path.join(app, "Contents/Resources/bin")
         os.makedirs(self.bin)
         bench_startup.APPS[self.tag] = app
@@ -46,6 +59,12 @@ class Linger(unittest.TestCase):
         argv0 = " ".join([os.path.join(self.bin, name), *flags])
         p = subprocess.Popen(["bash", "-c", 'exec -a "$0" sleep "$1"', argv0, str(seconds)])
         self.procs.append(p)
+        # Wait until bash has exec'd the sleep: pgrep -f (what the probe reads) sees the helper's argv0.
+        deadline = time.monotonic() + 10
+        while p.pid not in bench_startup.pgrep(re.escape(argv0)):
+            if p.poll() is not None or time.monotonic() >= deadline:
+                raise AssertionError(f"helper {name} (pid {p.pid}) never showed as {argv0!r} in pgrep -f")
+            time.sleep(0.05)
         return p
 
     def watch(self):
@@ -108,7 +127,6 @@ class Linger(unittest.TestCase):
         bench_startup.LINGER_LIMIT_S, bench_startup.LINGER_WAIT_S = 0.3, 1.0
         try:
             p = self.start_helper("acpmux", 30, "daemon", "run", "--ready-fd", "3")
-            time.sleep(0.2)  # bash has exec'd the sleep
             report, text = self.watch()
         finally:
             bench_startup.LINGER_LIMIT_S, bench_startup.LINGER_WAIT_S = saved
@@ -118,7 +136,6 @@ class Linger(unittest.TestCase):
 
     def test_a_short_lived_browser_host_is_reported_with_its_exit_time(self):
         p = self.start_helper("cmux-browser-host", 3, "serve", "--supervised")
-        time.sleep(0.2)
         report, _ = self.watch()
         self.assertIn(p.pid, [r["pid"] for r in report["at_quit"]])
         self.assertLess(report["exit_s"][p.pid], bench_startup.LINGER_LIMIT_S)
@@ -130,7 +147,6 @@ class Linger(unittest.TestCase):
         bench_startup.LINGER_LIMIT_S, bench_startup.LINGER_WAIT_S = 0.3, 5.0
         try:
             p = self.start_helper("cmux-tui", 30, "--headless", "--session", "cmux-app-lingertest")  # local_owner.rs order
-            time.sleep(0.2)
             started = time.monotonic()
             report, _ = self.watch()
             took = time.monotonic() - started
@@ -148,7 +164,6 @@ class Linger(unittest.TestCase):
         bench_startup.LINGER_LIMIT_S, bench_startup.LINGER_WAIT_S = 0.3, 1.0
         try:
             p = self.start_helper("cmux-tui", 30, "remote", "connect", "host", "--headless", "--exit-with-parent")
-            time.sleep(0.2)
             report, _ = self.watch()
         finally:
             bench_startup.LINGER_LIMIT_S, bench_startup.LINGER_WAIT_S = saved

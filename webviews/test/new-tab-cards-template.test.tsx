@@ -17,6 +17,7 @@ import {
   screenSections,
   screenTemplate,
   shownTemplate,
+  RETIRED_NEW_TAB_TEMPLATES,
 } from "../src/agent-session/acpmux/newtab/templates";
 import { teardownDom } from "./support/domTeardown";
 
@@ -72,9 +73,13 @@ afterAll(async () => {
 
 const noop = () => {};
 
-test("Cards is a template and a style", () => {
+// Cards no longer ships as a style (Leo 2026-11-18: "The templates should be like the customixastikms
+// api you can build them i don't think they should ship as is"): it is the newtab-cards template a
+// person builds. The id still parses for saved settings and shows Minimal; the screen still draws it
+// when named directly (gallery, embedders).
+test("Cards is a retired template, not a style", () => {
   expect(NEW_TAB_TEMPLATES).toContain("cards");
-  expect(PAGE_STYLES).toContain("cards");
+  expect(PAGE_STYLES).not.toContain("cards");
   expect(parseNewTabTemplate("cards")).toBe("cards");
   expect(screenTemplate("cards")).toBe("cards");
   expect(screenSections("cards")).toEqual({
@@ -88,14 +93,23 @@ test("Cards is a template and a style", () => {
   // Unset: Minimal (Leo 2026-10-20). Debug Settings design "a" still shows Classic; a saved pick always wins.
   expect(shownTemplate({ layout: "b" })).toBe("minimal");
   expect(shownTemplate({ layout: "a" })).toBe("classic");
-  expect(shownTemplate({ layout: "b", template: "default" })).toBe("default");
+  expect(shownTemplate({ layout: "b", template: "classic" })).toBe("classic");
+  expect(shownTemplate({ layout: "a", template: "minimal" })).toBe("minimal");
 });
 
-test("the retired Composer id migrates to Minimal without a selectable Composer style", () => {
-  expect(parseNewTabTemplate("composer")).toBe("composer");
-  expect(pageStyle("composer")).toBe("minimal");
-  expect(PAGE_STYLES).not.toContain("composer");
-  expect(shownTemplate({ layout: "b", template: "composer" })).toBe("minimal");
+test("every retired id (Composer, Cards, Default, Threads, Console) shows Minimal with no style of its own", () => {
+  for (const retired of ["composer", "cards", "default", "threads", "console"] as const) {
+    expect(parseNewTabTemplate(retired)).toBe(retired);
+    expect(RETIRED_NEW_TAB_TEMPLATES).toContain(retired);
+    expect(pageStyle(retired)).toBe("minimal");
+    expect(PAGE_STYLES as readonly string[]).not.toContain(retired);
+    // Also over the Debug Settings design "a" (Classic when unset): a saved retired pick shows Minimal.
+    expect(shownTemplate({ layout: "b", template: retired })).toBe("minimal");
+    expect(shownTemplate({ layout: "a", template: retired })).toBe("minimal");
+  }
+  expect(pageStyle("terminal")).toBe("minimal");
+  // Terminal drew the Cards screen; Cards no longer ships, so it draws Minimal's.
+  expect(screenTemplate(shownTemplate({ layout: "b", template: "terminal" }))).toBe("minimal");
 });
 
 test("the Cards page: one field, a chip row under it, three chat cards", async () => {
@@ -133,7 +147,7 @@ test("the Cards page: one field, a chip row under it, three chat cards", async (
     expect(toolbar!.querySelector(".nt-location")).not.toBeNull();
     expect(toolbar!.querySelector(".nt-pickers .acpmux-mic")).not.toBeNull();
     expect(box.querySelector(".nt-location")).toBeNull();
-    // Return sends; the page draws no Send disc and no create row.
+    // Return sends; creation is available through search.
     expect(host.querySelector(".nt-send")).toBeNull();
     expect(host.querySelector(".nt-create")).toBeNull();
     // Three cards in a grid, "All Chats >" beside the Chats header.
@@ -229,7 +243,7 @@ test("Cards with the agent's chips draws the split, and the mic stays in the box
     expect(above.contains(strip)).toBe(true);
     expect(above.compareDocumentPosition(box) & window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(box.compareDocumentPosition(foot) & window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // Cards draws no create row with the split either (u2851): the app always passes the chips.
+    // The split composer leaves creation in searchable suggestions.
     expect(host.querySelector(".nt-create")).toBeNull();
     const mic = box.querySelector<HTMLElement>(".acpmux-mic");
     expect(mic).not.toBeNull();

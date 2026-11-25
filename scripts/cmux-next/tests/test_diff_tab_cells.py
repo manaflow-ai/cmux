@@ -25,7 +25,16 @@ ROOT = HERE.parent.parent.parent
 
 
 def git(root: str, *args: str) -> str:
-    return subprocess.run(["git", "-C", root, *args], check=True, capture_output=True, text=True).stdout
+    # The environment make_repository gives git: no GIT_* of the caller and no global config, so a runner's
+    # config (fsmonitor, maintenance) starts nothing that still writes in the scratch folder when it is removed.
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    env.update(cells._GIT_ENV)
+    return subprocess.run(["git", "-C", root, *args], check=True, capture_output=True, text=True, env=env).stdout
+
+
+def read_json(path: str):
+    with open(path) as handle:
+        return json.load(handle)
 
 
 class Repository(unittest.TestCase):
@@ -202,10 +211,15 @@ class Page(unittest.TestCase):
             cells.Scroller(app, cells.page_facts(app)).start()
 
 
+def summary_program():
+    """perf-idle-ab.sh's summary of the runs: the heredoc fed the runs, rounds and cells (not the settings-open one)."""
+    script = (ROOT / "scripts" / "measure" / "perf-idle-ab.sh").read_text()
+    return script.split('"$out/runs" "$rounds" "$cells" <<\'PY\' || status=1\n', 1)[1].split("\nPY\n", 1)[0]
+
+
 class Summary(unittest.TestCase):
     def test_cells_are_grouped_and_the_children_count_in_the_total(self):
-        script = (ROOT / "scripts" / "measure" / "perf-idle-ab.sh").read_text()
-        program = script.split("<<'PY' || status=1\n", 1)[1].split("\nPY\n", 1)[0]
+        program = summary_program()
 
         def run(app, daemon, children, focus):
             return {"child_time_check": {"ok": True, "seen_ms": 312.5}, "samples": [
@@ -224,7 +238,7 @@ class Summary(unittest.TestCase):
                     json.dump(data, handle)
             out = subprocess.run([sys.executable, "-I", "-c", program, runs, "1", "1:large:rest,1:none:rest"],
                                  check=True, capture_output=True, text=True).stdout
-            summary = json.load(open(os.path.join(scratch, "summary.json")))
+            summary = read_json(os.path.join(scratch, "summary.json"))
         lines = out.splitlines()
         self.assertIn("IDLE-AB window base 1 cell 1:large:rest measure_s 60 focus True focus_after True "
                       "reads_expected 15 scroll_events None scroll_errors None", lines)
@@ -237,8 +251,7 @@ class Summary(unittest.TestCase):
         self.assertEqual({row["cell"] for row in summary}, {"1:large:rest", "1:none:rest"})
 
     def test_a_cell_that_is_not_to_be_read_is_a_fault_and_the_exit_is_1(self):
-        script = (ROOT / "scripts" / "measure" / "perf-idle-ab.sh").read_text()
-        program = script.split("<<'PY' || status=1\n", 1)[1].split("\nPY\n", 1)[0]
+        program = summary_program()
 
         def run(focus, after=None, check=True, scroll=None):
             tab = {"page": {"focus": focus}, "page_after": {"focus": focus if after is None else after}, "reads_expected": 15}
@@ -278,8 +291,7 @@ class Summary(unittest.TestCase):
                       "reads_expected 15 scroll_events 290 scroll_errors 2", done.stdout.splitlines())
 
     def test_without_cells_the_lines_are_the_ones_of_before(self):
-        script = (ROOT / "scripts" / "measure" / "perf-idle-ab.sh").read_text()
-        program = script.split("<<'PY' || status=1\n", 1)[1].split("\nPY\n", 1)[0]
+        program = summary_program()
         with tempfile.TemporaryDirectory() as scratch:
             runs = os.path.join(scratch, "runs")
             os.makedirs(runs)
@@ -288,7 +300,7 @@ class Summary(unittest.TestCase):
                     json.dump({"samples": [{"label": "idle-2", "kinds": {"app": {"cpu_pct": 1.0, "wakeups_per_s": wakes}}}]}, handle)
             out = subprocess.run([sys.executable, "-I", "-c", program, runs, "1", ""],
                                  check=True, capture_output=True, text=True).stdout
-            summary = json.load(open(os.path.join(scratch, "summary.json")))
+            summary = read_json(os.path.join(scratch, "summary.json"))
         self.assertEqual(out.splitlines(), [
             "IDLE-AB run base 1 chats 1 kind app wakeups_per_s 4.0 cpu_pct 1.0",
             "IDLE-AB run head 1 chats 1 kind app wakeups_per_s 3.0 cpu_pct 1.0",

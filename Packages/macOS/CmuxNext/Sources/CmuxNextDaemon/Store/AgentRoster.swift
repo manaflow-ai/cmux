@@ -10,6 +10,9 @@ import Foundation
 /// `timelineSurfaceLimit` terminals, the one quiet longest dropped first.
 public struct AgentRoster: Sendable {
     public private(set) var bySurface: [SurfaceID: AgentStatus] = [:]
+    /// The same statuses by their terminal (`AgentStatus.terminalID`): a tab whose surface is not the
+    /// one the daemon named (a restored or reopened terminal's new tab) finds its agent here.
+    public private(set) var byTerminal: [ResourceID: AgentStatus] = [:]
     public private(set) var lastPromptBySurface: [SurfaceID: UInt64] = [:]
     public private(set) var timelines: [SurfaceID: AgentTimeline] = [:]
     /// The most terminals with a timeline.
@@ -19,12 +22,24 @@ public struct AgentRoster: Sendable {
     /// held: an event held across a resync can arrive after the connect seed (cx-ag5.6.8).
     @discardableResult
     mutating func apply(_ status: AgentStatus) -> Bool {
-        if let held = bySurface[status.surface], held.updatedAtMs > 0, status.updatedAtMs > 0,
+        // The terminal's status held, under whichever surface it was named by before.
+        let held = status.terminalID.flatMap { byTerminal[$0] } ?? bySurface[status.surface]
+        if let held, held.updatedAtMs > 0, status.updatedAtMs > 0,
            status.updatedAtMs < held.updatedAtMs { return false }
-        notePrompt(from: bySurface[status.surface], to: status)
-        noteTimeline(from: bySurface[status.surface], to: status)
+        // From the status held for the terminal: a report that names a new surface (its first tab
+        // closed) continues the same turn rather than starting one.
+        notePrompt(from: held, to: status)
+        noteTimeline(from: held, to: status)
+        if let terminal = status.terminalID { byTerminal[terminal] = status }
         bySurface[status.surface] = status
         return true
+    }
+
+    /// The status of the agent that runs in `tab`: by its terminal, else by its surface (an older
+    /// daemon's status, which names no terminal).
+    @MainActor
+    public func status(for tab: TabModel) -> AgentStatus? {
+        tab.terminalResourceID.flatMap { byTerminal[$0] } ?? bySurface[tab.surface]
     }
 
     /// Replaces every status with `list` (after connect).
@@ -34,6 +49,7 @@ public struct AgentRoster: Sendable {
             noteTimeline(from: bySurface[status.surface], to: status)
         }
         bySurface = Dictionary(list.map { ($0.surface, $0) }, uniquingKeysWith: { $1 })
+        byTerminal = Dictionary(list.compactMap { status in status.terminalID.map { ($0, status) } }, uniquingKeysWith: { $1 })
     }
 
     private static var nowMs: UInt64 { UInt64(exactly: (Date().timeIntervalSince1970 * 1000).rounded()) ?? 0 }

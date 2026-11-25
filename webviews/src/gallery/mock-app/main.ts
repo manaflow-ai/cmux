@@ -16,13 +16,17 @@ import themes from "virtual:cmux-gallery/themes";
 import entryIndex from "virtual:cmux-gallery/entry-index";
 import { overPicture, readEnv } from "../env";
 import { DEFAULT_DARK_THEME } from "../theme/ghostty";
-import { themeTokens } from "../theme/web";
-import { css, mixed, type ThemeTokens } from "../theme/tokens";
+import { themeTokens, themeInput } from "../theme/web";
+import { css, mixed, type ThemeTokens, deriveTokens } from "../theme/tokens";
 import { chromeFills } from "./chrome";
 import { fitScale, windowGeometry, windowSize, type PaneLayout, type WindowGeometry } from "../window";
 import { appAxis, paneFrameQuery, parseFixture } from "./axes";
 import { createFrameEntryStore } from "../registry";
 import type { AgentPaneVariant } from "../format";
+import { GALLERY_NOW } from "../clock";
+import { lookSetting, lookTheme, schemeOf, type GoldenLook } from "../golden/look";
+import { APP_ACCENTS, type AppAccent } from "../../theme/appTheme";
+import { parseHex } from "../theme/tokens";
 import type { AcpmuxSnapshot } from "../../agent-session/acpmux/model";
 
 type AcpmuxSessionEntry = AcpmuxSnapshot["sessions"][number];
@@ -55,7 +59,9 @@ function applyTokens(target: HTMLElement, t: ThemeTokens): void {
   set("--app-attention", css(t.attention));
   set("--app-danger", css(t.danger));
   set("--app-accent", css(t.accent));
-  set("--app-tab", css(mixed(t.stripBackground, t.contentBackground, 0.6)));
+  // The selected tab's pill is the selection fill, as the app draws it (TabCell.swift); a mix of the strip and
+  // the content surface was the same colour as the strip (1.00:1), so no tab read as selected.
+  set("--app-tab", css(t.selectionFill));
   root.style.colorScheme = t.isDark ? "dark" : "light";
 }
 applyTokens(root, tokens);
@@ -68,10 +74,53 @@ if (appAxis(params, "chrome") !== "native")
     ),
   );
 
-type PaneData = { title: string; sessions: AcpmuxSessionEntry[]; selected?: string };
+type PaneData = {
+  title: string;
+  sessions: AcpmuxSessionEntry[];
+  selected?: string;
+  /** The variant's whole look (golden/look.ts) and the other tabs of its strip (format.ts windowTabs). */
+  look?: GoldenLook;
+  tabs?: string[];
+  /** The variant's font study pairing (format.ts fontStudy). */
+  fontStudy?: string;
+};
+
+/** The window under the main pane's look: its theme file for this scheme, its sidebar surface. */
+function applyLook(look: GoldenLook): void {
+  const scheme = look.schemes[schemeOf(env.colorScheme)];
+  const lookAccent =
+    scheme.accent && (APP_ACCENTS as readonly string[]).includes(scheme.accent) ? scheme.accent : env.accent;
+  const t = deriveTokens({
+    ...themeInput(
+      lookTheme(scheme, theme, (name) => themes.find((candidate) => candidate.name === name)),
+      lookAccent as AppAccent,
+    ),
+    selection: scheme.selection,
+  });
+  const sidebar = scheme.surfaces?.sidebar ? parseHex(scheme.surfaces.sidebar) : undefined;
+  applyTokens(root, sidebar ? { ...t, sidebarBackground: sidebar } : t);
+}
+
+/** A row's age as the sidebar's compact timestamps read: now, 5m, 2h, 3d. */
+function age(at: number | undefined): string {
+  if (!at) return "";
+  const minutes = Math.max(0, Math.round((GALLERY_NOW - at) / 60_000));
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 60 * 24) return `${Math.round(minutes / 60)}h`;
+  return `${Math.round(minutes / (60 * 24))}d`;
+}
 
 /** The fixture's chats and title, read from its gallery entry (one entry file, by the index). */
-async function paneData(fixture: string): Promise<PaneData> {
+const paneDataCache = new Map<string, Promise<PaneData>>();
+/** paneData, read once per fixture (the main fixture's font study and its window both ask). */
+function paneData(fixture: string): Promise<PaneData> {
+  let data = paneDataCache.get(fixture);
+  if (!data) paneDataCache.set(fixture, (data = readPaneData(fixture)));
+  return data;
+}
+
+async function readPaneData(fixture: string): Promise<PaneData> {
   const { entry: id, variant } = parseFixture(fixture);
   // The index names the entry's file; when its guess is stale, the whole registry finds it.
   let { entry } = await createFrameEntryStore(entryIndex[id]).find(id);
@@ -80,7 +129,14 @@ async function paneData(fixture: string): Promise<PaneData> {
   const snapshot = state?.snapshot;
   if (!snapshot) return { title: id, sessions: [] };
   const title = snapshot.summary?.title ?? (snapshot.rows.length === 0 ? "New Tab" : "Chat");
-  return { title, sessions: snapshot.sessions ?? [], selected: snapshot.sessionId };
+  return {
+    title,
+    sessions: snapshot.sessions ?? [],
+    selected: snapshot.sessionId,
+    look: state.look,
+    tabs: state.windowTabs,
+    fontStudy: state.fontStudy,
+  };
 }
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string) => {
@@ -110,11 +166,27 @@ const markOf = (session: AcpmuxSessionEntry) =>
           ? "unread"
           : "";
 
-/** The native sidebar, approximated: the traffic lights, then the chats grouped by folder. */
+/** A `sidebar.nav` entry's title: "id | Title | symbol" names one, else the action id stands in. */
+const navTitle = (entry: string) => {
+  const [id, title] = entry.split("|").map((part) => part.trim());
+  return title || id || "";
+};
+
+/** The native sidebar, approximated: the traffic lights, the look's nav rows (`sidebar.nav`), then the
+ * chats grouped by folder; with `sidebar.settleFinished`, a read, finished chat that is not the
+ * selected one folds into the "Settled (N)" row at the end. */
 function drawSidebar(sidebar: HTMLElement, data: PaneData): void {
   const list = el("div", "app-sidebar-list");
+  const ages = lookSetting<boolean>(data.look, "sidebar.showTimestamps", false) === true;
+  const nav = lookSetting<unknown>(data.look, "sidebar.nav", []);
+  for (const entry of Array.isArray(nav) ? nav : []) {
+    if (typeof entry === "string" && navTitle(entry)) list.append(el("div", "app-sidebar-nav", navTitle(entry)));
+  }
+  const settles = lookSetting<boolean>(data.look, "sidebar.settleFinished", false) === true;
+  const settled = (session: AcpmuxSessionEntry) =>
+    settles && session.sessionId !== data.selected && markOf(session) === "";
   const groups = new Map<string, AcpmuxSessionEntry[]>();
-  for (const session of data.sessions) {
+  for (const session of data.sessions.filter((session) => !settled(session))) {
     const name = folderName(session.cwd);
     groups.set(name, [...(groups.get(name) ?? []), session]);
   }
@@ -126,9 +198,12 @@ function drawSidebar(sidebar: HTMLElement, data: PaneData): void {
       const mark = markOf(session);
       row.append(el("span", `app-sidebar-mark${mark ? ` app-mark-${mark}` : ""}`));
       row.append(el("span", "app-sidebar-title", session.displayTitle ?? session.title ?? "New chat"));
+      if (mark) row.dataset.mark = mark;
+      if (ages) row.append(el("span", "app-sidebar-age", age(session.updatedAt)));
       list.append(row);
     }
   }
+  if (settles) list.append(el("div", "app-sidebar-settled", `Settled (${data.sessions.filter(settled).length})`));
   if (data.sessions.length === 0) list.append(el("div", "app-sidebar-empty", "No chats yet"));
   sidebar.append(list);
 }
@@ -166,9 +241,12 @@ function drawWindow(
     const box = el("section", "app-pane");
     const strip = el("div", "app-strip");
     const tab = el("div", "app-tab");
+    tab.dataset.selected = "";
     const tabTitle = el("span", "app-tab-title", "");
     tab.append(tabTitle);
-    strip.append(tab, el("span", "app-strip-plus", "+"));
+    strip.append(tab);
+    const plus = el("span", "app-strip-plus", "+");
+    strip.append(plus);
     const iframe = el("iframe", "app-pane-frame");
     iframe.title = fixture;
     iframe.src = `frame.html?${paneFrameQuery(params, fixture, { main: index === 0, window: spec.size })}`;
@@ -177,6 +255,14 @@ function drawWindow(
     paneData(fixture)
       .then((data) => {
         tabTitle.textContent = data.title;
+
+        for (const title of data.tabs ?? []) {
+          const other = el("div", "app-tab");
+          other.append(el("span", "app-tab-title", title));
+          other.style.height = tab.style.height;
+          strip.insertBefore(other, plus);
+        }
+        if (index === 0 && data.look) applyLook(data.look);
         if (index === 0 && sidebarShown) drawSidebar(sidebar, data);
       })
       .catch((error: unknown) => {
@@ -226,7 +312,8 @@ function drawWindow(
       const parts = boxes[index]!;
       place(parts.box, pane.frame);
       parts.strip.style.height = `${geometry.tabStripHeight}px`;
-      parts.tab.style.height = `${geometry.tabHeight}px`;
+      for (const tab of parts.strip.querySelectorAll<HTMLElement>(".app-tab"))
+        tab.style.height = `${geometry.tabHeight}px`;
       parts.iframe.style.height = `${pane.content.height}px`;
     });
   };
@@ -242,16 +329,22 @@ const specs: WindowSpec[] = (params.get("windows") ?? appAxis(params, "window"))
 
 const zoomValue = appAxis(params, "zoom");
 /// A font study pairing draws the chrome too (the sidebar); the app is ready once its faces load.
-const fontStudy = env.fontStudy
-  ? import("../fontStudy/apply").then((study) => study.applyFontStudy(env.fontStudy))
-  : null;
+/// The URL's pairing wins over the main fixture's own (format.ts fontStudy).
+const fontStudyId = env.fontStudy
+  ? Promise.resolve(env.fontStudy)
+  : paneData(appAxis(params, "fixture")).then(
+      (data) => data.fontStudy ?? "",
+      () => "",
+    );
+const fontStudy = fontStudyId.then((id) =>
+  id ? import("../fontStudy/apply").then((study) => study.applyFontStudy(id)) : undefined,
+);
 let ready = 0;
 const markReady = () => {
   ready += 1;
   // The first window ready is the app ready; the rest mount as they scroll into view.
   if (ready !== 1) return;
-  if (fontStudy) void fontStudy.then(announceReady);
-  else announceReady();
+  void fontStudy.then(announceReady);
 };
 const announceReady = () => {
   root.dataset.mockAppReady = "1";

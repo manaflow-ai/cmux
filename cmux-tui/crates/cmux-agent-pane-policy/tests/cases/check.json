@@ -127,6 +127,113 @@
   }
  },
  {
+  "name": "first initialize with an acpmux opt-in the relay does not know goes without it, keeping the known one (cmux#46563)",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":1,\"_meta\":{\"acpmux\":{\"peerRowBatches\":true,\"someFutureFlag\":true}}}}",
+  "state": {
+   "first": true,
+   "token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+     "protocolVersion": 1,
+     "_meta": {
+      "acpmux": {
+       "peerRowBatches": true,
+       "localAppToken": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+     }
+    }
+   },
+   "facts": {
+    "is_first": true,
+    "method": "initialize",
+    "page_id": "1",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_click": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "starts_local_session": false,
+    "free": true
+   }
+  }
+ },
+ {
+  "name": "first initialize with a daemon mode field in acpmux is still refused, not stripped",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":1,\"_meta\":{\"acpmux\":{\"peerRowBatches\":true,\"permissionMode\":\"bypassPermissions\"}}}}",
+  "state": {
+   "first": true,
+   "token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "mode_fields": [
+    "permissionMode"
+   ],
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "refuse": "transport.intent_invalid",
+   "method": "initialize",
+   "id": "1",
+   "spend": null
+  }
+ },
+ {
+  "name": "first initialize with the page's own person key is still refused, not stripped",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":1,\"_meta\":{\"acpmux\":{\"personKey\":\"k\"}}}}",
+  "state": {
+   "first": true,
+   "token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "refuse": "transport.intent_invalid",
+   "method": "initialize",
+   "id": "1",
+   "spend": null
+  }
+ },
+ {
+  "name": "first initialize with a _meta key beside acpmux is still refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":1,\"_meta\":{\"acpmux\":{\"peerRowBatches\":true},\"other\":true}}}",
+  "state": {
+   "first": true,
+   "token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "refuse": "transport.intent_invalid",
+   "method": "initialize",
+   "id": "1",
+   "spend": null
+  }
+ },
+ {
   "name": "first frame not initialize",
   "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"session/new\",\"params\":{\"cwd\":\"/x\"}}",
   "state": {
@@ -243,7 +350,7 @@
   }
  },
  {
-  "name": "prompt block _meta is stripped; a prompt needs a gesture",
+  "name": "prompt block _meta is stripped; a prompt with no ticket and no gesture goes but is never free",
   "text": "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"session/prompt\",\"params\":{\"sessionId\":\"s1\",\"prompt\":[{\"type\":\"text\",\"text\":\"hi\",\"_meta\":{\"x\":1}}],\"_meta\":{\"acpmux\":{\"promptId\":\"p1\"}}}}",
   "state": {
    "first": false,
@@ -282,7 +389,7 @@
     "other_meta": false,
     "pick": null,
     "session_id": null,
-    "needs_gesture": true,
+    "needs_gesture": false,
     "needs_click": false,
     "needs_path_check": false,
     "setting": null,
@@ -1293,7 +1400,7 @@
   }
  },
  {
-  "name": "a prompt held for the trust answer redeems its ticket bound to its promptId",
+  "name": "a prompt held for the trust answer keeps its ticket bound to its promptId; it needs no gesture, so the host grants it whether the ticket redeems or not; never free",
   "text": "{\"jsonrpc\":\"2.0\",\"id\":21,\"method\":\"session/prompt\",\"params\":{\"sessionId\":\"s1\",\"prompt\":[],\"_meta\":{\"cmuxGesture\":\"t4\",\"acpmux\":{\"promptId\":\"p1\"}}}}",
   "state": {
    "first": false,
@@ -1332,7 +1439,7 @@
      }
     },
     "session_id": "s1",
-    "needs_gesture": true,
+    "needs_gesture": false,
     "needs_click": false,
     "needs_path_check": false,
     "setting": null,

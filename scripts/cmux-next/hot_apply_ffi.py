@@ -23,8 +23,10 @@ cmux-app-ffi-<commit>). For a commit SHA this part:
            side-instance.sh do; the Keychain group entitlement goes with the Developer ID signature, so the app
            starts signed out); otherwise the part is left, with why.
   swap     quits the app keeping its sessions (`cmux app quit --keep-sessions` from the app's own bin), renames
-           the library into place, opens the app again and waits until its control socket answers from a new pid
-           that stays up STAY_SECONDS. The daemon and its terminals never stop.
+           the library into place, opens the app again (through launchd's GUI domain where `open` fails: in a
+           terminal of the app itself, or over ssh) and waits until its control socket answers from a new pid
+           that stays up STAY_SECONDS. The daemon and its terminals never stop. An app that is not running is
+           not opened: it loads the library at its next launch.
 
 This is a warm swap, not a live one: the C ABI holds state, so the new library loads with the app. A failed check
 after the swap puts the old library (and the old signature) back and opens the app again.
@@ -65,6 +67,16 @@ def carries_dylib(app: Path) -> bool:
 def executable(app: Path) -> Path:
     with open(app / "Contents/Info.plist", "rb") as handle:
         return app / "Contents/MacOS" / plistlib.load(handle)["CFBundleExecutable"]
+
+
+# The app's code, which links the library: CmuxNextApp.framework behind a stub executable (CMUX-629),
+# or the executable itself in a static (live code) build.
+CODE_FRAMEWORK_BINARY = "Contents/Frameworks/CmuxNextApp.framework/Versions/A/CmuxNextApp"
+
+
+def code_image(app: Path) -> Path:
+    framework = app / CODE_FRAMEWORK_BINARY
+    return framework if framework.is_file() else executable(app)
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -117,6 +129,52 @@ def plan(repo: Path, app: Path | None, sha: str, base: str) -> dict:
     if changed:
         raise Left(f"the app FFI at {source[:12]} is not additive to the app's ({pinned[:12]}): " + "; ".join(changed[:3]))
     return {"source": source, "release": f"cmux-app-ffi-{source}", "app_pin_source": pinned}
+
+
+def pin_moved(repo: Path, base: str, sha: str) -> bool:
+    """SHA's commit pins another app FFI release than the app's commit BASE (False when either is not in REPO)."""
+    try:
+        return app_pin_source(repo, base) != app_pin_source(repo, sha)
+    except Exception:
+        return False
+
+
+def pin_plan(repo: Path, app: Path | None, sha: str, base: str) -> dict | None:
+    """The ffi part for SHA when no FFI source changed after the app's commit but SHA pins a newer release.
+
+    An app links the release its commit pins, and the pin lags the FFI sources until app-ffi-repin lands, so a
+    NIGHTLY's library is usually older than its commit's FFI sources: the commit that moves the pin is then the
+    one that brings the app's library up to date. None when SHA pins the app's release; Left when it cannot."""
+    try:
+        pinned, want = app_pin_source(repo, base), app_pin_source(repo, sha)
+    except RuntimeError:
+        return None  # a commit from before app-ffi-pin.json: no pin to compare, nothing for this part
+    if pinned == want:
+        return None
+    if app is not None and not carries_dylib(app):
+        raise Left(f"{app} links the app FFI statically (no {DYLIB}): it needs a new app")
+    # No ancestry check: an older pin (a reverted re-pin) is refused here when it drops what the app calls, and a
+    # shallow checkout cannot tell ancestry anyway.
+    changed = additive(repo, pinned, want)
+    if changed:
+        raise Left(f"the app FFI at {want[:12]} is not additive to the app's ({pinned[:12]}): " + "; ".join(changed[:3]))
+    return {"source": want, "release": f"cmux-app-ffi-{want}", "app_pin_source": pinned, "via": "pin"}
+
+
+PIN_CHECKSUM_LINE = "// app-ffi-pin-checksum:"
+PACKAGE_SWIFT = "Packages/macOS/CmuxNext/Package.swift"
+
+
+def pin_packaging(repo: Path, since: str, sha: str) -> set[str]:
+    """The changed paths between SINCE and SHA that only move the pin: app-ffi-pin.json, and Package.swift when
+    its only changed line is the pin checksum (repin-app-ffi.sh moves the two together). The ffi part covers them."""
+    out = {PIN_FILE}
+    diff = _git(repo, "diff", "-U0", since, sha, "--", PACKAGE_SWIFT)
+    changed = [line[1:].strip() for line in diff.splitlines()
+               if line[:1] in "+-" and not line.startswith(("+++", "---"))]
+    if all(line.startswith(PIN_CHECKSUM_LINE) for line in changed):
+        out.add(PACKAGE_SWIFT)
+    return out
 
 
 # ---------------------------------------------------------------- fetch
@@ -184,8 +242,9 @@ def archs(path: Path) -> list[str]:
 
 
 def imports(app: Path) -> set[str]:
-    """The symbols the app's executable binds to libcmux_app_ffi (nm -m: `(from libcmux_app_ffi)`)."""
-    out = _run("nm", "-m", "-u", "-arch", host_arch(), str(executable(app))).stdout
+    """The symbols the app's code binds to libcmux_app_ffi (nm -m: `(from libcmux_app_ffi)`). The stub
+    executable binds none, so it is the code image's, or every library would pass this check."""
+    out = _run("nm", "-m", "-u", "-arch", host_arch(), str(code_image(app))).stdout
     return {line.split()[2] for line in out.splitlines() if line.rstrip().endswith("(from libcmux_app_ffi)")}
 
 
@@ -307,29 +366,106 @@ def quit_keeping_sessions(app: Path) -> int | None:
     raise RuntimeError(f"the app (pid {pid}) did not quit within {QUIT_SECONDS} s of quit --keep-sessions")
 
 
-def launch(app: Path, old_pid: int | None) -> dict:
-    """Opens APP and waits until a new pid's control socket answers, then that it stays up STAY_SECONDS."""
+# The app's own background-reopen argument (UpdateRelaunchFocus.reopenArgument): a launch with it starts behind the
+# front app and refuses its launch activation, as an unclicked update's reopen does.
+REOPEN_BEHIND_ARGUMENT = "--cmux-update-reopened-behind"
+
+
+def is_frontmost(pid: int | None) -> bool:
+    """Whether pid is the frontmost app now (lsappinfo). False when it is not, or when lsappinfo cannot say (ssh, no
+    window server): a relaunch then stays behind, and a person who was in the app clicks it once, rather than a
+    relaunch nobody watched taking the keyboard from the app a person types in (Leo, 2026-10-31: "WHY THE F*** DOES
+    THE DEV BUILD KEEP STEALING F*** FOCUS")."""
+    if pid is None:
+        return False
+    try:
+        front = subprocess.run(["lsappinfo", "front"], capture_output=True, text=True, timeout=5).stdout.strip()
+        if not front:
+            return False
+        info = subprocess.run(["lsappinfo", "info", "-only", "pid", front], capture_output=True, text=True,
+                              timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    digits = "".join(ch if ch.isdigit() else " " for ch in info.split("=", 1)[-1]).split()
+    return bool(digits) and int(digits[0]) == pid
+
+
+def open_argv(app: Path, behind: bool) -> list[str]:
+    """`open` for APP: in front as before when the app was frontmost at its quit, else behind (-g, and the reopen
+    argument so the app refuses its own launch activation)."""
+    return ["open", "-g", str(app), "--args", REOPEN_BEHIND_ARGUMENT] if behind else ["open", str(app)]
+
+
+def open_app(app: Path, behind: bool = True) -> dict:
+    """Opens APP: `open`, or, where LaunchServices does not answer, a one-shot agent in the user's GUI domain.
+
+    `open` fails in the two places hot-apply runs from most: a terminal of the app itself, which outlives
+    `cmux app quit --keep-sessions` but whose LaunchServices connection went with the app (error -600), and an
+    ssh session, which has no window server. launchd's gui/<uid> domain opens the app in the console session from
+    both. Returns {"via": "open"} or {"via": "launchd", "label", "plist"} for close_opener()."""
+    argv = open_argv(app, behind)
+    done = _run(*argv, check=False)
+    if done.returncode == 0:
+        return {"via": "open"}
+    label = f"com.cmux.hot-apply-ffi.open.{os.getpid()}.{time.monotonic_ns()}"
+    plist = Path(tempfile.mkdtemp(prefix="hot-apply-ffi-open.")) / f"{label}.plist"
+    with open(plist, "wb") as handle:
+        plistlib.dump({"Label": label, "ProgramArguments": ["/usr/bin/open", *argv[1:]], "RunAtLoad": True,
+                       "LaunchOnlyOnce": True}, handle)
+    boot = _run("launchctl", "bootstrap", f"gui/{os.getuid()}", str(plist), check=False)
+    if boot.returncode != 0:
+        shutil.rmtree(plist.parent, ignore_errors=True)
+        raise RuntimeError(f"open {app}: {(done.stderr or done.stdout).strip()[:200]}; launchctl bootstrap "
+                           f"gui/{os.getuid()}: {(boot.stderr or boot.stdout).strip()[:200]}")
+    return {"via": "launchd", "label": label, "plist": str(plist), "open_error": (done.stderr or done.stdout).strip()[:200]}
+
+
+def close_opener(opener: dict) -> None:
+    """Removes the one-shot agent open_app() bootstrapped; the app it opened keeps running."""
+    if opener.get("via") != "launchd":
+        return
+    _run("launchctl", "bootout", f"gui/{os.getuid()}/{opener['label']}", check=False)
+    shutil.rmtree(Path(opener["plist"]).parent, ignore_errors=True)
+
+
+def launch(app: Path, old_pid: int | None, front: bool = False) -> dict:
+    """Opens APP (behind unless `front`: it was frontmost at its quit) and waits until a new pid's control socket
+    answers, then that it stays up STAY_SECONDS."""
     t0 = time.monotonic()
-    _run("open", str(app))
-    deadline = t0 + LAUNCH_SECONDS
-    pid = None
-    while time.monotonic() < deadline:
-        pid = answering_pid(app)
-        if pid and pid != old_pid:
-            break
-        time.sleep(0.1)
-    else:
-        raise RuntimeError(f"the app did not answer within {LAUNCH_SECONDS} s of opening it")
+    opener = open_app(app, behind=not front)
+    try:
+        deadline = t0 + LAUNCH_SECONDS
+        pid = None
+        while time.monotonic() < deadline:
+            pid = answering_pid(app)
+            if pid and pid != old_pid:
+                break
+            time.sleep(0.1)
+        else:
+            raise RuntimeError(f"the app did not answer within {LAUNCH_SECONDS} s of opening it ({opener['via']})")
+    finally:
+        close_opener(opener)
     answered = time.monotonic() - t0
-    time.sleep(STAY_SECONDS)
+    # The check is that the app stays up STAY_SECONDS, so that whole window is spent; it is watched throughout so a
+    # crash fails at once instead of at its end.
+    stay_until = time.monotonic() + STAY_SECONDS
+    while time.monotonic() < stay_until and app_pid(app) == pid:
+        time.sleep(min(0.5, max(0.0, stay_until - time.monotonic())))
     if app_pid(app) != pid:
         raise RuntimeError(f"the app (pid {pid}) did not stay up {STAY_SECONDS:g} s")
-    return {"pid": pid, "answered_seconds": round(answered, 3), "stayed_seconds": STAY_SECONDS}
+    return {"pid": pid, "answered_seconds": round(answered, 3), "stayed_seconds": STAY_SECONDS, "opened_via": opener["via"]}
 
 
 def place(src: Path, dest: Path) -> None:
     part = dest.with_name(f".{dest.name}.hot-apply")
-    shutil.copy2(src, part)
+    try:
+        shutil.copy2(src, part)
+    except PermissionError as error:
+        # macOS App Management: only processes macOS lets manage apps (the app's own team, its terminals, a
+        # terminal or sshd with that permission) may write into a signed app bundle.
+        raise RuntimeError(f"cannot write into {dest.parent} ({error.strerror}): macOS lets this process change "
+                           "no signed app; run hot-apply from a terminal of the app, over ssh, or from a terminal "
+                           "with App Management (System Settings, Privacy & Security)") from error
     os.replace(part, dest)
 
 
@@ -362,7 +498,7 @@ def swap(app: Path, new: Path, state: Path, how: str, identity: str | None, phas
         if not copy.is_file():
             copy.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(dest, copy)
-        undo = {"copy": str(copy), "sha256": prior, "how": how}
+        undo = {"copy": str(copy), "sha256": prior, "how": how, "was_running": app_pid(app) is not None}
         if how == "reseal":
             undo["signature"] = keep_signature(app, state)
     with tempfile.TemporaryDirectory(prefix="hot-apply-ffi.") as work:
@@ -375,6 +511,8 @@ def swap(app: Path, new: Path, state: Path, how: str, identity: str | None, phas
         step = {"from": prior, "to": to, "signed": how}
         with phases("quit"):
             started = time.monotonic()
+            front = is_frontmost(app_pid(app))
+            undo["front"] = front
             step["quit_pid"] = quit_keeping_sessions(app)
             step["quit_seconds"] = round(time.monotonic() - started, 3)
         try:
@@ -384,8 +522,13 @@ def swap(app: Path, new: Path, state: Path, how: str, identity: str | None, phas
                     reseal(app, Path(work))
             if sha256_file(dest) != to:
                 raise RuntimeError(f"{DYLIB} does not hash to the library put in ({to})")
-            with phases("launch"):
-                step["launch"] = launch(app, step["quit_pid"])
+            if step["quit_pid"] is None:
+                # An app that was not running stays stopped and loads the library when it opens (hot-verify.py puts
+                # a lagging NIGHTLY's copy on its branch's pinned release before the copy's first launch).
+                step["launch"] = None
+            else:
+                with phases("launch"):
+                    step["launch"] = launch(app, step["quit_pid"], front)
         except Exception as error:
             error.undo = undo  # type: ignore[attr-defined]
             raise
@@ -399,10 +542,14 @@ def put_back(app: Path, undo: dict) -> dict:
         running = app_pid(app)
         if running and app_answers(app):
             return {"ok": True, "running_sha256": undo["sha256"], "app": "unchanged"}
-    old = quit_keeping_sessions(app) if app_pid(app) else None
+    running = app_pid(app)
+    front = bool(undo.get("front")) or (running is not None and is_frontmost(running))
+    old = quit_keeping_sessions(app) if running else None
     place(Path(undo["copy"]), dest)
     if undo.get("signature"):
         restore_signature(app, undo["signature"])
     if sha256_file(dest) != undo["sha256"]:
         raise RuntimeError(f"{DYLIB} does not hash to the library put back ({undo['sha256']})")
-    return {"ok": True, "running_sha256": undo["sha256"], "launch": launch(app, old)}
+    if old is None and not undo.get("was_running", True):
+        return {"ok": True, "running_sha256": undo["sha256"], "launch": None}  # it was not running: it stays stopped
+    return {"ok": True, "running_sha256": undo["sha256"], "launch": launch(app, old, front)}

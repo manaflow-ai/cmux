@@ -3,7 +3,7 @@ import CmuxNextCompat
 public import Foundation
 
 /// `appearance.themeFile` in cmux-next.json: the theme file whose look applies, by name. A theme file
-/// is `~/.config/cmux/themes/<name>.json` (beside cmux-next.json): a partial overlay of the look
+/// is `~/.config/cmux-next/themes/<name>.json` (beside cmux-next.json): a partial overlay of the look
 /// settings (`ThemeFileOverlay`), so a person rices the whole app from a dotfile with no build.
 /// Unset (the default) applies none, so nothing changes until a person picks one.
 public nonisolated struct ThemeFileSetting: Sendable {
@@ -66,13 +66,35 @@ public nonisolated struct ThemeFileSetting: Sendable {
 extension SettingsController {
     /// What Settings lists as problems: every diagnostic but the notes saying which keys the theme
     /// file sets, which are no problem (a working theme file shows no warning).
-    public var pageDiagnostics: [SettingsDiagnostic] { diagnostics.filter { $0.kind != .setByThemeFile } }
+    public var pageDiagnostics: [SettingsDiagnostic] { diagnostics.filter { !Self.noteKinds.contains($0.kind) } }
+
+    /// What Settings shows at a row as a note, not a problem (#44894): which keys the theme file
+    /// sets and which the person changed over it, and that Plain Backgrounds keeps the window
+    /// background rows from drawing. A setting that saves without changing what you see says why.
+    public var pageNotes: [SettingsDiagnostic] {
+        diagnostics.filter { Self.noteKinds.contains($0.kind) } + ReducedBackgroundsSetting.notes(reduced: snapshot.reducedBackgrounds)
+    }
+
+    static let noteKinds: Set<SettingsDiagnostic.Kind> = [.setByThemeFile, .overThemeFile, .plainBackgrounds]
+
+    /// ``pageNotes`` as the Settings page reads them (`notes` of its snapshot): path, kind and the
+    /// theme file the note names.
+    public var pageNotesWire: JSONValue {
+        .array(pageNotes.map { note in
+            var entry: [String: JSONValue] = ["path": .string(note.path), "kind": .string(note.kind.rawValue)]
+            if let file = note.file { entry["file"] = .string(file) }
+            return .object(entry)
+        })
+    }
 
     /// A palette row's values: for `appearance.themeFile` None and every file in the themes folder
     /// (as the last load read it, so hovering one previews it with no disk read); for any other
     /// setting its kind's values (`SettingDescriptor.paletteOptions`).
-    public func paletteOptions(_ descriptor: SettingDescriptor, current: JSONValue?, themeColors: [ThemeRGB]) -> [SettingOption] {
-        guard descriptor.path == ThemeFileSetting.configPath else { return descriptor.paletteOptions(current: current, themeColors: themeColors) }
+    public func paletteOptions(_ descriptor: SettingDescriptor, current: JSONValue?, inherited: JSONValue? = nil,
+                               themeColors: [ThemeRGB]) -> [SettingOption] {
+        guard descriptor.path == ThemeFileSetting.configPath else {
+            return descriptor.paletteOptions(current: current, inherited: inherited, themeColors: themeColors)
+        }
         let names = themeFileSources.keys.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         return [SettingOption(value: nil, title: descriptor.defaultLabel ?? "", isCurrent: current == nil)]
             + names.map { SettingOption(value: .string($0), title: $0, isCurrent: current?.stringValue == $0) }

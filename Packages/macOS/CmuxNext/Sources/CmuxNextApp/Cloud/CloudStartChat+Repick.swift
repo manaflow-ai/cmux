@@ -43,7 +43,7 @@ extension CloudStartChat {
         // The machine it is on already: nothing moves.
         guard target != started.machineID else { return AgentPaneReply.success(["machine": services.machines.session(target)?.machine.title ?? ""]) }
         let toastID = "cloud-start-" + tab.id
-        CloudMove.toast(services, toastID, CloudMoveStrings.moving, duration: CloudMove.working)
+        CloudMove.toast(services, toastID, CloudMoveStrings.moving, duration: CloudMove.working, working: true)
         do {
             // Only under the account the send began in (+Machine).
             try Self.checkAccount(started.account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
@@ -53,7 +53,9 @@ extension CloudStartChat {
             _ = try Self.checked(await cli.startChatPin(key: started.start.key, account: CloudStartCore().accountText(started.account),
                                                         machine: target, workspace: started.workspace))
             let old = services.machines.daemon(forTab: tab)
-            let origin = Origin(tab: tab, chat: started.chat, workspace: started.workspace, account: started.account) { [services] in
+            let origin = Origin(tab: tab, chat: started.chat, workspace: started.workspace, account: started.account,
+                                connection: services.cloud.agentCredentials.connection(chat: key, machine: machine)) { [services] in
+                services.cloud.agentCredentials.use(connection: nil, chat: key, machine: machine)
                 // The chat's tab on the machine it was on, whose first send never ran.
                 services.agentTabs.pageChats.cloudStarted[AgentTabKey(machine: machine, key: key)] = nil
                 do {
@@ -66,7 +68,7 @@ extension CloudStartChat {
             CloudMove.toast(services, toastID, CloudMoveStrings.moved(machine), duration: .seconds(6))
             return AgentPaneReply.success(["machine": machine])
         } catch {
-            let message = (error as? CloudMove.Failure)?.message ?? (error as? ActionFailure)?.message
+            let message = (error as? CloudMove.Failure)?.message ?? (error as? ActionFailure)?.message ?? (error as? CloudMachineRoute.NeedsConnection)?.message
                 ?? CloudMoveStrings.moveFailed(CloudStrings.errorText(error))
             services.cloud.logger.error("cloud start chat repick failed: \(message, privacy: .public)")
             CloudMove.toast(services, toastID, message, duration: .seconds(12))

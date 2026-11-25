@@ -27,7 +27,7 @@ extension DaemonService {
 /// workspace window (as `DaemonUpdateBoard`'s notice does).
 ///
 /// It ends by itself when the daemon is back, a restart starts or the offer ends. Closed by the
-/// person, it stays closed until the daemon has connected again; a cancelled confirm shows it
+/// person, it stays closed until the daemon has connected again; a failed restart shows it
 /// again. It is a standard toast (`CmuxToastCenter`): its motion and keys are the toast's own.
 @MainActor
 final class DaemonRecoveryNotice {
@@ -131,12 +131,9 @@ final class DaemonRecoveryNotice {
         let shown = toasts.show(toast, in: window)
         handle = shown
         let recovery = daemon.recovery
-        shown.onAction = { [weak self, weak window, weak recovery] in
+        shown.onAction = { [weak recovery] in
             guard let recovery else { return }
-            DaemonRestartPrompt.confirm(recovery, in: window, cancelled: { [weak self] in
-                guard let self, observation != nil else { return }
-                apply(current)
-            })
+            DaemonRestart.restart(recovery)
         }
         shown.onDismiss = { [weak self, weak shown] reason in
             guard let self, let shown, handle === shown else { return }

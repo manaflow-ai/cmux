@@ -3,7 +3,8 @@
 //! (acpmux peers and pairings, remote hosting), with the overlay network
 //! behind one seam (`network.rs`). `cmux device add` with no `--yes` is the
 //! app's Add Device card (the app action `device.add`); with `--yes` it is
-//! the headless enroll on a machine with no app.
+//! the direct ssh enroll, and with `--yes --hub` the one-command hub join
+//! over ssh (acpmux `cli/ssh_join.rs`).
 
 use cmux_json::JsonSet as _;
 
@@ -11,10 +12,15 @@ use cmux_json::JsonSet as _;
 mod credential_env_tests;
 mod model;
 mod network;
+pub(crate) mod reach;
+#[cfg(test)]
+mod reach_tests;
 mod removal;
 pub(crate) mod removed;
+pub(crate) mod setup;
 #[cfg(test)]
 mod tests;
+mod this_mac;
 
 use std::io::{BufRead as _, IsTerminal as _, Write as _};
 use std::path::PathBuf;
@@ -28,23 +34,33 @@ use model::{Listing, Role, Sources, State, Via};
 use network::{Choice, TailscaleNetwork, WeftNetwork};
 
 const USAGE: &str = "usage: (every verb takes --json, --jsonl or --quiet)
-       cmux device list [--json] [--network auto|tailscale|weft] [--platform URL] [--cloud-token-file PATH | --cloud-token-stdin]
-       cmux device add HOST --yes [--name NAME] [--json]
+       cmux device list [--json [--probe]] [--no-probe] [--network auto|tailscale|weft] [--platform URL] [--cloud-token-file PATH | --cloud-token-stdin]
+       cmux device add HOST --yes [--name NAME] [--hub] [--json]
        cmux device invite [--role client|read-only] [--ttl 15m] [--label TEXT] [--json]
        cmux device remove ID|NAME|ADDRESS [--yes] [--json]
        cmux device audit [--limit N] [--json]
        cmux device network [--json]
-       cmux device SELECTOR show [--catalog]   (one device of the machine catalog, `cmux machine ls`)
+       cmux device traffic [--json]            (this Mac's bytes in and out per service through its
+                                               iPhone and machine link host, last 10 s and 60 s)
+       cmux device setup DEVICE|--all [--json] [--dry-run] [--allow-agents]   (install, keep running and start cmux NIGHTLY on a Mac of yours)
+       cmux device start DEVICE [--json]                       (start cmux NIGHTLY on a Mac of yours)
+       cmux device SELECTOR show [--json]      (one device of `cmux device list`, by id, name or
+                                               address; else the machine catalog, `cmux machine ls`)
+       cmux device SELECTOR show --catalog     (the machine catalog only)
        cmux device revoke|rotate ID|NAME       (a machine that joined with a pasted line)
        cmux device doctor [MACHINE] [--fix]    (check an SSH machine and fix what it can)
 
-  cmux device add HOST (no --yes) opens Add Device in the cmux app.
+  cmux device add HOST (no --yes) opens Add Device in the cmux app. With --yes it adds HOST as a
+  direct ssh peer, which copies this cmux. With --yes --hub, signed in to cmux, it joins HOST
+  through the hub over key-only ssh instead (macOS or Linux, any arch, from any computer).
   `cmux machine` is the old name of `cmux device`; `cmux machine add` still prints a join line.
   Cloud VMs (new, run, pause, resume, rm) are `cmux vm`: `cmux vm --help`.";
 
 /// The verbs this module runs; `add` only with `--yes`.
-const VERBS: &[&str] =
-    &["list", "ls", "remove", "rm", "audit", "network", "invite", "help", "-h", "--help"];
+const VERBS: &[&str] = &[
+    "list", "ls", "remove", "rm", "audit", "network", "invite", "setup", "start", "help", "-h",
+    "--help",
+];
 
 /// The output flags a device verb takes anywhere: before `device`, before the verb or after.
 fn output_flag(word: &str) -> bool {
@@ -67,6 +83,18 @@ pub(crate) fn device_args(raw_args: &[String]) -> Option<Vec<String>> {
         Some([verb, after @ ..]) if verb == "add" => {
             after.iter().any(|a| a == "--yes" || a == "-y")
         }
+        // `device SELECTOR show` reads the device list first (hq#11835 row 13); `--catalog` and
+        // any other flag keep the machine catalog's `machine SELECTOR show`.
+        Some([selector, show, after @ ..]) if show == "show" && !selector.starts_with('-') => {
+            if !after.iter().all(|a| output_flag(a)) {
+                return None;
+            }
+            let mut words: Vec<String> = leading.to_vec();
+            words.push("show".to_owned());
+            words.push(selector.clone());
+            words.extend(rest.iter().filter(|w| output_flag(w)).cloned());
+            return Some(words);
+        }
         None => true,
         _ => false,
     };
@@ -87,6 +115,9 @@ pub(crate) fn run(rest: &[String]) -> i32 {
     // the reason for a failure) stays.
     let _silenced = if quiet { Silenced::stdout() } else { None };
     let args = args.as_slice();
+    if verb == "show" {
+        return show(args);
+    }
     let result = match verb {
         "list" | "ls" => list(args),
         "add" => add(args),
@@ -94,8 +125,14 @@ pub(crate) fn run(rest: &[String]) -> i32 {
         "remove" | "rm" => remove(args),
         "audit" => show_audit(args),
         "network" => show_network(args),
+        "setup" => setup::verb(args, setup::Mode::Setup),
+        "start" => setup::verb(args, setup::Mode::Start),
         _ => {
-            println!("{USAGE}");
+            // Asked-for help also lists the cmux app's `device …` verbs (cli/app_action_help.rs).
+            match crate::cli::app_action_help::append("device", USAGE) {
+                Some(text) if matches!(verb, "help" | "-h" | "--help") => println!("{text}"),
+                _ => println!("{USAGE}"),
+            }
             return if matches!(verb, "help" | "-h" | "--help") { 0 } else { 2 };
         }
     };
@@ -288,6 +325,17 @@ pub(crate) const CREDENTIAL_ENV: &[&str] = &[
     "CMUX_PANE_APP_CREDENTIAL",
     "WEFT_ADMIN_TOKEN",
     "WEFT_TICKET_SEED",
+    // Cloud VM providers' credentials (cmux-vm-pool gce.rs, freestyle.rs): `cmux vm` reads them in
+    // its own process; no child this module starts makes a VM.
+    "CLOUDSDK_AUTH_ACCESS_TOKEN",
+    "GOOGLE_OAUTH_ACCESS_TOKEN",
+    "FREESTYLE_API_KEY",
+    // This machine's hub credential: acpmux reads it from its own store, never from the environment
+    // (joined_model_plane.rs), so an inherited copy is only a leak.
+    "CMUX_MACHINE_CREDENTIAL",
+    // Automation secrets' example names (cli/automation_secret.rs): a value under them is a secret.
+    "CMUX_PRO_KEY",
+    "MODELS_CATALOG_TOKEN",
 ];
 
 /// This program as `cmux` (argv[0]), so the `host` verbs, which exist only on the `cmux`
@@ -415,19 +463,92 @@ fn list(args: &[String]) -> anyhow::Result<()> {
     let flags = Flags::parse(
         args,
         &["network", JOIN_VALUES[0], JOIN_VALUES[1]],
-        &["json", "cloud-token-stdin"],
+        &["json", "cloud-token-stdin", "probe", "no-probe"],
     )?;
     let auth = JoinAuth::read(&flags)?;
     let mut notes = Vec::new();
-    let listing = current(&flags, &auth, &mut notes)?;
-    if flags.has("json") {
+    let mut listing = current(&flags, &auth, &mut notes)?;
+    // The human list probes so it never suggests an add that waits out ssh's timeout; `--json`
+    // (the app's refresh after every change) probes only when asked, so it pays nothing.
+    let json_out = flags.has("json");
+    let probe = !flags.has("no-probe") && (!json_out || flags.has("probe"));
+    let probe_ms = probe.then(|| probe_available(&mut listing.available, &reach::tcp_probe()));
+    if json_out {
         let mut v = serde_json::to_value(&listing)?;
         v.set("notes", json!(notes));
+        if let Some(ms) = probe_ms {
+            v.set("sshProbe", json!({"ms": ms, "budgetMs": reach::BUDGET.as_millis()}));
+        }
         println!("{v}");
         return Ok(());
     }
     print_listing(&listing, &notes);
     Ok(())
+}
+
+/// `cmux device SELECTOR show`: the row of `cmux device list` that `SELECTOR` names (id, name or
+/// network address), so a device the list shows is always one `show` finds. A selector the list
+/// does not name is the machine catalog's (`cmux machine SELECTOR show`: Cloud VMs, this Mac),
+/// run as it ran before. Returns the exit code.
+fn show(args: &[String]) -> i32 {
+    let json_out = args.iter().any(|a| a == "--json");
+    let Some(selector) = args.iter().find(|a| !a.starts_with('-')) else {
+        eprintln!("cmux device show: needs a device: its id, name or address\n{USAGE}");
+        return 2;
+    };
+    let mut notes = Vec::new();
+    let listing = Flags::parse(&[], &[], &[])
+        .and_then(|flags| current(&flags, &JoinAuth::default(), &mut notes));
+    if let Ok(listing) = &listing
+        && let Some(device) = model::find(listing, selector)
+    {
+        if json_out {
+            let mut v = serde_json::to_value(device).unwrap_or(Value::Null);
+            v.set("source", json!("device-list"));
+            println!("{v}");
+        } else {
+            print_device(device);
+        }
+        return 0;
+    }
+    let mut command = match cmux() {
+        Ok(command) => command,
+        Err(e) => {
+            eprintln!("cmux device show: {e:#}");
+            return 1;
+        }
+    };
+    if json_out {
+        command.arg("--json");
+    }
+    command.args(["machine", selector, "show"]);
+    match command.status() {
+        Ok(status) => status.code().unwrap_or(1),
+        Err(e) => {
+            eprintln!("cmux device show: cannot run cmux machine {selector} show: {e}");
+            1
+        }
+    }
+}
+
+fn print_device(d: &model::Device) {
+    let roles: Vec<&str> = d.roles.iter().copied().map(role_words).collect();
+    println!("{:<10} {}", "name", d.name);
+    println!("{:<10} {}", "id", d.id);
+    println!("{:<10} {}", "state", state_words(d.state));
+    println!("{:<10} {}", "roles", roles.join(", "));
+    if let Some(os) = &d.os {
+        println!("{:<10} {os}", "os");
+    }
+    if let Some(reach) = &d.reach {
+        println!("{:<10} {} ({})", "address", reach.address, reach.network);
+    }
+    if let Some(added) = &d.added_at {
+        println!("{:<10} {added}", "added");
+    }
+    if let Some(detail) = &d.detail {
+        println!("{:<10} {detail}", "detail");
+    }
 }
 
 fn role_words(role: Role) -> &'static str {
@@ -481,13 +602,8 @@ fn print_listing(listing: &Listing, notes: &[String]) {
     }
     if !listing.available.is_empty() {
         println!("\nNot added yet (your network and ~/.ssh/config):");
-        for a in &listing.available {
-            println!(
-                "  {:<28} {:<10} cmux device add {} --yes",
-                a.name,
-                a.os,
-                shell_word(&a.address)
-            );
+        for line in available_lines(&listing.available) {
+            println!("{line}");
         }
     }
     for pool in &listing.pools {
@@ -499,6 +615,56 @@ fn print_listing(listing: &Listing, notes: &[String]) {
     for note in notes {
         println!("\nNote: {note}");
     }
+}
+
+/// Probes ssh on every available computer at once ([`reach::probe_all`], one [`reach::BUDGET`]
+/// whatever their count) and records each answer in its row. Returns the pass's milliseconds.
+fn probe_available(available: &mut [model::Available], probe: &reach::Probe) -> u128 {
+    let started = std::time::Instant::now();
+    let hosts: Vec<String> = available.iter().map(|a| a.address.clone()).collect();
+    for (a, reach) in available.iter_mut().zip(reach::probe_all(&hosts, reach::BUDGET, probe)) {
+        a.ssh = Some(reach);
+    }
+    started.elapsed().as_millis()
+}
+
+/// Names a folded line spells out before "and N more".
+const UNREACHABLE_NAMES: usize = 12;
+
+/// The "Not added yet" rows: an add command for each computer ssh may reach, then one group for
+/// the ones whose ssh did not answer (their add would only wait out ssh's timeout), with the
+/// tailnet ACL hint once when any of them is a network computer.
+fn available_lines(available: &[model::Available]) -> Vec<String> {
+    let (silent, offered): (Vec<_>, Vec<_>) =
+        available.iter().partition(|a| a.ssh == Some(reach::SshReach::NoAnswer));
+    let mut lines: Vec<String> = offered
+        .iter()
+        .map(|a| {
+            format!(
+                "  {:<28} {:<10} cmux device add {} --yes",
+                a.name,
+                a.os,
+                shell_word(&a.address)
+            )
+        })
+        .collect();
+    if silent.is_empty() {
+        return lines;
+    }
+    let mut names: Vec<&str> =
+        silent.iter().take(UNREACHABLE_NAMES).map(|a| a.name.as_str()).collect();
+    let more = silent.len().saturating_sub(UNREACHABLE_NAMES);
+    let more_text = format!("and {more} more");
+    if more > 0 {
+        names.push(&more_text);
+    }
+    lines.push(format!("  ssh not reachable from here ({}): {}", silent.len(), names.join(", ")));
+    if silent.iter().any(|a| a.found == model::Found::Network) {
+        lines.push(
+            "    If `tailscale ping HOST` works, the tailnet's ACL does not let this computer reach its port 22: add a rule like { \"src\": [\"autogroup:member\"], \"dst\": [\"HOST\"], \"ip\": [\"tcp:22\"] } or turn on Tailscale SSH there, then list again.".into(),
+        );
+    }
+    lines
 }
 
 /// `text` as one shell word for a command a person copies: as is when it is
@@ -517,7 +683,7 @@ fn actor() -> String {
         .unwrap_or_else(|_| "unknown".into())
 }
 
-fn record(event: &str, fields: Value) {
+pub(crate) fn record(event: &str, fields: Value) {
     let mut entry = json!({"event": event, "by": actor(), "via": "cli"});
     if let (Some(map), Some(extra)) = (entry.as_object_mut(), fields.as_object()) {
         map.extend(extra.clone());
@@ -525,13 +691,191 @@ fn record(event: &str, fields: Value) {
     audit::append(&entry);
 }
 
+/// `cmux device add HOST --yes`: the direct ssh enroll that copies this binary, as before. With
+/// `--hub`, the hub join over key-only ssh (`hub_join`: the join script downloads the far
+/// machine's own build, so a Mac sets up a Linux box), which needs a cmux sign-in.
 fn add(args: &[String]) -> anyhow::Result<()> {
-    let flags = Flags::parse(args, &["name"], &["json", "yes"])?;
+    // The whole command's time, from before the sign-in token is read (the app may mint one).
+    let started = std::time::Instant::now();
+    let flags = Flags::parse(
+        args,
+        &["name", JOIN_VALUES[0], JOIN_VALUES[1]],
+        &["json", "yes", "hub", "cloud-token-stdin"],
+    )?;
     let [host] = flags.positional.as_slice() else {
         return Err(usage("needs exactly one HOST (a name, an address or user@host)"));
     };
+    match AddRoute::of(flags.has("hub")) {
+        AddRoute::Enroll => enroll(host, &flags),
+        AddRoute::HubJoin => match access_token(&flags)? {
+            Some(access) => hub_join(host, &flags, access, started),
+            None => bail!(
+                "not signed in to cmux here, so {host} cannot join through the hub\nnext: cmux login, then add it again, or drop --hub to add it as a direct ssh peer"
+            ),
+        },
+    }
+}
+
+/// Which way `cmux device add HOST --yes` adds a machine. The direct ssh enroll is the default
+/// (interim-coord, 2026-11-20: no default flip); the hub join only with `--hub`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AddRoute {
+    /// `cmux acp host enroll`: this binary copied to HOST, a peer of this computer's daemon.
+    Enroll,
+    /// The hub join over key-only ssh (acpmux `cli/ssh_join.rs`); needs a cmux sign-in.
+    HubJoin,
+}
+
+impl AddRoute {
+    fn of(hub: bool) -> Self {
+        if hub { Self::HubJoin } else { Self::Enroll }
+    }
+}
+
+/// The person's cmux access token: `--cloud-token-file`, `--cloud-token-stdin` or
+/// `CMUX_CLOUD_ACCESS_TOKEN`, else one the signed-in app mints; `None` when there is neither.
+#[cfg(unix)]
+fn access_token(flags: &Flags) -> anyhow::Result<Option<zeroize::Zeroizing<String>>> {
+    let auth = JoinAuth::read(flags)?;
+    let token = match auth.credential {
+        Some(credential) => Some(credential),
+        None => crate::cli::app_access_token().ok(),
+    };
+    Ok(token.map(zeroize::Zeroizing::new))
+}
+
+#[cfg(not(unix))]
+fn access_token(_flags: &Flags) -> anyhow::Result<Option<zeroize::Zeroizing<String>>> {
+    Ok(None)
+}
+
+/// The hub join (acpmux `cli/ssh_join.rs`, the same steps the app's `_acpmux/machine_join_ssh`
+/// runs): each step as it goes, then the machine or the failure's next step.
+fn hub_join(
+    host: &str,
+    flags: &Flags,
+    access: zeroize::Zeroizing<String>,
+    started: std::time::Instant,
+) -> anyhow::Result<()> {
+    use acpmux::cli::ssh_join;
+    #[cfg(unix)]
+    let hub = Some(
+        crate::cli::platform_origin(flags.value("platform"), &|key: &str| std::env::var(key).ok())
+            .map_err(usage)?,
+    );
+    #[cfg(not(unix))]
+    let hub = flags.value("platform").map(str::to_owned);
+    let request = ssh_join::Request {
+        host: host.to_owned(),
+        name: flags.value("name").map(str::to_owned),
+        hub,
+    };
+    let json_out = flags.has("json");
+    // `started`: the whole command's time: the join, then this Mac's own join and the wait for the
+    // hub to list the machine (Door A timing run: "Added doora-vm-1 in 12 s" after 33.3 s).
+    let mut emit = |p: ssh_join::Progress| {
+        if json_out {
+            let mut line = serde_json::to_value(&p).unwrap_or_default();
+            line.set("event", json!("progress"));
+            println!("{line}");
+        } else if p.state == "running" && p.detail.is_empty() {
+            println!("  {:<8} {:>3} s  {}", p.step.as_str(), p.seconds, p.step.doing());
+        } else {
+            println!("  {:<8} {:>3} s  {}", p.step.as_str(), p.seconds, p.detail);
+        }
+        let _ = std::io::stdout().flush();
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("cannot start the join")?;
+    #[cfg(unix)]
+    let mac_access = zeroize::Zeroizing::new(access.as_str().to_owned());
+    let outcome = runtime.block_on(ssh_join::join_as(&request, access, &mut emit));
+    let name = outcome.machine.as_ref().map_or(host, |m| m.name.as_str());
+    // This Mac on the hub mesh too, as the same person: the far machine's join grants the
+    // person's own machines, and a grant reaches only a machine on the mesh (this_mac.rs).
+    #[cfg(unix)]
+    let this_mac = match (&outcome.machine, request.hub.as_deref()) {
+        (Some(machine), Some(origin)) => {
+            let mut acp = |words: &[&str], stdin: Option<&str>| {
+                crate::cli::acp_json(words, stdin, std::time::Duration::from_secs(60))
+            };
+            if json_out {
+                println!(
+                    "{}",
+                    json!({"event": "progress", "step": "this_mac", "state": "running",
+                           "seconds": started.elapsed().as_secs()})
+                );
+            } else {
+                println!(
+                    "  {:<8} {:>3} s  putting this Mac on the mesh",
+                    "this-mac",
+                    started.elapsed().as_secs()
+                );
+            }
+            let _ = std::io::stdout().flush();
+            // The hub lists it by its joined name, else by the host name an older acpmux on it
+            // heartbeats with.
+            Some(this_mac::run(
+                origin,
+                &mac_access,
+                &machine.name,
+                machine.hostname.as_deref(),
+                this_mac::LISTED_WITHIN,
+                &mut acp,
+            ))
+        }
+        _ => None,
+    };
+    #[cfg(not(unix))]
+    let this_mac: Option<this_mac::Done> = None;
+    let seconds = started.elapsed().as_secs();
+    record(
+        if outcome.ok { "device.added" } else { "device.add_failed" },
+        json!({
+            "device": format!("joined:{name}"),
+            "host": host,
+            "method": "hub-join",
+            "seconds": seconds,
+            "joinSeconds": outcome.seconds,
+            "failure": outcome.failure.as_ref().map(|f| f.kind),
+        }),
+    );
+    if json_out {
+        let mut line = outcome.to_value();
+        line.set("event", json!("done"));
+        line.set("seconds", json!(seconds));
+        line.set("joinSeconds", json!(outcome.seconds));
+        if let Some(done) = &this_mac {
+            line.set("thisMac", done.to_value());
+        }
+        println!("{line}");
+    }
+    match (&outcome.machine, &outcome.failure) {
+        (Some(machine), _) => {
+            if !json_out {
+                if outcome.already_joined {
+                    // Door A re-add: the machine kept its record, and no join line was minted.
+                    println!(
+                        "{} was already joined to your account: kept its record {}",
+                        machine.name, machine.machine_id
+                    );
+                }
+                println!("{}", this_mac::added_line(&machine.name, seconds, this_mac.as_ref()));
+            }
+            Ok(())
+        }
+        (None, Some(failure)) => bail!("{}\nnext: {}", failure.message, failure.next),
+        (None, None) => bail!("{host} was not added"),
+    }
+}
+
+/// The direct ssh enroll (`cmux acp host enroll`): this binary copied to HOST, which then runs
+/// as a peer of this computer's daemon.
+fn enroll(host: &str, flags: &Flags) -> anyhow::Result<()> {
     let mut enroll =
-        vec!["acp".to_owned(), "host".into(), "enroll".into(), host.clone(), "--json".into()];
+        vec!["acp".to_owned(), "host".into(), "enroll".into(), host.to_owned(), "--json".into()];
     if let Some(name) = flags.value("name") {
         enroll.extend(["--name".into(), name.to_owned()]);
     }

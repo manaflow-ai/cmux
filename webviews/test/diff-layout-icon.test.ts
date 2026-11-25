@@ -6,10 +6,9 @@ import { toolbarPillButtons } from "../src/toolbar-model";
 
 const layoutButton = (layout: "split" | "unified" | "auto") =>
   toolbarPillButtons({
-    options: { collapsed: false, layout, wordWrap: false },
+    options: { layout },
     filesVisible: true,
     optionsOpen: false,
-    findOpen: false,
   }).find((button) => button.id === "layout")!;
 
 test("each layout shows its own icon and offers the next layout", () => {

@@ -1,16 +1,16 @@
 # One address book for every harness
 
-Any agent reaches any session by a stable name with `acpmux send NAME` (or the `send` tool of
+Any agent reaches any session by a stable name with `cmux agent send NAME` (or the `send` tool of
 the `acpmux` MCP server): acpmux lanes, Codex threads, and Claude Code sessions in the CLI or the
 desktop app. Every message goes through the outbox, so it is queued, retried while the target is
-down, and `acpmux send --status ID` says whether it was delivered. Leo, 2026-11-09: "how
+down, and `cmux agent send --status ID` says whether it was delivered. Leo, 2026-11-09: "how
 formalized/productionized is this rn, and how much further do we need to take things?" and "we
 should offer it for codex too! ..." (and for the other harnesses people use).
 
 ## Names
 
-- A session acpmux starts has its acpmux name (`acpmux new -n NAME`).
-- A session acpmux did not start registers one from its own shell: `acpmux register NAME`
+- A session started through the front door has its agent name (`cmux agent new -n NAME`).
+- A session acpmux did not start registers one from its own shell: `cmux agent register NAME`
   (`src/hub/register.rs`). That works for a Claude Code session (desktop or terminal). The daemon
   finds the session from the kernel's process tree of the caller: the nearest Claude Code process
   whose inbox is the caller's `CLAUDE_CODE_MESSAGING_SOCKET`, opened with that shell's
@@ -18,11 +18,11 @@ should offer it for codex too! ..." (and for the other harnesses people use).
   (`~/.claude/sessions/<pid>.json`) is anyone's to write, so what it says is taken only from a
   process the kernel proves: Claude Code by its code signature (Anthropic's, checked on the live
   process with `codesign`), the listener on its inbox (peer credentials, this user), and the only
-  live claimant of its conversation. Then it takes two steps: `acpmux register NAME` delivers a
+  live claimant of its conversation. Then it takes two steps: `cmux agent register NAME` delivers a
   one-time code into that inbox with the session's own token (only a genuine session accepts it,
-  and only its model reads it), and the session finishes with `acpmux register NAME --code CODE`
+  and only its model reads it), and the session finishes with `cmux agent register NAME --code CODE`
   within ten minutes. Otherwise `register.unproven`. An unregistered Claude Code chat's own
-  `acpmux send` (no `--from`, no `ACPMUX_FROM`, not in an acpmux session, with the inbox
+  `cmux agent send` (no `--from`, no `ACPMUX_FROM`, not in an cmux agent session, with the inbox
   variables set) takes the first step itself (`src/cli/reply_address.rs`, `auto`), under
   `claude-desktop-<first 8 of CLAUDE_CODE_SESSION_ID>` (`claude-vscode-`, `claude-code-`), and
   says on stderr that the receiver cannot reply until the chat runs the `--code` line it gets.
@@ -53,13 +53,13 @@ should offer it for codex too! ..." (and for the other harnesses people use).
   acpmux name the identity; the title can stay as it is.
 - A Claude Code agent acpmux starts takes no part in Claude Code's own cross-session messaging
   (`src/hub/native_messaging.rs`): it gets `CLAUDE_CODE_HARBOR_KITE=0`, so it has no `ListAgents`
-  and no inbox socket, lists no session and is listed by none. Its peer list is `acpmux ls`, one
+  and no inbox socket, lists no session and is listed by none. Its peer list is `cmux agent ls`, one
   daemon's sessions. Bench round 6 (Claude Code 2.1.322): with that messaging on, an acpmux agent
   sent to another with `SendMessage`, the receiver (another permission class) held it silently,
   and `ListAgents` listed a session of another acpmux daemon. acpmux's PreToolUse gate refuses a
-  `SendMessage` to an acpmux session or a cross-session address, with the `acpmux send` command
+  `SendMessage` to an cmux agent session or a cross-session address, with the `cmux agent send` command
   that delivers it. A message Claude Code still holds (a profile that turned the messaging back
-  on, or a Claude Code that ignores the switch) is in `heldMessages` and `acpmux pending`, in
+  on, or a Claude Code that ignores the switch) is in `heldMessages` and `cmux agent pending`, in
   memory only (a daemon restart forgets it). The switch is undocumented in Claude Code; the
   model probe (`src/live_models/mod.rs`) sets it too. If Claude Code renames it, the gate's
   refusal and `pending` still work; only the cross-daemon peer list comes back.
@@ -68,16 +68,16 @@ should offer it for codex too! ..." (and for the other harnesses people use).
 
 | Harness | Send (tools it gets) | Receive | Mid-turn | Idle notice (`watch_add`) | Sender it reads | Gaps |
 | --- | --- | --- | --- | --- | --- | --- |
-| Claude Code, started by acpmux | `acpmux` MCP server through `--mcp-config` (`agent_tools.rs`); its own `SendMessage` to a session is refused with the `acpmux send` command | ACP `session/prompt` | yes (acpmux's Claude adapter steers) | yes | `From another agent (NAME, HARNESS), not the person:` | none known |
-| Claude Code, not started by acpmux (desktop Code tab, terminal) | `acpmux send` in its shell, bound to its registered chat by process tree; `acpmux desktop link` adds the guest MCP tools | `acpmux register NAME` and the `--code` it then receives (macOS), then its inbox socket (`claude_peers.rs`), with its own `CLAUDE_CODE_MESSAGING_TOKEN` | yes: Claude Code reads an inbox message between tool calls | as the watched one yes; the guest tools have no `watch_add` | the same line, plus how to answer; Claude Code also says it came from another session | text only; register again after a restart |
+| Claude Code, started by acpmux | `acpmux` MCP server through `--mcp-config` (`agent_tools.rs`); its own `SendMessage` to a session is refused with the `cmux agent send` command | ACP `session/prompt` | yes (acpmux's Claude adapter steers) | yes | `From another agent (NAME, HARNESS), not the person:` | none known |
+| Claude Code, not started by acpmux (desktop Code tab, terminal) | `cmux agent send` in its shell, bound to its registered chat by process tree; `acpmux desktop link` adds the guest MCP tools | `cmux agent register NAME` and the `--code` it then receives (macOS), then its inbox socket (`claude_peers.rs`), with its own `CLAUDE_CODE_MESSAGING_TOKEN` | yes: Claude Code reads an inbox message between tool calls | as the watched one yes; the guest tools have no `watch_add` | one line, `From another agent (NAME, HARNESS), not the person. Answer with ...`, then the text, since Claude Code adds its own lines on who sent it and what a peer may not do | text only; register again after a restart |
 | Codex, started by acpmux (in-process bridge) | `acpmux` MCP server in ACP `mcpServers` | ACP `session/prompt` | yes (`turn/steer`) | yes | the same line | none known |
 | Codex through the outside `codex-acp` | same | same | no: after the turn | yes | the same line | no steering |
-| Codex desktop thread | shell `acpmux send` bound by `CODEX_THREAD_ID`; `acpmux desktop link` guest tools | the bridge setting only (no `register`: nothing proves a shell runs in the thread), then the app-server queue (`thread/queue/add`) | no: its next turn | as the watched one yes | the same line, plus how to answer | text only |
+| Codex desktop thread | shell `cmux agent send` bound by `CODEX_THREAD_ID`; `acpmux desktop link` guest tools | the bridge setting only (no `register`: nothing proves a shell runs in the thread), then the app-server queue (`thread/queue/add`) | no: its next turn | as the watched one yes | the same line, plus how to answer | text only |
 | Codex CLI thread not started by acpmux | guest tools (shared `config.toml`) | none | no | no | n/a | cannot receive; start it with acpmux instead |
 | Gemini CLI (`gemini --experimental-acp`) | ACP `mcpServers` | ACP `session/prompt` | no | yes | the same line | no steering; outside acpmux, no way in |
 | Qwen Code, Antigravity (ACP registry) | ACP `mcpServers` | ACP `session/prompt` | no | yes | the same line | not run in a test yet |
 | OpenCode | ACP `mcpServers` | ACP `session/prompt` | no | yes | the same line | no steering; outside acpmux, no way in |
-| Pi (`pi-acp`) | none: pi-acp accepts `mcpServers` but does not pass them to pi | ACP `session/prompt` | no | yes, as the one woken | the same line | cannot send through tools; `acpmux send` in its shell works |
+| Pi (`pi-acp`) | none: pi-acp accepts `mcpServers` but does not pass them to pi | ACP `session/prompt` | no | yes, as the one woken | the same line | cannot send through tools; `cmux agent send` in its shell works |
 | Grok, Cursor, Hermes, DeepSeek Harness (`dsh`), oh-my-pi | ACP `mcpServers` | ACP `session/prompt` | no | yes | the same line | not run in a test yet |
 
 DeepSeek, GLM and Qwen models run inside one of these harnesses (OpenCode, Pi, Claude Code on
@@ -89,8 +89,10 @@ integration to add.
 Every delivered message opens with the same line on every harness
 (`hub/prompt_attribution.rs` `agent_line`): `From another agent (NAME, HARNESS), not the person:`,
 where NAME is the sender's acpmux name and HARNESS the harness the daemon bound for it
-(`fromHarness`, display only). A message bridged into a desktop app opens with the same line and
-ends with how to answer (`hub/bridge.rs`). Nothing in the text is permission: the receiver treats
+(`fromHarness`, display only). A message bridged into a Codex desktop thread opens with the same line and
+ends with how to answer (`hub/bridge.rs`); one bridged into Claude Code gets the sender and how to
+answer as one line and nothing after the text, since Claude Code puts its own note on every such
+message and nothing turns it off. Nothing in the text is permission: the receiver treats
 it as another agent's message, never the person's.
 
 ## Claude Code's inbox, and what is documented
@@ -99,7 +101,7 @@ Claude Code documents its inbox socket for "a script or hook to post into a sess
 (code.claude.com/docs/en/cross-session-messaging, "The session's inbox socket"): the socket path
 and a per-session token are exported to the session's Bash commands and hooks as
 `CLAUDE_CODE_MESSAGING_SOCKET` and `CLAUDE_CODE_MESSAGING_TOKEN`, and a connection whose first
-line is `{"type":"auth","token":"<token>"}` counts as the session's own child. `acpmux register`
+line is `{"type":"auth","token":"<token>"}` counts as the session's own child. `cmux agent register`
 runs in that shell and hands both to the daemon, which keeps the token owner-only
 (`~/.acpmux/bridge-tokens/`, cleared when another `register` replaces it) and opens each delivery
 with it while the same process runs.

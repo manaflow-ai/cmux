@@ -128,6 +128,32 @@ pub enum Control {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
     },
+    /// Host to viewer, with the `cursor` cap: one cursor shape, sent once before the first
+    /// `CursorPos` that names it (`crate::cursor`). `rgba` is base64 of `width * height`
+    /// premultiplied RGBA8 pixels, rows top first; the hotspot and size are stream pixels
+    /// (the shape is as large as the remote screen shows it in the stream).
+    CursorShape {
+        shape: u32,
+        width: u32,
+        height: u32,
+        hot_x: u32,
+        hot_y: u32,
+        rgba: String,
+    },
+    /// Either side, with the `clipboard.text` cap: the sender's clipboard text changed
+    /// (`crate::clipboard`). `seq` grows per sender. A text whose JSON would not fit one
+    /// control record travels in parts of one `seq`: `offset` is the UTF-8 byte offset of
+    /// this part's `text` in the whole and `total` the whole text's UTF-8 length (at most
+    /// [`crate::clipboard::MAX_CLIPBOARD_TEXT`]). Without them the message is the whole text.
+    /// The host applies it only in a control session and sends its own only to one.
+    Clipboard {
+        seq: u64,
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        offset: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        total: Option<u64>,
+    },
     Stats {
         kbps: u32,
         frames: u64,
@@ -135,6 +161,41 @@ pub enum Control {
         cpu_pct: f64,
         encode_ms_p50: f64,
         loss_pct: f64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        queue_frames: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        queue_datagrams: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        queue_dropped_frames: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        queue_dropped_datagrams: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        queue_dropped_replaced_frames: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        queue_dropped_replaced_datagrams: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        queue_dropped_evicted_for_protected_frames: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        queue_dropped_evicted_for_protected_datagrams: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        queue_dropped_rejected_protected_frames: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        queue_dropped_rejected_protected_datagrams: Option<u64>,
+        /// Media datagrams the socket accepted (departure receipts) since the session began.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        departed_datagrams: Option<u64>,
+        /// Their accepted socket payload bytes.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        departed_bytes: Option<u64>,
+        /// Departure receipts lost to the bounded buffer: lost observations, not lost media.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        departure_overflows: Option<u64>,
+        /// The encoder profile the last frame was encoded with (`standard` or `ultra`), as the
+        /// encoder applied it, so a viewer labels the stream from it and never from what it
+        /// asked for. Left out by a host too old to send it and by an encoder without an ultra
+        /// mode (it cannot confirm one).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        encode_profile: Option<String>,
     },
 }
 
@@ -167,6 +228,25 @@ impl StreamKind {
             Self::Audio | Self::UpAudio => Some("opus"),
             Self::Video | Self::Popup | Self::UpVideo => Some("h264"),
             Self::Tiles | Self::Unknown => None,
+        }
+    }
+}
+
+impl From<crate::clipboard::ClipboardPart> for Control {
+    fn from(part: crate::clipboard::ClipboardPart) -> Self {
+        let crate::clipboard::ClipboardPart { seq, text, offset, total } = part;
+        Self::Clipboard { seq, text, offset, total }
+    }
+}
+
+impl Control {
+    /// The clipboard part this message carries, if it is a `clipboard` message.
+    pub fn into_clipboard_part(self) -> Option<crate::clipboard::ClipboardPart> {
+        match self {
+            Self::Clipboard { seq, text, offset, total } => {
+                Some(crate::clipboard::ClipboardPart { seq, text, offset, total })
+            }
+            _ => None,
         }
     }
 }

@@ -256,6 +256,8 @@ async fn a_chat_the_person_renamed_asks_no_model_for_a_title() {
     client.prompt(&launched, "Plan a three-dish picnic menu").await;
     assert!(client.titled(Duration::from_secs(3)).await.is_none(), "titled a renamed lane");
     assert_eq!(client.info(&launched).await["titleSource"], json!("named"));
+    // The rename titled it by its name in words; its prompt's line does not replace that.
+    assert_eq!(client.title(&launched).await, json!("Picnic menu"));
 
     let renamed = client.new_session().await;
     assert_eq!(client.info(&renamed).await.get("nameGiven"), None, "the daemon named it");
@@ -263,6 +265,7 @@ async fn a_chat_the_person_renamed_asks_no_model_for_a_title() {
     assert_eq!(client.info(&renamed).await["nameGiven"], json!(true));
     client.prompt(&renamed, "Plan a three-dish picnic menu").await;
     assert!(client.titled(Duration::from_secs(3)).await.is_none(), "titled a renamed chat");
+    assert_eq!(client.title(&renamed).await, json!("Menu ideas"));
     assert!(!asked.exists(), "the title command ran: {:?}", std::fs::read_to_string(&asked));
 }
 

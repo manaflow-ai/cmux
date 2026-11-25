@@ -3,10 +3,10 @@ import { keyFingerprint } from "../src/crypto";
 import { Device, approvedSession, auditEvents, billingPlans, setup, signIn } from "./helpers";
 
 describe("permissions", () => {
-  it("defaults to ask and lists every other device", async () => {
+  it("defaults to full for the account's own devices and lists every other device", async () => {
     const { host, viewer } = await setup();
     const res = await viewer.call("GET", `/v1/permissions?host=${host.id}`);
-    expect(res.json.permissions).toEqual([{ viewerId: viewer.id, scope: "ask" }]);
+    expect(res.json.permissions).toEqual([{ viewerId: viewer.id, scope: "full" }]);
     const set = await host.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "view" });
     expect(set.json.permission).toMatchObject({ hostId: host.id, viewerId: viewer.id, scope: "view" });
     expect((await host.user!.next((f) => f.type === "permissions.changed")).hostId).toBe(host.id);
@@ -46,6 +46,7 @@ describe("session flow", () => {
 
   it("asks the host when permission is ask; deny tells the viewer", async () => {
     const { host, viewer } = await setup();
+    await host.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "ask" });
     const res = await viewer.call("POST", "/v1/sessions", { hostId: host.id, scope: "full" });
     expect(res.json.session).toMatchObject({ state: "pending", scope: "full" });
     const sid = res.json.session.id;
@@ -65,6 +66,7 @@ describe("session flow", () => {
 
   it("once approves without storing; the host may downgrade full to view but not upgrade", async () => {
     const { host, viewer } = await setup();
+    await host.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "ask" });
     const res = await viewer.call("POST", "/v1/sessions", { hostId: host.id, scope: "view" });
     const sid = res.json.session.id;
     expect((await host.call("POST", `/v1/sessions/${sid}/decision`, { decision: "once", scope: "full" })).status).toBe(400);
@@ -82,6 +84,7 @@ describe("session flow", () => {
 
   it("always stores the chosen scope so the next request is approved at once", async () => {
     const { host, viewer } = await setup();
+    await host.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "ask" });
     const res = await viewer.call("POST", "/v1/sessions", { hostId: host.id, scope: "full" });
     const sid = res.json.session.id;
     await host.call("POST", `/v1/sessions/${sid}/decision`, { decision: "always", scope: "full" });
@@ -113,7 +116,7 @@ describe("session flow", () => {
     const free = await setup();
     const f = await approvedSession(free.host, free.viewer);
     expect(f.vt.ice).toEqual([]);
-    expect((await free.viewer.call("POST", `/v1/sessions/${f.sid}/ice`)).json).toEqual({ ice: [] });
+    expect((await free.viewer.call("POST", `/v1/sessions/${f.sid}/ice`)).json).toEqual({ ice: [], relay: "free" });
 
     const paidSub = `pro-${crypto.randomUUID()}`;
     billingPlans.set(paidSub, { subscriptionPlanId: "pro" });
@@ -156,6 +159,19 @@ describe("session flow", () => {
     const hostPayload = JSON.parse(atob(hostTicket.ticket.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
     expect(hostPayload).toMatchObject({ sid, role: "host", dev: host.id, peer: viewer.id, scope: "view", reattach: true });
     expect(hostPayload.exp - hostPayload.iat).toBe(30);
+  });
+
+  it("re-admits a viewer the host allowed once under ask", async () => {
+    const { host, viewer } = await setup();
+    await host.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "ask" });
+    const res = await viewer.call("POST", "/v1/sessions", { hostId: host.id, scope: "view" });
+    const sid = res.json.session.id;
+    expect((await host.call("POST", `/v1/sessions/${sid}/decision`, { decision: "once" })).json.session.state).toBe("approved");
+    const reattached = await viewer.call("POST", `/v1/sessions/${sid}/reattach`, {});
+    expect(reattached.status).toBe(200);
+    expect(reattached.json.session).toMatchObject({ id: sid, scope: "view" });
+    await host.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "none" });
+    expect((await viewer.call("POST", `/v1/sessions/${sid}/reattach`, {})).json.error.code).toBe("session_not_active");
   });
 
   it("does not re-admit another device or an ended session", async () => {

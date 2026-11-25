@@ -133,7 +133,7 @@ public final class HistoryCookieBackupsPageProvider: PageProvider {
     }
 
     static var question: CmuxDialogSpec {
-        CmuxDialogSpec(title: HistoryCookieBackupStrings.confirmTitle, lines: [HistoryCookieBackupStrings.confirmMessage],
+        CmuxDialogSpec(usesTransientMaterial: true, title: HistoryCookieBackupStrings.confirmTitle, lines: [HistoryCookieBackupStrings.confirmMessage],
                        buttons: [.cancel(), CmuxDialogButton(id: "confirm", title: HistoryCookieBackupStrings.confirmDelete, role: .destructive)],
                        identifier: "cmux.history.cookieBackups.confirm")
     }
@@ -144,7 +144,7 @@ public final class HistoryCookieBackupsPageProvider: PageProvider {
 /// The delete question's strings (this target's Localizable.xcstrings); the panel's own are the page's.
 nonisolated enum HistoryCookieBackupStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 
     static var confirmTitle: String { t("cookieBackups.confirm.title", "Delete these cookie backups?") }

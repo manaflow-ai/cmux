@@ -48,6 +48,12 @@ final class AgentPaneWKWebView: WKWebView {
     /// + button (Leo, 2026-10-21).
     @objc var preferredTextAccessoryPlacement: NSTextCursorAccessoryPlacement { .invisible }
 
+    /// The key's edit renders now, not at the next display refresh (``NSView/renderKeyEditNow()``).
+    override func keyDown(with event: NSEvent) {
+        super.keyDown(with: event)
+        renderKeyEditNow()
+    }
+
     override func mouseDown(with event: NSEvent) {
         menuAutoFill.noteContextClick(event)
         super.mouseDown(with: event)
@@ -61,12 +67,16 @@ final class AgentPaneWKWebView: WKWebView {
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         menuAutoFill.menuWillOpen()
         contextMenuEditor?(menu)
+        // The chat's rows are cmux's: no "Ask Siri" field, Services or Writing Tools from AppKit.
+        menu.withoutSystemItems()
+        menu.confineTracking(at: event, in: self)
         super.willOpenMenu(menu, with: event)
     }
 
     override func didCloseMenu(_ menu: NSMenu, with event: NSEvent?) {
         menuAutoFill.menuDidClose()
         super.didCloseMenu(menu, with: event)
+        menu.restoreTrackingDelegate()
     }
 }
 
@@ -120,14 +130,20 @@ extension AgentPaneView {
     func installContextMenu() {
         let dropped: @MainActor ([URL]) -> Void = { [weak self] urls in
             guard let self else { return }
+            model.hostTouch.mark("drop") // a posted drop too: the page has the files
             // WebKit: the drop's event is in dispatch. Chromium: the page host reports only the
             // page's drop right after the pane's native drop (`PageWebView.onFilesDropped`), and
             // keeps the event that was in dispatch then (`droppedEvent`): the same check of it, against the
             // pane's table of posting processes (no system call).
-            let event = page?.chromiumPage != nil ? page?.droppedEvent : NSApp.currentEvent
-            guard let event, AgentPanePersonInput.isPerson(event, sources: eventSources) else { return }
-            model.transport.gestures.record(click: false)
-            model.droppedPaths.stash(urls, kind: .drop)
+            if page?.droppedOnPageWindow == true {
+                // Chromium's own page window took the drop: no event to check, so no gesture, but the
+                // chat still links the files where they are instead of streaming them (``PageWebView/droppedOnPageWindow``).
+            } else {
+                let event = page?.chromiumPage != nil ? page?.droppedEvent : NSApp.currentEvent
+                guard let event, AgentPanePersonInput.isPerson(event, sources: eventSources) else { return }
+                model.transport.gestures.record(click: false)
+            }
+            model.droppedPaths.stash(urls, kind: .drop, madeAt: page?.droppedEnteredAt?.timeIntervalSince1970)
             let drag = NSPasteboard(name: .drag)
             // A Chromium drop is dated by its drag's entry, before the page took it (the ask's rule).
             model.droppedPaths.stashSource(
@@ -137,6 +153,7 @@ extension AgentPaneView {
         // Read as the paste goes to WebKit: the pasteboard WebKit hands the page. As for a drop, only
         // the person's paste (a posted Cmd-V records nothing).
         let pasted: @MainActor () -> Void = { [weak self] in
+            self?.model.hostTouch.mark("paste") // a posted paste too: the page has the text
             guard let self, AgentPanePersonInput.currentIsPerson(sources: eventSources) else { return }
             let urls = AgentPaneDroppedPaths.fileURLs(on: .general)
             model.droppedPaths.stash(urls, kind: .paste)
@@ -251,7 +268,7 @@ extension AgentPaneView {
         // The display holding the button, not the window's main one: a window across two displays
         // would clamp the menu onto the other display, away from its button.
         let origin = AgentPaneContextMenu.popUpOrigin(
-            button: button, size: AgentPaneContextMenu.drawnSize(of: menu), visible: PopupPlacement.screen(for: button, fallback: window)?.visibleFrame,
+            button: button, size: menu.drawnSize, visible: PopupPlacement.screen(for: button, fallback: window)?.visibleFrame,
             window: window.convertToScreen(window.contentLayoutRect))
         menu.popUp(positioning: nil, at: view.convert(window.convertPoint(fromScreen: origin), from: nil), in: view)
     }
@@ -267,7 +284,7 @@ extension AgentPaneView {
         // NSMenu.popUp returns on selection or cancellation. Early refusals also release the opener.
         defer { reportMessageMenuClosed(popupID) }
         let view: NSView = page?.focusView ?? webView
-        guard view.window != nil else { return }
+        guard let window = view.window else { return }
         let menu = AgentForkMenu.menu { [weak self] destination in
             var params = ["placement": destination.rawValue]
             if let seq { params["throughSeq"] = String(seq) }
@@ -275,7 +292,7 @@ extension AgentPaneView {
         }
         menu.themeRows(in: themeScope.fullStrength)
         guard let anchor else {
-            menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+            menu.popUpAtPointer(view.convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil), in: view)
             return
         }
         popUp(menu, from: anchor, in: view)

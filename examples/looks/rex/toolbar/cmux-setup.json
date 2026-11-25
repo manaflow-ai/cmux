@@ -1,0 +1,25 @@
+{
+  "cmuxSetup": 1,
+  "cmuxProfile": 1,
+  "id": "manaflow-ai/rex-toolbar",
+  "name": "Rex Toolbar",
+  "version": "1.0.0",
+  "description": "Opt-in inset pane chrome with top tabs and native split and zoom controls.",
+  "settings": {
+    "appearance.chromeStyle": "panes",
+    "appearance.borders": "default",
+    "layout.paneSeparation": "borders",
+    "layout.panePadding": 4,
+    "layout.paneCornerRadius": 12,
+    "layout.paneBorderWidth": 0.5,
+    "appearance.metrics.columnGap": 8,
+    "appearance.metrics.tabStripHeight": 32,
+    "tabs.barPosition": "top",
+    "tabs.toolbarButtons": [
+      "splitRight",
+      "splitDown",
+      "toggleSplitZoom"
+    ],
+    "window.titlebarButtons": "always"
+  }
+}

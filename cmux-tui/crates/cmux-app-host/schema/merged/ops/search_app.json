@@ -1,0 +1,26 @@
+{
+  "family": "search_app",
+  "ops": {
+    "search_app.clear_recent": {
+      "source": "app",
+      "owner": "app:cmux/search",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "38a56cb61adc71a1"
+    },
+    "search_app.cycle_variant": {
+      "source": "app",
+      "owner": "app:cmux/search",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "2dea15248326b1c0"
+    },
+    "search_app.search": {
+      "source": "app",
+      "owner": "app:cmux/search",
+      "class": "read",
+      "risk": "read",
+      "digest": "34b88395d2cdb949"
+    }
+  }
+}

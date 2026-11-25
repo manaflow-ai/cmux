@@ -113,13 +113,11 @@ enum NewAtPlacement {
     /// sizing shown in this frame and committed with the daemon's answer, as a split's New Tab Page is.
     @MainActor private static func chatInSplit(_ pane: PaneController, direction: SplitDirection) -> Bool {
         let layout = pane.workspace?.layoutModel
-        let sizing = layout?.splitSizingChanges(splitting: pane.layoutPaneID, axis: direction == .right ? .horizontal : .vertical) ?? []
-        let shown = layout?.showSplitSizing(sizing)
-        let cancel = { if let shown { layout?.cancelSplitSizing(shown) } }
+        let shown = layout?.showSplitSizing(splitting: pane.layoutPaneID, axis: direction == .right ? .horizontal : .vertical)
         let started = pane.services.agentTabs.openTab(in: pane, seed: pane.agentSeedFromSelectedTab(), select: false, split: direction,
-                                                      then: { _ in if let shown { layout?.commitSplitSizing(shown) } }, failed: { cancel() })
+                                                      then: { _ in layout?.settleSplitSizing(shown, landed: true) }, failed: { layout?.settleSplitSizing(shown, landed: false) })
         guard started else {
-            cancel()
+            layout?.settleSplitSizing(shown, landed: false)
             return true // refused with its reason (AgentTabStore.openTab)
         }
         BenchSpans.measure("split.layout") { pane.workspace?.applyCurrent() }

@@ -11,7 +11,7 @@ const { renderPage, settle } = await import("./testing");
 
 async function thisWorkspace(appBackground: string, workspaceValue: string | null) {
   const page = await renderPage({
-    path: "/settings/personalization?workspace=ws-1",
+    path: "/settings/appearance?workspace=ws-1",
     mock: {
       values: { "appearance.background": appBackground },
       workspaceBackgrounds: [{ workspace: "ws-1", title: "Research", value: workspaceValue, opacity: null }],
@@ -23,6 +23,37 @@ async function thisWorkspace(appBackground: string, workspaceValue: string | nul
   await settle();
   return { page, picker, slider: () => picker.querySelector("[data-workspace-opacity]") };
 }
+
+test("the background deep link reveals the saved tile once per visit", async () => {
+  const link = "/settings/appearance?focus=appearance.background&workspace=ws-1";
+  const page = await renderPage({
+    path: link,
+    mock: {
+      values: { "appearance.background": "starryNight" },
+      workspaceBackgrounds: [{ workspace: "ws-1", title: "Research", value: null }],
+    },
+  });
+  try {
+    const savedTile = () => page.container.querySelector('[aria-label="The Starry Night"]');
+    expect(savedTile()).not.toBeNull();
+    expect(document.activeElement).toBe(savedTile());
+    const scope = page.container.querySelector<HTMLInputElement>('[aria-label="This Workspace (Research)"]')!;
+    await act(async () => {
+      scope.focus();
+      scope.click();
+    });
+    expect(scope.checked).toBe(true);
+    expect(document.activeElement).toBe(scope);
+
+    await act(async () => page.history.push("/settings/appearance?workspace=ws-1"));
+    await settle();
+    await act(async () => page.history.back());
+    await settle();
+    expect(document.activeElement).toBe(page.container.querySelector('.backdrop-tile[aria-pressed="true"]'));
+  } finally {
+    page.unmount();
+  }
+});
 
 test("the slider shows over the workspace's own picture or the one it follows", async () => {
   const own = await thisWorkspace("none", "starryNight");

@@ -158,6 +158,8 @@ test("Claude Code's line before an envelope is no part of the message", () => {
   for (const preface of [
     "Another Claude session sent a message:\n",
     "Another Claude session sent a message while you were working:\n",
+    "A peer session sent a message:\n",
+    "A peer session sent a message while you were working:\n",
   ]) {
     const raw = `${preface}<cross-session-message from="uds:/tmp/a.sock" from-name="leoli-fb" from-mode="bypass">\nhi\n</cross-session-message>${NOTE}`;
     expect(incomingPrompt(raw, adopted)).toEqual({ kind: "message", message: { name: "leoli-fb", text: "hi", raw } });

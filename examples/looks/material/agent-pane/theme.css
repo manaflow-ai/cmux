@@ -1,0 +1,54 @@
+/* Material's chat: Material Design 3's shape and color roles on the transcript.
+   - The prompt bubble: a tonal, borderless container in the secondary-container family (the
+     primary at 18% over the page), with the M3 large-increased corner, 20 px.
+   - Cards (tool output, code, edited files): M3 filled cards, a surface-container-high tone with no
+     outline (M3 separates by tone, not lines).
+   - Secondary text: on-surface-variant; the quietest text a step under it.
+   - Links: primary.
+   Only cmux.agentPane.style/1 tokens (schemas/agent-pane/style-tokens.json), on :root: paint, so
+   nothing in the transcript moves when this applies or reloads. Every color is made from the
+   theme's own (--agent-text, --agent-accent, --agent-page-bg), so it reads over Material and
+   Material Dark and over any theme of your own. */
+:root {
+  --cv-user-bubble-tint: color-mix(in srgb, var(--agent-accent) 18%, transparent);
+  --cv-user-bubble-edge: transparent;
+  --cv-user-bubble-radius: 20px;
+  --cv-card-fill: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  --cv-card-ring: transparent;
+  --cv-text: var(--agent-text);
+  --cv-text-muted: color-mix(in srgb, var(--agent-text) 78%, var(--agent-page-bg));
+  /* Tool rows and "Worked for" draw --cv-activity-text (the stock 58% of the text): this look's muted
+     ink instead, so they hold 4.5:1 on its paper (golden-look-contrast-N.test.ts). */
+  --cv-activity-text: var(--cv-text-muted);
+  --cv-text-dim: color-mix(in srgb, var(--agent-text) 66%, var(--agent-page-bg));
+  --cv-link: var(--agent-accent);
+  --agent-link: var(--agent-accent);
+}
+
+/* Menus and popovers as M3 menus (m3.material.io/components/menus/specs): a surface-container
+   panel with the extra-small corner (4 px) at elevation level 2, 8 px of list padding, 48 px items,
+   an on-surface state layer at 8% for hover, outline-variant dividers edge to edge, on-surface-variant
+   labels, trailing text and supporting text, and disabled content at 38%.
+   Pending in cmux#46846 (ui/README.md "Menu tokens a look sets"): inert until a build has it. */
+:root {
+  --menu-radius: 4px;
+  --menu-padding: 8px;
+  --menu-fill: color-mix(in srgb, var(--agent-text) 6%, var(--agent-page-bg));
+  --menu-border: transparent;
+  /* M3 elevation level 2. Its shadow role (md.sys.color.shadow) is #000000 in the light and the dark
+     scheme alike, so the one color here that is not mixed from the theme is the spec's own black. */
+  --menu-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.3), 0 2px 6px 2px rgb(0 0 0 / 0.15);
+  --menu-row-height: 48px;
+  --menu-hover-fill: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  --menu-hover-radius: 0px;
+  --menu-separator: color-mix(in srgb, var(--agent-text) 22%, var(--agent-page-bg));
+  --menu-separator-inset: 0px;
+  --menu-label-color: color-mix(in srgb, var(--agent-text) 78%, var(--agent-page-bg));
+  --menu-label-weight: 500;
+  --menu-label-size: 12px;
+  --menu-shortcut-color: color-mix(in srgb, var(--agent-text) 78%, var(--agent-page-bg));
+  --menu-subtitle-color: color-mix(in srgb, var(--agent-text) 78%, var(--agent-page-bg));
+  --menu-disabled-opacity: 0.38;
+  --menu-submenu-offset: 0px;
+  --menu-submenu-align-offset: -8px;
+}

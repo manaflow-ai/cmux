@@ -1,9 +1,14 @@
 //! Origin ownership and the bounded end of an origin's life.
+use super::mirror::TakeoverTurn;
 use super::*;
 use std::collections::VecDeque;
 
 /// The most origins the index admits: a window carries every origin record.
+/// Measured: about 300 bytes a record (an id of at most 256 bytes, its seq, state and time) in
+/// every list window: 77 KB a window at 256.
 pub const MAX_ORIGINS: usize = 256;
+/// The most rows one origin holds while its writer is away.
+/// Measured: a row summary is at most MAX_SUMMARY_BYTES (2 KiB): 32 MiB an origin.
 const MAX_HELD_ROWS: usize = 16_384;
 static REFUSED_HELD_ROWS: AtomicU64 = AtomicU64::new(0);
 
@@ -244,15 +249,22 @@ impl HubWriter {
 
     pub fn takeover(&mut self, origin: &str, source: Source) -> Result<(), HubError> {
         validate_takeover(origin, source)?;
-        self.admit_origin(origin)?;
+        if let Err(error) = self.admit_origin(origin) {
+            // Counted, so a dialer waiting on this takeover sees it end.
+            self.mirror.counters.note_takeover(origin, TakeoverTurn::Refused);
+            return Err(error);
+        }
         if self.holds_origin(origin) {
-            return self.hold_update(
+            let held = self.hold_update(
                 UpdateKey::Source(origin.into()),
                 PendingUpdate::Takeover { origin: origin.into(), source },
             );
+            self.mirror.counters.note_takeover(origin, TakeoverTurn::Held);
+            return held;
         }
         // Even a takeover by the owner starts a walk: its mark goes off now.
         self.write_mark_off(origin);
+        self.mirror.counters.note_takeover(origin, TakeoverTurn::Applied);
         if self.sources.load().get(origin) == Some(&source) {
             self.origins.ended.remove(origin);
             return Ok(());
@@ -301,6 +313,7 @@ impl HubWriter {
         self.admit_origin(id)?;
         self.persist_origin(&record)?;
         let wire = Origin { id: id.into(), state, since, extra: None };
+        self.hold_history(current.seq(), record.seq);
         self.publish_folder_origin(current.apply_origin(record.seq, record.clone()), wire.clone());
         self.record_history(ListItem::Origin { seq: record.seq, origin: wire.clone() });
         self.publish_origin(record.seq, wire);

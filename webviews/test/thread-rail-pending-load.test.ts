@@ -6,7 +6,8 @@
 //
 // A long chat opens with only its recent prompts held and the summary's count naming the rest. The
 // prompt index (`loadPromptIndex`, the pane client's one read of every prompt's seq and words) names
-// the pending ticks; the rail asks for it when a pending tick is hovered or clicked, at most once in
+// the pending ticks; the rail asks for it when the pointer reaches the rail (so a click that follows
+// waits on one read, not the index and then its page) or a pending tick is hovered or clicked, at most once in
 // flight however many ticks the pointer crosses, and a click then reads history straight through to
 // the prompt instead of one page per older prompt.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -226,6 +227,23 @@ await requireBrowserLane("thread-rail-pending-load.test.ts", async () => {
     }
   });
 
+  test("the pointer reaching the rail asks for the index before any tick is hovered", async () => {
+    const page = await open();
+    try {
+      expect(await page.evaluate(() => (window as unknown as { __indexReads: number }).__indexReads)).toBe(0);
+      // A pointer arriving from outside (no relatedTarget), which React reads as entering the rail.
+      await page.evaluate(() =>
+        document
+          .querySelector(".acpmux-minimap__list")!
+          .dispatchEvent(new PointerEvent("pointerover", { bubbles: true, pointerType: "mouse" })),
+      );
+      await settle(page);
+      expect(await page.evaluate(() => (window as unknown as { __indexReads: number }).__indexReads)).toBe(1);
+      expect(await page.evaluate(() => (window as unknown as { __loads: number[] }).__loads)).toEqual([]);
+    } finally {
+      await page.close();
+    }
+  });
   test("a sweep across many pending ticks reads the index at most once", async () => {
     const page = await open();
     try {

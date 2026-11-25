@@ -45,6 +45,10 @@ impl Drop for Busy {
 }
 
 async fn busy(steering: bool) -> Busy {
+    busy_with_goal(steering, false).await
+}
+
+async fn busy_with_goal(steering: bool, goal: bool) -> Busy {
     let env = if steering { json!({"FAKE_CLAUDE_STEER": "1"}) } else { json!({}) };
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {"fake": {"argv": ["python3", FAKE], "env": env}},
@@ -76,8 +80,71 @@ async fn busy(steering: bool) -> Busy {
     // SAFETY: a valid NUL-terminated path.
     assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
     let b = Busy { hub, id, gate, socket, scratch, person };
+    if goal {
+        b.person
+            .request(
+                method::SESSION_PROMPT,
+                json!({"sessionId": b.id, "prompt": [{"type": "text", "text": "goal: Ship the fix"}]}),
+            )
+            .await
+            .unwrap();
+        let detail = b.hub.session_detail(&b.hub.resolve(&b.id).unwrap());
+        assert_eq!(detail["goal"]["objective"], "Ship the fix", "{detail}");
+        assert!(
+            matches!(detail["goal"]["status"].as_str(), Some("active" | "running")),
+            "{detail}"
+        );
+    }
     b.run_gated().await;
     b
+}
+
+/// A goal is ongoing work, never an admission lock on the person's next message. Exercise
+/// steering, an explicitly queued message, and a harness without steering through the CLI.
+#[tokio::test]
+async fn an_active_goal_accepts_the_persons_steered_and_queued_sends() {
+    for (steering, steer) in [(true, true), (true, false), (false, true)] {
+        let b = busy_with_goal(steering, true).await;
+        let pid = prompt_id();
+        let flag = if steer { "--steer" } else { "--no-steer" };
+        let mut cmd = b.send(&[
+            "send",
+            "--no-wait",
+            flag,
+            "--prompt-id",
+            &pid,
+            &b.id,
+            "follow my correction",
+        ]);
+        let (sent, _) = done(tokio::spawn(async move { cmd.output().await })).await;
+        if steering && steer {
+            let message = b.record("user_message", &pid).await;
+            assert_eq!(message["steer"], true, "{sent}");
+            b.agent_said("steer: follow my correction").await;
+            assert!(!b.queued(&pid));
+        } else {
+            b.record("queued", &pid).await;
+        }
+        let detail = b.hub.session_detail(&b.hub.resolve(&b.id).unwrap());
+        assert_eq!(detail["goal"]["objective"], "Ship the fix", "{detail}");
+        assert!(
+            matches!(detail["goal"]["status"].as_str(), Some("active" | "running")),
+            "{detail}"
+        );
+        b.open_gate();
+        if !(steering && steer) {
+            b.agent_said("follow my correction").await;
+        }
+        let finished = b
+            .person
+            .request(
+                method::MUX_WAIT,
+                json!({"sessions": [b.id], "until": ["ready"], "timeoutMs": 30000}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(finished["timedOut"], false, "{finished}");
+    }
 }
 
 impl Busy {
@@ -307,4 +374,85 @@ async fn a_steered_sends_timeout_leaves_the_turn_it_went_into_running() {
     assert!(!ended, "nothing ended");
     b.open_gate();
     assert_eq!(b.record("turn_result", &turn.prompt_id).await["status"], "completed");
+}
+
+/// A sub-session's `acpmux send` to its busy parent steers like any agent's, as its send_message
+/// does (`hub/subsession_send.rs`): the parent reads it at its next tool step. It used to queue
+/// behind the parent's turn, so a lane's "your queue is drained" sat behind a 15-minute turn
+/// until the person clicked Steer (Leo, 2026-10-29: "the drain guy came back but it's still not
+/// doing the right thing").
+#[tokio::test]
+async fn a_sub_sessions_send_to_its_busy_parent_steers() {
+    let b = busy(true).await;
+    let as_session = |cmd: &mut tokio::process::Command, id: &str| {
+        cmd.env("ACPMUX_SOCKET", &b.socket)
+            .env("ACPMUX_SESSION_ID", id)
+            .env("ACPMUX_SESSION_TOKEN", acpmux::hub::person::caller_token(id))
+            .env("ACPMUX_SESSION_TOKEN_SOCKET", &b.socket)
+            .kill_on_drop(true);
+    };
+    // The child, started by the busy session's own tools (start_session), as a coordinator
+    // starts a lane: a connection that proves the parent's caller token.
+    let (in_tx, in_rx) = tokio::sync::mpsc::channel(16);
+    let (out_tx, mut out_rx) = tokio::sync::mpsc::channel(4096);
+    tokio::spawn(acpmux::server::serve_connection_with(
+        b.hub.clone(),
+        in_rx,
+        out_tx,
+        acpmux::server::Origin::Local,
+    ));
+    let token = acpmux::hub::person::caller_token(&b.id);
+    let calls = [
+        (
+            "initialize",
+            json!({"protocolVersion": 1,
+            "_meta": {"acpmux": {"callerSession": {"sessionId": b.id, "token": token}}}}),
+        ),
+        (
+            "_acpmux/subsession/start",
+            json!({"prompt": "echo drain the queue", "name": "queue-drain"}),
+        ),
+    ];
+    let mut started = Value::Null;
+    for (n, (m, params)) in calls.into_iter().enumerate() {
+        let id = n as i64 + 1;
+        in_tx.send(acpmux::rpc::Message::request(id, m, params).to_line()).await.unwrap();
+        started = loop {
+            let line = tokio::time::timeout(Duration::from_secs(30), out_rx.recv()).await.unwrap();
+            let v: Value = serde_json::from_str(&line.unwrap()).unwrap();
+            if v.get("id") == Some(&json!(id)) {
+                assert!(v.get("error").is_none(), "{m}: {v}");
+                break v["result"].clone();
+            }
+        };
+    }
+    let child = started["sessionId"].as_str().unwrap().to_owned();
+    let info = b.person.request(method::MUX_INFO, json!({"sessionId": child, "row": true})).await;
+    assert_eq!(info.unwrap()["startedBy"], json!(b.id), "not the busy session's sub-session");
+    // Its first turn ends before it sends.
+    b.person
+        .request(
+            "_acpmux/wait",
+            json!({"sessions": [child], "until": ["ready"], "timeoutMs": 20000}),
+        )
+        .await
+        .unwrap();
+
+    for wait in [false, true] {
+        let pid = prompt_id();
+        let mut cmd = daemon_env::tokio_command(&b.scratch, daemon_env::Agents::Deny);
+        let mode = if wait { "--wait" } else { "--no-wait" };
+        cmd.args(["send", mode, "--prompt-id", &pid, &b.id, "your queue is drained"]);
+        as_session(&mut cmd, &child);
+        let send = tokio::spawn(async move { cmd.output().await });
+        let sent = b.record("user_message", &pid).await;
+        assert_eq!(sent["steer"], true, "{mode}: into the running turn, not the queue: {sent}");
+        assert!(!b.queued(&pid), "{mode}: queued behind the parent's turn");
+        if wait {
+            b.open_gate();
+        }
+        let out =
+            tokio::time::timeout(Duration::from_secs(60), send).await.unwrap().unwrap().unwrap();
+        assert!(out.status.success(), "{mode}: {}", String::from_utf8_lossy(&out.stderr));
+    }
 }

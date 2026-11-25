@@ -47,7 +47,8 @@ else, and never waits:
 2. a pick claims a host only when its label resolves to exactly one idle runner: an idle DEV slot or root
    runner pinned by its static label, or the one idle DEV slot when there is only one; the nearest record
    wins, a slot first at equal distance;
-3. otherwise the shared DEV slot label when a slot is idle, then the side label, at once;
+3. otherwise the shared DEV slot label when a slot is idle, at once; never the side label, whose queue GitHub hands
+   out oldest first, so an idle side runner in the listing is no place in line (run 44941204257, 2026-11-21);
 4. with nothing owned idle, the Blacksmith macOS label whose queue moves (blacksmith_overflow(): the nightly
    signer's pick, nightly_sign_runner.pick(), from the queue janitor's pool snapshot), the routing order's last
    resort, as nightly-next's app build overflows (nightly_build_runner.blacksmith_route()). The DEV slot label
@@ -254,7 +255,8 @@ def place(env: Mapping[str, str], read_runners: Callable[[], Sequence[Mapping[st
         return holders[host]
 
     if fresh_label:
-        return place_daily(side_label, fresh_label, read_runners, distance_of, overflow)
+        return place_daily(side_label, fresh_label, read_runners, distance_of, overflow,
+                           nightly_label=(env.get("NIGHTLY_LABEL") or "").strip())
     try:
         taken, busy_hosts = read_in_flight()
     except Exception as error:  # noqa: BLE001 - unknown in-flight landings: place on the live state
@@ -278,8 +280,12 @@ def place(env: Mapping[str, str], read_runners: Callable[[], Sequence[Mapping[st
 
 def place_daily(side_label: str, fresh_label: str, read_runners: Callable[[], Sequence[Mapping[str, Any]]],
                 distance_of: Callable[[str], tuple[str, int | None]],
-                overflow: Callable[[], tuple[str, str, bool]] | None = None) -> dict[str, str]:
-    """A DEV daily's compile: the idle runner nearest its cache, from one runner listing (see the module doc)."""
+                overflow: Callable[[], tuple[str, str, bool]] | None = None, nightly_label: str = "") -> dict[str, str]:
+    """A DEV daily's compile: the idle runner nearest its cache, from one runner listing (see the module doc).
+
+    The order: an idle owned runner on the nearest cache, then an idle nightly slot (NIGHTLY_LABEL; the runner hook
+    ranks the DEV daily compile nightly-tier, so the slot admits it), then an idle DEV slot, then a moving
+    Blacksmith overflow, then a busy DEV slot. Never the shared side label."""
     root_label = side_label.replace("glaeda-side-", "glaeda-root-", 1)
     try:
         runners = list(read_runners())
@@ -290,7 +296,6 @@ def place_daily(side_label: str, fresh_label: str, read_runners: Callable[[], Se
     idle = [(str(runner["name"]), {str(label.get("name")) for label in runner.get("labels") or []
                                    if isinstance(label, Mapping)}) for runner in online if not runner.get("busy")]
     slots = [(name, labels) for name, labels in idle if fresh_label in labels]
-    sides = [name for name, labels in idle if side_label in labels]
     scored = []
     for name, labels in idle:
         if host_of(name) in occupied:
@@ -310,12 +315,22 @@ def place_daily(side_label: str, fresh_label: str, read_runners: Callable[[], Se
         return {"runs_on": json.dumps(runs_on), "runner_label": label, "pool": "owned", "host": host_of(name),
                 "holder_sha": holder, "gap": str(distance),
                 "reason": f"{name} is idle on {host_of(name)}, whose cache is {distance} commits from this commit"}
+    if nightly_label:
+        # Leo's rule: "Nightlies come first on the fleet". The nightly slots take only feed work, so an idle one is a
+        # place at the front; the pick is the nightly build's own (nightly_build_runner.owned_route()).
+        import nightly_build_runner as nightly  # noqa: PLC0415 - the checked-out base's picker
+
+        label, why = nightly.owned_route(nightly_label, online)
+        if label:
+            return {**DAILY_KEEP, "runs_on": json.dumps(label), "runner_label": label, "pool": "owned",
+                    "reason": f"no idle runner on a free host with a cache record; nightly slot: {why}"}
     if slots:
         return {**DAILY_KEEP, "runs_on": json.dumps(fresh_label), "runner_label": fresh_label, "pool": "owned",
                 "reason": f"no idle runner on a free host with a cache record; {len(slots)} DEV slots are idle"}
-    if sides:
-        return {**DAILY_KEEP, "runs_on": json.dumps(side_label), "runner_label": side_label, "pool": "owned",
-                "reason": f"no idle runner on a free host with a cache record; {len(sides)} side runners are idle"}
+    # Never the shared side label, even with a side runner idle in this one listing: GitHub hands that label's queue
+    # out oldest first, so the compile joins the tail behind every PR job queued there (run 44941204257, 2026-11-21:
+    # queued 76 min on glaeda-side-std-xcode-26.6 behind about 130 jobs, then refused for capacity). Leo's rule:
+    # "Nightlies come first on the fleet".
     label, why, stalled_everywhere = overflow() if overflow is not None else ("", "no Blacksmith pick", True)
     if label and not stalled_everywhere:
         return {**DAILY_KEEP, "runs_on": json.dumps(label), "runner_label": label, "pool": "blacksmith",
@@ -340,6 +355,15 @@ def blacksmith_overflow(variable: str, snapshot: Mapping[str, Any] | None, now: 
     labels = picker.candidates(variable)
     stuck = picker.stalled(snapshot, labels, now)
     label, why = picker.pick(variable, snapshot, now)
+    # A label queued at its slot count or more is no overflow (cascade.queued_full()): the compile takes another
+    # size that is neither full nor stalled, else waits on the owned DEV slot.
+    full = picker.cascade.queued_full(snapshot, now)
+    if label in full:
+        other = next((candidate for candidate in labels
+                      if candidate not in full and candidate not in (stuck or ())), "")
+        if not other:
+            return "", f"every Blacksmith macOS label is queued at its slot count ({', '.join(sorted(full))})", True
+        label, why = other, f"`{other}`, past `{label}` queued at its slot count"
     return label, why, bool(stuck) and all(candidate in stuck for candidate in labels)
 
 

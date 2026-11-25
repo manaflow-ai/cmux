@@ -132,14 +132,67 @@ struct Book {
     queue: VecDeque<(u64, NodeId)>,
     /// The rebuild running now, if any.
     running: Option<(u64, NodeId)>,
+    /// Times the worker woke and found nothing to build.
+    idle_wakes: u64,
+    /// The editor went: the worker ends.
+    closed: bool,
+}
+
+/// What the editor and its worker share. The worker holds this, not the
+/// editor, while it waits, so it can wait with no timeout: the editor's `Drop`
+/// wakes it to end.
+struct Shared {
+    book: Mutex<Book>,
+    work: Condvar,
+}
+
+impl Shared {
+    fn lock(&self) -> std::sync::MutexGuard<'_, Book> {
+        self.book
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+impl Book {
+    /// Keeps each queued summary once, at its last place: changes close
+    /// together share the summaries above them, and the last change's
+    /// rebuild, which comes after every line below it, covers the earlier
+    /// ones (2026-11-17: 8 nearby redescriptions queued 128 rebuilds, 16
+    /// each). An earlier change no longer lists a summary it gave up, as when
+    /// a summary changed while it was built (`rebuild_loop`).
+    fn dedupe(&mut self) {
+        let mut seen = BTreeSet::new();
+        let mut kept = VecDeque::with_capacity(self.queue.len());
+        let mut given_up = Vec::new();
+        for (change, node) in self.queue.drain(..).rev() {
+            if seen.insert(node) {
+                kept.push_front((change, node));
+            } else {
+                given_up.push((change, node));
+            }
+        }
+        self.queue = kept;
+        for (change, node) in given_up {
+            if let Some(c) = self.changes.iter_mut().find(|c| c.id == change) {
+                c.stale.retain(|n| *n != node);
+            }
+        }
+    }
 }
 
 /// The owner's change book for one Chief's memory.
 pub struct Editor {
     chat: Arc<OptChat>,
     dir: PathBuf,
-    book: Mutex<Book>,
-    work: Condvar,
+    shared: Arc<Shared>,
+}
+
+impl Drop for Editor {
+    fn drop(&mut self) {
+        self.shared.lock().closed = true;
+        self.shared.work.notify_all();
+    }
 }
 
 impl Editor {
@@ -157,23 +210,31 @@ impl Editor {
             .iter()
             .flat_map(|c| c.pending().map(move |n| (c.id, n)))
             .collect();
+        book.dedupe();
         let editor = Arc::new(Editor {
             chat,
             dir: dir.to_owned(),
-            book: Mutex::new(book),
-            work: Condvar::new(),
+            shared: Arc::new(Shared {
+                book: Mutex::new(book),
+                work: Condvar::new(),
+            }),
         });
         let weak = Arc::downgrade(&editor);
+        let shared = editor.shared.clone();
         let _ = std::thread::Builder::new()
             .name("memory-rebuild".into())
-            .spawn(move || rebuild_loop(weak));
+            .spawn(move || rebuild_loop(&shared, weak));
         editor
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Book> {
-        self.book
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+        self.shared.lock()
+    }
+
+    /// How many times the worker woke and found nothing to build: 0 while
+    /// nothing changes (row 9 of plans/cmux-next/perf-lead.md, idle cost).
+    pub fn idle_wakes(&self) -> u64 {
+        self.lock().idle_wakes
     }
 
     /// The summaries waiting to be built again.
@@ -192,6 +253,7 @@ impl Editor {
                 return false;
             }
             book = self
+                .shared
                 .work
                 .wait_timeout(book, left.min(std::time::Duration::from_millis(50)))
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -249,6 +311,14 @@ impl Editor {
     /// already holds the tombstone answers 400 "nothing changed".
     pub fn delete_message(&self, id: u64) -> Answer {
         self.change("delete", Target::Message(id), TOMBSTONE)
+    }
+
+    /// Writes `text`, a new description of the image note `id` names, over
+    /// the note (`memory redescribe`, brain/redescribe.rs), as an edit: the
+    /// change book journals it as `redescribe` and builds the summaries above
+    /// the note again.
+    pub fn redescribe(&self, id: u64, text: &str) -> Answer {
+        self.change("redescribe", Target::Message(id), text)
     }
 
     /// Whether a delete of message `id` is in the change book (undone too).
@@ -317,8 +387,9 @@ impl Editor {
         let answer = change.json();
         book.queue.extend(stale.iter().map(|n| (change.id, *n)));
         book.changes.push(change);
+        book.dedupe();
         drop(book);
-        self.work.notify_all();
+        self.shared.work.notify_all();
         Ok(answer)
     }
 
@@ -374,8 +445,30 @@ impl Editor {
         for (target, old, _) in mine.iter().rev() {
             self.write(*target, old)?;
         }
+        let dropped: Vec<NodeId> = book
+            .queue
+            .iter()
+            .filter(|(c, _)| *c == id)
+            .map(|(_, n)| *n)
+            .collect();
         book.queue.retain(|(c, _)| *c != id);
         book.changes[k].undone = true;
+        // A summary this change took over from an earlier change (`dedupe`)
+        // is still stale for that one: it goes back to the newest of them.
+        for node in dropped {
+            let owner =
+                book.changes.iter_mut().rev().find(|c| {
+                    !c.undone && c.id != id && c.target.above(&self.chat).contains(&node)
+                });
+            if let Some(c) = owner {
+                if !c.stale.contains(&node) {
+                    c.stale.push(node);
+                }
+                let owner = c.id;
+                book.queue.push_back((owner, node));
+            }
+        }
+        book.dedupe();
         Ok(book.changes[k].json())
     }
 
@@ -490,29 +583,30 @@ fn read_journal(path: &Path) -> Vec<Change> {
 }
 
 /// Builds the queued stale summaries, one at a time, until the editor goes.
-fn rebuild_loop(editor: std::sync::Weak<Editor>) {
+/// With nothing queued it sleeps until a change queues one or the editor's
+/// `Drop` closes the book: no timed wake (perf-lead.md row 9).
+fn rebuild_loop(shared: &Shared, editor: std::sync::Weak<Editor>) {
     loop {
-        let Some(ed) = editor.upgrade() else { return };
-        let next = {
-            let mut book = ed.lock();
-            match book.queue.pop_front() {
-                Some(job) => {
-                    book.running = Some(job);
-                    Some(job)
+        let (change, node) = {
+            let mut book = shared.lock();
+            loop {
+                if book.closed {
+                    return;
                 }
-                None => {
-                    let _ = ed
-                        .work
-                        .wait_timeout(book, std::time::Duration::from_millis(500))
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
-                    None
+                if let Some(job) = book.queue.pop_front() {
+                    book.running = Some(job);
+                    break job;
+                }
+                book = shared
+                    .work
+                    .wait(book)
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if book.queue.is_empty() && !book.closed {
+                    book.idle_wakes += 1;
                 }
             }
         };
-        let Some((change, node)) = next else {
-            drop(ed);
-            continue;
-        };
+        let Some(ed) = editor.upgrade() else { return };
         let built = ed.chat.rebuild_node(node);
         let mut book = ed.lock();
         book.running = None;
@@ -540,12 +634,12 @@ fn rebuild_loop(editor: std::sync::Weak<Editor>) {
                 // Tried again later (a model error passes; a restart retries too).
                 book.queue.push_back((change, node));
                 drop(book);
-                ed.work.notify_all();
+                ed.shared.work.notify_all();
                 std::thread::sleep(std::time::Duration::from_secs(5));
                 continue;
             }
         }
         drop(book);
-        ed.work.notify_all();
+        ed.shared.work.notify_all();
     }
 }

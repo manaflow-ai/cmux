@@ -76,6 +76,10 @@ Runs on a fleet mini through scripts/measure/chat-open.sh, never on an interacti
 The table is also printed between CHAT-OPEN-TABLE-BEGIN and -END. A fleet step returns ONE file (`cmux-ci run
 --artifact` takes a single path; a second one replaces the first), so ask for artifacts/chat-open.json: it has
 every open's marks, frames, page timing and wire log, and the table can be rebuilt from it.
+The bundle's defaults are set aside for the run and emptied at each condition's start (a new HOME is not enough:
+cfprefsd keeps them in the account's real preferences, with the app's last launch snapshot path); each launch
+records what it read (`defaults_before`: key names and cmuxNext.launchSnapshotPath.* values) per condition and on
+each relaunched and restore open.
 Kills only the processes it started (the app it launched through bench_memory, the seeding daemon,
 and the load's own process groups).
 
@@ -107,8 +111,12 @@ import bench_memory as bm  # noqa: E402
 import idle_cost_load as icl  # noqa: E402
 from bench_power import wipe_state  # noqa: E402  (the tagged app's saved state under the real ~/Library)
 import chat_open_frames as cof  # noqa: E402
-from chat_open_summary import cell, invalid_reason, spare_pool, summarize  # noqa: E402
+import bench_page_engine  # noqa: E402
+from chat_open_summary import cell, engine_of, invalid_reason, judge_engine, page_engines, spare_pool, summarize  # noqa: E402
 import chat_open_seed_cache as seed_cache  # noqa: E402
+from state_wait import wait_stable, wait_until  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "ci"))
+import fresh_home_launch_smoke as smoke  # noqa: E402  (DefaultsAside, defaults_before: the bundle's real defaults)
 
 parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
 parser.add_argument("--app", required=True)
@@ -150,6 +158,13 @@ parser.add_argument("--capture-check", action="store_true",
                     help="only say whether this process (and so the app it launches) may read the screen "
                          "(screen_capture_check.py) into --json, then exit: nothing is launched (scripts/measure/chat-open.sh "
                          "with --app=PATH builds nothing)")
+parser.add_argument("--page-engine", choices=bench_page_engine.WANTED, default="any",
+                    help="the engine that each open's page must run in (decision 2026-11-16). `cef` or `webkit`: an open in "
+                         "another engine, or one that showed content with no engine said, is no number; its case reads "
+                         "FAILED (reason other_engine), gives no median and no memory per kept page, and the bench exits 1. "
+                         "`any` (the default) refuses no open: the table's `page engine` lines say what ran. With `cef` the "
+                         "bench asks the app one time at its first launch and stops there when the app has no Chromium. "
+                         "scripts/measure/chat-open.sh asks `cef` unless --allow-no-chromium")
 parser.add_argument("--json")
 parser.add_argument("--md")
 opts = parser.parse_args()
@@ -164,10 +179,10 @@ CLICK_CASES = ("click", "click_again", "click_hover")
 CASES = [c for c in CASES if c in CLICK_CASES] + [c for c in CASES if c not in CLICK_CASES]
 # subagent_column clicks three of one chat's subagents.
 SUBAGENTS = opts.subagents or max(opts.runs + 1, 3)
+# The cases that open the subagent template; seed_templates makes it only for them.
+SUBAGENT_CASES = {"subagent", "subagent_column"}
 # A new workspace goes last, so `workspace.selectLast` shows the one an open just made (the default
 # placement is the top of the list). Over --config: another placement would show the wrong workspace.
-# The tagged build's state folder (scripts/measure/chat-open.sh builds --tag, default "chatopen").
-TAG_DIR = os.path.join("tags", opts.tag)
 BACKDROP = {} if opts.backdrop == "opaque" else {"appearance": {"backgroundBlur": opts.backdrop, "backgroundOpacity": 0.85}}
 CONFIG = bm.merged(bm.merged(json.loads(opts.config), BACKDROP), {"workspaces": {"newPlacement": "bottom"}})
 AGENT = os.path.join(HERE, "chat_open_agent.py")
@@ -304,7 +319,11 @@ def seed_templates(root):
     the sources that shape it, so the arms of an A/B (different app builds, the same templates)
     seed once. The templates, how long getting them took and each entry's cache result."""
     started = time.monotonic()
-    specs = {"small": {"turns": opts.small_turns}, "subagent": {"subagents": SUBAGENTS}}
+    # Only the templates the asked cases open: a run of `relaunched` alone seeds no subagent chat, so a seed agent
+    # that spawns no subagents can't stop it (2026-11-16: "spawned 0 of 5 subagents" ended a relaunched A/B).
+    specs = {"small": {"turns": opts.small_turns}}
+    if SUBAGENT_CASES & set(CASES):
+        specs["subagent"] = {"subagents": SUBAGENTS}
     if "big" in CASES:
         specs["big"] = {"turns": opts.turns}
     if "bloated" in CASES:
@@ -379,7 +398,7 @@ def seed(root):
     app's store: --sessions short chats for the list and fresh copies of each shape for every cold
     open, under fresh ids in a fresh store every run."""
     templates, seeded_s, cache_result, subagent_check = seed_templates(root)
-    small, sub = templates["small"], templates["subagent"]
+    small, sub = templates["small"], templates.get("subagent")
     big, bloated = templates.get("big"), templates.get("bloated")
     answered, closed = templates["answered"], templates["closed"]
     stored_at = time.monotonic()
@@ -395,7 +414,8 @@ def seed(root):
             "click": [copy_chat(home, small, f"Click {condition} {i}") for i in range(opts.runs)],
             "click_again": [copy_chat(home, small, f"Click again {condition} {i}") for i in range(opts.runs)],
             "click_hover": [copy_chat(home, small, f"Click hover {condition} {i}") for i in range(opts.runs)],
-            "subagent": [copy_chat(home, sub, f"Subagents {condition} {i}") for i in range(opts.runs)],
+            "subagent": [copy_chat(home, sub, f"Subagents {condition} {i}") for i in range(opts.runs)]
+            if "subagent" in CASES else [],
             "subagent_column": [copy_chat(home, sub, f"Subagent column {condition} {i}") for i in range(opts.runs)]
             if "subagent_column" in CASES else [],
             "big": [copy_chat(home, big, f"Big {condition} {i}") for i in range(opts.runs)] if big else [],
@@ -421,9 +441,13 @@ class Run:
         self.pid = None
         self.sock = None
         self.scratch = None
+        self.defaults_before = {}
 
     def launch(self, trace_launch=False, record=None):
         env = dict(self.env)
+        # What this launch reads from the bundle's defaults (main sets the domain aside for the run and empties it
+        # at each condition's start): a relaunch's keys are this run's own.
+        self.defaults_before = smoke.defaults_before(BUNDLE_ID) if BUNDLE_ID else {}
         if self.scratch is None:
             self.pid, self.sock, self.scratch = bm.launch(APP, CONFIG, env)
             self.env["HOME"] = os.path.join(self.scratch, "home")
@@ -469,26 +493,52 @@ class Run:
             bm.end_bundle(APP)
         bm.end_bundle(APP)  # the bundle's daemons and helpers: this run's only (bm.launch checked)
 
-    def saved_pictures(self):
+    def saved_pictures(self, since=0.0):
         """The agent pages' pictures the last quit saved for this launch's first frame (AgentPaneLaunchImages).
 
         In the build's folder under Application Support (SidebarSnapshotFile.buildDirectory), which
         Foundation resolves from the account's own home, not the scratch HOME; both are read."""
         import pwd
-        homes = [os.path.join(self.scratch or "", "home"), pwd.getpwuid(os.getuid()).pw_dir]
-        found = []
-        # NEXT's own folder, and classic's for a build from before it (its link there is not followed).
-        for home in homes:
-            for parent in ("cmux-next", "cmux"):
-                for folder, _dirs, files in os.walk(os.path.join(home, "Library", "Application Support", parent)):
-                    if os.path.basename(folder) == "agent-pane-images" and TAG_DIR in folder:
-                        found += sorted(files)
-        return found
+        return tag_pictures([os.path.join(self.scratch or "", "home"), pwd.getpwuid(os.getuid()).pw_dir], opts.tag, since)
 
     def end(self):
         bm.end_bundle(APP)
         if self.scratch:
             shutil.rmtree(self.scratch, ignore_errors=True)
+
+
+def tag_pictures(homes, tag, since=0.0):
+    """The launch pictures under each home's `tags/<tag>/.../agent-pane-images` written at or after `since` (wall
+    seconds). The account's home outlives this run: its folder is this tag's only (another tag that starts with
+    this one's name, `chatopen2` for `chatopen`, is not it), and a picture older than `since` (the condition's
+    start, when wipe_state removed this tag's folder) is another run's."""
+    found = []
+    # NEXT's own folder, and classic's for a build from before it (its link there is not followed).
+    for home in homes:
+        for parent in ("cmux-next", "cmux"):
+            top = os.path.join(home, "Library", "Application Support", parent)
+            for folder, _dirs, files in os.walk(top):
+                parts = os.path.relpath(folder, top).split(os.sep)
+                ours = any(parts[i:i + 2] == ["tags", tag] for i in range(len(parts) - 1))
+                if os.path.basename(folder) != "agent-pane-images" or not ours:
+                    continue
+                for name in sorted(files):
+                    try:
+                        if os.stat(os.path.join(folder, name)).st_mtime >= since:
+                            found.append(name)
+                    except OSError:
+                        pass
+    return found
+
+
+def bundle_id_of(app):
+    import plistlib
+    with open(os.path.join(app, "Contents", "Info.plist"), "rb") as handle:
+        return plistlib.load(handle)["CFBundleIdentifier"]
+
+
+# The app's bundle id, read in main: Run.launch records the defaults domain each launch reads.
+BUNDLE_ID = None
 
 
 def recorded(folder):
@@ -599,7 +649,7 @@ def settle_open(run, session):
         if (ready.get("body_text_length") or 0) > 0 and (ready.get("transcript_rows") or ready.get("rows") or 1):
             break
         time.sleep(0.3)  # test script: waiting for the chat to show
-    time.sleep(1.5)  # test script: let the page's own reads (its tail hand-off) finish
+    chat_reads_settled(run, "the opened chat's own reads")
     return opened
 
 
@@ -607,7 +657,7 @@ def why(record):
     """What an open's log line says beyond its times, so a run with no artifact (a failed step returns
     none) still shows why an open had no first content."""
     parts = []
-    for key in ("error", "timed_out", "invalid_reason"):
+    for key in ("error", "timed_out", "invalid_reason", "engine_fault"):
         if record.get(key):
             parts.append(f"{key}={str(record[key])[:200]}")
     if not record.get("first_content_ms"):
@@ -709,6 +759,31 @@ def workspace_id(row):
 
 def sidebar_rows(run):
     return [row for window in (run.rpc("debug.sidebar_rows") or {}).get("windows") or [] for row in window.get("rows") or []]
+
+
+def selected_workspace(run):
+    """The id of the workspace whose sidebar row is selected, or None."""
+    return next((workspace_id(row) for row in sidebar_rows(run) if row.get("selected") and workspace_id(row)), None)
+
+
+def chat_reads_settled(run, what):
+    """Waits, bounded, until the shown page's readiness (its text length and rows) reads the same for about a
+    second: the page's own reads (its tail hand-off) are done. Best effort: a page still changing is logged."""
+    def read():
+        ready = run.rpc("debug.agent_pane", {"action": "readiness"}) or {}
+        return json.dumps({k: ready.get(k) for k in ("error", "pane", "body_text_length", "transcript_rows", "rows")},
+                          sort_keys=True, default=str)
+    if wait_stable(read, what, timeout=15, interval=0.25, reads=4, raise_on_timeout=False) is None:
+        say(f"chat-open: {what} never settled in 15 s")
+
+
+def left_chat(run, chat_key, what):
+    """Waits, bounded, until the window shows another workspace than the chat's (`chat_key`, part of its row id)
+    and that page's readiness settled: the left page handed its tail over."""
+    if not wait_until(lambda: chat_key not in (selected_workspace(run) or chat_key),
+                      f"{what}: another workspace shown", timeout=15, raise_on_timeout=False):
+        say(f"chat-open: {what}: the chat's workspace was still shown after 15 s")
+    chat_reads_settled(run, what)
 
 
 def shown_workspace(run):
@@ -853,6 +928,47 @@ def frame_click(run, key, label, keep=False):
     return record
 
 
+# What a click's record keeps of its trace. `engine`: the engine of the chat's page (decision 2026-11-16: a
+# measure says its engine).
+CLICK_TRACE_KEYS = ("marks_ms", "order", "frames", "first_content_ms", "longest_empty_ms", "timed_out", "page_timing",
+                    "engine")
+
+
+def judged(record):
+    """`record` under the asked engine (--page-engine; chat_open_summary.judge_engine)."""
+    return judge_engine(record, opts.page_engine)
+
+
+def click_engine(run, record):
+    """A click's record with its page's engine. A traced click (--trace-clicks) has it. For the others the app
+    says it for the shown chat, asked after the click's frames are in, so the read is in no time of the click.
+    A click that failed showed no page and asks nothing."""
+    if engine_of(record) is None and not record.get("error"):
+        # 40 s, the bench's own limit for a call: a slow answer under load is not an engine that was not read.
+        record["engine"] = bench_page_engine.page_engine(run.rpc("debug.agent_pane", {"action": "engine"}, timeout=40))
+    return record
+
+
+def kept_page_memory(before_mb, after_mb, records):
+    """What one kept chat page costs: the app's footprint after a click case less the one before it, over the
+    opens that kept a page. With an open in another engine than asked it is no number for the asked engine:
+    `refused_for_engine` says how many, and `per_kept_page_mb` is None."""
+    kept = sum(1 for r in records if not r.get("error"))
+    refused = sum(1 for r in records if r.get("engine_fault"))
+    out = {"before_footprint_mb": before_mb, "after_footprint_mb": after_mb, "kept_pages": kept,
+           "per_kept_page_mb": round((after_mb - before_mb) / kept, 1) if kept and not refused else None}
+    if refused:
+        out["refused_for_engine"] = refused
+    return out
+
+
+def memory_cell(case, memory, opens):
+    """One case's part of the table's memory line."""
+    if memory.get("refused_for_engine"):
+        return f"{case} no number ({memory['refused_for_engine']} of its {opens} opens in another engine than asked)"
+    return f"{case} {memory['per_kept_page_mb']} MB over {memory['kept_pages']} pages"
+
+
 def measure_click(run, case, session, base, label, index=0):
     """One click case: the chat's workspace made in the background (`click`), or shown once and left
     (`click_again`), or made in the background and its row hovered for --hover-ms (`click_hover`), then a click on
@@ -868,11 +984,14 @@ def measure_click(run, case, session, base, label, index=0):
             if (ready.get("body_text_length") or 0) > 0:
                 break
             time.sleep(0.3)  # test script: waiting for the chat to show
-        time.sleep(1.5)  # test script: let the page's own reads finish before it is left
+        chat_reads_settled(run, "the shown chat's own reads")
         run.app.action("goToWorkspace", focus=True, workspace=base)
-        time.sleep(1)  # test script: the page hands its tail over as it leaves
+        left_chat(run, key, "the switch back before the click")
     else:
-        time.sleep(0.5)  # test script: the new row settles (its own motion is not the chat's)
+        # The new row settles (its own motion is not the chat's): the sidebar's rows read the same three times.
+        if wait_stable(lambda: json.dumps(sidebar_rows(run), sort_keys=True, default=str), "the sidebar rows after the background open",
+                       timeout=10, interval=0.1, raise_on_timeout=False) is None:
+            say("chat-open: the sidebar rows never settled in 10 s after the background open")
         # Still not selected right before the click, after the settle (a late auto-select would leave the click
         # nothing to change; cmux#33845).
         if next((r.get("selected") for r in sidebar_rows(run) if workspace_id(r) == key), False):
@@ -884,19 +1003,19 @@ def measure_click(run, case, session, base, label, index=0):
             hovered = run.rpc("debug.pointer_hover", {"row": key}) or {}
             if not str(hovered.get("row_hovered") or "").endswith(key):
                 return {"error": f"the hover did not land on the row: {json.dumps(hovered)[:300]}", "row": row}
-            time.sleep(max(0.0, opts.hover_ms / 1000 - 0.12))  # test script: the pointer rests on the row
+            time.sleep(max(0.0, opts.hover_ms / 1000 - 0.12))  # sleep-ok: the rest on the row is --hover-ms, the case's input
     armed = run.rpc("debug.chat_open_trace", {"action": "arm"}) if opts.trace_clicks else None
     record = frame_click(run, key, label, keep=index < opts.keep_frames)
     record["workspace"] = key
     if armed is not None:
         trace = run.rpc("debug.chat_open_trace", {"action": "wait", "timeout_ms": 5000, "settle_ms": 100,
                                                   "page_timing": True}, timeout=30) or {}
-        record["trace"] = {k: trace.get(k) for k in ("marks_ms", "order", "frames", "first_content_ms",
-                                                      "longest_empty_ms", "timed_out", "page_timing")}
+        record["trace"] = {k: trace.get(k) for k in CLICK_TRACE_KEYS}
         record["trace"]["armed"] = armed if armed.get("error") else None
+    judged(click_engine(run, record))
     # Back to the workspace with no chat, so the next click starts from the same picture.
     run.app.action("goToWorkspace", focus=True, workspace=base)
-    time.sleep(0.5)  # test script: the switch back settles
+    left_chat(run, key, "the switch back to the workspace with no chat")
     return record
 
 
@@ -905,9 +1024,9 @@ def measure_case(run, case, sessions, index):
     if case in ("sidebar", "big", "bloated"):
         return traced(run, lambda: open_workspace(run, session))
     if case == "reopen":
-        settle_open(run, session)
+        opened = settle_open(run, session)
         run.app.action("workspace.newAtBottom", focus=True)  # leave it: a chat this app read, not shown now
-        time.sleep(1)  # test script: the page hands its tail over as it leaves
+        left_chat(run, opened.get("key") or session, "the reopen's leave")
         return traced(run, lambda: open_workspace(run, session))
     if case == "subagent":
         settle_open(run, session)
@@ -949,10 +1068,25 @@ def write_results(results):
 
 
 def main():
+    """The run inside the bundle's defaults set aside (fresh_home_launch_smoke.DefaultsAside): an A/B is one run per
+    arm, and both arms share one bundle id, whose defaults cfprefsd keeps in the account's real preferences whatever
+    HOME says. The app stores its last launch snapshot's path there (cmuxNext.launchSnapshotPath.<session>), so a
+    launch would open the snapshot an earlier run or arm left. The account's own defaults come back after the run."""
+    global BUNDLE_ID
+    BUNDLE_ID = bundle_id_of(APP)
+    try:
+        with smoke.DefaultsAside(BUNDLE_ID, tempfile.gettempdir()) as aside:
+            measure(aside)
+    except smoke.CannotRun as error:
+        raise SystemExit(f"chat-open: {error}")
+
+
+def measure(aside):
     root = tempfile.mkdtemp(prefix="chat-open-")
     results = {"host": socket.gethostname(), "ncpu": NCPU, "app": APP,
                "model": subprocess.run(["sysctl", "-n", "hw.model"], capture_output=True, text=True).stdout.strip(),
-               "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "cases": {}, "raw": {}}
+               "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "cases": {}, "raw": {},
+               "page_engine_asked": opts.page_engine}
     signal.signal(signal.SIGTERM, bm.interrupted)
     load = Load(root)
     run = None
@@ -968,9 +1102,21 @@ def main():
             # The wipe also keeps a worker's earlier run of this tag from restoring into this one.
             if run:
                 run.end()
+            condition_start = time.time()
             wipe_state(APP)
+            if aside.tool:
+                aside.clear()  # the defaults an earlier condition's launches wrote; fails when a key stays
             run = Run(root, home)
             run.launch()
+            results.setdefault("defaults_before", {})[condition] = run.defaults_before
+            if opts.page_engine == "cef" and "chromium" not in results:
+                # One read, at the first launch: an app with no Chromium can give no open in the asked engine, so
+                # the bench stops here and not after each case ran to its end.
+                results["chromium"] = bench_page_engine.chromium_word(run.rpc("debug.cef", timeout=40))
+                say(bench_page_engine.chromium_line("chat-open", results["chromium"]))
+                stop = bench_page_engine.no_chromium(results["chromium"])
+                if stop:
+                    raise SystemExit(f"chat-open: {stop}")
             time.sleep(5)  # test script: let launch work end before the first measured open
             if condition != "idle":
                 load.start(condition)
@@ -993,9 +1139,11 @@ def main():
                             f"final_frame_ms={record.get('final_frame_ms')} first_is_final={record.get('first_is_final')} "
                             f"between={record.get('between_frames')} blank={record.get('blank_frames')} "
                             f"transcript_ms={record.get('transcript_ms')} watch_started_ms={record.get('watch_started_ms')} "
-                            f"drift={json.dumps(record.get('drift'))}" + (f" error={str(record['error'])[:300]}" if record.get("error") else ""))
+                            f"drift={json.dumps(record.get('drift'))} engine={engine_of(record)}"
+                            + (f" error={str(record['error'])[:300]}" if record.get("error") else "")
+                            + (f" engine_fault={record['engine_fault']}" if record.get("engine_fault") else ""))
                         continue
-                    record = measure_case(run, case, sessions[condition], index)
+                    record = judged(measure_case(run, case, sessions[condition], index))
                     record["invalid_reason"] = invalid_reason(record)
                     records.append(record)
                     say(f"chat-open: {condition} {case} {index}: first_content_ms={record.get('first_content_ms')} "
@@ -1003,13 +1151,10 @@ def main():
                 if memory_before:
                     time.sleep(2)  # test script: the last round's page and the spare's refill settle
                     after = bm.sample(run.pid, APP, f"{condition}-{case}-after", 0)
-                    kept = sum(1 for r in records if not r.get("error"))
                     kinds = {k: round(v["footprint_mb"] - memory_before["kinds"].get(k, {}).get("footprint_mb", 0.0), 1)
                              for k, v in after["kinds"].items()}
                     results.setdefault("memory", {}).setdefault(condition, {})[case] = {
-                        "before_footprint_mb": memory_before["total_footprint_mb"],
-                        "after_footprint_mb": after["total_footprint_mb"], "kept_pages": kept,
-                        "per_kept_page_mb": round((after["total_footprint_mb"] - memory_before["total_footprint_mb"]) / kept, 1) if kept else None,
+                        **kept_page_memory(memory_before["total_footprint_mb"], after["total_footprint_mb"], records),
                         "delta_by_kind_mb": kinds}
                     say(f"chat-open: {condition} {case} memory: {json.dumps(results['memory'][condition][case])}")
                 results["raw"].setdefault(condition, {})[case] = records
@@ -1024,7 +1169,8 @@ def main():
                     run.quit()
                     run.launch()
                     time.sleep(5)  # test script: let launch work end before the measured open, as at the start
-                    record = traced(run, lambda: open_workspace(run, session))
+                    record = judged(traced(run, lambda: open_workspace(run, session)))
+                    record["defaults_before"] = run.defaults_before
                     record["invalid_reason"] = invalid_reason(record)
                     records.append(record)
                     say(f"chat-open: {condition} relaunched {index}: first_content_ms={record.get('first_content_ms')} "
@@ -1037,7 +1183,7 @@ def main():
                     # The shown workspace is the last chat opened (a big one when it ran): it restores.
                     run.quit()
                     record_dir = os.path.join(frames_root, f"{condition}-restore-{index}") if opts.record_launch else None
-                    pictures = run.saved_pictures()
+                    pictures = run.saved_pictures(condition_start)
                     run.launch(trace_launch=True, record=record_dir)
                     record = run.rpc("debug.chat_open_trace", {"action": "wait", "timeout_ms": 15000,
                                                                "settle_ms": 600, "page_timing": True}, timeout=40) or {}
@@ -1045,6 +1191,7 @@ def main():
                     record["first_image_ms"] = first_of(record.get("frames"), ("image",))
                     record["acp_log"] = run.rpc("debug.agent_pane", {"action": "acp_log", "limit": 40})
                     record["saved_pictures"] = pictures
+                    record["defaults_before"] = run.defaults_before
                     if record_dir:
                         # The recording runs on the app's clock from its first window frame and writes
                         # frames.json when it ends: the next quit waits for that (bounded), not a guess.
@@ -1053,7 +1200,7 @@ def main():
                             time.sleep(0.5)  # test script: waiting for the app's recorder to finish
                         if not recorded(record_dir):
                             say(f"chat-open: {condition} restore {index}: the launch recording wrote no frames.json")
-                    record["invalid_reason"] = invalid_reason(record)
+                    record["invalid_reason"] = invalid_reason(judged(record))
                     records.append(record)
                     say(f"chat-open: {condition} restore {index}: first_content_ms={record.get('first_content_ms')} "
                         f"first_image_ms={record.get('first_image_ms')} saved_pictures={pictures}{why(record)}")
@@ -1083,14 +1230,16 @@ def main():
     failed = [f"{condition} {case}" for condition, cases in results["cases"].items()
               for case, summary in cases.items() if not summary.get("complete")]
     if failed:
-        raise SystemExit("chat-open: incomplete measurements (an open with no first content or no empty time): "
+        raise SystemExit("chat-open: incomplete measurements (an open with no first content or no empty time, or "
+                         f"in another engine than the asked one, --page-engine {opts.page_engine}): "
                          + ", ".join(failed))
 
 
 def markdown(results):
     lines = [f"chat-open-bench on {results['host']} ({results['model']}, {results['ncpu']} CPUs); "
              f"median of {opts.runs} opens, milliseconds from the action to the first frame of chat content; "
-             f"a cell reads FAILED when an open of its case timed out, errored, or showed no content or no empty time "
+             f"a cell reads FAILED when an open of its case timed out, errored, showed no content or no empty time, "
+             f"or ran in another page engine than the asked one "
              f"(no median over the rest); click rows are from pixels: click to first content frame and to final frame "
              f"(the first of {opts.settle_frames}+ frames equal to the last), how many clicks drew the final frame first, "
              f"frames between, blank frames, and the most px a transcript row moved after first paint",
@@ -1111,9 +1260,14 @@ def markdown(results):
             pool = spare_pool(records) if isinstance(records, list) else None
             if pool:
                 lines.append(f"spare pool, {case} {condition}: {pool}")
+            engines = page_engines(records) if isinstance(records, list) else None
+            if engines:
+                asked = results.get("page_engine_asked") or "any"
+                lines.append(f"page engine, {case} {condition}: {engines}" + (f" (asked: {asked})" if asked != "any" else ""))
     for condition, cases in results.get("memory", {}).items():
         lines.append(f"memory per kept chat page ({condition}): " + ", ".join(
-            f"{case} {m['per_kept_page_mb']} MB over {m['kept_pages']} pages" for case, m in cases.items()))
+            memory_cell(case, m, len(((results.get("raw") or {}).get(condition) or {}).get(case) or []))
+            for case, m in cases.items()))
     return "\n".join(lines)
 
 

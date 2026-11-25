@@ -136,7 +136,7 @@
      /// Body bottom of the row above to the preview's top (measured 31.5).
      static let gap: CGFloat = 31.5
      var isThumbnail: Bool {
-@@ -298,10 +371,18 @@
+@@ -298,65 +371,151 @@
              p.box = CGSize(width: 48, height: (48 * CGFloat(a.height ?? 450) / CGFloat(max(1, a.width ?? 600))).rounded())
          } else if case let .text(t, _) = part {
              let maxBox = ThreadPreview.maxTextBoxWidth(width: width)
@@ -159,7 +159,10 @@
          } else {
              let (title, sub) = p.lines
              let w = max(TextDraw.width(title, font: ThreadPreview.titleFont), TextDraw.width(sub, font: ThreadPreview.subFont))
-@@ -309,54 +390,130 @@
+-            p.box = CGSize(width: min(300, (39 + w + 15).rounded()), height: 48.5)
++            // cmux: a card with no picture has no thumbnail square, so its text starts nearer its edge (HomeQuotePreview).
++            p.box = CGSize(width: min(HomeQuotePreview.maxCardWidth, (HomeQuotePreview.textInset(part) + w + HomeQuotePreview.trailingPad).rounded()),
++                           height: 48.5)
          }
          return p
      }
@@ -316,7 +319,7 @@
      /// `s` cut at the last character that leaves room for "…", trailing spaces dropped, then "…".
      static func truncate(_ s: String, maxWidth: CGFloat) -> String {
          let room = maxWidth - TextDraw.width("…", font: textFont)
-@@ -368,6 +525,12 @@
+@@ -368,6 +527,12 @@
          let safe = cut < ns.length ? ns.rangeOfComposedCharacterSequence(at: cut).location : cut
          var head = ns.substring(to: safe)
          while head.last == " " { head.removeLast() }
@@ -329,7 +332,16 @@
          return head + "…"
      }
      static let titleFont = UIFont.systemFont(ofSize: 12, weight: .semibold)
-@@ -389,7 +552,9 @@
+@@ -381,7 +546,7 @@
+             return (String(one.prefix(28)), one.count > 28 ? String(one.dropFirst(28).prefix(30)) : "")
+         case let .attachment(a): return (a.fileName, Format.bytes(a.byteSize))
+         case let .location(_, _, title, _): return (title ?? Strings.location, "")
+-        case let .custom(c): return (CustomRows.plainText(c), "")
++        case let .custom(c): return HomeQuotePreview.lines(c)  // cmux: its words, not its Markdown
+         case nil: return ("…", "")
+         }
+     }
+@@ -389,7 +554,9 @@
      /// Box to stub: 3.5 pt under a card, 5.5 pt under a thumbnail (its tail is between).
      /// Text previews (macOS 27, lossless stills): stub 5.15 pt under the box, 12.25 pt long.
      var stubGap: CGFloat { isThumbnail ? 5.5 : isText ? 5.15 : ThreadPreview.stubGap }
@@ -340,7 +352,7 @@
      /// The row's height: box, stub, rounded to the device pixel grid (Fixture.renderScale). A text preview's parts are
      /// 41.65 pt (24.25 + 5.15 + 12.25; 52.65 with 2 lines); Messages' rows under a preview sit on whole device pixels
      /// (nosb-active against deactivate-activate tp0000ms: incoming edges 798.00 / 864.00 px, ours were 798.31 / 864.31
-@@ -428,6 +593,13 @@
+@@ -428,6 +595,13 @@
      /// The message is marked markdown (Message.format): a long text part takes the markdown
      /// tiles only then (LongTextStore.layout).
      var markdownFormat: Bool = false
@@ -354,7 +366,39 @@
      /// The message format of this row (Message.format).
      var format: MessageFormat? { markdownFormat ? .markdown : nil }
      /// The drawn body: lines after a hard newline are 15.5 pt apart, so the
-@@ -491,7 +663,8 @@
+@@ -461,7 +635,8 @@
+     }
+ 
+     /// `scale`: the view's (text balloon widths end on its device pixels).
+-    static func size(of part: Part, width: CGFloat, scale: CGFloat = Fixture.renderScale) -> (CGSize, TextLayout?) {
++    /// cmux: `group`: the part is one of two or more pictures and videos of one message (``mediaGroup``).
++    static func size(of part: Part, width: CGFloat, scale: CGFloat = Fixture.renderScale, group: Bool = false) -> (CGSize, TextLayout?) {
+         let m = Metrics(width: width)
+         let maxTextWidth = m.maxTextWidth, mediaWidth = m.mediaWidth
+         switch part {
+@@ -482,16 +657,26 @@
+                 // Never larger than the source pixels allow (resolution brief):
+                 // a 354 px asset is at most 177 pt wide at 2x, whatever the metadata says.
+                 // Pixel size from metadata (MediaCache): no decode to size a row.
+-                if let ref = a.kind == "video" ? (a.poster ?? a.asset) : a.asset, let px = Images.pixelSize(ref) {
+-                    let srcW = px.width
+-                    if srcW < pw { ph = ph * srcW / pw; pw = srcW }
++                if let ref = a.kind == "video" ? (a.poster ?? a.asset) : a.asset, let px = Images.pixelSize(ref), px.width > 0, px.height > 0 {
++                    if a.width == nil || a.height == nil {
++                        // cmux: a part without a pixel size (a video the Chief attached) takes its picture's: its
++                        // real aspect, not a 4:3 box that cropped a 16:9 frame.
++                        pw = px.width; ph = px.height
++                    } else {
++                        let srcW = px.width
++                        if srcW < pw { ph = ph * srcW / pw; pw = srcW }
++                    }
+                 }
+-                let w = min(max(mediaWidth, min(300, m.maxTextWidth + 2 * Fixture.bubblePadX)), pw / 2)
++                let column = min(300, m.maxTextWidth + 2 * Fixture.bubblePadX)
++                // cmux (user 2026-11-16): the pictures and videos of one message are one column of the same
++                // width (a 300 pt picture over 240 pt videos read as a ragged stack); each keeps its aspect.
++                let w = group ? column : min(max(mediaWidth, column), pw / 2)
+                 return (CGSize(width: w, height: min(360, (w * ph / pw).rounded())), nil)
              case "voiceMemo": return (CGSize(width: 196, height: 36), nil)
              case "contact": return (CGSize(width: 250, height: 56), nil)
              // File and audio rows (measured): 275 x 89.5, icon centred.
@@ -364,7 +408,24 @@
              }
          case let .location(lat, lon, _, _):
              // A map snapshot (macOS 26): 500 pt wide, caption inside; its
-@@ -679,6 +852,31 @@
+@@ -515,6 +700,16 @@
+     static let linkPlaceholder = CGSize(width: 137.5, height: 103.5)
+     static func linkPending(title: String?, site: String?, image: String?) -> Bool { title == nil && site == nil && image == nil }
+ 
++    /// cmux: whether `part` is a picture or video of a message with two or more of them: they share one width.
++    static func mediaGroup(_ m: Message, _ part: Part) -> Bool {
++        func isMedia(_ p: Part) -> Bool {
++            if case let .attachment(a) = p { return a.kind == "image" || a.kind == "video" }
++            return false
++        }
++        guard isMedia(part) else { return false }
++        return m.parts.lazy.filter(isMedia).prefix(2).count == 2
++    }
++
+     static func linkImageSize(_ image: String?, maxWidth: CGFloat = Fixture.maxLinkWidth) -> (CGFloat, CGFloat) {
+         // Raster previews are sized from metadata (no decode while rows are derived); an asset
+         // with a vector sibling keeps the drawn image's size.
+@@ -679,6 +874,31 @@
      private let lock = NSLock()
      private(set) var hits = 0, misses = 0, estimates = 0, reuses = 0
  
@@ -396,7 +457,7 @@
      /// A part whose content changes in place is a new measurement: text a host
      /// replaces under the same message id (an optimistic send, then the stored
      /// message), a link preview's metadata (title, site, image), an
-@@ -693,6 +891,7 @@
+@@ -693,6 +913,7 @@
          case let .text(t, runs): h.combine(t); h.combine(runs.count); for r in runs { h.combine(r.start); h.combine(r.length); h.combine(r.style) }
          case let .link(url, title, site, image, theme): h.combine(url); h.combine(title); h.combine(site); h.combine(image); h.combine(theme)
          case let .attachment(a): h.combine(a.kind); h.combine(a.asset); h.combine(a.poster); h.combine(a.width); h.combine(a.height)
@@ -404,7 +465,16 @@
          default: return 0
          }
          return h.finalize()
-@@ -712,7 +911,9 @@
+@@ -703,7 +924,7 @@
+         if case let .text(t, _) = part, let md = Markdown.layout(t, message: m.id, format: m.format, width: width) {
+             return Value(size: md.size, text: md.proxy, width: width, markdown: md)
+         }
+-        let (size, tl) = Sizing.size(of: part, width: width, scale: scale)
++        let (size, tl) = Sizing.size(of: part, width: width, scale: scale, group: Sizing.mediaGroup(m, part))
+         return Value(size: size, text: tl, width: width)
+     }
+ 
+@@ -712,7 +933,9 @@
      /// The part's size at `width`. With `estimate`, a miss does not run Core
      /// Text: it scales a measurement taken at another width (no text layout;
      /// the row is re-measured before it draws). Exact misses measure now.
@@ -415,7 +485,7 @@
          // a part index from another version of the message measures nothing (no trap).
          guard let part = m.parts[checked: pi] else { return Value(size: .zero, text: nil, width: width) }
          // Long text: blocks, estimated then measured near the viewport (LongText.swift); never hashed or cached here.
-@@ -721,7 +922,7 @@
+@@ -721,10 +944,12 @@
          }
          // Custom rows: their own cache, estimates for main-only providers (CustomRows.swift).
          if case let .custom(c) = part {
@@ -423,8 +493,40 @@
 +            let (s, tl, est) = CustomRows.measure(c, message: m.id, part: pi, width: width, indent: indent) // cmux: group indent
              return Value(size: s, text: tl, width: width, estimated: est)
          }
++        // cmux: a picture or video measures again when its message's media group starts or ends (a sibling became a file card).
          let version = MeasureCache.version(m) &+ MeasureCache.partVersion(part) &+ Markdown.versionSalt(m.id)
-@@ -850,6 +1051,8 @@
++            &+ (Sizing.mediaGroup(m, part) ? 0x5BD1_E995 : 0)
+         let k = Key(id: m.id, part: pi, version: version, width: width, markdown: m.isMarkdown, scale: scale)
+         let pk = PartKey(id: m.id, part: pi, version: version, markdown: m.isMarkdown, scale: scale)
+         let streaming = StreamBubble.isStream(m.id)
+@@ -752,7 +977,7 @@
+         if estimate, let old = latest[pk] {
+             estimates += 1
+             lock.unlock()
+-            return MeasureCache.scale(old, to: width, part: part, scale: scale)
++            return MeasureCache.scale(old, to: width, part: part, scale: scale, group: Sizing.mediaGroup(m, part))
+         }
+         misses += 1
+         lock.unlock()
+@@ -791,7 +1016,7 @@
+         return Value(size: v.size, text: tl, width: width)
+     }
+ 
+-    private static func scale(_ v: Value, to width: CGFloat, part: Part, scale: CGFloat) -> Value {
++    private static func scale(_ v: Value, to width: CGFloat, part: Part, scale: CGFloat, group: Bool = false) -> Value {
+         if v.markdown != nil {
+             // Markdown keeps its height until measured at the new width.
+             let col = Metrics(width: width).maxTextWidth + 2 * Fixture.bubblePadX
+@@ -799,7 +1024,7 @@
+         }
+         guard let tl = v.text else {
+             // Media and cards: same aspect, clamped to the new column.
+-            let (fresh, _) = Sizing.size(of: part, width: width, scale: scale)
++            let (fresh, _) = Sizing.size(of: part, width: width, scale: scale, group: group)
+             return Value(size: fresh, text: nil, width: width, estimated: true)
+         }
+         let col = Metrics(width: width).maxTextWidth
+@@ -850,6 +1075,8 @@
      /// min), more than 15 min on macOS 26 (the original
      /// recording, macOS 26: "Today 12:06 PM" over "hello world" 21 min after the message above) (cx-3cb row-gap).
      static var separatorGap: TimeInterval { ComposeMetrics.macOS26 ? 15 * 60 : 60 * 60 }
@@ -433,7 +535,7 @@
  
      /// `previousRow`: the kind of the row just above `range` (gaps depend on it).
      /// `width`: layout width (captured on main). `exact`: message indices to
-@@ -858,6 +1061,8 @@
+@@ -858,6 +1085,8 @@
                       previousRow: RowSpec.Kind? = nil, width: CGFloat = Metrics.current.width, exact: Range<Int>? = nil,
                       scale: CGFloat = Fixture.renderScale, threadCounts: [ID: Int]? = nil) -> [RowSpec] {
          let me = s.me
@@ -442,7 +544,7 @@
          var rows: [RowSpec] = []
          var span = (range ?? 0..<loaded.count).clamped(to: 0..<loaded.count) // a range from an older window stays inside
          // The host's streaming bubbles with text (ask 11, HostHooks.swift) follow the newest message as the messages
-@@ -898,6 +1103,18 @@
+@@ -898,6 +1127,18 @@
                  if let r = m.replyTo { liveRoots.insert(r.messageId) }
              }
          }
@@ -461,7 +563,7 @@
          func thread(_ x: Message, at i: Int) -> ID? {
              if let r = x.replyTo { return r.messageId }
              return liveRoots.contains(x.id) ? x.id : nil
-@@ -911,6 +1128,8 @@
+@@ -911,6 +1152,8 @@
              let outgoing = m.senderId == me
              var gap: CGFloat
              var connector: String?
@@ -470,7 +572,7 @@
              if prev.map({ m.date.timeIntervalSince($0.date) > separatorGap }) ?? true { // no force unwrap
                  // The time label sits 17.5 pt under a thread reply and 13.5 pt under any other bubble, and the next
                  // bubble 5 pt under the label (macOS 27, AX walk of the real transcript, 2026-10-14, cx-3cb row-gap:
-@@ -935,7 +1154,12 @@
+@@ -935,7 +1178,12 @@
                  // incoming side only (outgoing-thread-reply-take4: my reply under the preview of my root
                  // has no stub, and Instinct's replies take the line on the left). The mirrored arc ran
                  // from the root's centre through my root's text (hq-6d, cmux Home, 2026-10-11).
@@ -484,12 +586,14 @@
              } else if case .replies = rows.last?.kind ?? previousRow {
                  // Under a root's "N Replies" label the next bubble sits 8 pt under the label's text (3 pt under
                  // our 22 pt label row), with or without a sender change, also when the thread ends there; another
-@@ -970,16 +1194,30 @@
+@@ -970,16 +1218,32 @@
              if case .receipt = rows.last?.kind ?? previousRow, gap > 4 { gap = 4 }
              // A reply whose root is not directly above (and that does not
              // continue the same thread) gets a preview of the root.
 -            if let r = m.replyTo, !threadMode, connector == nil, let p = prev, p.id != r.messageId, p.replyTo != r {
 -                let root = s.conversation.messages.first { $0.id == r.messageId }
+-                let part = root.flatMap { r.partIndex < $0.parts.count ? $0.parts[r.partIndex] : nil }
+-                let pv = ThreadPreview.make(root: r, part: part, count: replyCount[r.messageId] ?? 0, outgoing: root?.senderId == me, width: width)
 +            // cmux (user 2026-11-05, msg 23140: quotes of my messages repeated beside the Chief's replies): no quote when
 +            // its root is one of the few messages right above (asides not counted), where it is in view with the reply.
 +            let rootNearby = m.replyTo.map { r in
@@ -498,8 +602,9 @@
 +            } ?? false
 +            if let r = m.replyTo, !threadMode, connector == nil, !rootNearby, m.cmuxAside != true, let p = prev, p.id != r.messageId, p.replyTo != r {
 +                let root = rootMessage(r.messageId)
-                 let part = root.flatMap { r.partIndex < $0.parts.count ? $0.parts[r.partIndex] : nil }
--                let pv = ThreadPreview.make(root: r, part: part, count: replyCount[r.messageId] ?? 0, outgoing: root?.senderId == me, width: width)
++                // cmux: an agent's Markdown quotes as its words, not its syntax (HomeQuotePreview, Lawrence 2026-11-20).
++                let part = HomeQuotePreview.part(root.flatMap { r.partIndex < $0.parts.count ? $0.parts[r.partIndex] : nil },
++                                                 markdown: root?.isMarkdown == true)
 +                var pv = ThreadPreview.make(root: r, part: part, count: replyCount[r.messageId] ?? 0, outgoing: root?.senderId == me, width: width)
 +                // cmux: a group's quote of another person's message names them with their avatar (user, 2026-10-29).
 +                if group, !pv.outgoing {
@@ -518,7 +623,7 @@
              }
  
              if m.retractedAt != nil {
-@@ -988,10 +1226,34 @@
+@@ -988,10 +1252,34 @@
                  // no force unwrap 
                  let lastOfGroup = next.map { next in next.senderId != m.senderId || next.date.timeIntervalSince(m.date) >= groupGap
                      || next.retractedAt != nil || next.replyTo != m.replyTo
@@ -554,7 +659,7 @@
                      let (size, tl) = (measured.size, measured.text)
                      let reactions = m.reactions.filter { $0.partIndex == pi }
                      var g = pi == 0 ? gap : 3
-@@ -1015,27 +1277,48 @@
+@@ -1015,27 +1303,48 @@
                                        tail: lastOfGroup && pi == m.parts.count - 1, reactions: reactions,
                                        myReaction: reactions.firstIndex { $0.senderId == me }, failed: failed,
                                        size: size, text: tl, connectorRoot: pi == 0 ? connector : nil, markdown: measured.markdown,
@@ -610,7 +715,7 @@
                  }
                  if let r = receipts[m.id] {
                      rows.append(RowSpec(key: "receipt:\(m.id)", kind: .receipt(bold: r.0, rest: r.1), gap: 0, height: 16))
-@@ -1043,16 +1326,38 @@
+@@ -1043,16 +1352,38 @@
              }
              prev = m; prevIndex = idx
          }
@@ -655,7 +760,7 @@
          }
          rows = rows.map { var r = $0; r.width = width; return r } // no index writes
          return rows
-@@ -1076,7 +1381,9 @@
+@@ -1076,7 +1407,9 @@
              var row = row
              row.width = width
              if case let .threadPreview(pv) = row.kind, pv.isText {
@@ -666,7 +771,7 @@
                  row.kind = .threadPreview(again)
                  row.height = again.height(scale: scale)
              }
-@@ -1086,7 +1393,7 @@
+@@ -1086,7 +1419,7 @@
              while let m = messages.dropFirst(idx).first, m.id != p.ref.messageId { idx += 1 }
              guard let m = messages.dropFirst(idx).first, p.ref.partIndex < m.parts.count else { return nil }
              let measured = MeasureCache.shared.size(m, p.ref.partIndex, width: width,
@@ -675,7 +780,7 @@
              p.size = measured.size
              p.text = measured.text
              p.markdown = measured.markdown
-@@ -1145,7 +1452,7 @@
+@@ -1145,7 +1478,7 @@
  enum Format {
      private static let timeFormatter: DateFormatter = {
          let f = DateFormatter()
@@ -684,7 +789,7 @@
          f.timeZone = Instant.zone
          f.dateFormat = "h:mm\u{202F}a"
          return f
-@@ -1164,7 +1471,7 @@
+@@ -1164,7 +1497,7 @@
      private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
      private static func formatter(_ f: String) -> DateFormatter {
          let d = DateFormatter()
@@ -693,7 +798,7 @@
          d.timeZone = Instant.zone
          d.dateFormat = f
          return d
-@@ -1214,7 +1521,8 @@
+@@ -1214,7 +1547,8 @@
  enum MessagesLabLocalization {
      private final class Token {}
      private static let lock = NSLock()
@@ -703,7 +808,7 @@
      static var bundle: Bundle {
          get { lock.lock(); defer { lock.unlock() }; return current }
          set { lock.lock(); current = newValue; lock.unlock() }
-@@ -1255,7 +1563,8 @@
+@@ -1255,7 +1589,8 @@
          default: return MessagesLabLocalization.string("file.kind.document", "Document")
          }
      }
