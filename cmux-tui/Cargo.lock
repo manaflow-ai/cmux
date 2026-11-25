@@ -2471,6 +2471,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-no-checkout"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64",
+ "cmux-no-checkout",
+ "cmux-process",
+ "cmux-scope",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
 name = "cmux-output-paint"
 version = "0.1.0"
 
@@ -3221,6 +3240,7 @@ dependencies = [
  "cmux-lifeline",
  "cmux-link",
  "cmux-migrate",
+ "cmux-no-checkout",
  "cmux-panic-log",
  "cmux-process",
  "cmux-projection",

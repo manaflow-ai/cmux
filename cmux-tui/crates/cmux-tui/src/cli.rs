@@ -186,6 +186,8 @@ mod repo_mcp_lazy;
 #[cfg(unix)]
 pub(crate) mod runnable_link;
 #[cfg(unix)]
+mod repo_remote;
+#[cfg(unix)]
 mod safe_mode;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
 #[cfg(unix)]
