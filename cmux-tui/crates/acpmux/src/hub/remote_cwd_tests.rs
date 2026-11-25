@@ -66,7 +66,7 @@ fn only_a_new_remote_claude_session_is_checked() {
     let f = fixture();
     let projects = f.home.join("Projects");
     let gate =
-        |remote, trigger, kind| admit_new(NewSession { remote, trigger, kind }, &projects, &f.tmp);
+        |remote, trigger, kind| admit_new(NewSession { remote, trigger, kind }, &projects, &f.tmp, None);
     let err = gate(true, false, HarnessKind::ClaudeStdio).unwrap_err();
     assert_eq!(err.data.unwrap()["reason"], "remote.cwd_not_checkout");
     assert!(gate(false, false, HarnessKind::ClaudeStdio).is_ok(), "a local session is unchanged");
@@ -79,7 +79,8 @@ fn only_a_new_remote_claude_session_is_checked() {
         admit_new(
             NewSession { remote: true, trigger: false, kind: HarnessKind::ClaudeStdio },
             &app,
-            &f.tmp
+            &f.tmp,
+            None
         )
         .is_ok()
     );
@@ -98,4 +99,34 @@ fn a_symlink_into_a_checkout_is_judged_by_where_it_leads() {
         check(&up, &f.tmp).is_err(),
         "a link in the temporary folder to a non-checkout is not scratch"
     );
+}
+
+#[test]
+fn a_chat_folder_under_home_chats_is_fine_and_nothing_else_there() {
+    use crate::config::HarnessKind;
+    let f = fixture();
+    let chats = f.home.join("chats");
+    std::fs::create_dir_all(chats.join("fix-login/deeper")).unwrap();
+    let gate = |cwd: &Path, chats: Option<&Path>| {
+        admit_new(
+            NewSession { remote: true, trigger: false, kind: HarnessKind::ClaudeStdio },
+            cwd,
+            &f.tmp,
+            chats,
+        )
+    };
+    // The folder a vmBoundary peer's folderless chat gets (`remote_guard.rs`).
+    assert!(gate(&chats.join("fix-login"), Some(&chats)).is_ok());
+    assert!(gate(&chats, Some(&chats)).is_err(), "the chats folder itself");
+    assert!(gate(&chats.join("fix-login/deeper"), Some(&chats)).is_err(), "deeper down");
+    assert!(gate(&chats.join("missing"), Some(&chats)).is_err(), "a folder that is not there");
+    assert!(gate(&f.home.join("Projects"), Some(&chats)).is_err(), "anything else still");
+    assert!(gate(&chats.join("fix-login"), None).is_err(), "no chats folder known");
+    #[cfg(unix)]
+    {
+        // A `chats` that is a link to the home directory names no chat folder.
+        let link = f.home.join("chats-link");
+        std::os::unix::fs::symlink(&f.home, &link).unwrap();
+        assert!(gate(&link.join("Projects"), Some(&link)).is_err());
+    }
 }
