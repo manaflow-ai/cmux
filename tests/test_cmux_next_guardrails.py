@@ -2474,6 +2474,7 @@ class HookTests(Fixture):
                          "scripts/ci/deadline_http.py", "scripts/web-lint.sh",
                          "scripts/merge-xcstrings.py",
                          "scripts/merge-pbxproj.py", "scripts/merge-baseline.py", "scripts/merge-daemon-capabilities.py", "scripts/merge-insertions.py",
+                         "scripts/merge-cargo-lock.py",
                          "scripts/ci/merge_main_resolver.py", "scripts/ci/validate_test_execution_registry.py",
                          "scripts/ci/test_execution_registry.py", "scripts/ci/workload_entrypoints.py",
                          "scripts/normalize-pbxproj.py", "scripts/webviews_bun_version.py", *checks):

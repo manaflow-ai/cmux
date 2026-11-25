@@ -1,6 +1,6 @@
 // The agent pane's host line never moves the content (Leo, 2026-11-21: "stop layout shifting"): the same
-// in-flow skeleton while connected, reconnecting before and past the 10 s bound, restoring, waiting for the
-// service and failed with Retry. test/support/noLayoutShift.ts is the check; bench/host-line-shift.bench.ts
+// in-flow skeleton while connected, reconnecting before and past the 10 s bound, restoring and failed with
+// Retry. test/support/noLayoutShift.ts is the check; bench/host-line-shift.bench.ts
 // measures the same states in Chromium. The last test is the control: the line as it was drawn before (a row in
 // flow) is caught by the same check.
 import { afterEach, expect, test } from "bun:test";
@@ -8,8 +8,7 @@ import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { HostLineSlot, HostRecoveringLine, HostUnavailableLine, HostWaitingLine } from "./HostError";
-import { RECONNECT_LINE_AFTER_MS } from "./hostRetry";
+import { HostLineSlot, HostRecoveringLine, HostUnavailableLine } from "./HostError";
 import { settleReact } from "../../../test/support/domTeardown";
 import {
   cssRules,
@@ -78,7 +77,7 @@ function dock(line: React.ReactNode, slotted = true) {
   );
 }
 
-const LONG = RECONNECT_LINE_AFTER_MS + 2_000;
+const LONG = 12_000;
 
 const draws = (container: HTMLElement) => {
   root ??= createRoot(container);
@@ -90,13 +89,11 @@ test("the host line moves nothing in any state: connected, reconnecting, restori
   const draw = draws(container);
   const signature = await drawStates(container, {
     connected: () => draw(<HostRecoveringLine />),
-    "reconnecting, under the bound": () =>
-      draw(<HostRecoveringLine relinkingSince={0} now={RECONNECT_LINE_AFTER_MS - 1} />),
-    "reconnecting, past the bound": () => draw(<HostRecoveringLine relinkingSince={0} now={LONG} />),
-    "reconnecting, dot": () => draw(<HostRecoveringLine relinkingSince={0} now={LONG} variant="dot" />),
-    "reconnecting, corner": () => draw(<HostRecoveringLine relinkingSince={0} now={LONG} variant="corner" />),
-    restoring: () => draw(<HostRecoveringLine restoring={{ waitedMs: LONG, at: 0 }} now={0} />),
-    "waiting for the service": () => draw(<HostWaitingLine since={0} now={60_000} onRestart={() => undefined} />),
+    "dropped, reconnect in flight": () => draw(<HostRecoveringLine now={LONG} />),
+    "link down": () => draw(<HostRecoveringLine linkDown now={LONG} />),
+    "link down, dot": () => draw(<HostRecoveringLine linkDown now={LONG} variant="dot" />),
+    "link down, corner": () => draw(<HostRecoveringLine linkDown now={LONG} variant="corner" />),
+    restoring: () => draw(<HostRecoveringLine linkDown restoring={{ waitedMs: LONG, at: 0 }} now={0} />),
     "failed, with Retry": () =>
       draw(<HostUnavailableLine message="Update cmux." selfRetrying={false} onRetry={() => undefined} />),
     "failed, self-retrying": () => draw(<HostUnavailableLine message="Can't connect." />),
@@ -106,14 +103,16 @@ test("the host line moves nothing in any state: connected, reconnecting, restori
   expectSameFlow(signature);
 });
 
-test("nothing shows under the bound, and the chip past it is out of flow", async () => {
+test("nothing shows while the link is down, and the restore's chip is out of flow", async () => {
   const container = installDom();
   const draw = draws(container);
-  await draw(<HostRecoveringLine relinkingSince={0} now={RECONNECT_LINE_AFTER_MS - 1} />);
+  await draw(<HostRecoveringLine now={LONG} />);
   expect(container.querySelector(".acpmux-host-chip, .acpmux-host-line")).toBeNull();
-  await draw(<HostRecoveringLine relinkingSince={0} now={RECONNECT_LINE_AFTER_MS} />);
+  await draw(<HostRecoveringLine linkDown now={0} />);
+  expect(container.querySelector(".acpmux-host-chip, .acpmux-host-line")).toBeNull();
+  await draw(<HostRecoveringLine linkDown restoring={{ waitedMs: 0, at: 0 }} now={0} />);
   const chip = container.querySelector(".acpmux-host-chip")!;
-  expect(chip.textContent).toBe("Reconnecting…");
+  expect(chip.textContent).toContain("Restoring sessions…");
   expectOutOfFlow(chip);
   expect(container.querySelector(".acpmux-host-line")).toBeNull();
 });

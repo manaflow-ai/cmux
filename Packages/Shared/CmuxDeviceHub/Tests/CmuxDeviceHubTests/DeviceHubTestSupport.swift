@@ -1,6 +1,13 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+@preconcurrency import Crypto // swift-crypto marks its key types Sendable only on Apple platforms
+#endif
 @testable import CmuxDeviceHub
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Software keys: tests only. The app's keys are always in the Secure Enclave.
 struct SoftwareDeviceKeys: DeviceKeyMaterial {
@@ -133,7 +140,8 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 
-func makeClient(_ hub: StubHub, identity: DeviceIdentity = .software(), token: String = "stack-token") -> DeviceHubClient {
+func makeClient(_ hub: StubHub, identity: DeviceIdentity = .software(), token: String = "stack-token",
+                buildSpace: DeviceHubBuildSpace = .nightly) -> DeviceHubClient {
     DeviceHubClient(baseURL: hub.baseURL, identity: identity, tokens: DeviceHubAccountToken { token },
-                    session: StubHub.session, now: fixedNow)
+                    buildSpace: buildSpace, session: StubHub.session, now: fixedNow)
 }

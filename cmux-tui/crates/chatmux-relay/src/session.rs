@@ -27,7 +27,6 @@ use tokio::sync::mpsc;
 use tokio::sync::{Mutex as AsyncMutex, OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinSet;
 use tokio::time::timeout;
-use tokio_tungstenite::connect_async_with_config;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::{Error as TungsteniteError, Message};
 use tokio_util::sync::CancellationToken;
@@ -607,7 +606,12 @@ async fn relay_session(
     let websocket_config = WebSocketConfig::default()
         .max_message_size(Some(MAX_INBOUND_FRAME_BYTES))
         .max_frame_size(Some(MAX_INBOUND_FRAME_BYTES));
-    let connect = connect_async_with_config(socket_url.as_str(), Some(websocket_config), true);
+    let connect = cmux_egress::ws::connect_async_with_config(
+        socket_url.as_str(),
+        Some(websocket_config),
+        true,
+        "chatmux_relay::session",
+    );
     let (socket, _response) = tokio::select! {
         biased;
         _ = cancellation.cancelled() => return Ok(false),

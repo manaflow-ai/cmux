@@ -15,7 +15,6 @@ use super::*;
 use crate::workspace_registry::workspace_rows_commit::{
     MovedWorkspace, later_workspace_rows, stored_live_workspace,
 };
-use cmux_json::JsonGet as _;
 
 /// One new workspace and its place in the order (the count of workspaces for
 /// an append): a commit that adds it and changes nothing else.
@@ -94,6 +93,25 @@ impl WorkspaceRegistry {
                 position: insert.position,
             }),
         })
+    }
+
+    /// Whether the stored order holds a live row at `position` or later: one read of the live
+    /// position index, not a walk. An append at the in-memory count finds none when the store
+    /// and memory agree; a row there is one memory let go but the store kept (a staged create
+    /// whose rollback the store refused), which only the full commit's restatement removes.
+    pub(crate) fn stored_order_reaches(&self, position: usize) -> anyhow::Result<bool> {
+        let position =
+            i64::try_from(position).context("workspace position exceeds SQLite range")?;
+        Ok(self
+            .connection
+            .get()
+            .query_row(
+                "SELECT 1 FROM workspaces WHERE tombstoned = 0 AND position >= ?1 LIMIT 1",
+                [position],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some())
     }
 
     /// Commit a workspace registry revision that adds `insert` and changes nothing else (see

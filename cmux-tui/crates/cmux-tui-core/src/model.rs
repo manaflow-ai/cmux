@@ -783,7 +783,7 @@ impl State {
     /// Rename the workspace at `index` (the rename's only writer of a live workspace's name,
     /// so [`Self::workspace_name_numbers`] follows it).
     pub(crate) fn set_workspace_name(&mut self, index: usize, name: String) {
-        let workspace = &mut self.workspaces[index];
+        let Some(workspace) = self.workspaces.get_mut(index) else { return };
         self.workspace_name_numbers.remove(&workspace.name);
         self.workspace_name_numbers.add(&name);
         workspace.name = name;
@@ -802,8 +802,10 @@ impl State {
         self.workspaces.insert(new_index, workspace);
         // Only the workspaces between the two positions changed place; the keys did not change.
         let (low, high) = (old_index.min(new_index), old_index.max(new_index));
-        for index in low..=high.min(self.workspaces.len().saturating_sub(1)) {
-            self.workspace_index_by_id.insert(self.workspaces[index].id, index);
+        for (index, workspace) in
+            self.workspaces.iter().enumerate().take(high.saturating_add(1)).skip(low)
+        {
+            self.workspace_index_by_id.insert(workspace.id, index);
         }
     }
 
