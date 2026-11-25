@@ -7,6 +7,7 @@
 //! One object per terminal, called on the main actor; a mutex keeps it
 //! `Sync` for uniffi and is held only for the call.
 
+// Not exported to Swift: the mutex is per object, never shared across terminals.
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use cmux_terminal_projection::{AltPan, DEFAULT_HISTORY_LIMIT, Projection, Segment};
