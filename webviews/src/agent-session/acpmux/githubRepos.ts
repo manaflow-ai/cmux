@@ -177,7 +177,9 @@ export function githubFullName(value: string | undefined): string | undefined {
     .replace(/^(?:https?:\/\/|git@)github\.com[/:]/i, "")
     .replace(/\.git$/i, "")
     .replace(/\/+$/, "");
-  return /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/.test(text) && !/\/\.{1,2}$/.test(text) ? text : undefined;
+  return /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/.test(text) && !/\/\.{1,2}$/.test(text)
+    ? text
+    : undefined;
 }
 
 /// The host's word that GitHub changed under this page (the app finished an install GitHub handed back to it, #46018):
@@ -353,7 +355,10 @@ export function createGitHubPicker(
           return "opened";
         },
         (error: unknown) => {
-          set({ connecting: false, connectError: errorMessage(error).trim() || translate("composer.githubConnectFailed") });
+          set({
+            connecting: false,
+            connectError: errorMessage(error).trim() || translate("composer.githubConnectFailed"),
+          });
           return "failed";
         },
       );

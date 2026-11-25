@@ -497,7 +497,9 @@ function ConnectGitHubAction({
   const github = useGitHubPicker(picker);
   const waiting = useRef<(() => void) | undefined>(undefined);
   const retry = useRef(onConnected);
-  retry.current = onConnected;
+  useEffect(() => {
+    retry.current = onConnected;
+  }, [onConnected]);
   // Unmounted (the start went on, or the chat closed): a connect still out retries nothing.
   const mounted = useRef(true);
   useEffect(() => {
