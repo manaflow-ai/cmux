@@ -46,17 +46,19 @@ public struct CloudMachineSecrets: Equatable, Sendable {
         return (items, missing)
     }
 
-    /// Names every Cloud machine of this person gets whenever this Mac holds a global value
-    /// (`cmux cloud secret set NAME`, account `*/NAME`), whether or not its machine config declares them.
+    /// Names a machine takes without its machine config declaring them (cmux-remote `ALWAYS_DELIVERED`,
+    /// the same list): every machine of this person whose config has applied gets each one this Mac holds.
     /// The Claude setup token (`claude setup-token`) is one: a subscription login, which cmux keeps only
     /// in this Mac's Keychain and never on its servers (cmux-platform docs/cloud-secrets.md), and which
-    /// signs Claude Code in on the machine (acpmux `claude_auth` reads `machine-secrets.env`).
+    /// signs Claude Code in on the machine (acpmux reads `machine-secrets.env`).
     public static let alwaysDelivered = ["CLAUDE_CODE_OAUTH_TOKEN"]
 
-    /// `declared`, then each ``alwaysDelivered`` name the index holds globally and `declared` lacks.
-    /// One the Mac doesn't hold is never `missing`: the person may not use it.
-    public static func withAlwaysDelivered(_ declared: [String], index: [String: Int64]) -> [String] {
-        declared + alwaysDelivered.filter { !declared.contains($0) && index["*/\($0)"] != nil }
+    /// `declared`, then each ``alwaysDelivered`` name `declared` lacks that the index holds for this
+    /// delivery's scope (globally, or for `repo`). One the Mac doesn't hold is never `missing`.
+    public static func withAlwaysDelivered(_ declared: [String], repo: String?, index: [String: Int64]) -> [String] {
+        declared + alwaysDelivered.filter { name in
+            !declared.contains(name) && (index["*/\(name)"] != nil || repo.map { index["\($0.lowercased())/\(name)"] != nil } == true)
+        }
     }
 
     /// The secret names the machine's last finished apply declared (``CloudMachineConfig/statusPath``);
