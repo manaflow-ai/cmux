@@ -3,12 +3,14 @@
 // `auto`, Only in Cloud `cloud`, Only on This Mac `local`. High priority (the lit Hybrid, Keep
 // Running) has no wire yet, so neither mount offers it: no light, no switch, no slot count.
 import { useMemo } from "react";
+import { callNative } from "../callNative";
 import { useHeaderState } from "../header/headerState";
 import { useT, type Translate } from "../i18n";
 import { placeName } from "../place/PlaceControl";
 import type { PlaceState } from "../place/placeModel";
 import { placeActions, type PlaceClaims } from "../place/usePlace";
 import { CloudTriToggle } from "./CloudTriToggle";
+import type { HybridBlockedWhy } from "./hybridModel";
 import type { SessionInfoCloudControl } from "./SessionInfoCloud";
 
 /// Where the chat runs now, in the place lane's own words: the move in flight, else the place the
@@ -44,8 +46,17 @@ export function HybridChip({
       named
       where={placementLine(place, t)}
       onChange={actions.setMode}
+      blocked={place.blocked}
+      onBlockedClick={blockedAction}
+      holders={place.holders}
     />
   );
+}
+
+/// A blocked control's click: Signed Out opens Sign In (the pane's `palette.auth.signIn`, a connect action). The other
+/// reasons have no action wired yet, so their click does nothing.
+export function blockedAction(why: HybridBlockedWhy): void {
+  if (why === "signed-out") void callNative("action.run", { id: "palette.auth.signIn" }).catch(() => undefined);
 }
 
 /// Session Info's cloud control for the tab's own chat: where it may run. No `setLit`, so the Keep
