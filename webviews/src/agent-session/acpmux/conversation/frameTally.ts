@@ -12,6 +12,8 @@
 // frames come; none while they do not. A send the daemon refuses or loses is dropped (the tally is a
 // sample, never a log), and after FAILURES_TO_STOP in a row the tally stops sending for good.
 
+import { slackTimersFor } from "../../../pages/shared/slackTimers";
+
 /** Sends one `_acpmux/perf` request (the page's client, direct.ts `perf`). */
 export type TallySend = (params: Record<string, unknown>) => Promise<unknown>;
 
@@ -34,7 +36,9 @@ export class FrameTally {
   private pending = false;
   private failures = 0;
 
-  constructor(private readonly later: Later = (callback, ms) => setTimeout(callback, ms)) {}
+  // By default on the page's shared timer with a whole period of slack (a sample can go late): the
+  // flush rides a heartbeat instead of waking a chat at rest by itself (slackTimers.ts).
+  constructor(private readonly later: Later = (callback, ms) => slackTimersFor().later(callback, ms, ms)) {}
 
   /** Sends through `send` from now on (the page's client once it connects; a new one replaces it). */
   attach(send: TallySend): void {
