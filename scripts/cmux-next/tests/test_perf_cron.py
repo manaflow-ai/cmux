@@ -4852,6 +4852,43 @@ class UnreadPartFirstTests(unittest.TestCase):
         d = cron.decide(state, at(30), None, None, self.supported, None, newest=self.NEW)
         self.assertEqual(d["action"], "finish")
 
+    def test_a_stale_linux_part_runs_again_while_the_tip_waits_on_mac_parts(self):
+        # 2026-11-25: tip b76703549055 ran web-ui-god once, stored nothing, then waited two days on Mac parts, and
+        # NOW's idle_chat_rest_wakeups_per_s stayed stale behind it.
+        state = self.mid_tip(stored=[])
+        cur = state["current"]
+        cur["yield_hours"] = 3 * cron.PART_STALE_HOURS  # the days went to nightlies: under the active bound
+        cron.record_part(cur, "coord-sim", {"state": "done", "worker": cron.LEGACY_LINUX_CLASS}, "u", T0)
+        d = cron.decide(state, at(1), None, None, self.supported, None)
+        self.assertEqual(d["linux_parts"], [], "rows under PART_STALE_HOURS old: nothing runs again")
+        t = cron.PART_STALE_HOURS + 1
+        for name, e in state["part_stored"].items():
+            if name != "coord-sim":
+                e["at"] = cron.iso(at(t - 1))  # the others stored rows since: only coord-sim's are stale
+        cur.pop("host_asked_since", None)  # its host still takes parts
+        d = cron.decide(state, at(t), None, None, self.supported, None)
+        self.assertEqual(d["linux_parts"], ["coord-sim"], "its rows went stale while wake and power wait")
+        self.assertIn("wake", cur["parts_todo"])
+        cron.record_part(cur, "coord-sim", {"state": "failed", "worker": cron.LEGACY_LINUX_CLASS}, "u", at(t))
+        cur.pop("host_asked_since", None)
+        d = cron.decide(state, at(t + 1), None, None, self.supported, None)
+        self.assertEqual(d["linux_parts"], [], "at most once per PART_STALE_HOURS, even when it stored nothing")
+        cur.pop("host_asked_since", None)
+        for name, e in state["part_stored"].items():
+            if name != "coord-sim":
+                e["at"] = cron.iso(at(t + cron.PART_STALE_HOURS))
+        d = cron.decide(state, at(t + cron.PART_STALE_HOURS + 1), None, None, self.supported, None)
+        self.assertEqual(d["linux_parts"], ["coord-sim"])
+
+    def test_no_linux_part_runs_again_once_the_mac_parts_are_done(self):
+        state = self.mid_tip(stored=[])
+        cur = state["current"]
+        cur["yield_hours"] = 3 * cron.PART_STALE_HOURS
+        for name in ("wake", "power", "coord-sim"):
+            cron.record_part(cur, name, {"state": "done", "worker": cron.BENCH_WORKER}, "u", T0)
+        d = cron.decide(state, at(cron.PART_STALE_HOURS + 5), None, None, self.supported, None)
+        self.assertEqual(d["action"], "finish", "the next tip measures every part anyway")
+
     def test_an_unread_part_goes_ahead_of_a_stale_one(self):
         state = self.mid_tip()
         state["part_stored"]["wake"]["at"] = cron.iso(at(-40))
@@ -4986,12 +5023,57 @@ class LinuxControllerRouteTests(unittest.TestCase):
             if routes[-1] == "runner":
                 break
             t += datetime.timedelta(minutes=5)
-            cron.record_part(cur, "web-ui-god", {"state": "yielded", "tail": ["not queued: no idle Linux worker"]}, "r", t)
+            cron.record_part(cur, "web-ui-god", {"state": "yielded", "tail": ["pre-empted by a nightly build"]}, "r", t)
             self.assertIn("web-ui-god", cur["parts_todo"])
             self.assertNotEqual(cur["parts"]["web-ui-god"]["state"], "yielded_out")
         self.assertEqual(routes, ["request"] * cron.LINUX_REQUESTS_MAX + ["runner"],
                          "each yielded answer counts at once (no answer window), and the runner is the last try")
         self.assertLess(t - T0, datetime.timedelta(hours=1))
+
+    POOL_FULL = ("not queued: cmux-linux-pool-1125-060400-1890ddf4 cannot run the step (labels, toolchain, class or disk); "
+                 "cmux-linux-pool-1125-115313-c9b8f520 is not online and healthy; 145 more busy")
+
+    def test_a_full_pool_sends_the_part_to_the_runner_and_the_parts_behind_it_with_it(self):
+        # 2026-11-25: tip 6c8931ce22be's 23 Linux parts went to the controller one a tick; web-ui-power-user, first,
+        # was asked again after each "not queued" answer, and web-ui-ladder and web-ui-fidelity (21st and 22nd) were
+        # never asked. Now the part answered so runs on the runner, the next is asked, and the rest run beside it.
+        order = ["web-ui-power-user", "web-ui-settled", "web-ui-flat", "web-ui-ladder", "web-ui-fidelity"]
+        cur = cron.new_measurement(self.SHA, "tip", list(order), T0)
+        self.assertEqual(cron.linux_picks(cur, order, T0, True, True), ([], "web-ui-power-user", []))
+        t = T0 + datetime.timedelta(minutes=9)
+        cron.record_part(cur, "web-ui-power-user", {"state": "yielded", "tail": [self.POOL_FULL]}, "r", t)
+        self.assertTrue(cron.linux_pool_full(cur, t))
+        runners, request, waiting = cron.linux_picks(cur, order, t, True, True)
+        self.assertEqual((runners, request, waiting),
+                         (["web-ui-power-user", "web-ui-flat", "web-ui-ladder", "web-ui-fidelity"], "web-ui-settled", []))
+        self.assertEqual(sorted(cur["linux_requests"]), ["web-ui-power-user", "web-ui-settled"],
+                         "the parts sent to the runner unasked keep no request")
+        cron.record_part(cur, "web-ui-ladder", {"state": "done"}, "r", t + datetime.timedelta(minutes=30))
+        self.assertNotIn("web-ui-ladder", cur["parts_todo"])
+        self.assertTrue(cron.linux_pool_full(cur, t + datetime.timedelta(minutes=30)), "a runner result says nothing of the pool")
+
+    def test_the_pool_takes_requests_again_after_it_runs_a_part_or_after_the_window(self):
+        order = ["web-ui-god", "diff-viewer", "web-ui"]
+        cur = cron.new_measurement(self.SHA, "tip", list(order), T0)
+        cron.linux_picks(cur, order, T0, True, True)
+        cron.record_part(cur, "web-ui-god", {"state": "yielded", "tail": [self.POOL_FULL]}, "r", T0)
+        later = T0 + datetime.timedelta(minutes=cron.LINUX_POOL_FULL_MINUTES + 1)
+        self.assertFalse(cron.linux_pool_full(cur, later))
+        self.assertEqual(cron.linux_picks(cur, order, later, True, True), (["web-ui-god"], "diff-viewer", []),
+                         "past the window only the part answered so goes to the runner")
+        cur = cron.new_measurement(self.SHA, "tip", list(order), T0)
+        cron.linux_picks(cur, order, T0, True, True)
+        cron.record_part(cur, "web-ui-god", {"state": "yielded", "tail": [self.POOL_FULL]}, "r", T0)
+        cron.linux_picks(cur, order, T0, True, True)  # diff-viewer asked
+        cron.record_part(cur, "diff-viewer", {"state": "done"}, "r", T0)
+        self.assertFalse(cron.linux_pool_full(cur, T0), "the pool ran a part: one request a tick again")
+
+    def test_a_yield_that_is_not_a_full_pool_keeps_the_request_count(self):
+        cur = self.cur()
+        cron.linux_route(cur, "web-ui-god", T0, True, True)
+        cron.record_part(cur, "web-ui-god", {"state": "yielded", "tail": ["pre-empted by a nightly build"]}, "r", T0)
+        self.assertFalse(cron.linux_pool_full(cur, T0))
+        self.assertEqual(cron.linux_picks(cur, ["web-ui-god", "diff-viewer"], T0, True, True), ([], "web-ui-god", []))
 
     def test_the_runner_yield_after_a_fallback_counts_as_a_yield(self):
         cur, t = self.cur(), T0
