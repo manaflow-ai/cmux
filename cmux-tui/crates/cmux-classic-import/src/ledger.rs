@@ -122,6 +122,9 @@ impl Ledger {
 
 /// What the ledger file held.
 #[derive(Debug, Clone, PartialEq)]
+// One `Load` exists per ledger read and is matched at once, never stored in
+// bulk, so the inline ledger costs nothing a `Box` would save.
+#[allow(clippy::large_enum_variant)]
 pub enum Load {
     /// No run happened on this Mac for this build's channel.
     None,
