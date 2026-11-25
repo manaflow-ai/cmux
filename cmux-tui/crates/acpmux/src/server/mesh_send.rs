@@ -634,6 +634,7 @@ mod tests {
                 host: "machine-b".into(),
                 user: "person-1".into(),
                 last_seen_at: 5,
+                ..Default::default()
             }],
             sessions: vec![crate::mesh::BookSession {
                 name: "claude-sr2-coord-old".into(),

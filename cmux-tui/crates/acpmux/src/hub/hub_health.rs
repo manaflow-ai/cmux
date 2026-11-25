@@ -99,6 +99,9 @@ impl Hub {
         self.mesh_book_hosts()
             .iter()
             .filter_map(|row| row.get("name").and_then(Value::as_str).map(str::to_owned))
+            // A machine that pushed its health on its heartbeat needs no ask (RFD 0181 T1); an
+            // old daemon that sends none is still pulled.
+            .filter(|host| !self.mesh_book_pushed_fresh(host))
             .collect()
     }
 }
