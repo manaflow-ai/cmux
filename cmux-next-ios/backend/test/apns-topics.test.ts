@@ -8,7 +8,8 @@ import { apnsTopics, sendCloudAttention } from "../src/push.ts"
 import type { PushRegistration } from "../src/store.ts"
 import { call, register, token } from "./helpers.ts"
 
-// The App Store app (com.cmux.app) and the TestFlight app (cmux INTERNAL, dev.cmux.app.internal) share one
+// The AppStore-configuration app (com.cmux.app) and cmux INTERNAL (dev.cmux.app.internal, the TestFlight and
+// App Store submission app) share one
 // Worker. Each phone registers its own bundle id; every push to it carries that topic, on the APNs host of
 // the environment it registered with.
 const APP_STORE = "com.cmux.app"
@@ -94,6 +95,7 @@ describe("APNs topics per app bundle", () => {
     const config = { keyP8: await exportPKCS8(privateKey), keyId: "KEYTOPIC2", teamId: "TEAMTOPIC" }
     const target = (tok: string, topic: string): PushRegistration => ({
       deviceId: crypto.randomUUID(),
+      space: "",
       ownerUserId: "owner",
       token: tok,
       environment: "production",

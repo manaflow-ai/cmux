@@ -329,10 +329,14 @@ mod tests {
                 now,
             )
             .unwrap();
+        // On an idle link a one-datagram frame goes out with a parity copy:
+        // the first datagram completes the frame and the copy adds nothing.
+        let mut delivered = 0;
         for d in &out.datagrams {
             let (header, payload) = DatagramHeader::decode(d).unwrap();
-            assert_eq!(bridge.on_datagram(&header, payload, d.len(), 2_000_000, now).len(), 1);
+            delivered += bridge.on_datagram(&header, payload, d.len(), 2_000_000, now).len();
         }
+        assert_eq!(delivered, 1);
         let deliver = |engine: &mut MediaEngine, bytes: Vec<u8>, now: u64| {
             let mut deframer = cmux_rd_proto::StreamDeframer::default();
             deframer.extend(&bytes);

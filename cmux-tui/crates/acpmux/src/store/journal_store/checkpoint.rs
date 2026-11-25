@@ -134,6 +134,8 @@ impl Inner {
             Ok(()) => order.failures = 0,
             // Slow, not failing: neither a failure in a row nor a success.
             Err(error) if error.is::<SlowJournal>() => {}
+            // A full disk: not a failure in a row; the store waits for room ([`super::space`]).
+            Err(error) if self.space.is_full() || crate::recovery::is_out_of_space(error) => {}
             Err(error) if !order.frozen => {
                 order.failures = order.failures.saturating_add(1);
                 if order.failures >= CHECKPOINT_FAILURES_TO_STOP {
@@ -150,6 +152,9 @@ impl Inner {
 
     fn checkpoint_once(&self) -> Result<()> {
         let (lsn, dirty, metas, read) = {
+            // No append half done: every record up to `applied` has its line written and its
+            // chat in `dirty` (an append notes both only after its record, off this lock).
+            let quiet = self.quiet();
             let mut order = self.order.lock_or_recover();
             anyhow::ensure!(
                 !order.frozen,
@@ -158,6 +163,7 @@ impl Inner {
             if !order.has_work() {
                 let checkpointed = order.checkpointed;
                 drop(order);
+                drop(quiet);
                 self.retire(checkpointed);
                 return Ok(());
             }

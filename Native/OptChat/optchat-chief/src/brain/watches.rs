@@ -26,17 +26,24 @@ impl Brain {
                 "watch: {WATCHES_KEPT} watches are pending already; cancel one first (watch cancel: w<N> or all)"
             ));
         }
+        let seconds = call.timeout_seconds.unwrap_or(WATCH_DEFAULT_SECONDS);
+        // Every GitHub wait goes through glaeda-gh's daemon, never a 15 s re-poll of
+        // gh; file and pid checks too (watch_route.rs).
+        let (command, until) = if crate::watch::glaeda_available() {
+            match crate::watch::route(&command, call.until.as_deref(), seconds) {
+                crate::watch::Route::Keep => (command, call.until),
+                crate::watch::Route::Rewrite { command, until } => (command, until),
+                crate::watch::Route::Refuse(why) => return Err(why),
+            }
+        } else {
+            (command, call.until)
+        };
         self.state.last_watch += 1;
         let now = now_ms();
-        let seconds = call.timeout_seconds.unwrap_or(WATCH_DEFAULT_SECONDS);
-        // A PR-merge poll on gh waits through glaeda instead (watch.rs).
-        let command = crate::watch::quota_safe(&command, call.until.as_deref(), seconds)
-            .filter(|_| crate::watch::glaeda_available())
-            .unwrap_or(command);
         let watch = Watch {
             id: format!("w{}", self.state.last_watch),
             command,
-            until: call.until,
+            until,
             note: call.note.unwrap_or_default(),
             asked_ms: now,
             deadline_ms: now + seconds * 1000,

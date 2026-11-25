@@ -69,6 +69,7 @@ import {
 } from "../../../../services/billing/plans";
 import { isVaultEnabled } from "../../../../services/vault/config";
 import { isWebPlusPlanEnabled as isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
+import { isCloudIntroEnabled } from "../../../../services/billing/cloudIntro";
 
 const ENTERPRISE_CTA_URL = "/enterprise";
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
@@ -568,7 +569,7 @@ function PricingContent({
       <main className="w-full max-w-6xl mx-auto px-6 py-16 sm:py-20">
         {/* Post-checkout / billing states from /api/billing/checkout */}
         <Suspense fallback={null}>
-          <ProWelcomeBanner />
+          <ProWelcomeBanner cloudIntro={isCloudIntroEnabled()} />
         </Suspense>
 
         <>

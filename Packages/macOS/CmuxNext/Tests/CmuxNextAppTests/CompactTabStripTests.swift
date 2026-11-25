@@ -69,11 +69,10 @@ import Testing
         click(strip.convert(strip.convert(CGPoint(x: cell.frame.minX + close.midX, y: cell.frame.minY + close.midY), from: strip.tabsClip), to: nil), in: window)
         #expect(intents.contains { if case .close(TabID("tab1"), _) = $0 { true } else { false } }, "\(intents)")
 
-        // The + keeps its width and opens a tab; the split look is a tab's height (#41212).
+        // The + keeps its width and opens a tab; it is the pane ⋮'s height in every look (Lawrence 2026-11-20).
         let plus = strip.convert(strip.newTabButton.frame, from: strip.contentView)
         #expect(plus.width == strip.metrics.newTabButtonWidth, "the + is \(plus.size)")
-        #expect(plus.height == NewTabButtonView.frameHeight(split: strip.newTabButton.splitSegment, side: plus.width,
-                                                           tabHeight: cell.frame.height), "the + is \(plus.size)")
+        #expect(plus.height == NewTabButtonView.frameHeight, "the + is \(plus.size)")
         click(strip.convert(CGPoint(x: plus.midX, y: plus.midY), to: nil), in: window)
         #expect(intents.contains { if case .newTab = $0 { true } else { false } }, "\(intents)")
     }

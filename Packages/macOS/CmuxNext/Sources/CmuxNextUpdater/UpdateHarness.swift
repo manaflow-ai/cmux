@@ -17,6 +17,8 @@ import Darwin
 /// builds (stable, NIGHTLY, RC) compile none of this.
 nonisolated public struct UpdateHarness: Sendable, Equatable {
     public static let infoKey = "CMUXNextUpdateHarness"
+    /// The signing team a harness copy (signed ad hoc, no team) answers for rollback checks.
+    static let adHocTeam = "update-harness-ad-hoc"
 
     /// The loopback appcast every check reads.
     public let feedURL: String

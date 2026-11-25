@@ -35,7 +35,7 @@ export function OpenAppCard({ enabled = true, ports: suppliedPorts, onOpen }: Pr
         <div className="acpmux-open-app-card" key={app.port}>
           <div className="acpmux-open-app-card__copy">
             <strong>{t("cloudPreview.openApp")}</strong>
-            <span className={errors[app.port] ? "acpmux-open-app-card__error" : undefined} title={errors[app.port]}>
+            <span className={errors[app.port] ? "acpmux-open-app-card__error" : undefined}>
               {errors[app.port] || (
                 <>
                   {t("cloudPreview.port", { port: app.port })}

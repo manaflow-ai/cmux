@@ -395,8 +395,11 @@ impl Hub {
     /// profile is full access with `sessions.allowFullAccess` on, the mode is
     /// the full-access one the harness offers, no folder profile and no profile
     /// that pins its mode; `Hub::plain_session_is` again on the started
-    /// session). A proven caller session must itself run full access: a chat
-    /// it starts is never wider than it (`hub/start_mode.rs`, "Inherit").
+    /// session). Also Claude Code's own Auto, which a running chat may move to
+    /// without the person under the same start level or the harness's own
+    /// (`Hub::plain_own_start_is`). A proven caller session must itself run
+    /// full access: a chat it starts is never wider than it
+    /// (`hub/start_mode.rs`, "Inherit").
     async fn names_start_level(
         &self,
         caller: Option<&str>,
@@ -406,11 +409,17 @@ impl Hub {
         if start.adopts || start.preset.is_some() {
             return false;
         }
+        // The full-access mode a start naming none gets here, or Claude Code's own Auto under a
+        // start level that covers it (`plain_own_start_is`).
         let plain = match target {
             LevelTarget::Request { agent, profile, folder } => {
                 self.plain_start_is(agent, profile, folder, &start.mode).await
+                    || self.plain_own_start_is(agent, profile, folder, &start.mode).await
             }
-            LevelTarget::Session(meta) => self.plain_session_is(meta, &start.mode).await,
+            LevelTarget::Session(meta) => {
+                self.plain_session_is(meta, &start.mode).await
+                    || self.plain_own_session_is(meta, &start.mode).await
+            }
         };
         if !plain {
             return false;

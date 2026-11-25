@@ -42,7 +42,7 @@
 // where it stops, its end too. It stays open for its chat until closed (not across reloads);
 // prompts sent now always show.
 import { RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import { Icon } from "./icons/Icon";
 import { QueuedImages } from "./QueuedImages";
 import type { QueuedVideo } from "./queuedImagesModel";
@@ -59,10 +59,12 @@ import { AuthorChip } from "./multiplayer/Faces";
 import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SlashCommand } from "./slashCommands";
 import { useSkillWords } from "./conversation/skillWords";
 import { withSkillWords } from "./conversation/withSkillWords";
-import { type QueuedEntry, shownText } from "./composerQueueModel";
+import { claimedReply } from "./conversation/waitingAskStore";
+import { type QueuedEntry, shownText, heldReason } from "./composerQueueModel";
 import { acpmuxPerf } from "./perf";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { focusRoute } from "../../ui/focusRoute";
+import { noteUnpopOrigin } from "./conversation/unpopMorph";
 /** A queue of more queued prompts than this folds; folded, it shows `FOLD_SHOWS` of them. */
 const FOLD_AT = 3;
 const FOLD_SHOWS = 2;
@@ -213,6 +215,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   onChange,
   onLost,
   onLeave,
+  onList,
   readImage,
   onSideChat,
   commands,
@@ -240,6 +243,9 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   onLost?(text: string, id: string): void;
   /// Focus leaves the queue for the prompt.
   onLeave?(): void;
+  /// Hears the queue's list mount (its element) and leave (null): the composer marks its form
+  /// `data-queue` from it, never with a `:has(> .acpmux-composer-queue)` (transcript-motion-model step 7).
+  onList?(list: HTMLOListElement | null): void;
   /// Reads an image a queued prompt sends by its acpmux id, as a data URL (`_acpmux/attachment`).
   readImage?(id: string): Promise<string | undefined>;
   /// Opens a side chat that asks this prompt (as `/btw` does) and withdraws it from the queue; false
@@ -503,6 +509,14 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   // The row a move keeps focus on, once the new order draws.
   const refocus = useRef<string>(undefined);
   const list = useRef<HTMLOListElement>(null);
+  const listHeard = useRef(onList);
+  useLayoutEffect(() => {
+    listHeard.current = onList;
+  });
+  const attachList = useCallback((node: HTMLOListElement | null) => {
+    list.current = node;
+    listHeard.current?.(node);
+  }, []);
   const unfold = (next: boolean) => {
     setUnfolded(next);
     if (chat === undefined) return;
@@ -717,6 +731,8 @@ export const ComposerQueue = React.memo(function ComposerQueue({
       // A Save begun while the images were read (answered or not) changed what the row shows or
       // what its editor holds: the click is not carried out on the text it was made on.
       if (!now || theirs(now) || saveGeneration.current.get(entry.id) !== began) return;
+      // The un-pop: its words go back into the composer from where the row draws them (unpopMorph.ts).
+      noteUnpopOrigin(rowOf(list.current, entry.id));
       await act(entry.id, () => onCancelEdit(entry.id, entry.prompt, attachments));
     });
   // A side chat asks the prompt's text alone, so a prompt with images stays in the queue.
@@ -1006,7 +1022,10 @@ export const ComposerQueue = React.memo(function ComposerQueue({
     <>
       {!entry.next && (
         <span className="acpmux-hidden-label">
-          {t(entry.waking ? "composer.heldForWake" : entry.held ? "composer.heldForTrust" : "composer.queued")}
+          {t(
+            { wait: "composer.heldForWake", trust: "composer.heldForTrust" }[heldReason(entry) ?? "queued"] ??
+              "composer.queued",
+          )}
         </span>
       )}
       {editing === entry.id ? (
@@ -1052,7 +1071,13 @@ export const ComposerQueue = React.memo(function ComposerQueue({
               </>
             ) : (
               // A skill's `/name`, and the command it starts with, draw as in the prompt's bubble (SkillWord.tsx).
-              withSkillWords(withoutSkillDollars(entry.prompt, skills), skills.words, undefined, skills.leading)
+              // An answer a card sent reads as the answer, not its quote of the ask (`claimedReply`).
+              withSkillWords(
+                withoutSkillDollars(claimedReply(entry.prompt) ?? entry.prompt, skills),
+                skills.words,
+                undefined,
+                skills.leading,
+              )
             )}
           </span>
         </button>
@@ -1078,7 +1103,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   return (
     <>
       <ol
-        ref={list}
+        ref={attachList}
         className="ui-glass ui-glass-floats acpmux-composer-queue"
         data-unfolded={foldable && !folded ? "" : undefined}
         // The prompts the fold hides, still queued: the transcript keeps no room for them as it
@@ -1144,14 +1169,14 @@ export const ComposerQueue = React.memo(function ComposerQueue({
         {visible.flatMap((entry, index) => [
           // The prompts the folder's trust holds follow one note that says so (trustHeld.ts); those
           // a waking Cloud machine holds, one that says it wakes (cloudWake.ts).
-          entry.held && (!visible[index - 1]?.held || !visible[index - 1]?.waking !== !entry.waking) && (
+          heldReason(entry) && heldReason(entry) !== heldReason(visible[index - 1] ?? {}) && (
             <li
-              key={entry.waking ? "held-for-wake" : "held-for-trust"}
+              key={heldReason(entry) === "wait" ? "held-for-wake" : "held-for-trust"}
               className="acpmux-queue-paused acpmux-queue-held"
-              data-held-for={entry.waking ? "wake" : "trust"}
+              data-held-for={heldReason(entry) === "wait" ? "wake" : "trust"}
               aria-hidden="true"
             >
-              {entry.waking ? (
+              {heldReason(entry) === "wait" ? (
                 wakeNoteShown && <span data-enter="fade">{t("composer.heldForWake")}</span>
               ) : (
                 <span>{t("composer.heldForTrust")}</span>

@@ -31,6 +31,7 @@ import { planTierRank } from "./planTier";
 import { planItem } from "./subscriptionItems";
 import { APPLE_MANAGE_SUBSCRIPTIONS_URL } from "./apple/config";
 import type { BillingInterval } from "./plans";
+import { withoutEndedCloudIntro } from "./cloudIntro";
 
 export const PRO_PLAN_ID = "pro";
 export const GO_PLAN_ID = "go";
@@ -394,6 +395,7 @@ export async function resolveProPlanStatus(
       options.withFreshMetadataUser ?? withDefaultFreshProMetadataUser,
     );
   }
+  const passEnded = await removeEndedCloudIntroIfAvailable(user, options.withFreshMetadataUser);
 
   return {
     planId,
@@ -403,7 +405,7 @@ export async function resolveProPlanStatus(
     manageUrl: billingSource === "apple" ? APPLE_MANAGE_SUBSCRIPTIONS_URL : null,
     metadataPlanId,
     hasManualVmPlanOverride,
-    metadataChanged,
+    metadataChanged: metadataChanged || passEnded,
     ...(billingSource === "stripe" && hasActiveStripePro ? stripeSubscriptionFlags(stripeBillingStatus) : {}),
   };
 }
@@ -568,6 +570,40 @@ async function reconcileProMetadataIfAvailable(
       userId,
       (freshUser, lease) => reconcileFreshProMetadata(freshUser, activePlan, lease),
     );
+  } catch (error) {
+    if (
+      error instanceof AccountDeletionMutationBlockedError ||
+      error instanceof AccountDeletionUserMutationInProgressError ||
+      error instanceof AccountMetadataUserUnavailableError
+    ) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Read-time end of the cmux Cloud $1 pass (services/billing/cloudIntro.ts):
+ * once `cmuxNextPlanEndsAt` has passed, the three pass keys are removed from
+ * the fresh metadata under the account mutation lease, like the `cmuxPlan`
+ * mirror above. `cmuxPlan` and `cmuxVmPlan` are untouched. The pass is never
+ * granted again: its row in cloud_intro_passes stays `granted`.
+ */
+async function removeEndedCloudIntroIfAvailable(
+  user: ProReconcileUser,
+  withFreshMetadataUser: FreshProMetadataUserMutation = withDefaultFreshProMetadataUser,
+  now: Date = new Date(),
+): Promise<boolean> {
+  if (!user.id || !withoutEndedCloudIntro(user.clientReadOnlyMetadata, now)) return false;
+  try {
+    return await withFreshMetadataUser(user.id, async (freshUser, lease) => {
+      const metadata = proMetadataRecord(freshUser.clientReadOnlyMetadata);
+      const next = metadata.cmuxAccountDeleting === true ? null : withoutEndedCloudIntro(metadata, now);
+      if (!next) return false;
+      await lease.refresh();
+      await freshUser.update({ clientReadOnlyMetadata: next as ProMetadataJson });
+      return true;
+    });
   } catch (error) {
     if (
       error instanceof AccountDeletionMutationBlockedError ||

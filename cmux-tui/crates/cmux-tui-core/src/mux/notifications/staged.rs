@@ -245,11 +245,13 @@ impl Mux {
     /// Stage the notification of the agent hook at journal `sequence`, if
     /// the hook has one (`notice`). Its key is derived from the sequence, so
     /// a retry of the hook replays the notification and posts nothing.
+    /// `desktop` false records it as unread with no banner (a badge).
     pub(in crate::mux) fn stage_agent_hook_notification(
         &self,
         notice: Option<(String, String, NotificationLevel)>,
         surface: SurfaceId,
         sequence: u64,
+        desktop: bool,
     ) -> anyhow::Result<Option<StagedNotification>> {
         let Some((title, body, level)) = notice else { return Ok(None) };
         self.stage_durable_notification(
@@ -261,7 +263,7 @@ impl Mux {
             level,
             Some(surface),
             NotificationSource::Agent,
-            true,
+            desktop,
         )
         .with_context(|| format!("agent hook notification for sequence {sequence}"))
     }

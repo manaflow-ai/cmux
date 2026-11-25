@@ -1,5 +1,5 @@
 // l10n-allow-file: gallery fixtures (sample library entries and a refusal), not shipped UI.
-// Settings > Personalization > Customization Library (CustomizeLibraryCard) on the real page and
+// Settings > Appearance > Customization Library (CustomizeLibraryCard) on the real page and
 // store: everything the person applied, top first, with its switch and order. The route's
 // `focus=card.customizeLibrary` scrolls the page to the card, so each capture shows it. The layouts
 // it was picked from are settings.customize-library-layouts. With nothing applied the page draws no
@@ -9,7 +9,7 @@ import { mockLibrary, mockLongLibrary, relist } from "./mockLibrary";
 
 const shown: PageFixtureStep = { selector: '[data-card="customizeLibrary"]', action: "wait" };
 const variant = (patch: Partial<SettingsPageVariant> & { note: string }): SettingsPageVariant => ({
-  section: "personalization",
+  section: "appearance",
   focus: "card.customizeLibrary",
   steps: [shown],
   ...patch,

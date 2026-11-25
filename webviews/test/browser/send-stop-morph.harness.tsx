@@ -3,7 +3,7 @@
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { Composer } from "../../src/agent-session/acpmux/Composer";
-import { setComposerLook, type ComposerLook } from "../../src/agent-session/acpmux/composerLook";
+import { setPreviewComposerLook, type ComposerLook } from "../../src/agent-session/acpmux/composerLook";
 import { noChat } from "../../src/gallery/fixtures/acpmux";
 import "../../src/pages/shared/desktop";
 import "../../src/ui/popupSurface.css";
@@ -28,7 +28,7 @@ function Chips() {
 }
 
 const draw = () => {
-  setComposerLook(state.look, { remember: false });
+  setPreviewComposerLook(state.look);
   const { sessionId, working } = state;
   view.render(
     <div className="acpmux-shell" style={{ display: "block", height: "auto", width: "600px" }}>

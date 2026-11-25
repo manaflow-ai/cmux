@@ -75,13 +75,14 @@ Packages/macOS/CmuxNext/Tests/**/*.swift merge=cmux-insertions-v1
 # since #21946; their lines stay so the
 # generated catch-up still treats a merge with an older branch, whose only
 # conflicts are those deleted bundles, as generated (regenerate-web-bundles.sh
-# removes them from the index). The driver command is `true`, a git
-# no-op that runs no checked-out code. Register it with
-# scripts/install-git-hooks.sh. GitHub ignores merge drivers, so a PR still
-# shows the conflict until its branch is merged locally. The driver runs no
-# code, but it does keep one side: a branch that names another path here
-# would have that path's incoming changes dropped when a configured clone
-# merges into it. Review additions to these lines like a revert.
+# removes them from the index). The driver is the trusted copy of
+# scripts/merge-insertions.py --generated (a three-way merge, else this
+# branch's copy); register it with scripts/install-git-hooks.sh. GitHub
+# ignores merge drivers, so a PR still shows the conflict until its branch is
+# merged locally. When the three-way merge fails the driver keeps one side: a
+# branch that names another path here would have that path's incoming changes
+# dropped when a configured clone merges into it. Review additions to these
+# lines like a revert.
 # Every file the agent pane and Agent Activity builds write, not only index.html:
 # pane.js, the highlight worker and the per-locale string loaders collide too.
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/** merge=cmux-generated-v1
@@ -100,8 +101,8 @@ webviews/src/pages/diff/generated/localeLoaders.ts merge=cmux-generated-v1
 # action catalog and the settings schema). Every settings pull request rewrites
 # the settings reference, so two of them always collided there.
 # regenerate-web-bundles.sh rebuilds it with no build, and
-# regenerate-swift-exports.sh again after the exports it follows;
-# web/tests/next-docs.test.ts fails on a stale copy.
+# regenerate-swift-exports.sh again after the exports it follows; only the
+# base autofix commits it to feat-cmux-next (RFD 0048, bot-only).
 web/data/next-docs/*.generated.json merge=cmux-generated-v1
 # Every other generated file: the source of truth for which files are generated
 # is the generated-files check (scripts/ci/generated-files.json, the
@@ -111,26 +112,26 @@ web/data/next-docs/*.generated.json merge=cmux-generated-v1
 # check calls generated is not routed here the way its family needs, and when
 # a file kept here is not generated. A kept copy is rebuilt by
 # `scripts/cmux-next/generated_merge.py regenerate --merge` (the catch-up, the
-# batch merger and a lane's post-merge hook run it), or, for the Swift exports
-# only a Mac writes, by the base autofix after the pull request lands.
-plans/cmux-next/action-surfaces.json merge=cmux-generated-v1
-plans/cmux-next/action-catalog.json merge=cmux-generated-v1
-docs/mdm/cmux-example.mobileconfig merge=cmux-generated-v1
-plans/cmux-next/actions.md merge=cmux-generated-v1
-plans/cmux-next/links.json merge=cmux-generated-v1
-schemas/settings/settings-schema.json merge=cmux-generated-v1
-docs/mdm/com.manaflow.cmux.json merge=cmux-generated-v1
-docs/mdm/com.manaflow.cmux.plist merge=cmux-generated-v1
-docs/mdm/com.manaflow.cmux.intune.plist merge=cmux-generated-v1
-docs/mdm/managed-preferences.md merge=cmux-generated-v1
-# The settings source stamp merges by line on GitHub (an entry per source, so
-# two settings pull requests do not conflict there, #21946). A configured clone
-# keeps one side like the exports above, so a local merge of two settings
-# branches fails defaults_guard.py check-fresh until the exports are
-# regenerated; a line-merged stamp would call the one-side exports fresh. After
-# a GitHub merge the base autofix regenerates them (it runs whenever
-# CmuxNextSettings changed).
-Packages/macOS/CmuxNext/ci-target-graph.json merge=cmux-generated-v1
+# batch merger and a lane's post-merge hook run it). cmux-generated-v1 merges
+# three-way when that is clean and keeps this branch's copy only when it is not
+# (scripts/merge-insertions.py --generated), so even a merge that stops on a
+# hand-written file and never reaches the rebuild keeps the other side's rows.
+# The exports only a Mac writes (the Swift settings and action exports, the CI
+# target graph, the GhosttyKit pin) have no rebuild on a merge host, so they
+# never keep one side: cmux-export-v1 is a three-way merge (union of both
+# sides' insertions) or a conflict that names the file. Keeping this branch's
+# copy dropped base's settings rows on cmux#45928 and cmux#47525.
+plans/cmux-next/action-surfaces.json merge=cmux-export-v1
+plans/cmux-next/action-catalog.json merge=cmux-export-v1
+docs/mdm/cmux-example.mobileconfig merge=cmux-export-v1
+plans/cmux-next/actions.md merge=cmux-export-v1
+plans/cmux-next/links.json merge=cmux-export-v1
+schemas/settings/settings-schema.json merge=cmux-export-v1
+docs/mdm/com.manaflow.cmux.json merge=cmux-export-v1
+docs/mdm/com.manaflow.cmux.plist merge=cmux-export-v1
+docs/mdm/com.manaflow.cmux.intune.plist merge=cmux-export-v1
+docs/mdm/managed-preferences.md merge=cmux-export-v1
+Packages/macOS/CmuxNext/ci-target-graph.json merge=cmux-export-v1
 # SDK wire layers (cmux-tui/bindings/codegen/generate.py): only the wholly
 # generated directories and files; go/raw and java mix in hand-written code.
 cmux-tui/bindings/go/raw/.cmux-sdk-manifest.json merge=cmux-generated-v1
@@ -190,8 +191,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextIcons/IconName+Members.swift merge=cmux-
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt.swift merge=cmux-generated-v1
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Entries.swift merge=cmux-generated-v1
 cmux-tui/crates/acpmux/src/chats/brand/table.rs merge=cmux-generated-v1
-webviews/src/protocol/generated/** merge=cmux-generated-v1
-webviews/src/agent-session/acpmux/protocol/generated/** merge=cmux-generated-v1
 webviews/src/pages/shared/generated/pageRouter.ts merge=cmux-generated-v1
 cmux-tui/bindings/go-pane/internal/richpane/*.go merge=cmux-generated-v1
 cmux-tui/bindings/go-pane/examples/hello/hellopane/*.go merge=cmux-generated-v1
@@ -203,8 +202,11 @@ cmux-tui/crates/cmux-app-host/generated/** merge=cmux-generated-v1
 clients/ts/cloud/src/generated.ts merge=cmux-generated-v1
 clients/ts/cloud/src/automation-cmux.ts merge=cmux-generated-v1
 cmux-tui/crates/cmux-cloud-wire/src/generated/** merge=cmux-generated-v1
+# The iPhone app's uniffi Swift bindings (scripts/ios-ffi-bindings.sh, a host cargo build): every branch that
+# changes cmux-mobile-link-ffi rewrites it, so two of them always collided, or a merge picked one side.
+cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift merge=cmux-generated-v1
 plans/cmux-next/coordination/INDEX.md merge=cmux-generated-v1
-scripts/ghosttykit-checksums.txt merge=cmux-generated-v1
+scripts/ghosttykit-checksums.txt merge=cmux-export-v1
 # The former bundle directories' placeholders are hand-written.
 Packages/macOS/CmuxNext/Sources/*/Resources/*/GENERATED.md !merge
 # Hand-written registries both sides insert into, which no generator rebuilds:

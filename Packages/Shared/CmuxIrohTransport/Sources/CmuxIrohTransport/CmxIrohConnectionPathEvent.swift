@@ -1,5 +1,7 @@
 public import CMUXMobileCore
+#if canImport(IrohLib)
 import IrohLib
+#endif
 
 /// A redacted lifecycle event for one Iroh connection path.
 public struct CmxIrohConnectionPathEvent: Sendable, Equatable {
@@ -21,6 +23,7 @@ public struct CmxIrohConnectionPathEvent: Sendable, Equatable {
         self.pathKind = pathKind
     }
 
+    #if canImport(IrohLib)
     init(_ event: PathEvent) {
         switch event {
         case let .opened(_, remoteAddress, _):
@@ -42,6 +45,7 @@ public struct CmxIrohConnectionPathEvent: Sendable, Equatable {
             self.init(kind: .lagged, pathKind: .unknown)
         }
     }
+    #endif
 
     private static func pathKind(remoteAddress: String) -> DiagnosticPathKind {
         if remoteAddress.contains("://") {

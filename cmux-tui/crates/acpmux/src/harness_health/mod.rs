@@ -79,6 +79,10 @@ pub struct HarnessHealth {
     /// The last update auto-update ran for it, since the daemon started.
     #[serde(default)]
     pub last_auto_update: Option<auto::AutoUpdateResult>,
+    /// Which Codex app-server a new chat starts while Labs
+    /// `labs.bundledCodexAppServer` is on (`codex_bundle.rs`); absent while it is off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex_bundle: Option<crate::codex_bundle::Health>,
 }
 
 /// A harness to check, as the hub's configuration describes it.
@@ -178,8 +182,13 @@ pub(crate) fn builtin_login(family: &str) -> Option<&'static str> {
         // cards and `cmux harness login muse`.
         "muse" => "muse login",
         "opencode" => "opencode auth login",
-        "unii" => "unii login",
+        // The bundled CLI's own sign-in: a clean Mac has no `unii` (first-run finding 2).
+        "unii" => crate::uniichat_endpoint::LOGIN,
         "hermes" => "hermes model",
+        "openclaw" => "openclaw onboard",
+        // oh-my-pi's terminal counterpart of `/login` (can1357/oh-my-pi
+        // `docs/cli-reference.md`, `commands/login.ts`).
+        "omp" => "omp login",
         _ => return None,
     })
 }
@@ -274,7 +283,7 @@ fn builtin_auth(s: &Subject, cwd: Option<&Path>) -> Option<(Auth, Option<String>
             found.signed_in().then(|| (Auth::SignedIn, Some(found.sources.join(", "))))
         }
         // UniiChat (the bundled `uniichat-agent`): the token `unii login`
-        // keeps for the server the harness env names (UNII_URL, UNII_HOME).
+        // (or `cmux harness login unii`) keeps for the server the harness env names (UNII_URL, UNII_HOME).
         "unii" => {
             use crate::uniichat_endpoint::{Endpoint, Options};
             let env = |key: &str| s.env.get(key).filter(|v| !v.is_empty()).cloned();
@@ -293,7 +302,8 @@ fn builtin_auth(s: &Subject, cwd: Option<&Path>) -> Option<(Auth, Option<String>
                 Err(why) => (Auth::SignedOut, Some(why)),
             })
         }
-        // Gemini, OpenCode, Pi, Cursor, Copilot, Grok, Muse and Antigravity: their login files and keys.
+        // Gemini, OpenCode, Pi, Cursor, Copilot, Grok, Muse, Antigravity, DeepSeek, Prime
+        // and Hermes: their login files and keys.
         family => {
             let env = crate::login_env::effective_for(Some(family), &s.env);
             agent_files::file_auth(family, &program, &env)
@@ -505,6 +515,10 @@ impl HealthService {
                 {
                     row.update = None;
                 }
+                // A copy saved before this binary's version rules (a dev build's
+                // placeholder `0.0.0-next` read as older than a release) says
+                // outdated by this binary's comparison only.
+                row.outdated = matches!((&row.latest, &row.version), (Some(l), Some(v)) if probe::is_newer(l, v));
             }
             self.replace_rows(rows);
         }
@@ -681,14 +695,20 @@ fn rebind_cached_logins(rows: &mut [HarnessHealth], subjects: &[Subject]) {
 fn save(path: &Path, rows: &[HarnessHealth]) {
     let Ok(body) = serde_json::to_vec_pretty(rows) else { return };
     // Owner-only whatever the umask, through a new temporary file each time.
-    if let Err(e) = crate::config::write_atomic(path, &body) {
-        tracing::info!(error = %e, "harness health not saved");
-    }
+    // The disk writer (`disk_writer.rs`) writes it and logs a failure; the next check saves
+    // again.
+    crate::config::write_atomic_later(path, body);
 }
 
 /// The part of a check that runs here: where the program is, how it was
 /// installed, its version, its sign-in, and its update and login commands.
 fn local(s: Subject, home: &Path) -> HarnessHealth {
+    // Bundled or installed, while Labs `labs.bundledCodexAppServer` is on; None while off.
+    let codex_bundle = (s.family == "codex")
+        .then(|| {
+            crate::codex_bundle::resolve_now(&[s.program.clone(), "app-server".into()]).health()
+        })
+        .flatten();
     let mut found = if Path::new(&s.program).is_absolute() {
         Path::new(&s.program).is_file().then(|| s.program.clone())
     } else {
@@ -767,6 +787,7 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
         checked_at: now_ms(),
         auto_update: false,
         last_auto_update: None,
+        codex_bundle,
     }
 }
 
@@ -790,6 +811,13 @@ mod tests {
     #[test]
     fn muse_signs_in_with_the_official_cli() {
         assert_eq!(super::builtin_login("muse"), Some("muse login"));
+    }
+
+    /// UniiChat signs in through the CLI cmux bundles (first-run finding 2): a clean Mac has
+    /// no `unii`, and every Sign In (picker, Harnesses page, Settings) types this line.
+    #[test]
+    fn unii_signs_in_with_the_bundled_cli() {
+        assert_eq!(super::builtin_login("unii"), Some("cmux harness login unii"));
     }
 
     #[test]
@@ -879,6 +907,7 @@ mod tests {
             checked_at: 1,
             auto_update: false,
             last_auto_update: None,
+            codex_bundle: None,
         }]);
         let subject = Subject {
             id: "codex-sr".into(),
@@ -915,6 +944,7 @@ mod tests {
             checked_at: 1,
             auto_update: false,
             last_auto_update: None,
+            codex_bundle: None,
         }]);
         let feed = service.inventory_changes();
         service.record_acp_auth_success("muse", "ACP session/new authenticated the harness");

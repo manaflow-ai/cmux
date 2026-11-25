@@ -196,3 +196,74 @@ fn v2_terminal_input_counts_only_from_a_persons_attached_client() {
     mux.shutdown();
     server::cleanup(&socket);
 }
+
+/// hq#21300: a person's attach, their first input after it and that terminal's next output reach the stream
+/// (`vm-activity-echo-v1`), so the Cloud agent times a wake to its first echo. The old fields keep their shape: a
+/// consumer that reads only those reads as before.
+#[test]
+fn subscribe_activity_times_a_persons_first_echo_after_their_attach() {
+    let mux = Mux::new("activity-echo", SurfaceOptions::default());
+    let surface =
+        mux.new_workspace_as(&Actor::Daemon, Some("work".into()), Some((80, 24))).unwrap();
+    let socket = std::env::temp_dir()
+        .join(format!("cmux-activity-echo-{}", std::process::id()))
+        .join("s.sock");
+    server::serve(mux.clone(), Some(socket.clone())).unwrap();
+
+    let mut probe = connect(&socket);
+    let identify = rpc(&mut probe, 1, json!({"cmd": "identify"}));
+    let caps = identify["data"]["capabilities"].as_array().unwrap();
+    assert!(caps.iter().any(|c| c == "vm-activity-v1"), "the old capability stays");
+    assert!(
+        caps.iter().any(|c| c == "vm-activity-echo-v1"),
+        "identify advertises vm-activity-echo-v1"
+    );
+
+    let mut watcher = connect(&socket);
+    let first = rpc(&mut watcher, 1, json!({"cmd": "subscribe-activity"}));
+    let start = &first["data"]["activity"];
+    for key in ["last_person_attach_at_ms", "echo_input_at_ms", "echo_at_ms"] {
+        assert!(start[key].is_null(), "{key} is null before any attach: {start}");
+    }
+    // Old against new: the fields an old consumer reads are all there, with their types.
+    assert!(start["attached_clients"].is_u64() && start["live_agents"].is_u64());
+    assert!(
+        start.get("last_user_input_at_ms").is_some()
+            && start.get("last_agent_action_at_ms").is_some()
+    );
+
+    // Automation input before any person attaches times nothing.
+    rpc(&mut probe, 2, json!({"cmd": "send", "surface": surface.id, "text": "echo bot\r"}));
+
+    let mut person = connect(&socket);
+    rpc(&mut person, 1, json!({"cmd": "set-client-info", "name": "phone", "kind": "tui"}));
+    rpc(&mut person, 2, json!({"cmd": "attach-surface", "surface": surface.id}));
+    let attached = activity_until(&mut watcher, |a| a["last_person_attach_at_ms"].is_u64());
+    let attach_at = attached["last_person_attach_at_ms"].as_u64().unwrap();
+    assert!(attached["echo_at_ms"].is_null(), "no echo before the person typed: {attached}");
+
+    rpc(&mut person, 3, json!({"cmd": "send", "surface": surface.id, "text": "x"}));
+    let echoed = activity_until(&mut watcher, |a| a["echo_at_ms"].is_u64());
+    let input_at = echoed["echo_input_at_ms"].as_u64().expect("the input is paired with its echo");
+    let echo_at = echoed["echo_at_ms"].as_u64().unwrap();
+    assert!(attach_at <= input_at && input_at <= echo_at, "{echoed}");
+
+    // Later input in the same attach keeps the first echo.
+    rpc(&mut person, 4, json!({"cmd": "send", "surface": surface.id, "text": "y"}));
+    let later =
+        activity_until(&mut watcher, |a| a["last_user_input_at_ms"].as_u64() > Some(input_at));
+    assert_eq!(later["echo_at_ms"].as_u64(), Some(echo_at), "{later}");
+
+    // A new attach times anew.
+    drop(person);
+    activity_until(&mut watcher, |a| a["attached_clients"] == 0);
+    let mut again = connect(&socket);
+    rpc(&mut again, 1, json!({"cmd": "set-client-info", "name": "phone", "kind": "tui"}));
+    rpc(&mut again, 2, json!({"cmd": "attach-surface", "surface": surface.id}));
+    let reattached = activity_until(&mut watcher, |a| a["attached_clients"] == 1);
+    assert!(reattached["echo_at_ms"].is_null(), "a new attach resets the echo: {reattached}");
+    assert!(reattached["last_person_attach_at_ms"].as_u64() >= Some(attach_at));
+
+    mux.shutdown();
+    server::cleanup(&socket);
+}

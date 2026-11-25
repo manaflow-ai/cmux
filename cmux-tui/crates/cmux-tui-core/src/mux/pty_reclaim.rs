@@ -216,7 +216,19 @@ impl Mux {
     }
 
     /// One reclaim pass (module docs). Returns the tab surfaces parked.
+    #[cfg(test)]
     pub(crate) fn reclaim_ptys_if_low(&self, clock: &mut ReclaimClock) -> Vec<SurfaceId> {
+        self.reclaim_ptys_if_low_leaving(clock, &HashSet::new())
+    }
+
+    /// [`Self::reclaim_ptys_if_low`], never ending a closed tab's terminal in `held`: the
+    /// terminals a new owner holds until the app attaches to them again (terminal_reap.rs,
+    /// "Cold adoption"), which look detached until it does.
+    pub(crate) fn reclaim_ptys_if_low_leaving(
+        &self,
+        clock: &mut ReclaimClock,
+        held: &HashSet<String>,
+    ) -> Vec<SurfaceId> {
         let forced = self.pty_reclaim_forced.swap(false, Ordering::AcqRel);
         if !clock.due(Instant::now(), forced) {
             return Vec::new();
@@ -229,7 +241,7 @@ impl Mux {
         // Closed tabs' terminals waiting out the reap grace go first: no tab shows them, and a
         // burst of closes held the machine's PTYs with them until every new tab was refused
         // (STATUS 7938). Each ends through the reaper's own guarded close.
-        let ended = self.end_unplaced_terminals_for_ptys(want);
+        let ended = self.end_unplaced_terminals_for_ptys(want, held);
         let want = want.saturating_sub(ended);
         if want == 0 {
             eprintln!(
@@ -267,7 +279,7 @@ impl Mux {
     /// Ends up to `want` terminals that no tab shows and that wait out the reap grace, longest
     /// unplaced first; returns how many ended. A kept terminal, or one a client is attached to, is
     /// never one of them (`reap_unplaced_terminal` checks again atomically with the close).
-    fn end_unplaced_terminals_for_ptys(&self, want: usize) -> usize {
+    fn end_unplaced_terminals_for_ptys(&self, want: usize, held: &HashSet<String>) -> usize {
         let mut rows_empty = false;
         let unplaced = match self.reapable_terminals_unplaced_for(&mut rows_empty) {
             Ok(unplaced) => unplaced,
@@ -280,6 +292,7 @@ impl Mux {
         };
         let mut oldest: Vec<(Duration, String)> = unplaced
             .into_iter()
+            .filter(|(terminal_id, _)| !held.contains(terminal_id))
             .map(|(terminal_id, unplaced_for)| (unplaced_for, terminal_id))
             .collect();
         oldest.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
@@ -359,86 +372,5 @@ impl Mux {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const HOUR_MS: u64 = 60 * 60 * 1000;
-
-    fn sid(id: u64) -> SurfaceId {
-        id
-    }
-
-    fn idle(surface: u64, since_ms: u64) -> ReclaimCandidate {
-        ReclaimCandidate {
-            surfaces: vec![sid(surface)],
-            prompt_since_ms: Some(since_ms),
-            attached: false,
-            kept: false,
-            last_output_ms: Some(since_ms),
-            program_reported: false,
-        }
-    }
-
-    #[test]
-    fn parks_only_idle_quiet_unwatched_unkept_shells_oldest_first() {
-        let now = 200 * HOUR_MS;
-        let busy = ReclaimCandidate { prompt_since_ms: None, ..idle(2, 0) };
-        let watched = ReclaimCandidate { attached: true, ..idle(3, 0) };
-        let kept = ReclaimCandidate { kept: true, ..idle(4, 0) };
-        let agent = ReclaimCandidate { program_reported: true, ..idle(5, 0) };
-        let printing = ReclaimCandidate { last_output_ms: Some(now - 1000), ..idle(6, 0) };
-        let fresh = idle(7, now - 10 * 60 * 1000);
-        let candidates =
-            [idle(1, 50 * HOUR_MS), busy, watched, kept, agent, printing, fresh, idle(8, HOUR_MS)];
-        assert_eq!(
-            pick_reclaim(&candidates, now, 10),
-            [sid(8), sid(1)],
-            "the oldest prompt first; nothing busy, watched, kept, reporting, printing or fresh"
-        );
-        assert_eq!(pick_reclaim(&candidates, now, 1), [sid(8)]);
-        assert!(pick_reclaim(&candidates, now, 0).is_empty());
-    }
-
-    #[test]
-    fn park_tabs_leaves_watched_and_kept_terminals_running() {
-        let watched =
-            ReclaimCandidate { attached: true, surfaces: vec![sid(2), sid(3)], ..idle(2, 0) };
-        let kept = ReclaimCandidate { kept: true, ..idle(4, 0) };
-        let busy = ReclaimCandidate { prompt_since_ms: None, ..idle(5, 0) };
-        let candidates = [idle(1, 0), watched, kept, busy];
-        assert_eq!(
-            drop_watched(&candidates, &[sid(1), sid(3), sid(4), sid(5), sid(9)]),
-            [sid(1), sid(5), sid(9)],
-            "every view of an attached terminal stays; a busy shell is the caller's choice"
-        );
-    }
-
-    #[test]
-    fn reclaims_only_under_the_reserve_and_refills_past_it() {
-        assert_eq!(reclaim_need(100, 511), 0);
-        assert_eq!(reclaim_need(511 - PTY_RESERVE, 511), 0);
-        assert_eq!(reclaim_need(511 - PTY_RESERVE + 1, 511), PTY_REFILL - PTY_RESERVE + 1);
-        assert_eq!(reclaim_need(511, 511), PTY_REFILL);
-        assert_eq!(reclaim_need(527, 511), PTY_REFILL, "more nodes than the limit");
-        assert_eq!(reclaim_need(40, 50), 50 - 10, "a limit under the refill frees what it can");
-    }
-
-    #[test]
-    fn counts_only_numbered_pty_nodes() {
-        assert!(is_pty_node("ttys000"));
-        assert!(is_pty_node("ttys510"));
-        assert!(!is_pty_node("ttys0"), "legacy node");
-        assert!(!is_pty_node("ttysf"));
-        assert!(!is_pty_node("ttyp000"));
-    }
-
-    #[test]
-    fn a_failed_launch_forces_the_next_pass() {
-        let mut clock = ReclaimClock::default();
-        let start = Instant::now();
-        assert!(clock.due(start, false));
-        assert!(!clock.due(start + Duration::from_millis(10), false));
-        assert!(clock.due(start + Duration::from_millis(20), true));
-        assert!(clock.due(start + RECLAIM_CHECK_EVERY * 2, false));
-    }
-}
+#[path = "pty_reclaim_tests.rs"]
+mod tests;

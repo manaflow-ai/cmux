@@ -971,7 +971,8 @@ async fn a_queued_family_prompt_marks_once_per_wait_edge() {
     })
     .await;
     assert!(v1.waits_for_slot(&child.meta()));
-    let ListItem::Summary(event) = next(&subscribed.receiver).await else { panic!("summary") };
+    let item = next(&subscribed.receiver).await;
+    let ListItem::Summary(event) = item else { panic!("a summary, not {item:?}") };
     assert_eq!(event.summary.chat_id, child.id);
     let extra: Value = serde_json::from_str(event.summary.extra.get()).unwrap();
     assert_eq!(extra.get("waitsForSlot"), Some(&json!(true)));
@@ -982,7 +983,8 @@ async fn a_queued_family_prompt_marks_once_per_wait_edge() {
         tokio::time::timeout(std::time::Duration::from_secs(5), waiting).await.unwrap().is_err()
     );
     assert!(!v1.waits_for_slot(&child.meta()));
-    let ListItem::Summary(event) = next(&subscribed.receiver).await else { panic!("summary") };
+    let item = next(&subscribed.receiver).await;
+    let ListItem::Summary(event) = item else { panic!("a summary, not {item:?}") };
     let extra: Value = serde_json::from_str(event.summary.extra.get()).unwrap();
     assert!(!extra.get("waitsForSlot").and_then(Value::as_bool).unwrap_or(false));
     assert!(subscribed.receiver.try_next().is_none());

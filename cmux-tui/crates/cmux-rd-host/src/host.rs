@@ -115,6 +115,19 @@ pub fn run(opts: &Opts) -> Res<()> {
     Ok(())
 }
 
+/// `--window ID`: a window id, decimal or `0x` hex (as `xwininfo` prints an X window id).
+pub(crate) fn parse_window_id(text: &str) -> Result<u32, String> {
+    let t = text.trim();
+    let parsed = match t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
+        Some(hex) => u32::from_str_radix(hex, 16),
+        None => t.parse(),
+    };
+    match parsed {
+        Ok(id) if id != 0 => Ok(id),
+        _ => Err(format!("--window {text}: a window id (decimal or 0x hex)")),
+    }
+}
+
 /// The session settings from the options (every mode).
 fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
     let display = opts.str_or("display", DEFAULT_DISPLAY);
@@ -123,11 +136,17 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
         Some(_) => opts.num_or("max-fps", 60)?,
         None => crate::desktop::default_max_fps(&display),
     };
+    let encode_profile = opts.encode_profile()?;
+    let explicit_max_kbps = opts.get("max-kbps").map(|_| opts.num_or("max-kbps", 0)).transpose()?;
     Ok(SessionCfg {
         display,
-        max_fps,
+        display_pick: opts.get("monitor").map(str::to_owned),
+        // `--window ID`: one X window (decimal or 0x hex, as xwininfo prints it).
+        window: opts.get("window").map(parse_window_id).transpose()?,
+        max_fps: encode_profile.stream_fps(max_fps),
+        encode_profile,
         start_kbps: opts.num_or("start-kbps", 8000)?,
-        max_kbps: opts.num_or("max-kbps", 50_000)?,
+        max_kbps: cmux_rd_core::profile::max_kbps(encode_profile, explicit_max_kbps, 50_000),
         preset: opts.str_or("preset", "ultrafast"),
         // High for hardware decoders (VideoToolbox); the Linux bench decoder needs baseline.
         profile: opts.str_or("profile", "high"),
@@ -145,10 +164,14 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
         // stream moving while that measurement is still unknown.
         frames_in_flight: 2,
         input_frame_now: opts.flag("input-frame-now"),
+        rtt_tail_probe: opts.flag("rtt-tail-probe"),
+        resolution_ladder: opts.flag("resolution-ladder"),
+        max_qp: ladder_max_qp(opts)?,
         max_width: opts
             .get("max-width")
             .map(|w| w.parse().map_err(|_| format!("--max-width {w}: a pixel count")))
             .transpose()?,
+        show_cursor: true,
         // The Cloud host streams its own virtual X display unless `--capture portal` asks
         // for the compositor's screen (a Wayland desktop).
         capture: opts
@@ -157,6 +180,16 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
             .transpose()?
             .unwrap_or_default(),
     })
+}
+
+/// The resolution ladder's QP ceiling (`--max-qp N`, an H.264 QP: 0 to 51), else
+/// `cmux_rd_core::resolution::DEFAULT_MAX_QP`. `host` and `serve` both read it.
+pub(crate) fn ladder_max_qp(opts: &Opts) -> Res<u8> {
+    let qp = opts.num_or("max-qp", cmux_rd_core::resolution::DEFAULT_MAX_QP)?;
+    if qp > 51 {
+        return Err(format!("--max-qp {qp}: an H.264 QP, 0 to 51").into());
+    }
+    Ok(qp)
 }
 
 /// The host's owner is the only principal admitted without a grant.
@@ -511,6 +544,19 @@ fn serve_viewer<S: ViewerStream>(
     if crate::desktop::reports_cursor() {
         host_caps.push(caps::CURSOR);
     }
+    // Frames over one FEC block keep their parity, in interleaved blocks (design D6).
+    host_caps.push(caps::FEC_BLOCKS);
+    if crate::desktop::scales_pictures() {
+        host_caps.push(caps::VIDEO_SCALED);
+    }
+    // An OpenH264 viewer asks for Constrained Baseline (cmux#50591).
+    if crate::stream::offers_h264_baseline(&cfg.codec) {
+        host_caps.push(caps::H264_BASELINE);
+    }
+    // The session clock (C8; the engine answers every ping) and the stage ledger (D8).
+    host_caps.extend([caps::CLOCK, caps::LEDGER]);
+    // No clipboard.text here: clipboard sync is opt-in per session, and only `serve` (the
+    // app's share, whose setup carries the person's choice) offers it (clipboard.rs).
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
         Ok(n) => n,
         Err(refusal) => {
@@ -671,6 +717,14 @@ fn stream_session<S: ViewerStream>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn window_ids_read_as_decimal_or_hex() {
+        assert_eq!(parse_window_id("0x2a00007"), Ok(0x2a0_0007));
+        assert_eq!(parse_window_id(" 44040199 "), Ok(44_040_199));
+        assert!(parse_window_id("0").is_err());
+        assert!(parse_window_id("main").is_err());
+    }
 
     /// `host::run` and `serve::run` are safe and may run with threads up (the cmux binary
     /// calls `run_cli` too), and `set_var` races every concurrent `getenv`, a C library's

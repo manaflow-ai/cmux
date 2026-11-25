@@ -1,6 +1,6 @@
 {
   "name": "freestyle",
-  "version": "0.2.21",
+  "version": "0.2.23",
   "description": "Freestyle SDK and CLI — manage VMs, snapshots, VPCs, domains, and identities",
   "license": "MIT",
   "publishConfig": {
@@ -26,6 +26,7 @@
   "scripts": {
     "build": "tsc",
     "test": "npm run build && node --test test/*.test.mjs",
+    "test:port-forward": "npm run build && node test/port-forward-openssh.mjs",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run typecheck && npm run build"
   },

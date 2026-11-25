@@ -70,6 +70,8 @@ impl Hub {
                 &mode,
                 Some(&model),
             );
+            // The mode the process runs in: a profile may pin its own (`spawn_mode`).
+            let mode = crate::claude_stdio::spawn_mode(profile, &mode).to_owned();
             (
                 Some((plan.program, plan.args)),
                 Some(agent_host::TranslatorSpec {
@@ -83,6 +85,8 @@ impl Hub {
                     ),
                     recap: current_option(draft, crate::claude_stdio::RECAP_OPTION),
                     claude_session_id: Some(fresh_id),
+                    stop_condition: false,
+                    resumes_cut_turn: false,
                 }),
             )
         } else {
@@ -244,7 +248,15 @@ impl Hub {
                     child
                         .request(
                             method::SESSION_NEW,
-                            self.acp_params(&session_id, draft, &spec.spawn, None, &child),
+                            self.acp_params(
+                                &session_id,
+                                draft,
+                                &spec.spawn,
+                                None,
+                                &child,
+                                &spec.answer,
+                                &init,
+                            ),
                         )
                         .await?,
                 )
@@ -290,6 +302,7 @@ impl Hub {
             reported_off,
             started: latch.clone(),
             claimed_under: None,
+            codex_answer: None,
         };
         // An off this start began under, or that began while it ran, holds though an unset
         // followed (review 73): an agent that came up in full access then is not kept.

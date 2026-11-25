@@ -90,6 +90,26 @@ public struct RemoteKeyboardPolicy {
         }
     }
 
+    /// Whether a key routed `.physical` goes as its text instead: its
+    /// characters are not what its key code types on the viewer's own layout
+    /// (`layoutCharacters`, the layout's characters for that key code and
+    /// modifiers; nil when unknown). A tool that posts every character with
+    /// key code 0 and the character attached otherwise typed "a" for each one
+    /// on the host (CMUX-572). Keys whose characters match the layout stay
+    /// physical, whatever the layout, so the host's layout still decides them.
+    /// Chords (Command, Control), dead keys (no characters), control characters
+    /// and function keys (Return, arrows) stay physical too.
+    public nonisolated func sendsAsText(
+        characters: String?, layoutCharacters: String?, modifiers: NSEvent.ModifierFlags
+    ) -> Bool {
+        if !modifiers.intersection([.command, .control]).isEmpty { return false }
+        guard let characters, !characters.isEmpty, let layoutCharacters else { return false }
+        let typesNothing = characters.unicodeScalars.contains { scalar in
+            scalar.properties.generalCategory == .control || (0xF700...0xF8FF).contains(scalar.value)
+        }
+        return !typesNothing && characters != layoutCharacters
+    }
+
     nonisolated enum KeyCode {
         static let tab: UInt16 = 0x30
         static let grave: UInt16 = 0x32
