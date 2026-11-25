@@ -15,5 +15,6 @@ pub mod place;
 pub mod priority;
 pub mod progress;
 pub mod seed;
+pub mod settle;
 pub mod targets;
 pub mod wait;
