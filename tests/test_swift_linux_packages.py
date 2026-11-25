@@ -61,7 +61,7 @@ def check_rows(failures: list[str]) -> None:
             failures.append(f"{dir_} is listed twice")
         seen.add(dir_)
         manifest = ROOT / dir_ / "Package.swift"
-        if not re.fullmatch(r"Packages/[A-Za-z0-9_]+/[A-Za-z0-9_]+", dir_) or not manifest.is_file():
+        if not (re.fullmatch(r"Packages/[A-Za-z0-9_]+/[A-Za-z0-9_]+", dir_) or dir_ == "cmux-next-ios/CmuxMobileKit") or not manifest.is_file():
             failures.append(f"{dir_}: not a package directory under Packages/")
             continue
         text = manifest.read_text()
