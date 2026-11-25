@@ -151,6 +151,10 @@ fn prefix(name: &str) -> String {
     if name == acpmux::computer_use::tools::SERVER_NAME {
         return acpmux::computer_use::tools::TOOL_PREFIX.to_owned();
     }
+    // cmux's agent server (`cmux-agent`, before `acpmux`) keeps its tools' `acpmux_` names.
+    if acpmux::acpmux_mcp_names::is_server_name(name) {
+        return acpmux::acpmux_mcp_names::FOLD_PREFIX.to_owned();
+    }
     let name = name.strip_prefix("cmux-").unwrap_or(name);
     name.chars()
         .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })

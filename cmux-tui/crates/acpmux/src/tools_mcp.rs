@@ -81,7 +81,9 @@ pub(crate) fn instructions_of(name: &str) -> Option<String> {
     match name {
         crate::offer_mcp::SERVER_NAME => Some(crate::offer_mcp::INSTRUCTIONS.to_owned()),
         crate::subsession_mcp::SERVER_NAME => Some(crate::subsession_mcp::instructions()),
-        crate::acpmux_mcp_names::SERVER_NAME => crate::acpmux_mcp::env_instructions(),
+        name if crate::acpmux_mcp_names::is_server_name(name) => {
+            crate::acpmux_mcp::env_instructions()
+        }
         _ => None,
     }
 }
@@ -89,6 +91,12 @@ pub(crate) fn instructions_of(name: &str) -> Option<String> {
 /// Whether server `name` run as `args` is one of [`SERVERS`] as acpmux runs it: its own
 /// command word last.
 pub fn owns(name: &str, args: &[String]) -> bool {
+    // cmux's agent server under its name before the rename too (`acpmux_mcp_names.rs`).
+    let name = if crate::acpmux_mcp_names::is_server_name(name) {
+        crate::acpmux_mcp_names::SERVER_NAME
+    } else {
+        name
+    };
     SERVERS.iter().any(|(n, word)| *n == name && args.last().is_some_and(|a| a == word))
 }
 

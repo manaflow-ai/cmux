@@ -2,8 +2,8 @@ import Foundation
 
 /// "Who else is working on these files": acpmux's answer (`_acpmux/who_else`, schema
 /// `acpmux.who-else.v1`) as a tool call carries it, whichever way the agent asked. The acpmux MCP
-/// `who_else` tool (Claude's `mcp__acpmux__who_else`, Codex's `{server, tool, arguments}`, or folded
-/// into cmux_exec as `acpmux_who_else`) returns it as structured content; `acpmux --json who-else`
+/// `who_else` tool (Claude's `mcp__cmux-agent__who_else`, `mcp__acpmux__who_else` before the
+/// rename, Codex's `{server, tool, arguments}`, or folded into cmux_exec as `acpmux_who_else`) returns it as structured content; `acpmux --json who-else`
 /// in a shell prints it. Either draws as one card (`WhoElseCard`), never raw JSON in the transcript.
 /// A port of the Mac's `webviews/src/agent-session/acpmux/conversation/whoElseCalls.ts`.
 public struct WhoElseCall: Hashable, Sendable {
@@ -61,7 +61,7 @@ public struct WhoElseCall: Hashable, Sendable {
     static let filesShown = 3
 
     nonisolated(unsafe) private static let toolName = try? NSRegularExpression(
-        pattern: #"^(?:acpmux[_.]|acpmux__)?who_?else$"#, options: [.caseInsensitive])
+        pattern: #"^(?:acpmux[_.]|acpmux__|cmux-agent[_.]|cmux-agent__)?who_?else$"#, options: [.caseInsensitive])
     nonisolated(unsafe) private static let cli = try? NSRegularExpression(
         pattern: #"(?:^|(?:&&|\|\||;)\s*)(?:\w+=\S+\s+)*(?:\S+/)?acpmux(?:-debug-cli)?\s+(?:--json\s+)?(?:who-?else|overlap)(?:\s|$)"#,
         options: [.caseInsensitive])
@@ -86,7 +86,7 @@ public struct WhoElseCall: Hashable, Sendable {
 
     static func asksWhoElse(_ call: ACPToolCall) -> Bool {
         // Another server's tool of the same name is that server's: its output draws as itself.
-        if let mcp = mcpCall(call) { return ["acpmux", "cmux"].contains(mcp.server.lowercased()) && matches(toolName, mcp.tool) }
+        if let mcp = mcpCall(call) { return ["cmux-agent", "acpmux", "cmux"].contains(mcp.server.lowercased()) && matches(toolName, mcp.tool) }
         if matches(toolName, call.title.trimmingCharacters(in: .whitespacesAndNewlines)) { return true }
         guard let command = call.command else { return false }
         return matches(cli, command) && matches(jsonFlag, command)

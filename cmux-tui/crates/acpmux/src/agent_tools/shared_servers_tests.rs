@@ -156,3 +156,29 @@ fn same_launch_same_key() {
     assert_eq!(spec("/a").key(), spec("/a").key());
     assert_ne!(spec("/a").key(), spec("/b").key());
 }
+
+/// A person's own entry still named `acpmux` that starts cmux's agent server is found, in the user
+/// scope or a parent folder's local scope, so the chat's entry takes that name; another server
+/// named `acpmux`, or cmux's under its new name, is not a leftover.
+#[test]
+fn a_leftover_acpmux_entry_is_found_in_claude_and_codex_configs() {
+    let ours = json!({"command": "/usr/local/bin/cmux", "args": ["acpmux-mcp"]});
+    let user = json!({"mcpServers": {"acpmux": ours}});
+    assert_eq!(claude_leftover_in(&[user], Path::new("/w/app")).as_deref(), Some("acpmux"));
+    let local = json!({"projects": {"/w": {"mcpServers": {"acpmux": ours}}}});
+    assert_eq!(
+        claude_leftover_in(&[local.clone()], Path::new("/w/app")).as_deref(),
+        Some("acpmux")
+    );
+    assert_eq!(claude_leftover_in(&[local], Path::new("/elsewhere")), None);
+    let other = json!({"mcpServers": {"acpmux": {"command": "node", "args": ["acpmux-mcp"]}}});
+    assert_eq!(claude_leftover_in(&[other], Path::new("/w")), None);
+    let renamed = json!({"mcpServers": {"cmux-agent": ours}});
+    assert_eq!(claude_leftover_in(&[renamed], Path::new("/w")), None);
+
+    let codex = "[mcp_servers.acpmux]\ncommand = \"acpmux\"\nargs = [\"acpmux-mcp\"]\n";
+    assert_eq!(codex_leftover_in(codex).as_deref(), Some("acpmux"));
+    let off = format!("{codex}enabled = false\n");
+    assert_eq!(codex_leftover_in(&off), None);
+    assert_eq!(codex_leftover_in("[mcp_servers.github]\ncommand = \"gh\"\n"), None);
+}
