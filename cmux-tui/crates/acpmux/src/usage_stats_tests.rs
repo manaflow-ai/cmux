@@ -938,3 +938,38 @@ fn the_day_reports_the_cache_read_share_and_the_cost_per_call() {
         (Some(0), None, None)
     );
 }
+
+/// An ACP chat's stats from acpmux's log of it: each turn's reported tokens, priced by its
+/// harness's `costUsd` else the catalog, the last `usage_update`'s context and window, and an
+/// older acpmux's unmarked record read with the cache's reads taken out of its input.
+#[test]
+fn an_acp_chat_s_turn_results_and_usage_updates_are_its_stats() {
+    let source = Source { family: "gemini".into(), ..Source::default() };
+    let now = ms("2026-11-23T12:00:00Z");
+    let mut t = Tracker::default();
+    assert_eq!(t.acp_after(7), 7, "a fork starts past its parent's copies");
+    // A turn with no tokens is no report: no stats yet.
+    t.take_acp(8, now - 9_000, "turn_result", &json!({"model": "gpt-6-astra"}), now, &models());
+    assert!(t.acp_stats(&source, now, &models(), true).is_none());
+    let update = json!({"params": {"update": {"sessionUpdate": "usage_update", "used": 900, "size": 64_000}}});
+    t.take_acp(9, now - 8_000, "usage_update", &update, now, &models());
+    let fresh = json!({"model": "gpt-6-astra", "inputTokens": 100_000, "cacheReadTokens": 400_000,
+        "outputTokens": 10_000, "inputExcludesCache": true});
+    t.take_acp(10, now - 7_000, "turn_result", &fresh, now, &models());
+    // An older record: its 500K input holds its 400K cache reads; its harness priced it.
+    let unmarked = json!({"inputTokens": 500_000, "cacheReadTokens": 400_000, "outputTokens": 10_000, "costUsd": 1.5});
+    t.take_acp(11, now - 6_000, "turn_result", &unmarked, now, &models());
+    // A turn older than the day counts for nothing.
+    t.take_acp(12, now - DAY_MS - 1, "turn_result", &fresh, now, &models());
+    assert_eq!(t.acp_after(0), 12);
+    let stats = t.acp_stats(&source, now, &models(), true).unwrap();
+    assert_eq!(stats.tokens24h, Some(2 * 510_000));
+    assert_eq!(stats.context_tokens, Some(900));
+    assert_eq!(stats.context_window, Some(64_000));
+    // gpt-6-astra: 0.1M x 2 + 0.01M x 10 + 0.4M x 0.5 = 0.5, and the harness's 1.5.
+    assert_eq!(stats.cost_usd24h, Some(2.0));
+    assert_eq!(stats.cache_read_share24h, Some(0.8));
+    assert_eq!((stats.compactions24h, stats.subagents24h, stats.calls24h), (None, None, None));
+    // A log that could not be read leaves the day's counts unknown.
+    assert_eq!(t.acp_stats(&source, now, &models(), false).unwrap().tokens24h, None);
+}

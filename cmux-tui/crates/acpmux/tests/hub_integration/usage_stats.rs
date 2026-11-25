@@ -1,4 +1,4 @@
-//! What a Claude chat spent and holds (`SessionSummary.usageStats`), read from the
+//! What a chat spent and holds (`SessionSummary.usageStats`). A Claude chat's is read from the
 //! transcript Claude Code writes under its CLAUDE_CONFIG_DIR: the session list and
 //! a chat's info carry it, and each turn's call is counted once.
 
@@ -67,6 +67,76 @@ async fn the_session_list_and_info_carry_what_the_chats_transcript_says() {
     assert_eq!(preview, format!("CLAUDE_CODE_AUTO_COMPACT_WINDOW={window}"));
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Any other ACP harness (the fake agent's family, as Gemini, OpenCode, pi or Muse): what its
+/// ACP usage reports said (each prompt result's `usage`, its `usage_update`s) is its row's and
+/// info's `usageStats`, read from acpmux's own log of the chat, and each turn's end announces it.
+/// A chat whose harness reports no usage has none, as before.
+#[tokio::test]
+async fn an_acp_harness_s_usage_reports_are_its_usage_stats() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let quiet = s["sessionId"].as_str().unwrap().to_owned();
+    let family = hub.resolve(&id).unwrap().meta().family.unwrap_or_default();
+    assert!(!matches!(family.as_str(), "claude" | "codex"), "{family}");
+    let say =
+        |id: &str, text: &str| json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]});
+    c.request(method::SESSION_PROMPT, say(&id, "acp-usage-report")).await.unwrap();
+    c.request(method::SESSION_PROMPT, say(&quiet, "hello")).await.unwrap();
+
+    let list = c.request(method::MUX_SESSIONS, json!({"usage": true})).await.unwrap();
+    let stats = stats_in(&list, &id);
+    // fake_agent.py's report: 1,000 input of which 400 cache reads, 300 output, 50 thought; the
+    // turn records 600 fresh input, 400 read and its output.
+    let turn = hub
+        .events(&id, 0, 10_000)
+        .unwrap()
+        .into_iter()
+        .rev()
+        .find(|e| e.dir == "mux" && e.kind == "turn_result")
+        .unwrap()
+        .msg;
+    assert_eq!(
+        (turn["inputTokens"].clone(), turn["cacheReadTokens"].clone()),
+        (json!(600), json!(400)),
+        "{turn}"
+    );
+    let one = 600 + 400 + turn["outputTokens"].as_u64().unwrap();
+    assert_eq!(stats["tokens24h"], one, "{stats}");
+    assert_eq!(stats["contextTokens"], 5400, "the usage_update's used: {stats}");
+    assert_eq!(stats["contextWindow"], 128_000, "the usage_update's size: {stats}");
+    assert_eq!(stats["cacheReadShare24h"], 0.4, "{stats}");
+    assert!(stats["tokensByModel1h"].as_object().is_some_and(|m| !m.is_empty()), "{stats}");
+    // Its usage reports say nothing of compactions, subagents or model calls: unknown, not 0.
+    for key in ["compactions24h", "subagents24h", "calls24h"] {
+        assert!(stats[key].is_null(), "{key}: {stats}");
+    }
+    assert!(stats_in(&list, &quiet).is_null(), "{}", stats_in(&list, &quiet));
+
+    // A second turn adds its own, and info carries it.
+    c.request(method::SESSION_PROMPT, say(&id, "acp-usage-report")).await.unwrap();
+    let list = c.request(method::MUX_SESSIONS, json!({"usage": true})).await.unwrap();
+    assert_eq!(stats_in(&list, &id)["tokens24h"], 2 * one, "{}", stats_in(&list, &id));
+    let info = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(info["usageStats"]["tokens24h"], 2 * one, "{}", info["usageStats"]);
+    // Each turn's end is followed by its usage; the quiet chat's by none.
+    let mut recorded = Vec::new();
+    for _ in 0..100 {
+        recorded = hub.events(&id, 0, 10_000).unwrap();
+        recorded.retain(|e| e.kind == "usage_stats");
+        if recorded.len() == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let tokens: Vec<_> = recorded.iter().map(|e| e.msg["tokens24h"].clone()).collect();
+    assert_eq!(tokens, vec![json!(one), json!(2 * one)]);
+    let quiet_records = hub.events(&quiet, 0, 10_000).unwrap();
+    assert!(!quiet_records.iter().any(|e| e.kind == "usage_stats"), "{quiet_records:?}");
+    hub.shutdown_all().await;
 }
 
 /// A new connection, as each `acpmux ls` makes one: its list is not paced by an earlier one's.

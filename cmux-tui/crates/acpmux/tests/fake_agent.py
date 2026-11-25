@@ -1916,6 +1916,15 @@ def handle_prompt(rid, params):
         usage = {"inputTokens": 100000, "cachedReadTokens": 90000, "outputTokens": 2000, "totalTokens": 102000}
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn", "usage": usage}})
         return
+    # "acp-usage-report" reports its usage as the ACP schema names it: a `usage_update` (the
+    # context used and its window), then a prompt result whose `usage` counts 1,000 input (400 of
+    # it read from the cache, its total input plus output plus thought), 300 output, 50 thought.
+    if text == "acp-usage-report":
+        update(sid, {"sessionUpdate": "usage_update", "used": 5400, "size": 128000})
+        usage = {"inputTokens": 1000, "cachedReadTokens": 400, "outputTokens": 300,
+                 "thoughtTokens": 50, "totalTokens": 1350}
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn", "usage": usage}})
+        return
     if text == "codex-fail":
         update(sid, {"sessionUpdate": "session_info_update", "_meta": {"codex": {"error": {"message": "Error", "willRetry": False, "additionalDetails": "Selected model is at capacity.", "codexErrorInfo": {"serverOverloaded": {}}}}}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})

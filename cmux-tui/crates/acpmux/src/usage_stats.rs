@@ -105,7 +105,8 @@ impl Models {
 /// What the hub knows of one chat: enough to find its harness's records.
 #[derive(Debug, Clone, Default)]
 pub struct Source {
-    /// `claude` or `codex`; any other family has no records read here.
+    /// `claude` or `codex`, read from its transcript; any other family is read from acpmux's
+    /// own log of the chat ([`reads_transcript`]).
     pub family: String,
     pub agent_session_id: String,
     pub cwd: PathBuf,
@@ -235,6 +236,12 @@ pub struct Tracker {
     complete: bool,
     /// The most a first read takes and the most one refresh reads, per file (tests set them).
     limits: Option<(u64, u64)>,
+    /// An ACP chat read from acpmux's own log ([`Tracker::take_acp`]): the last record read.
+    acp_seq: Option<u64>,
+    /// A turn of it reported tokens: until one does it has no stats.
+    acp_reported: bool,
+    /// A turn of it named its model calls (`modelCalls`): else its calls are unknown.
+    acp_calls: bool,
 }
 
 impl Tracker {
@@ -517,6 +524,146 @@ impl Tracker {
             self.subagents.insert(path, agent);
         }
         complete
+    }
+}
+
+/// Whether a chat's usage is read from its harness's own transcript (Claude Code's, Codex's);
+/// every other ACP harness's is read from acpmux's own log of the chat ([`Tracker::take_acp`]).
+pub fn reads_transcript(family: &str) -> bool {
+    matches!(family, "claude" | "codex")
+}
+
+/// The records of acpmux's log an ACP chat's usage is read from: each turn's `turn_result`, with
+/// the tokens and cost its harness reported on the prompt result (`hub/turn_usage.rs`), and the
+/// ACP `usage_update`s (`used`, `size`) that say its context.
+pub const ACP_KINDS: &[&str] = &["turn_result", "usage_update"];
+
+impl Tracker {
+    /// The last record of an ACP chat's log read, else `start` (a fork's copies of its parent's
+    /// records are its parent's spend, not its own).
+    pub fn acp_after(&self, start: u64) -> u64 {
+        self.acp_seq.unwrap_or(start)
+    }
+
+    /// One record of an ACP chat's log ([`ACP_KINDS`]), at `seq` and `at` (unix ms): a turn's
+    /// tokens go in its minute's bucket, priced by its harness when it says (`costUsd`), else at
+    /// the catalog's list price; a `usage_update` names the context and its window.
+    pub fn take_acp(
+        &mut self,
+        seq: u64,
+        at: u64,
+        kind: &str,
+        msg: &Value,
+        now: u64,
+        models: &Models,
+    ) {
+        self.acp_seq = Some(self.acp_seq.map_or(seq, |s| s.max(seq)));
+        if kind == "usage_update" {
+            let update = msg.pointer("/params/update").unwrap_or(msg);
+            if let Some(used) = update.get("used").and_then(Value::as_u64)
+                && at >= self.context_at
+            {
+                self.context_tokens = Some(used);
+                self.context_at = at;
+            }
+            if let Some(size) = update.get("size").and_then(Value::as_u64).filter(|s| *s > 0) {
+                self.context_window = Some(size);
+            }
+            return;
+        }
+        if kind != "turn_result" {
+            return;
+        }
+        let n = |key: &str| msg.get(key).and_then(Value::as_u64);
+        let (input, output) = (n("inputTokens"), n("outputTokens"));
+        let (read, write) = (n("cacheReadTokens"), n("cacheWriteTokens"));
+        if input.is_none() && output.is_none() && read.is_none() && write.is_none() {
+            return;
+        }
+        let (read, write) = (read.unwrap_or(0), write.unwrap_or(0));
+        let mut input = input.unwrap_or(0);
+        // An older acpmux kept an ACP harness's input whole, the cache's reads in it, unmarked.
+        if msg.get("inputExcludesCache") != Some(&Value::Bool(true)) {
+            input = input.saturating_sub(read.saturating_add(write));
+        }
+        if let Some(model) = msg.get("model").and_then(Value::as_str).filter(|m| !m.is_empty()) {
+            self.model = Some(model.to_owned());
+        }
+        if let Some(context) = n("contextTokens").filter(|c| *c > 0 && at >= self.context_at) {
+            self.context_tokens = Some(context);
+            self.context_at = at;
+        }
+        self.acp_reported = true;
+        let tokens = Tokens {
+            model: self.model.clone(),
+            input,
+            output: output.unwrap_or(0),
+            cache_read: read,
+            cache_write: write,
+            cache_write_1h: n("cacheWrite1hTokens").unwrap_or(0).min(write),
+            total: input
+                .saturating_add(output.unwrap_or(0))
+                .saturating_add(read)
+                .saturating_add(write),
+            context: None,
+            window: None,
+            key: Key::None,
+        };
+        let model = self.model.clone().unwrap_or_default();
+        let cost = msg
+            .get("costUsd")
+            .and_then(Value::as_f64)
+            .filter(|c| c.is_finite() && *c >= 0.0)
+            .or_else(|| models.prices(&model).map(|p| tokens.cost(&p)));
+        let calls = n("modelCalls").filter(|c| *c > 0);
+        self.acp_calls |= calls.is_some();
+        if let Some(b) = self.bucket(at, now) {
+            b.tokens = b.tokens.saturating_add(tokens.total);
+            let total = b
+                .by_model
+                .entry(if model.is_empty() { "unknown".into() } else { model })
+                .or_default();
+            *total = total.saturating_add(tokens.total);
+            let calls = calls.unwrap_or(0);
+            b.calls = b.calls.saturating_add(calls);
+            b.prompt_read = b.prompt_read.saturating_add(read);
+            b.prompt_rest = b.prompt_rest.saturating_add(input).saturating_add(write);
+            if let Some(cost) = cost {
+                b.cost_usd += cost;
+                b.priced = true;
+                b.priced_calls = b.priced_calls.saturating_add(calls);
+            }
+        }
+    }
+
+    /// An ACP chat's stats as of `now`, from the records [`Tracker::take_acp`] took; `read`: the
+    /// log was read to its end. None until a turn of it reported tokens. Its compactions and
+    /// subagents are not in its usage reports, so they are unknown, as are its calls unless its
+    /// harness counted them.
+    pub fn acp_stats(
+        &mut self,
+        source: &Source,
+        now: u64,
+        models: &Models,
+        read: bool,
+    ) -> Option<UsageStats> {
+        if !self.acp_reported {
+            return None;
+        }
+        self.complete = read;
+        let cutoff = now.saturating_sub(DAY_MS);
+        self.minutes = self.minutes.split_off(&cutoff.saturating_sub(cutoff % MINUTE_MS));
+        let window =
+            self.context_window.or_else(|| self.model.as_deref().and_then(|m| models.window(m)));
+        let mut stats = self.stats(source, now, window);
+        stats.compactions24h = None;
+        stats.subagents1h = None;
+        stats.subagents24h = None;
+        if !self.acp_calls {
+            stats.calls24h = None;
+            stats.cost_per_call_usd24h = None;
+        }
+        Some(stats)
     }
 }
 

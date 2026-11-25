@@ -1,8 +1,9 @@
 //! The hub's side of `usage_stats.rs`: which chats are read, when, and where the
 //! result goes (`SessionSummary.usageStats`).
 //!
-//! A pass reads every Claude Code and Codex chat that is open or changed in the
-//! last day, on one blocking thread, from where the last pass ended. It finds them among the
+//! A pass reads every Claude Code and Codex chat (from its harness's transcript) and every
+//! other ACP harness's chat that reported tokens (from acpmux's own log of its turns' usage)
+//! that is open or changed in the last day, on one blocking thread, from where the last pass ended. It finds them among the
 //! live chats and the kept list order's rows of the last day (`list_order.rs`), never by a walk
 //! of every chat: a god daemon's 110,000 closed chats cost a first pass 161 ms. No timer runs:
 //! a session list that asks for usage (`usage: true`: `acpmux ls --wide`, `--json`, Session
@@ -172,6 +173,30 @@ pub(super) fn prune_unlisted<T>(
     stats.iter().filter(|id| !listed.contains(id.as_str())).cloned().collect()
 }
 
+/// An ACP chat's usage, read from acpmux's own log of it: the `turn_result`s and `usage_update`s
+/// past the last record read (none when nothing was logged since), so a pass costs a chat only
+/// what it logged since the last one.
+fn read_acp_usage(
+    hub: &Hub,
+    id: &str,
+    source: &Source,
+    tracker: &mut Tracker,
+    (last, start): (u64, u64),
+    models: &Models,
+) -> Option<UsageStats> {
+    let now = crate::store::now_ms();
+    let after = tracker.acp_after(start);
+    let read = after >= last
+        || hub
+            .store
+            .scan_kinds_after(id, after, crate::usage_stats::ACP_KINDS, &mut |e| {
+                tracker.take_acp(e.seq, e.at, &e.kind, &e.msg, now, models);
+                true
+            })
+            .is_ok();
+    tracker.acp_stats(source, now, models, read)
+}
+
 impl Hub {
     /// The usage read of a session list or row read that asks for usage (`usage: true`, Session
     /// Info's usage read): what is cached is served at once, and a pass, when one is due, runs
@@ -275,19 +300,30 @@ impl Hub {
         candidates
     }
 
-    /// Whether a whole pass reads `m`'s chat: a Claude Code or Codex chat with its agent's
-    /// session id, open or changed in the last day.
+    /// Whether a whole pass reads `m`'s chat, open or changed in the last day: a Claude Code or
+    /// Codex chat with its agent's session id (its transcript), or a chat of any other ACP
+    /// harness that has reported tokens on a turn (`totals`), read from its own log.
     fn reads_usage(m: &SessionMeta, now: u64) -> bool {
         let family = m.family.as_deref().unwrap_or_default();
-        m.agent_session_id.as_deref().is_some_and(|s| !s.is_empty())
-            && matches!(family, "claude" | "codex")
-            && !(m.status == SessionStatus::Closed && m.updated_at.saturating_add(DAY_MS) < now)
+        let source = if crate::usage_stats::reads_transcript(family) {
+            m.agent_session_id.as_deref().is_some_and(|s| !s.is_empty())
+        } else {
+            m.totals.is_some()
+        };
+        source && !(m.status == SessionStatus::Closed && m.updated_at.saturating_add(DAY_MS) < now)
     }
 
     /// The sources of the chats of `sessions` a pass reads ([`Self::reads_usage`], tested on
     /// each chat's metadata in place); only those are copied.
-    async fn usage_sources(&self, sessions: &[Arc<Session>], now: u64) -> Vec<(String, Source)> {
+    /// With each ACP chat's (not read from a transcript): its last record, and the record its
+    /// own log begins after (a fork's copies of its parent's turns are its parent's spend).
+    async fn usage_sources(
+        &self,
+        sessions: &[Arc<Session>],
+        now: u64,
+    ) -> (Vec<(String, Source)>, HashMap<String, (u64, u64)>) {
         let mut sources = Vec::new();
+        let mut acp = HashMap::new();
         for session in sessions {
             if !session.read_meta(|m| Self::reads_usage(m, now)) {
                 continue;
@@ -317,9 +353,13 @@ impl Hub {
                 let (key, value) = crate::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW;
                 source.env.insert(key.into(), value.into());
             }
+            if !crate::usage_stats::reads_transcript(&source.family) {
+                let start = m.parent_id.as_ref().and(m.fork_seq).unwrap_or(0);
+                acp.insert(m.id.clone(), (m.last_seq, start));
+            }
             sources.push((m.id.clone(), source));
         }
-        sources
+        (sources, acp)
     }
 
     /// Reads one chat's usage and leaves it to run: its turn ended, so its spend changed. The
@@ -342,7 +382,9 @@ impl Hub {
     /// `usage_stats` record, which watchers hear as `_acpmux/session_changed`.
     async fn read_usage(&self, sessions: Vec<Arc<Session>>, whole: bool) {
         let now = crate::store::now_ms();
-        let sources = self.usage_sources(&sessions, now).await;
+        let (sources, acp) = self.usage_sources(&sessions, now).await;
+        // An ACP chat's usage is read from its own log, which the hub's store holds.
+        let hub = self.hub_ref.get().and_then(std::sync::Weak::upgrade);
         #[cfg(test)]
         if whole {
             self.usage_stats.sources_read.store(sources.len(), Ordering::SeqCst);
@@ -368,7 +410,14 @@ impl Hub {
             let mut fresh = Vec::with_capacity(sources.len());
             for (id, source) in &sources {
                 let tracker = trackers.entry(id.clone()).or_default();
-                if let Some(found) = tracker.refresh(source, crate::store::now_ms(), &models) {
+                let found = match acp.get(id) {
+                    None => tracker.refresh(source, crate::store::now_ms(), &models),
+                    Some(&(last, start)) => {
+                        let Some(hub) = hub.as_ref() else { continue };
+                        read_acp_usage(hub, id, source, tracker, (last, start), &models)
+                    }
+                };
+                if let Some(found) = found {
                     let mut tags = vec![UsageTag::Chat(id.clone())];
                     tags.extend(transcript_key(source).map(UsageTag::Transcript));
                     fresh.push((id.clone(), found, tags));
