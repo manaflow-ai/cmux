@@ -185,7 +185,7 @@ pub struct ChatRef {
 pub enum CarryKind {
     /// `.zshrc`, `.bashrc`, `.profile`, `.inputrc`, `.tmux.conf`, starship, aliases.
     Shell,
-    /// Shell history.
+    /// Shell history. Unchecked by default: it can hold tokens typed on a command line.
     ShellHistory,
     /// `.gitconfig` (identity, aliases; never a credential helper's store).
     GitConfig,
