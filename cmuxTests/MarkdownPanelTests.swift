@@ -979,6 +979,71 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(rootAbsoluteImage["currentSrc"] as? String, "")
     }
 
+    func testMarkdownPanelRefreshReloadsChangedLocalImage() async throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-image-refresh-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        let imageURL = directoryURL.appendingPathComponent("plot.png")
+        let markdownURL = directoryURL.appendingPathComponent("report.md")
+        try Self.pngData(pixelsWide: 1, pixelsHigh: 1).write(to: imageURL)
+        try "![Plot](plot.png)\n".write(to: markdownURL, atomically: true, encoding: .utf8)
+
+        let panel = MarkdownPanel(workspaceId: UUID(), filePath: markdownURL.path)
+        defer { panel.close() }
+        await panel.loadTextContent()?.value
+
+        // Mount the panel's own coordinator the way MarkdownWebRenderer does, so
+        // Refresh goes through the real render push and image scheme handler.
+        let coordinator = panel.rendererSession.coordinator(
+            panelId: panel.id,
+            workspaceId: panel.workspaceId,
+            filePath: panel.filePath
+        )
+        let frame = NSRect(x: 0, y: 0, width: 320, height: 240)
+        let configuration = WKWebViewConfiguration()
+        configuration.setURLSchemeHandler(coordinator, forURLScheme: MarkdownWebRenderer.localImageURLScheme)
+        let webView = MarkdownWebView(frame: frame, configuration: configuration)
+        webView.navigationDelegate = coordinator
+        coordinator.webView = webView
+        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = webView
+        window.orderFrontRegardless()
+        defer { window.close() }
+
+        // Give the shell the same 10 s budget as the other WebKit tests, so a
+        // slow first load fails here instead of looking like a stale image.
+        let rendered = expectation(description: "markdown shell loaded and rendered report.md")
+        let panelHandler = coordinator.onMarkdownRendered
+        coordinator.onMarkdownRendered = {
+            panelHandler?()
+            rendered.fulfill()
+        }
+        coordinator.loadShell(
+            theme: MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor),
+            initialMarkdown: panel.content
+        )
+        await fulfillment(of: [rendered], timeout: 10)
+        coordinator.onMarkdownRendered = panelHandler
+        let original = try await waitForMarkdownImage(in: webView)
+        XCTAssertEqual(original["naturalWidth"] as? Int, 1)
+
+        // Overwrite the image the way a plotting script would. The Markdown
+        // text does not change, so only Refresh can pick up the new image.
+        try Self.pngData(pixelsWide: 2, pixelsHigh: 2).write(to: imageURL)
+        await panel.reloadFromDisk().value
+
+        let deadline = Date().addingTimeInterval(3)
+        var refreshedWidth = original["naturalWidth"] as? Int
+        while refreshedWidth != 2, Date() < deadline {
+            try await Task.sleep(nanoseconds: 100_000_000)
+            refreshedWidth = try await waitForMarkdownImage(in: webView)["naturalWidth"] as? Int
+        }
+        XCTAssertEqual(refreshedWidth, 2, "Refresh should show the image as it is on disk now")
+    }
+
     func testMarkdownRenderDeniesLocalImageWhenMarkdownPathIsMissing() async throws {
         let fileManager = FileManager.default
         let rootURL = fileManager.temporaryDirectory
@@ -1991,6 +2056,24 @@ final class MarkdownPanelTests: XCTestCase {
         }
         return png
     }()
+
+    /// A PNG of exactly `pixelsWide` by `pixelsHigh`, whatever the display's
+    /// backing scale, so a test can tell two versions of an image apart.
+    private static func pngData(pixelsWide: Int, pixelsHigh: Int) throws -> Data {
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: pixelsWide,
+            pixelsHigh: pixelsHigh,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ))
+        return try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+    }
 
     private static let onePixelPNGDataURI = "data:image/png;base64,\(onePixelPNG.base64EncodedString())"
 }

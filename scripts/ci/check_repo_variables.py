@@ -28,6 +28,7 @@ MACOS_RUNNER_* is otherwise refused.
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -40,6 +41,10 @@ from cloud_overflow_switch import (RECORD_VARIABLE, TRUSTED_ACCEPTED_LABELS, TRU
 from signing_runner_variables import allowed_value  # noqa: E402
 
 RUNNER_VARIABLES_ENV = "CMUX_CI_RUNNER_VARIABLES"
+# A GitHub-hosted image label (ubuntu-24.04, ubuntu-latest, macos-15, windows-2025). No runner variable names one,
+# a recorded overflow failover included. Leo, 2026-11-19, after a 2026-11-17 outage override kept cmux Linux jobs on
+# GitHub-hosted Ubuntu all day: "Like, why the f*** do you keep having the f***ing GitHub hosted runners? F*** GitHub."
+HOSTED_LABEL = re.compile(r"^(?:ubuntu|macos|windows)(?:-[\w.-]+)?$")
 DAEMON_POOL_VARIABLE = "CI_NEXT_DAEMON_POOL"
 SIDE_LANE_VARIABLE = "CI_SIDE_LANE_RUNNER"
 PIN_POOL_VARIABLE = "CI_PIN_DAEMON_POOL"
@@ -127,8 +132,13 @@ def problems(env: dict[str, str]) -> list[str]:
                              "that gate the nightly-next promotion queue behind pull request side lanes. "
                              "Fix: point it at a pool pull requests do not fill, or clear it for the promote pool")
             found.extend(pin_pool_findings(env.get(PIN_POOL_VARIABLE, "").strip(), daemon_pool, variables)[0])
-            drifted = list(drifted_runner_variables(variables))
-            reported = {name for name, _, _ in drifted}
+            hosted = {name for name, value in variables.items() if HOSTED_LABEL.match(value.strip().lower())}
+            for name in sorted(hosted):
+                found.append(f"{name}={variables[name]!r}: a GitHub-hosted label, and no cmux job runs on GitHub-hosted "
+                             f"runners. Fix: gh variable delete {name} -R manaflow-ai/cmux, or name a Blacksmith or "
+                             "owned label")
+            drifted = [entry for entry in drifted_runner_variables(variables) if entry[0] not in hosted]
+            reported = {name for name, _, _ in drifted} | hosted
             for name, value in sorted(variables.items()):
                 # Checked on their own: the drift policy accepts some labels (an older provider's,
                 # say) that no signing job may run on.
@@ -143,9 +153,9 @@ def problems(env: dict[str, str]) -> list[str]:
                     continue
                 found.append(f"{name}={value!r}: {reason}")
             trusted = variables.get(TRUSTED_VARIABLE, "").strip()
-            if trusted and trusted != "ubuntu-24.04" and trusted not in TRUSTED_ACCEPTED_LABELS:
+            if trusted and TRUSTED_VARIABLE not in hosted and trusted not in TRUSTED_ACCEPTED_LABELS:
                 # Its readers accept only these, so any other value silently falls back to Blacksmith 4 vCPU.
-                found.append(f"{TRUSTED_VARIABLE}={trusted!r}: its readers accept only ubuntu-24.04, "
+                found.append(f"{TRUSTED_VARIABLE}={trusted!r}: its readers accept only "
                              + ", ".join(sorted(TRUSTED_ACCEPTED_LABELS)) + "; anything else falls back")
         except (ValueError, PolicyUnreadable) as error:
             found.append(str(error))

@@ -136,6 +136,7 @@ class Workflows(unittest.TestCase):
         ("ci-cloud-overflow-probe.yml", "watch", "scripts/ci/app_spend_mark.py", "pass"),
         ("ci-hosted-backlog-rescue.yml", "backlog", "scripts/ci/app_spend_mark.py", "pass"),
         ("nightly-next-tick.yml", "unstick", ".tick-tooling/scripts/ci/app_spend_mark.py", "pass"),
+        ("nightly-next-tick.yml", "request", ".tick-tooling/scripts/ci/app_spend_mark.py", "pass"),
         ("ci-failure-attribution.yml", "attribute", "scripts/ci/app_spend_mark.py", "pass"),
         ("ci-guard-attribution.yml", "analyze", "scripts/ci/app_spend_mark.py", "pass"),
         ("ci-guard-attribution.yml", "report", "scripts/ci/app_spend_mark.py", "pass"),
@@ -195,6 +196,17 @@ class Workflows(unittest.TestCase):
                      "Re-run a cancelled nightly-next tip"):
             self.assertEqual(named(unstick, name)["if"], "steps.app-spend.outputs.low != 'true'")
         tooling = next(s for s in unstick if s.get("with", {}).get("path") == ".tick-tooling")
+        self.assertIn("scripts/ci/app_spend_mark.py", tooling["with"]["sparse-checkout"])
+
+    def test_below_the_floor_the_tick_request_sends_nothing_as_the_app(self) -> None:
+        # The request job's whole gh traffic goes through the App wrapper, so below the floor it is
+        # not installed and every call stays github.token's.
+        request = steps("nightly-next-tick.yml", "request")
+        install = named(request, "Send this job's gh calls as the cmux-bot App, github.token as the fallback")
+        self.assertIn("steps.app-spend.outputs.low != 'true'", install["if"])
+        names = [s.get("name") for s in request]
+        self.assertLess(names.index("Read the cmux-bot budget before the tick"), names.index(install["name"]))
+        tooling = next(s for s in request if s.get("with", {}).get("path") == ".tick-tooling")
         self.assertIn("scripts/ci/app_spend_mark.py", tooling["with"]["sparse-checkout"])
 
     def test_the_dev_dispatcher_reads_its_app_budget_and_falls_back_below_the_floor(self) -> None:

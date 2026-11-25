@@ -825,5 +825,42 @@ class LocalGapTests(unittest.TestCase):
         self.assertIn("local_gap=git_oldest_after", SCRIPT.read_text(encoding="utf-8"))
 
 
+class GhApiSpareTokenTests(unittest.TestCase):
+    """gh_api: a refused read goes out once more on SPARE_READ_TOKEN, and a refusal names gh's words."""
+
+    def runner(self, answers):
+        calls = []
+
+        def run(argv, capture_output, text, env):
+            calls.append((env or {}).get("GH_TOKEN", "job"))
+            code, out, err = answers.pop(0)
+            return subprocess.CompletedProcess(argv, code, out, err)
+        return run, calls
+
+    def test_a_refused_read_is_read_on_the_spare_token(self):
+        run, calls = self.runner([(1, "", "HTTP 403: API rate limit exceeded"), (0, '{"ok": 1}', "")])
+        self.assertEqual(rolling.gh_api("repos/o/r/actions/runs", env={"SPARE_READ_TOKEN": "s"}, run=run), {"ok": 1})
+        self.assertEqual(calls, ["job", "s"])
+
+    def test_no_spare_fails_once_with_gh_s_words(self):
+        run, calls = self.runner([(1, "", "HTTP 403: API rate limit exceeded\n")])
+        with self.assertRaises(subprocess.CalledProcessError) as caught:
+            rolling.gh_api("repos/o/r/actions/runs", env={}, run=run)
+        self.assertEqual(calls, ["job"])
+        self.assertIn("API rate limit exceeded", repr(caught.exception))
+
+    def test_both_refused_names_the_spare_s_refusal(self):
+        run, calls = self.runner([(1, "", "HTTP 403: rate limit"), (1, "", "HTTP 404: Not Found")])
+        with self.assertRaises(subprocess.CalledProcessError) as caught:
+            rolling.gh_api("repos/o/r/actions/runs", env={"SPARE_READ_TOKEN": "s"}, run=run)
+        self.assertEqual(calls, ["job", "s"])
+        self.assertIn("404", repr(caught.exception))
+
+    def test_a_good_read_never_touches_the_spare(self):
+        run, calls = self.runner([(0, "[]", "")])
+        self.assertEqual(rolling.gh_api("repos/o/r/x", env={"SPARE_READ_TOKEN": "s"}, run=run), [])
+        self.assertEqual(calls, ["job"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

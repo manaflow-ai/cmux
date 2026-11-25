@@ -427,9 +427,32 @@ def git_oldest_after(head: str, tip: str, git=None):
         raise LookupError(f"could not read the commits after {head[:12]}") from error
 
 
-def gh_api(path: str):
-    out = subprocess.run(["gh", "api", path], check=True, capture_output=True, text=True).stdout
-    return json.loads(out)
+class GhRefused(subprocess.CalledProcessError):
+    """A failed `gh api`, whose repr (the rolling rule's warnings) carries what gh said."""
+
+    def __repr__(self) -> str:
+        return f"gh api {self.cmd[-1]} exited {self.returncode}: {self.stderr}"
+
+
+def gh_api(path: str, env=None, run=subprocess.run):
+    """One `gh api` GET with the job's token. Refused, it goes out once more on SPARE_READ_TOKEN (a read-only
+    App token with a budget of its own, the tick's), so a dry job token does not cost the tick its answer: ticks
+    45118875109 and 45119653528 (2026-11-23 05:39 and 05:44Z) could not list the running builds while both
+    builds' nightly-next-one had ended, and the promotion waited until 05:52. A refusal carries gh's own words."""
+    env = os.environ if env is None else env
+    tokens = [None, env["SPARE_READ_TOKEN"]] if env.get("SPARE_READ_TOKEN") else [None]
+    for index, token in enumerate(tokens):
+        child = None if token is None else {**env, "GH_TOKEN": token}
+        done = run(["gh", "api", path], capture_output=True, text=True, env=child)
+        if done.returncode == 0:
+            if index:
+                print(f"gh api {path.split('?')[0]}: the job's token was refused; read on the spare token")
+            return json.loads(done.stdout)
+        said = " ".join((done.stderr or "").split())[-300:]
+        if index + 1 < len(tokens):
+            print(f"gh api {path.split('?')[0]} was refused ({said}); reading it on the spare token")
+            continue
+        raise GhRefused(done.returncode, ["gh", "api", path], done.stdout, said)
 
 
 def evaluate(now: dt.datetime, repo: str, tip: str, api=gh_api,

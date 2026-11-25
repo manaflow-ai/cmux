@@ -3163,6 +3163,31 @@ class GhMergeGreenRestFallbackTests(unittest.TestCase):
         self.assertFalse(any("pulls/123" in call for call in calls if call.startswith("api ")))
 
 
+# CI fast guards runs this file as three parallel steps (ci-guards.yml): alone it is the longest
+# guard (about 100 s; 200-330 s under the job's other workers on a shared pool VM), so it set the
+# job's wall time. GH_MERGE_GREEN_SHARD names one shard; "rest" is every class the other two do
+# not name, so a new class always runs. Unset, every test runs.
+SHARDS = {"installed-helper": ("InstalledHelperRegression",), "merged-head": ("MergedHeadChecksRegression",)}
+
+
+def load_tests(loader, tests, pattern):
+    shard = os.environ.get("GH_MERGE_GREEN_SHARD", "")
+    if not shard:
+        return tests
+    named = {name for names in SHARDS.values() for name in names}
+    if shard == "rest":
+        keep = lambda name: name not in named
+    elif shard in SHARDS:
+        keep = lambda name: name in SHARDS[shard]
+    else:
+        raise SystemExit(f"GH_MERGE_GREEN_SHARD={shard!r}: expected one of {sorted(SHARDS)} or 'rest'")
+    suite = unittest.TestSuite()
+    for case in globals().values():
+        if isinstance(case, type) and issubclass(case, unittest.TestCase) and case.__module__ == __name__ and keep(case.__name__):
+            suite.addTests(loader.loadTestsFromTestCase(case))
+    return suite
+
+
 if __name__ == "__main__":
     sys.path.insert(0, str(ROOT / "tests"))
     import parallel_unittest

@@ -179,17 +179,14 @@ class Declared(unittest.TestCase):
         for name in bad:
             self.assertIn(f"pools.{name}:", found)
 
-    def test_the_release_valve_and_outage_override_never_take_an_owned_linux_vm_as_x64(self) -> None:
+    def test_the_outage_override_never_takes_an_owned_linux_vm_as_x64(self) -> None:
         pools = runner_pools.load_pools(env={runner_pools.HOSTED_OVERRIDE: "ubuntu-24.04"})
         spec = pools["linux_owned_small"]
         # The hosted outage override stands in for Blacksmith x64 pools only; this pool keeps its members.
         self.assertFalse(spec.get("hosted"))
         self.assertEqual(runner_pools.members(spec)[0], "glaeda-linux-arm64")
-        # The valve is judged on the Blacksmith members: nothing is smaller than 2 vCPU.
-        self.assertEqual(runner_pools.valve_labels(spec, pools), [])
-        self.assertEqual(runner_pools.valve_labels(
-            {"members": ["glaeda-linux-arm64", "blacksmith-4vcpu-ubuntu-2404"]}, runner_pools.load_pools()),
-            ["blacksmith-2vcpu-ubuntu-2404"])
+        # A pool never names a label outside its declared members, owned Linux VM included.
+        self.assertEqual(runner_pools.allowed(spec, pools), runner_pools.members(spec))
 
     def test_spec_problems_refuse_owned_hosted_and_unknown_labels(self) -> None:
         bad = {
@@ -371,6 +368,41 @@ class Evidence(unittest.TestCase):
                                           covered=runner_pools.evidence_covers(None, drained, pools, now=later))
         self.assertEqual(again["linux_owned_small"], "glaeda-linux-arm64")
         self.assertNotIn("glaeda-linux-arm64", again[runner_pools.DEAD_KEY])
+
+    def test_an_owned_linux_vm_label_no_runner_ever_served_is_passed_over(self) -> None:
+        # Coordinator FIRE, 2026-11-22 07:42Z: "RUNNER_POOLS key `linux_owned_small` was set to
+        # `glaeda-linux-arm64` at about 07:26Z ... No runner registered for manaflow-ai/cmux carries that label, so
+        # every job routed through it sits queued." Nothing queued there, so no stall ever marked it dead.
+        pools = runner_pools.load_pools()
+        label = "glaeda-linux-arm64"
+        self.assertTrue(runner_pools.unproven(label, {}))
+        for snapshot in (None, copy.deepcopy(RECORDED)):
+            current = {"linux_owned_small": label, runner_pools.DEAD_KEY: {}}
+            value, lines = runner_pools.reconcile(
+                current, pools, dead_now=set(), served_now=set(), now=NOW,
+                covered=runner_pools.evidence_covers(None, snapshot, pools, now=NOW))
+            self.assertEqual(value["linux_owned_small"], "blacksmith-2vcpu-ubuntu-2404")
+            self.assertNotIn(runner_pools.SERVED_KEY, value)
+            self.assertIn(f"pools.linux_owned_small: no runner has ever taken a job on {label}; passed over", lines)
+        # The owned GCP label stands registered and is judged by the stall rule, not by this.
+        self.assertFalse(runner_pools.unproven("cmux-fleet-linux-x64", {}))
+        self.assertEqual(value["linux_2"], "cmux-fleet-linux-x64")
+        # A start proves it: the pool leads with it again, and the proof survives a pass that sees no start.
+        started = self.owned_linux_snapshot(queued=0, running=1, oldest=0, started_ago=dt.timedelta(minutes=1))
+        dead, served, _ = runner_pools.label_evidence(None, started, now=NOW)
+        proven, lines = runner_pools.reconcile(value, pools, dead_now=dead, served_now=served, now=NOW,
+                                               covered=runner_pools.evidence_covers(None, started, pools, now=NOW))
+        self.assertEqual(proven["linux_owned_small"], label)
+        self.assertEqual(proven[runner_pools.SERVED_KEY], {label: runner_pools.iso(NOW)})
+        later = NOW + dt.timedelta(hours=2)
+        kept, _ = runner_pools.reconcile(runner_pools.parse_value(runner_pools.render(proven), pools)[0], pools,
+                                         dead_now=set(), served_now=set(), now=later)
+        self.assertEqual(kept["linux_owned_small"], label)
+        # A malformed record is dropped, never crashed on.
+        clean, dropped = runner_pools.parse_value(
+            '{"_served": {"glaeda-linux-arm64": "soon", "blacksmith-2vcpu-ubuntu-2404": "2026-11-22T07:00:00Z"}}', pools)
+        self.assertNotIn(runner_pools.SERVED_KEY, clean)
+        self.assertTrue(any(runner_pools.SERVED_KEY in line for line in dropped))
 
     def test_a_full_owned_gcp_pool_overflows_to_blacksmith_and_comes_back(self) -> None:
         # Leo, 2026-11-21: "i just am like fundamentally opposed to paying for ci when i exist". The x64 pools lead
@@ -627,7 +659,8 @@ class Evidence(unittest.TestCase):
 
     def test_no_evidence_retires_nothing(self) -> None:
         # Fail closed: with CI_CLOUD_LABEL_HEALTH absent (cmux#27121 not deployed) and no snapshot,
-        # nothing is marked dead, and the pools stay on their first members.
+        # nothing is marked dead, and the pools stay on their first members (passing over an owned Linux VM label
+        # no runner has served yet, runner_pools.unproven()).
         dead, started, _ = runner_pools.label_evidence(None, None, now=NOW)
         self.assertEqual((dead, started), (set(), set()))
         switch = Main.Switch()
@@ -635,7 +668,7 @@ class Evidence(unittest.TestCase):
         value = json.loads(switch.writes[0][1])
         self.assertEqual(value["_dead"], {})
         for name, spec in runner_pools.load_pools().items():
-            self.assertEqual(value[name], spec["members"][0])
+            self.assertEqual(value[name], next(m for m in spec["members"] if not runner_pools.unproven(m, {})))
 
     def test_an_undated_stale_or_future_snapshot_decides_nothing(self) -> None:
         stalled = copy.deepcopy(RECORDED)
@@ -694,47 +727,38 @@ class Reconcile(unittest.TestCase):
         value, _ = self.run_once({}, dead={"blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"})
         self.assertEqual(value["linux"], "blacksmith-32vcpu-ubuntu-2404")
 
-    def test_every_member_dead_releases_to_the_next_smaller_live_size(self) -> None:
-        # 2026-11-18 01:18Z: 16 vCPU marked dead, 32 vCPU starting nothing since about 23:12Z, and
-        # linux_16 / linux_32 left on 32 vCPU. 8 vCPU kept starting jobs (01:10Z, run 44211950380).
-        pools = {
-            "linux_8": {"why": "x", "members": ["blacksmith-8vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"]},
-            "linux_16": {"why": "x", "members": ["blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404"]},
-            "linux_32": {"why": "x", "members": ["blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"]},
-            "linux_4": {"why": "x", "members": ["blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"]},
-            "macos_26": {"why": "x", "members": ["blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26"]},
-        }
-        both = {"blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404"}
-        value, lines = runner_pools.reconcile({}, pools, dead_now=both, served_now=(), now=NOW)
-        self.assertEqual(value["linux_16"], "blacksmith-8vcpu-ubuntu-2404")
-        self.assertEqual(value["linux_32"], "blacksmith-8vcpu-ubuntu-2404")
-        self.assertEqual(value["linux_8"], "blacksmith-8vcpu-ubuntu-2404")
-        self.assertTrue(any("release valve" in line and "linux_16" in line for line in lines), lines)
-        # The value round-trips and passes --check: the valve label is allowed, not reset.
-        current, dropped = runner_pools.parse_value(runner_pools.render(value), pools)
-        self.assertEqual(dropped, [])
-        self.assertEqual(current["linux_16"], "blacksmith-8vcpu-ubuntu-2404")
-        self.assertEqual(runner_pools.value_problems(value, pools), [])
-        # 8 vCPU dead too: the next smaller declared size that is not.
-        value, _ = runner_pools.reconcile({}, pools, dead_now={*both, "blacksmith-8vcpu-ubuntu-2404"},
-                                          served_now=(), now=NOW)
-        self.assertEqual(value["linux_16"], "blacksmith-4vcpu-ubuntu-2404")
-        # Nothing smaller alive: the first member, as before.
-        value, _ = runner_pools.reconcile({}, pools, dead_now={*both, "blacksmith-8vcpu-ubuntu-2404",
-                                                               "blacksmith-4vcpu-ubuntu-2404"},
-                                          served_now=(), now=NOW)
-        self.assertEqual(value["linux_16"], "blacksmith-16vcpu-ubuntu-2404")
-        # A member starting again takes the pool back from the valve.
-        released, _ = runner_pools.reconcile({}, pools, dead_now=both, served_now=(), now=NOW)
-        back, _ = runner_pools.reconcile(released, pools, dead_now=(), served_now={"blacksmith-32vcpu-ubuntu-2404"},
-                                         now=NOW + dt.timedelta(minutes=10))
-        self.assertEqual(back["linux_32"], "blacksmith-32vcpu-ubuntu-2404")
-        self.assertEqual(back["linux_16"], "blacksmith-32vcpu-ubuntu-2404")
-        # macOS pools and any other label stay out of the valve.
-        self.assertEqual(runner_pools.allowed(pools["macos_26"], pools), runner_pools.members(pools["macos_26"]))
+    def test_every_member_dead_never_leaves_the_declared_members(self) -> None:
+        # 2026-11-18 from 13:18Z: a release valve sent linux_16 and linux_8 to blacksmith-2vcpu-ubuntu-2404, a member
+        # of neither. cmux-tui's thin legs took 25-44 min instead of 2-8, and 7 aarch64 legs failed with rustc OOM
+        # (job 134837837144). A too-small size makes a memory-heavy job fail, not only wait.
+        pools = runner_pools.load_pools()
+        linux_sizes = {f"blacksmith-{n}vcpu-ubuntu-2404" for n in (2, 4, 8, 16, 32)}
+        for dead in ({"blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404",
+                      "blacksmith-32vcpu-ubuntu-2404"}, linux_sizes):
+            value, lines = runner_pools.reconcile({}, pools, dead_now=dead, served_now=(), now=NOW)
+            outside = {name: value[name] for name in pools if value[name] not in runner_pools.members(pools[name])}
+            self.assertEqual(outside, {})
+            # A pool with every member dead keeps its first declared one; linux_16 and linux_8 lead with the live owned
+            # GCP label since #48881, so only all-Blacksmith pools such as linux_4 reach that.
+            self.assertEqual(value["linux_16"], runner_pools.members(pools["linux_16"])[0])
+            self.assertEqual(value["linux_8"], runner_pools.members(pools["linux_8"])[0])
+            all_dead = [name for name in pools if set(runner_pools.members(pools[name])) <= dead]
+            self.assertIn("linux_4", all_dead)
+            for name in all_dead:
+                self.assertEqual(value[name], runner_pools.members(pools[name])[0])
+                self.assertTrue(any("every member is dead" in line and f"pools.{name}:" in line for line in lines), lines)
+        # The writer resets a value outside a pool's members, and --check refuses it.
+        current, dropped = runner_pools.parse_value(json.dumps({**value, "linux_16": "blacksmith-2vcpu-ubuntu-2404"}),
+                                                    pools)
+        self.assertNotIn("linux_16", current)
+        self.assertTrue(any("linux_16" in line for line in dropped), dropped)
+        again, _ = runner_pools.reconcile(current, pools, dead_now=(), served_now=(), now=NOW)
+        self.assertEqual(again["linux_16"], runner_pools.members(pools["linux_16"])[0])
         self.assertTrue(runner_pools.value_problems({**value, "linux_16": "blacksmith-2vcpu-ubuntu-2404"}, pools))
+        for spec in pools.values():
+            self.assertEqual(runner_pools.allowed(spec, pools), runner_pools.members(spec))
 
-    def test_the_release_valve_never_goes_below_min_vcpu(self) -> None:
+    def test_a_pool_never_goes_below_min_vcpu(self) -> None:
         # 2026-11-18 11:47Z-13:18Z: with 16, 8 and 32 vCPU marked dead the valve put linux_16 on 4 and then 2 vCPU,
         # and every fat-LTO cmux-tui tree build there was SIGKILLed out of memory (run 44289517882, acpmux rustc on
         # blacksmith-4vcpu-ubuntu-2404, then 12 runs on 2 vCPU), so no tree published and the NEXT nightlies failed.
@@ -747,13 +771,12 @@ class Reconcile(unittest.TestCase):
                                      "blacksmith-32vcpu-ubuntu-2404"]},
         }
         self.assertEqual(runner_pools.spec_problems(pools), [])
-        self.assertEqual(runner_pools.valve_labels(pools["linux_16"], pools), [])
         dead = {"blacksmith-16vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404",
                 "blacksmith-4vcpu-ubuntu-2404"}
         value, _ = runner_pools.reconcile({}, pools, dead_now=dead, served_now=(), now=NOW)
         # It waits on its own first member rather than taking a size its jobs are killed on.
         self.assertEqual(value["linux_16"], "blacksmith-16vcpu-ubuntu-2404")
-        self.assertEqual(value["linux_8"], "blacksmith-2vcpu-ubuntu-2404")  # no floor: the valve as before
+        self.assertEqual(value["linux_8"], "blacksmith-8vcpu-ubuntu-2404")  # no valve: it keeps its first member
         # A value below the floor is not allowed, so a hand edit is reset too.
         self.assertTrue(runner_pools.value_problems({**value, "linux_16": "blacksmith-4vcpu-ubuntu-2404"}, pools))
 
@@ -806,70 +829,52 @@ class NeverHosted(unittest.TestCase):
                     self.assertNotRegex(str(value), r"^(?:ubuntu|macos|windows)-")
 
 
-class HostedOverride(unittest.TestCase):
-    # Leo, 2026-11-17, asked "Allow GitHub-hosted ubuntu-24.04 for cmux Linux CI until Blacksmith recovers?":
-    # "Allow until it recovers". A hand-set RUNNER_POOLS was reset by the next pass (parse_value() drops a label
-    # outside a pool), so the override is a variable the writer itself reads.
+class HostedOverrideRetired(unittest.TestCase):
+    # Leo, 2026-11-19: "Like, why the f*** do you keep having the f***ing GitHub hosted runners? F*** GitHub." The
+    # 2026-11-17 outage override (cmux#45710) stayed set and sent cmux jobs to GitHub-hosted Ubuntu all day; the
+    # variable now routes nothing, every pass takes a hosted label back to Blacksmith, and --check fails while it is set.
     ON = {"CI_LINUX_HOSTED_RUNNER": "ubuntu-24.04"}
     X64 = ("linux", "linux_2", "linux_4", "linux_8", "linux_16", "linux_32", "promotion")
 
-    def test_unset_or_not_a_hosted_ubuntu_label_changes_nothing(self) -> None:
+    def test_the_variable_adds_no_member(self) -> None:
         declared = runner_pools.load_pools(env={})
-        for raw in ("", "  ", "blacksmith-4vcpu-ubuntu-2404", "macos-15", "glaeda-side-std-xcode-26.6", "ubuntu"):
+        for raw in ("ubuntu-24.04", "ubuntu-22.04", "ubuntu-latest", "", "blacksmith-4vcpu-ubuntu-2404"):
             with self.subTest(raw=raw):
                 self.assertEqual(runner_pools.load_pools(env={"CI_LINUX_HOSTED_RUNNER": raw}), declared)
+        for name, spec in declared.items():
+            for member in spec.get("members", []):
+                if runner_pools.HOSTED.match(member):
+                    self.assertTrue(spec.get("hosted"), f"{name}: {member}")
 
-    def test_the_x64_linux_pools_lead_with_it_and_nothing_else_moves(self) -> None:
-        declared = runner_pools.load_pools(env={})
-        pools = runner_pools.load_pools(env=self.ON)
-        self.assertEqual(runner_pools.spec_problems(pools), [])
-        for name in self.X64:
-            listed = declared[name]["members"]
-            # The owned GCP lead and Freestyle rung stay first: the override replaces only the Blacksmith overflow.
-            lead = runner_pools.owned_prefix(listed)
-            self.assertEqual(pools[name]["members"], [*lead, "ubuntu-24.04", *listed[len(lead):]])
-        for name in set(declared) - set(self.X64):
-            self.assertEqual(pools[name], declared[name], name)
-        self.assertEqual(pools["linux_arm64"]["members"], ["blacksmith-4vcpu-ubuntu-2404-arm"])
-
-    def test_a_pass_writes_it_and_the_next_pass_keeps_it(self) -> None:
+    def test_a_pass_takes_a_hosted_pool_and_its_mirror_back_to_blacksmith(self) -> None:
         before = runner_pools.reconcile({}, runner_pools.load_pools(env={}), dead_now=(), served_now=(), now=NOW)[0]
+        hosted = dict(before, **dict.fromkeys(self.X64, "ubuntu-24.04"))
         switch = Main.Switch({"LINUX_RUNNER": "ubuntu-24.04"})
-        env = {"RUNNER_POOLS": runner_pools.render(before), **self.ON}
+        env = {"RUNNER_POOLS": runner_pools.render(hosted), **self.ON}
         self.assertEqual(runner_pools.main([], env, api=Main.Api(None), switch=switch, now=NOW), 0)
-        [(name, raw)] = switch.writes
-        written = json.loads(raw)
-        declared = runner_pools.load_pools(env={})
-        self.assertEqual({k: written[k] for k in self.X64},
-                         {k: "cmux-fleet-linux-x64" if runner_pools.owned_gcp(declared[k]["members"][0])
-                          else "ubuntu-24.04" for k in self.X64})
-        self.assertEqual({k: v for k, v in written.items() if k not in self.X64 and not k.startswith("_")},
-                         {k: v for k, v in before.items() if k not in self.X64 and not k.startswith("_")})
-        again = Main.Switch({"LINUX_RUNNER": "ubuntu-24.04"})
-        env = {"RUNNER_POOLS": raw, **self.ON}
-        self.assertEqual(runner_pools.main([], env, api=Main.Api(None), switch=again, now=NOW), 0)
-        self.assertEqual(again.writes, [])
-        self.assertEqual(runner_pools.main(["--check"], dict(env, LINUX_RUNNER="ubuntu-24.04")), 0)
-        # Deleting the variable is the revert: the next pass puts every pool back on Blacksmith.
-        back = Main.Switch({"LINUX_RUNNER": "ubuntu-24.04"})
-        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": raw}, api=Main.Api(None), switch=back, now=NOW), 0)
-        [(name, raw), mirrored] = back.writes
+        [(name, raw), mirrored] = switch.writes
+        self.assertEqual(name, "RUNNER_POOLS")
         self.assertEqual({k: json.loads(raw)[k] for k in self.X64}, {k: before[k] for k in self.X64})
-        # router-review F1: LINUX_RUNNER follows the pool back too, so --check passes after the revert.
-        # While the owned GCP pool is the live member, LINUX_RUNNER (read with no fresh-machine check) stays on
-        # the pool's first live Blacksmith member (mirror_target()).
+        # LINUX_RUNNER (read with no fresh-machine check) takes the pool's first live Blacksmith member (mirror_target()).
         self.assertEqual(mirrored, ("LINUX_RUNNER", runner_pools.mirror_target(before, runner_pools.load_pools(env={}),
                                                                               "linux")))
-        self.assertEqual(mirrored[1], "blacksmith-4vcpu-ubuntu-2404")
-        self.assertEqual(runner_pools.main(["--check"], {"RUNNER_POOLS": raw, "LINUX_RUNNER": mirrored[1]}), 0)
 
-    def test_the_mirror_leaves_the_hosted_label_alone_while_the_override_is_set(self) -> None:
-        value = {"linux": "ubuntu-24.04"}
-        self.assertEqual(runner_pools.mirror_writes(value, {"LINUX_RUNNER": "ubuntu-24.04"}, record=None), [])
-        self.assertEqual(runner_pools.mirror_writes(value, {"LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"},
-                                                    record=None), [("LINUX_RUNNER", "ubuntu-24.04")])
+    def test_check_fails_while_the_variable_is_set(self) -> None:
+        good = runner_pools.render(runner_pools.reconcile({}, runner_pools.load_pools(env={}), dead_now=(),
+                                                          served_now=(), now=NOW)[0])
+        env = {"RUNNER_POOLS": good, "LINUX_RUNNER": json.loads(good)["linux"]}
+        self.assertEqual(runner_pools.main(["--check"], env), 0)
+        self.assertEqual(runner_pools.main(["--check"], dict(env, **self.ON)), 1)
+        self.assertEqual(runner_pools.main(["--check"], dict(env, LINUX_RUNNER="ubuntu-24.04")), 1)
+
+    def test_the_mirror_moves_a_hosted_label_and_keeps_an_owned_one(self) -> None:
+        value = {"linux": "blacksmith-4vcpu-ubuntu-2404"}
+        self.assertEqual(runner_pools.mirror_writes(value, {"LINUX_RUNNER": "ubuntu-24.04"}, record=None),
+                         [("LINUX_RUNNER", "blacksmith-4vcpu-ubuntu-2404")])
+        self.assertEqual(runner_pools.mirror_writes(value, {"LINUX_RUNNER": "cmux-gcp-lane-x64"}, record=None), [])
 
     def test_the_watch_and_the_check_pass_the_variable(self) -> None:
+        # Passed so a stale value is reported, never to route on it.
         for path, find in ((".github/workflows/ci-cloud-overflow-probe.yml", "runner_pools.py"),
                            (".github/workflows/ci-repo-variables.yml", "runner_pools.py --check")):
             workflow = yaml.safe_load((ROOT / path).read_text())
@@ -928,7 +933,7 @@ class Main(BlacksmithFailover, unittest.TestCase):
             self.writes.append((name, value))
             self.variables[name] = value
 
-    def test_the_2026_11_18_pass_moves_linux_16_and_linux_32_off_the_dead_sizes(self) -> None:
+    def test_the_2026_11_18_pass_moves_linux_16_to_a_live_member(self) -> None:
         # The live RUNNER_POOLS at 01:18:46Z and a probe pass over every x64 size, with the declared pools.
         live = json.dumps({"_dead": {"blacksmith-16vcpu-ubuntu-2404": "2026-11-18T01:18:46Z",
                                      "blacksmith-4vcpu-ubuntu-2404": "2026-11-18T01:18:46Z"},
@@ -945,19 +950,19 @@ class Main(BlacksmithFailover, unittest.TestCase):
                                            now=now), 0)
         value = json.loads(switch.writes[0][1])
         self.assertEqual(value["linux_16"], "blacksmith-8vcpu-ubuntu-2404")
-        self.assertEqual(value["linux_32"], "blacksmith-8vcpu-ubuntu-2404")
+        # linux_32 is [32, 16] vCPU, both stalled: it keeps 32 vCPU rather than leave its members.
+        self.assertEqual(value["linux_32"], "blacksmith-32vcpu-ubuntu-2404")
         self.assertIn("blacksmith-32vcpu-ubuntu-2404", value["_dead"])
-        # linux is [4, 16] vCPU, both stalled: its valve is 2 vCPU, and the LINUX_RUNNER mirror check accepts it.
-        self.assertEqual(value["linux"], "blacksmith-2vcpu-ubuntu-2404")
-        # The next pass keeps it (the writer used to reset any label outside the members). It rewrites the
-        # variable only to refresh the dead marks' times.
+        # linux is [4, 16] vCPU, both stalled: it keeps its first member, never 2 vCPU outside its members.
+        self.assertEqual(value["linux"], "blacksmith-4vcpu-ubuntu-2404")
+        # The next pass keeps it. It rewrites the variable only to refresh the dead marks' times.
         again = self.Switch(switch.variables)
         self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": switch.writes[0][1]},
                                            api=self.Api(fresh_snapshot(now + dt.timedelta(minutes=1))),
                                            switch=again, now=now + dt.timedelta(minutes=1)), 0)
         kept = json.loads(dict(again.writes).get("RUNNER_POOLS", switch.writes[0][1]))
         self.assertEqual((kept["linux_16"], kept["linux_32"]),
-                         ("blacksmith-8vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404"))
+                         ("blacksmith-8vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404"))
         self.assertEqual(runner_pools.main(["--check"], {"RUNNER_POOLS": switch.writes[0][1],
                                                          "LINUX_RUNNER": value["linux"]}), 0)
 
@@ -1005,7 +1010,8 @@ class Main(BlacksmithFailover, unittest.TestCase):
         pools = runner_pools.load_pools()
         first, second = runner_pools.members(pools["linux"])[:2]
         # Every pool on its first member that is not the dead one (linux_4 lists the same 4 vCPU size first).
-        held = {name: next(m for m in runner_pools.members(spec) if m != first) for name, spec in pools.items()}
+        held = {name: next(m for m in runner_pools.members(spec) if m != first and not runner_pools.unproven(m, {}))
+                for name, spec in pools.items()}
         held["linux"] = second
         held["_dead"] = {first: marked}
         held["_updated"] = marked
@@ -1518,8 +1524,8 @@ class RefusedRead(BlacksmithFailover, unittest.TestCase):
         value, out = self.main_output(fallback)
         self.assertEqual(fallback.calls, 1)
         # Every x64 size but 2 vCPU stalled with no snapshot: a probe stall marks a size dead only beside a fresh
-        # janitor snapshot (#46302), so nothing is marked dead and no pool moves to the 2 vCPU valve, which is
-        # what squeezed every Linux pool there at 11:18Z. linux_16 keeps its 16 vCPU member either way (#46366).
+        # janitor snapshot (#46302), so nothing is marked dead, which is what squeezed every Linux pool
+        # to 2 vCPU at 11:18Z. linux_16 keeps its 16 vCPU member either way (#46366).
         self.assertEqual(value["_dead"], {})
         self.assertEqual(value["linux"], self.FOUR)
         self.assertEqual(value["linux_16"], self.SIXTEEN)

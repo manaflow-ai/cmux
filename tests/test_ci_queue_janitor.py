@@ -945,7 +945,7 @@ class WorkflowShapeTests(unittest.TestCase):
         # It mints GLAEDA_ROUTE_APP_KEY and CMUX_BOT_APP_KEY, so it runs on an ephemeral label the expression
         # names (tests/test_ci_fork_runner_routing.py). It runs off every pool it judges or moves: GitHub-hosted
         # Ubuntu, or the fleet's one-job label when CI_QUEUE_JANITOR_ON_FLEET=1 (2026-11-20: a sweep waited 77 min).
-        self.assertIn("runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_QUEUE_JANITOR_ON_FLEET == '1' && 'cmux-fleet-linux-x64' || 'ubuntu-24.04' }}", text)
+        self.assertIn("runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_QUEUE_JANITOR_ON_FLEET == '1' && 'cmux-fleet-linux-x64' || 'cmux-gcp-repair-jit-x64' }}", text)
         self.assertNotIn("blacksmith", yaml.safe_load(text)["jobs"]["sweep"]["runs-on"])
         self.assertIn("concurrency:\n  group: ${{ (github.event_name == 'workflow_run'", text)
         self.assertIn("vars.CI_JANITOR_QUEUE_THRESHOLD", text)
@@ -1044,20 +1044,21 @@ class SweepRunnerTests(unittest.TestCase):
 
         return str(value(tree))
 
-    def test_the_sweep_runs_on_hosted_ubuntu_off_the_pools_it_judges(self):
-        self.assertEqual(self.runner({}), "ubuntu-24.04")
+    def test_the_sweep_runs_on_the_repair_jit_label_off_the_pools_it_judges(self):
+        # Not GitHub-hosted: on 2026-11-20 the hosted pool served none of our jobs for 15 hours.
+        self.assertEqual(self.runner({}), "cmux-gcp-repair-jit-x64")
         # The variables that moved it before move it no more.
         for stale in ({"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404"}, {"CI_REPAIR_SKIP_FLEET": "0"},
                       {"CI_REPAIR_SKIP_FLEET": "1"},
                       {"RUNNER_POOLS": json.dumps({"linux": "blacksmith-16vcpu-ubuntu-2404"})}):
             with self.subTest(variables=stale):
-                self.assertEqual(self.runner(stale), "ubuntu-24.04")
+                self.assertEqual(self.runner(stale), "cmux-gcp-repair-jit-x64")
 
     def test_the_fleet_variable_moves_the_sweep_to_the_fleet_label(self):
         self.assertEqual(self.runner({"CI_QUEUE_JANITOR_ON_FLEET": "1"}), "cmux-fleet-linux-x64")
         for other in ("", "0", "true", "blacksmith-4vcpu-ubuntu-2404"):
             with self.subTest(value=other):
-                self.assertEqual(self.runner({"CI_QUEUE_JANITOR_ON_FLEET": other}), "ubuntu-24.04")
+                self.assertEqual(self.runner({"CI_QUEUE_JANITOR_ON_FLEET": other}), "cmux-gcp-repair-jit-x64")
 
 
 class OrphanDetectionTests(unittest.TestCase):
@@ -2599,6 +2600,43 @@ class ReadTokenSplitTests(unittest.TestCase):
             github.request("POST", "/repos/manaflow-ai/cmux/actions/runs/1/cancel")
         self.assertEqual(sent, ["Bearer reader", "Bearer reader", "Bearer bot"])
         self.assertIn("READ_TOKEN_FLOOR", github.rate_limited)
+
+    def test_at_the_floor_a_capped_cancel_still_reads_its_run_and_cancels(self):
+        """2026-11-24 19:05Z, sweep 45464022363: the listing left glaeda-route at READ_TOKEN_FLOOR, then each planned
+        cancel's guard read (the run, read again before its POST) was refused at that floor, so 22 merged or closed
+        pull requests' runs and 6 h 51 min lost-assignment runs stayed queued sweep after sweep. The guard reads now
+        go on cmux-bot's token, as the cancel does, and the listing still stops at the floor."""
+        github = janitor.GitHub("bot", "manaflow-ai/cmux", fallback_token="workflow")
+        github.use_read_token("reader")
+        github.read_token_floor = 3000
+        github.rate_limits["core (read token)"] = {"remaining": 2900}
+        run = make_run(status="queued")
+        ghost = make_run(status="queued", age=60 * 48)
+        state = {run["id"]: dict(run), ghost["id"]: dict(ghost)}
+        sent = []
+
+        def urlopen(request, timeout=30):
+            token, method, url = request.get_header("Authorization"), request.get_method(), request.full_url
+            sent.append((method, token, url.rsplit("/actions/", 1)[-1]))
+            run_id = int(url.split("/runs/")[1].split("/")[0])
+            if method == "POST":
+                state[run_id]["status"] = "completed"
+                return self.Response(b"{}", self.budget("7000"))
+            return self.Response(json.dumps(state[run_id]).encode(), self.budget("7000"))
+
+        candidate = janitor.Candidate(run, "stale-pr", "PR is merged", janitor.macos_usage(mac_jobs(queued=1)))
+        with mock.patch.object(janitor.urllib.request, "urlopen", urlopen):
+            results, failures = janitor.cancel_plan(github, [candidate])
+            orphan_results, orphan_failures = janitor.cancel_orphans(
+                github, orphan_plan(find([ghost], {})), sleep=lambda _: None)
+            # Past the cancels the floor holds again: the listing's reads are not sent.
+            with self.assertRaises(janitor.RateLimited):
+                github.jobs(1)
+        self.assertEqual((results[run["id"]], failures), ("cancelled", 0))
+        self.assertEqual((orphan_results[ghost["id"]], orphan_failures), ("cancelled", 0))
+        self.assertEqual({token for _, token, _ in sent}, {"Bearer bot"})
+        self.assertEqual(len(sent), 5)
+        self.assertFalse(github.cancel_phase)
 
     def test_no_floor_or_a_reset_window_reads_as_before(self):
         github = janitor.GitHub("bot", "manaflow-ai/cmux", fallback_token="workflow")

@@ -7486,7 +7486,7 @@ class Workflow(unittest.TestCase):
         # rescues from, and the ephemeral selector follows it.
         self.assertEqual(
             self.doc["jobs"]["rescue"]["runs-on"],
-            '${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || vars.CI_QUEUE_RESERVED == \'1\' && \'cmux-gcp-queue-jit-x64\' || vars.CI_REPAIR_SKIP_FLEET != \'1\' && \'cmux-gcp-repair-jit-x64\' || contains(fromJSON(\'["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}',
+            '${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || vars.CI_QUEUE_RESERVED == \'1\' && \'cmux-gcp-queue-jit-x64\' || vars.CI_REPAIR_SKIP_FLEET != \'1\' && \'cmux-gcp-repair-jit-x64\' || contains(fromJSON(\'["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}',
         )
 
     def test_marker_steps_never_fail_the_changes_job(self):
@@ -8750,6 +8750,25 @@ class OpenHeadPlacementRerun(unittest.TestCase):
                                            snap, START), "")
         young = job("cmux-next generated files", labels=[SIDE_STD], created=-(rescue.LIGHT_MOVE_SECONDS - 1))
         self.assertEqual(rescue.light_wait(target, young, SIDE_STD, snap, START), "")
+
+    def test_a_leo_ask_pull_request_is_placed_again_after_the_priority_wait_not_the_owned_one(self):
+        _, _, target = self.world(self.shape())
+        job_at = lambda seconds: job("cmux-next fast tier", labels=[SIDE_STD], created=-seconds)
+        ten = job_at(rescue.PRIORITY_REPLACE_SECONDS)
+        self.assertFalse(rescue.long_owned_wait(target, ten, SIDE_STD, START), "an ordinary pull request waits 20 min")
+        asked = dataclasses.replace(target, priority=True)
+        self.assertTrue(rescue.long_owned_wait(asked, ten, SIDE_STD, START))
+        self.assertFalse(rescue.long_owned_wait(asked, job_at(rescue.PRIORITY_REPLACE_SECONDS - 1), SIDE_STD, START))
+        self.assertFalse(rescue.long_owned_wait(asked, ten, BLACKSMITH, START), "only an owned label is replaced")
+        self.assertLess(rescue.PRIORITY_REPLACE_SECONDS, rescue.OWNED_REPLACE_SECONDS)
+
+    def test_priority_pull_reads_the_leo_ask_label_only(self):
+        self.assertTrue(rescue.priority_pull({"labels": [{"name": "x"}, {"name": rescue.PRIORITY_LABEL}]}))
+        self.assertFalse(rescue.priority_pull({"labels": [{"name": "x"}]}))
+        self.assertTrue(rescue.priority_pull({"body": "x\nLeo-ask: ask-0123456789\n"}))
+        self.assertFalse(rescue.priority_pull({"body": "Leo-Ask-Trace: ask-0123456789"}))
+        self.assertFalse(rescue.priority_pull({}))
+        self.assertFalse(rescue.priority_pull(None))
 
     def test_long_owned_wait_is_only_for_owned_labels_on_placed_attempts(self):
         _, _, target = self.world(self.shape())

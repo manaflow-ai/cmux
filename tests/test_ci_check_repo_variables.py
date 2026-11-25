@@ -77,6 +77,18 @@ class Values(unittest.TestCase):
                 self.assertEqual(len(found), 1)
                 self.assertIn("MACOS_RUNNER_PR", found[0])
 
+    def test_a_github_hosted_label_fails_in_any_runner_variable(self) -> None:
+        # Leo, 2026-11-19: "Like, why the f*** do you keep having the f***ing GitHub hosted runners? F*** GitHub."
+        for name, label in (("CI_LINUX_HOSTED_RUNNER", "ubuntu-24.04"), ("LINUX_RUNNER", "ubuntu-latest"),
+                            ("CI_TRUSTED_RUNNER", "ubuntu-24.04"), ("WINDOWS_RUNNER", "windows-2025")):
+            with self.subTest(name=name):
+                record = json.dumps({"changed": {name: {"before": None, "after": label}}})
+                for extra in ({}, {"CI_CLOUD_OVERFLOW_SAVED": record}):
+                    base = "".join(line + "\n" for line in GOOD_RUNNERS.splitlines() if not line.startswith(f"{name}="))
+                    found = check.problems(env(CMUX_CI_RUNNER_VARIABLES=base + f"{name}={label}\n", **extra))
+                    self.assertEqual(len([p for p in found if p.startswith(f"{name}=")]), 1, found)
+                    self.assertIn("GitHub-hosted", " ".join(found))
+
     def test_daemon_tests_never_share_the_pull_request_side_label(self) -> None:
         side = "CI_SIDE_LANE_RUNNER=glaeda-side-std-xcode-26.6\n"
         found = check.problems(env(CMUX_CI_RUNNER_VARIABLES=GOOD_RUNNERS + side, CI_NEXT_DAEMON_POOL="glaeda-side-std-xcode-26.6"))

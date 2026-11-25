@@ -1232,7 +1232,7 @@ class WorkflowTests(unittest.TestCase):
                 moved.append(f"{path.name}:{name}")
                 self.assertNotIn("secrets.", json.dumps(job), f"{path.name}:{name}")
                 self.assertNotIn("create-github-app-token", json.dumps(job), f"{path.name}:{name}")
-        self.assertIn("nightly-next-tick.yml:request", moved)
+        self.assertIn("nightly-next-feed-watch.yml:watch", moved)
 
     def test_one_fixed_group_so_two_watches_never_write_at_once(self) -> None:
         # The switch's variable writes and record delete are separate calls; a group keyed by anything a
@@ -1276,7 +1276,7 @@ class RepoVariableCheckTests(unittest.TestCase):
     REFUSED = "glaeda-side-std-xcode-26.6"
 
     def env(self, label: str = REFUSED, **extra: str) -> dict[str, str]:
-        return {"CMUX_CI_RUNNER_VARIABLES": f"MACOS_RUNNER_PR={label}\nLINUX_RUNNER=ubuntu-24.04\n",
+        return {"CMUX_CI_RUNNER_VARIABLES": f"MACOS_RUNNER_PR={label}\nLINUX_RUNNER=blacksmith-4vcpu-ubuntu-2404\n",
                 "CI_OWNED_POOL_SLOTS": "", "CMUX_CI_XCODE_APP_PR": PIN, **extra}
 
     def test_an_owned_pull_request_pool_is_no_drift_without_the_record(self) -> None:

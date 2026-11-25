@@ -650,12 +650,15 @@ jobs:
         env:
           REQUESTED_SHA: ${{ inputs.promote_nightly_next_sha }}
           TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          # The other budget: GITHUB_TOKEN when the route App reads, so a dry route App costs no wait
+          # while the job token has reads left (gh_budget_wait.cjs `spare`).
+          SPARE_READ_TOKEN: ${{ steps.read-token.outputs.token && github.token || '' }}
           DEBOUNCE: ${{ inputs.promote_nightly_next_debounce && 'true' || 'false' }}
           MIN_INTERVAL_HOURS: ${{ vars.NIGHTLY_NEXT_MIN_INTERVAL_HOURS || '2' }}
         with:
           github-token: ${{ steps.read-token.outputs.token || github.token }}
           script: |
-            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core, spare: process.env.SPARE_READ_TOKEN ? getOctokit(process.env.SPARE_READ_TOKEN) : undefined });
             const fs = require('fs');
             const guard = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/promote-nightly-next.mjs`);
             github.hook.wrap('request', guard.quotaResetRetry({ core }));
@@ -709,7 +712,8 @@ jobs:
           DECISION: ${{ steps.decide.outputs.decision }}
         with:
           script: |
-            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
+            // GITHUB_TOKEN reads here; the release App's own budget is the spare (run 45112291910 waited 737 s on one read).
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core, spare: getOctokit(process.env.APP_TOKEN) });
             const guard = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/promote-nightly-next.mjs`);
             const { owner, repo } = context.repo;
             const writer = getOctokit(process.env.APP_TOKEN);
@@ -743,7 +747,7 @@ jobs:
     # if: (needs.promote-nightly-next.outputs.action == 'needs-ack' || needs.promote-nightly-next.outputs.action == 'promote') && needs.promote-nightly-next.outputs.dry_run != 'true'
     if: false
     environment: ${{ needs.promote-nightly-next.outputs.action == 'needs-ack' && 'release-surface-ack' || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions: {}
     concurrency:
@@ -905,7 +909,7 @@ jobs:
     # (tests/test_classic_nightly_job_conditions.py).
     if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && vars.CI_PR_POOL_OWNED != '1' && vars.CI_CLASSIC_NIGHTLY_MINI == '' || github.event_name == 'workflow_dispatch' && inputs.seed_only && vars.CI_CLASSIC_NIGHTLY_MINI == ''
     # Match the PR Release-build runner and Xcode so its compilation cache is reusable.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || contains(fromJSON('["blacksmith-6vcpu-macos-26","blacksmith-12vcpu-macos-26"]'), fromJSON(vars.RUNNER_POOLS || '{}').macos_26) && fromJSON(vars.RUNNER_POOLS || '{}').macos_26 || 'blacksmith-6vcpu-macos-26' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # This job rebuilds the cache after the store drops it, so it runs cold
     # by design; scheduled run 35134963192 was cancelled at 45 minutes.
@@ -1098,7 +1102,7 @@ jobs:
       matrix:
         pool:
           - ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || 'blacksmith-6vcpu-macos-15' }}
-          - ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
+          - ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || contains(fromJSON('["blacksmith-6vcpu-macos-15"]'), fromJSON(vars.RUNNER_POOLS || '{}').macos_15) && fromJSON(vars.RUNNER_POOLS || '{}').macos_15 || 'blacksmith-6vcpu-macos-15' }}
     runs-on: ${{ matrix.pool }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 75
@@ -1256,7 +1260,7 @@ jobs:
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
     # Zig 0.15.2 cannot link the real helper on macOS 26. Match the stable
     # release workflow by building and verifying it on macOS 15 instead.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || contains(fromJSON('["blacksmith-6vcpu-macos-15"]'), fromJSON(vars.RUNNER_POOLS || '{}').macos_15) && fromJSON(vars.RUNNER_POOLS || '{}').macos_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 20
     env:
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
@@ -1323,7 +1327,7 @@ jobs:
   pick-nightly-app-runner:
     needs: decide
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       # The queue janitor's pool snapshot (an artifact).
@@ -1376,6 +1380,10 @@ jobs:
           RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
           TRUSTED_POOL: ${{ vars.CI_SEED_TRUSTED_POOL }}
           TRUSTED_RUNNER: ${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
+          # The registration census, judged when the live runner list is refused (403).
+          RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          # 6 vCPU first, as runs-on's literal fallback (#39585): blacksmith-12vcpu-macos-26 is the starved overflow.
+          FIRST: 6vcpu
           ENABLED: ${{ needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && '1' || '0' }}
         run: python3 scripts/ci/classic_nightly_build_runner.py
 
@@ -1867,7 +1875,7 @@ jobs:
   pick-classic-prepare-runner:
     needs: [decide, build-nightly-app]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 6
     permissions:
       contents: read
@@ -1914,6 +1922,8 @@ jobs:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           TRUSTED_POOL: ${{ vars.CI_SEED_TRUSTED_POOL }}
           TRUSTED_RUNNER: ${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
+          # The registration census, judged when the live runner list is refused (403).
+          RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           ENABLED: ${{ needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && '1' || '0' }}
         run: python3 scripts/ci/classic_nightly_build_runner.py prepare
 
