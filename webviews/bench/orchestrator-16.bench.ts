@@ -47,6 +47,7 @@ const CHANGE_RATE = Number(process.env.CHANGE_RATE ?? 2);
 const HISTORY = Number(process.env.HISTORY ?? 2000);
 const CLOUD = Math.min(CHILDREN, Number(process.env.CLOUD ?? Math.floor(CHILDREN / 2)));
 const UNTHROTTLED = process.env.UNTHROTTLED === "1";
+const RENDER_CENSUS = process.env.RENDER_CENSUS === "1";
 const FRAME_MS = 1000 / 60;
 /// The goal's bar: a frame that takes longer than this is over.
 const FRAME_BAR_MS = 16;
@@ -501,6 +502,7 @@ try {
   });
   // Let the first page settle before any window.
   await Bun.sleep(2000);
+  if (RENDER_CENSUS) await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.());
 
   const frames = async (seconds: number) => {
     await page.evaluate(() => {
@@ -558,6 +560,10 @@ try {
     changes: counts.changes - counted.changes,
   };
   stopStream();
+  if (RENDER_CENSUS) {
+    const renders = await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.() ?? {});
+    Object.assign(summary, { renders });
+  }
   const trayChildren = await page.evaluate(
     (names) => names.filter((name) => document.body.innerText.includes(name)).length,
     Array.from({ length: CHILDREN }, (_, i) => childName(i)),
