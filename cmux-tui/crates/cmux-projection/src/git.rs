@@ -737,7 +737,22 @@ struct CatFile {
     _child: Child,
 }
 
+impl Drop for CatFile {
+    /// Ends and reaps the process, so a retired one keeps no pack open and leaves no zombie. Only
+    /// a process no read is using is dropped: the pool hands each to one read at a time.
+    fn drop(&mut self) {
+        let _ = self._child.kill();
+        let _ = self._child.wait();
+    }
+}
+
 impl CatFile {
+    /// The process id, to read which files it holds open.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    fn pid(&self) -> u32 {
+        self._child.id()
+    }
+
     fn spawn(git_dir: &Path) -> anyhow::Result<Self> {
         let mut child = git(git_dir)
             .args(["cat-file", "--batch"])
@@ -796,10 +811,74 @@ const RECENT_BYTES: usize = 64 * 1024 * 1024;
 const IDLE: Duration = Duration::from_secs(30);
 /// How often the reaper looks.
 const SWEEP: Duration = Duration::from_secs(10);
+/// How often the reaper checks the store's packs. A `git cat-file --batch` opens the packs it
+/// finds and keeps them open for its life: after a `git repack -ad` (gc, or the mirror's own
+/// maintenance) deletes them, a pooled process that is never idle for [`IDLE`] keeps their bytes
+/// on the disk, out of sight of `du` (a lane VM had 62 GB held so, by processes days old).
+const PACK_CHECK: Duration = Duration::from_secs(60);
 
 struct Pooled {
     cat: CatFile,
     used: Instant,
+    /// The store's [`Packs::generation`] when the process started.
+    generation: u64,
+}
+
+/// The store's `objects/pack` folder, as last seen: its mtime moves whenever a pack is added or
+/// deleted, and each move is a new generation. A process from an older generation is retired.
+struct Packs {
+    dir: PathBuf,
+    mtime: Option<std::time::SystemTime>,
+    checked: Instant,
+    generation: u64,
+}
+
+impl Packs {
+    fn new(git_dir: &Path) -> Self {
+        let dir = objects_dir(git_dir).join("pack");
+        let mtime = std::fs::metadata(&dir).and_then(|meta| meta.modified()).ok();
+        Self { dir, mtime, checked: Instant::now(), generation: 0 }
+    }
+
+    /// Reads the folder's mtime when [`PACK_CHECK`] (`every`) has passed, and starts a new
+    /// generation when it moved.
+    fn check(&mut self, now: Instant, every: Duration) {
+        if now.saturating_duration_since(self.checked) < every {
+            return;
+        }
+        self.checked = now;
+        let mtime = std::fs::metadata(&self.dir).and_then(|meta| meta.modified()).ok();
+        if mtime != self.mtime {
+            self.mtime = mtime;
+            self.generation += 1;
+        }
+    }
+}
+
+/// The object folder of `git_dir`, or of the repository it shares one with (`commondir`).
+fn objects_dir(git_dir: &Path) -> PathBuf {
+    let common = std::fs::read_to_string(git_dir.join("commondir"))
+        .map(|text| git_dir.join(text.trim()))
+        .unwrap_or_else(|_| git_dir.to_owned());
+    common.join("objects")
+}
+
+/// Whether process `pid` holds open a pack file that was deleted (`/proc/PID/fd` links ending
+/// " (deleted)" under an `objects/pack` folder): what a repack leaves an old process holding.
+#[cfg(target_os = "linux")]
+fn holds_deleted_pack(pid: u32) -> bool {
+    let Ok(fds) = std::fs::read_dir(format!("/proc/{pid}/fd")) else { return false };
+    fds.flatten().any(|fd| {
+        std::fs::read_link(fd.path()).is_ok_and(|target| {
+            let target = target.to_string_lossy();
+            target.ends_with(" (deleted)") && target.contains("/objects/pack/")
+        })
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
+fn holds_deleted_pack(_pid: u32) -> bool {
+    false
 }
 
 /// What [`GitBlobs`] holds between reads, shared with its reaper thread by a weak handle.
@@ -808,16 +887,34 @@ struct Held {
     pool: Mutex<Vec<Pooled>>,
     recent: Mutex<VecDeque<(u32, Arc<Vec<u8>>)>>,
     last_read: Mutex<Instant>,
+    packs: Mutex<Packs>,
 }
 
 impl Held {
-    /// Ends every pooled process unused for `idle` (dropping it closes its stdin, and git exits),
-    /// and drops the recent blobs when the mount was not read for `idle`.
-    fn sweep(&self, now: Instant, idle: Duration) {
+    /// The store's pack generation now.
+    fn generation(&self) -> u64 {
+        self.packs.lock().unwrap_or_else(PoisonError::into_inner).generation
+    }
+
+    /// Ends every pooled process unused for `idle` (dropping it ends git), and every one that
+    /// started before the store's packs last changed or holds a deleted pack (checked once per
+    /// `pack_check`); drops the recent blobs when the mount was not read for `idle`. A process a
+    /// read is using is not in the pool: it finishes that read, and is ended instead of pooled
+    /// when it comes back ([`GitBlobs::bytes`]).
+    fn sweep(&self, now: Instant, idle: Duration, pack_check: Duration) {
+        let (generation, recheck) = {
+            let mut packs = self.packs.lock().unwrap_or_else(PoisonError::into_inner);
+            let before = packs.checked;
+            packs.check(now, pack_check);
+            (packs.generation, packs.checked != before)
+        };
         let ended: Vec<Pooled> = {
             let mut pool = self.pool.lock().unwrap_or_else(PoisonError::into_inner);
-            let (old, fresh): (Vec<_>, Vec<_>) =
-                pool.drain(..).partition(|p| now.saturating_duration_since(p.used) >= idle);
+            let (old, fresh): (Vec<_>, Vec<_>) = pool.drain(..).partition(|p| {
+                now.saturating_duration_since(p.used) >= idle
+                    || p.generation != generation
+                    || (recheck && holds_deleted_pack(p.cat.pid()))
+            });
             *pool = fresh;
             old
         };
@@ -849,6 +946,7 @@ impl GitBlobs {
             pool: Mutex::new(Vec::new()),
             recent: Mutex::new(VecDeque::new()),
             last_read: Mutex::new(Instant::now()),
+            packs: Mutex::new(Packs::new(git_dir)),
         });
         let weak: Weak<Held> = Arc::downgrade(&held);
         // Without the thread (spawn refused) the mount still works; it only keeps its memory.
@@ -856,7 +954,7 @@ impl GitBlobs {
             loop {
                 std::thread::sleep(SWEEP);
                 let Some(held) = weak.upgrade() else { return };
-                held.sweep(Instant::now(), IDLE);
+                held.sweep(Instant::now(), IDLE, PACK_CHECK);
             }
         });
         Self { git_dir: git_dir.to_owned(), sources, held }
@@ -879,16 +977,23 @@ impl GitBlobs {
         let bytes = match self.sources.get(entry as usize) {
             Some(Source::Blob(oid)) => {
                 let taken = self.held.pool.lock().unwrap_or_else(PoisonError::into_inner).pop();
-                let mut cat = match taken {
-                    Some(pooled) => pooled.cat,
-                    None => CatFile::spawn(&self.git_dir).map_err(|_| FetchError::Failed)?,
+                let (mut cat, generation) = match taken {
+                    Some(pooled) => (pooled.cat, pooled.generation),
+                    None => {
+                        let generation = self.held.generation();
+                        let cat = CatFile::spawn(&self.git_dir).map_err(|_| FetchError::Failed)?;
+                        (cat, generation)
+                    }
                 };
                 let bytes = cat.blob(oid)?;
-                self.held
-                    .pool
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .push(Pooled { cat, used: Instant::now() });
+                // One from before the packs last changed ends here, after its read.
+                if generation == self.held.generation() {
+                    self.held.pool.lock().unwrap_or_else(PoisonError::into_inner).push(Pooled {
+                        cat,
+                        used: Instant::now(),
+                        generation,
+                    });
+                }
                 bytes
             }
             Some(Source::Bytes(bytes)) => bytes.clone(),
