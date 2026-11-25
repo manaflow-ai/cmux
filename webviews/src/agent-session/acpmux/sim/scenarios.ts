@@ -661,9 +661,9 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     workTurn(b, 2, { middleText: false });
     b.say("Yes. The deploy finished and its checks are green. You don't need to do anything.");
     b.turnEnd();
-    b.incoming("Lane report: merged #101.", { kind: "agent_message", fromName: "lane-a" }, 4_000);
-    b.message("Lane report: merged #102.", { fromName: "lane-b", after: 200 });
-    b.message("Lane report: merged #103.", { fromName: "lane-c", after: 200 });
+    b.incoming("Lane report: merged PR 101.", { kind: "agent_message", fromName: "lane-a" }, 4_000);
+    b.message("Lane report: merged PR 102.", { fromName: "lane-b", after: 200 });
+    b.message("Lane report: merged PR 103.", { fromName: "lane-c", after: 200 });
     b.think("Three lanes reported merges.");
     b.tool("gh pr list --state merged", { ms: 900 });
     b.say("All three merged.");
