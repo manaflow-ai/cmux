@@ -44,7 +44,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Api, CHAT_START_SIZE, STACK, directExec, http, passwordSignIn, resolveBackend, scrub, sleep, waitMachine } from "./cloud-journey.ts";
+import { Api, CHAT_START_SIZE, STACK, directExec, http, listAllMachines, passwordSignIn, resolveBackend, scrub, sleep, staleJourneyInstalls, staleJourneyMachines, waitMachine } from "./cloud-journey.ts";
 
 type Step = { step: string; status: "pass" | "fail" | "skip"; ms: number; detail: string };
 type View = { id: string; holder: string; epoch: number; version: number; lastSeq: number; snapshot: number; standby: string[]; auto: boolean; move?: unknown };
@@ -52,6 +52,9 @@ type View = { id: string; holder: string; epoch: number; version: number; lastSe
 const MOVE_BUDGET_MS = 6 * 60_000;
 const TURN_BUDGET_MS = 4 * 60_000;
 const HARNESS = "auto-journey";
+/** cmux NEXT's config folder on this side: `cmux-next` on macOS (cmux-config NEXT_DIR, location.rs; #53567), where the
+ * daemon reads harness profiles. The Linux guest keeps `cmux`. */
+const NEXT_DIR = process.platform === "darwin" ? "cmux-next" : "cmux";
 const RAN_FILE = "auto-journey-ran.txt";
 
 const argValue = (name: string, argv = process.argv): string | undefined => {
@@ -280,8 +283,37 @@ async function main(): Promise<number> {
     });
 
     // 3. A Cloud machine of this run's own, as the owner's Auto machine, with the stand-in harness.
+    // Machines and installs that killed or timed-out runs left (each journey's own name only) hold the test team's
+    // 300-machine cap: run 45562698608's create got cloud.quota.vm_limit. A sweep error never fails the journey.
+    {
+      const t0 = Date.now();
+      const err = (e: unknown) => String((e as Error)?.message ?? e).slice(0, 300);
+      try {
+        const rows = await listAllMachines((params) => api.read("cloud.machine.list", params));
+        const stale = staleJourneyMachines(rows, Date.now());
+        const failed: string[] = [];
+        for (const m of stale) {
+          console.log(`sweep: deleting ${m.id} "${m.name}" status ${m.status} created ${m.created}`);
+          await api.deleteMachine(m.id, `${tag}-sweep-${m.id}`).catch((e) => failed.push(`${m.id}: ${err(e)}`));
+        }
+        const v = await api.read("install.list", {}).catch(() => null);
+        const installs = staleJourneyInstalls(Array.isArray(v?.installs) ? v.installs : [], Date.now());
+        let revoked = 0;
+        for (const id of installs) await api.op("install.revoke", { install: id }, `${tag}-sweep-install-${id}`).then(() => revoked++, (e) => failed.push(`${id}: ${err(e)}`));
+        J.record({ step: "sweep leaked journey machines and installs", status: failed.length ? "skip" : "pass", ms: Date.now() - t0, detail: `${stale.length} of ${rows.length} machines leaked, ${revoked} of ${installs.length} installs revoked${failed.length ? `; failed ${failed.join("; ")}` : ""}` });
+      } catch (e) {
+        J.record({ step: "sweep leaked journey machines and installs", status: "skip", ms: Date.now() - t0, detail: `list failed: ${err(e)}` });
+      }
+    }
     const machine = await J.step("Cloud machine for this run (create, running)", async () => {
-      const v = await api.op("cloud.machine.create", { name: `auto journey ${tag}`, size: CHAT_START_SIZE }, `${tag}-create`);
+      const name = `auto journey ${tag}`;
+      const v = await api.op("cloud.machine.create", { name, size: CHAT_START_SIZE }, `${tag}-create`).catch(async (e) => {
+        // A create that errored or timed out may still have made the machine: find it by this run's name so cleanup deletes it.
+        const rows = await listAllMachines((params) => api.read("cloud.machine.list", params)).catch(() => []);
+        const made = rows.find((r: any) => r?.name === name && r.status !== "deleted" && r.status !== "deleting");
+        if (made) { owned.machine = String(made.id ?? made.machine_id); keep(); }
+        throw e;
+      });
       owned.machine = v.machine.id as string;
       keep();
       const m = await waitMachine(api, owned.machine, (x) => x.status === "running" && Boolean(x.host), 300_000);
@@ -318,13 +350,13 @@ async function main(): Promise<number> {
     for (const k of ["CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"]) delete env[k];
     const work = path.join(home, "work");
     await J.step("Mac daemon (cloud.autoCloud on, this run's HOME)", async () => {
-      mkdirSync(path.join(home, ".config", "cmux", "harnesses"), { recursive: true });
+      mkdirSync(path.join(home, ".config", NEXT_DIR, "harnesses"), { recursive: true });
       const settings = path.join(home, ".config", "cmux", "cmux-next.json");
       writeFileSync(settings, JSON.stringify({ cloud: { autoCloud: true } }, null, 2));
       const script = path.join(home, "auto-journey-agent.sh");
       writeFileSync(script, agentScript("mac"));
       chmodSync(script, 0o755);
-      writeFileSync(path.join(home, ".config", "cmux", "harnesses", `${HARNESS}.toml`), harnessProfile(cmuxTui, script));
+      writeFileSync(path.join(home, ".config", NEXT_DIR, "harnesses", `${HARNESS}.toml`), harnessProfile(cmuxTui, script));
       const state = path.join(out, "install-state.json");
       writeFileSync(state, JSON.stringify(installState), { mode: 0o600 });
       const stub = path.join(home, "bin", "cmux");
