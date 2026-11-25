@@ -608,33 +608,32 @@ class PullRequestTiers(unittest.TestCase):
                   " || github.event.pull_request.base.ref != 'feat-cmux-next'"
                   " || contains(github.event.pull_request.labels.*.name, 'full-ci')"
                   " || contains(github.event.pull_request.labels.*.name, 'dev-build')"
-                  " || needs.path_route.outputs.fast_tier != 'false'"
-                  " || needs.path_route.outputs.swift_canary == 'true'"
+                  " || needs.path_route.outputs.mac_release == 'true'"
                   " || needs.path_route.outputs.daemon == 'true' && needs.path_route.outputs.tree_state == 'ready'"
                   " || needs.path_route.outputs.generated_host == 'generated-files')")
         self.assertIn(clause, jobs["macos-placement"]["if"])
         gate = {
-            "fast-tier": "needs.path_route.outputs.fast_tier != 'false'",
-            "fast-tier-fleet": "needs.path_route.outputs.fast_tier != 'false'",
-            "swift-canary": "needs.path_route.outputs.swift_canary == 'true'",
-            "swift-canary-fleet": "needs.path_route.outputs.swift_canary == 'true'",
+            # Push tier only (#54763): no pull request starts them.
+            "fast-tier": "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'",
+            "fast-tier-fleet": "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'",
+            "swift-canary": "github.event_name != 'pull_request'",
+            "swift-canary-fleet": "github.event_name != 'pull_request'",
             "daemon-test": "needs.path_route.outputs.tree_state == 'ready'",
             "generated-files": "needs.path_route.outputs.generated_host == 'generated-files'",
-            # mac_release implies fast_tier (Route.fast_tier), so the clause's fast_tier covers it.
+            # The PR's Release compile fallback: the clause's mac_release.
             "release-compile": "needs.path_route.outputs.mac_release == 'true'",
             # Full-ci (or dev-build) only on a feat-cmux-next PR: the label branches of the clause.
             "swift-test": "!startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')",
             "cmux-scheme-compile": "contains(github.event.pull_request.labels.*.name, 'dev-build')",
-            # Push only, or a re-run (placement runs again only for a bot's re-run).
+            # Push only.
             "release-compile-fast": "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'",
-            "fast-tier-rerun-placement": "github.run_attempt != 1",
+            "fast-tier-rerun-placement": "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'",
         }
         consumers = sorted(name for name, job in jobs.items() if "macos-placement" in job.get("needs", []))
         self.assertEqual(consumers, sorted(gate), "a new macos-placement consumer: name its route in the clause")
         for name in consumers:
             with self.subTest(job=name):
                 self.assertIn(gate[name], jobs[name]["if"])
-        self.assertTrue(cmux_next_route.Route(mac_release=True).fast_tier())
 
     def test_dev_build_label_keeps_the_scheme_compile(self):
         """The dogfood artifact (#17500) is the scheme compile's app."""
