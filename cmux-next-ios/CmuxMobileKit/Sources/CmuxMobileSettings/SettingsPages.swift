@@ -695,6 +695,14 @@ struct TransportPage: View {
             } footer: {
                 Text("A terminal running an agent CLI such as Claude Code or Codex, or a plain shell, comes from your Mac as the parts of its screen that changed, at most 10 times a second, instead of everything it writes. Full-screen programs still come as they are. It looks the same and uses less data. Applies when a terminal opens or reconnects.")
             }
+            Section {
+                Toggle(isOn: $settings.macScreenOverLink) {
+                    Text("Mac Screen over Link")
+                }
+                .accessibilityIdentifier("settings.transport.macScreenOverLink")
+            } footer: {
+                Text("Screen Sharing shows a Mac's screen over the connection this iPhone already has to it, view only, when the Mac offers it. Otherwise, or if that stream fails, it connects the usual way. Applies when you open a Mac.")
+            }
             #if !DEBUG
             Section {
                 TransportDetails(store: store)
