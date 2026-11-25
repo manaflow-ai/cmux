@@ -3651,6 +3651,13 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
     func ping() async throws  -> UInt32
     
     /**
+     * Wake the radio before a keystroke (the terminal's keyboard took focus
+     * or a finger touched it): one datagram ping on a link quiet for a
+     * second. Free when the link is busy, parked or closed. `true` when sent.
+     */
+    func prewake()  -> Bool
+    
+    /**
      * Whether the link is alive within `timeout_ms`: the round trip in
      * milliseconds on the pong, `None` when other frames from the Mac came
      * first (a slow relay's queue; the link is alive), an error only when
@@ -4036,6 +4043,19 @@ open func ping()async throws  -> UInt32  {
             liftFunc: FfiConverterUInt32.lift,
             errorHandler: FfiConverterTypeCmuxMobileError_lift
         )
+}
+    
+    /**
+     * Wake the radio before a keystroke (the terminal's keyboard took focus
+     * or a finger touched it): one datagram ping on a link quiet for a
+     * second. Free when the link is busy, parked or closed. `true` when sent.
+     */
+open func prewake() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_prewake(
+            self.uniffiCloneHandle(),$0
+    )
+})
 }
     
     /**
@@ -17192,6 +17212,17 @@ public func classicCleanupVersion() -> Int64  {
 })
 }
 /**
+ * The folder (in the app's own container) where the LAN direct path keeps
+ * this phone's key and what each Mac told it; `None` turns the path off.
+ * Call once at launch, before `connect`.
+ */
+public func setLanMemoryDir(dir: String?)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_set_lan_memory_dir(
+        FfiConverterOptionString.lower(dir),$0
+    )
+}
+}
+/**
  * Keys held for a detached terminal, typed `typed_ages_ms` ago: why they go now, or none while
  * they wait. `offline_age_ms`: how long the Mac has been called offline, while it is;
  * `progress_age_ms`: how long since the link's last progress (`LinkProgressClock`), if it made
@@ -17209,17 +17240,6 @@ public func heldKeysExpiry(typedAgesMs: [UInt64], gaveUp: Bool, offlineAgeMs: UI
         FfiConverterUInt64.lower(ceilingMs),$0
     )
 })
-}
-/**
- * The folder (in the app's own container) where the LAN direct path keeps
- * this phone's key and what each Mac told it; `None` turns the path off.
- * Call once at launch, before `connect`.
- */
-public func setLanMemoryDir(dir: String?)  {try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_func_set_lan_memory_dir(
-        FfiConverterOptionString.lower(dir),$0
-    )
-}
 }
 /**
  * Which device opens `url`, a link the person opened on the phone.
@@ -17750,10 +17770,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_classic_cleanup_version() != 33020) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_held_keys_expiry() != 25051) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_lan_memory_dir() != 45946) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_lan_memory_dir() != 45946) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_held_keys_expiry() != 25051) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_link_open_side() != 2441) {
@@ -17922,6 +17942,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_ping() != 22934) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_prewake() != 45304) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_probe() != 33821) {
