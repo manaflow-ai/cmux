@@ -101,6 +101,13 @@ bench() {
 copy_out() { [[ -z "${FAST_CHECKS_OUT:-}" ]] || { mkdir -p "$FAST_CHECKS_OUT"; cp "$work"/*.txt "$work"/*.log "$FAST_CHECKS_OUT/" 2>/dev/null || true; }; }
 trap copy_out EXIT
 trap 'copy_out; exit 124' TERM INT
+# A fixed CPU canary beside every run (cmuxterm-hq docs/handbook/timing-on-a-busy-host.md): the same work each
+# time, before and after the benches, so two runs' times are compared only at about the same canary.
+canary() { python3 -I -c 'import sys, time
+t = time.perf_counter(); c = time.process_time(); s = 0
+for i in range(5000000): s += i
+print("PAIRMATRIX-CANARY %s wall_ms=%.1f cpu_ms=%.1f" % (sys.argv[1], (time.perf_counter() - t) * 1e3, (time.process_time() - c) * 1e3))' "$1"; }
+canary before
 status=0
 IFS=, read -r -a pair_list <<<"$pairs"
 for pair in "${pair_list[@]}"; do
@@ -111,6 +118,8 @@ for pair in "${pair_list[@]}"; do
     mac-linux) bench mac-linux cmux-tui acpmux pair_matrix_desktop hub-carrier || status=1 ;;
   esac
 done
+
+canary after
 
 # Item 7, the round-trip audit: its bench prints ROUNDTRIP lines; its report writes the second table.
 rtt_md=""
