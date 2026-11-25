@@ -41,7 +41,9 @@ export function AgentCallCard({ call, tool, look = "report" }: { call: AgentCall
   const status = (
     <span className="cv-agentcall__status" data-state={state}>
       {call.running && <Spinner size={12} loading />}
-      {[t(SUBSESSION_STATE_LABEL[state]), ...statusParts(t, call, tool, now)].join(" · ")}
+      <span className="cv-agentcall__status-text">
+        {[t(SUBSESSION_STATE_LABEL[state]), ...statusParts(t, call, tool, now)].join(" · ")}
+      </span>
     </span>
   );
   const label = (
