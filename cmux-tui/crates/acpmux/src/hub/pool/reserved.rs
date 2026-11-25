@@ -236,7 +236,8 @@ impl Hub {
         }
         self.wait_startup().await;
         // The default harness and model, as a home chat's `session/new` with no pick takes them.
-        let spec = self.pool_spec_in(None, None, folder, None, &PrewarmShape::default()).await?;
+        let spec =
+            self.pool_spec_in(None, None, folder.clone(), None, &PrewarmShape::default()).await?;
         let key = spec.key.clone();
         self.pool_want(Role::Reserved, spec).await;
         let personal = if crate::config::spare_personal_enabled() {
