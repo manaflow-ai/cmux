@@ -299,22 +299,36 @@ async fn a_turn_the_store_refused_on_a_full_disk_goes_on_once_it_has_room() {
     .await;
     let scheduled = kinds(&hub, &s, "auto_resume_scheduled");
     assert_eq!(scheduled[0]["reason"], "disk", "{scheduled:?}");
-    // A second refusal of the same chat while it waits schedules nothing more.
+    // A newer prompt the store refused while that one waits takes the wait over: the older
+    // one is past (it skips as superseded), and the newer one is not left stranded.
     hub.fail_unstarted_turn(&s, "p2", "t2", &refused, &joined, Some(&rules));
+    until("the newer refused turn was never scheduled", || {
+        kinds(&hub, &s, "auto_resume_scheduled").iter().any(|m| m["turnId"] == "t2")
+    })
+    .await;
     // Well past its 20 ms wait: still waiting, on the disk.
     tokio::time::sleep(Duration::from_millis(400)).await;
     assert!(kinds(&hub, &s, "user_message").is_empty(), "it went on with the disk still full");
 
     // The disk has room again: it goes on once, saying why it stopped.
     hub.config.write().await.auto_resume_disk_free_bytes = Some(0);
-    let resumed = |m: &Value| m["promptId"] == "p~resume-1" && m["status"] == "completed";
-    until("the refused turn never went on", || kinds(&hub, &s, "turn_result").iter().any(resumed))
-        .await;
+    let resumed = |m: &Value| m["promptId"] == "p2~resume-1" && m["status"] == "completed";
+    let went_on = async {
+        while !kinds(&hub, &s, "turn_result").iter().any(resumed) {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    };
+    if tokio::time::timeout(WAIT, went_on).await.is_err() {
+        let log: Vec<_> =
+            hub.events(&s.id, 0, 100_000).unwrap().into_iter().map(|e| (e.kind, e.msg)).collect();
+        panic!("the refused turn never went on: {log:?}");
+    }
     tokio::time::sleep(Duration::from_millis(200)).await;
     let messages = kinds(&hub, &s, "user_message");
     let ids: Vec<&Value> = messages.iter().map(|m| &m["promptId"]).collect();
-    assert_eq!(ids, [&json!("p~resume-1")], "{messages:?}");
+    assert_eq!(ids, [&json!("p2~resume-1")], "{messages:?}");
     let text = messages[0]["text"].as_str().unwrap_or_default();
     assert!(text.contains("disk filling up"), "{text}");
-    assert_eq!(kinds(&hub, &s, "auto_resume_scheduled").len(), 1);
+    let skipped = kinds(&hub, &s, "auto_resume_skipped");
+    assert!(skipped.iter().all(|m| m["turnId"] == "t"), "{skipped:?}");
 }
