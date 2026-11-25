@@ -257,6 +257,12 @@ pub struct Admitted {
     cost: Cost,
 }
 
+impl std::fmt::Debug for Admitted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Admitted({} {} {})", self.machine, self.lane, self.cost.name())
+    }
+}
+
 impl Drop for Admitted {
     fn drop(&mut self) {
         let mut table = self.budget.table.lock().unwrap_or_else(|e| e.into_inner());
