@@ -40,8 +40,10 @@ export function CapacityWaitCard({
         <span className="text-fg">{eta}</span>
       </span>
       {progress !== undefined && (
-        <span className="cv-capacity-wait__bar" aria-hidden="true">
-          <span className="cv-capacity-wait__fill" style={{ inlineSize: `${Math.round(progress * 100)}%` }} />
+        <span className="cv-capacity-wait__track" aria-hidden="true">
+          <span className="cv-capacity-wait__bar">
+            <span className="cv-capacity-wait__fill" style={{ inlineSize: `${Math.round(progress * 100)}%` }} />
+          </span>
         </span>
       )}
       {(look === "card" || wait.error) && (
