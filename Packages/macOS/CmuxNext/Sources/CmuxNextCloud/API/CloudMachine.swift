@@ -186,6 +186,8 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
     public var evictAt: Date?
     /// The auto-size pick a create with `autosize` answered.
     public var sizePick: CloudSizePick?
+    /// The guest's disk use, from the record's `disk_health` (``CloudDiskReport``); nil before the first sample.
+    public var disk: CloudDiskReport?
     /// Why the last pause, resume or resize failed; nil when it did not.
     public var lastChangeFailure: ChangeFailure?
     /// The newest unresolved Pause, Resume or Kill sent from this app (``CloudMachineChanges``).
@@ -201,7 +203,7 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
     enum CodingKeys: String, CodingKey {
         case id, provider, region, status, displayName, slug, kind, image, imageVersion, createdAt, createdBy, team, address, size
         case declaredCapabilities = "capabilities"
-        case pauseReason, idlePauseMinutes, idlePause, hourlyRateUsd, updatedAt, serverRevision, runningSince, evictAt, sizePick
+        case pauseReason, idlePauseMinutes, idlePause, hourlyRateUsd, updatedAt, serverRevision, runningSince, evictAt, sizePick, disk
         case lastChangeFailure = "error"
         case pendingChange, pendingMutationID, failedMutationID, servesDesktop
     }

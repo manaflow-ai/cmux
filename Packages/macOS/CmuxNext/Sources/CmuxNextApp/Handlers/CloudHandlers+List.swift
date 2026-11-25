@@ -66,8 +66,8 @@ extension CloudHandlers {
         let machines: [[String: Any]] = context.services.machines.cloud.map { session in
             let machine = session.machine
             return ["machineId": session.machineID, "title": machine.title, "status": session.effectiveStatus.rawValue,
-                    "createdBy": machine.createdBy as Any, "createdAt": machine.createdAt?.timeIntervalSince1970 as Any,
-                    "failure": machine.lastChangeFailure.map { ["code": $0.code, "message": $0.message] } as Any].compacted
+                    "createdBy": machine.createdBy as Any, "createdAt": machine.createdAt?.timeIntervalSince1970 as Any, "diskAllocatedMb": machine.size?.storageMb as Any,
+                    "failure": machine.lastChangeFailure.map { ["code": $0.code, "message": $0.message] } as Any, "disk": machine.disk?.facts as Any].compacted
         }
         let creating: [[String: Any]] = cloud.creations.all.filter { $0.session == nil }.map { creation in
             var failed: String?
@@ -121,7 +121,7 @@ extension CloudHandlers {
             "machineId": session.machineID, "title": machine.title, "status": session.effectiveStatus.rawValue, "state": stats.state,
             "cpus": stats.cpus as Any, "cpuPercent": stats.cpuPercent as Any, "memoryUsedMb": stats.memoryUsedMb as Any,
             "memoryTotalMb": stats.memoryTotalMb as Any, "diskUsedMb": stats.diskUsedMb as Any, "diskTotalMb": stats.diskTotalMb as Any,
-            "ipv4": machine.address?.ipv4 as Any, "desktop": machine.opensCarrierDesktop,
+            "ipv4": machine.address?.ipv4 as Any, "desktop": machine.opensCarrierDesktop, "disk": machine.disk?.facts as Any,
         ]
         if let cost = CloudCreationRows.cost(machine, limits: nil) {
             facts["cost"] = ["hourlyRateUsd": cost.hourlyRateUsd as Any, "runningSince": cost.runningSince?.timeIntervalSince1970 as Any,
