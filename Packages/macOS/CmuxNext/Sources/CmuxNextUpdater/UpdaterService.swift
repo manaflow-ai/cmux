@@ -155,9 +155,6 @@ public final class UpdaterService {
     /// Sparkle committed to an update's relaunch (``updaterWillRelaunchApplication()``); an abandoned install clears it.
     /// The quit then skips Chromium's own shutdown: the relaunched app opens the same pages (ask-ad4a68e740).
     @ObservationIgnored public internal(set) var relaunchingForUpdate = false
-    /// The pictures of the windows that stay on screen across a relaunch (set by the App:
-    /// ``RelaunchAfterimage``); the quit waits for them before the process ends.
-    @ObservationIgnored public var afterimage: RelaunchAfterimage?
     /// The save of the pages' pictures a relaunch ran while its windows were still on screen
     /// (``UpdateWindowHandoff/savesBeforeLeaving``); the quit awaits it instead of saving from windows already gone.
     /// nil: no relaunch took the windows off screen, the quit saves for itself.
