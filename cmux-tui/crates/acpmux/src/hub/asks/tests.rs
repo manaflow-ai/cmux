@@ -244,6 +244,68 @@ fn a_created_pull_request_links_and_its_merge_or_close_settles_it() {
 }
 
 #[test]
+fn lifecycle_events_keep_distinct_targets_at_the_same_timestamp() {
+    let l = ledger();
+    l.record("chat", &rec(1, 10, person("p1", "one")), || "codex".into());
+    let ask = ask_id("chat", "p1");
+    l.note_created("https://github.com/a/b/pull/1", vec![ask.clone()], 20);
+    l.note_created("https://github.com/a/b/pull/2", vec![ask], 20);
+    let row = &asks_of(&l, &all())[0];
+    assert_eq!(row["events"].as_array().unwrap().len(), 3);
+    assert_eq!(row["prs"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn repeated_same_state_pr_observations_do_not_emit_lifecycle_events() {
+    let l = ledger();
+    l.record("chat", &rec(1, 10, person("p1", "one")), || "codex".into());
+    let ask = ask_id("chat", "p1");
+    let url = "https://github.com/a/b/pull/1";
+    l.note_created(url, vec![ask.clone()], 20);
+    l.note_created(url, vec![ask], 30);
+    assert_eq!(asks_of(&l, &all())[0]["events"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn linking_another_ask_to_an_unchanged_pr_emits_only_its_lifecycle_event() {
+    let l = ledger();
+    l.record("chat", &rec(1, 10, person("p1", "one")), || "codex".into());
+    l.record("chat", &rec(2, 11, person("p2", "two")), || "codex".into());
+    let url = "https://github.com/a/b/pull/1";
+    l.note_created(url, vec![ask_id("chat", "p1")], 20);
+    l.note_created(url, vec![ask_id("chat", "p1"), ask_id("chat", "p2")], 30);
+    for row in asks_of(&l, &all()) {
+        let events = row["events"].as_array().unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[1]["kind"], "prOpened");
+        assert_eq!(events[1]["ts"], if row["id"] == ask_id("chat", "p1") { 20 } else { 30 });
+    }
+}
+
+#[test]
+fn replay_repairs_an_ask_whose_capture_event_was_torn() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(store::FILE);
+    let ask = Ask {
+        id: ask_id("chat", "p1"),
+        ts: 10,
+        text: "one".into(),
+        harness: "codex".into(),
+        session_id: "chat".into(),
+        host: "mac".into(),
+        message_id: "p1".into(),
+        kind: AskKind::Ask,
+    };
+    std::fs::write(&path, format!("{}\n", serde_json::to_string(&Line::Ask(ask)).unwrap()))
+        .unwrap();
+    let l = AskLedger::open_as(Some(dir.path().to_owned()), "mac".into());
+    l.record("chat", &rec(1, 99, person("p1", "one")), || "codex".into());
+    assert_eq!(asks_of(&l, &all())[0]["events"].as_array().unwrap().len(), 1);
+    l.flush();
+    assert!(std::fs::read_to_string(&path).unwrap().contains("\"t\":\"e\""));
+}
+
+#[test]
 fn a_pr_note_needs_a_github_pull_url_or_a_repo_and_number() {
     assert!(PrNote::from_params(&json!({})).is_err());
     assert!(PrNote::from_params(&json!({"url": "https://example.com/x"})).is_err());
@@ -492,4 +554,47 @@ fn capture_fixture_reports_provenance_and_trace_link_counts() {
     println!(
         "ask-ledger deterministic fixture: inputs=100 human=83 machine=17; captured_nonhuman=0; trace_linked_prs=0->1"
     );
+}
+
+#[test]
+fn ask_ledger_duress_reports_bounded_capture_query_and_replay() {
+    use std::time::Instant;
+
+    let dir = tempfile::tempdir().unwrap();
+    let started = Instant::now();
+    let l = AskLedger::open_as(Some(dir.path().to_owned()), "mac".into());
+    for i in 0..1_000u64 {
+        let text = if i % 11 == 0 { "yes" } else { "record this request" };
+        l.record("duress", &rec(i, i, person(&format!("p{i}"), text)), || "codex".into());
+        if i % 101 == 0 {
+            l.record("duress", &rec(i, i + 1, person(&format!("p{i}"), text)), || "codex".into());
+        }
+    }
+    let capture_ms = started.elapsed().as_millis();
+    let ask = ask_id("duress", "p1");
+    l.note_created("https://github.com/a/b/pull/1", vec![ask.clone()], 2_000);
+    l.note_created("https://github.com/a/b/pull/1", vec![ask], 2_001);
+    let query_started = Instant::now();
+    let page = l.query(&all(), |_| None);
+    let query_ms = query_started.elapsed().as_millis();
+    let rows = page["asks"].as_array().unwrap();
+    assert_eq!(rows.len(), 200, "replies stay captured but off the Next board");
+    l.flush();
+    assert!(l.close(std::time::Duration::from_secs(5)));
+
+    let replay_started = Instant::now();
+    let replay = AskLedger::open_as(Some(dir.path().to_owned()), "mac".into());
+    let replay_rows = asks_of(&replay, &AsksQuery { limit: MAX_LIMIT, ..all() });
+    let replay_ms = replay_started.elapsed().as_millis();
+    assert_eq!(replay_rows.len(), 909);
+    let linked = replay_rows.iter().find(|row| row["id"] == ask_id("duress", "p1")).unwrap();
+    assert_eq!(linked["events"].as_array().unwrap().len(), 2);
+    println!(
+        "ask-ledger duress: inputs=1000 replies=91 duplicate_observations=10 rows={} capture_ms={} query_ms={} replay_ms={}",
+        rows.len(),
+        capture_ms,
+        query_ms,
+        replay_ms
+    );
+    assert!(replay.close(std::time::Duration::from_secs(5)));
 }

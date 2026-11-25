@@ -248,7 +248,10 @@ pub(crate) struct State {
     /// Append-only events, retained in capture order for lifecycle queries and duress inspection.
     events: Vec<AskEvent>,
     /// Event ids already folded, so replaying a capture source is idempotent.
-    event_keys: HashSet<(String, String, u64)>,
+    event_keys: HashSet<(String, String, u64, Option<String>)>,
+    /// Event indexes keep each row and status lookup proportional to its ask/PR history.
+    events_by_ask: HashMap<String, Vec<usize>>,
+    events_by_target: HashMap<String, Vec<usize>>,
     /// Ask id -> the pull request URLs naming it.
     by_ask: HashMap<String, Vec<String>>,
     /// Chats purged this run: none of their late records adds an ask.
@@ -270,12 +273,35 @@ impl State {
     }
 
     pub(crate) fn add_event(&mut self, event: AskEvent) -> bool {
-        let key = (event.ask.clone(), event.kind.clone(), event.ts);
+        let key = (event.ask.clone(), event.kind.clone(), event.ts, event.target.clone());
         if !self.event_keys.insert(key) {
             return false;
         }
+        let index = self.events.len();
+        self.events_by_ask.entry(event.ask.clone()).or_default().push(index);
+        if let Some(target) = &event.target {
+            self.events_by_target.entry(target.clone()).or_default().push(index);
+        }
         self.events.push(event);
         true
+    }
+
+    fn rebuild_event_indexes(&mut self) {
+        self.event_keys.clear();
+        self.events_by_ask.clear();
+        self.events_by_target.clear();
+        for (index, event) in self.events.iter().enumerate() {
+            self.event_keys.insert((
+                event.ask.clone(),
+                event.kind.clone(),
+                event.ts,
+                event.target.clone(),
+            ));
+            self.events_by_ask.entry(event.ask.clone()).or_default().push(index);
+            if let Some(target) = &event.target {
+                self.events_by_target.entry(target.clone()).or_default().push(index);
+            }
+        }
     }
 
     /// Takes `pr` in place of what was known of its URL; its links are those of its body.
@@ -309,7 +335,7 @@ impl State {
         let ids = self.by_session.remove(session).unwrap_or_default();
         let removed: HashSet<String> = ids.iter().cloned().collect();
         self.events.retain(|event| !removed.contains(&event.ask));
-        self.event_keys.retain(|(ask, _, _)| !removed.contains(ask));
+        self.rebuild_event_indexes();
         for id in ids {
             if let Some(ask) = self.asks.remove(&id) {
                 self.order.remove(&(ask.ts, ask.id));
@@ -326,9 +352,11 @@ impl State {
             let Some(pr) = self.prs.get(url) else { continue };
             has_pr = true;
             let latest = self
-                .events
-                .iter()
-                .filter(|event| event.target.as_deref() == Some(url.as_str()))
+                .events_by_target
+                .get(url)
+                .into_iter()
+                .flatten()
+                .filter_map(|index| self.events.get(*index))
                 .max_by_key(|event| event.ts);
             merged |=
                 latest.is_some_and(|event| event.kind == "prMerged") || pr.state == PrState::Merged;
@@ -371,9 +399,11 @@ impl State {
         row.insert(
             "events".into(),
             Value::Array(
-                self.events
-                    .iter()
-                    .filter(|event| event.ask == ask.id)
+                self.events_by_ask
+                    .get(&ask.id)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|index| self.events.get(*index))
                     .filter_map(|event| serde_json::to_value(event).ok())
                     .collect(),
             ),
@@ -585,12 +615,6 @@ impl AskLedger {
             .filter(|p| !p.is_empty())
             .map_or_else(|| format!("seq-{}", record.seq), str::to_owned);
         let ask_id = ask_id(id, &message_id);
-        {
-            let s = self.lock();
-            if s.purged.contains(id) || s.asks.contains_key(&ask_id) {
-                return;
-            }
-        }
         let kind = classify(text);
         let ask = Ask {
             id: ask_id.clone(),
@@ -602,8 +626,8 @@ impl AskLedger {
             message_id,
             kind,
         };
-        let event = AskEvent {
-            ask: ask_id,
+        let mut event = AskEvent {
+            ask: ask_id.clone(),
             ts: record.at,
             kind: "captured".into(),
             by: "person".into(),
@@ -615,9 +639,14 @@ impl AskLedger {
         }
         if s.add_ask(ask.clone()) {
             self.emit(&mut s, Line::Ask(ask));
-            if s.add_event(event.clone()) {
-                self.emit(&mut s, Line::Event(event));
-            }
+        } else if let Some(existing) = s.asks.get(&ask_id) {
+            // A crash can leave the ask line durable while its following event line is not.
+            // Replay the source record to repair that suffix without changing the ask itself.
+            event.ts = existing.ts;
+            event.target = Some(existing.kind.as_str().into());
+        }
+        if s.add_event(event.clone()) {
+            self.emit(&mut s, Line::Event(event));
         }
     }
 
@@ -660,14 +689,28 @@ impl AskLedger {
             at,
         };
         let pr = s.put_pr(pr);
-        if known.as_ref() != Some(&pr) {
+        let changed = known.as_ref().is_none_or(|old| {
+            old.repo != pr.repo
+                || old.number != pr.number
+                || old.state != pr.state
+                || old.asks != pr.asks
+        });
+        let state_changed = known.as_ref().is_none_or(|old| old.state != pr.state);
+        if changed {
             self.emit(&mut s, Line::Pr(pr.clone()));
+        }
+        if state_changed || known.as_ref().is_some_and(|old| old.asks != pr.asks) {
             let event_kind = match pr.state {
                 PrState::Merged => "prMerged",
                 PrState::Open => "prOpened",
                 PrState::Closed => "prClosed",
             };
             for ask in &pr.asks {
+                let newly_linked =
+                    known.as_ref().is_none_or(|old| !old.asks.iter().any(|id| id == ask));
+                if !state_changed && !newly_linked {
+                    continue;
+                }
                 let event = AskEvent {
                     ask: ask.clone(),
                     ts: at,
