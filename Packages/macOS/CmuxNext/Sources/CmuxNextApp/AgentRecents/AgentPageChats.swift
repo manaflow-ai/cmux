@@ -111,7 +111,7 @@ final class AgentPageChats {
         view.model.onSandboxRun = sandboxRun
         view.model.sendIsIncognito = { [weak self, weak view] in view.flatMap { self?.runNotices?.sendIsIncognito($0) } ?? true }
         view.model.onCloudEnvironment = cloudEnvironment
-        view.model.onCloudReservation = cloudReservation; view.model.onCloudSendGesture = cloudSendGesture.map { run in { [weak view] in run(view) } }
+        view.model.onCloudReservation = cloudReservation; let sendGesture = cloudSendGesture; view.model.onCloudSendGesture = { @MainActor [weak view] () -> Void in sendGesture?(view) } // typed out: Xcode 26.6 could not type the `map` form
         if let run = handoffTurn {
             view.model.onCloudHandoffTurn = { @MainActor [weak view] (session: String) async -> [String: Any] in
                 await run(view, session)
