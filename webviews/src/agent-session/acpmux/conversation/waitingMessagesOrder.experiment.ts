@@ -23,5 +23,5 @@ export const waitingMessagesOrder = defineExperiment({
       description: "An unread message stays where it came in; only queued ones wait in the end group.",
     },
   },
-  defaultArm: "group",
+  defaultArm: "arrival",
 });
