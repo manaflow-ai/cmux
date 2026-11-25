@@ -1106,29 +1106,6 @@ impl Driver {
             self.command_wake.drain();
             let now = now_us(self.start);
             self.watch_wake(now);
-            self.later_tick();
-            self.stun_tick(now);
-            self.turn_tick(now);
-            self.flush(now)?;
-            if self.endpoint.link().controls_acknowledged() {
-                for barrier in self.barriers.drain(..) {
-                    let _ = barrier.send(());
-                }
-            }
-            let mut fds = [
-                libc::pollfd { fd: self.socket.as_raw_fd(), events: libc::POLLIN, revents: 0 },
-                libc::pollfd { fd: self.command_fd, events: libc::POLLIN, revents: 0 },
-            ];
-            let timeout = self.deadline_ms(now);
-            // SAFETY: fds is a valid array of pollfd for its length.
-            unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, timeout) };
-            let mut scratch = [0u8; 64];
-            // SAFETY: drains our own non-blocking command pipe into a local buffer.
-            while unsafe { libc::read(self.command_fd, scratch.as_mut_ptr().cast(), scratch.len()) }
-                > 0
-            {}
-            let now = now_us(self.start);
-            self.watch_wake(now);
             while let Ok(command) = self.commands.try_recv() {
                 match command {
                     Command::RemoteCandidate(c) => self.on_remote_candidate(c, now),
