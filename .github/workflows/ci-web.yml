@@ -1058,6 +1058,7 @@ jobs:
       - name: Key the React Compiler transform cache
         id: transform-cache
         if: ${{ !cancelled() && steps.receipt.outputs.hit != 'true' }}
+        continue-on-error: true
         env:
           LOCK: ${{ hashFiles('webviews/bun.lock') }}
         run: |
