@@ -88,6 +88,8 @@ struct RulesFile {
     stored: String,
     func: String,
     type_decl: String,
+    static_let: String,
+    file_let: String,
     entry: String,
     live_module: String,
     live_package: String,
@@ -150,6 +152,8 @@ pub struct Rules {
     stored: Regex,
     func: Regex,
     type_decl: Regex,
+    static_let: Regex,
+    file_let: Regex,
     entry: Regex,
     case: Regex,
     live_module: Regex,
@@ -233,6 +237,8 @@ impl Rules {
             stored: anchored("stored", &file.stored)?,
             func: anchored("func", &file.func)?,
             type_decl: anchored("type_decl", &file.type_decl)?,
+            static_let: anchored("static_let", &file.static_let)?,
+            file_let: anchored("file_let", &file.file_let)?,
             entry: anchored("entry", &file.entry)?,
             case: anchored("case", &file.case)?,
             live_module: anchored("live_module", &file.live_module)?,
@@ -343,6 +349,9 @@ impl Rules {
                 reasons.insert("new entry point");
             } else if self.type_decl.is_match(body) {
                 reasons.insert("type or conformance");
+            } else if (self.static_let.is_match(body) && indent <= 4) || (self.file_let.is_match(body) && indent == 0) {
+                // A constant of no instance: the patch carries it (live_apply.py's STATIC_LET).
+                continue;
             } else if self.stored.is_match(body) && indent <= 4 && !body.ends_with('{') {
                 reasons.insert("stored property");
             } else if self.case.is_match(body) && indent == 4 {

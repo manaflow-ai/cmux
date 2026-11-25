@@ -309,6 +309,7 @@
         "CmuxNextChromiumWarmup",
         "CmuxNextCloud",
         "CmuxNextCloudCredentials",
+        "CmuxNextCloudPlace",
         "CmuxNextCloudUI",
         "CmuxNextCodeRouter",
         "CmuxNextCompat",
@@ -478,6 +479,7 @@
         "CmuxNextChiefPetWiring",
         "CmuxNextChromiumRuntime",
         "CmuxNextCloudCredentials",
+        "CmuxNextCloudPlace",
         "CmuxNextCloudUI",
         "CmuxNextCompat",
         "CmuxNextComputerUse",
@@ -633,7 +635,8 @@
         "CmuxNextPagesTestSupport",
         "CmuxNextSettings",
         "CmuxNextSidebar",
-        "CmuxNextWakeups"
+        "CmuxNextWakeups",
+        "CmuxNextWakeupsTestSupport"
       ],
       "packages": [
         "CmuxHomeRender"
@@ -958,6 +961,17 @@
         "CMUXAuthCore"
       ]
     },
+    "CmuxNextCloudPlace": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCloudPlace",
+      "targets": [
+        "CmuxNextCloud",
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
     "CmuxNextCloudTests": {
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCloudTests",
@@ -1214,6 +1228,7 @@
         "CmuxNextDesignTokens",
         "CmuxNextIcons",
         "CmuxNextTestSupport",
+        "CmuxNextWakeups",
         "CmuxNextWakeupsTestSupport"
       ],
       "packages": [
@@ -1314,6 +1329,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFavicons",
       "targets": [
         "CmuxNextBrowser",
+        "CmuxNextCompat",
         "CmuxNextTabs",
         "CmuxNextWakeups"
       ],
@@ -1590,7 +1606,9 @@
     "CmuxNextHostPressure": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHostPressure",
-      "targets": [],
+      "targets": [
+        "CmuxNextDesignTokens"
+      ],
       "packages": []
     },
     "CmuxNextHostPressureTests": {
@@ -2178,8 +2196,10 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextScreenshots",
       "targets": [
         "CmuxNextCompat",
+        "CmuxNextDesign",
         "CmuxNextFileGrid",
         "CmuxNextFiles",
+        "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
       "packages": []

@@ -41,6 +41,7 @@ pub mod harness_registry;
 pub mod harness_run;
 pub mod harness_secret;
 pub(crate) mod help_examples;
+pub(crate) mod hold_line;
 pub mod host_agents;
 pub mod host_approvals;
 #[cfg(unix)]
@@ -64,6 +65,7 @@ pub(crate) mod ls_far;
 pub(crate) mod ls_ssh;
 pub mod ls_table;
 pub mod machine_auth;
+pub mod memory;
 pub(crate) mod owned_child;
 pub mod scorecard;
 pub mod standing_grant;

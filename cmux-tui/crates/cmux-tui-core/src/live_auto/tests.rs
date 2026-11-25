@@ -97,6 +97,13 @@ fn swift_body_edits_are_live_and_shape_edits_rebuild() {
     assert_eq!(swift(Status::Modified, LIVE_SWIFT, &body), (Kind::SwiftLive, vec![]));
     let stored = [('+', "    var count = 0")];
     assert_eq!(swift(Status::Modified, LIVE_SWIFT, &stored).1, vec!["stored property".to_string()]);
+    // A constant of no instance (#55251): the patch defines it and repoints its addressor.
+    let constants = [('+', "    static let tint = Color.blue"), ('+', "private let inset = 4.0")];
+    assert_eq!(swift(Status::Modified, LIVE_SWIFT, &constants), (Kind::SwiftLive, vec![]));
+    assert_eq!(
+        swift(Status::Modified, LIVE_SWIFT, &[('+', "    static var tint = Color.blue")]).1,
+        vec!["stored property".to_string()]
+    );
     let sig = [
         ('-', "    func draw(_ rect: CGRect) {"),
         ('+', "    func draw(_ rect: CGRect, scale: Double) {"),

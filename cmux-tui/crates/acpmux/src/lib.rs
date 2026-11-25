@@ -36,6 +36,8 @@ mod artifacts_fs;
 pub mod artifacts_sync;
 pub mod attach;
 pub mod author;
+/// Auto mode: a chat keeps running in the Cloud when the laptop goes away (`auto_session/`).
+pub mod auto_session;
 pub mod beads;
 pub mod bg_hook;
 pub mod bg_run;
@@ -84,6 +86,7 @@ pub mod config;
 pub mod conn_origin;
 pub mod context_inventory;
 pub mod cpu_class;
+pub mod customize_run;
 pub mod cwd_pin;
 pub mod daemon;
 pub(crate) mod daemon_parts;
@@ -122,6 +125,7 @@ pub mod github_rest_op;
 pub mod github_session_env;
 pub mod god_fixture;
 pub mod install_share;
+pub mod memory_follow;
 /// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
 /// never offered, and the command says so.
 #[cfg(not(unix))]
@@ -216,6 +220,7 @@ pub mod mcp_args;
 /// Each chat's `cmux` MCP server over loopback HTTP, started on use and stopped when idle.
 pub mod mcp_gateway;
 pub mod mcp_hint;
+pub mod memory_mount;
 pub mod mesh;
 pub mod mesh_control;
 pub mod mesh_gate;

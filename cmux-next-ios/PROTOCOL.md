@@ -71,22 +71,39 @@ approval keys are unchanged, so a Mac keeps its approvals: it stores keys, not s
   per account and keeps them across sign-out (`verify/persistence.md`).
 - Machine id (added 2026-10-21): each cmux build on a Mac is its own device
   (its own id in its own Application Support folder, its own identity key and
-  paired phones), so a Mac running a nightly and a dev build, or one that kept
-  a deleted build's record, is on the account more than once. A Mac registers
-  `machineId`, the same for every build on that computer: HMAC-SHA256 under
-  the key `cmux-mobile machine-id v1` of `<owner sub> NUL <16-byte host UUID>`
+  paired phones), so a Mac running Stable and NIGHTLY, or a dev build, is on the
+  account more than once. A Mac registers `machineId`, the same for every build
+  of one account on that computer: HMAC-SHA256 under the key
+  `cmux-mobile machine-id v1` of `<owner sub> NUL <16-byte host UUID>`
   (`gethostuuid`, the IOPlatformUUID), first 16 bytes in lowercase hex. The
   hardware id never leaves the Mac, and two accounts on one Mac get unrelated
-  ids. The phone lists one Mac per (owner, machine id), by its most recently
-  active build. The other builds stay in Settings → Devices, marked "Another
-  cmux build on this Mac"; one links only while something names it (a Feed
-  answer or notification of that build) and closes after the idle window. A name is never an
-  identity: Macs that share a name stay separate (with the name tag), and a
-  Mac with no `machineId` (an older host) is never folded into another.
-  Builds stay separate devices on purpose: one shared device id would make
+  ids. Builds stay separate devices on purpose: one shared device id would make
   two running builds replace each other's signaling socket (4000 `replaced`),
   and would make a debug build hold the identity key phones pin for the
   release build.
+- Every build is its own Mac on the phone (changed 2026-11-12; from 2026-10-21
+  the phone listed one Mac per (owner, machine id) and marked the rest "Another
+  cmux build on this Mac"). The phone lists, links and removes each build on
+  its own. Each build names itself apart: the Mac registers `name` as the
+  computer's name for the Stable lane (`com.cmuxterm.app`, cmux NEXT Stable
+  `com.cmuxterm.app.nightly.cmux-next-stable`) and `<computer name> (<lane>)`
+  for any other build (`NIGHTLY`, `DEV <tag>`, `RC`, `STAGING <tag>`;
+  CmuxNextCompat `BuildIdentity.instanceLabel`). The phone names itself the
+  same way: the App Store build by the phone's name, every other build with its
+  label (`INTERNAL`, `BETA`, `PROD`, `DEV`, `DEMO`; Info.plist
+  `CmuxMobileInstanceLabel`). A name is never an identity: Macs that share a
+  name stay separate (with the name tag).
+- A Mac's device id is per account (changed 2026-11-12): each account signed in
+  to one build keeps its own id (`<state>/device-id.<owner sub>`) and its own
+  paired-phone list, so account B never registers the id account A owns (which
+  the service refuses with `403 not_owner`). An older build's single
+  `device-id` is adopted by the account its paired list names. If registration
+  still answers `not_owner`, hostd emits `{"type":"device_not_owned"}` and exits
+  with status 79; the app forgets that account's id and starts hostd with a new
+  one (at most twice per launch). Each id records the machine id it was made on
+  (`device-id.<owner sub>.machine`): a state folder that Migration Assistant or
+  a restore copied to another Mac carries the old Mac's value, so the new Mac
+  makes its own id instead of registering as the old one.
 
 ## Build spaces (API 0.16.0)
 
@@ -272,11 +289,11 @@ closed with 4001 `moved`.
     has no other path: no plain UDP and no TURN allocation, so the peer
     joins at once too); absent from older peers, which never join, and
     then neither does this side. A roam's endpoint announcement
-    (`{"t":"endpoints", generation, endpoints, relayed?, relayedTls?}`)
+    (`{"t":"endpoints", generation, endpoints, relayed?, relayedTls?, mapped?, mappedBy?}`)
     carries a new allocation's address the same way. Older peers omit all
     of these, and the label stays `direct`.
-  - `wg-endpoints` `{generation, endpoints, relayed?, relayedTls?}` (API
-    0.9.0): the same endpoint announcement a roaming side sends inside the
+  - `wg-endpoints` `{generation, endpoints, relayed?, relayedTls?, mapped?, mappedBy?}` (API
+    0.9.0; `mapped`, `mappedBy`: "Mapped endpoints" below): the same endpoint announcement a roaming side sends inside the
     tunnel (below), also sent through signaling, because the peer may not
     receive anything from the new address yet (a NAT that filters by
     address). The receiver applies the newer generation of either copy.
@@ -484,6 +501,12 @@ is forwarded, and the service never answers it.
   periodic stall shows its period.
 - Bounded: every stat is under 768 bytes; ms values are clamped to 600000.
   It names no user, device, session or address.
+- `portmap` (optional, added 2026-11-24): `{"by":"pcp"|"nat-pmp"|"upnp"|"unknown","used":bool}`,
+  present when the Mac offered a NAT-mapped endpoint ("Mapped endpoints"): which
+  protocol mapped it, and whether the link's direct route goes to it. The
+  service logs it as `portmapBy` and `portmapUsed`; `link-stats.py` counts a
+  direct link with `portmapUsed` as path `direct-mapped`. An older service
+  drops the field.
 
 The service (`TeamHub.linkStat`) takes it only from a phone socket, under the
 socket's text rate limit, and drops silently (no error frame: a session-less
@@ -501,6 +524,36 @@ A Worker older than the frame answers it `{"type":"error","code":"bad_request",
 "message":"unknown frame type"}` without `sessionId`. The phone takes that
 answer, within 30 s of a stat it sent, as the refusal of the stat: it never
 reaches a dial, and that socket sends no more stats.
+
+### Mapped endpoints (`mapped`; added 2026-11-24, backward compatible)
+
+The Mac asks its home router for a public UDP port that forwards to the
+session's WireGuard socket, with PCP (RFC 6887), else NAT-PMP (RFC 6886),
+else UPnP-IGD (`cmux-mobile-host/src/portmap.rs`), and offers the mapped
+address to the phone. A phone behind a NAT that maps per destination
+(symmetric NAT, a carrier's CGNAT) reaches a mapped port directly, where
+hole punching alone ends on TURN.
+
+- It never holds up a link: the Mac asks after `wg-resp`, in the
+  background, and announces the address when (if) the router grants it,
+  with the roaming announcement (`{"t":"endpoints",...}` in the tunnel and
+  `wg-endpoints` through signaling), as one more entry of `endpoints`.
+- `mapped` lists which of `endpoints` are mapped (at most 2; an entry not
+  among `endpoints` is ignored); `mappedBy` names the protocol: `pcp`,
+  `nat-pmp` or `upnp` (another word reads as unknown). Both are absent when
+  nothing is mapped.
+- Backward compatible both ways: an older phone ignores the two fields and
+  dials the address as any endpoint; a newer phone with an older Mac sees
+  neither and has nothing mapped. The phone sends neither (it maps
+  nothing).
+- The Mac renews a mapping at half its lifetime (asking for 3600 s), and
+  deletes it when the session closes or roams (a roam maps the new socket
+  and announces it), and every live one when hostd stops. A mapped address
+  that is not public (private, CGNAT 100.64/10: another NAT beyond the
+  router) is deleted and not offered. The protocol a router answered is
+  remembered per (gateway, local address), and a router that maps nothing
+  is not asked again until either changes.
+- `CMUX_MOBILE_PORTMAP=0` in hostd's environment turns it off.
 
 ## WebSocket relay (API 0.17.0)
 
@@ -1184,8 +1237,14 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   default); off, the phone's stock look (2026-11-13 to 11-22 the chrome stayed stock). Since 2026-11-17 its agent chat takes `chat` (below). One JSON frame now and on every change, nothing before the
   Mac app sent its first one: `{"theme": {"background", "foreground", "palette": [8 or
   16 "#rrggbb"], "selection_background"?, "selection_foreground"?, "cursor"?, "accent",
-  "accent_color"?, "background_opacity"}, "wallpaper": {"id", "bytes", "tint_opacity"} |
-  null}`. `id` is the SHA-256 of the picture (hex). The phone derives the
+  "accent_color"?, "background_opacity", "background_blur"?}, "wallpaper": {"id", "bytes", "tint_opacity"} |
+  null}`. Since 2026-11-22 `wallpaper` is what the Mac shows behind its windows' content: the
+  background chosen in cmux, else the Ghostty `background-image`, else, in a see-through window
+  (`background_opacity` < 1), the desktop picture under the window's tint; null only for an opaque
+  window with no picture. The phone draws it under the terminals too, which are then see-through
+  (`background-opacity = 0` on the phone's surfaces, as on the Mac), and blurs it by
+  `background_blur` (Ghostty's encoding: a radius in points, -1 regular and -2 clear Liquid Glass;
+  omitted for 0). `id` is the SHA-256 of the picture (hex). The phone derives the
   palette itself (`ThemeTokens.derive`, the Mac's own code) and keeps the last frame, so
   the accent is the same at launch and offline. Since 2026-11-13 a
   frame may also carry `"terminal": ["key = value", ...]`: the Mac's terminal theme, its

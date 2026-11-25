@@ -76,6 +76,12 @@ COMMENT = re.compile(RULES["comment"])
 STORED = re.compile(RULES["stored"])
 FUNC = re.compile(RULES["func"])
 TYPE_DECL = re.compile(RULES["type_decl"])
+# A constant with an initializer that belongs to no instance: `static let x = ...` (any access, `nonisolated(unsafe)`
+# and the like) or a file-level `let x = ...` (indent 0). It changes no type's size, so a patch can carry it: the patch
+# defines the variable and its addressor, the app repoints the addressor, and every caller (patched or not) reaches the
+# patch's copy. Only `let`: a `static var` is state a patch would reset, and an instance property changes the layout.
+STATIC_LET = re.compile(RULES["static_let"])
+FILE_LET = re.compile(RULES["file_let"])
 ENTRY = re.compile(RULES["entry"])
 LIVE_MODULE = re.compile(RULES["live_module"])
 LIVE_PACKAGE = re.compile(RULES["live_package"])
@@ -108,6 +114,8 @@ def swift_reasons(lines, added_file):
             reasons.add("new entry point")
         elif TYPE_DECL.match(body):
             reasons.add("type or conformance")
+        elif (STATIC_LET.match(body) and indent <= 4) or (FILE_LET.match(body) and indent == 0):
+            continue  # a constant of no instance: the patch carries it (see STATIC_LET)
         elif STORED.match(body) and indent <= 4 and not body.endswith("{"):
             reasons.add("stored property")  # member level (one indent) or a global
         elif CASE.match(body) and indent == 4:

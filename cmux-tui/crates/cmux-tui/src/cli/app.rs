@@ -59,6 +59,7 @@ mod try_cmd;
 mod version;
 pub(super) mod wait;
 mod web_pieces;
+pub(super) use try_cmd::cu_upgrade;
 pub(crate) use try_cmd::spawn_daemon_updates;
 pub(super) use web_pieces::USAGE as WEB_PIECES_USAGE;
 
@@ -796,6 +797,15 @@ pub(super) fn run_action(
             // `cloud kill-machine`) takes it as `--confirm`.
             "yes" if super::action_hint::action_takes_argument(action, "confirm") => {
                 arguments.insert("confirm".into(), value);
+            }
+            // `--contents-file FILE` (`cloud file-write`): the text read here, so it never sits in
+            // this process's argv where `ps` shows it (`cmux migrate` carries files this way).
+            "contents-file" if super::action_hint::action_takes_argument(action, "contents") => {
+                let path = caller_path(value);
+                let path = path.as_str().unwrap_or_default();
+                let text = std::fs::read_to_string(path)
+                    .map_err(|error| UsageError::new(format!("--contents-file {path}: {error}")))?;
+                arguments.insert("contents".into(), json!(text));
             }
             _ => {
                 let key = argument_name(&name);

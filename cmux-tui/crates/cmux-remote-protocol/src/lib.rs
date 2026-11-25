@@ -22,6 +22,7 @@
 
 mod frame;
 mod relay;
+pub mod reliable;
 mod rpc;
 
 pub use frame::{

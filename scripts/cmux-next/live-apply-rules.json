@@ -22,6 +22,8 @@
   "stored": "^(\\s*)(@\\w+(\\([^)]*\\))?\\s+)*((public|private|fileprivate|internal|package|open|final|static|nonisolated|lazy|weak|unowned|override)(\\([^)]*\\))?\\s+)*(let|var)\\s+\\w+[^{]*$",
   "func": "^\\s*(@\\w+(\\([^)]*\\))?\\s+)*((public|private|fileprivate|internal|package|open|final|static|class|override|mutating|nonisolated|required|convenience)(\\([^)]*\\))?\\s+)*(func\\s+\\w+|init[?!]?\\s*[(<]|subscript\\s*[(<])",
   "type_decl": "^\\s*(@\\w+(\\([^)]*\\))?\\s+)*((public|private|fileprivate|internal|package|open|final|indirect)\\s+)*(struct|class|enum|actor|protocol|extension)\\s+\\w+",
+  "static_let": "^(\\s*)(@\\w+(\\([^)]*\\))?\\s+)*((public|private|fileprivate|internal|package|open|final|nonisolated(\\([^)]*\\))?)\\s+)*(static|class)\\s+((public|private|fileprivate|internal|package|open|final|nonisolated(\\([^)]*\\))?)\\s+)*let\\s+\\w+[^{]*=",
+  "file_let": "^((public|private|fileprivate|internal|package|nonisolated(\\([^)]*\\))?)\\s+)*let\\s+\\w+[^{]*=",
   "entry": "^\\s*(@\\w+(\\([^)]*\\))?\\s+)*@main\\b",
   "live_module": "^(CmuxNext[A-Za-z0-9_]*|MessagesLabHome|ViewShell)$",
   "live_package": "(?:^|/)Packages/macOS/CmuxNext/Sources/|(?:^|/)Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/|(?:^|/)Prototypes/ViewShell/Sources/",
