@@ -3389,7 +3389,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // runs or a command is known to run (the hook stays on while one it knows runs, so its end
   // arrives). The one registry for the pane: the Inspector, the card, the tray and the counts all
   // read it. The tray shows a registry command between turns while the hook knows it runs; a quiet
-  // chat sends no `_acpmux/process/list`.
+  // chat sends one `_acpmux/process/list` as it opens (so a command still running from an earlier
+  // turn is in the hat before the next send) and none after, unless that read finds one running.
   // The same pass finds what Session Info's Background tasks lists (the palette's Show Background Tasks).
   const transcriptWork = useMemo(() => transcriptBackground(snapshot.rows), [snapshot.rows]);
   const transcriptTasks = transcriptWork.tasks;
@@ -4815,15 +4816,24 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   /// The model picker's Connect row (claudeConnect.ts `setupConnect`) while this chat's Cloud start
   /// waits for a connection: shown only for the family the host's Set up Cloud need names, so a local
-  /// chat, or a Cloud one a connection serves, never shows it. Connect runs the card's first button.
+  /// chat, or a Cloud one a connection serves, never shows it. Connect opens the inline connect card and
+  /// runs the family's one click; its Cancel withdraws the wait.
   const setUpCloudNow = useRef(setUpCloud);
+  const cancelCloudSignInNow = useRef(cancelCloudSignIn);
   useEffect(() => {
     setUpCloudNow.current = setUpCloud;
+    cancelCloudSignInNow.current = cancelCloudSignIn;
   });
   const cloudSetupNeed = cloudStart?.state === "failed" ? cloudStart.cloudSetup : undefined;
   const cloudSetupWaiting = cloudStart?.signingIn === true;
   const modelConnect = useMemo(
-    () => setupConnect(cloudSetupNeed, cloudSetupWaiting, (action) => setUpCloudNow.current(action)),
+    () =>
+      setupConnect(
+        cloudSetupNeed,
+        cloudSetupWaiting,
+        (action) => setUpCloudNow.current(action),
+        () => cancelCloudSignInNow.current(),
+      ),
     [cloudSetupNeed, cloudSetupWaiting],
   );
   /// Set up Cloud's Not now: a wait still out is withdrawn (the start then ends here), else the card goes.

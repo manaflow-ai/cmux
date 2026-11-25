@@ -272,11 +272,10 @@ mod tests {
         assert_eq!(drain(&mut rx), [("b".to_owned(), Connecting, None)]);
     }
 
-    /// Each note carries the composer dot's item for its link: none while connected, the
-    /// transient states held back by the quiet bound, and a removal named as one.
+    /// Each note carries the composer dot's item for its link: none while connected or coming
+    /// back on its own (reconnects are silent), and a removal named as one.
     #[test]
     fn a_note_carries_its_status_item() {
-        use crate::protocol::composer_status::{LINK_QUIET_MS, StatusLevel};
         let states = PeerStates::default();
         let mut rx = states.subscribe();
         let mut reconnecting = seen(Reconnecting);
@@ -289,11 +288,7 @@ mod tests {
             .collect();
         assert_eq!(notes.len(), 3);
         assert_eq!(notes[0].status, None);
-        let item = notes[1].status.clone().unwrap();
-        assert_eq!(item.level, StatusLevel::Info);
-        assert_eq!(item.words, "status.machineLink.reconnecting");
-        assert_eq!(item.subject.as_deref(), Some("b"));
-        assert_eq!(item.show_at, Some(1_000 + LINK_QUIET_MS));
+        assert_eq!(notes[1].status, None);
         let gone = notes[2].status.clone().unwrap();
         assert_eq!(gone.words, "status.machineLink.removed");
         assert_eq!(gone.action, None);

@@ -39,6 +39,8 @@ import {
   type DevicesRelay,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
+  type LooksGallery,
+  type LooksRun,
   type SharesState,
   type KeysState,
   type TailnetState,
@@ -97,6 +99,7 @@ import {
   type ChecklistFact,
   type PreviousBuild,
 } from "./ops";
+import { mockLooks, previewLook, runLooks } from "./mockLooks";
 import { rowsByKey, schema, hostRowsByKey } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
 import { validate } from "./validate";
@@ -148,6 +151,12 @@ export type MockOptions = {
   previousBuild?: PreviousBuild | null;
   /** The host's refusal of that row's Go Back; default none (it runs). */
   previousBuildRefusal?: string;
+  /** Settings > Appearance > Looks (`cmux setup gallery`); default the catalog, nothing installed. */
+  looks?: LooksGallery;
+  /** The CLI refuses every Looks change with this message. */
+  looksRefusal?: string;
+  /** Looks whose repo has no preview image (`setup.preview_missing`). */
+  looksPreviewMissing?: string[];
   /** Writes of these keys the daemon refuses with this reason and details (a json row's
    * `accepted.problems`, as cmux-config's refusal carries them). */
   refusals?: Record<string, { message: string; details: Record<string, unknown> }>;
@@ -351,6 +360,9 @@ export class MockSettingsProvider {
     if (options.devicesJoin) this.host = { ...this.host, devices_join: options.devicesJoin };
     if (options.library) this.library = options.library;
     if (options.libraryRefusal) this.libraryRefusal = options.libraryRefusal;
+    if (options.looks) this.looks = options.looks;
+    if (options.looksRefusal) this.looksRefusal = options.looksRefusal;
+    if (options.looksPreviewMissing) this.looksPreviewMissing = options.looksPreviewMissing;
     if (options.doctor) this.doctor = options.doctor;
     if (options.doctorRefusal) this.doctorRefusal = options.doctorRefusal;
     this.importable = options.importable ?? null;
@@ -736,6 +748,7 @@ export class MockSettingsProvider {
       "cmux.settings.archived.list": () => this.archived,
       "cmux.settings.archived.run": (params) => this.runArchived(params as ArchivedRun),
       "cmux.settings.customize.library": (params) => this.runLibrary(params as LibraryRun),
+      "cmux.settings.looks": (params) => this.runLooks(params as LooksRun),
       "cmux.settings.customize.checklist": (params) => ({
         checklist: mockChecklist(this.values, (params as { has?: ChecklistFact[] }).has ?? []),
       }),
@@ -1133,6 +1146,7 @@ export class MockSettingsProvider {
       "cmux.settings.customize.run",
       "cmux.settings.shares.list",
       "cmux.settings.customize.library",
+      "cmux.settings.looks",
       "cmux.settings.customize.checklist",
       "cmux.settings.shares.revoke",
       "cmux.settings.archived.list",
@@ -1779,6 +1793,35 @@ export class MockSettingsProvider {
   previousBuild: PreviousBuild | null = null;
   /** Why the host refuses that row's Go Back; null: it runs. */
   previousBuildRefusal: string | null = null;
+
+  /** What `cmux setup gallery` lists (Settings > Appearance > Looks). */
+  looks: LooksGallery = mockLooks();
+  /** The CLI's refusal of every Looks change; null: changes run. */
+  looksRefusal: string | null = null;
+  /** Looks whose repo has no preview image. */
+  looksPreviewMissing: string[] = [];
+  /** Every Looks verb the page ran but `gallery` and `preview`, in order (tests). */
+  readonly looksRuns: LooksRun[] = [];
+
+  /** `cmux --json setup VERB`: its JSON, or the CLI's error envelope as the host answers it (a
+   * refusal, and an install's consent card, are answers, not failed calls). */
+  private runLooks(run: LooksRun): unknown {
+    if (run.verb === "gallery") return this.looks;
+    if (run.verb === "preview") return previewLook(run.id, run.scheme, this.looksPreviewMissing);
+    this.looksRuns.push(run);
+    if (this.looksRefusal && !(run.verb === "install" && !run.yes))
+      return { code: "setup.refused", message: this.looksRefusal, details: {} };
+    const outcome = runLooks(this.looks, run);
+    if ("refusal" in outcome) return { code: "setup.refused", message: outcome.refusal, details: {} };
+    if ("consent" in outcome)
+      return {
+        code: "setup.needs_consent",
+        message: "nothing was changed: show the person this card, then run it again with --yes (install)",
+        details: outcome.consent,
+      };
+    this.looks = outcome.gallery;
+    return { ok: true, verb: run.verb };
+  }
   /** The build the card's Go Back asked for. */
   wentBack: string | null = null;
   /** The build the card's last Switch asked for. */
