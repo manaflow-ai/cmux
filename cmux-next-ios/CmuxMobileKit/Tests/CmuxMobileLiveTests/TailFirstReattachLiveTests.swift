@@ -530,6 +530,50 @@ import Testing
         #expect(hub.pipelinedAttachesRead == 0)
     }
 
+    /// The first connection since launch with the chat already open (a cold launch back into
+    /// it): its attach goes right behind `initialize` and the watch with every kind the phone
+    /// draws, and a current Mac's reply is read from that write: one round trip to the page.
+    @Test func aFirstConnectionWithTheChatOpenSendsItsAttachWithInitialize() async throws {
+        let fake = Fake(turns: 0..<Chat.turns, visibleThrough: Chat.turns * 5, current: true)
+        let link = fake.link()
+        let hub = AcpmuxHub()
+        let source = hub.source(sessionID: "s1", summary: Chat.summary)
+        let store = AgentChatStore(source: source)
+        await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
+        defer { withExtendedLifetime((hub, link)) {} }
+        await Self.waitUntil { store.turns.count == Chat.turns }
+
+        #expect(store.turns.map(\.id) == Self.ids(0..<Chat.turns))
+        #expect(Array(fake.methods.prefix(3)) == ["initialize", "_acpmux/watch", "_acpmux/attach"])
+        #expect(fake.methods.filter { $0 == "_acpmux/attach" }.count == 1)
+        #expect(hub.pipelinedAttachesRead == 1)
+    }
+
+    /// The same cold launch against an older Mac (its `initialize` names no capabilities): the
+    /// written attach asked for kinds it does not serve, so it is asked again with the kinds it
+    /// does, and the chat shows the same turns. Its next connection writes no attach early.
+    @Test func aFirstConnectionToAnOlderMacAsksTheAttachAgain() async throws {
+        let fake = Fake(turns: 0..<Chat.turns, visibleThrough: Chat.turns * 5)
+        let link = fake.link()
+        let hub = AcpmuxHub()
+        let source = hub.source(sessionID: "s1", summary: Chat.summary)
+        let store = AgentChatStore(source: source)
+        await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
+        defer { withExtendedLifetime((hub, link)) {} }
+        await Self.waitUntil { store.turns.count == Chat.turns }
+
+        #expect(store.turns.map(\.id) == Self.ids(0..<Chat.turns))
+        #expect(fake.methods.filter { $0 == "_acpmux/attach" }.count == 2)
+        #expect(hub.pipelinedAttachesRead == 0)
+
+        await hub.bind(nil)
+        fake.resetCounts()
+        await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
+        await Self.waitUntil { fake.methods.contains("_acpmux/attach") }
+        #expect(Array(fake.methods.prefix(2)) == ["initialize", "_acpmux/watch"])
+        #expect(fake.methods.filter { $0 == "_acpmux/attach" }.count == 1)
+    }
+
     /// `pageReachesEnd` reads only a reply that says so.
     @Test func pageReachesEndNeedsPageThroughAtLastSeq() {
         typealias S = AcpmuxSessionSource
