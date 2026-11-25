@@ -243,11 +243,17 @@ class NotesTests(FakeAscCase):
                              {"CMUX_IOS_REVIEW_CHIEF_NAME": "Chief"})
         self.assertIn("REVIEW_CHIEF_NAME", str(raised.exception))
 
-    def test_the_demo_steps_open_the_hosted_chief(self):
+    def test_the_demo_steps_run_a_terminal_on_the_simulated_mac(self):
+        # The review path needs no Mac and no Cloud credits: the demo account's simulated Mac,
+        # whose terminal answers typed commands and whose browser tab opens a page.
         start = self.TEMPLATE.index("## REVIEW DEMO STEPS: START")
         block = self.TEMPLATE[start:self.TEMPLATE.index("## REVIEW DEMO STEPS: END")]
-        for text in ("Tap Chief", "Main · Cloud", "Send", '"Chief Is Off"', '"Turn On"'):
+        for text in ("simulated Mac", "not a real computer", "Workspaces", "website", "terminal", "git status", "Tabs"):
             self.assertIn(text, block)
+        # Chief is still described, outside the required path, with its Turn On step.
+        rest = self.TEMPLATE[self.TEMPLATE.index("## REVIEW DEMO STEPS: END"):]
+        for text in ("Main · Cloud", '"Chief Is Off"', '"Turn On"'):
+            self.assertIn(text, rest)
         self.assertNotIn("Chief named", block)
         self.assertNotIn("replaces the earlier", self.TEMPLATE)
 

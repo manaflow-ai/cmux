@@ -732,7 +732,11 @@ fn clean(mut command: Command) -> Command {
 
 /// The command's stdout, or an error with its stderr.
 pub(super) fn checked(command: &mut Command) -> anyhow::Result<Vec<u8>> {
-    let output = command.output().context("cannot run git")?;
+    let output = {
+        let name = crate::link::spans::git_name(command.get_args());
+        crate::link::spans::time(&name, || command.output())
+    }
+    .context("cannot run git")?;
     if !output.status.success() {
         bail!("git: {}", String::from_utf8_lossy(&output.stderr).trim());
     }
@@ -742,7 +746,11 @@ pub(super) fn checked(command: &mut Command) -> anyhow::Result<Vec<u8>> {
 /// The command's stdout as text; None when it exits 1 (a question answered
 /// "no"); an error otherwise.
 fn output(command: &mut Command) -> anyhow::Result<Option<String>> {
-    let output = command.output().context("cannot run git")?;
+    let output = {
+        let name = crate::link::spans::git_name(command.get_args());
+        crate::link::spans::time(&name, || command.output())
+    }
+    .context("cannot run git")?;
     match output.status.code() {
         Some(0) => Ok(Some(String::from_utf8_lossy(&output.stdout).into_owned())),
         Some(1) => Ok(None),
@@ -762,8 +770,12 @@ fn digest_reader(reader: &mut dyn std::io::Read) -> anyhow::Result<String> {
 
 /// Redirect large index output straight to disk; only diagnostics are captured.
 fn checked_to_file(command: &mut Command, file: &File) -> anyhow::Result<()> {
-    let output =
-        command.stdout(Stdio::from(file.try_clone()?)).output().context("cannot run git")?;
+    command.stdout(Stdio::from(file.try_clone()?));
+    let output = {
+        let name = crate::link::spans::git_name(command.get_args());
+        crate::link::spans::time(&name, || command.output())
+    }
+    .context("cannot run git")?;
     if !output.status.success() {
         bail!("git: {}", String::from_utf8_lossy(&output.stderr).trim());
     }

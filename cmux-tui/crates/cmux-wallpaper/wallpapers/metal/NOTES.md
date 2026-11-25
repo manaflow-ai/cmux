@@ -1,0 +1,8 @@
+# Metal
+
+- What moves: only the light. The plate stays still (brushing and grain are fixed to it). At rest a point light drifts on four incommensurate slow sines (periods of 65 to 190 s, so there is no visible loop) and moves the light pool, the anisotropic streak and the bevel shading across the relief.
+- Pointer: with the pointer inside, the light eases (via `presence.x`) from its drift position to the pointer, trailing a little behind its velocity. The chevron's bevels, the slot walls, the grooves and the turned spot face turn toward or away from it, so the relief seems to shift under your hand. The specular peak is the one place the accent shows, as a faint tint.
+- Relief: a raised chevron, a recessed cursor slot ("> _"), a turned spot face with a ring, machined grooves (count is a param) and a border groove. Each is a signed distance with an analytic gradient, run through a smoothstep bevel profile, so the normal needs no extra samples.
+- Shading: Blinn-Phong with an extra anisotropic lobe along the brush direction (linear on the plate, tangential in the spot face), jittered by the streak noise. Dark theme maps to graphite (paper to ink), light theme to pale aluminium (grey to white).
+- Cost per pixel: no loops. 4 value-noise calls (2 octaves of linear brushing, 2 of turned) = 16 hashes, plus 1 grain hash; 7 SDF evaluations (2 segments, 2 rounded boxes, 1 circle, 1 groove segment, 1 border box); 1 atan2, 2 pow, 4 normalize, 1 sqrt for the light distance. About 250 to 300 ALU ops; no texture reads.
+- Groove count costs nothing extra: only the nearest groove is evaluated.

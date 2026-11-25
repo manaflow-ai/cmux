@@ -397,7 +397,7 @@ async fn poll_loop(
     // reqwest's rustls-no-provider build needs the workspace's ring provider
     // installed once per process before the first TLS client exists.
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let client = match reqwest::Client::builder()
+    let client = match cmux_egress::client_builder("cmux_tui::coderouter_usage")
         .timeout(REQUEST_TIMEOUT)
         .user_agent(concat!("cmux-tui/", env!("CARGO_PKG_VERSION")))
         .build()

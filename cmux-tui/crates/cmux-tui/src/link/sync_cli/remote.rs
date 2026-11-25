@@ -197,7 +197,9 @@ pub(super) struct Remote {
 
 impl Remote {
     pub(super) fn connect(socket: &Path) -> anyhow::Result<Self> {
-        let stream = dial(socket, Some(IO_DEADLINE), Some(IO_DEADLINE))?;
+        let stream = crate::link::spans::time("rpc dial", || {
+            dial(socket, Some(IO_DEADLINE), Some(IO_DEADLINE))
+        })?;
         let mut remote = Self::on(stream);
         remote.socket = Some(socket.to_path_buf());
         Ok(remote)
@@ -240,7 +242,7 @@ impl Remote {
                 Err(_) => {}
             }
             progress();
-            std::thread::sleep(pause.min(self.patience.reconnect));
+            crate::link::spans::sleep("reconnect backoff", pause.min(self.patience.reconnect));
             pause = (pause * 2).min(Duration::from_secs(5));
         }
     }
@@ -307,6 +309,19 @@ impl Remote {
     /// request sent again on it when it is [`replayable`]. Only a machine
     /// that stopped answering, or the ceiling, fails the call.
     fn call_with_progress(
+        &mut self,
+        cmd: &str,
+        params: Value,
+        progress: &mut dyn FnMut(),
+    ) -> anyhow::Result<Value> {
+        let started = Instant::now();
+        let answer = self.call_with_progress_untimed(cmd, params, progress);
+        crate::link::spans::add(&format!("rpc {cmd}"), started.elapsed());
+        answer
+    }
+
+    /// [`Remote::call_with_progress`] without its count in [`crate::link::spans`].
+    fn call_with_progress_untimed(
         &mut self,
         cmd: &str,
         mut params: Value,

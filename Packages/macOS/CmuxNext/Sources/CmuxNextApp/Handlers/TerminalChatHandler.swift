@@ -4,7 +4,8 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextHistory
 import CmuxNextTabs
-import CmuxNextWindowRules
+import CmuxNextTerminal
+public import CmuxNextWindowRules // the two faces conform to its ports (bottom of the file)
 import Foundation
 
 /// Open Terminal as Chat (`palette.openTerminalChatView`; the palette and `cmux agent
@@ -84,17 +85,19 @@ enum TerminalChatHandler {
         case .toTerminal?:
             if let key { tabs.terminalHandOffs[key] = nil } // a terminal reports the session: any hand-off is over
             // Showing it is a view change; a headless run leaves the user's focus alone.
-            guard !invocation.allowsViewChange || terminals.contains(where: { services.revealTab($0) }) else {
-                throw ActionFailure(message: MiscHandlerStrings.terminalChatNoTerminal)
+            guard invocation.allowsViewChange else { return .done }
+            // The terminal it places is the one it shows first: a live one (its view is built).
+            let live = terminals.filter { services.cache.existingTerminal($0) != nil }, order = live + terminals.filter { !live.contains($0) }
+            return try swap(placing(chat: tab.id, terminal: order.first, services), toTerminal: true) {
+                order.contains(where: { services.revealTab($0) })
             }
-            return .done
         case .toChat(let harness, let session)?:
             tabs.terminalHandOffs["\(harness):\(session)"] = nil // the terminal reports the session
             let adopt = AgentPaneAdopt(harness: harness, agentSessionId: session, watch: watches ? true : nil)
             // A tab that already resumes this session is shown instead of a duplicate.
             if let existing = services.agentTabs.tab(resuming: adopt) ?? chat(running: session, services: services) {
-                if invocation.allowsViewChange { _ = services.revealTab(existing) }
-                return .done
+                guard invocation.allowsViewChange else { return .done }
+                return try swap(placing(chat: existing, terminal: tab.id, services), toTerminal: false) { _ = services.revealTab(existing); return true }
             }
             let seed = AgentPaneSeedSource(AgentPaneSeed(cwd: tab.cwd, adopt: adopt))
             let pending: AgentTabPending
@@ -168,6 +171,22 @@ enum TerminalChatHandler {
             .compactMap { services.agentTabs.tab(showing: $0.id) }.first
     }
 
+    /// A swap of a pair lands at the same turn in the other view (``TerminalChatPlacing``, Rust's
+    /// `tabs::place`): the face about to show moves first, then `reveal` shows it; at once when nothing moves.
+    private static func swap(_ placing: TerminalChatPlacing, toTerminal: Bool, reveal: @escaping @MainActor @Sendable () -> Bool) throws -> ActionEffect {
+        if placing.settled { if reveal() { return .done }; throw ActionFailure(message: MiscHandlerStrings.terminalChatNoTerminal) }
+        // action-wait-allow: the chat page (its own process) names its turn before either face shows, 60 ms at most in all
+        return .waiting(.externalProcess) {
+            if toTerminal { await placing.placeTerminal() } else { await placing.placeChat() }
+            return reveal() ? nil : "\(MiscHandlerStrings.terminalChatNoTerminal)"
+        }
+    }
+
+    private static func placing(chat: String?, terminal: String?, _ services: AppServices) -> TerminalChatPlacing {
+        TerminalChatPlacing(chat: chat.flatMap { services.agentTabs.existingView($0) }.map(AgentPaneTogglePlace.init),
+                            terminal: terminal.flatMap { services.cache.existingTerminal($0)?.session })
+    }
+
     /// Whether chat `ref` has a turn open: working, or waiting on a permission or a question.
     private static func turnOpen(_ ref: AgentSessionRef) -> Bool {
         let store = AgentTurnStateStore.shared
@@ -212,3 +231,7 @@ enum TerminalChatHandler {
         return (env + [quote(acpmux.executable.path), "resume-here", quote(run)]).joined(separator: " ")
     }
 }
+
+/// The two faces of a pair, as a swap reads and moves them (``TerminalChatPlacing``).
+extension TerminalSession: TogglePlaceTerminal {}
+extension AgentPaneTogglePlace: TogglePlaceChat {}

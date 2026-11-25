@@ -34,6 +34,8 @@
 # soak-Nm sample), the JS heaps and the growth by kind. Artifact: .build/perf-idle/soak.json and soak.log.
 # vmmap=KIND,KIND: after each app sample, vmmap --summary of every process of those kinds (bench_memory.py
 # --vmmap-kinds): where its footprint is, MALLOC against frameworks and stacks.
+# settings=JSON: cmux settings the app launches with (bench_memory.py --config), e.g.
+# settings={"appearance":{"wallpaperLighting":true}} for a before/after of one setting on the same build.
 # axes=AXIS,AXIS (chat-hidden, chat-visible, terminal-hidden, terminal-visible, page-hidden, page-visible;
 # axes=all for the first four, axes=pages for the two page axes): what one
 # more idle item costs, per process (bench_memory.py --axis, one fresh app each): idle CPU %, footprint, RSS,
@@ -60,7 +62,7 @@ measure=60
 agents=""
 infinite="" days=3 soak="" soak_every=10 soak_agents=3
 axes="" items="1,10,100" visible_items="1,4,10" settled=90
-reload_config=() purge=() release=() attribute=() crash_env=() vmmap=()
+reload_config=() purge=() release=() attribute=() crash_env=() vmmap=() settings=()
 for arg in "$@"; do
   case "$arg" in
     --config=*) reload_config=(--config "${arg#--config=}") ;;
@@ -78,6 +80,7 @@ for arg in "$@"; do
     attribute=*) attribute=(--attribute --attribute-kinds "${arg#attribute=}") ;;
     chat_renderer_crash=1) crash_env=(CMUX_BENCH_CHAT_RENDERER_CRASH=1) ;;
     vmmap=*) vmmap=(--vmmap-kinds "${arg#vmmap=}") ;;
+    settings=*) settings=(--config "${arg#settings=}") ;;
     axes=all) axes="chat-hidden,chat-visible,terminal-hidden,terminal-visible" ;;
     axes=pages) axes="page-hidden,page-visible" ;;
     axes=*) axes="${arg#axes=}" ;;
@@ -113,6 +116,21 @@ tui="$app/Contents/Resources/bin/cmux-tui"
 [ -x "$tui" ] || { echo "perf-10x-idle: no bundled cmux-tui at $tui" >&2; exit 1; }
 status=0
 
+# Runs "$@" with its output in the log file $1, printing one line every 5 min while it runs. The controller stops
+# a measurement that prints nothing for 45 min (CMUX_CI_MEASURE_SILENT_MAX), and a soak=60 run sat silent past that
+# with all its output in soak.log (job 204b2ad6, 2026-11-22), so the soak never reported.
+logged() {
+  local log="$1"; shift
+  "$@" > "$log" 2>&1 &
+  local pid=$! started=$SECONDS rc=0
+  while kill -0 "$pid" 2>/dev/null; do
+    for _ in $(seq 60); do kill -0 "$pid" 2>/dev/null || break; sleep 5; done
+    kill -0 "$pid" 2>/dev/null && echo "PERF-IDLE-RUNNING $(basename "$log") $(( (SECONDS - started) / 60 )) min: $(tail -n 1 "$log" | cut -c1-160)"
+  done
+  wait "$pid" || rc=$?
+  return "$rc"
+}
+
 state_root="$(mktemp -d /private/tmp/pidl.XXXXXX)"
 trap 'rm -rf "$state_root"' EXIT
 if [[ "$counts" != none ]]; then
@@ -140,11 +158,12 @@ for path in sys.argv[1:]:
 PY
 
 echo "PERF-IDLE-LOAD app $(uptime | sed 's/.*load averages*: //')"
-python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$counts" --mix terminal \
-  --settle 20 --measure "$measure" --top 8 ${attribute[@]+"${attribute[@]}"} ${vmmap[@]+"${vmmap[@]}"} \
-  --out "$work/app.json" > "$work/app.log" 2>&1 || { status=$?; tail -n 60 "$work/app.log"; }
+logged "$work/app.log" python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$counts" --mix terminal \
+  --settle 20 --measure "$measure" --top 8 ${attribute[@]+"${attribute[@]}"} ${vmmap[@]+"${vmmap[@]}"} ${settings[@]+"${settings[@]}"} \
+  --out "$work/app.json" || { status=$?; tail -n 60 "$work/app.log"; }
 # Which process is which (the top list names each command) and, with vmmap=, where each one's footprint is.
 grep -E '^ +[0-9.]+ MB  RSS|^VMMAP ' "$work/app.log" | sed 's/^ */PERF-IDLE-PROC app /' || true
+grep '^PERF-IDLE-LEFTOVER ' "$work/app.log" | sed 's/^PERF-IDLE-LEFTOVER /PERF-IDLE-LEFTOVER app /' || true
 grep '^PERF-ATTR ' "$work/app.log" | sed 's/^PERF-ATTR /PERF-ATTR app /' || true
 python3 - "$work/app.json" <<'PY' || status=$?
 import json, sys
@@ -158,10 +177,10 @@ PY
 fi
 if [[ -n "$soak" ]]; then
   echo "PERF-IDLE-LOAD soak $(uptime | sed 's/.*load averages*: //')"
-  python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$soak_agents" --mix terminal+chat \
+  logged "$work/soak.log" python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$soak_agents" --mix terminal+chat \
     --fake-agent cmux-tui/crates/acpmux/tests/fake_agent.py --settle 20 --measure 30 --top 8 --js-heap \
     --idle-minutes "$soak" --sample-minutes "$soak_every" --soak-vm \
-    --out "$work/soak.json" > "$work/soak.log" 2>&1 || { status=$?; tail -n 60 "$work/soak.log"; }
+    --out "$work/soak.json" || { status=$?; tail -n 60 "$work/soak.log"; }
   grep -E '^SOAK-VM |^== soak|^   [a-z-]+ +[-+0-9.]+ MB|JS heap' "$work/soak.log" || true
   python3 - "$work/soak.json" <<'PY' || status=$?
 import json, sys
@@ -190,9 +209,11 @@ if [[ -n "$axes" ]]; then
       chat-*) axis_args+=(--fake-agent cmux-tui/crates/acpmux/tests/fake_agent.py) ;;
     esac
     python3 scripts/cmux-next/bench_memory.py --app "$app" "${axis_args[@]}" --gpu \
-      --settle 20 --measure "$measure" --top 8 \
+      --settle 20 --measure "$measure" --top 8 ${settings[@]+"${settings[@]}"} \
       --out "$work/axis-$axis.json" > "$work/axis-$axis.log" 2>&1 || { status=$?; tail -n 60 "$work/axis-$axis.log"; }
     [ -f "$work/axis-$axis.json" ] && axis_reports+=("$work/axis-$axis.json")
+    # What an earlier run left of this bundle (ended before the launch, so not counted as this app's).
+    grep '^PERF-IDLE-LEFTOVER ' "$work/axis-$axis.log" | sed "s/^PERF-IDLE-LEFTOVER /PERF-IDLE-LEFTOVER axis-$axis /" || true
     case "$axis" in
       page-*) [ -f "$work/axis-$axis.json" ] && { python3 scripts/cmux-next/idle_axes_report.py --pages "$work/axis-$axis.json" | sed 's/^/PERF-IDLE-PAGES /' || status=$?; } ;;
     esac
@@ -205,10 +226,10 @@ if [[ -n "$axes" ]]; then
 fi
 if [[ -n "$agents" ]]; then
   echo "PERF-IDLE-LOAD agents $(uptime | sed 's/.*load averages*: //')"
-  env ${crash_env[@]+"${crash_env[@]}"} python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$agents" --mix terminal+chat \
+  logged "$work/agents.log" env ${crash_env[@]+"${crash_env[@]}"} python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$agents" --mix terminal+chat \
     --fake-agent cmux-tui/crates/acpmux/tests/fake_agent.py \
     --settle 20 --measure "$measure" --top 8 --gpu ${purge[@]+"${purge[@]}"} ${release[@]+"${release[@]}"} \
-    ${attribute[@]+"${attribute[@]}"} --out "$work/agents.json" > "$work/agents.log" 2>&1 || { status=$?; tail -n 60 "$work/agents.log"; }
+    ${attribute[@]+"${attribute[@]}"} ${settings[@]+"${settings[@]}"} --out "$work/agents.json" || { status=$?; tail -n 60 "$work/agents.log"; }
   grep '^PERF-ATTR ' "$work/agents.log" | sed 's/^PERF-ATTR /PERF-ATTR app-agents /' || true
   python3 - "$work/agents.json" <<'PY' || status=$?
 import json, sys

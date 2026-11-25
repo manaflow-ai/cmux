@@ -117,6 +117,31 @@ pub(super) fn retire_sign_in_pending_at(
     sync_ancestors(home)
 }
 
+/// Sets aside a sign-in's join proposal made for an account other than `account`, which now
+/// signs in (an account switch whose sign-out acpmux never got): a new join must not reuse that
+/// proposal and keep its owner. Its credential is queued to be revoked, as a sign-out's would.
+/// The caller holds the join lock.
+pub(super) fn retire_other_account_pending_at(
+    home: &Path,
+    current: Option<&str>,
+    account: &str,
+) -> Result<()> {
+    let Ok(p) = crate::config::private_state_file(&home.join(FILE))
+        .and_then(|f| Ok(serde_json::from_reader::<_, Pending>(f)?))
+    else {
+        return Ok(());
+    };
+    let Some(owner) =
+        p.owner.filter(|_| p.joined_by.as_deref() == Some(super::enroll::JOINED_BY_SIGN_IN))
+    else {
+        return Ok(());
+    };
+    if super::enroll::owner_of(Some(&owner), Some(account)) != super::enroll::Owner::Theirs {
+        return Ok(());
+    }
+    retire_sign_in_pending_at(home, current, &[owner])
+}
+
 pub(super) fn pending_origin() -> Result<Option<String>> {
     Ok(read()?.map(|pending| pending.hub))
 }
@@ -509,6 +534,8 @@ pub(super) async fn join(
     token: Option<String>,
     began: Option<Began<'_>>,
 ) -> Result<()> {
+    // Every join (a pasted line, a sign-in's) checks its home before it can redeem.
+    crate::cli::join_input::refuse_symlinked_home()?;
     if set_aside_copied_pending(host_fingerprint::current().as_deref())? && report != Report::Quiet
     {
         eprintln!(

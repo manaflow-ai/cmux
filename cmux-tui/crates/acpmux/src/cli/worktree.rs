@@ -137,6 +137,7 @@ fn sweep(scope: &Scope, apply: bool, store: &Store, json_out: bool) -> Result<()
             &crate::worktree_sessions::state_configs(&home),
         )),
         open: std::sync::Arc::new(cmux_worktree_care::procs::open_inside),
+        guarded: std::sync::Arc::new(crate::protected_folders::in_protected_location),
         settings: Settings::default(),
         apply,
         pressure: scope.pressure.map(|p| match p {

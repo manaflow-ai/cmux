@@ -6,16 +6,15 @@ import CmuxNextDesign
 /// primary Chief. The switch is on and fixed for the primary one (another Chief is made primary
 /// instead); on another Chief, a click makes it primary through ``HomeChiefSettingsView/onMakePrimary``.
 extension HomeChiefSettingsView {
-    func addPrimaryRow() {
+    func addPrimaryRow(to group: HomeChiefFormGroup) {
         primaryBox.target = self
         primaryBox.action = #selector(primaryClicked)
         primaryBox.controlSize = .small
         primaryBox.setAccessibilityIdentifier("cmux.home.chief.primary")
         primaryBox.setAccessibilityLabel(HomeEngineStrings.primaryRow)
-        primaryNote.preferredMaxLayoutWidth = Self.width - 2 * Self.inset
-        addFullWidth(primaryRowView)
-        addFullWidth(primaryNote)
-        stack.setCustomSpacing(Metrics.space4, after: primaryNote)
+        // Its row only: what Primary means is the switch's tooltip, not a paragraph under it.
+        primaryBox.toolTip = HomeEngineStrings.primaryNote
+        group.add(primaryRowView)
         setPrimary(nil)
     }
 
@@ -43,7 +42,6 @@ extension HomeChiefSettingsView {
         let hidden = isPrimary == nil
         let changed = primaryRowView.isHidden != hidden || (primaryBox.state == .on) != (isPrimary == true)
         primaryRowView.isHidden = hidden
-        primaryNote.isHidden = hidden
         primaryBox.state = isPrimary == true ? .on : .off
         primaryBox.isEnabled = isPrimary == false
         if changed { onResize() }

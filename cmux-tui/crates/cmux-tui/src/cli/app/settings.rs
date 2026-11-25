@@ -206,10 +206,27 @@ pub(super) fn validate(path: &std::path::Path, named: bool) -> Result<Value, Val
     };
     let state = local_state(FileRead::Text(text));
     let snapshot = state.snapshot();
+    // Keys the file names the old way still apply through their new names
+    // (schemas/settings/retired-keys.json); they are a warning, and the
+    // file is left as it is.
+    let notices = cmux_config::migrations::migrate(&snapshot.file).1;
+    let deprecated: Vec<Value> = notices
+        .iter()
+        .map(|notice| {
+            let mut entry = serde_json::to_value(notice).unwrap_or(Value::Null);
+            entry.set("message", json!(notice.message()));
+            entry
+        })
+        .collect();
     if snapshot.diagnostics.is_empty() {
-        return Ok(json!({ "file": file, "exists": true, "valid": true, "diagnostics": [] }));
+        let mut answer = json!({ "file": file, "exists": true, "valid": true, "diagnostics": [] });
+        if !deprecated.is_empty() {
+            answer.set("deprecated", Value::Array(deprecated));
+        }
+        return Ok(answer);
     }
-    let mut lines = Vec::new();
+    let mut lines: Vec<String> =
+        notices.iter().map(|notice| format!("deprecated: {}", notice.message())).collect();
     let mut diagnostics = Vec::new();
     for diagnostic in &snapshot.diagnostics {
         let accepted = expected(&snapshot.file, &diagnostic.path);
@@ -225,7 +242,7 @@ pub(super) fn validate(path: &std::path::Path, named: bool) -> Result<Value, Val
     Err(json!({
         "code": "settings.invalid",
         "message": format!("cmux: {file}\n  {}", lines.join("\n  ")),
-        "details": { "file": file, "diagnostics": diagnostics },
+        "details": { "file": file, "diagnostics": diagnostics, "deprecated": deprecated },
         "retryable": false,
     }))
 }
@@ -256,7 +273,13 @@ fn describe(accepted: &Accepted) -> Option<String> {
             format!("one of {}, or {shape}", choices.join(", "))
         }
         Accepted::Shape(shape) => (*shape).to_owned(),
+        Accepted::Document { schema, reason } => format!("a {schema} document ({reason})"),
         Accepted::Domain { name, .. } => format!("a {name} name"),
+        // A nested value: where it went wrong; `cmux settings schema` has the whole shape.
+        Accepted::Json { .. } => match accepted.first_problem() {
+            Some(problem) => format!("a value of its shape (cmux settings schema); {problem}"),
+            None => "a value of its shape (cmux settings schema)".to_owned(),
+        },
     })
 }
 

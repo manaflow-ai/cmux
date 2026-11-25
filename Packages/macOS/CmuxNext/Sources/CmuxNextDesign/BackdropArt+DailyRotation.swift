@@ -29,7 +29,7 @@ extension BackdropArt {
         .monetWomanParasol, .veldeCannonShot, .crossPinkCloud, .laurenceMckinley, .vanGoghIrises, .kramskoiChristInTheDesert,
         .turnerTemeraire, .leonardoVitruvianMan, .bruegelHuntersSnow, .coleVoyageYouth, .friedrichMonkByTheSea,
         .vanGoghWheatFieldCypresses, .monetCliffPourville, .vanGoghAlmondBlossom, .vanGoghFishingBoats, .hokusaiUmezawa,
-        .whistlerFallingRocket, .doreFallOfSatan, .doreWolvesSheep, .doreLeviathan, .doreParadiseLostBookVi,
+        .whistlerFallingRocket, .aeroSky, .aeroLagoon, .aeroAurora, .aeroMeadow, .aeroOrchid, .doreFallOfSatan, .doreWolvesSheep, .doreLeviathan, .doreParadiseLostBookVi,
         .doreMosesTables, .doreEmpyrean, .doreRaven
     ]
 }

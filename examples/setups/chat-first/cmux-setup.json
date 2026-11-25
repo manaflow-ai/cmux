@@ -1,0 +1,16 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/chat-first-setup",
+  "name": "Chat-first",
+  "tagline": "The agent chat is the main pane, as messages",
+  "description": "The agent chat is the main pane and reads like a messenger: messages, not a transcript. Touches only where the agent lives.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/examples/setups/chat-first",
+  "cmuxProfile": 1,
+  "settings": {
+    "layout.mainPane": "agent-chats",
+    "agentPane.display.presentation": "messages",
+    "agentPane.display.transcriptView": "normal"
+  }
+}
