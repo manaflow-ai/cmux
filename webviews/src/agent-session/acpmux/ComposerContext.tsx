@@ -827,6 +827,7 @@ export function ComposerContext({
     onNoProject &&
     (() => {
       folderPicks.current += 1;
+      setPickedHere(undefined);
       setBrowseError(undefined);
       if (waiting) clearWaiting();
       onNoProject();

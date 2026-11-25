@@ -4050,7 +4050,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The spare's own handshake named the spare's start folder: the adopting tab's folder replaces it
   // (the host names a folder below home, AgentPaneStartFolders), so Cmd-T on a spare names the tab's
   // project on its first frame instead of "Choose folder".
+  /// The project the person picked in this pane's project picker, until they send in it: that send
+  /// makes it the New Tab default (newtab/startedProject.ts). A folder the host or an agent named
+  /// is no pick. With Cloud picked it is the one folder of this Mac a Cloud start copies
+  /// (`cloudSourcePick`), so every adoption (a New Tab, a session) drops it: a reused page's pick is no pick of
+  /// the tab it now shows (cmux#53226).
+  const pickedProject = useRef<string | undefined>(undefined);
   const adoptNewTab = useCallback((host: NewTabHost) => {
+    pickedProject.current = undefined;
     // The adopted tab's start is measured from its own first frame (perf.ts noteStartState).
     acpmuxPerf.resetStartState();
     newTabStartGeneration.current += 1;
@@ -4095,6 +4102,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const markContextKnown = useCallback(() => setContextKnown(true), []);
   // A context that came by `newTab.context` (not injected) carries the start too: drawn with it.
   const takeEarlyNewTab = useCallback((host: NewTabHost) => {
+    pickedProject.current = undefined;
     setNewTab(host);
     const start = startFromContext(host.start);
     if (!start || handshakenRef.current) return;
@@ -6792,6 +6800,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       setNewSession(false);
       setPastTurns(undefined);
       setProjectDraft(undefined);
+      pickedProject.current = undefined;
       void runAdoption(adoption);
     },
     [runAdoption],
@@ -7281,10 +7290,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The tab's own folder (a New Tab's, `~` in a fresh workspace): a terminal's folder, never a new
   /// chat's by itself (newChatFolder). Synced after render, not written during it (React Doctor).
   const inheritedFolderRef = useSyncedRef(newTab?.cwd);
-  /// The project the person picked in this pane's project picker, until they send in it: that send
-  /// makes it the New Tab default (newtab/startedProject.ts). A folder the host or an agent named
-  /// is no pick.
-  const pickedProject = useRef<string | undefined>(undefined);
   /// Settles once the host answered the pick; `refused` hears a path the host says is no folder, and `accepted`
   /// the folder once it is this pane's pick (a confirmation shown, or a reply a newer pick replaced, is neither).
   const chooseProject = useCallback(
