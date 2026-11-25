@@ -196,15 +196,18 @@ import Testing
         defer { withExtendedLifetime(hub) {} }
 
         store.send(prompt: "run the tests")
-        // The first write times out, the held prompt is flushed again 500 ms later and times out again.
+        // The first write times out; the outbox retries after its backoff (on the prompts' clock,
+        // so the test moves it) and the second times out again.
+        await eventually { source.heldPrompts.count == 1 }
+        clock.advance(by: .seconds(2))
         await eventually { channel.promptWrites >= 2 && source.heldPrompts.count == 1 }
         #expect(channel.promptWrites >= 2)
         #expect(store.clientError == nil)
         #expect(store.returnedDraft == nil)
         #expect(mac.prompts.isEmpty)
 
-        // A whole window passes between two attempts (the prompt is held, not being written):
-        // the next attempt finds it past the window and the draft comes back.
+        // A whole window passes between two attempts (the prompt is held, not being written;
+        // the outbox gives back only what is queued, never one mid-write): the draft comes back.
         await eventually { source.heldPrompts.count == 1 }
         clock.advance(by: .seconds(11))
         await eventually { store.returnedDraft != nil }
@@ -225,14 +228,15 @@ import Testing
         store.send(prompt: "run the tests")
         await eventually { channel.promptWrites >= 1 && source.heldPrompts.count == 1 }
         #expect(store.returnedDraft == nil)
-        // One second at a time, with a failed attempt in each: never a whole window between two
-        // attempts, so only a wait that is not restarted by each failure can run out.
-        for _ in 0..<12 where store.returnedDraft == nil {
+        // A few seconds at a time (past each retry's backoff, which is on the prompts' clock),
+        // with a failed attempt in each: never a whole window between two attempts, so only a
+        // wait that is not restarted by each failure can run out (the Rust outbox ages it from
+        // the first failure and moves it on by what each write took: nothing here).
+        for _ in 0..<6 where store.returnedDraft == nil {
             let before = channel.promptWrites
-            clock.advance(by: .seconds(1))
-            // Held again before the clock moves: an advance that lands between the write's
-            // failure and the hold reads as time the write took, which the wait is moved on by,
-            // and on a loaded runner that happened every second, so the window never ran out.
+            clock.advance(by: .seconds(4))
+            // The prompt is queued (not mid-write) whenever the test moves the clock, so the
+            // advance is never counted as time a write took.
             await eventually {
                 (channel.promptWrites > before && source.heldPrompts.count == 1) || store.returnedDraft != nil
             }

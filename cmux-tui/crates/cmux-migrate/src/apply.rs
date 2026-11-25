@@ -12,7 +12,7 @@
 //! daemon link, and an agent's login is passed at each chat start, so login files stay put.
 
 use crate::ledger::{Ledger, Stage};
-use crate::plan::{Plan, Step};
+use crate::plan::{Plan, Source, SourceKind, Step};
 
 /// The machine user's home, where `~/` paths land.
 pub const MACHINE_HOME: &str = "/home/cmux";
@@ -54,6 +54,11 @@ pub trait Cloud {
     /// Runs `command` on the machine; an exit other than 0 is an `Err` with its output.
     fn exec(&mut self, machine_id: &str, command: &str) -> Result<String, String>;
     fn delete_machine(&mut self, machine_id: &str) -> Result<(), String>;
+    /// Whether this route can write files and run commands on a machine it made. The headless
+    /// journey cannot: its carry steps are skipped, said once each, never failed.
+    fn carries_files(&self) -> bool {
+        true
+    }
 }
 
 /// Local work a clone would miss, as text.
@@ -63,6 +68,116 @@ pub struct WorkPatch {
     pub commits: String,
     /// `git diff --binary` of the working tree, untracked files included; empty when clean.
     pub work: String,
+    /// The commit both patches sit on: the merge base of HEAD and its upstream (else the remote's
+    /// default branch). The machine checks it out before applying, since its clone lands on the
+    /// remote's default branch. `None` when the checkout has no remote to share a commit with.
+    pub base: Option<String>,
+    /// The source's branch, made on the machine at `base`; `None` when HEAD is detached.
+    pub branch: Option<String>,
+}
+
+/// Where a project's local work is read from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PatchRoute {
+    /// The checkout is a folder of this computer.
+    Local,
+    /// The checkout is on the source: [`WORK_PATCH_SCRIPT`] runs there as `program args` with the
+    /// script on stdin (`ssh HOST sh -s`, `gh codespace ssh -c NAME -- sh -s`).
+    Remote { program: String, args: Vec<String> },
+    /// No route reads it yet: the step is skipped with this note.
+    Unsupported(String),
+}
+
+/// How `project`'s checkout in a plan from `source` is read.
+pub fn patch_route(source: &Source, project: &str) -> PatchRoute {
+    match source.kind {
+        SourceKind::Laptop
+        | SourceKind::Devcontainer
+        | SourceKind::Compose
+        | SourceKind::Nix
+        | SourceKind::Gitpod
+        | SourceKind::Ci
+        | SourceKind::AgentClient => PatchRoute::Local,
+        SourceKind::SshHost => {
+            let host = source.id.strip_prefix("ssh:").unwrap_or(&source.label);
+            PatchRoute::Remote {
+                program: "ssh".into(),
+                args: ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", host, "sh", "-s"]
+                    .map(str::to_owned)
+                    .to_vec(),
+            }
+        }
+        SourceKind::Codespaces => PatchRoute::Remote {
+            program: "gh".into(),
+            args: ["codespace", "ssh", "-c", project, "--", "sh", "-s"].map(str::to_owned).to_vec(),
+        },
+        SourceKind::Coder | SourceKind::Daytona | SourceKind::OtherCloud | SourceKind::Team => {
+            PatchRoute::Unsupported(format!(
+                "local work on {} is not read from here yet: push it (or `cmux migrate plan ssh:HOST` \
+             the workspace) and the clone has it",
+                source.label
+            ))
+        }
+    }
+}
+
+/// Run on the source with `cd CHECKOUT` before it ([`remote_patch_script`]): prints the branch,
+/// the base commit, the unpushed commits and the working tree (untracked files included, through
+/// a throwaway index so the real one is never touched), each after a marker line.
+pub const WORK_PATCH_SCRIPT: &str = r#"up=$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null) || up=
+[ -n "$up" ] || up=$(git rev-parse --abbrev-ref origin/HEAD 2>/dev/null) || up=
+branch=$(git symbolic-ref --short -q HEAD) || branch=
+base=
+[ -n "$up" ] && { base=$(git merge-base "$up" HEAD 2>/dev/null) || base=; }
+echo "@@cmux-migrate:branch@@ $branch"
+echo "@@cmux-migrate:base@@ $base"
+echo "@@cmux-migrate:commits@@"
+[ -n "$base" ] && git format-patch --stdout --binary "$base..HEAD"
+echo "@@cmux-migrate:work@@"
+tmp=$(mktemp) || exit 4
+trap 'rm -f "$tmp"' EXIT
+cp "$(git rev-parse --git-path index)" "$tmp" 2>/dev/null
+GIT_INDEX_FILE=$tmp git add -A . >/dev/null 2>&1
+GIT_INDEX_FILE=$tmp git -c core.quotepath=off diff --cached --binary HEAD
+"#;
+
+/// The script a [`PatchRoute::Remote`] sends: into `checkout`, then [`WORK_PATCH_SCRIPT`].
+pub fn remote_patch_script(checkout: &str) -> String {
+    let dir = match checkout.strip_prefix("~/") {
+        Some(rest) => format!("\"$HOME\"/{}", shq(rest)),
+        None => shq(checkout),
+    };
+    format!("cd {dir} || exit 3\n{WORK_PATCH_SCRIPT}")
+}
+
+/// [`WORK_PATCH_SCRIPT`]'s output as a patch.
+pub fn parse_remote_patch(out: &str) -> Result<WorkPatch, String> {
+    let mut patch = WorkPatch::default();
+    let mut section = None;
+    let mut seen_work = false;
+    for line in out.split_inclusive('\n') {
+        let bare = line.trim_end_matches('\n');
+        if let Some(rest) = bare.strip_prefix("@@cmux-migrate:branch@@") {
+            patch.branch = Some(rest.trim().to_owned()).filter(|b| !b.is_empty());
+        } else if let Some(rest) = bare.strip_prefix("@@cmux-migrate:base@@") {
+            patch.base = Some(rest.trim().to_owned()).filter(|b| !b.is_empty());
+        } else if bare == "@@cmux-migrate:commits@@" && section.is_none() {
+            section = Some(false);
+        } else if bare == "@@cmux-migrate:work@@" && section == Some(false) {
+            section = Some(true);
+            seen_work = true;
+        } else {
+            match section {
+                Some(false) => patch.commits.push_str(line),
+                Some(true) => patch.work.push_str(line),
+                None => {}
+            }
+        }
+    }
+    if !seen_work {
+        return Err("the source's checkout could not be read (is it a git checkout?)".into());
+    }
+    Ok(patch)
 }
 
 /// This computer's side. Paths are as the plan writes them (`~/…` or absolute).
@@ -71,7 +186,14 @@ pub trait Local {
     fn read_text(&self, path: &str, max: u64) -> Option<String>;
     /// The files under `path` (itself when a file), as plan paths, with their sizes.
     fn files(&self, path: &str) -> Vec<(String, u64)>;
-    fn work_patch(&self, checkout: &str) -> Result<WorkPatch, String>;
+    /// The local work in `checkout` of `project`, read from the source by [`patch_route`] (this
+    /// computer for a laptop or a folder; over the source's shell for an SSH host or a codespace).
+    fn work_patch(
+        &self,
+        source: &Source,
+        project: &str,
+        checkout: &str,
+    ) -> Result<WorkPatch, String>;
     /// Milliseconds since the epoch.
     fn now_ms(&self) -> i64;
 }
@@ -184,10 +306,25 @@ pub fn apply(
     local: &dyn Local,
     report: &mut dyn FnMut(&Event),
 ) -> Outcome {
+    apply_saving(plan, only, ledger, cloud, local, report, &mut |_| {})
+}
+
+/// [`apply`], handing `checkpoint` the ledger after every step, so a caller can save it then: a
+/// crash or Ctrl-C after a machine is made keeps its id for the rerun and for undo.
+pub fn apply_saving(
+    plan: &Plan,
+    only: &[String],
+    ledger: &mut Ledger,
+    cloud: &mut dyn Cloud,
+    local: &dyn Local,
+    report: &mut dyn FnMut(&Event),
+    checkpoint: &mut dyn FnMut(&Ledger),
+) -> Outcome {
     let source = plan.source.id.clone();
     let mut outcome = Outcome::default();
     let mut checkouts: std::collections::BTreeMap<String, String> = Default::default();
-    let mut emit = |event: Event, outcome: &mut Outcome| {
+    let mut emit = |event: Event, outcome: &mut Outcome, ledger: &Ledger| {
+        checkpoint(ledger);
         match &event {
             Event::Done { .. } => outcome.done = outcome.done.saturating_add(1),
             Event::Skipped { .. } => outcome.skipped = outcome.skipped.saturating_add(1),
@@ -208,7 +345,31 @@ pub fn apply(
         if project != MACHINE_WIDE && !wanted(&project) {
             continue;
         }
-        if ledger.is_done(&source, &project, &name) {
+        let carries = matches!(
+            step,
+            Step::CarryWorktree { .. } | Step::MoveChats { .. } | Step::CarryFiles { .. }
+        );
+        if carries && !cloud.carries_files() {
+            emit(
+                Event::Skipped {
+                    step: name,
+                    project,
+                    why: "this route only makes machines: run it without --headless to carry this"
+                        .into(),
+                },
+                &mut outcome,
+                ledger,
+            );
+            continue;
+        }
+        if let Step::CarryWorktree { project: key, .. } = &step
+            && !ledger.is_done(&source, &project, &name)
+            && let PatchRoute::Unsupported(why) = patch_route(&plan.source, key)
+        {
+            emit(Event::Skipped { step: name, project, why }, &mut outcome, ledger);
+            continue;
+        }
+        if project != MACHINE_WIDE && ledger.is_done(&source, &project, &name) {
             if let (Step::CreateMachine { repo, name: machine, .. }, Some(entry)) =
                 (&step, ledger.entry(&source, &project))
                 && entry.machine_id.is_some()
@@ -219,6 +380,7 @@ pub fn apply(
             emit(
                 Event::Skipped { step: name, project, why: "done in an earlier run".into() },
                 &mut outcome,
+                ledger,
             );
             continue;
         }
@@ -231,6 +393,7 @@ pub fn apply(
             emit(
                 Event::Skipped { step: name, project, why: "its machine was not made".into() },
                 &mut outcome,
+                ledger,
             );
             continue;
         }
@@ -269,7 +432,11 @@ pub fn apply(
             Step::CarryWorktree { path, .. } => {
                 let id = machine_id.clone().unwrap_or_default();
                 let checkout = checkouts.get(&project).cloned().unwrap_or_default();
-                carry_worktree(cloud, local, &id, path, &checkout)
+                let patch = local.work_patch(&plan.source, &project, path);
+                patch.and_then(|patch| {
+                    let entry = ledger.entry_mut(&source, &project);
+                    carry_worktree(cloud, &mut entry.done, &id, &patch, &checkout)
+                })
             }
             Step::DeliverSecrets { names, .. } => {
                 let id = machine_id.clone().unwrap_or_default();
@@ -291,18 +458,45 @@ pub fn apply(
                 move_chats(cloud, local, &id, chats, &checkout)
             }
             Step::CarryFiles { paths } => {
-                let machines: Vec<String> = ledger
+                // Recorded per machine (on its project's entry), so a machine a later run makes
+                // gets them too, and one that has them is not written again.
+                let prefix = format!("{source}/");
+                let up: Vec<(String, String, bool)> = ledger
                     .projects
                     .iter()
                     .filter(|(key, entry)| {
-                        key.starts_with(&format!("{source}/")) && entry.stage == Stage::Done
+                        key.starts_with(&prefix)
+                            && !key.ends_with(&format!("/{MACHINE_WIDE}"))
+                            && entry.stage == Stage::Done
                     })
-                    .filter_map(|(_, entry)| entry.machine_id.clone())
+                    .filter_map(|(key, entry)| {
+                        let has = entry.done.iter().any(|d| d == &name);
+                        Some((key.get(prefix.len()..)?.to_owned(), entry.machine_id.clone()?, has))
+                    })
                     .collect();
-                if machines.is_empty() {
+                let (machines, keys): (Vec<String>, Vec<String>) =
+                    up.iter().filter(|u| !u.2).map(|u| (u.1.clone(), u.0.clone())).unzip();
+                if up.is_empty() {
                     Err("no machine of this move is up to carry them to".to_owned())
+                } else if machines.is_empty() {
+                    emit(
+                        Event::Skipped {
+                            step: name,
+                            project,
+                            why: "every machine has them from an earlier run".into(),
+                        },
+                        &mut outcome,
+                        ledger,
+                    );
+                    continue;
                 } else {
-                    carry_files(cloud, local, &machines, paths)
+                    let result = carry_files(cloud, local, &machines, paths);
+                    if result.is_ok() {
+                        for key in &keys {
+                            ledger.entry_mut(&source, key).done.push(name.clone());
+                        }
+                    }
+                    result
                 }
             }
             Step::CarrySecretFiles { paths } => {
@@ -316,63 +510,96 @@ pub fn apply(
                         ),
                     },
                     &mut outcome,
+                    ledger,
                 );
                 continue;
             }
         };
         match result {
             Ok(detail) => {
-                ledger.entry_mut(&source, &project).done.push(name.clone());
-                emit(Event::Done { step: name, project, detail }, &mut outcome);
+                // Machine-wide carry is recorded per machine (above), never as an entry of its
+                // own: a `_machine-wide` entry would count as a project in `Ledger::stats`.
+                if project != MACHINE_WIDE {
+                    let entry = ledger.entry_mut(&source, &project);
+                    let prefix = format!("{name}:");
+                    entry.done.retain(|d| !d.starts_with(&prefix));
+                    entry.done.push(name.clone());
+                }
+                emit(Event::Done { step: name, project, detail }, &mut outcome, ledger);
             }
             Err(error) => {
-                if !matches!(step, Step::CreateMachine { .. }) {
+                if !matches!(step, Step::CreateMachine { .. }) && project != MACHINE_WIDE {
                     ledger.entry_mut(&source, &project).error = Some(error.clone());
                 }
-                emit(Event::Failed { step: name, project, error }, &mut outcome);
+                emit(Event::Failed { step: name, project, error }, &mut outcome, ledger);
             }
         }
     }
     outcome
 }
 
+/// Carries `patch` into `checkout` in three sub-steps, each recorded in `done` as
+/// `carry-worktree:NAME` once it worked, so a rerun after a failure goes on from the one that
+/// failed and never applies a patch twice: `base` (check out the commit the patches sit on, on the
+/// source's branch name), `commits` (`git am`, after aborting any half-done one), `work`
+/// (`git apply`, which applies all or nothing).
 fn carry_worktree(
     cloud: &mut dyn Cloud,
-    local: &dyn Local,
+    done: &mut Vec<String>,
     machine: &str,
-    path: &str,
+    patch: &WorkPatch,
     checkout: &str,
 ) -> Result<String, String> {
-    let patch = local.work_patch(path)?;
     if patch.commits.is_empty() && patch.work.is_empty() {
         return Ok("nothing the clone lacks".into());
     }
+    let sub = |part: &str| format!("carry-worktree:{part}");
+    let has = |done: &[String], part: &str| done.iter().any(|d| *d == sub(part));
     let dir = format!("{MACHINE_HOME}/.cmux/migrate");
+    let cd = format!("cd {}", shq(checkout));
     let mut said = Vec::new();
-    if !patch.commits.is_empty() {
-        let file = format!("{dir}/commits.patch");
-        cloud.write_file(machine, &file, &patch.commits)?;
+    if let Some(base) = &patch.base
+        && !has(done, "base")
+    {
+        let switch = match &patch.branch {
+            Some(branch) => format!("git checkout --quiet -B {} {}", shq(branch), shq(base)),
+            None => format!("git checkout --quiet --detach {}", shq(base)),
+        };
         cloud.exec(
             machine,
             &format!(
-                "cd {} && git -c user.name=cmux -c user.email=cmux@localhost am --3way --keep-cr {} >/dev/null",
-                shq(checkout),
-                shq(&file)
+                "{cd} && {{ git cat-file -e {c} 2>/dev/null || git fetch --quiet origin {b}; }} && {switch}",
+                c = shq(&format!("{base}^{{commit}}")),
+                b = shq(base),
             ),
         )?;
+        done.push(sub("base"));
+    }
+    if !patch.commits.is_empty() {
+        if !has(done, "commits") {
+            let file = format!("{dir}/commits.patch");
+            cloud.write_file(machine, &file, &patch.commits)?;
+            cloud.exec(
+                machine,
+                &format!(
+                    "{cd} && {{ git am --abort >/dev/null 2>&1; git -c user.name=cmux -c user.email=cmux@localhost am --3way --keep-cr {} >/dev/null; }}",
+                    shq(&file)
+                ),
+            )?;
+            done.push(sub("commits"));
+        }
         said.push(format!("{} commit(s)", patch.commits.matches("\nSubject: ").count().max(1)));
     }
     if !patch.work.is_empty() {
-        let file = format!("{dir}/work.patch");
-        cloud.write_file(machine, &file, &patch.work)?;
-        cloud.exec(
-            machine,
-            &format!(
-                "cd {} && git apply --binary --whitespace=nowarn {}",
-                shq(checkout),
-                shq(&file)
-            ),
-        )?;
+        if !has(done, "work") {
+            let file = format!("{dir}/work.patch");
+            cloud.write_file(machine, &file, &patch.work)?;
+            cloud.exec(
+                machine,
+                &format!("{cd} && git apply --binary --whitespace=nowarn {}", shq(&file)),
+            )?;
+            done.push(sub("work"));
+        }
         said.push(format!(
             "{} changed file(s)",
             patch
@@ -382,7 +609,8 @@ fn carry_worktree(
                 .saturating_add(usize::from(patch.work.starts_with("diff --git ")))
         ));
     }
-    Ok(format!("{} in {checkout}", said.join(" and ")))
+    let on = patch.branch.as_deref().map(|b| format!(" on {b}")).unwrap_or_default();
+    Ok(format!("{} in {checkout}{on}", said.join(" and ")))
 }
 
 fn move_chats(
@@ -394,12 +622,14 @@ fn move_chats(
 ) -> Result<String, String> {
     let (mut moved, mut left) = (0usize, Vec::new());
     for chat in chats {
-        match local.read_text(chat, MAX_CHAT_BYTES) {
-            Some(text) => {
-                cloud.write_file(machine, &chat_destination(chat, checkout), &text)?;
-                moved = moved.saturating_add(1);
+        for file in chat_files(local, chat) {
+            match local.read_text(&file, MAX_CHAT_BYTES) {
+                Some(text) => {
+                    cloud.write_file(machine, &chat_destination(&file, checkout), &text)?;
+                    moved = moved.saturating_add(1);
+                }
+                None => left.push(file),
             }
-            None => left.push(chat.clone()),
         }
     }
     if moved == 0 && !left.is_empty() {
@@ -407,9 +637,28 @@ fn move_chats(
     }
     let mut detail = format!("{moved} chat histories, resumable in {checkout}");
     if !left.is_empty() {
-        detail.push_str(&format!("; left (unreadable or over 16 MiB): {}", left.len()));
+        detail.push_str(&format!(
+            "; left (unreadable, no JSONL transcript, or over 16 MiB): {}",
+            left.len()
+        ));
     }
     Ok(detail)
+}
+
+/// A chat reference as the files that move: itself when a file; a folder (Claude Code's project
+/// folder, Cursor's workspace storage) as the `.jsonl` transcripts under it, or itself (left, said
+/// so) when it holds none.
+pub fn chat_files(local: &dyn Local, chat: &str) -> Vec<String> {
+    let files = local.files(chat);
+    if let [(only, _)] = files.as_slice()
+        && only == chat
+    {
+        return vec![chat.to_owned()];
+    }
+    let mut transcripts: Vec<String> =
+        files.into_iter().map(|(f, _)| f).filter(|f| f.ends_with(".jsonl")).collect();
+    transcripts.sort();
+    if transcripts.is_empty() { vec![chat.to_owned()] } else { transcripts }
 }
 
 fn carry_files(
