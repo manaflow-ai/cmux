@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 64273ea2052a4bb812246feadd18ffe06fd3087a25510903ee26fa9bb1c3a6c4. */
+/* cmux-tui mux protocol 12, IR b78fea3142c415dfd279b2371c233d5c3927cf9113fe109686884610a4fed8f2. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "64273ea2052a4bb812246feadd18ffe06fd3087a25510903ee26fa9bb1c3a6c4" as const;
+export const SDK_IR_SHA256 = "b78fea3142c415dfd279b2371c233d5c3927cf9113fe109686884610a4fed8f2" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1089,7 +1089,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "Trusted local connections only; the caller's principal must be an agent participant (not_agent) and the run its own (not_run_author). run is {id, turn?, answers?, thread_root?, status?, title?, started_at?, usage?, cost_usd?, model?, harness?, error?, session?, workspace?}; steps (at most 64, 1 MiB) are replaced by id; a run keeps at most 2000 steps (run_full). Refusals are run_rejected or conversation_rejected. See spec/commands.md."
+      "Trusted local connections only; the caller's principal must be an agent participant (not_agent) and the run its own (not_run_author). run is {id, turn?, answers?, thread_root?, status?, title?, started_at?, usage?, cost_usd?, model?, harness?, error?, session?, workspace?}; steps (at most 64, 1 MiB) are replaced by id; a run keeps every step (no count cap). Refusals are run_rejected or conversation_rejected. See spec/commands.md."
     ]
   },
   "conversation-runs": {
@@ -20580,6 +20580,14 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "ref",
             "name": "JsonValue"
+          }
+        },
+        "op_id": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         }
       },
