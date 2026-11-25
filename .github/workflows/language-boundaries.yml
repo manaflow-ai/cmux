@@ -37,8 +37,12 @@ jobs:
     # skipped run hides no failure. cmux-bot's harness:, area: and kind: labels (about 870 an hour on 2026-11-21)
     # each started it and spent a GITHUB_TOKEN listing (tests/test_ci_language_boundaries_spends_no_rest.py). This
     # also keeps a fix-cause:* label on a closed pull request from starting it
-    # (tests/test_ci_fix_cause_labels_start_no_jobs.py).
-    if: ${{ !((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'leo-approved-port' && github.event.label.name != 'react-port-ok') }}
+    # (tests/test_ci_fix_cause_labels_start_no_jobs.py). An `edited` event starts it only when the base branch
+    # changed: the check never reads the title or body, so a title or description edit (agents and bots rewrite PR
+    # bodies all day) changes nothing it judges. Those edits were about 3.4k of its ~8.2k Blacksmith jobs a day on
+    # 2026-11-24/25 (hq build-fleet SUMMARY.md W48 vs `warn`, which has no `edited` trigger); pr-router.yml has the
+    # same gate (tests/test_ci_language_boundaries_spends_no_rest.py).
+    if: ${{ !((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'leo-approved-port' && github.event.label.name != 'react-port-ok') && (github.event.action != 'edited' || github.event.changes.base) }}
     # The job holds the group, so a skipped label run never cancels a real check in flight.
     concurrency:
       group: language-boundaries-${{ github.event.pull_request.number }}
