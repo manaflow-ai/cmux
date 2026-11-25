@@ -4,7 +4,7 @@
     "column.update": {
       "source": "local",
       "class": "mutation",
-      "digest": "1f50d6e6d0eca14b"
+      "digest": "ce09db53be5d2e31"
     }
   }
 }

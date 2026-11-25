@@ -346,6 +346,43 @@ async fn wireguard_with_udp_blocked_rides_turn_over_tls() {
     assert_eq!(run.binary, 0);
 }
 
+/// The same UDP-blocked link through a real eturnal (not `TestTurn`), the relay we deploy
+/// (`backend/deploy/turn`, RFD 0088). `deploy/turn/test-udp-blocked.sh` starts it with only a TLS
+/// listener and passes `CMUX_ETURNAL_URLS`, `_USER`, `_CREDENTIAL` (the HMAC REST credential `/v1/ice`
+/// mints) and `_CA_DER` (its test certificate); run it with `--ignored`. The phone blocks UDP, so the only
+/// way to a link is TURN over TLS: the test asserts both sides report `turn-tls`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "needs a running eturnal: deploy/turn/test-udp-blocked.sh"]
+async fn wireguard_with_udp_blocked_rides_a_real_eturnal_over_tls() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_test_writer()
+        .try_init();
+    let var = |name: &str| {
+        std::env::var(name).unwrap_or_else(|_| panic!("{name} not set: run deploy/turn/test-udp-blocked.sh"))
+    };
+    let mut roots = rustls::RootCertStore::empty();
+    roots
+        .add(rustls::pki_types::CertificateDer::from(std::fs::read(var("CMUX_ETURNAL_CA_DER")).unwrap()))
+        .unwrap();
+    let ice = cmux_mobile_link::api::IceServer {
+        urls: var("CMUX_ETURNAL_URLS").split(',').map(str::to_owned).collect(),
+        username: Some(var("CMUX_ETURNAL_USER")),
+        credential: Some(var("CMUX_ETURNAL_CREDENTIAL")),
+    };
+    let phone = DialOptions {
+        block_udp: true,
+        ice_servers: vec![ice],
+        turn_tls_roots: Some(std::sync::Arc::new(roots)),
+        ..options()
+    };
+    let run = exercise_turn(phone, options()).await;
+    assert_eq!(run.phone, LinkPath::TurnTls, "{run:?}");
+    assert_eq!(run.mac, Some(LinkPath::TurnTls), "{run:?}");
+    assert!(run.changes.is_empty(), "path flapped: {run:?}");
+    println!("udp-blocked path: {}", run.phone.as_str());
+}
+
 /// The fallback order: TURN over UDP is tried first; when it gets no
 /// allocation (UDP to the TURN server is dropped), TLS takes over.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -524,6 +561,33 @@ async fn wireguard_mac_takes_the_turn_allocation_it_missed_while_answering() {
     // still arrives here, so the Mac's own label follows that, not TURN.)
     assert_eq!(run.phone, LinkPath::Turn, "{run:?}");
     assert!(run.mac.is_some(), "{run:?}");
+}
+
+/// The phone's STUN server never answers and its TURN server is slow, yet
+/// its WireGuard initiation leaves at once with its host endpoints: the
+/// gather trickles in beside the handshake instead of in front of it, and the
+/// link comes up over the LAN before the gather ends.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_dial_sends_its_initiation_before_the_gather() {
+    let turn = TestTurn::start().await;
+    turn.set_udp_blocked(true);
+    let silent_stun =
+        cmux_mobile_link::api::IceServer { urls: vec!["stun:127.0.0.1:9".into()], ..turn.udp_only() };
+    let timeline = cmux_mobile_link::Timeline::new();
+    let phone = DialOptions {
+        ice_servers: vec![turn.udp_only(), silent_stun],
+        timeline: timeline.clone(),
+        ..options()
+    };
+    let run = exercise_turn(phone, options()).await;
+    assert_eq!(run.phone, LinkPath::Direct, "{run:?}");
+    let init = timeline.get("wg_init_sent").expect("wg_init_sent");
+    let ready = timeline.get("link_ready").expect("link_ready");
+    assert!(init < Duration::from_millis(250), "initiation waited: {}", timeline.summary());
+    if let Some(gathered) = timeline.get("endpoints_gathered") {
+        assert!(init < gathered, "initiation after the gather: {}", timeline.summary());
+        assert!(ready < gathered, "link waited for the gather: {}", timeline.summary());
+    }
 }
 
 /// While set, the Mac's plain UDP to anything but TURN relayed addresses is
