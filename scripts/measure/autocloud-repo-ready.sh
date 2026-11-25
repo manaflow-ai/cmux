@@ -15,6 +15,9 @@ export GIT_TERMINAL_PROMPT=0 GIT_LFS_SKIP_SMUDGE=1 LC_ALL=C
 W="$(mktemp -d "${TMPDIR:-/tmp}/autocloud-ready.XXXXXX")"; W="$(cd "$W" && pwd -P)"
 trap 'rm -rf "$W"' EXIT
 now() { date +%s.%N; }
+# Pack bytes under a folder: what git received from the remote (packs are kept as sent).
+packs() { find "$@" -name '*.pack' -type f -printf '%s\n' 2>/dev/null | awk '{s+=$1} END{print s+0}'; }
+mb() { awk "BEGIN{printf \"%.1f\", $1/1048576}"; }
 since() { awk "BEGIN{printf \"%.2f\", $(now)-$1}"; }
 
 before() { mkdir -p "$1"; "${G[@]}" -C "$1" clone -q --branch "$B" -- "$R" .; }
@@ -47,8 +50,8 @@ after() { # DEST MIRROR_ROOT
 check() { [ -z "$(git -C "$1" status --porcelain)" ] && git -C "$1" rev-parse -q --verify '@{upstream}' >/dev/null && echo ok || echo BAD; }
 
 echo "Duress: load $(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || sysctl -n vm.loadavg) cores $(nproc 2>/dev/null || sysctl -n hw.ncpu) $(git --version) remote $R branch $B"
-echo "| row | run | repo-ready s | clean+upstream |"; echo "|---|---|---|---|"
-for i in $(seq "$N"); do t=$(now); before "$W/b$i"; echo "| before | $i | $(since "$t") | $(check "$W/b$i") |"; rm -rf "$W/b$i"; done
-for i in $(seq "$N"); do t=$(now); after "$W/c$i" "$W/m$i"; echo "| after-cold | $i | $(since "$t") | $(check "$W/c$i") |"; rm -rf "$W/c$i"; [ "$i" = 1 ] || rm -rf "$W/m$i"; done
-for i in $(seq "$N"); do t=$(now); after "$W/w$i" "$W/m1"; echo "| after-warm | $i | $(since "$t") | $(check "$W/w$i") |"; rm -rf "$W/w$i"; done
+echo "| row | run | repo-ready s | from GitHub MB | clean+upstream |"; echo "|---|---|---|---|---|"
+for i in $(seq "$N"); do t=$(now); before "$W/b$i"; s=$(since "$t"); echo "| before | $i | $s | $(mb "$(packs "$W/b$i")") | $(check "$W/b$i") |"; rm -rf "$W/b$i"; done
+for i in $(seq "$N"); do t=$(now); after "$W/c$i" "$W/m$i"; s=$(since "$t"); echo "| after-cold | $i | $s | $(mb "$(packs "$W/m$i" "$W/c$i")") | $(check "$W/c$i") |"; rm -rf "$W/c$i"; [ "$i" = 1 ] || rm -rf "$W/m$i"; done
+for i in $(seq "$N"); do p0=$(packs "$W/m1"); t=$(now); after "$W/w$i" "$W/m1"; s=$(since "$t"); echo "| after-warm | $i | $s | $(mb $(( $(packs "$W/m1" "$W/w$i") - p0 ))) | $(check "$W/w$i") |"; rm -rf "$W/w$i"; done
 echo "Duress end: load $(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || sysctl -n vm.loadavg); mirror $(du -sh "$W/m1" | cut -f1)"
