@@ -57,6 +57,23 @@ pub static ACTIONS: &[Action] = &[
         main_menu: Some("view"),
         ..Action::DEFAULT
     },
+    // Cmd-R in a chat reloads it under a picture of itself, its draft kept (Leo, 2026-11-22: "apparently i cant cmd r to
+    // refresh an agent page"); without it Cmd-R fell to Rename Tab. A more specific binding than renameTab, as in a page.
+    Action {
+        id: "agentPaneReload",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agentPaneReload", "Agent Chat: Reload"),
+        keywords: &["agent", "chat", "reload", "refresh"],
+        default_shortcut: Some(Shortcut { key: "r", modifiers: CMD }),
+        category: "agents",
+        symbol: "arrow.clockwise",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        requires: &["agentPaneFocused"],
+        targets: &["pane"],
+        cli_name: "agent reload",
+        ..Action::DEFAULT
+    },
     Action {
         id: "agentChat.toggleNotificationMute",
         group: GROUP,
