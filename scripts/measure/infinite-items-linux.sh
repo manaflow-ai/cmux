@@ -9,6 +9,9 @@
 #   infinite-items-linux.sh before=ref:REF repeat=3 ...: also builds REF (a commit or branch, e.g. the merge base) in a
 #     worktree of its own and runs it and this head in turn, REPEAT times each (BEFORE rI and AFTER rI lines): a
 #     change's before and after from one harness on one runner in one job.
+#   With before=ref:REF, dhat=1 counts=1000 days=6 --park-idle --terminal-host-model=holder --window=5 profiles
+#   cmux-tui on each arm. Marks after open, day 1 and the final day put the retained growth in heap.3.
+#   FAST_CHECKS_OUT holds each arm's raw heap windows, measurements and allocation-site report.
 #   infinite-items-linux.sh before=hosts ...: first runs the same build with CMUX_TUI_TERMINAL_HOST_MODEL=hosts (a
 #     cmux-tui-host per terminal), then the product default (also hosts while the holder is off by default).
 #   infinite-items-linux.sh ... --terminal-host-model=holder: measures the one holder (the harness ignores the caller's env).
@@ -33,6 +36,7 @@ repeat=1
 live=0
 live_counts=""
 freed=0
+dhat=0
 extra=()
 for arg in "$@"; do
   case "$arg" in
@@ -46,11 +50,21 @@ for arg in "$@"; do
     live=*) live="${arg#live=}" ;;
     live_counts=*) live_counts="${arg#live_counts=}" ;;
     freed=*) freed="${arg#freed=}" ;;
+    dhat=*) dhat="${arg#dhat=}" ;;
     page_counts=*) page_counts="${arg#page_counts=}" ;;
     --*) extra+=("$arg") ;;
     *) echo "infinite-items-linux.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
+profile_flags=()
+if [[ "$dhat" == 1 ]]; then
+  if [[ "$before" != ref:* || "$musl" != 0 || ! "$counts" =~ ^[1-9][0-9]*$ || ! "$days" =~ ^[1-9][0-9]*$ || "$days" == 1 ]]; then
+    echo "dhat=1 needs before=ref:REF, a single count and at least two days on the host build" >&2
+    exit 2
+  fi
+  profile_flags=(--features cmux-tui/dhat-heap)
+  export CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_STRIP=none
+fi
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 # before=ref: swaps the base's cmux-tui/ into this checkout and its cleanup puts HEAD's back, not what was there:
@@ -91,7 +105,7 @@ if [[ "$musl" == 1 ]]; then
     -p acpmux --bin acpmux -p cmux-tui --bin cmux-tui --bin cmux-tui-host 2>&1 | tail -n 3
   bin="$target/$musl_target/release"
 else
-  cargo build --locked --release -p acpmux --bin acpmux -p cmux-tui --bin cmux-tui --bin cmux-tui-host 2>&1 | tail -n 3
+  cargo build --locked --release "${profile_flags[@]}" -p acpmux --bin acpmux -p cmux-tui --bin cmux-tui --bin cmux-tui-host 2>&1 | tail -n 3
   bin="$target/release"
 fi
 echo "INFINITE-BUILD flavor=$([[ "$musl" == 1 ]] && echo musl || echo glibc) bin=$bin"
@@ -161,7 +175,7 @@ elif [[ "$before" == ref:* ]]; then
   trap 'git restore --source=HEAD --staged --worktree -- cmux-tui; rm -rf "$ab"; [ -n "${FAST_CHECKS_OUT:-}" ] || rm -rf "$out"' EXIT
   git restore --source="$base_sha" --staged --worktree -- cmux-tui
   base_status=0
-  (cd "$root/cmux-tui" && cargo build --locked --release -p acpmux --bin acpmux -p cmux-tui --bin cmux-tui \
+  (cd "$root/cmux-tui" && cargo build --locked --release "${profile_flags[@]}" -p acpmux --bin acpmux -p cmux-tui --bin cmux-tui \
     --bin cmux-tui-host 2>&1 | tail -n 3; exit "${PIPESTATUS[0]}") || base_status=$?
   git restore --source=HEAD --staged --worktree -- cmux-tui
   if [ "$base_status" != 0 ]; then
@@ -173,8 +187,18 @@ elif [[ "$before" == ref:* ]]; then
   for i in $(seq 1 "$repeat"); do
     for arm in before after; do
       tag="$(echo "$arm" | tr a-z A-Z) r$i"
-      python3 scripts/measure/infinite-items.py --acpmux "$ab/$arm/acpmux" --tui "$ab/$arm/cmux-tui" \
+      arm_command=(python3 scripts/measure/infinite-items.py)
+      if [[ "$dhat" == 1 ]]; then
+        profile_dir="$out/$arm-r$i"
+        mkdir "$profile_dir"
+        arm_command=(env CMUX_TUI_DHAT_OUT="$profile_dir/heap.json" CMUX_TUI_DHAT_MARKS=1
+          python3 scripts/measure/infinite-items.py --dhat-mark-days "0,1,$days" --out "$profile_dir/measure.json")
+      fi
+      "${arm_command[@]}" --acpmux "$ab/$arm/acpmux" --tui "$ab/$arm/cmux-tui" \
         --counts "$counts" --days "$days" ${extra[@]+"${extra[@]}"} 2>&1 | sed -u "s/^/$tag /" || status=$?
+      if [[ "$dhat" == 1 ]]; then
+        python3 scripts/measure/dhat-top.py "$profile_dir/heap.3" 40 | tee "$profile_dir/sites.txt"
+      fi
     done
   done
   rm -rf "$ab"
