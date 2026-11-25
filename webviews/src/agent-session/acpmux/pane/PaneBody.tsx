@@ -340,6 +340,7 @@ export type PaneBodyDeps = NewTabShown &
     parkedVisible: boolean;
     chatName: string;
     renameFromTitle: (() => void) | undefined;
+    titleTrail: readonly string[] | undefined;
     /// What the header names (subagentPanes.ts `paneHeading`): a subagent's own pane heads with the
     /// subagent, never its chat's title and summary.
     heading: { title: string; renamable: boolean };
@@ -619,6 +620,7 @@ export function drawPaneBody({
   parkedVisible,
   chatName,
   renameFromTitle,
+  titleTrail,
   heading,
   tabRowTools,
   liveTreeEnabled,
@@ -1283,6 +1285,7 @@ export function drawPaneBody({
                           key={snapshot.sessionId}
                           title={heading.title}
                           onRename={heading.renamable ? renameFromTitle : undefined}
+                          trail={heading.renamable ? titleTrail : undefined}
                           icon={heading.renamable ? snapshot.summary?.icon : undefined}
                           formerNames={heading.renamable ? snapshot.summary?.formerNames : undefined}
                         />

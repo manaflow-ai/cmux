@@ -754,6 +754,9 @@ export type AcpmuxRow = {
   /// behind, by id and version, while that text still moves.
   doingAt?: number;
   doingShell?: boolean;
+  /// The acpmux tool kind of the call the live line names (`execute`, `read`, ...): a look's thinking
+  /// glyph plays the document's trigger for it (conversation/thinkingGlyphModel.ts `glyphTrigger`).
+  doingKind?: string;
   /// The Codex-style live line names a command still running in an earlier run, which that run
   /// draws no row for (conversation/turns.ts `lineCall`, `codexRuns`): its call id. While the reader
   /// is scrolled up, the call stays out of its run when the line lets go of it
@@ -1292,6 +1295,8 @@ export type AcpmuxTimeBreakdown = {
 
 export type AcpmuxSnapshot = {
   type: "snapshot";
+  /// The one-shot admission warning returned by `session/new`, while its chat is starting.
+  startupAdmission?: { sessionId: string; scalingUp: true };
   /** The selected chat's daemon-owned retry, including the last automatic attempt. */
   autoResume?: AutoResumeStatus;
   /** The chat acpmux holds for capacity (hub/capacity_wait.rs): one calm state, never red. */

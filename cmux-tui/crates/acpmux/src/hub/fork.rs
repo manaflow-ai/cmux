@@ -341,9 +341,11 @@ impl Hub {
                 .await
                 .unwrap_or_default()
         };
+        // A `requestId`'s reserved id (`fork_request.rs`), so a retry finds this fork.
         let id = before
             .as_ref()
             .map(|(id, _)| id.clone())
+            .or_else(super::fork_request::reserved_id)
             .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         let (turn_cut, codex_fork, opencode_fork) = {
             let cfg = self.config.read().await;
@@ -815,6 +817,7 @@ impl Hub {
             }),
             history_kept_through: None,
             fork_requests: Default::default(),
+            fork_start: None,
             fork_parent_verified: Some(true),
             agent_info: parent_meta.agent_info.clone(),
             agent_capabilities: parent_meta.agent_capabilities.clone(),
@@ -1029,6 +1032,9 @@ impl Hub {
             }
             Made::Copy(_) | Made::Agent(..) | Made::Empty => {}
         }
+        // Kept in its meta until its agent took it, and the fork marked unmade until its history
+        // is in: a restart before either starts it the same or closes it (`fork_start.rs`).
+        new.keep_fork_start(false);
         if let Err(e) = self.write_meta(&new) {
             // Never published: no session owns the conversation this fork copied or its agent
             // made, so remove it rather than leave a discoverable orphan (an inline /btw's fork
@@ -1272,6 +1278,7 @@ impl Hub {
         if super::fork_cancel::cancelled() {
             return Err(super::fork_cancel::cancelled_refusal());
         }
+        new.fork_made();
         self.save_meta(&new);
         creation_guard.disarm();
         if let Some(checked) = checked {

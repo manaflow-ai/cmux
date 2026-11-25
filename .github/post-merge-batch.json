@@ -134,6 +134,31 @@
         "web-db-migrations": "web-db-migrations"
       }
     },
+    "fast-tier": {
+      "workflow": "cmux-next-fast-tier-batch.yml",
+      "paths": [
+        "cmux-tui/**",
+        "ghostty-next",
+        "Packages/**",
+        "vendor/**",
+        "Resources/**",
+        "scripts/cmux-next/**",
+        "scripts/perf-bench/**",
+        "scripts/install-zig-ci.sh",
+        "scripts/ci/init-submodule.sh",
+        "scripts/ci/package-test-lane.sh",
+        "scripts/ci/affected_jobs.py",
+        "scripts/ci/affected-jobs.json",
+        "scripts/ci/cmux_next_route.py",
+        "scripts/ci/fast_tier_cargo_route.py",
+        ".github/actions/setup-cmux-tui-rust/**",
+        ".github/workflows/cmux-next-fast-tier-batch.yml"
+      ],
+      "jobs": {
+        "cargo": "fast tier (cargo and script entries)",
+        "swift": "fast tier (Swift entries, build fleet)"
+      }
+    },
     "tip-test-compile": {
       "workflow": "cmux-next-tip-test-compile.yml",
       "paths": [
