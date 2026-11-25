@@ -28,6 +28,12 @@ open class CmuxFloatingDialogPanel: NSPanel {
     /// Whether the card goes away when the person works elsewhere (it stops being key): a card the person
     /// opened, as a popover does. A prompt waits for its answer.
     public var hidesWhenInactive = false
+    /// Whether the person drags the card by its glass, title and words, as a window by its background (a card they
+    /// opened: Add Machine; Leo: "it pops up looking like a window and you can't drag it around like one"). Once
+    /// dragged, the card stays where they put it, its top left held as it grows, until it closes.
+    public var isMovableByPerson = false
+    /// The person dragged the card since it showed: ``place(_:)`` keeps its top left where it is.
+    private var placedByPerson = false
     /// Called when the card goes away (answered, Escape, or the person worked elsewhere).
     public var onHide: (@MainActor () -> Void)?
     /// SECURITY: answers the card's ``CmuxDialogButton/personOnly`` buttons (Confirm on a pairing card): only the
@@ -137,14 +143,25 @@ open class CmuxFloatingDialogPanel: NSPanel {
     public func hide() {
         let wasShown = hosted != nil
         orderOut(nil)
+        placedByPerson = false
+        wasKeyWhileActive = false
         hosted?.removeFromSuperview()
         hosted = nil
         if wasShown { onHide?() }
     }
 
+    /// The card was key while the app was active since it showed: only then does losing key mean the person worked
+    /// elsewhere. A card shown while cmux is in the background (from the CLI) waits for the person to see it.
+    private var wasKeyWhileActive = false
+
+    open override func becomeKey() {
+        super.becomeKey()
+        if NSApp.isActive { wasKeyWhileActive = true }
+    }
+
     open override func resignKey() {
         super.resignKey()
-        if hidesWhenInactive, hosted != nil { hide() }
+        if hidesWhenInactive, hosted != nil, wasKeyWhileActive { hide() }
     }
 
     /// The window is this much larger than the card on every side, so the card's shadow is not clipped.
@@ -160,7 +177,12 @@ open class CmuxFloatingDialogPanel: NSPanel {
         let window = anchor?()
         let area = (window?.screen ?? NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? NSRect(origin: .zero, size: size)
         var card: NSRect
-        if let window {
+        if placedByPerson {
+            let shown = frame.insetBy(dx: room, dy: room)
+            card = NSRect(x: shown.minX, y: shown.maxY - size.height, width: size.width, height: size.height)
+            card.origin.x = min(max(card.minX, area.minX), area.maxX - size.width)
+            card.origin.y = max(card.minY, area.minY)
+        } else if let window {
             card = NSRect(x: window.frame.midX - size.width / 2, y: min(window.frame.maxY, area.maxY) - Self.anchorTopInset - size.height,
                           width: size.width, height: size.height)
             card.origin.x = min(max(card.minX, area.minX + Self.screenMargin), area.maxX - Self.screenMargin - size.width)
@@ -199,6 +221,10 @@ open class CmuxFloatingDialogPanel: NSPanel {
         // Escape always takes the card away: its Cancel answers it, and a card with none (a failed run's Copy Details
         // and Try Again) closes as a popover does.
         if event.type == .keyDown, event.keyCode == 53, let card = dialogView, card.spec.cancelButton == nil { return hide() }
+        if isMovableByPerson, event.type == .leftMouseDown, startsDrag(at: event.locationInWindow) {
+            placedByPerson = true
+            return performDrag(with: event)
+        }
         guard let personOnlyClick else { return super.sendEvent(event) }
         let allows: @MainActor () -> [NSControl] = { [weak self] in
             guard let card = self?.dialogView else { return [] }
@@ -206,6 +232,26 @@ open class CmuxFloatingDialogPanel: NSPanel {
         }
         let control = personOnlyClick.dispatch(event, allows: allows, in: windowNumber) { super.sendEvent(event) }
         if let id = (control as? CmuxDialogButtonView)?.button.id { onPersonPress?(id) }
+    }
+}
+
+extension CmuxFloatingDialogPanel {
+    /// Whether a press at `point` drags the card: on its glass, a label or an image, never on a control the person
+    /// works (a field, a choice, a button, a scroller) nor in the shadow band around it.
+    func startsDrag(at point: NSPoint) -> Bool {
+        guard let card = dialogView, let root = contentView,
+              var view = (root.superview ?? root).hitTest(point), view.isDescendant(of: card) else { return false }
+        while view !== card {
+            switch view {
+            case let field as NSTextField where field.isEditable: return false
+            case is NSTextField, is NSImageView: break
+            case is NSControl, is NSText, is NSScroller: return false
+            default: break
+            }
+            guard let parent = view.superview else { return false }
+            view = parent
+        }
+        return true
     }
 }
 
