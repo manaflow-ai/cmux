@@ -244,6 +244,11 @@ run_arm() { # run_arm NAME HOSTNAME IP MODE(open|drop) MOVE(0|1)
   [[ $mode == drop ]] && want=relay
   # settle: wait (bounded) until the client's path to the peer is the one this arm measures
   local path=none
+  # tailscale only looks for a direct path when traffic or a ping asks; an idle peer stays on relay forever.
+  # A direct arm must ask first, or it measures the relay and calls it direct.
+  if [[ $want == direct ]]; then
+    d exec "$CLIENT" tailscale ping --until-direct --timeout 30s "$ip" >/dev/null 2>&1 || true
+  fi
   for _ in $(seq 1 120); do
     path=$(path_of "$host")
     [[ $path == "$want" ]] && break
