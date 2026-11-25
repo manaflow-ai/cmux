@@ -1019,6 +1019,8 @@ test("the `/` menu opens mid-prompt with the skills and writes the pick in place
       { name: "model", description: "", source: "cmux" },
       { name: "compact", description: "", source: "agent" },
       { name: "review-pr", description: "", source: "skill" },
+      // Computer use and browser use are listed only after `@`, never in the `/` menu.
+      ...toolSlashCommands((key) => key),
     ],
   });
   await act(async () => {
@@ -1030,6 +1032,8 @@ test("the `/` menu opens mid-prompt with the skills and writes the pick in place
     );
   await typePrompt("/");
   expect(names()).toEqual(["/model", "/compact", "/review-pr"]);
+  await typePrompt("/comp");
+  expect(names()).toEqual(["/compact"]);
   await typePrompt("src/app");
   expect(names()).toEqual([]);
   const field = await typePrompt("fix it /");

@@ -145,7 +145,7 @@ import { StashedChip } from "../composer/StashedChip";
 import { isStashKey, useDraftStash } from "../composer/useDraftStash";
 import { ComposerListAnchor, ComposerListLayer } from "../backdropLayer";
 import { mentionQuery } from "../mentionMenuModel";
-import { toolMentionsIn } from "../toolMentions";
+import { toolMentionsIn, isToolCommand } from "../toolMentions";
 import {
   applyCommand,
   insertsText,
@@ -1167,11 +1167,17 @@ export function NewTabScreen(props: Props) {
   // Shell mode's text is a command line, where a `/` starts a path.
   const commandAt = shell ? undefined : commandTrigger;
   const commandQuery = commandAt?.query;
+  // The `/` menu's commands: the agent's, cmux's and the extensions'. Computer use and browser use
+  // (toolMentions.ts) are plugins, listed only after `@` (Lucas 2026-11-24).
+  const slashCommands = useMemo(
+    () => (snapshot.commands ?? []).filter((command) => !isToolCommand(command)),
+    [snapshot.commands],
+  );
   // The person's saved prompts (savedPrompts.ts) first, as in the chat composer; read again as the list opens.
   const savedPrompts = useSavedPrompts();
   const menuCommands = useMemo(
-    () => [...savedPromptCommands(savedPrompts), ...(snapshot.commands ?? [])],
-    [savedPrompts, snapshot.commands],
+    () => [...savedPromptCommands(savedPrompts), ...slashCommands],
+    [savedPrompts, slashCommands],
   );
   const commandOpening = commandAt !== undefined;
   useEffect(() => {
@@ -1211,7 +1217,7 @@ export function NewTabScreen(props: Props) {
   // A `/word` further on that names no command is the person's text (a path): the rows stay.
   const commandTyping = (commandAt !== undefined && (commandAt.leading || commandMatches.length > 0)) || atOpen;
   const commandIndex = Math.min(commandActive, Math.max(0, menuMatches.length - 1));
-  const commandNames = useSlashNames(shell ? undefined : snapshot.commands);
+  const commandNames = useSlashNames(shell ? undefined : slashCommands);
   /// The Codex skills picked into this draft, by shown name.
   const pickedSkills = useRef(new Set<string>());
   const onCommands = props.onCommands;

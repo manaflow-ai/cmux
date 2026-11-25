@@ -99,6 +99,12 @@ export function toolSlashCommands(t: Translate): SlashCommand[] {
   }));
 }
 
+/// True: `command` is one of `toolSlashCommands`' rows. The New Tab lists the tools only after `@`,
+/// never in its `/` menu (Lucas 2026-11-24: "those should only show when the user types @").
+export function isToolCommand(command: SlashCommand): boolean {
+  return TOOL_MENTIONS.some((tool) => command.name === tool.id && command.insert === `@${tool.id} `);
+}
+
 /// The tools `text` names as `@computer-use` / `@browser-use` (or `$computer-use`) outside code (a
 /// fenced block or an inline span is literal text, never a mention), in menu order.
 export function toolMentionsIn(text: string): readonly ToolMentionId[] {
