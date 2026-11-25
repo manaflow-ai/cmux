@@ -85,6 +85,7 @@ final class TabZoomFrameTimeUITests: XCTestCase {
             let grid = (work?["grid"] as? NSNumber)?.intValue ?? -1
             let cards = (work?["cards"] as? NSNumber)?.intValue ?? -1
             let workLine = "TABZOOM_WORK zoom=\(i) direction=\(toGrid ? "to_grid" : "to_page") frames=\(frames) screen=\(screen) grid=\(grid) cards=\(cards)"
+                + " gate_compared=\(work?["gateCompared"] ?? "-") gate_equal=\(work?["gateEqual"] ?? "-") gate_pass=\(work?["gatePass"] ?? "-")"
             print(workLine)
             // Host-independent budget: the grid and its cards are built once
             // for a zoom (as it starts), never again per frame, whatever the

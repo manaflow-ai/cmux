@@ -1081,6 +1081,9 @@ struct DormantGate<Content: View>: View, Equatable {
     }
 
     @ViewBuilder var body: some View {
+        #if DEBUG
+        let _ = size != nil && key != nil ? ZoomWorkProbe.note(.gatePass) : ()
+        #endif
         if let size {
             content.frame(width: size.width, height: size.height, alignment: .topLeading)
         } else {
@@ -1091,7 +1094,16 @@ struct DormantGate<Content: View>: View, Equatable {
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         if lhs.dormant || rhs.dormant { return lhs.dormant && rhs.dormant }
         guard let key = lhs.key else { return false }
-        return key == rhs.key && lhs.size == rhs.size
+        let equal = key == rhs.key && lhs.size == rhs.size
+        #if DEBUG
+        if lhs.size != nil {
+            MainActor.assumeIsolated {
+                ZoomWorkProbe.note(.gateCompared)
+                if equal { ZoomWorkProbe.note(.gateEqual) }
+            }
+        }
+        #endif
+        return equal
     }
 }
 

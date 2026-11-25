@@ -74,9 +74,15 @@ struct ZoomWork: Equatable, Sendable {
         var grid = 0
         /// Grid card bodies, all cards together.
         var cards = 0
+        /// The grid's gate (`DormantGate`) awake: comparisons, how many found
+        /// the grid's inputs unchanged, and its body runs (updates it passed on).
+        /// Grid runs beyond `gatePass` come from the grid's own dependencies.
+        var gateCompared = 0
+        var gateEqual = 0
+        var gatePass = 0
     }
 
-    enum Kind: Sendable { case screen, grid, card }
+    enum Kind: Sendable { case screen, grid, card, gateCompared, gateEqual, gatePass }
 
     private(set) var counts = Counts()
 
@@ -85,6 +91,9 @@ struct ZoomWork: Equatable, Sendable {
         case .screen: counts.screen += 1
         case .grid: counts.grid += 1
         case .card: counts.cards += 1
+        case .gateCompared: counts.gateCompared += 1
+        case .gateEqual: counts.gateEqual += 1
+        case .gatePass: counts.gatePass += 1
         }
     }
 
