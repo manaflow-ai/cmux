@@ -283,7 +283,7 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         }
         guard let (generation, entries, pendingTrust) = snapshot else { return true }
         guard durable else {
-            writer.save(to: url, then: { [written] in written.withLock { $0 = max($0, generation) } }) { [self] in
+            writer.save(to: url, then: { [self] in self.written.withLock { $0 = max($0, generation) } }) { [self] in
                 guard let data = encodeIfNewest(entries, pendingTrust: pendingTrust, generation: generation) else {
                     throw Superseded()
                 }
