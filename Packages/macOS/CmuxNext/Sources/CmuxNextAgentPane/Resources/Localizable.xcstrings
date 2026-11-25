@@ -23145,133 +23145,657 @@
     }
   },
     "agentPane.error.folderMissing": {
-      "comment": "Agent pane: a folder picked for a chat no longer exists (a reboot wiped it, it was removed). %@ is its path.",
+     "comment": "Agent pane: a folder picked for a chat no longer exists (a reboot wiped it, it was removed). %@ is its path.",
+     "extractionState": "manual",
+     "localizations": {
+      "ar": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "لم يعد المجلد %@ موجودًا. اختر مجلدًا آخر."
+       }
+      },
+      "bs": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Folder %@ više ne postoji. Odaberi drugi folder."
+       }
+      },
+      "da": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Mappen %@ findes ikke længere. Vælg en anden mappe."
+       }
+      },
+      "de": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Der Ordner %@ existiert nicht mehr. Wähle einen anderen Ordner."
+       }
+      },
+      "en": {
+       "stringUnit": {
+        "state": "translated",
+        "value": "The folder %@ no longer exists. Pick another folder."
+       }
+      },
+      "es": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "La carpeta %@ ya no existe. Elige otra carpeta."
+       }
+      },
+      "fr": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Le dossier %@ n’existe plus. Choisissez un autre dossier."
+       }
+      },
+      "it": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "La cartella %@ non esiste più. Scegli un’altra cartella."
+       }
+      },
+      "ja": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "フォルダー %@ はもう存在しません。別のフォルダーを選んでください。"
+       }
+      },
+      "km": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "ថត %@ លែងមានទៀតហើយ។ សូមជ្រើសថតផ្សេង។"
+       }
+      },
+      "ko": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "%@ 폴더가 더 이상 존재하지 않습니다. 다른 폴더를 선택하세요."
+       }
+      },
+      "nb": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Mappen %@ finnes ikke lenger. Velg en annen mappe."
+       }
+      },
+      "pl": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Folder %@ już nie istnieje. Wybierz inny folder."
+       }
+      },
+      "pt-BR": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "A pasta %@ não existe mais. Escolha outra pasta."
+       }
+      },
+      "ru": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Папки %@ больше нет. Выберите другую папку."
+       }
+      },
+      "th": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "โฟลเดอร์ %@ ไม่มีอยู่แล้ว เลือกโฟลเดอร์อื่น"
+       }
+      },
+      "tr": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "%@ klasörü artık yok. Başka bir klasör seç."
+       }
+      },
+      "uk": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Папка %@ більше не існує. Виберіт іншу папку."
+       }
+      },
+      "vi": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "Thư mục %@ không còn tồn tại. Hãy chọn thư mục khác."
+       }
+      },
+      "zh-Hans": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "文件夹 %@ 已不存在。请选择其他文件夹。"
+       }
+      },
+      "zh-Hant": {
+       "stringUnit": {
+        "state": "needs_review",
+        "value": "資料夾 %@ 已不存在。請選擇其他資料夾。"
+       }
+      }
+     }
+    },
+    "agentPane.error.transport": {
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "رفض التطبيق الاتصال بالوكيل."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Aplikacija je odbila vezu s agentom."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Appen afviste forbindelsen til agenten."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Die App hat die Verbindung zum Agenten abgelehnt."
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "The app refused the agent connection."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "La app rechazó la conexión con el agente."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "L’app a refusé la connexion à l’agent."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "L’app ha rifiutato la connessione all’agente."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "アプリがエージェントへの接続を拒否しました。"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "កម្មវិធីបានបដិសេធការតភ្ជាប់ភ្នាក់ងារ។"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "앱이 에이전트 연결을 거부했습니다."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Appen avviste tilkoblingen til agenten."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Aplikacja odrzuciła połączenie z agentem."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "O app recusou a conexão com o agente."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Приложение отклонило подключение к агенту."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "แอปปฏิเสธการเชื่อมต่อกับเอเจนต์"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Uygulama aracı bağlantısını reddetti."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Застосунок відхилив підключення до агента."
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Ứng dụng đã từ chối kết nối với tác tử."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "应用拒绝了与代理的连接。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "App 拒絕了與代理的連線。"
+        }
+      }
+    }
+  },
+    "agentPane.confirmMode.title": {
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "هل تسمح للوكيل بالتصرف دون أن يسأل؟"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Dozvoliti agentu da radi bez pitanja?"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Lad agenten handle uden at spørge?"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Den Agenten ohne Nachfrage handeln lassen?"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Let the agent act without asking?"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "¿Dejar que el agente actúe sin preguntar?"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Laisser l’agent agir sans demander ?"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Lasciare che l’agente agisca senza chiedere?"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "エージェントに確認なしで実行させますか？"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "អនុញ្ញាតឱ្យភ្នាក់ងារធ្វើសកម្មភាពដោយមិនសួរ?"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "에이전트가 묻지 않고 작업하게 할까요?"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "La agenten handle uten å spørre?"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Pozwolić agentowi działać bez pytania?"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Deixar o agente agir sem perguntar?"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Разрешить агенту действовать без вопросов?"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ให้เอเจนต์ทำงานโดยไม่ถามก่อนหรือไม่"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Aracı sormadan işlem yapsın mı?"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Дозволити агенту діяти без запитань?"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cho tác tử hành động mà không hỏi?"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "要让代理不经询问就执行操作吗？"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "要讓代理不經詢問就執行操作嗎？"
+        }
+      }
+    }
+  },
+    "agentPane.confirmMode.switch": {
+    "extractionState": "manual",
+    "localizations": {
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "تبديل الوضع"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Promijeni način"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Skift tilstand"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Modus wechseln"
+        }
+      },
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Switch Mode"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cambiar modo"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Changer de mode"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cambia modalità"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "モードを切り替え"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ប្ដូររបៀប"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "모드 전환"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Bytt modus"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Zmień tryb"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Mudar modo"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Сменить режим"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "เปลี่ยนโหมด"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Modu Değiştir"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Змінити режим"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Chuyển chế độ"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "切换模式"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "切換模式"
+        }
+      }
+    }
+  },
+    "agentPane.confirmOption.message": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لم يعد المجلد %@ موجودًا. اختر مجلدًا آخر."
+            "value": "هل تريد تغيير %1$@ إلى %2$@؟ يمكن للأجهزة المقترنة عندها تنفيذ إجراءات دون أن تسأل."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Folder %@ više ne postoji. Odaberi drugi folder."
+            "value": "Promijeniti %1$@ u %2$@? Upareni uređaji bi tada mogli izvršavati radnje bez pitanja."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mappen %@ findes ikke længere. Vælg en anden mappe."
+            "value": "Skift %1$@ til %2$@? Parrede enheder kan så udføre handlinger uden at spørge."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Der Ordner %@ existiert nicht mehr. Wähle einen anderen Ordner."
+            "value": "%1$@ zu %2$@ ändern? Gekoppelte Geräte könnten dann Aktionen ohne Nachfrage ausführen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The folder %@ no longer exists. Pick another folder."
+            "value": "Change %1$@ to %2$@? Paired devices could then run actions without asking."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La carpeta %@ ya no existe. Elige otra carpeta."
+            "value": "¿Cambiar %1$@ a %2$@? Los dispositivos vinculados podrían ejecutar acciones sin preguntar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le dossier %@ n’existe plus. Choisissez un autre dossier."
+            "value": "Changer %1$@ en %2$@ ? Les appareils associés pourraient alors exécuter des actions sans demander."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La cartella %@ non esiste più. Scegli un’altra cartella."
+            "value": "Cambiare %1$@ in %2$@? I dispositivi associati potrebbero eseguire azioni senza chiedere."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "フォルダー %@ はもう存在しません。別のフォルダーを選んでください。"
+            "state": "translated",
+            "value": "%1$@ を %2$@ に変更しますか？ ペアリングされたデバイスが、確認なしで操作を実行できるようになります。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ថត %@ លែងមានទៀតហើយ។ សូមជ្រើសថតផ្សេង។"
+            "value": "ប្ដូរ %1$@ ទៅ %2$@? ឧបករណ៍ដែលបានផ្គូផ្គងអាចដំណើរការសកម្មភាពដោយមិនសួរ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ 폴더가 더 이상 존재하지 않습니다. 다른 폴더를 선택하세요."
+            "value": "%1$@을(를) %2$@(으)로 변경할까요? 그러면 페어링된 기기가 묻지 않고 작업을 실행할 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mappen %@ finnes ikke lenger. Velg en annen mappe."
+            "value": "Endre %1$@ til %2$@? Sammenkoblede enheter kan da utføre handlinger uten å spørre."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Folder %@ już nie istnieje. Wybierz inny folder."
+            "value": "Zmienić %1$@ na %2$@? Sparowane urządzenia mogłyby wtedy wykonywać działania bez pytania."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "A pasta %@ não existe mais. Escolha outra pasta."
+            "value": "Mudar %1$@ para %2$@? Dispositivos pareados poderiam então executar ações sem perguntar."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Папки %@ больше нет. Выберите другую папку."
+            "value": "Изменить %1$@ на %2$@? Тогда связанные устройства смогут выполнять действия без запроса."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "โฟลเดอร์ %@ ไม่มีอยู่แล้ว เลือกโฟลเดอร์อื่น"
+            "value": "เปลี่ยน %1$@ เป็น %2$@ หรือไม่ อุปกรณ์ที่จับคู่ไว้จะสามารถดำเนินการโดยไม่ถามได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ klasörü artık yok. Başka bir klasör seç."
+            "value": "%1$@ değeri %2$@ olarak değiştirilsin mi? Eşlenen cihazlar bu durumda sormadan işlem yapabilir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Папка %@ більше не існує. Виберіть іншу папку."
+            "value": "Змінити %1$@ на %2$@? Тоді спарені пристрої зможуть виконувати дії без запиту."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Thư mục %@ không còn tồn tại. Hãy chọn thư mục khác."
+            "value": "Đổi %1$@ thành %2$@? Khi đó thiết bị đã ghép nối có thể thực hiện thao tác mà không hỏi."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "文件夹 %@ 已不存在。请选择其他文件夹。"
+            "value": "要将 %1$@ 更改为 %2$@ 吗？配对的设备之后可能不经询问就执行操作。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "資料夾 %@ 已不存在。請選擇其他資料夾。"
+            "value": "要將 %1$@ 變更為 %2$@ 嗎？配對的裝置之後可能不經詢問就執行操作。"
           }
         }
       }
