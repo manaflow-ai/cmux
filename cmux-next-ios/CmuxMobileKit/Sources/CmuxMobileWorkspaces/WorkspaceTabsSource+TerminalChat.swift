@@ -298,6 +298,7 @@ struct TerminalChatPage<Terminal: View>: View {
                     CmuxSpinner(label: Text("Opening chat…"))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(Color.cmuxMobileBackground)
+                        .placeholderBound("tab.opening.chat", .milliseconds(2000))
                 }
             }
         }

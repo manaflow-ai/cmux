@@ -2522,6 +2522,7 @@ async fn move_over_relay(precopy: bool) -> MoveRun {
             max_policy: None,
             same_user: true,
             ops: vec!["move".into()],
+            max_policy: None,
         }],
         Some(ledger.path().join("mesh-controls.json")),
     )
