@@ -10307,6 +10307,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     ComposerChips,
     reconnectPeer,
     sessionInfo,
+    compactChat,
     draft,
     setDraftSettled,
     onNewChatDraft,
