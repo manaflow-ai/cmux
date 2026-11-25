@@ -79,9 +79,11 @@ jobs:
           python3 - "$RUNNER_TEMP/prompts.json" >> "$GITHUB_STEP_SUMMARY" <<'PY' || true
           import json, sys
           rows = json.load(open(sys.argv[1]))
-          print("| prompt | result | why |\n|---|---|---|")
+          print("| prompt | result | wall s | source reads | guesses | docs reads | why |\n|---|---|---|---|---|---|---|")
           for r in rows:
-              print(f"| {r['recipe']} | {'pass' if r['passed'] else 'FAIL'} | {(r.get('why') or '').replace('|', '/')} |")
+              print(f"| {r['recipe']} | {'pass' if r['passed'] else 'FAIL'} | {r.get('wallSeconds')} | {r.get('sourceReads')}"
+                    f" | {r.get('guesses')} | {r.get('docReads')} | {(r.get('why') or '').replace('|', '/')} |")
+          print("\nEvery source read and every guess is a docs bug: fix the page or `cmux customize docs`.")
           PY
           cat "$RUNNER_TEMP/prompts.json"
           exit "$status"
