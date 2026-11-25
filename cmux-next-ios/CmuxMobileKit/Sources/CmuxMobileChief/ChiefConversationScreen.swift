@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxConversationCore
 import CmuxMobileArtifacts
+import CmuxMobileDesign
 import CmuxConversationUI
 import CmuxMobileDesign
 import CmuxMobileModel
@@ -88,6 +89,9 @@ public struct ChiefConversationScreen: View {
             .ignoresSafeArea()
             .toolbar(.hidden, for: .navigationBar)
             .navigationBarBackButtonHidden()
+            // Its own layer: the list's bar, or Settings', never draws over the
+            // chat through a push or a swipe back (Leo, 2026-11-24).
+            .cmuxMobilePaneLayer()
             .navigationDestination(isPresented: $showsInfo) {
                 // Message: back to the conversation with the keyboard up.
                 ChiefSettingsView(session: session) { [link] in
