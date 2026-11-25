@@ -383,6 +383,10 @@ pub struct Control {
     pub blocked: Option<Blocked>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub holders: Option<Vec<Holder>>,
+    /// Keep Running (high priority) for this chat under a known plan: whether it holds a slot,
+    /// the slots used and the plan's total, and whether it waits for one (`view`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keep: Option<View>,
 }
 
 /// The control's state for `facts.session`: signed out blocks every pick (a click signs in); a
@@ -393,7 +397,10 @@ pub fn control(facts: &ControlFacts) -> Control {
         if facts.restoring {
             return Control::default();
         }
-        return Control { blocked: Some(Blocked { why: BlockedWhy::SignedOut }), holders: None };
+        return Control {
+            blocked: Some(Blocked { why: BlockedWhy::SignedOut }),
+            ..Control::default()
+        };
     }
     if !facts.plan_known {
         return Control::default();
@@ -408,16 +415,19 @@ pub fn control(facts: &ControlFacts) -> Control {
     };
     let chat = facts.chats.iter().find(|chat| chat.session == facts.session);
     let in_cloud = chat.is_some_and(|chat| chat.at == At::Cloud);
-    match admit(slots(plan), &facts.chats, &facts.session) {
+    let keep = view(slots(plan), &facts.chats, &facts.session);
+    let mut control = match admit(slots(plan), &facts.chats, &facts.session) {
         // A chat already in Cloud is never blocked: Only on This Mac must still bring it back.
         Admit::NoCloud if !in_cloud => {
-            Control { blocked: Some(Blocked { why: BlockedWhy::NoPlan }), holders: None }
+            Control { blocked: Some(Blocked { why: BlockedWhy::NoPlan }), ..Control::default() }
         }
         Admit::Full { holders } if !holders.is_empty() => {
-            Control { blocked: None, holders: Some(holders) }
+            Control { holders: Some(holders), ..Control::default() }
         }
         _ => Control::default(),
-    }
+    };
+    control.keep = keep;
+    control
 }
 
 #[cfg(test)]
@@ -449,11 +459,11 @@ mod tests {
             ..ControlFacts::default()
         };
         assert_eq!(
-            serde_json::to_value(control(&facts)).unwrap(),
+            serde_json::to_value(extra(control(&facts))).unwrap(),
             serde_json::json!({ "blocked": { "why": "no-plan" } })
         );
         let in_cloud = ControlFacts { chats: vec![Chat { at: At::Cloud, ..chat("s") }], ..facts };
-        assert_eq!(control(&in_cloud), Control::default());
+        assert_eq!(extra(control(&in_cloud)), Control::default());
     }
 
     #[test]
@@ -473,14 +483,14 @@ mod tests {
             ..ControlFacts::default()
         };
         assert_eq!(
-            serde_json::to_value(control(&facts)).unwrap(),
+            serde_json::to_value(extra(control(&facts))).unwrap(),
             serde_json::json!({ "holders": [{ "session": "held", "title": "held title" }] })
         );
         // The holder itself, and a plan with a free slot, show nothing extra.
         let holder = ControlFacts { session: "held".into(), ..facts.clone() };
-        assert_eq!(control(&holder), Control::default());
+        assert_eq!(extra(control(&holder)), Control::default());
         let roomy = ControlFacts { plan: Some(Plan::Pro), ..facts };
-        assert_eq!(control(&roomy), Control::default());
+        assert_eq!(extra(control(&roomy)), Control::default());
     }
 
     #[test]
@@ -505,14 +515,48 @@ mod tests {
             signed_in: true,
             plan_known: true,
             plan_id: Some("next_plus".into()),
-            chats: vec![pinned.clone(), chat("s")],
+            chats: vec![pinned, chat("s")],
             ..ControlFacts::default()
         };
-        assert_eq!(control(&facts), Control::default());
-        let unknown = ControlFacts { plan_id: Some("enterprise_x".into()), ..facts.clone() };
+        assert_eq!(extra(control(&facts)), Control::default());
+        let unknown = ControlFacts { plan_id: Some("enterprise_x".into()), ..facts };
         assert_eq!(control(&unknown), Control::default());
         assert_eq!(plan_of_id("next_max"), Some(Plan::Max));
         assert_eq!(plan_of_id("pro"), Some(Plan::Pro));
+    }
+
+    #[test]
+    fn control_carries_keep_running_under_a_known_plan() {
+        let high = |session: &str, at: u64| Chat {
+            priority: Priority::High,
+            lit_at_ms: Some(at),
+            ..chat(session)
+        };
+        let facts = ControlFacts {
+            session: "s".into(),
+            signed_in: true,
+            plan_known: true,
+            plan: Some(Plan::Trial),
+            chats: vec![high("first", 1), high("s", 2)],
+            ..ControlFacts::default()
+        };
+        // The trial's one slot goes to the earliest Keep Running: this chat waits for it.
+        assert_eq!(
+            serde_json::to_value(control(&facts).keep).unwrap(),
+            serde_json::json!({ "priority": "high", "pin": "auto", "at": "local", "lit": false,
+                                "used": 1, "total": 1, "waiting": true })
+        );
+        let first = ControlFacts { session: "first".into(), ..facts.clone() };
+        let keep = control(&first).keep.unwrap();
+        assert!(keep.lit && !keep.waiting);
+        // Unknown plan or signed out: no Keep Running state to draw.
+        assert_eq!(control(&ControlFacts { plan_known: false, ..facts.clone() }).keep, None);
+        assert_eq!(control(&ControlFacts { signed_in: false, ..facts }).keep, None);
+    }
+
+    /// The control without its Keep Running view: what blocks or names holders.
+    fn extra(control: Control) -> Control {
+        Control { keep: None, ..control }
     }
 
     fn chat(session: &str) -> Chat {
