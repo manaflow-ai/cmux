@@ -241,6 +241,8 @@ jobs:
           CMUX_FAST_SWIFT_CACHE_KEY: ${{ steps.fast-cache-key.outputs.swift-key }}
           CMUX_FAST_SWIFT_CACHE_HIT: ${{ steps.fast-cache-restore.outputs.cache-hit }}
           CMUX_FAST_CACHE_MATCHED_KEY: ${{ steps.fast-cache-restore.outputs.cache-matched-key }}
+          # `0` runs every fast tier suite on the pull request again, not only the ones the change reaches.
+          CI_FAST_TIER_PR_SCOPE: ${{ vars.CI_FAST_TIER_PR_SCOPE || '1' }}
         run: ci/run run --job mac ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
       - name: Stop this job's acpmux daemons and remove its home
         if: ${{ always() && steps.tiers.outputs.fast_tier == 'true' }}
