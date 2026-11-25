@@ -1,0 +1,188 @@
+{
+  "title": "Glass tint gallery (run on the build before the fix: tint = 1 - glassTransparency)",
+  "settings": {
+    "appearance": {
+      "theme": "Soft Blue",
+      "backgroundBlur": "glass",
+      "backgroundOpacity": 1,
+      "experimentalControls": true
+    }
+  },
+  "steps": [
+    {
+      "title": "Launch on Glass, Opacity 1",
+      "wait": 4
+    },
+    {
+      "title": "New workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Glass"
+      ]
+    },
+    {
+      "title": "Show the Glass workspace",
+      "cmux": [
+        "workspace",
+        "name:Glass",
+        "focus"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Terminal ANSI colors",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Glass",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; echo 'glass tint gallery'; for c in 1 2 3 4 5 6 7; do printf '\\033[3%sm color %s \\033[1m bold \\033[0m' $c $c; done; echo\r"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Split right",
+      "cmux": [
+        "action",
+        "run",
+        "splitRight"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Soft Blue",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.theme",
+        "Soft Blue"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Soft Blue: glass tint 100%",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.glassTransparency",
+        "0.00"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Soft Blue: glass tint 75%",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.glassTransparency",
+        "0.25"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Soft Blue: glass tint 55%",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.glassTransparency",
+        "0.45"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Soft Blue: glass tint 40%",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.glassTransparency",
+        "0.60"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Soft Blue: glass tint 30%",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.glassTransparency",
+        "0.70"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Soft Blue Light",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.theme",
+        "Soft Blue Light"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Soft Blue Light: glass tint 100%",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.glassTransparency",
+        "0.00"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Soft Blue Light: glass tint 75%",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.glassTransparency",
+        "0.25"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Soft Blue Light: glass tint 55%",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.glassTransparency",
+        "0.45"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Soft Blue Light: glass tint 40%",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.glassTransparency",
+        "0.60"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Soft Blue Light: glass tint 30%",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.glassTransparency",
+        "0.70"
+      ],
+      "wait": 3
+    }
+  ]
+}

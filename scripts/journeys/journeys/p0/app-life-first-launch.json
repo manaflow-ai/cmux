@@ -1,0 +1,41 @@
+{
+  "id": "app-life-first-launch",
+  "priority": "P0",
+  "title": "First launch of a fresh profile: one window, Home's Open a terminal gives a working shell",
+  "why": "The very first thing a new user sees. A blank or second window, a launch window that never hands over, or a terminal that never gets a shell loses the user in the first minute.",
+  "source": "app life (holistic-quality.md 1): first launch",
+  "first_in_app": true,
+  "budget_seconds": 60,
+  "steps": [
+    {"do": "fresh_app"},
+    {"do": "expect", "title": "one window, launched and handed over, the daemon connected, only Home", "timeout": 30,
+     "all": [
+       {"app_rpc": {"method": "debug.windows", "path": "windows", "len": 1}},
+       {"app_rpc": {"method": "debug.windows", "path": "launch_window", "equals": null}},
+       {"app_rpc": {"method": "debug.windows", "path": "consistent", "equals": true}},
+       {"app_rpc": {"method": "debug.windows", "path": "windows.0.visible", "equals": true}},
+       {"app_rpc": {"method": "snapshot.get", "path": "topology.loaded", "equals": true}},
+       {"app_rpc": {"method": "snapshot.get", "path": "topology.daemon_state", "equals": "connected"}},
+       {"app_rpc": {"method": "snapshot.get", "path": "topology.workspaces", "len": 1}},
+       {"app_rpc": {"method": "debug.crashes", "path": "launch.recovery", "equals": "clean"}},
+       {"frame_text": "Open a terminal"}
+     ]},
+    {"do": "key", "key": "`", "modifiers": ["control"], "mark": "open-terminal"},
+    {"do": "focused_terminal", "as": "first", "timeout": 20},
+    {"do": "expect", "title": "the terminal shows the shell's first prompt in the app", "since": "open-terminal", "timeout": 20,
+     "all": [
+       {"app_pane": {"focused": true, "link": "connected"}},
+       {"app_rpc": {"method": "debug.surfaces", "path": "blank_panes", "equals": 0}}
+     ]},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "echo first-${nonce}-$((6*7))", "enter": true, "mark": "typed"},
+    {"do": "expect", "title": "the shell answers in the daemon, the app and the frame", "since": "typed", "within": 3, "timeout": 10,
+     "all": [
+       {"daemon_line": "first-${nonce}-42"},
+       {"daemon_prompt": true},
+       {"app_text_line": "first-${nonce}-42"},
+       {"app_prompt": true},
+       {"frame_text": "first-${nonce}-42"}
+     ]}
+  ]
+}

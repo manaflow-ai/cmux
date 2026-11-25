@@ -1,0 +1,104 @@
+name: CI repository variables
+
+# `gh variable set` changes CI routing with no pull request, so no PR check
+# ever sees the new value, and the readers fail soft: a malformed
+# CI_OWNED_POOL_SLOTS counts as zero minis, a forbidden runner label is refused
+# at dispatch. scripts/ci/check_repo_variables.py runs the readers' own
+# validators against the live values and fails this run on a bad one. The
+# schedule is what catches a `gh variable set`; the push trigger covers edits
+# to the check itself. No pull_request trigger: a fork's run would read these
+# variables in fork code, and tests/test_ci_check_repo_variables.py (in the
+# guard suite) covers a PR that edits the check.
+#
+# Values come from the expression context (no token scope can read the
+# variables API), named one by one: a step's env is printed in its public log,
+# and only runner labels and pool sizes belong there, as in ci-health-report.yml.
+# tests/test_ci_check_repo_variables.py keeps this list equal to that one.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/ci-repo-variables.yml
+      - scripts/ci/check_repo_variables.py
+      - scripts/ci/cloud_overflow_switch.py
+      - scripts/ci/pr_runner_pool.py
+      - scripts/ci/runner_label_policy.py
+      - scripts/ci/signing_runner_variables.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-repo-variables-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  check:
+    name: Check repository variables
+    if: ${{ github.repository == 'manaflow-ai/cmux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Check the live values
+        env:
+          CI_OWNED_POOL_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          CMUX_CI_XCODE_APP_PR: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+          # Present while the cloud overflow switch has Blacksmith overflow off.
+          CI_CLOUD_OVERFLOW_SAVED: ${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
+          # Every fromJSON(vars.RUNNER_POOLS).<pool> reads it; a hosted label here strands jobs (2026-11-18).
+          RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
+          CMUX_CI_RUNNER_VARIABLES: |
+            CI_AWS_SIDE_RUNNER=${{ vars.CI_AWS_SIDE_RUNNER }}
+            CI_CONTROL_RUNNER=${{ vars.CI_CONTROL_RUNNER }}
+            CI_DEV_COMPILE_RUNNER=${{ vars.CI_DEV_COMPILE_RUNNER }}
+            CI_FAST_LANE_RUNNER=${{ vars.CI_FAST_LANE_RUNNER }}
+            CI_IOS_INTERNAL_RUNNER=${{ vars.CI_IOS_INTERNAL_RUNNER }}
+            CI_LINUX_GATE_OWNED_RUNNER=${{ vars.CI_LINUX_GATE_OWNED_RUNNER }}
+            CI_LIGHT_LANE_RUNNER=${{ vars.CI_LIGHT_LANE_RUNNER }}
+            CI_NIGHTLY_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
+            CI_NIGHTLY_NEXT_BUILD_RUNNER=${{ vars.CI_NIGHTLY_NEXT_BUILD_RUNNER }}
+            CI_NIGHTLY_ONLY_RUNNER=${{ vars.CI_NIGHTLY_ONLY_RUNNER }}
+            CI_NIGHTLY_ONLY_BUILDER_RUNNER=${{ vars.CI_NIGHTLY_ONLY_BUILDER_RUNNER }}
+            CI_NIGHTLY_SIGN_RUNNER=${{ vars.CI_NIGHTLY_SIGN_RUNNER }}
+            CI_NIGHTLY_SIGNING_POOL=${{ vars.CI_NIGHTLY_SIGNING_POOL }}
+            CI_NIGHTLY_NEXT_TRUSTED_POOL=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_POOL }}
+            CI_NIGHTLY_NEXT_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER }}
+            CI_PR_POOL_ORDER=${{ vars.CI_PR_POOL_ORDER }}
+            CI_SEED_TRUSTED_POOL=${{ vars.CI_SEED_TRUSTED_POOL }}
+            CI_SESSION_LANE_RUNNER=${{ vars.CI_SESSION_LANE_RUNNER }}
+            CI_SIDE_LANE_RUNNER=${{ vars.CI_SIDE_LANE_RUNNER }}
+            CI_SIDE_LANE_LABELS=${{ vars.CI_SIDE_LANE_LABELS }}
+            CI_TRUSTED_RUNNER=${{ vars.CI_TRUSTED_RUNNER }}
+            CMUX_CI_RUNNER_FLEET=${{ vars.CMUX_CI_RUNNER_FLEET }}
+            CMUX_CI_RUNNER_OVERRIDES=${{ vars.CMUX_CI_RUNNER_OVERRIDES }}
+            LINUX_ARM64_RUNNER=${{ vars.LINUX_ARM64_RUNNER }}
+            LINUX_BUILD_RUNNER=${{ vars.LINUX_BUILD_RUNNER }}
+            LINUX_RUNNER=${{ vars.LINUX_RUNNER }}
+            LINUX_RUNNER_DARWIN_CROSS=${{ vars.LINUX_RUNNER_DARWIN_CROSS }}
+            MACOS_RUNNER_15=${{ vars.MACOS_RUNNER_15 }}
+            MACOS_RUNNER_26=${{ vars.MACOS_RUNNER_26 }}
+            MACOS_RUNNER_26_LARGE=${{ vars.MACOS_RUNNER_26_LARGE }}
+            MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}
+            MACOS_RUNNER_DISPLAY=${{ vars.MACOS_RUNNER_DISPLAY }}
+            MACOS_RUNNER_DUAL_XCODE=${{ vars.MACOS_RUNNER_DUAL_XCODE }}
+            MACOS_RUNNER_IOS=${{ vars.MACOS_RUNNER_IOS }}
+            MACOS_RUNNER_PR=${{ vars.MACOS_RUNNER_PR }}
+            MACOS_RUNNER_TESTS=${{ vars.MACOS_RUNNER_TESTS }}
+            NIGHTLY_NEXT_TRAIN_RUNNER=${{ vars.NIGHTLY_NEXT_TRAIN_RUNNER }}
+            WINDOWS_RUNNER=${{ vars.WINDOWS_RUNNER }}
+        run: python3 scripts/ci/check_repo_variables.py

@@ -1,0 +1,1254 @@
+[0/1] Planning build
+Building for debugging...
+[0/5] Write sources
+[2/5] Write swift-version--58304C5D6DBC2206.txt
+[4/8] Emitting module CMUXMobileCore
+[5/8] Compiling CMUXMobileCore CmxIrohDirectDialCandidate.swift
+[6/8] Compiling CMUXMobileCore CmxIrohLocalSocketAddress.swift
+[7/45] Compiling CmuxAuthRuntime AuthError+DisplaySafe.swift
+[8/45] Compiling CmuxAuthRuntime AuthError.swift
+[9/45] Compiling CmuxAuthRuntime AuthLaunchOptions.swift
+[10/45] Compiling CmuxAuthRuntime AuthPhase.swift
+[11/45] Compiling CmuxAuthRuntime AuthPhaseTimeout.swift
+[12/45] Compiling CmuxAuthRuntime AuthPhaseTimeoutRegistry.swift
+[13/45] Compiling CmuxAuthRuntime AuthenticatedRefreshTokenSnapshot.swift
+[14/45] Compiling CmuxAuthRuntime AuthenticatedTeamScope.swift
+[15/45] Compiling CmuxAuthRuntime CachedSessionValidationFailureAction.swift
+[16/45] Compiling CmuxAuthRuntime EmailVerificationRecoveryClient.swift
+[17/45] Compiling CmuxAuthRuntime EmailVerificationRecoveryRequestError.swift
+[18/45] Compiling CmuxAuthRuntime TokenProviding.swift
+[19/45] Emitting module CmuxAuthRuntime
+[20/45] Compiling CmuxAuthRuntime AuthCoordinator+EmailVerificationRecovery.swift
+[21/45] Compiling CmuxAuthRuntime AuthCoordinator+ExchangeTimeout.swift
+[22/45] Compiling CmuxAuthRuntime AuthCoordinator+LifecycleRevision.swift
+[23/45] Compiling CmuxAuthRuntime AuthCoordinator+Phase.swift
+[24/45] Compiling CmuxAuthRuntime AuthCoordinator+PostSignInTimeout.swift
+[25/45] Compiling CmuxAuthRuntime AuthCoordinator+SessionPriming.swift
+[26/45] Compiling CmuxAuthRuntime AuthCoordinator+SignInTokenWorkPreflight.swift
+[27/45] Compiling CmuxAuthRuntime AuthCoordinator+TeamScopes.swift
+[28/45] Compiling CmuxAuthRuntime AuthCoordinator+TokenTouchingPhaseTimeout.swift
+[29/45] Compiling CmuxAuthRuntime AuthCoordinator+Tokens.swift
+[30/45] Compiling CmuxAuthRuntime AuthCoordinator+ValidationTimeout.swift
+[31/45] Compiling CmuxAuthRuntime AuthCoordinator.swift
+[32/45] Compiling CmuxAuthRuntime ASWebBrowserAuthSessionFactory.swift
+[33/45] Compiling CmuxAuthRuntime AuthCallbackPayload.swift
+[34/45] Compiling CmuxAuthRuntime AuthCallbackRouter.swift
+[35/45] Compiling CmuxAuthRuntime HostBrowserAuthSessionResult.swift
+[36/45] Compiling CmuxAuthRuntime HostBrowserSignInFlow+Diagnostics.swift
+[37/45] Compiling CmuxAuthRuntime HostBrowserSignInFlow.swift
+[38/45] Compiling CmuxAuthRuntime HostBrowserSignOutCoordinator.swift
+[39/45] Compiling CmuxAuthRuntime StackAuthClient.swift
+[40/45] Compiling CmuxAuthRuntime AccountDeletionClient.swift
+[41/45] Compiling CmuxAuthRuntime AccountDeletionRequestError.swift
+[42/45] Compiling CmuxAuthRuntime AuthConfig.swift
+[43/45] Compiling CmuxAuthRuntime AuthCoordinator+AccountDeletion.swift
+[44/56] Compiling CmuxAuthRuntime AuthDebugLog.swift
+[45/56] Compiling CmuxAuthRuntime AuthPresentationContextProvider.swift
+[46/56] Compiling CmuxAuthRuntime PendingUnregisterStore.swift
+[47/56] Compiling CmuxAuthRuntime PushRegistrationService.swift
+[48/56] Compiling CmuxAuthRuntime PushRegistrationSnapshot.swift
+[49/56] Compiling CmuxAuthRuntime RedirectMethodPreservingDelegate.swift
+[50/56] Compiling CmuxAuthRuntime AuthTokenSnapshot.swift
+[51/56] Compiling CmuxAuthRuntime FallbackTokenStore.swift
+[52/56] Compiling CmuxAuthRuntime FileStackTokenStore.swift
+[53/56] Compiling CmuxAuthRuntime KeychainStackTokenStore.swift
+[54/56] Compiling CmuxAuthRuntime StackAuthTokenStoreProtocol.swift
+[55/96] Compiling CmuxAuthRuntimeTests AuthCoordinatorStaleClearTests.swift
+[56/96] Compiling CmuxAuthRuntimeTests AuthCoordinatorStaleRevalidationTests.swift
+[57/96] Compiling CmuxAuthRuntimeTests AuthCoordinatorTests.swift
+[58/96] Compiling CmuxAuthRuntimeTests AuthCoordinatorTimeoutTests.swift
+[59/96] Compiling CmuxAuthRuntimeTests AuthCoordinatorTokenTouchingPhaseCancellationTests.swift
+[60/96] Compiling CmuxAuthRuntimeTests AuthDebugLogTests.swift
+[61/96] Compiling CmuxAuthRuntimeTests AuthErrorDisplaySafeTests.swift
+[62/96] Compiling CmuxAuthRuntimeTests AuthSessionTransitionRecorder.swift
+[63/96] Compiling CmuxAuthRuntimeTests AuthenticatedSessionSnapshotRedactionTests.swift
+[64/96] Compiling CmuxAuthRuntimeTests CancellationAwareAccessTokenAuthClient.swift
+[65/96] Compiling CmuxAuthRuntimeTests CancellationAwareValidationAuthClient.swift
+[66/96] Compiling CmuxAuthRuntimeTests CancellationIgnoringPushTokenProvider.swift
+[67/96] Compiling CmuxAuthRuntimeTests EmailVerificationRecoveryClientTests.swift
+[68/96] Compiling CmuxAuthRuntimeTests Fakes.swift
+[69/96] Compiling CmuxAuthRuntimeTests GateableValidationAuthClient.swift
+[70/96] Compiling CmuxAuthRuntimeTests HangingLaunchTokenProbeAuthClient.swift
+[71/96] Compiling CmuxAuthRuntimeTests HangingMagicLinkAuthClient.swift
+[72/96] Compiling CmuxAuthRuntimeTests HangingOAuthAuthClient.swift
+[73/96] Compiling CmuxAuthRuntimeTests HangingSignOutAuthClient.swift
+[74/96] Compiling CmuxAuthRuntimeTests HangingTokenMintAuthClient.swift
+[75/96] Compiling CmuxAuthRuntimeTests HostBrowserSignInFlowFailureTests.swift
+[76/96] Compiling CmuxAuthRuntimeTests HostBrowserSignInFlowFakes.swift
+[77/96] Compiling CmuxAuthRuntimeTests HostBrowserSignInFlowHandoffTests.swift
+[78/96] Compiling CmuxAuthRuntimeTests HostBrowserSignInFlowTestSupport.swift
+[79/96] Compiling CmuxAuthRuntimeTests HostBrowserSignInFlowTests.swift
+[80/96] Compiling CmuxAuthRuntimeTests HostBrowserSignOutTests.swift
+[81/96] Compiling CmuxAuthRuntimeTests ASWebBrowserAuthSessionFactoryTests.swift
+[82/96] Compiling CmuxAuthRuntimeTests AccountDeletionClientTests.swift
+[83/96] Compiling CmuxAuthRuntimeTests AuthConfigTests.swift
+[84/96] Compiling CmuxAuthRuntimeTests AuthCoordinatorCancellationTests.swift
+[85/96] Compiling CmuxAuthRuntimeTests AuthCoordinatorEnvironmentSwitchClearTests.swift
+[86/96] Compiling CmuxAuthRuntimeTests AuthCoordinatorLockedStorageTests.swift
+[87/96] Compiling CmuxAuthRuntimeTests AuthCoordinatorPostSignInTimeoutTests.swift
+[88/96] Compiling CmuxAuthRuntimeTests AuthCoordinatorSessionSnapshotRevalidationTests.swift
+[89/96] Compiling CmuxAuthRuntimeTests AuthCoordinatorSessionSnapshotTokenPairTests.swift
+[90/96] Compiling CmuxAuthRuntimeTests AuthCoordinatorSessionValidityTests.swift
+[91/96] Compiling CmuxAuthRuntimeTests AuthCoordinatorSignInExchangePreflightTests.swift
+[92/96] Compiling CmuxAuthRuntimeTests AuthCoordinatorSignInPreflightTests.swift
+[93/96] Compiling CmuxAuthRuntimeTests AuthCoordinatorSignOutOfflineTests.swift
+[94/96] Emitting module CmuxAuthRuntimeTests
+[95/108] Compiling CmuxAuthRuntimeTests KeychainStackTokenStoreTests.swift
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:264:9: warning: no 'async' operations occur within 'await' expression
+ 262 | 
+ 263 |     @Test func registeringWhileDisabledCachesButDoesNotUpload() async {
+ 264 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 265 |         let (service, _) = makeService()
+ 266 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:268:69: note: expanded code originates here
+ 266 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+ 267 |         // No upload because notifications are off.
+ 268 |         #expect(await RecordingURLProtocol.recorder.methods.isEmpty)
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.isEmpty,expression: .__fromSyntaxNode("await RecordingURLProtocol.recorder.methods.isEmpty"),comments: [.__line("// No upload because notifications are off.")],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 269 |     }
+ 270 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:272:9: warning: no 'async' operations occur within 'await' expression
+ 270 | 
+ 271 |     @Test func enablingUploadsCachedToken() async {
+ 272 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 273 |         let (service, defaults) = makeService()
+ 274 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:277:78: note: expanded code originates here
+ 275 |         await service.setEnabled(true)
+ 276 |         #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
+ 277 |         #expect(await RecordingURLProtocol.recorder.methods.contains("POST"))
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.contains("POST"),expression: .__fromSyntaxNode(#"await RecordingURLProtocol.recorder.methods.contains("POST")"#),comments: [],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 278 |     }
+ 279 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:281:9: warning: no 'async' operations occur within 'await' expression
+ 279 | 
+ 280 |     @Test func disablingDeletesServerToken() async {
+ 281 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 282 |         let (service, _) = makeService()
+ 283 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:286:80: note: expanded code originates here
+ 284 |         await service.setEnabled(true)
+ 285 |         await service.setEnabled(false)
+ 286 |         #expect(await RecordingURLProtocol.recorder.methods.contains("DELETE"))
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.contains("DELETE"),expression: .__fromSyntaxNode(#"await RecordingURLProtocol.recorder.methods.contains("DELETE")"#),comments: [],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 287 |     }
+ 288 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:308:23: warning: no 'async' operations occur within 'await' expression
+ 306 |         var request: URLRequest?
+ 307 |         for _ in 0..<1000 where request == nil {
+ 308 |             request = await RecordingURLProtocol.recorder.requests.first {
+     |                       `- warning: no 'async' operations occur within 'await' expression
+ 309 |                 $0.value(forHTTPHeaderField: "Authorization") == "Bearer captured-access"
+ 310 |             }
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:337:24: warning: no 'async' operations occur within 'await' expression
+ 335 |         // The unregister call has fully completed, so any DELETE it issued is
+ 336 |         // already recorded. None may carry the live (next account's) Bearer.
+ 337 |         let hijacked = await RecordingURLProtocol.recorder.requests.contains {
+     |                        `- warning: no 'async' operations occur within 'await' expression
+ 338 |             $0.value(forHTTPHeaderField: "Authorization") == "Bearer next-user-access"
+ 339 |         }
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:827:50: warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+ 825 | 
+ 826 |         _ = await service.snapshots()
+ 827 |         await PushRegistrationURLProtocol.script.waitForRequestCount(1)
+     |                                                  `- warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+ 828 | 
+ 829 |         #expect(
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:1009:50: warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+1007 | 
+1008 |         await blocker.release()
+1009 |         await PushRegistrationURLProtocol.script.waitForRequestCount(3)
+     |                                                  `- warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+1010 | 
+1011 |         #expect(
+[96/108] Compiling CmuxAuthRuntimeTests ManualTestClock.swift
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:264:9: warning: no 'async' operations occur within 'await' expression
+ 262 | 
+ 263 |     @Test func registeringWhileDisabledCachesButDoesNotUpload() async {
+ 264 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 265 |         let (service, _) = makeService()
+ 266 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:268:69: note: expanded code originates here
+ 266 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+ 267 |         // No upload because notifications are off.
+ 268 |         #expect(await RecordingURLProtocol.recorder.methods.isEmpty)
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.isEmpty,expression: .__fromSyntaxNode("await RecordingURLProtocol.recorder.methods.isEmpty"),comments: [.__line("// No upload because notifications are off.")],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 269 |     }
+ 270 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:272:9: warning: no 'async' operations occur within 'await' expression
+ 270 | 
+ 271 |     @Test func enablingUploadsCachedToken() async {
+ 272 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 273 |         let (service, defaults) = makeService()
+ 274 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:277:78: note: expanded code originates here
+ 275 |         await service.setEnabled(true)
+ 276 |         #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
+ 277 |         #expect(await RecordingURLProtocol.recorder.methods.contains("POST"))
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.contains("POST"),expression: .__fromSyntaxNode(#"await RecordingURLProtocol.recorder.methods.contains("POST")"#),comments: [],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 278 |     }
+ 279 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:281:9: warning: no 'async' operations occur within 'await' expression
+ 279 | 
+ 280 |     @Test func disablingDeletesServerToken() async {
+ 281 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 282 |         let (service, _) = makeService()
+ 283 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:286:80: note: expanded code originates here
+ 284 |         await service.setEnabled(true)
+ 285 |         await service.setEnabled(false)
+ 286 |         #expect(await RecordingURLProtocol.recorder.methods.contains("DELETE"))
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.contains("DELETE"),expression: .__fromSyntaxNode(#"await RecordingURLProtocol.recorder.methods.contains("DELETE")"#),comments: [],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 287 |     }
+ 288 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:308:23: warning: no 'async' operations occur within 'await' expression
+ 306 |         var request: URLRequest?
+ 307 |         for _ in 0..<1000 where request == nil {
+ 308 |             request = await RecordingURLProtocol.recorder.requests.first {
+     |                       `- warning: no 'async' operations occur within 'await' expression
+ 309 |                 $0.value(forHTTPHeaderField: "Authorization") == "Bearer captured-access"
+ 310 |             }
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:337:24: warning: no 'async' operations occur within 'await' expression
+ 335 |         // The unregister call has fully completed, so any DELETE it issued is
+ 336 |         // already recorded. None may carry the live (next account's) Bearer.
+ 337 |         let hijacked = await RecordingURLProtocol.recorder.requests.contains {
+     |                        `- warning: no 'async' operations occur within 'await' expression
+ 338 |             $0.value(forHTTPHeaderField: "Authorization") == "Bearer next-user-access"
+ 339 |         }
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:827:50: warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+ 825 | 
+ 826 |         _ = await service.snapshots()
+ 827 |         await PushRegistrationURLProtocol.script.waitForRequestCount(1)
+     |                                                  `- warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+ 828 | 
+ 829 |         #expect(
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:1009:50: warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+1007 | 
+1008 |         await blocker.release()
+1009 |         await PushRegistrationURLProtocol.script.waitForRequestCount(3)
+     |                                                  `- warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+1010 | 
+1011 |         #expect(
+[97/108] Compiling CmuxAuthRuntimeTests ParkedValidationTokenRefreshAuthClient.swift
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:264:9: warning: no 'async' operations occur within 'await' expression
+ 262 | 
+ 263 |     @Test func registeringWhileDisabledCachesButDoesNotUpload() async {
+ 264 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 265 |         let (service, _) = makeService()
+ 266 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:268:69: note: expanded code originates here
+ 266 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+ 267 |         // No upload because notifications are off.
+ 268 |         #expect(await RecordingURLProtocol.recorder.methods.isEmpty)
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.isEmpty,expression: .__fromSyntaxNode("await RecordingURLProtocol.recorder.methods.isEmpty"),comments: [.__line("// No upload because notifications are off.")],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 269 |     }
+ 270 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:272:9: warning: no 'async' operations occur within 'await' expression
+ 270 | 
+ 271 |     @Test func enablingUploadsCachedToken() async {
+ 272 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 273 |         let (service, defaults) = makeService()
+ 274 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:277:78: note: expanded code originates here
+ 275 |         await service.setEnabled(true)
+ 276 |         #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
+ 277 |         #expect(await RecordingURLProtocol.recorder.methods.contains("POST"))
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.contains("POST"),expression: .__fromSyntaxNode(#"await RecordingURLProtocol.recorder.methods.contains("POST")"#),comments: [],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 278 |     }
+ 279 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:281:9: warning: no 'async' operations occur within 'await' expression
+ 279 | 
+ 280 |     @Test func disablingDeletesServerToken() async {
+ 281 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 282 |         let (service, _) = makeService()
+ 283 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:286:80: note: expanded code originates here
+ 284 |         await service.setEnabled(true)
+ 285 |         await service.setEnabled(false)
+ 286 |         #expect(await RecordingURLProtocol.recorder.methods.contains("DELETE"))
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.contains("DELETE"),expression: .__fromSyntaxNode(#"await RecordingURLProtocol.recorder.methods.contains("DELETE")"#),comments: [],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 287 |     }
+ 288 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:308:23: warning: no 'async' operations occur within 'await' expression
+ 306 |         var request: URLRequest?
+ 307 |         for _ in 0..<1000 where request == nil {
+ 308 |             request = await RecordingURLProtocol.recorder.requests.first {
+     |                       `- warning: no 'async' operations occur within 'await' expression
+ 309 |                 $0.value(forHTTPHeaderField: "Authorization") == "Bearer captured-access"
+ 310 |             }
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:337:24: warning: no 'async' operations occur within 'await' expression
+ 335 |         // The unregister call has fully completed, so any DELETE it issued is
+ 336 |         // already recorded. None may carry the live (next account's) Bearer.
+ 337 |         let hijacked = await RecordingURLProtocol.recorder.requests.contains {
+     |                        `- warning: no 'async' operations occur within 'await' expression
+ 338 |             $0.value(forHTTPHeaderField: "Authorization") == "Bearer next-user-access"
+ 339 |         }
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:827:50: warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+ 825 | 
+ 826 |         _ = await service.snapshots()
+ 827 |         await PushRegistrationURLProtocol.script.waitForRequestCount(1)
+     |                                                  `- warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+ 828 | 
+ 829 |         #expect(
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:1009:50: warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+1007 | 
+1008 |         await blocker.release()
+1009 |         await PushRegistrationURLProtocol.script.waitForRequestCount(3)
+     |                                                  `- warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+1010 | 
+1011 |         #expect(
+[98/108] Compiling CmuxAuthRuntimeTests PushRedirectURLProtocol.swift
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:264:9: warning: no 'async' operations occur within 'await' expression
+ 262 | 
+ 263 |     @Test func registeringWhileDisabledCachesButDoesNotUpload() async {
+ 264 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 265 |         let (service, _) = makeService()
+ 266 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:268:69: note: expanded code originates here
+ 266 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+ 267 |         // No upload because notifications are off.
+ 268 |         #expect(await RecordingURLProtocol.recorder.methods.isEmpty)
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.isEmpty,expression: .__fromSyntaxNode("await RecordingURLProtocol.recorder.methods.isEmpty"),comments: [.__line("// No upload because notifications are off.")],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 269 |     }
+ 270 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:272:9: warning: no 'async' operations occur within 'await' expression
+ 270 | 
+ 271 |     @Test func enablingUploadsCachedToken() async {
+ 272 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 273 |         let (service, defaults) = makeService()
+ 274 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:277:78: note: expanded code originates here
+ 275 |         await service.setEnabled(true)
+ 276 |         #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
+ 277 |         #expect(await RecordingURLProtocol.recorder.methods.contains("POST"))
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.contains("POST"),expression: .__fromSyntaxNode(#"await RecordingURLProtocol.recorder.methods.contains("POST")"#),comments: [],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 278 |     }
+ 279 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:281:9: warning: no 'async' operations occur within 'await' expression
+ 279 | 
+ 280 |     @Test func disablingDeletesServerToken() async {
+ 281 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 282 |         let (service, _) = makeService()
+ 283 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:286:80: note: expanded code originates here
+ 284 |         await service.setEnabled(true)
+ 285 |         await service.setEnabled(false)
+ 286 |         #expect(await RecordingURLProtocol.recorder.methods.contains("DELETE"))
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.contains("DELETE"),expression: .__fromSyntaxNode(#"await RecordingURLProtocol.recorder.methods.contains("DELETE")"#),comments: [],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 287 |     }
+ 288 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:308:23: warning: no 'async' operations occur within 'await' expression
+ 306 |         var request: URLRequest?
+ 307 |         for _ in 0..<1000 where request == nil {
+ 308 |             request = await RecordingURLProtocol.recorder.requests.first {
+     |                       `- warning: no 'async' operations occur within 'await' expression
+ 309 |                 $0.value(forHTTPHeaderField: "Authorization") == "Bearer captured-access"
+ 310 |             }
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:337:24: warning: no 'async' operations occur within 'await' expression
+ 335 |         // The unregister call has fully completed, so any DELETE it issued is
+ 336 |         // already recorded. None may carry the live (next account's) Bearer.
+ 337 |         let hijacked = await RecordingURLProtocol.recorder.requests.contains {
+     |                        `- warning: no 'async' operations occur within 'await' expression
+ 338 |             $0.value(forHTTPHeaderField: "Authorization") == "Bearer next-user-access"
+ 339 |         }
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:827:50: warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+ 825 | 
+ 826 |         _ = await service.snapshots()
+ 827 |         await PushRegistrationURLProtocol.script.waitForRequestCount(1)
+     |                                                  `- warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+ 828 | 
+ 829 |         #expect(
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:1009:50: warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+1007 | 
+1008 |         await blocker.release()
+1009 |         await PushRegistrationURLProtocol.script.waitForRequestCount(3)
+     |                                                  `- warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+1010 | 
+1011 |         #expect(
+[99/108] Compiling CmuxAuthRuntimeTests PushRegistrationServiceTests.swift
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:264:9: warning: no 'async' operations occur within 'await' expression
+ 262 | 
+ 263 |     @Test func registeringWhileDisabledCachesButDoesNotUpload() async {
+ 264 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 265 |         let (service, _) = makeService()
+ 266 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:268:69: note: expanded code originates here
+ 266 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+ 267 |         // No upload because notifications are off.
+ 268 |         #expect(await RecordingURLProtocol.recorder.methods.isEmpty)
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.isEmpty,expression: .__fromSyntaxNode("await RecordingURLProtocol.recorder.methods.isEmpty"),comments: [.__line("// No upload because notifications are off.")],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 269 |     }
+ 270 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:272:9: warning: no 'async' operations occur within 'await' expression
+ 270 | 
+ 271 |     @Test func enablingUploadsCachedToken() async {
+ 272 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 273 |         let (service, defaults) = makeService()
+ 274 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:277:78: note: expanded code originates here
+ 275 |         await service.setEnabled(true)
+ 276 |         #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
+ 277 |         #expect(await RecordingURLProtocol.recorder.methods.contains("POST"))
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.contains("POST"),expression: .__fromSyntaxNode(#"await RecordingURLProtocol.recorder.methods.contains("POST")"#),comments: [],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 278 |     }
+ 279 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:281:9: warning: no 'async' operations occur within 'await' expression
+ 279 | 
+ 280 |     @Test func disablingDeletesServerToken() async {
+ 281 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 282 |         let (service, _) = makeService()
+ 283 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:286:80: note: expanded code originates here
+ 284 |         await service.setEnabled(true)
+ 285 |         await service.setEnabled(false)
+ 286 |         #expect(await RecordingURLProtocol.recorder.methods.contains("DELETE"))
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.contains("DELETE"),expression: .__fromSyntaxNode(#"await RecordingURLProtocol.recorder.methods.contains("DELETE")"#),comments: [],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 287 |     }
+ 288 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:308:23: warning: no 'async' operations occur within 'await' expression
+ 306 |         var request: URLRequest?
+ 307 |         for _ in 0..<1000 where request == nil {
+ 308 |             request = await RecordingURLProtocol.recorder.requests.first {
+     |                       `- warning: no 'async' operations occur within 'await' expression
+ 309 |                 $0.value(forHTTPHeaderField: "Authorization") == "Bearer captured-access"
+ 310 |             }
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:337:24: warning: no 'async' operations occur within 'await' expression
+ 335 |         // The unregister call has fully completed, so any DELETE it issued is
+ 336 |         // already recorded. None may carry the live (next account's) Bearer.
+ 337 |         let hijacked = await RecordingURLProtocol.recorder.requests.contains {
+     |                        `- warning: no 'async' operations occur within 'await' expression
+ 338 |             $0.value(forHTTPHeaderField: "Authorization") == "Bearer next-user-access"
+ 339 |         }
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:827:50: warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+ 825 | 
+ 826 |         _ = await service.snapshots()
+ 827 |         await PushRegistrationURLProtocol.script.waitForRequestCount(1)
+     |                                                  `- warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+ 828 | 
+ 829 |         #expect(
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:1009:50: warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+1007 | 
+1008 |         await blocker.release()
+1009 |         await PushRegistrationURLProtocol.script.waitForRequestCount(3)
+     |                                                  `- warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+1010 | 
+1011 |         #expect(
+[100/108] Compiling CmuxAuthRuntimeTests PushRegistrationURLProtocol.swift
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:264:9: warning: no 'async' operations occur within 'await' expression
+ 262 | 
+ 263 |     @Test func registeringWhileDisabledCachesButDoesNotUpload() async {
+ 264 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 265 |         let (service, _) = makeService()
+ 266 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:268:69: note: expanded code originates here
+ 266 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+ 267 |         // No upload because notifications are off.
+ 268 |         #expect(await RecordingURLProtocol.recorder.methods.isEmpty)
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.isEmpty,expression: .__fromSyntaxNode("await RecordingURLProtocol.recorder.methods.isEmpty"),comments: [.__line("// No upload because notifications are off.")],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 269 |     }
+ 270 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:272:9: warning: no 'async' operations occur within 'await' expression
+ 270 | 
+ 271 |     @Test func enablingUploadsCachedToken() async {
+ 272 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 273 |         let (service, defaults) = makeService()
+ 274 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:277:78: note: expanded code originates here
+ 275 |         await service.setEnabled(true)
+ 276 |         #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
+ 277 |         #expect(await RecordingURLProtocol.recorder.methods.contains("POST"))
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.contains("POST"),expression: .__fromSyntaxNode(#"await RecordingURLProtocol.recorder.methods.contains("POST")"#),comments: [],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 278 |     }
+ 279 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:281:9: warning: no 'async' operations occur within 'await' expression
+ 279 | 
+ 280 |     @Test func disablingDeletesServerToken() async {
+ 281 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 282 |         let (service, _) = makeService()
+ 283 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:286:80: note: expanded code originates here
+ 284 |         await service.setEnabled(true)
+ 285 |         await service.setEnabled(false)
+ 286 |         #expect(await RecordingURLProtocol.recorder.methods.contains("DELETE"))
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.contains("DELETE"),expression: .__fromSyntaxNode(#"await RecordingURLProtocol.recorder.methods.contains("DELETE")"#),comments: [],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 287 |     }
+ 288 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:308:23: warning: no 'async' operations occur within 'await' expression
+ 306 |         var request: URLRequest?
+ 307 |         for _ in 0..<1000 where request == nil {
+ 308 |             request = await RecordingURLProtocol.recorder.requests.first {
+     |                       `- warning: no 'async' operations occur within 'await' expression
+ 309 |                 $0.value(forHTTPHeaderField: "Authorization") == "Bearer captured-access"
+ 310 |             }
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:337:24: warning: no 'async' operations occur within 'await' expression
+ 335 |         // The unregister call has fully completed, so any DELETE it issued is
+ 336 |         // already recorded. None may carry the live (next account's) Bearer.
+ 337 |         let hijacked = await RecordingURLProtocol.recorder.requests.contains {
+     |                        `- warning: no 'async' operations occur within 'await' expression
+ 338 |             $0.value(forHTTPHeaderField: "Authorization") == "Bearer next-user-access"
+ 339 |         }
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:827:50: warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+ 825 | 
+ 826 |         _ = await service.snapshots()
+ 827 |         await PushRegistrationURLProtocol.script.waitForRequestCount(1)
+     |                                                  `- warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+ 828 | 
+ 829 |         #expect(
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:1009:50: warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+1007 | 
+1008 |         await blocker.release()
+1009 |         await PushRegistrationURLProtocol.script.waitForRequestCount(3)
+     |                                                  `- warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+1010 | 
+1011 |         #expect(
+[101/108] Compiling CmuxAuthRuntimeTests RedirectMethodPreservingDelegateTests.swift
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:264:9: warning: no 'async' operations occur within 'await' expression
+ 262 | 
+ 263 |     @Test func registeringWhileDisabledCachesButDoesNotUpload() async {
+ 264 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 265 |         let (service, _) = makeService()
+ 266 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:268:69: note: expanded code originates here
+ 266 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+ 267 |         // No upload because notifications are off.
+ 268 |         #expect(await RecordingURLProtocol.recorder.methods.isEmpty)
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.isEmpty,expression: .__fromSyntaxNode("await RecordingURLProtocol.recorder.methods.isEmpty"),comments: [.__line("// No upload because notifications are off.")],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 269 |     }
+ 270 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:272:9: warning: no 'async' operations occur within 'await' expression
+ 270 | 
+ 271 |     @Test func enablingUploadsCachedToken() async {
+ 272 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 273 |         let (service, defaults) = makeService()
+ 274 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:277:78: note: expanded code originates here
+ 275 |         await service.setEnabled(true)
+ 276 |         #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
+ 277 |         #expect(await RecordingURLProtocol.recorder.methods.contains("POST"))
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.contains("POST"),expression: .__fromSyntaxNode(#"await RecordingURLProtocol.recorder.methods.contains("POST")"#),comments: [],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 278 |     }
+ 279 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:281:9: warning: no 'async' operations occur within 'await' expression
+ 279 | 
+ 280 |     @Test func disablingDeletesServerToken() async {
+ 281 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 282 |         let (service, _) = makeService()
+ 283 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:286:80: note: expanded code originates here
+ 284 |         await service.setEnabled(true)
+ 285 |         await service.setEnabled(false)
+ 286 |         #expect(await RecordingURLProtocol.recorder.methods.contains("DELETE"))
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.contains("DELETE"),expression: .__fromSyntaxNode(#"await RecordingURLProtocol.recorder.methods.contains("DELETE")"#),comments: [],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 287 |     }
+ 288 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:308:23: warning: no 'async' operations occur within 'await' expression
+ 306 |         var request: URLRequest?
+ 307 |         for _ in 0..<1000 where request == nil {
+ 308 |             request = await RecordingURLProtocol.recorder.requests.first {
+     |                       `- warning: no 'async' operations occur within 'await' expression
+ 309 |                 $0.value(forHTTPHeaderField: "Authorization") == "Bearer captured-access"
+ 310 |             }
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:337:24: warning: no 'async' operations occur within 'await' expression
+ 335 |         // The unregister call has fully completed, so any DELETE it issued is
+ 336 |         // already recorded. None may carry the live (next account's) Bearer.
+ 337 |         let hijacked = await RecordingURLProtocol.recorder.requests.contains {
+     |                        `- warning: no 'async' operations occur within 'await' expression
+ 338 |             $0.value(forHTTPHeaderField: "Authorization") == "Bearer next-user-access"
+ 339 |         }
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:827:50: warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+ 825 | 
+ 826 |         _ = await service.snapshots()
+ 827 |         await PushRegistrationURLProtocol.script.waitForRequestCount(1)
+     |                                                  `- warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+ 828 | 
+ 829 |         #expect(
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:1009:50: warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+1007 | 
+1008 |         await blocker.release()
+1009 |         await PushRegistrationURLProtocol.script.waitForRequestCount(3)
+     |                                                  `- warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+1010 | 
+1011 |         #expect(
+[102/108] Compiling CmuxAuthRuntimeTests ReleasableCancellationIgnoringMagicLinkAuthClient.swift
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:264:9: warning: no 'async' operations occur within 'await' expression
+ 262 | 
+ 263 |     @Test func registeringWhileDisabledCachesButDoesNotUpload() async {
+ 264 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 265 |         let (service, _) = makeService()
+ 266 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:268:69: note: expanded code originates here
+ 266 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+ 267 |         // No upload because notifications are off.
+ 268 |         #expect(await RecordingURLProtocol.recorder.methods.isEmpty)
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.isEmpty,expression: .__fromSyntaxNode("await RecordingURLProtocol.recorder.methods.isEmpty"),comments: [.__line("// No upload because notifications are off.")],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 269 |     }
+ 270 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:272:9: warning: no 'async' operations occur within 'await' expression
+ 270 | 
+ 271 |     @Test func enablingUploadsCachedToken() async {
+ 272 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 273 |         let (service, defaults) = makeService()
+ 274 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:277:78: note: expanded code originates here
+ 275 |         await service.setEnabled(true)
+ 276 |         #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
+ 277 |         #expect(await RecordingURLProtocol.recorder.methods.contains("POST"))
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.contains("POST"),expression: .__fromSyntaxNode(#"await RecordingURLProtocol.recorder.methods.contains("POST")"#),comments: [],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 278 |     }
+ 279 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:281:9: warning: no 'async' operations occur within 'await' expression
+ 279 | 
+ 280 |     @Test func disablingDeletesServerToken() async {
+ 281 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 282 |         let (service, _) = makeService()
+ 283 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:286:80: note: expanded code originates here
+ 284 |         await service.setEnabled(true)
+ 285 |         await service.setEnabled(false)
+ 286 |         #expect(await RecordingURLProtocol.recorder.methods.contains("DELETE"))
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.contains("DELETE"),expression: .__fromSyntaxNode(#"await RecordingURLProtocol.recorder.methods.contains("DELETE")"#),comments: [],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 287 |     }
+ 288 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:308:23: warning: no 'async' operations occur within 'await' expression
+ 306 |         var request: URLRequest?
+ 307 |         for _ in 0..<1000 where request == nil {
+ 308 |             request = await RecordingURLProtocol.recorder.requests.first {
+     |                       `- warning: no 'async' operations occur within 'await' expression
+ 309 |                 $0.value(forHTTPHeaderField: "Authorization") == "Bearer captured-access"
+ 310 |             }
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:337:24: warning: no 'async' operations occur within 'await' expression
+ 335 |         // The unregister call has fully completed, so any DELETE it issued is
+ 336 |         // already recorded. None may carry the live (next account's) Bearer.
+ 337 |         let hijacked = await RecordingURLProtocol.recorder.requests.contains {
+     |                        `- warning: no 'async' operations occur within 'await' expression
+ 338 |             $0.value(forHTTPHeaderField: "Authorization") == "Bearer next-user-access"
+ 339 |         }
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:827:50: warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+ 825 | 
+ 826 |         _ = await service.snapshots()
+ 827 |         await PushRegistrationURLProtocol.script.waitForRequestCount(1)
+     |                                                  `- warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+ 828 | 
+ 829 |         #expect(
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:1009:50: warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+1007 | 
+1008 |         await blocker.release()
+1009 |         await PushRegistrationURLProtocol.script.waitForRequestCount(3)
+     |                                                  `- warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+1010 | 
+1011 |         #expect(
+[103/108] Compiling CmuxAuthRuntimeTests TestContinuationBlocker.swift
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:264:9: warning: no 'async' operations occur within 'await' expression
+ 262 | 
+ 263 |     @Test func registeringWhileDisabledCachesButDoesNotUpload() async {
+ 264 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 265 |         let (service, _) = makeService()
+ 266 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:268:69: note: expanded code originates here
+ 266 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+ 267 |         // No upload because notifications are off.
+ 268 |         #expect(await RecordingURLProtocol.recorder.methods.isEmpty)
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.isEmpty,expression: .__fromSyntaxNode("await RecordingURLProtocol.recorder.methods.isEmpty"),comments: [.__line("// No upload because notifications are off.")],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 269 |     }
+ 270 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:272:9: warning: no 'async' operations occur within 'await' expression
+ 270 | 
+ 271 |     @Test func enablingUploadsCachedToken() async {
+ 272 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 273 |         let (service, defaults) = makeService()
+ 274 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:277:78: note: expanded code originates here
+ 275 |         await service.setEnabled(true)
+ 276 |         #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
+ 277 |         #expect(await RecordingURLProtocol.recorder.methods.contains("POST"))
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.contains("POST"),expression: .__fromSyntaxNode(#"await RecordingURLProtocol.recorder.methods.contains("POST")"#),comments: [],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 278 |     }
+ 279 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:281:9: warning: no 'async' operations occur within 'await' expression
+ 279 | 
+ 280 |     @Test func disablingDeletesServerToken() async {
+ 281 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 282 |         let (service, _) = makeService()
+ 283 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:286:80: note: expanded code originates here
+ 284 |         await service.setEnabled(true)
+ 285 |         await service.setEnabled(false)
+ 286 |         #expect(await RecordingURLProtocol.recorder.methods.contains("DELETE"))
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.contains("DELETE"),expression: .__fromSyntaxNode(#"await RecordingURLProtocol.recorder.methods.contains("DELETE")"#),comments: [],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 287 |     }
+ 288 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:308:23: warning: no 'async' operations occur within 'await' expression
+ 306 |         var request: URLRequest?
+ 307 |         for _ in 0..<1000 where request == nil {
+ 308 |             request = await RecordingURLProtocol.recorder.requests.first {
+     |                       `- warning: no 'async' operations occur within 'await' expression
+ 309 |                 $0.value(forHTTPHeaderField: "Authorization") == "Bearer captured-access"
+ 310 |             }
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:337:24: warning: no 'async' operations occur within 'await' expression
+ 335 |         // The unregister call has fully completed, so any DELETE it issued is
+ 336 |         // already recorded. None may carry the live (next account's) Bearer.
+ 337 |         let hijacked = await RecordingURLProtocol.recorder.requests.contains {
+     |                        `- warning: no 'async' operations occur within 'await' expression
+ 338 |             $0.value(forHTTPHeaderField: "Authorization") == "Bearer next-user-access"
+ 339 |         }
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:827:50: warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+ 825 | 
+ 826 |         _ = await service.snapshots()
+ 827 |         await PushRegistrationURLProtocol.script.waitForRequestCount(1)
+     |                                                  `- warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+ 828 | 
+ 829 |         #expect(
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:1009:50: warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+1007 | 
+1008 |         await blocker.release()
+1009 |         await PushRegistrationURLProtocol.script.waitForRequestCount(3)
+     |                                                  `- warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+1010 | 
+1011 |         #expect(
+[104/108] Compiling CmuxAuthRuntimeTests TestDeadlineWatchdog.swift
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:264:9: warning: no 'async' operations occur within 'await' expression
+ 262 | 
+ 263 |     @Test func registeringWhileDisabledCachesButDoesNotUpload() async {
+ 264 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 265 |         let (service, _) = makeService()
+ 266 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:268:69: note: expanded code originates here
+ 266 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+ 267 |         // No upload because notifications are off.
+ 268 |         #expect(await RecordingURLProtocol.recorder.methods.isEmpty)
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.isEmpty,expression: .__fromSyntaxNode("await RecordingURLProtocol.recorder.methods.isEmpty"),comments: [.__line("// No upload because notifications are off.")],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 269 |     }
+ 270 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:272:9: warning: no 'async' operations occur within 'await' expression
+ 270 | 
+ 271 |     @Test func enablingUploadsCachedToken() async {
+ 272 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 273 |         let (service, defaults) = makeService()
+ 274 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:277:78: note: expanded code originates here
+ 275 |         await service.setEnabled(true)
+ 276 |         #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
+ 277 |         #expect(await RecordingURLProtocol.recorder.methods.contains("POST"))
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.contains("POST"),expression: .__fromSyntaxNode(#"await RecordingURLProtocol.recorder.methods.contains("POST")"#),comments: [],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 278 |     }
+ 279 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:281:9: warning: no 'async' operations occur within 'await' expression
+ 279 | 
+ 280 |     @Test func disablingDeletesServerToken() async {
+ 281 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 282 |         let (service, _) = makeService()
+ 283 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:286:80: note: expanded code originates here
+ 284 |         await service.setEnabled(true)
+ 285 |         await service.setEnabled(false)
+ 286 |         #expect(await RecordingURLProtocol.recorder.methods.contains("DELETE"))
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.contains("DELETE"),expression: .__fromSyntaxNode(#"await RecordingURLProtocol.recorder.methods.contains("DELETE")"#),comments: [],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 287 |     }
+ 288 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:308:23: warning: no 'async' operations occur within 'await' expression
+ 306 |         var request: URLRequest?
+ 307 |         for _ in 0..<1000 where request == nil {
+ 308 |             request = await RecordingURLProtocol.recorder.requests.first {
+     |                       `- warning: no 'async' operations occur within 'await' expression
+ 309 |                 $0.value(forHTTPHeaderField: "Authorization") == "Bearer captured-access"
+ 310 |             }
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:337:24: warning: no 'async' operations occur within 'await' expression
+ 335 |         // The unregister call has fully completed, so any DELETE it issued is
+ 336 |         // already recorded. None may carry the live (next account's) Bearer.
+ 337 |         let hijacked = await RecordingURLProtocol.recorder.requests.contains {
+     |                        `- warning: no 'async' operations occur within 'await' expression
+ 338 |             $0.value(forHTTPHeaderField: "Authorization") == "Bearer next-user-access"
+ 339 |         }
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:827:50: warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+ 825 | 
+ 826 |         _ = await service.snapshots()
+ 827 |         await PushRegistrationURLProtocol.script.waitForRequestCount(1)
+     |                                                  `- warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+ 828 | 
+ 829 |         #expect(
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:1009:50: warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+1007 | 
+1008 |         await blocker.release()
+1009 |         await PushRegistrationURLProtocol.script.waitForRequestCount(3)
+     |                                                  `- warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+1010 | 
+1011 |         #expect(
+[105/108] Compiling CmuxAuthRuntimeTests TestPhaseSignal.swift
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:264:9: warning: no 'async' operations occur within 'await' expression
+ 262 | 
+ 263 |     @Test func registeringWhileDisabledCachesButDoesNotUpload() async {
+ 264 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 265 |         let (service, _) = makeService()
+ 266 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:268:69: note: expanded code originates here
+ 266 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+ 267 |         // No upload because notifications are off.
+ 268 |         #expect(await RecordingURLProtocol.recorder.methods.isEmpty)
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.isEmpty,expression: .__fromSyntaxNode("await RecordingURLProtocol.recorder.methods.isEmpty"),comments: [.__line("// No upload because notifications are off.")],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 269 |     }
+ 270 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:272:9: warning: no 'async' operations occur within 'await' expression
+ 270 | 
+ 271 |     @Test func enablingUploadsCachedToken() async {
+ 272 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 273 |         let (service, defaults) = makeService()
+ 274 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:277:78: note: expanded code originates here
+ 275 |         await service.setEnabled(true)
+ 276 |         #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
+ 277 |         #expect(await RecordingURLProtocol.recorder.methods.contains("POST"))
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.contains("POST"),expression: .__fromSyntaxNode(#"await RecordingURLProtocol.recorder.methods.contains("POST")"#),comments: [],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 278 |     }
+ 279 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:281:9: warning: no 'async' operations occur within 'await' expression
+ 279 | 
+ 280 |     @Test func disablingDeletesServerToken() async {
+ 281 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 282 |         let (service, _) = makeService()
+ 283 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:286:80: note: expanded code originates here
+ 284 |         await service.setEnabled(true)
+ 285 |         await service.setEnabled(false)
+ 286 |         #expect(await RecordingURLProtocol.recorder.methods.contains("DELETE"))
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.contains("DELETE"),expression: .__fromSyntaxNode(#"await RecordingURLProtocol.recorder.methods.contains("DELETE")"#),comments: [],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 287 |     }
+ 288 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:308:23: warning: no 'async' operations occur within 'await' expression
+ 306 |         var request: URLRequest?
+ 307 |         for _ in 0..<1000 where request == nil {
+ 308 |             request = await RecordingURLProtocol.recorder.requests.first {
+     |                       `- warning: no 'async' operations occur within 'await' expression
+ 309 |                 $0.value(forHTTPHeaderField: "Authorization") == "Bearer captured-access"
+ 310 |             }
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:337:24: warning: no 'async' operations occur within 'await' expression
+ 335 |         // The unregister call has fully completed, so any DELETE it issued is
+ 336 |         // already recorded. None may carry the live (next account's) Bearer.
+ 337 |         let hijacked = await RecordingURLProtocol.recorder.requests.contains {
+     |                        `- warning: no 'async' operations occur within 'await' expression
+ 338 |             $0.value(forHTTPHeaderField: "Authorization") == "Bearer next-user-access"
+ 339 |         }
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:827:50: warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+ 825 | 
+ 826 |         _ = await service.snapshots()
+ 827 |         await PushRegistrationURLProtocol.script.waitForRequestCount(1)
+     |                                                  `- warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+ 828 | 
+ 829 |         #expect(
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:1009:50: warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+1007 | 
+1008 |         await blocker.release()
+1009 |         await PushRegistrationURLProtocol.script.waitForRequestCount(3)
+     |                                                  `- warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+1010 | 
+1011 |         #expect(
+[106/108] Compiling CmuxAuthRuntimeTests TokenStoreCompareAndSetTests.swift
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:264:9: warning: no 'async' operations occur within 'await' expression
+ 262 | 
+ 263 |     @Test func registeringWhileDisabledCachesButDoesNotUpload() async {
+ 264 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 265 |         let (service, _) = makeService()
+ 266 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:268:69: note: expanded code originates here
+ 266 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+ 267 |         // No upload because notifications are off.
+ 268 |         #expect(await RecordingURLProtocol.recorder.methods.isEmpty)
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.isEmpty,expression: .__fromSyntaxNode("await RecordingURLProtocol.recorder.methods.isEmpty"),comments: [.__line("// No upload because notifications are off.")],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 269 |     }
+ 270 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:272:9: warning: no 'async' operations occur within 'await' expression
+ 270 | 
+ 271 |     @Test func enablingUploadsCachedToken() async {
+ 272 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 273 |         let (service, defaults) = makeService()
+ 274 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:277:78: note: expanded code originates here
+ 275 |         await service.setEnabled(true)
+ 276 |         #expect(defaults.bool(forKey: "cmux.notifications.pushEnabled"))
+ 277 |         #expect(await RecordingURLProtocol.recorder.methods.contains("POST"))
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.contains("POST"),expression: .__fromSyntaxNode(#"await RecordingURLProtocol.recorder.methods.contains("POST")"#),comments: [],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 278 |     }
+ 279 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:281:9: warning: no 'async' operations occur within 'await' expression
+ 279 | 
+ 280 |     @Test func disablingDeletesServerToken() async {
+ 281 |         await RecordingURLProtocol.recorder.reset()
+     |         `- warning: no 'async' operations occur within 'await' expression
+ 282 |         let (service, _) = makeService()
+ 283 |         await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+macro expansion #expect:1:22: warning: no 'async' operations occur within 'await' expression
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:286:80: note: expanded code originates here
+ 284 |         await service.setEnabled(true)
+ 285 |         await service.setEnabled(false)
+ 286 |         #expect(await RecordingURLProtocol.recorder.methods.contains("DELETE"))
+     |         `- note: in expansion of macro 'expect' here
+     +--- macro expansion #expect --------------------------------------
+     |1 | Testing.__checkValue(await RecordingURLProtocol.recorder.methods.contains("DELETE"),expression: .__fromSyntaxNode(#"await RecordingURLProtocol.recorder.methods.contains("DELETE")"#),comments: [],isRequired: false,sourceLocation: Testing.SourceLocation.__here()).__expected()
+     |  |                      `- warning: no 'async' operations occur within 'await' expression
+     +------------------------------------------------------------------
+ 287 |     }
+ 288 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:308:23: warning: no 'async' operations occur within 'await' expression
+ 306 |         var request: URLRequest?
+ 307 |         for _ in 0..<1000 where request == nil {
+ 308 |             request = await RecordingURLProtocol.recorder.requests.first {
+     |                       `- warning: no 'async' operations occur within 'await' expression
+ 309 |                 $0.value(forHTTPHeaderField: "Authorization") == "Bearer captured-access"
+ 310 |             }
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:337:24: warning: no 'async' operations occur within 'await' expression
+ 335 |         // The unregister call has fully completed, so any DELETE it issued is
+ 336 |         // already recorded. None may carry the live (next account's) Bearer.
+ 337 |         let hijacked = await RecordingURLProtocol.recorder.requests.contains {
+     |                        `- warning: no 'async' operations occur within 'await' expression
+ 338 |             $0.value(forHTTPHeaderField: "Authorization") == "Bearer next-user-access"
+ 339 |         }
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:827:50: warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+ 825 | 
+ 826 |         _ = await service.snapshots()
+ 827 |         await PushRegistrationURLProtocol.script.waitForRequestCount(1)
+     |                                                  `- warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+ 828 | 
+ 829 |         #expect(
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/PushRegistrationServiceTests.swift:1009:50: warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+1007 | 
+1008 |         await blocker.release()
+1009 |         await PushRegistrationURLProtocol.script.waitForRequestCount(3)
+     |                                                  `- warning: result of call to 'waitForRequestCount(_:timeout:)' is unused [#no-usage]
+1010 | 
+1011 |         #expect(
+[107/110] Emitting module CmuxAuthRuntimePackageTests
+[108/110] Compiling CmuxAuthRuntimePackageTests runner.swift
+[108/110] Write Objects.LinkFileList
+[109/110] Linking CmuxAuthRuntimePackageTests
+Build complete! (10.95s)
+Test Suite 'Selected tests' started at 2026-09-10 21:38:41.395.
+Test Suite 'CmuxAuthRuntimePackageTests.xctest' started at 2026-09-10 21:38:41.395.
+Test Suite 'CmuxAuthRuntimePackageTests.xctest' passed at 2026-09-10 21:38:41.395.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-09-10 21:38:41.395.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+◇ Test run started.
+↳ Testing Library Version: 1501
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite AuthCoordinatorTests started.
+◇ Test teamScopeChangesFenceWorkEvenWhenAStreamCoalescesTransitions() started.
+✔ Test teamScopeChangesFenceWorkEvenWhenAStreamCoalescesTransitions() passed after 0.001 seconds.
+✔ Suite AuthCoordinatorTests passed after 0.001 seconds.
+✔ Test run with 1 test in 1 suite passed after 0.001 seconds.
