@@ -785,6 +785,9 @@ final class ChatTableView: UIScrollView, UIScrollViewDelegate {
     }
 
     func apply(_ table: ChatNativeLayout.Table, inset: CGFloat, openLink: @escaping (URL) -> Void) {
+        // A table narrower than the chat centers in it; a wider one starts at the margin and scrolls
+        // (Leo 2026-11-22: "i dont know why we dont simply center tables in our agent chats").
+        let inset = max(inset, ((bounds.width - table.contentSize.width) / 2).rounded(.down))
         for (index, cell) in table.cells.enumerated() {
             let label: UILabel
             if index < labels.count {

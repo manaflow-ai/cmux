@@ -57,7 +57,8 @@ import Testing
 
     @Test func aClickOpensThePairOnTheSliderAndUpAndDownSwitchLightAndDark() async throws {
         let (table, part) = try await Self.loadedTable()
-        let rects = HomeTableGrid(table, available: 900).pictureRects(at: .zero)
+        let grid = HomeTableGrid(table, available: 900)
+        let rects = grid.pictureRects(at: grid.cardOrigin(inRow: .zero))
         let lightAfter = try #require(rects.first { $0.source.hasSuffix("al.png") })
         #expect(HomeTableRowProvider.picture(part, at: CGPoint(x: lightAfter.rect.midX, y: lightAfter.rect.midY), width: 900) == lightAfter.source)
         let gallery = try #require(HomePictureGallery(table: table, opening: lightAfter.source))

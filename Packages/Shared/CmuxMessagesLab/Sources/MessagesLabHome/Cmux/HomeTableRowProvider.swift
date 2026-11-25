@@ -48,7 +48,8 @@ final class HomeTableRowProvider: TranscriptCustomRowProvider {
     /// wide; nil off a picture or on one still loading.
     static func picture(_ part: CustomPart, at point: CGPoint, width: CGFloat) -> String? {
         guard let payload = payload(part) else { return nil }
-        return HomeTableGrid(payload.table, available: width).pictureRects(at: .zero)
+        let grid = HomeTableGrid(payload.table, available: width)
+        return grid.pictureRects(at: grid.cardOrigin(inRow: .zero))
             .first { !$0.loading && $0.rect.insetBy(dx: -2, dy: -2).contains(point) }?.source
     }
 
@@ -70,7 +71,8 @@ final class HomeTableRowProvider: TranscriptCustomRowProvider {
 
     func drawRow(_ part: CustomPart, in ctx: CGContext, rect: CGRect, context: CustomRowDrawContext) {
         guard let payload = Self.payload(part) else { return }
-        HomeTableGrid(payload.table, available: rect.width).draw(ctx, at: rect.origin)
+        let grid = HomeTableGrid(payload.table, available: rect.width)
+        grid.draw(ctx, at: grid.cardOrigin(inRow: rect.origin))
     }
 
     func tapped(_ part: CustomPart, ref: PartRef) -> Bool {
@@ -137,6 +139,9 @@ struct HomeTableGrid {
     var pictures: [[[CGImage]]] { slots.map { $0.map { $0.compactMap(\.image) } } }
     let alignments: [HomeTable.Alignment]
     let cardWidth: CGFloat
+    /// Room left and right of a card narrower than the chat, so it centers in the column (Leo 2026-11-22:
+    /// "i dont know why we dont simply center tables in our agent chats"); 0 when it takes the full width.
+    let centerInset: CGFloat
     /// The table's first header cell is empty (a matrix: row labels down the first column, names across the top).
     let hasEmptyCorner: Bool
     /// The large-pairs layout of a Before|After table (``HomeCompareLayout``); nil for a grid.
@@ -187,6 +192,7 @@ struct HomeTableGrid {
         hasEmptyCorner = table.columns > 1 && table.header[0].trimmingCharacters(in: .whitespaces).isEmpty
         compare = style == .pairs ? HomeCompareLayout(table, slots: pictures, available: available) : nil
         cardWidth = compare?.width ?? min(available, widths.reduce(0, +) + 2 * Self.gutter)
+        centerInset = max(0, ((available - cardWidth) / 2).rounded(.down))
     }
 
     /// Where the rule under row `r` starts and ends (x) in a card drawn at `origin`. The header's rule leaves an
@@ -197,6 +203,9 @@ struct HomeTableGrid {
         let end = origin.x + cardWidth - Self.pad
         return min(start, end)...end
     }
+
+    /// Where the card starts in a chat row whose body starts at `row`: centered when narrower than the row.
+    func cardOrigin(inRow row: CGPoint) -> CGPoint { CGPoint(x: row.x + centerInset, y: row.y) }
 
     func draw(_ ctx: CGContext, at origin: CGPoint) {
         if let compare { compare.draw(ctx, at: origin); return }

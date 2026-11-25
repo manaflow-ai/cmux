@@ -350,17 +350,19 @@ public struct NativeMarkdownLayout: @unchecked Sendable {
             var rules: [CGRect] = []
             var y: CGFloat = 0
             let total = widths.reduce(0) { $0 + $1 + 12 }
+            // A table narrower than the column centers in it; a wider one starts at the edge and scrolls.
+            let lead = max(0, ((width - total) / 2).rounded(.down))
             for (r, line) in texts.enumerated() {
-                var x: CGFloat = 0
+                var x: CGFloat = lead
                 for (c, text) in line.enumerated() {
                     cells.append((text, CGRect(x: x, y: y + 8 + halfLeading(r == 0 ? bold : font, lh), width: widths[c], height: lh)))
                     x += widths[c] + 12
                 }
                 y += 8 + lh + 8
-                rules.append(CGRect(x: 0, y: y - 0.5, width: total, height: 0.5))
+                rules.append(CGRect(x: lead, y: y - 0.5, width: total, height: 0.5))
             }
             return TableBlock(frame: CGRect(x: 0, y: top, width: width, height: y), cells: cells, rules: rules,
-                              contentSize: CGSize(width: total, height: y))
+                              contentSize: CGSize(width: lead + total, height: y))
         }
     }
 }

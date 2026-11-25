@@ -143,6 +143,21 @@ import Testing
         #expect(ink >= Fixture.bubblePadX - 0.5 && ink < Fixture.bubblePadX + 2.5, "text starts \(ink) pt in; a bubble's starts \(Fixture.bubblePadX)")
     }
 
+    // MARK: Centered tables
+
+    /// Leo 2026-11-22: "i dont know why we dont simply center tables in our agent chats".
+    @Test func aTableCardNarrowerThanTheChatCentersInItsRow() {
+        let grid = HomeTableGrid(Self.words, available: 1400)
+        #expect(grid.cardWidth < 1400)
+        let x = grid.cardOrigin(inRow: CGPoint(x: 10, y: 0)).x - 10
+        #expect(abs(x - (1400 - grid.cardWidth - x)) <= 1, "left room \(x), right room \(1400 - grid.cardWidth - x)")
+    }
+
+    @Test func aTableCardAsWideAsTheChatStartsAtItsEdge() {
+        let grid = HomeTableGrid(Self.words, available: 120)
+        #expect(grid.cardOrigin(inRow: CGPoint(x: 10, y: 4)) == CGPoint(x: 10, y: 4))
+    }
+
     // MARK: A comparison's pairs
 
     @Test func aPairsPicturesShareOneCentreLineWhateverTheirShapes() async throws {

@@ -176,30 +176,38 @@ struct MarkdownTableView: View {
     let table: MarkdownTable
     let margin: CGFloat
 
+    /// A table narrower than the column centers in it; a wider one bleeds to the screen edges and
+    /// scrolls (Leo 2026-11-22: "i dont know why we dont simply center tables in our agent chats").
     var body: some View {
-        ScrollView(.horizontal) {
-            Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 0) {
+        ViewThatFits(in: .horizontal) {
+            grid.frame(maxWidth: .infinity)
+            ScrollView(.horizontal) {
+                grid.padding(.horizontal, margin - 12)
+            }
+            .scrollIndicators(.hidden)
+            .trailingOverflowFade()
+            .padding(.horizontal, -margin)
+        }
+        .selectionMenu { _ in
+            [SelectionMenu.action("Copy Table", "doc.on.doc") { UIPasteboard.general.string = table.plainText }]
+        }
+    }
+
+    private var grid: some View {
+        Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 0) {
+            GridRow {
+                ForEach(0..<table.columnCount, id: \.self) { column in
+                    cell(table.header[safe: column] ?? "", column: column, header: true)
+                }
+            }
+            ForEach(Array(table.rows.enumerated()), id: \.offset) { _, row in
+                Divider().gridCellUnsizedAxes(.horizontal)
                 GridRow {
                     ForEach(0..<table.columnCount, id: \.self) { column in
-                        cell(table.header[safe: column] ?? "", column: column, header: true)
-                    }
-                }
-                ForEach(Array(table.rows.enumerated()), id: \.offset) { _, row in
-                    Divider().gridCellUnsizedAxes(.horizontal)
-                    GridRow {
-                        ForEach(0..<table.columnCount, id: \.self) { column in
-                            cell(row[safe: column] ?? "", column: column, header: false)
-                        }
+                        cell(row[safe: column] ?? "", column: column, header: false)
                     }
                 }
             }
-            .padding(.horizontal, margin - 12)
-        }
-        .scrollIndicators(.hidden)
-        .trailingOverflowFade()
-        .padding(.horizontal, -margin)
-        .selectionMenu { _ in
-            [SelectionMenu.action("Copy Table", "doc.on.doc") { UIPasteboard.general.string = table.plainText }]
         }
     }
 
