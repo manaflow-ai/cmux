@@ -7,6 +7,13 @@
 # it means it works". The tests: cmux-tui/crates/cmux-tui/tests/cli/apps_store.rs.
 set -euo pipefail
 log="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/shelf.log"
+# The cli test binary with full debuginfo and incremental state filled a cmux-linux runner's disk
+# ("No space left on device" writing target/debug/incremental, nightly run 45661348837, 2026-11-25), and a
+# red shelf refuses the nightly's publish. Line tables keep panics readable; incremental state is never
+# reused on a CI box. The same settings as cloud-journey-pr.yml's build. Callers may still override them.
+export CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-0}"
+export CARGO_PROFILE_DEV_DEBUG="${CARGO_PROFILE_DEV_DEBUG:-line-tables-only}"
+export CARGO_PROFILE_TEST_DEBUG="${CARGO_PROFILE_TEST_DEBUG:-line-tables-only}"
 cd cmux-tui
 cargo test --locked -p cmux-tui --test cli -- \
   every_shipped_store_listing_installs_and_has_something_to_open \

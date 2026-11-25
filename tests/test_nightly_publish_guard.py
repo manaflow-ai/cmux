@@ -343,6 +343,14 @@ class WorkflowTests(unittest.TestCase):
         for test in ("every_shipped_store_listing_installs_and_has_something_to_open",
                      "a_command_only_store_listing_has_nothing_to_open_after_install"):
             self.assertIn(test, script)
+        # The cli test build filled a cmux-linux runner's disk (run 45661348837) and the red shelf refused the
+        # publish: the script builds without incremental state and with line tables only, before cargo runs.
+        cargo_at = script.index("cargo test")
+        for setting in ('CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-0}"',
+                        'CARGO_PROFILE_TEST_DEBUG="${CARGO_PROFILE_TEST_DEBUG:-line-tables-only}"',
+                        'CARGO_PROFILE_DEV_DEBUG="${CARGO_PROFILE_DEV_DEBUG:-line-tables-only}"'):
+            self.assertIn("export " + setting, script)
+            self.assertLess(script.index(setting), cargo_at)
 
     def test_both_publishers_gate_on_the_shelf_before_any_upload(self):
         publish = jobs()["publish-nightly"]
