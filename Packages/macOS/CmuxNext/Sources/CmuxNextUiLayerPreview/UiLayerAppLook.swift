@@ -9,7 +9,7 @@ public import CmuxTheme
 /// reads it, so the UI host's windows wear the same theme, accent and background without
 /// Ghostty, a daemon or the app itself.
 ///
-/// Every channel shares `~/.config/cmux/cmux-next.json` (`CmuxConfigFile.defaultURL`), so the
+/// Every channel shares `~/.config/cmux-next/cmux-next.json` (`CmuxConfigFile.defaultURL`), so the
 /// host parses that file with the app's own `CmuxConfigSnapshot`: `appearance.theme`,
 /// `appearance.accent`, `appearance.themeEdits`, the window Opacity and Material, and
 /// `appearance.background`. The terminal theme under it comes from the Ghostty config files the

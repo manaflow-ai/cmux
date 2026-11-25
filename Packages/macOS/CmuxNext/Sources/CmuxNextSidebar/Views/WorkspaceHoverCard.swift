@@ -58,6 +58,8 @@ final class WorkspaceHoverCardController: HoverCardSource {
     var customization: (any SidebarCustomization)?
     /// A workspace's history of prompts, waits and finished turns (u3320); the App injects it.
     var timelineSource: SidebarTimelineSource?
+    /// Every card's tab pictures (#51768): a card opened again draws its last at once.
+    let thumbnails = SidebarTabThumbnails()
     /// How many moments a card reads: its stats count them all, its list shows `maxRows`.
     static let timelineReadLimit = 100
     /// The shown card's custom content and its workspace; released when the card hides or moves.
@@ -157,6 +159,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
         if let group = groupID(id) { return groupCardBody(for: group, id: id) }
         guard let list, let ws = workspaceID(id), let workspace = list.hoverCardRow(ws) else { return nil }
         let body = body ?? WorkspaceHoverCardView()
+        body.paneShape.thumbnails = thumbnails
         body.widthCap = min(WorkspaceHoverCardView.maxCardWidth, list.bounds.width + WorkspaceHoverCardView.tokens.sidebarReach)
         if bodyID != id { body.resetDetails() }
         // Activation ran while the card was pending, before this body existed, so details
@@ -203,6 +206,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
               }).first,
               let workspace = list.hoverCardRow(ws) else { return nil }
         let body = WorkspaceHoverCardView()
+        body.paneShape.thumbnails = thumbnails
         body.widthCap = min(WorkspaceHoverCardView.maxCardWidth, list.bounds.width + WorkspaceHoverCardView.tokens.sidebarReach)
         self.body = body
         fill(body, with: workspace, ws, in: list)
@@ -224,7 +228,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
                                                      looked: looked, pullRequests: SidebarSessionTree.shared.pullRequests[ws])
         body.configure(content)
         body.configureTabs(title: ws.rawValue, tabs: workspace.tabs, machine: machine)
-        body.configurePaneShape(workspace.paneShape)
+        body.configurePaneShape(workspace.paneShape, tabs: workspace.tabs)
         return content
     }
 
@@ -881,10 +885,15 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
 
     /// The tab list and the summary header for `tabs`, as of `now` (their times).
     /// Shows `shape`, the workspace's splits, under the title; nil hides the miniature.
-    func configurePaneShape(_ shape: SidebarPaneShape?) {
-        guard paneShape.shape != shape else { return }
-        contentChanged()
-        paneShape.shape = shape
+    /// Each show asks for the tiles' newest pictures (#51768); the last ones draw meanwhile.
+    /// `tabs` name the tiles that have no picture yet (``WorkspacePaneShapeView/label(for:)``).
+    func configurePaneShape(_ shape: SidebarPaneShape?, tabs: [SidebarTab] = []) {
+        paneShape.labels = Dictionary(tabs.map { ($0.id, WorkspacePaneShapeView.label(for: $0)) }, uniquingKeysWith: { first, _ in first })
+        if paneShape.shape != shape {
+            contentChanged()
+            paneShape.shape = shape
+        }
+        paneShape.refreshThumbnails()
     }
 
     func configureTabs(title: String, tabs: [SidebarTab], now: Date = Date(), machine: SidebarMachine? = nil) {

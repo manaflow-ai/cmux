@@ -227,6 +227,9 @@ export async function mountAgentPane(variant: AgentPaneVariant, context: StageCo
   // Mock pages need their daemon before mounting: the ready reply schedules the fixture
   // snapshot, which must not paint while the mock transport's chunk is still loading.
   if (state.ready?.transport === "mock") prepareMockTransport(await import("../../agent-session/acpmux/mock"));
+  // Settings > Advanced > Experiments switches on, as the app's `applyExperiments` push sends them.
+  if (state.experimentSwitches)
+    (await import("../../experiments/switches")).setExperimentSwitches(state.experimentSwitches);
   // Opened before the chat binds: the first chat's own choice (a new pane starts with it closed).
   if (state.sessionInfoOpen)
     (await import("../../agent-session/acpmux/session-info/sessionInfoState")).setSessionInfoOpen(true);
