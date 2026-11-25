@@ -417,7 +417,13 @@ fn send_to(runner: &mut dyn Runner, request: &Request, machine_id: &str, session
         deadline,
         &mut progress,
     );
-    if deadline.passed(runner) { progress.late(request) } else { outcome }
+    if deadline.passed(runner) && !waited_out(&outcome) { progress.late(request) } else { outcome }
+}
+
+/// Whether `outcome` is the wait's own `chat.wait_timeout`: it holds what the wait learned (a capacity wait, the
+/// failed turn the next status read starts after), which [`Progress::late`]'s copy from before the wait lacks.
+fn waited_out(outcome: &Outcome) -> bool {
+    matches!(outcome, Outcome::Failed { error, .. } if error["code"] == "chat.wait_timeout")
 }
 
 /// The command that sends to `session` on `machine_id` again (`cmux chat send`): never a start, which would
@@ -1411,7 +1417,7 @@ fn run_once(runner: &mut dyn Runner, request: &Request) -> Outcome {
     // during deletion, rather than suggesting the caller retry on a machine we just deleted.
     let rolled_back = matches!(&outcome, Outcome::Failed { error, .. }
         if error.pointer("/details/cleanup").is_some());
-    if deadline.passed(&mut timed) && !rolled_back {
+    if deadline.passed(&mut timed) && !rolled_back && !waited_out(&outcome) {
         outcome = progress.late(request);
     }
     if let (Some(id), Outcome::Done(answer)) = (progress.made.as_deref(), &mut outcome)
