@@ -44,7 +44,9 @@
 //! (`cloud_bootstrap_*`, `cloud_machine_config_*`, `cloud_machine_step_outcome`,
 //! `cloud_create_*`, `cloud_power_retries`),
 //! `cmux-window-rules`' window handler rules (`window_*`: what a close asks
-//! and whether it earns an undo toast),
+//! and whether it earns an undo toast), its first-run step rules and
+//! external open router (`onboarding_steps_*`: the Computer Use and Agents
+//! steps, where a URL or file macOS hands cmux goes),
 //! `cmux-cloud-machine`'s Cloud machine record and rules (the other `cloud_machine_*`) and
 //! the small Cloud API models (`cloud_model_*`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
@@ -90,6 +92,7 @@ pub mod focus;
 mod imessage;
 pub mod input;
 pub mod keychain;
+mod onboarding_steps;
 pub mod scroll;
 pub mod shown_resize;
 pub mod sidebar_caps;
@@ -587,6 +590,10 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&cmux_focus_core::wire::agent_cursor_visibility(&request))
                     .map_err(|_| ERR_INVALID)?
+            }
+            // Narrower than the onboarding footer's `onboarding_` ops: asked first.
+            operation if onboarding_steps::handles(operation) => {
+                onboarding_steps::respond(operation, request)?
             }
             operation if cloud_config::handles(operation) => {
                 cloud_config::respond(operation, request)?

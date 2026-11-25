@@ -25,16 +25,15 @@ public struct OnboardingAgent: Sendable, Equatable {
     }
 
     /// Sign In shows for every installed agent not known to be signed in (Claude Code reports unknown).
-    public var offersSignIn: Bool { installed && auth != .signedIn }
+    public var offersSignIn: Bool { marks?.offersSignIn ?? false }
 
     /// The vendor's own install page for an agent cmux can install (`acpmux harness install`),
     /// shown beside Install for a person who would rather install it by hand; nil for any other.
     public var installPage: URL? { Self.installPages[id] }
 
-    public static let installPages: [String: URL] = [
-        "claude": "https://docs.anthropic.com/en/docs/claude-code/setup",
-        "codex": "https://developers.openai.com/codex/cli",
-    ].compactMapValues(URL.init(string:))
+    /// The table is Rust's (`onboarding_steps_agents_table`), asked once.
+    public static let installPages: [String: URL] =
+        AgentsStepModel.Table.shared.installPages.compactMapValues(URL.init(string:))
 }
 
 /// The installed agent CLIs and their sign-ins (the App's acpmux harnesses): what the Agents
@@ -69,6 +68,10 @@ extension AgentSignInSource {
 /// types the agent's login into a terminal tab, and each missing one cmux can install with an
 /// Install that runs the vendor's installer and then signs in. Nothing installs unless pressed
 /// (Leo, 2026-11-06: offer, never auto-install). Continue and Skip both leave, signed in or not.
+///
+/// The rules are Rust's (cmux-window-rules `onboarding_steps::agents`, op `onboarding_steps_agents`):
+/// what a read lists, each agent's marks and how a read ends the waiting install. This keeps the reads,
+/// the sign-ins and the installs.
 @MainActor
 @Observable
 public final class AgentsStepModel {
@@ -99,6 +102,8 @@ public final class AgentsStepModel {
     @ObservationIgnored let source: (any AgentSignInSource)?
     @ObservationIgnored private var read: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
+    /// The last read as acpmux gave it, in its order: what the rules' indices point into.
+    @ObservationIgnored private var lastRead: [OnboardingAgent] = []
 
     init(source: (any AgentSignInSource)?) {
         self.source = source
@@ -120,13 +125,13 @@ public final class AgentsStepModel {
         read = Task { [weak self, source] in
             let fresh = await source?.agentSignIns(recheck: recheck) ?? []
             guard let self, !Task.isCancelled, mine == generation else { return }
-            show(fresh)
+            let view = show(fresh)
             // Signed in now: the line under the list and the rechecks on coming back stop.
-            if fresh.contains(where: { $0.id == signingIn && $0.auth == .signedIn }) { signingIn = nil }
+            if view?.signedInNow == true { signingIn = nil }
             loading = false
             loaded = true
             read = nil
-            finishInstall()
+            finishInstall(view)
         }
     }
 
@@ -136,20 +141,34 @@ public final class AgentsStepModel {
 
     /// Ends ``installAwaitingRead`` from the read just shown: its Sign In runs when the agent is found,
     /// else the failure stays beside its button.
-    private func finishInstall() {
-        guard let id = installAwaitingRead else { return }
+    private func finishInstall(_ view: View?) {
+        guard let id = installAwaitingRead, let finish = view?.finishInstall else { return }
         installAwaitingRead = nil
         // The installer finished but acpmux does not find the agent yet: say so beside the button.
-        guard agents.contains(where: { $0.id == id }) else {
-            return installs[id] = .failed("installed, but cmux does not find it yet; reopen cmux to look again")
-        }
+        if finish.kind == "failed" { return installs[id] = .failed(finish.message ?? "") }
         installs[id] = nil
         signIn(id)
     }
 
-    private func show(_ fresh: [OnboardingAgent]) {
-        agents = fresh.filter(\.installed)
-        installable = fresh.filter { !$0.installed && $0.installPage != nil }
+    /// The read's facts with what the person did here.
+    private func facts(_ read: [OnboardingAgent]) -> Facts {
+        Facts(agents: read.map(Facts.Agent.init), signingIn: signingIn, installAwaitingRead: installAwaitingRead,
+              loginsOpened: loginsOpened.sorted(), confirmedLogins: confirmedLogins.sorted(),
+              installing: installs.values.contains(.installing))
+    }
+
+    /// One agent's marks with what the person did here.
+    private func marks(_ agent: OnboardingAgent) -> View.Marks? {
+        Self.ask(facts([agent]))?.marks.first
+    }
+
+    @discardableResult
+    private func show(_ fresh: [OnboardingAgent]) -> View? {
+        lastRead = fresh
+        guard let view = Self.ask(facts(fresh)) else { return nil }
+        agents = view.listed.map { fresh[$0] }
+        installable = view.installable.map { fresh[$0] }
+        return view
     }
 
     /// The window became key again: after a Sign In, acpmux checks the sign-ins again.
@@ -160,7 +179,7 @@ public final class AgentsStepModel {
 
     /// Sign In: the agent's login in a terminal tab, where the person answers it.
     public func signIn(_ id: String) {
-        guard let agent = agents.first(where: { $0.id == id }), agent.offersSignIn else { return }
+        guard let agent = agents.first(where: { $0.id == id }), marks(agent)?.offersSignIn == true else { return }
         signingIn = id
         signInFailed = false
         // task-owner: one sign-in the person asked for; it only opens the terminal tab.
@@ -176,13 +195,13 @@ public final class AgentsStepModel {
     /// Signed in, or unknown with its login confirmed by the person (``confirmedLogins``). Claude Code's Keychain
     /// login reads as unknown until a session proves it, so the person's word is the only completion it has.
     public func countsAsSignedIn(_ agent: OnboardingAgent) -> Bool {
-        agent.auth == .signedIn || agent.auth == .unknown && confirmedLogins.contains(agent.id)
+        marks(agent)?.countsAsSignedIn ?? false
     }
 
     /// A login opened here whose sign-in reads as unknown, not yet confirmed: the person finishes it in its
     /// terminal tab and says so, or signs in again.
     public func awaitsConfirmation(_ agent: OnboardingAgent) -> Bool {
-        agent.auth == .unknown && loginsOpened.contains(agent.id) && !confirmedLogins.contains(agent.id)
+        marks(agent)?.awaitsConfirmation ?? false
     }
 
     /// The person says the login that opened here finished. Only for an agent whose login opened here and whose
@@ -196,11 +215,12 @@ public final class AgentsStepModel {
     /// so the person goes straight from Install to the login. A failure stays beside the button.
     public func install(_ id: String) {
         // One install at a time: a second could finish first and its read would skip this one's sign-in.
-        guard installable.contains(where: { $0.id == id }), !installs.values.contains(.installing) else { return }
+        guard let index = lastRead.firstIndex(where: { $0.id == id }),
+              Self.ask(facts(lastRead))?.marks.dropFirst(index).first?.canInstall == true else { return }
         installs[id] = .installing
         // task-owner: one install the person asked for; it ends with the installer (acpmux bounds it).
         Task { [weak self, source] in
-            let failure: String? = if let source { await source.installAgent(id) } else { "cmux could not reach its agents service" }
+            let failure: String? = if let source { await source.installAgent(id) } else { Table.shared.noAgentsService }
             guard let self else { return }
             if let failure {
                 installs[id] = .failed(failure)
@@ -215,10 +235,10 @@ public final class AgentsStepModel {
             let mine = generation
             let fresh = await source?.agentSignIns(recheck: true) ?? []
             guard mine == generation else { return }
-            show(fresh)
+            let view = show(fresh)
             loading = false
             loaded = true
-            finishInstall()
+            finishInstall(view)
         }
     }
 
