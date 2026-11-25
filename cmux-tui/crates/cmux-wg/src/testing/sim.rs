@@ -109,6 +109,8 @@ struct Inner {
     pipes: HashMap<(SocketAddr, SocketAddr), (u32, u32, Pacer)>,
     /// Datagrams each address handed to the network.
     sent: HashMap<SocketAddr, u64>,
+    /// Bytes in those datagrams.
+    sent_bytes: HashMap<SocketAddr, u64>,
 }
 
 /// The network. Cheap to clone; every clone is the same network.
@@ -169,6 +171,12 @@ impl SimNet {
         self.lock().sent.get(&addr).copied().unwrap_or(0)
     }
 
+    /// Bytes in the datagrams the socket at `addr` handed to the network so
+    /// far (WireGuard datagrams, without IP and UDP headers).
+    pub fn sent_bytes_from(&self, addr: SocketAddr) -> u64 {
+        self.lock().sent_bytes.get(&addr).copied().unwrap_or(0)
+    }
+
     /// Datagrams dropped so far (cut links, full bottleneck queues and
     /// unbound destinations).
     pub fn dropped(&self) -> u64 {
@@ -189,6 +197,7 @@ impl SimNet {
     fn send(&self, from: SocketAddr, to: SocketAddr, datagram: &[u8], release: Instant) {
         let mut inner = self.lock();
         *inner.sent.entry(from).or_default() += 1;
+        *inner.sent_bytes.entry(from).or_default() += datagram.len() as u64;
         let profile = inner.links.get(&link_key(from, to)).copied().unwrap_or_default();
         let Some((_, endpoint)) = inner.endpoints.get(&to).cloned() else {
             drop(inner);

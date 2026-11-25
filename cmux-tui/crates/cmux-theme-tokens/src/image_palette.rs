@@ -280,7 +280,7 @@ pub(crate) fn chroma(c: Rgb) -> f64 {
     c.r.max(c.g).max(c.b) - c.r.min(c.g).min(c.b)
 }
 
-fn hue_distance(a: f64, b: f64) -> f64 {
+pub(crate) fn hue_distance(a: f64, b: f64) -> f64 {
     let d = (a - b).rem_euclid(360.0);
     d.min(360.0 - d)
 }

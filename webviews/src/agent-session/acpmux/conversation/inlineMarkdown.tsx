@@ -8,7 +8,7 @@ import { codeSpans } from "../slashCommands";
 import { ForeignFileRef, PathChip, SiblingFileChip, UrlChip } from "../chips/LinkChips";
 import { isBareFileName, ReplyFoldersContext } from "../chips/replyFolders";
 import { SoftBroken } from "./softBreaks";
-import { codePath, foreignFileId, isTemplatePath, lineOf, linkPath, pathName } from "../chips/paths";
+import { codePath, foreignFileId, isTemplatePath, linkPath, pathName, lineOf } from "../chips/paths";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import { StartedSessionChip } from "../started/StartedSessionCard";
 import { CmuxLinkChip } from "../chips/CmuxLinkChip";
@@ -58,6 +58,9 @@ export type InlineOptions = {
   /** A sent prompt's skills by shown name, with their descriptions: each `/name` in the renderer's
    *  plain text draws as a skill word (SkillWord.tsx), never in code. */
   skills?: ReadonlyMap<string, string>;
+  /** A sent prompt: each `@computer-use` / `@browser-use` in the renderer's plain text draws as its
+   *  badge (chips/ToolBadge.tsx), as the composer drew it; never in code. */
+  tools?: boolean;
   /** Inline code read as CommonMark reads it (slashCommands.ts codeSpans: a span closes on a run of
    *  as many backticks, so ``a ` b`` is one span), as a sent prompt's is. */
   commonmark?: boolean;

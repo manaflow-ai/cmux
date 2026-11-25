@@ -147,6 +147,29 @@ async fn a_hand_rename_titles_the_chat_by_the_name_in_words() {
     assert_eq!(s.meta().title.as_deref(), Some("Session name aliases"));
 }
 
+/// A harness that titles its threads (Codex) sends its title again after a rename: the chat keeps
+/// the title its new name gave, so no list shows the old name (Leo, 2026-11-22: "I DON'T KNOW
+/// WHO'S BEEN RENAMED TO WHAT").
+#[tokio::test]
+async fn a_harness_title_after_a_hand_rename_keeps_the_new_name() {
+    let hub = hub();
+    let s = chat(&hub, "s1", "codex-2");
+    let harness_title = |title: &str| {
+        json!({"sessionId": "agent-session", "update": {
+            "sessionUpdate": "session_info_update", "title": title}})
+    };
+    hub.on_update(&s, Some(&harness_title("Old thread title")), false);
+    assert_eq!(s.meta().title.as_deref(), Some("Old thread title"));
+    hub.rename(&s, "mango".into()).await.unwrap();
+    hub.on_update(&s, Some(&harness_title("Old thread title")), false);
+    let m = s.meta();
+    assert_eq!(m.title.as_deref(), Some("Mango"), "a harness title took the rename back");
+    assert_eq!(m.title_source.as_deref(), Some(super::super::titles::NAMED));
+    let summary = hub.session_summary(&s);
+    assert_eq!(summary["name"], "mango", "{summary}");
+    assert_eq!(summary["title"], "Mango", "{summary}");
+}
+
 /// Leo, 2026-11-23: "the renaming paradigm still hasn't hit yet, and the send/recieve messages
 /// are still only the older names. you guys need migration steps and whatnot for cutting over
 /// things." After a session is given a name, the new name, the old session name, `HOST/` forms of

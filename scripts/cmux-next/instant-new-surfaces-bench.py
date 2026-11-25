@@ -81,6 +81,12 @@ if "--bench=cmdn-typing" in sys.argv:
     other = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cmdn-typing-bench.py")
     os.execv(sys.executable, [sys.executable, other, *[a for a in sys.argv[1:] if a != "--bench=cmdn-typing"]])
 
+# `--bench=new-tab-startup`: scripts/cmux-next/new-tab-startup-bench.py on the same tagged app, Cmd-T to the new tab
+# visible and to a key typed into its omnibar echoing, each of --runs rounds a sample (goal startup-every-path).
+if "--bench=new-tab-startup" in sys.argv:
+    other = os.path.join(os.path.dirname(os.path.abspath(__file__)), "new-tab-startup-bench.py")
+    os.execv(sys.executable, [sys.executable, other, *[a for a in sys.argv[1:] if a != "--bench=new-tab-startup"]])
+
 # `--bench=settings-open`: scripts/cmux-next/bench-settings-open.py on the same tagged app: Cmd-, to the painted Settings
 # page, the first open of each launch cold and the others warm. It takes the app (`--app`) and `--runs`, `--opens` and
 # `--settle`; the instant-create arguments (`--tag`, `--page-engine`) are not its own.
