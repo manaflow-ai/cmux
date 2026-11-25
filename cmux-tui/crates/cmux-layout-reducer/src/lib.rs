@@ -959,6 +959,7 @@ pub mod auto_archive;
 pub mod automatic;
 pub mod closing_panes;
 pub mod divider_insert;
+pub mod drop_rules;
 pub mod floating_panes;
 
 pub mod group_hover_summary;
