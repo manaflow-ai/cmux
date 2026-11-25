@@ -247,7 +247,10 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         let style = look?.interfaceStyle ?? .unspecified
         if overrideUserInterfaceStyle != style { overrideUserInterfaceStyle = style }
         let ground = look?.groundColor ?? .cmuxMobileBackground
-        if topShelf.backgroundColor != ground { topShelf.backgroundColor = ground }
+        // A Mac look can place a picture behind its tinted ground. Keep the
+        // safe-area shelf clear then, instead of flattening that picture.
+        let shelfColor = look?.picture == nil ? ground : .clear
+        if topShelf.backgroundColor != shelfColor { topShelf.backgroundColor = shelfColor }
         topFade.ground = look?.groundColor
     }
 
