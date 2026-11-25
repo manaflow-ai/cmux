@@ -2,7 +2,8 @@
 // request chip and the pull request bars above the composer. Its head is one compact row: the
 // site's icon (a pull request's glyph in its state's colour) inline beside the title (the page
 // title cmux already has, else the host; a pull request's own title), then one quiet split button:
-// Open (a cmux tab) and its chevron, which offers the other browsers. A web link's address, with secret-looking values as •••
+// Open (a cmux tab) and its chevron, which offers the other browsers: plain controls on the card's
+// glass, never a framed capsule of their own (Leo 2026-11-22: "doubled up glass/wack looking glass"). A web link's address, with secret-looking values as •••
 // (linkDisplay.ts), sits under its title when it says more than the host already does; a pull
 // request has no address line, and adds its author, checks and files (PullRequestCard.tsx). Tight
 // spacing, no dividers, on the liquid glass (.ui-glass; styles.css .cv-link-preview; Leo
@@ -28,13 +29,15 @@ import type { HoverCard } from "./useHoverCard";
 import "./linkCard.css";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { chatUnderHoverCard, hoverCardGlass } from "../chatUnderGlass";
-import { linkHost } from "./linkHoverCardModel";
+import { linkHost, repeatsTitle } from "./linkHoverCardModel";
 import { githubItemRef } from "./pullRequestCardModel";
 import { prefetchPullRequest } from "./pullRequestStore";
-/// `href` with its secrets masked, unless it says no more than `host` (the head names the host).
-function addressBeyond(href: string, host: string): string | undefined {
+/// `href` with its secrets masked, unless it says no more than `host` or the head's `title` (the
+/// head names it already; Leo 2026-11-22, a card that printed its title twice).
+function addressBeyond(href: string, host: string, title: string): string | undefined {
   const address = redactUrlText(href);
-  return address.replace(/^[a-z][\w+.-]*:\/\//i, "").replace(/\/$/, "") === host ? undefined : address;
+  if (address.replace(/^[a-z][\w+.-]*:\/\//i, "").replace(/\/$/, "") === host) return undefined;
+  return repeatsTitle(title, address) ? undefined : address;
 }
 
 export function LinkHoverCard({
@@ -145,7 +148,7 @@ export function LinkHoverCard({
         {pullRequest ? (
           <PullRequestCardBody url={href} known={pullRequest} open={hover.open} head={head} />
         ) : (
-          head(siteTitle ?? host, mark, addressBeyond(href, host))
+          head(siteTitle ?? host, mark, addressBeyond(href, host, siteTitle ?? host))
         )}
       </div>
     </AnchoredCard>
