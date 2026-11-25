@@ -1060,6 +1060,10 @@ public final class AgentPaneModel {
         newTab = nil
         (remoteChat, neverPooled, miniUnreachable) = (true, true, true)
         handshakeCwd = nil
+        // The start's hold (``AgentPaneHandOff``) kept this pane from starting a chat here too; from here the
+        // page's own `session/new` starts that very Cloud chat on its new host, so the hold ends, or the start
+        // is refused ("Couldn't start Claude Code: The app refused this request", cmux#55519).
+        transport.replacements.endSandbox()
     }
 
     /// The page's chat became session `id` (it started, or the quick panel moved it); no longer a new tab page.
