@@ -9,12 +9,13 @@
 #   dmg=URL        any NIGHTLY DMG (default: the newest in the NEXT feed)
 # Prints NCR lines; the temp folder is removed at the end.
 set -uo pipefail
-dmg="" build="" mark=""
+dmg="" build="" mark="" standup=""
 for arg in "$@"; do
   case "$arg" in
     dmg=https://*) dmg="${arg#dmg=}" ;;
     build=*) build="${arg#build=}" ;;
     mark=*) mark="${arg#mark=}" ;;
+    standup=1) standup=1 ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -56,5 +57,15 @@ for name in cmux acpmux; do
     else echo "NCR acpmux mark absent: $mark"; status=1; fi
   fi
 done
+if [[ -n "$standup" ]]; then
+  while IFS= read -r bin; do
+    rel="${bin#"$app/"}"
+    for form in "" "--json"; do
+      out="$(HOME="$work" perl -e 'alarm 60; exec @ARGV' "$bin" customize library standup $form 2>&1)"; rc=$?
+      echo "NCR standup $rel ${form:-human} exit=$rc"
+      printf '%s\n' "$out" | head -40 | sed 's/^/NCR standup> /'
+    done
+  done < <(find "$app/Contents" -type f -perm -u+x \( -name cmux -o -name cmux-tui \) 2>/dev/null)
+fi
 echo "NCR exit=$status"
 exit "$status"
