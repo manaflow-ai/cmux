@@ -11,6 +11,30 @@
       "note": "Settings > Advanced > Experiments: taste prototypes, each behind its own switch, all off by default.",
       "rows": [
         {
+          "key": "experiments.appFontChrome",
+          "note": "Taste prototype: native chrome text (the sidebar, tabs, titlebar, menus cmux draws; CheckedFont.system) draws in appearance.appFont too, not only the web pages. Off by default; off keeps the system font in native chrome.",
+          "title": {
+            "key": "settings.experiments.appFontChrome",
+            "text": "App Font in Native Chrome"
+          },
+          "help": {
+            "key": "settings.experiments.appFontChrome.help",
+            "text": "The sidebar, tabs and titlebar draw in the App Font too. Some text changes after cmux restarts."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "font",
+            "app font",
+            "sidebar",
+            "tabs",
+            "chrome"
+          ]
+        },
+        {
           "key": "experiments.glassToolbarGroups",
           "note": "Taste prototype: the agent chat header's buttons draw as round glass buttons, related actions share one glass capsule, with a search chip and shortcut keycaps (webviews useExperimentSwitch(\"glassToolbarGroups\")). Off by default; off keeps today's header.",
           "title": {
@@ -500,6 +524,33 @@
             "questions",
             "agents",
             "team"
+          ]
+        },
+        {
+          "key": "experiments.foldSummaryCounts",
+          "note": "Fold summary: duration only (off, today's line) or with counts (on). A finished turn's closed \"Worked for\" names the work it hides after its time, as the tool runs name theirs: \"Worked for 36s · ran 4 commands, edited 2 files\", failed calls as the runs' \"(1 failed)\" in the failure tone (webviews conversation/turns.ts workedCountsText, useExperimentSwitch(\"foldSummaryCounts\")). Off by default until Leo picks; off keeps today's duration-only line.",
+          "title": {
+            "key": "settings.experiments.foldSummaryCounts",
+            "text": "Fold Summary Counts"
+          },
+          "help": {
+            "key": "settings.experiments.foldSummaryCounts.help",
+            "text": "A finished turn's Worked for line also says what it hides, such as ran 4 commands, edited 2 files."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "chat",
+            "worked for",
+            "fold",
+            "summary",
+            "counts",
+            "commands",
+            "edited",
+            "files"
           ]
         }
       ]
