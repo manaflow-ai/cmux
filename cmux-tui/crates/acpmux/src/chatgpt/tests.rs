@@ -248,7 +248,14 @@ async fn sign_in_again(
     let callback = format!("{}?{}", params["redirect_uri"], form_encode(&pairs));
     let page = reqwest::get(&callback).await.expect("callback");
     assert_eq!(page.status(), 200);
+    let html = page.text().await.expect("page");
+    // The loopback listener answers the cmux page (mark, card), not plain text.
+    assert!(html.contains("data-auth-state=") && html.contains("--background:#fafafa"), "{html}");
     let status = s.service.wait(&begun.attempt, Duration::from_secs(10)).await.expect("wait");
+    if let Ok(dir) = std::env::var("CHATGPT_CALLBACK_PAGE_DUMP") {
+        let kind = if html.contains("data-auth-state=\"ok\"") { "live-ok" } else { "live-err" };
+        std::fs::write(format!("{dir}/{kind}.html"), &html).unwrap();
+    }
     (status, params)
 }
 
@@ -639,5 +646,54 @@ async fn signing_in_again_on_a_route_with_no_sign_in_here_takes_that_route() {
     for id in ["other", "nope"] {
         let failure = s.service.begin(s.places.clone(), Some(id.into()), |_| {}).await.err();
         assert_eq!(failure.map(|f| f.code), Some("not_found".into()), "{id}");
+    }
+}
+
+#[test]
+fn callback_pages_use_the_cmux_sign_in_page_styles() {
+    use super::oauth::{AUTH_PAGE_CSS, Page};
+    let ok = Page::signed_in().html();
+    assert!(ok.contains("<h1>Signed in to cmux</h1>"));
+    assert!(ok.contains("data-auth-state=\"ok\""));
+    let err = Page::failed("access_denied").html();
+    assert!(err.contains("data-auth-state=\"error\""));
+    assert!(err.contains("<p class=\"code\">access_denied</p>"));
+    assert!(err.contains("cancelled"));
+    // A code never injects markup.
+    let odd = Page::failed("<script>").html();
+    assert!(!odd.contains("<script>"));
+    assert!(odd.contains("&lt;script&gt;"));
+    // The colors are the web sign-in page's own (web/app/globals.css), light and dark.
+    let globals = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../web/app/globals.css"
+    ))
+    .expect("web/app/globals.css");
+    let token = |block: &str, name: &str| -> String {
+        let start = globals.find(block).expect(block);
+        let rest = &globals[start..];
+        let at = rest.find(&format!("--{name}:")).expect(name);
+        rest[at..].split(';').next().unwrap().replace(' ', "")
+    };
+    let (light, dark) = AUTH_PAGE_CSS.split_once("@media").unwrap();
+    for name in ["background", "foreground", "muted", "border"] {
+        assert!(light.contains(&token(":root {", name)), "light {name}");
+        assert!(dark.contains(&token(".dark {", name)), "dark {name}");
+    }
+    // The other loopback sign-in pages of cmux NEXT carry the same styles.
+    let css_of = |text: &str| -> String {
+        let start = text.find("const AUTH_PAGE_CSS: &str = ").expect("AUTH_PAGE_CSS");
+        let rest = &text[start..];
+        rest[..rest.find("\";").unwrap()].to_owned()
+    };
+    let own = css_of(include_str!("oauth.rs"));
+    for other in ["Native/OptChat/optchat-chief/src/mcp_hub/oauth.rs", "coderouter/src/oauth.rs"] {
+        let path = format!("{}/../../../{other}", env!("CARGO_MANIFEST_DIR"));
+        let text = std::fs::read_to_string(&path).expect(other);
+        assert_eq!(css_of(&text), own, "{other} drifted from the sign-in page styles");
+    }
+    if let Ok(dir) = std::env::var("CHATGPT_CALLBACK_PAGE_DUMP") {
+        std::fs::write(format!("{dir}/success.html"), ok).unwrap();
+        std::fs::write(format!("{dir}/error.html"), err).unwrap();
     }
 }

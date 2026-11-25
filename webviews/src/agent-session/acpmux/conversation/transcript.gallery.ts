@@ -1633,7 +1633,6 @@ export default agentPaneEntry({
     "agent-session/acpmux/rows/StartedSessionsRow.tsx",
     "agent-session/acpmux/rows/SubagentDoneRow.tsx",
     "agent-session/acpmux/rows/SubagentGroupRow.tsx",
-    "agent-session/acpmux/rows/SubagentOfPillRow.tsx",
     "agent-session/acpmux/rows/SubagentRow.tsx",
     "agent-session/acpmux/rows/SummaryRow.tsx",
     "agent-session/acpmux/rows/TaskLineRow.tsx",

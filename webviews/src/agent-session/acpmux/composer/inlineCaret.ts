@@ -183,6 +183,31 @@ export function inlineCaretPlugin(): Plugin {
       };
       const observer = typeof ResizeObserver === "function" ? new ResizeObserver(() => draw()) : undefined;
       observer?.observe(view.dom);
+      // Each attachment's node too: a chip changes its width with no transaction and, beside other
+      // chips or text, without changing the field's size (its React chip portals in after the
+      // transaction that placed the node, its picture or its ready chip comes in later), and the bar
+      // drawn beside it stood where the empty node was, at the start of the prompt, until a picture's
+      // `load` drew it again (Leo, 2026-11-22: "there's a breif moment where i see the caret at the
+      // beginning of the composer after the preview for the attachment has already shown up, and
+      // then it doesn't follow as fast"). A ResizeObserver runs after the frame's layout and before
+      // its paint, so the bar moves in the frame the chip changed in.
+      // Looked for again when the document changed, never on a caret move alone; a node gone from
+      // the text is let go.
+      const watched = new Set<Element>();
+      const watchChips = () => {
+        if (!observer) return;
+        for (const chip of watched)
+          if (!chip.isConnected) {
+            observer.unobserve(chip);
+            watched.delete(chip);
+          }
+        for (const chip of view.dom.querySelectorAll("[data-inline-attachment]")) {
+          if (watched.has(chip)) continue;
+          watched.add(chip);
+          observer.observe(chip);
+        }
+      };
+      watchChips();
       view.dom.addEventListener("focus", draw);
       view.dom.addEventListener("blur", hide);
       // The page becoming the key one again: the field's caret color comes back from transparent
@@ -194,7 +219,10 @@ export function inlineCaretPlugin(): Plugin {
       // A chip's picture loading grows its line without a transaction.
       view.dom.addEventListener("load", draw, true);
       return {
-        update: draw,
+        update: (_view: EditorView, previous: EditorState) => {
+          if (previous.doc !== view.state.doc) watchChips();
+          draw();
+        },
         destroy() {
           observer?.disconnect();
           stopFieldEvents?.();
