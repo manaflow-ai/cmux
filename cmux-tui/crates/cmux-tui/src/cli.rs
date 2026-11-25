@@ -184,6 +184,8 @@ mod repo_hold;
 #[cfg(unix)]
 mod repo_mcp_lazy;
 #[cfg(unix)]
+pub(crate) mod runnable_link;
+#[cfg(unix)]
 mod safe_mode;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
 #[cfg(unix)]
@@ -269,6 +271,7 @@ mod machine_doctor;
 mod machine_join;
 #[cfg(unix)]
 mod machine_link;
+mod machine_request;
 mod mobile_pair_requests;
 #[cfg(unix)]
 pub(crate) use machine_join::{
@@ -1126,6 +1129,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_hands::run_if_requested(args))
         .or_else(|| cloud_automation_relay::run_if_requested(args))
         .or_else(|| cloud_auth_handoff_relay::run_if_requested(args))
+        .or_else(|| machine_request::run_if_requested(args))
         .or_else(|| machine_link::run_if_requested(args))
         .or_else(|| mobile_pair_requests::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
