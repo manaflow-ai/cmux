@@ -137,6 +137,9 @@ pub(super) struct KeeperSpec {
     pub from_user_id: Option<String>,
     pub peer_ip: Ipv4Addr,
     pub input_lane: bool,
+    /// Both sides agreed on the reliable link: a resumed link offers or
+    /// accepts it as the first link did.
+    pub reliable: bool,
     pub path: watch::Receiver<LinkPath>,
     pub peer: PeerAddr,
     /// The tunnel's static keys: a resumed link reports the ones its tunnel
@@ -164,6 +167,7 @@ pub(super) struct Keeper {
     from_user_id: Option<String>,
     peer_ip: Ipv4Addr,
     input_lane: bool,
+    reliable: bool,
     path: watch::Receiver<LinkPath>,
     peer: PeerAddr,
     tunnel_keys: super::super::TunnelKeys,
@@ -184,6 +188,7 @@ impl Keeper {
             from_user_id: spec.from_user_id,
             peer_ip: spec.peer_ip,
             input_lane: spec.input_lane,
+            reliable: spec.reliable,
             path: spec.path,
             peer: spec.peer,
             tunnel_keys: spec.tunnel_keys,
@@ -357,6 +362,7 @@ impl Keeper {
             hold: Some(hold_hook(&self.session)),
             liveness: None,
             on_link: Some(on_link),
+            reliable: self.reliable,
             tunnel_keys: Some(self.tunnel_keys.clone()),
         };
         lock(waiting()).insert(ticket, dialed);
@@ -568,6 +574,7 @@ pub async fn try_resume(
         rx
     });
     let on_link = lease.on_link();
+    let link_config = super::super::reliable_config(link_config, keeper.reliable, None);
     let link = Link::new(stream, Role::Phone, link_config, Some(Box::new(lease)));
     on_link(&link);
     link.set_hold_hook(hold_hook(&keeper.session));
@@ -580,6 +587,7 @@ pub async fn try_resume(
         peer: keeper.peer.clone(),
         session_id: keeper.session.id().to_owned(),
         webrtc_media: false,
+        resumed: false,
         tunnel_keys: Some(keeper.tunnel_keys.clone()),
     })
 }

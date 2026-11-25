@@ -2266,6 +2266,10 @@ impl Underlay for HybridUnderlay {
         }
     }
 
+    fn hold_routine_probes(&mut self, floor: Option<Instant>) {
+        self.paths.hold_routine(floor);
+    }
+
     fn poll_probes(&mut self, now: Instant) -> DueProbes {
         self.drain_control();
         self.paths.poll(now)
@@ -2554,14 +2558,27 @@ fn start_tunnel(
         ultra: ultra_for_dial(options.ultra),
     };
     let peer = underlay.peer.subscribe();
-    let net = WgNet::start_with_underlay(config, underlay).map_err(transport_error)?;
+    let net = Arc::new(WgNet::start_with_underlay(config, underlay).map_err(transport_error)?);
+    if options.idle_air_gap.is_some() || options.air_floor.is_some() {
+        let net = Arc::clone(&net);
+        // The floor keeps the phone's radio awake: the Mac's has none to keep.
+        let (gap, floor) = (options.idle_air_gap, options.air_floor.filter(|_| spec.dialer));
+        tokio::spawn(async move {
+            if let Err(error) = net.set_idle_air_gap(gap).await {
+                tracing::debug!(%error, "idle air gap not set");
+            }
+            if let Err(error) = net.set_air_floor(floor).await {
+                tracing::debug!(%error, "air floor not set");
+            }
+        });
+    }
     let session = Session::register(roam::SessionParts {
         session_id: spec.session_id.to_owned(),
         peer: spec.peer_device.to_owned(),
         dialer: spec.dialer,
         peer_ip: spec.peer_ip,
         signaling: current,
-        net: Arc::new(Mutex::new(Some(Arc::new(net)))),
+        net: Arc::new(Mutex::new(Some(net))),
         control: control_tx,
         reach: reach_rx,
         options: options.clone(),
@@ -2666,6 +2683,7 @@ pub(super) fn dial_wireguard<'a>(
             .map_err(|e| DialError::Signaling(e.to_string()))?;
         options.timeline.mark("wg_init_sent");
         let agreed;
+        let reliable;
         let video_agreed;
         let webrtc_media_agreed;
         let liveness_agreed;
@@ -2692,6 +2710,7 @@ pub(super) fn dial_wireguard<'a>(
                             .map_err(|_| DialError::Unexpected("wg-resp overlayIP is not IPv4".into()))?;
                         agreed = super::input_lane_agreed(options, &lanes);
                         liveness_agreed = lanes.iter().any(|lane| lane == crate::link::LIVENESS_LANE);
+                        reliable = super::reliable_agreed(options, &lanes);
                         classes_agreed = classes_offered()
                             && lanes.iter().any(|lane| lane == crate::classes::CLASSES_LANE);
                         screen_agreed =
@@ -2751,6 +2770,7 @@ pub(super) fn dial_wireguard<'a>(
             from_user_id: None,
             peer_ip,
             input_lane: agreed,
+            reliable,
             path: tunnel.path.clone(),
             peer: tunnel.peer.clone(),
             tunnel_keys: tunnel_keys.clone(),
@@ -2846,6 +2866,7 @@ pub(super) fn dial_wireguard<'a>(
             media,
             webrtc_media,
             liveness,
+            reliable,
         })
     })
 }
@@ -2897,6 +2918,7 @@ impl Dialer for WireGuardDialer {
                 return Err(DialError::Unexpected("expected wg-init".into()));
             };
             let agreed = super::input_lane_agreed(options, &lanes);
+            let reliable = super::reliable_agreed(options, &lanes);
             let video_wanted = options.video_lane && super::video_lane_listed(&lanes);
             let webrtc_media_wanted =
                 video_wanted && options.webrtc_media && super::webrtc_media_listed(&lanes);
@@ -2966,6 +2988,7 @@ impl Dialer for WireGuardDialer {
                 from_user_id,
                 peer_ip,
                 input_lane: agreed,
+                reliable,
                 path: tunnel.path.clone(),
                 peer: tunnel.peer.clone(),
                 tunnel_keys: tunnel_keys.clone(),
@@ -3089,6 +3112,7 @@ impl Dialer for WireGuardDialer {
                 lane,
                 webrtc_media,
                 liveness,
+                reliable,
                 media: media.map(|carrier| {
                     options.timeline.mark("video_lane");
                     super::PendingMedia::Send(carrier)
