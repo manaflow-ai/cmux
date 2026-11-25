@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { PREDICTED_JITTER, scrollLeadRanges, type ConversationLayout } from "./model";
+import { scrollLeadRanges, type ConversationLayout } from "./model";
 
 // Leo, 2026-11-08: scrolling up and down quickly shows "hard cutoffs where there's no text at all
 // for a brief second". The rows the reader just passed were unmounted the frame they left the view,
@@ -65,30 +65,43 @@ describe("scrollLeadRanges fast fling", () => {
   /// A range's rows past its span: a jump's one row of overscan each side, and its edge rows.
   const edges = 4 * PITCH;
 
-  test("a jump past the cap mounts the view and the next frame's view, nothing between or beyond", () => {
+  test("a jump past the cap mounts its view alone, nothing between or beyond", () => {
     const delta = 8 * VIEW;
     const ranges = scrollLeadRanges(long, far, delta, VIEW, LEAD_STEPS, MAX_LEAD, TRAIL);
-    // The view and the next view with its margin (a view each side).
-    expect(at(8)).toBeLessThanOrEqual(VIEW * 4 + 2 * edges);
+    expect(at(8)).toBeLessThanOrEqual(VIEW + edges);
     expect(at(-8)).toBe(at(8));
     const mounted = (y: number) => ranges.some((range) => range.first <= rowAt(y) && rowAt(y) < range.last);
+    expect(mounted(far)).toBe(true);
+    expect(mounted(far + VIEW - 1)).toBe(true);
     expect(mounted(far + 2 * VIEW)).toBe(false);
-    expect(mounted(far + delta)).toBe(true);
-    expect(mounted(far + delta + VIEW - 1)).toBe(true);
-    expect(mounted(far + 2 * delta)).toBe(false);
+    expect(mounted(far + delta)).toBe(false);
   });
 
-  test("a jump too far for its margin to hold mounts the view alone, however far", () => {
-    // A view of margin is under PREDICTED_JITTER of a jump past 20 views.
-    expect(VIEW).toBeLessThan(30 * VIEW * PREDICTED_JITTER);
+  test("a jump mounts its view alone, however far", () => {
     expect(at(30)).toBeLessThanOrEqual(VIEW + edges);
     expect(at(300)).toBe(at(30));
     expect(at(-300)).toBe(at(30));
   });
 
-  test("a scrollbar drag within the cap keeps its contiguous lead", () => {
-    const [range] = scrollLeadRanges(long, far, 3 * VIEW, VIEW, LEAD_STEPS, MAX_LEAD, TRAIL);
-    expect(range!.first).toBeLessThanOrEqual(rowAt(far));
-    expect(range!.last).toBeGreaterThanOrEqual(rowAt(far + VIEW + MAX_LEAD));
+  // Leo, 2026-11-16: "as in i scroll up and it loads the shit". The scroll-up bench's fling moves 1,500 to
+  // 3,000 px a frame: inside the cap, each frame built a contiguous lead of up to 4 views, rows no frame drew.
+  // The view the next frame reaches, with a view of margin either side, was three more views a frame,
+  // built and measured in a commit that showed one; the next frame builds its own view.
+  test("a fling of 1.5 to 4 views a frame, inside the cap, mounts its view only", () => {
+    for (const views of [1.5, 2, 3, 4]) {
+      const delta = -views * VIEW;
+      const ranges = scrollLeadRanges(long, far, delta, VIEW, LEAD_STEPS, MAX_LEAD, TRAIL);
+      const mounted = (y: number) => ranges.some((range) => range.first <= rowAt(y) && rowAt(y) < range.last);
+      expect(mounted(far)).toBe(true);
+      expect(mounted(far + VIEW - 1)).toBe(true);
+      expect(mounted(far + delta)).toBe(false);
+      expect(mountedPx(delta)).toBeLessThanOrEqual(VIEW + edges);
+    }
+  });
+
+  test("a scroll of a view a frame or less keeps its contiguous lead", () => {
+    const [range] = scrollLeadRanges(long, far, -VIEW, VIEW, LEAD_STEPS, MAX_LEAD, TRAIL);
+    expect(range!.first).toBeLessThanOrEqual(rowAt(far - 2 * VIEW));
+    expect(range!.last).toBeGreaterThanOrEqual(rowAt(far + VIEW));
   });
 });

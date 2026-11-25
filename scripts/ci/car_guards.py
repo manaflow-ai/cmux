@@ -98,6 +98,14 @@ JOBS = int(os.environ.get("CAR_GUARDS_JOBS", str(max(2, (os.cpu_count() or 4))))
 # cannot import or run is the car's (it may have deleted or renamed it).
 MISSING_TOOL = re.compile(r"ModuleNotFoundError: No module named '(yaml|bashlex)'|\b(bun|cargo|swift|zig): command not found")
 WEB_RESULT = re.compile(r"^(FAIL|TIMEOUT) (?:\./)?(\S+) \(limit ", re.M)
+# A red entry's log is its output's last TAIL_CHARS, plus every failing-test line the cut dropped (NAMED_FAILURE, at
+# most NAMED_LINES), so the job log names each failure its runner's summary counts. Run 45372757083 (cmux#50304, job
+# 'car guards (portable)'): tests/test_base_red_excuse.py's tail kept 6 of its 27 `FAIL:` lines under `FAILED
+# (failures=27, errors=1, skipped=1)`, and base_red_excuse.py refused the job as "its log reports more failing tests
+# than it names" (test_reds.runner_unnamed), so no failure in it could be compared with anything.
+TAIL_CHARS = 4000
+NAMED_LINES = 400
+NAMED_FAILURE = re.compile(r"^(?:FAIL|ERROR): \S+ \(|^FAILED \S+::\S")  # unittest, pytest (test_reds.FAILED)
 
 
 def reused_kinds(prior: dict[str, str]) -> set[str]:
@@ -196,10 +204,25 @@ def run_one(root: Path, entry: dict, timeout: float | None = None) -> dict:
         partial = error.stdout or ""
         output = f"timed out after {timeout}s\n" + (partial.decode(errors="replace") if isinstance(partial, bytes) else partial)
     result = {"name": entry["name"], "kind": entry["kind"], "status": status,
-              "seconds": round(time.monotonic() - start, 1), "tail": output[-4000:] if status != "pass" else ""}
+              "seconds": round(time.monotonic() - start, 1), "tail": tail_of(output) if status != "pass" else ""}
     if entry["kind"] == "web" and status in ("fail", "retry"):
         result["files"] = {m.group(2): m.group(1) for m in WEB_RESULT.finditer(output)}
     return result
+
+
+def tail_of(output: str) -> str:
+    """OUTPUT's last TAIL_CHARS, after the failing-test lines (NAMED_FAILURE) of the part cut off: each failure keeps
+    its name in the job log, printed once."""
+    if len(output) <= TAIL_CHARS:
+        return output
+    cut = output[:-TAIL_CHARS]
+    # The cut's last piece runs on into the tail, which prints it (or its end): never repeated here.
+    named = [line.rstrip("\r") for line in cut.split("\n")[:-1] if NAMED_FAILURE.match(line)]
+    if not named:
+        return output[-TAIL_CHARS:]
+    more = f"... and {len(named) - NAMED_LINES} more\n" if len(named) > NAMED_LINES else ""
+    return ("failing tests before the tail:\n" + "\n".join(named[:NAMED_LINES]) + "\n" + more
+            + "...\n" + output[-TAIL_CHARS:])
 
 
 def run_all(root: Path, todo: list[dict]) -> list[dict]:
@@ -285,6 +308,14 @@ def at_base(root: Path, base: str, head: str, results: list[dict], todo: list[di
             return set(), set(), f"the base check did not run: {added.stderr.strip()[-300:]}"
         try:
             again = run_all(tree, [by_name[n] for n in python])
+            # A slow test timed out at the base where the head's got its alone retry (retry_timeouts): give the base
+            # the same retry, else a test failing at both ends reads as the car's. Run 45372757083: the head's
+            # tests/test_cmux_next_route.py failed after 647 s (300 s, then 347 s alone), and the same 7 failures at
+            # the base were never read.
+            for result in again:
+                limit = RETRY_TIMEOUT.get(result["kind"])
+                if result["status"] == "retry" and limit:
+                    result.update(run_one(tree, by_name[result["name"]], timeout=limit))
             red = {r["name"] for r in again if r["status"] == "fail"}
             red_web: set[str] = set()
             if web:

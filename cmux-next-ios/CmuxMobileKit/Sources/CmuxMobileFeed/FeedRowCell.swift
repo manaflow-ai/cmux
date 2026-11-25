@@ -28,6 +28,10 @@ protocol FeedRowCellDelegate: AnyObject {
     func rowCodeExpand(_ id: String)
     func rowCopyCommand(_ id: String)
     func rowMenu(_ id: String) -> UIMenu
+    /// The long-press preview of the row (nil: the menu alone).
+    func rowPeek(_ id: String) -> UIViewController?
+    /// The preview was tapped: open what it showed.
+    func rowPeekCommit(_ id: String)
     func rowWebHeight(_ id: String, _ height: CGFloat)
     var rowsSettled: Bool { get }
 }
@@ -187,6 +191,7 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
 
         avatar.backgroundColor = .cmuxMobileSurfaceRaised
         avatar.layer.cornerRadius = 20
+        avatar.layer.cornerCurve = .continuous
         avatar.isAccessibilityElement = false
         avatarGlyph.contentMode = .center
         avatarGlyph.tintColor = .label
@@ -263,7 +268,7 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         FeedRowCell.drawAsync(contentView)
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (cell: FeedRowCell, _: UITraitCollection) in
             cell.unread.layer.borderColor = UIColor.cmuxMobileBackground.resolvedColor(with: cell.traitCollection).cgColor
-            if cell.made.contains("quote") { cell.quote.updateColors() }
+            if let current = cell.current { cell.applyAvatar(current.harness, host: current.opensTerminal && AgentAvatarMark.terminalShapeEnabled ? .terminal : .chat) }
         }
     }
 
@@ -325,8 +330,7 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
 
         avatar.frame = layout.avatar
         avatarGlyph.frame = avatar.bounds
-        avatarGlyph.image = UIImage(systemName: Self.avatarSymbol(item.harness),
-                                    withConfiguration: UIImage.SymbolConfiguration(pointSize: 40 * 0.42, weight: .medium))
+        applyAvatar(item.harness, host: item.opensTerminal && AgentAvatarMark.terminalShapeEnabled ? .terminal : .chat)
         unread.isHidden = item.isRead
         unread.accessibilityElementsHidden = item.isRead
         unread.frame = CGRect(x: layout.avatar.maxX - 9 + 2, y: layout.avatar.minY - 2, width: 9, height: 9)
@@ -353,6 +357,11 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         applyErrorAndReplies(layout)
         applyComposer(layout)
         applyFooter(layout)
+    }
+
+    /// The row is its stack's newest event (`FeedStacks`): its fold line follows with no divider between them.
+    var leadsStack = false {
+        didSet { if leadsStack != oldValue { divider.isHidden = leadsStack } }
     }
 
     /// The minute changed: only the time label moves.
@@ -707,7 +716,18 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
     func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
         guard let delegate else { return nil }
         let id = id
-        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in delegate.rowMenu(id) }
+        // Long-press peeks at the chat (FeedPeek): the preview is built only when the menu opens.
+        return UIContextMenuConfiguration(identifier: id as NSString, previewProvider: { [weak delegate] in delegate?.rowPeek(id) }) { _ in
+            delegate.rowMenu(id)
+        }
+    }
+
+    /// A tap on the preview opens what it shows, with the system's pop.
+    func contextMenuInteraction(_ interaction: UIContextMenuInteraction, willPerformPreviewActionForMenuWith configuration: UIContextMenuConfiguration,
+                                animator: any UIContextMenuInteractionCommitAnimating) {
+        guard let id = configuration.identifier as? String else { return }
+        animator.preferredCommitStyle = .pop
+        animator.addCompletion { [weak delegate] in delegate?.rowPeekCommit(id) }
     }
 
     // MARK: Helpers
@@ -736,15 +756,16 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         return text
     }
 
-    static func avatarSymbol(_ harness: String) -> String {
-        switch harness {
-        case "claude": "asterisk"
-        case "codex": "chevron.left.forwardslash.chevron.right"
-        case "cursor": "cursorarrow.rays"
-        case "gemini": "sparkles"
-        case "terminal": "terminal"
-        default: "sparkle"
-        }
+    /// The sender's avatar (`AgentAvatarMark`): the agent's own mark on a circle tinted with its
+    /// color, or a symbol on the raised gray circle. The images are drawn once per harness and
+    /// shared, so a row only reads the cache.
+    /// A terminal agent's event (`FeedItem.opensTerminal`) sits in a rounded square, a chat's in a circle.
+    private func applyAvatar(_ harness: String, host: AgentAvatarHost) {
+        let scale = traitCollection.displayScale
+        let rendered = AgentAvatarMark.rendered(harness: harness, side: 40, scale: scale)
+        avatar.layer.cornerRadius = AgentAvatarMark.cornerRadius(side: 40, host: host)
+        avatar.backgroundColor = rendered.fill
+        avatarGlyph.image = rendered.glyph(dark: traitCollection.userInterfaceStyle == .dark)
     }
 
     private static let fullDate: DateFormatter = {
@@ -795,6 +816,11 @@ final class FeedQuoteView: UIView {
         addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped)))
         isAccessibilityElement = true
         accessibilityTraits = .button
+        // The bubble's fill is a CGColor resolved from this view's own traits, so this view follows
+        // its own appearance changes. The cell's handler ran before this view's traits caught up:
+        // backgrounding flips the app to light and back to dark for the switcher's snapshots, and
+        // the return to dark resolved the light fill, leaving white bubbles until the row was rebuilt.
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: FeedQuoteView, _: UITraitCollection) in view.updateColors() }
     }
 
     @available(*, unavailable)
@@ -806,10 +832,16 @@ final class FeedQuoteView: UIView {
         frame = part.frame
         let shift = CGPoint(x: -part.frame.minX, y: -part.frame.minY)
         caption.attributedText = part.caption
-        // A little wider than measured: an attachment's rounding must never truncate "You".
+        // A little wider than measured, the room on the side away from the bubble's edge: an
+        // attachment's rounding must never truncate "You". The text keeps to the measured edge it
+        // lines up with (the bubble text's trailing edge for your message, its leading edge for an
+        // agent's), so it is aligned to that edge, not drawn from the widened frame's other side.
         caption.lineBreakMode = .byClipping
-        caption.frame = part.captionFrame.offsetBy(dx: shift.x, dy: shift.y).insetBy(dx: -3, dy: 0)
-            .offsetBy(dx: part.outgoing ? -3 : 3, dy: 0)
+        caption.textAlignment = part.outgoing ? .right : .left
+        let measured = part.captionFrame.offsetBy(dx: shift.x, dy: shift.y)
+        caption.frame = part.outgoing
+            ? CGRect(x: measured.minX - 6, y: measured.minY, width: measured.width + 6, height: measured.height)
+            : CGRect(x: measured.minX, y: measured.minY, width: measured.width + 6, height: measured.height)
         text.attributedText = part.text
         text.numberOfLines = part.maxLines
         text.frame = part.textFrame.offsetBy(dx: shift.x, dy: shift.y)
@@ -1153,7 +1185,7 @@ final class FeedQuestionCardView: UIView, UITextFieldDelegate {
             let before = row.chosen
             self.onInput?(.click(row: row.row))
             // The selection haptic as a row's choice changes (QuestionCard's `.sensoryFeedback(.selection)`).
-            if before != row.chosen || !before { UISelectionFeedbackGenerator().selectionChanged() }
+            if before != row.chosen || !before { CmuxMobileTheme.standard.haptics.selectionChanged() }
         }, for: .touchUpInside)
         row.isHidden = true
         rows.append(row)
@@ -1213,7 +1245,7 @@ final class FeedQuestionCardView: UIView, UITextFieldDelegate {
             button.addAction(UIAction { [weak self, weak button] _ in
                 guard let self, let id = button?.actionID else { return }
                 if id == "answer" {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    CmuxMobileTheme.standard.haptics.impact(.light, intensity: 1)
                     self.onInput?(.submit)
                 } else {
                     self.onInput?(.nextItem)

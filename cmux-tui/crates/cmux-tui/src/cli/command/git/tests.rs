@@ -366,6 +366,37 @@ fn git_comments_are_keyed_by_the_root_and_never_by_a_repository_target() {
         rejects(&["git", "comments", "send", "dc_1", "--acp-session", "s", "--text", "t"])
             .contains("versions-json")
     );
+    // A threaded send needs no versions; its text is an optional note.
+    let (operation, params) = sent(&[
+        "git",
+        "comments",
+        "send",
+        "--root",
+        "/repo",
+        "dc_1",
+        "--threads",
+        "--acp-session",
+        "s",
+    ]);
+    assert_eq!(operation, "diff.comments.send");
+    assert_eq!(params["threads"], true);
+    assert!(params.get("versions").is_none() && params.get("text").is_none());
+    // An agent answers in a thread, and resolves or reopens it.
+    let (operation, params) =
+        sent(&["git", "comments", "reply", "dc_1", "--root", "/repo", "--text", "Fixed in a1b2"]);
+    assert_eq!(operation, "diff.comments.thread");
+    assert_eq!(params["id"], "dc_1");
+    assert_eq!(params["reply"], "Fixed in a1b2");
+    assert_eq!(params["author"], "agent");
+    let (_, params) = sent(&["git", "comments", "resolve", "dc_1", "--root", "/repo"]);
+    assert_eq!(params["resolved"], true);
+    let (_, params) = sent(&["git", "comments", "resolve", "dc_1", "--reopen", "--root", "/repo"]);
+    assert_eq!(params["resolved"], false);
+    assert!(rejects(&["git", "comments", "reply", "dc_1"]).contains("--text"));
+    assert!(
+        rejects(&["git", "comments", "reply", "dc_1", "--text", "t", "--author", "bot"])
+            .contains("--author")
+    );
     // A repository target belongs to the git operations, not to comments.
     assert!(rejects(&["git", "comments", "list", "--path", "/repo"]).contains("--path"));
 }

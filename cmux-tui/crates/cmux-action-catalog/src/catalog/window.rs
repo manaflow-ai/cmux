@@ -7,6 +7,37 @@ use crate::text::t;
 
 const GROUP: &str = "WindowActionCatalog";
 
+/// The rank of Customize… in each element's menu: last of its View group, before the menu's own
+/// Customize Menu… row.
+const CUSTOMIZE_RANK: i64 = 990;
+
+#[rustfmt::skip]
+const CUSTOMIZE_MENUS: &[Placement] = &[
+    Placement::at("sidebarBackground", "view", CUSTOMIZE_RANK),
+    Placement::at("sidebarFooter", "view", CUSTOMIZE_RANK),
+    Placement::at("sidebarSection", "view", CUSTOMIZE_RANK),
+    Placement::at("machineSection", "view", CUSTOMIZE_RANK),
+    Placement::at("workspaceRow", "view", CUSTOMIZE_RANK),
+    Placement::at("tabStrip", "view", CUSTOMIZE_RANK),
+    Placement::at("tab", "view", CUSTOMIZE_RANK),
+    Placement::at("pane", "view", CUSTOMIZE_RANK),
+    Placement::at("agentChat", "view", CUSTOMIZE_RANK),
+    Placement::at("nowPlayingCard", "view", CUSTOMIZE_RANK),
+];
+
+/// The part of the window Customize… is about (an element map id): the right-click row and the
+/// Inspector's Change This… pass it; the palette and the app menu leave it out.
+#[rustfmt::skip]
+const CUSTOMIZE_ELEMENT: Argument = Argument { name: "element", title: t("ActionCatalog", "argument.customize.element", "Element"), kind: ArgKind::Enumeration(crate::customize_elements::ELEMENT_CASES), required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+
+/// `CUSTOMIZE_ELEMENT` where the action needs one (Reset).
+const CUSTOMIZE_ELEMENT_REQUIRED: Argument = Argument { required: true, ..CUSTOMIZE_ELEMENT };
+
+/// The new chat's first composer text in place of `/customize ` (Settings search's "Ask cmux to do
+/// this" passes `/customize WORDS`). Shown, never sent by itself.
+#[rustfmt::skip]
+const CUSTOMIZE_DRAFT: Argument = Argument { name: "draft", title: t("ActionCatalog", "argument.customize.draft", "Draft"), kind: ArgKind::String, required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+
 #[rustfmt::skip]
 pub static ACTIONS: &[Action] = &[
     Action {
@@ -34,10 +65,28 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["customize", "customise", "personalize", "make it yours", "ask", "agent", "sidebar", "section", "widget", "extension", "theme", "profile", "preview", "apply", "discard", "rollback", "undo"],
         category: "window",
         symbol: "wand.and.rays",
-        surfaces: PALETTE | KEYBOARD | MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        surfaces: PALETTE | KEYBOARD | MENU | CONTEXT_MENU,
+        // Right-click Customize… on each big part of the window (Leo: "you should maybe be even able to
+        // right click customize on anything"): one row per menu the element map lists
+        // (customize_elements::ELEMENTS, `tests/customize_elements.rs` keeps the two the same).
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: CUSTOMIZE_MENUS, ..SurfacePlan::DEFAULT },
+        arguments: &[CUSTOMIZE_ELEMENT, CUSTOMIZE_DRAFT],
         cli_name: "action customize-open",
         main_menu: Some("app"),
+        ..Action::DEFAULT
+    },
+    // Reset: an element's settings (customize_elements) back to their defaults, the Customize
+    // Inspector's Reset button. The settings it removes are the element map's, nothing else.
+    Action {
+        id: "customize.reset",
+        group: GROUP,
+        title: t("ActionCatalog", "action.customize.reset", "Reset Element to Defaults"),
+        keywords: &["customize", "reset", "defaults", "element", "inspector", "undo"],
+        category: "window",
+        symbol: "arrow.uturn.backward",
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
+        arguments: &[CUSTOMIZE_ELEMENT_REQUIRED],
+        cli_name: "action customize-reset",
         ..Action::DEFAULT
     },
     // Reset Customization Library: every library entry off, back to what was there before any
@@ -263,6 +312,23 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("endsApp"), ..SurfacePlan::DEFAULT },
         cli_name: "app quit-end-everything",
         main_menu: Some("app"),
+        ..Action::DEFAULT
+    },
+    // Leo, 2026-11-22: "approved ways to simply do the update and restart button's flow should be
+    // available". Quits with Keep Sessions and opens the bundle installed now (a newer nightly
+    // replaced under a running app included); `--if-newer` refuses when it is the running build.
+    Action {
+        id: "relaunchKeepSessions",
+        group: GROUP,
+        title: t("ActionCatalog", "action.relaunchKeepSessions", "Relaunch and Keep Sessions"),
+        keywords: &["restart", "reopen", "update", "installed", "build", "nightly"],
+        category: "window",
+        symbol: "arrow.clockwise",
+        surfaces: PALETTE,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("endsApp"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::KEEP_SESSIONS.optional(), args::IF_NEWER.optional()],
+        cli_name: "app relaunch",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {

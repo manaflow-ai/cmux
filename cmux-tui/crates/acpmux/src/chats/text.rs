@@ -27,6 +27,13 @@
 //! when the service is dropped (the change channel closes). The text is user data, as the
 //! transcripts it is read from: it is saved only to `chat-index/text-v1.json` (0600), at most every
 //! [`SAVE_EVERY`], so a restart does not read every transcript again; chats turned off empty it.
+//!
+//! At the bound a pass costs what it does below it: an older chat let go of to make room is not a
+//! reason to write the saved copy (only a chat gone from the chat index is: its text leaves the
+//! disk at once), so the copy is rewritten at most every [`SAVE_EVERY`] however fast newer chats
+//! grow; and the first chat past the bound is remembered with its size, so a pass does not read
+//! its transcript again only to let it go once more. A save after chats were let go of logs how
+//! many and their bytes.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -154,6 +161,16 @@ impl Doc {
 
     fn read_folds(&mut self) {
         self.folds_to_ascii = folds_to_ascii(&self.text);
+    }
+
+    /// A transcript's index stamp may move when its metadata changes even though the searchable
+    /// text did not. Such a stamp update must not make the saved copy rewrite every held chat.
+    fn same_content(&self, other: &Self) -> bool {
+        self.text == other.text
+            && self.messages == other.messages
+            && self.first_turn == other.first_turn
+            && self.live == other.live
+            && self.folds_to_ascii == other.folds_to_ascii
     }
 
     /// Turn `turn` and every one after it are replaced by `turns` (numbered from `turn`), the
@@ -338,6 +355,8 @@ pub struct ChatText {
     /// The generation of the text: a window recomputes when it moves.
     changed: tokio::sync::watch::Sender<u64>,
     path: PathBuf,
+    /// The most text held: [`TOTAL_BYTES`] (tests hold less).
+    total: usize,
 }
 
 #[derive(Default)]
@@ -351,6 +370,14 @@ struct Inner {
     /// Every chat was read once since the daemon started (a query before then may find more later).
     filled: bool,
     saved_at: Option<Instant>,
+    /// The first chat past the bound at the last pass, the stamp it was read at and its text's
+    /// bytes: while it is unchanged and still does not fit, it is not read again.
+    edge: Option<(String, Stamp, usize)>,
+    /// Chats let go of to hold the bound since the last save, and their bytes (logged then).
+    evicted: (usize, usize),
+    /// How many saves were written and their bytes (tests count a pass's writes with it).
+    #[cfg(test)]
+    saves: (usize, usize),
     /// How many docs searches read (tests count a query's work with it).
     #[cfg(test)]
     scanned: usize,
@@ -382,7 +409,14 @@ impl ChatText {
             follows: Mutex::default(),
             changed: tokio::sync::watch::channel(0).0,
             path,
+            total: TOTAL_BYTES,
         }
+    }
+
+    /// [`Self::new`] holding at most `total` bytes of text, so a test reaches the bound quickly.
+    #[cfg(test)]
+    pub(crate) fn with_total(path: PathBuf, total: usize) -> Self {
+        Self { total: total.min(TOTAL_BYTES), ..Self::new(path) }
     }
 
     /// Takes the text an earlier run saved; a missing, damaged or older copy is read past.
@@ -401,7 +435,7 @@ impl ChatText {
         };
         // A doc another build wrote, or a damaged one, is left out: each holds its own bound, and
         // every message starts inside its text, in order.
-        let mut room = TOTAL_BYTES;
+        let mut room = self.total;
         let docs = saved
             .docs
             .into_iter()
@@ -453,17 +487,31 @@ impl ChatText {
         read: &dyn Fn(&ChatEntry) -> Option<Vec<Turn>>,
         following: bool,
     ) {
-        let mut room = TOTAL_BYTES;
+        let mut room = self.total;
         let mut kept: HashSet<String> = HashSet::new();
         let mut read_since_publish = 0_usize;
         for chat in chats {
             let key = key_text(&chat.entry.key());
             let stamp = Stamp::of(&chat.entry);
-            let (held, has_doc) = {
+            let (held, has_doc, edge) = {
                 let inner = lock(&self.inner);
                 let doc = inner.docs.get(&key);
-                (doc.filter(|doc| doc.stamp == stamp).map(|doc| doc.text.len()), doc.is_some())
+                let edge = inner
+                    .edge
+                    .as_ref()
+                    .filter(|(edge, at, _)| *edge == key && *at == stamp)
+                    .map(|(_, _, bytes)| *bytes);
+                (
+                    doc.filter(|doc| doc.stamp == stamp).map(|doc| doc.text.len()),
+                    doc.is_some(),
+                    edge,
+                )
             };
+            // The chat that did not fit last pass, unchanged since: while it still does not fit it
+            // is not read, only to be let go of again.
+            if !has_doc && edge.is_some_and(|bytes| bytes > room) {
+                break;
+            }
             let bytes = match held {
                 Some(bytes) => bytes,
                 None => {
@@ -477,37 +525,49 @@ impl ChatText {
                         continue;
                     };
                     let mut inner = lock(&self.inner);
-                    let bytes = match edit {
+                    let (bytes, changed) = match edit {
                         follow::Read::Whole { first, turns } => {
                             let doc = Doc::of_turns(stamp, &turns, first);
                             let bytes = doc.text.len();
                             if bytes > room {
+                                inner.edge = Some((key, stamp, bytes));
                                 break;
                             }
+                            let changed =
+                                inner.docs.get(&key).is_none_or(|old| !old.same_content(&doc));
                             inner.docs.insert(key.clone(), Arc::new(doc));
-                            bytes
+                            (bytes, changed)
                         }
                         follow::Read::Tail { from, first, turns } => {
                             // Edited in place: the kept search answer is let go of first, so it
                             // holds no copy of the doc and the edit copies nothing (a search
                             // still running elsewhere keeps its own copy).
-                            inner.answer = None;
-                            let Some(doc) = inner.docs.get_mut(&key) else { continue };
-                            let doc = Arc::make_mut(doc);
-                            doc.stamp = stamp;
-                            doc.edit(from, &turns, first);
-                            doc.text.len()
+                            let (bytes, changed) = {
+                                let Some(doc) = inner.docs.get_mut(&key) else { continue };
+                                let doc = Arc::make_mut(doc);
+                                let before = doc.clone();
+                                doc.stamp = stamp;
+                                doc.edit(from, &turns, first);
+                                (doc.text.len(), !before.same_content(doc))
+                            };
+                            if changed {
+                                inner.answer = None;
+                            }
+                            (bytes, changed)
                         }
                     };
-                    read_since_publish += 1;
-                    if read_since_publish >= BATCH {
-                        self.publish(&mut inner);
-                        read_since_publish = 0;
+                    if changed {
+                        read_since_publish += 1;
+                        if read_since_publish >= BATCH {
+                            self.publish(&mut inner);
+                            read_since_publish = 0;
+                        }
                     }
                     bytes
                 }
             };
             if bytes > room {
+                lock(&self.inner).edge = Some((key, stamp, bytes));
                 break;
             }
             room -= bytes;
@@ -515,28 +575,71 @@ impl ChatText {
         }
         lock(&self.follows).retain(|key, _| kept.contains(key));
         let mut inner = lock(&self.inner);
-        let before = inner.docs.len();
-        inner.docs.retain(|key, _| kept.contains(key));
-        let removed = inner.docs.len() != before;
-        if read_since_publish > 0 || removed || !inner.filled {
+        // A chat let go of is either gone from the chat index (deleted, its root removed, chats
+        // off) or still listed but past the bound, older than every chat held.
+        let listed: HashSet<String> = if inner.docs.keys().any(|key| !kept.contains(key)) {
+            chats.iter().map(|chat| key_text(&chat.entry.key())).collect()
+        } else {
+            HashSet::new()
+        };
+        let (mut gone, mut evicted) = (false, (0_usize, 0_usize));
+        inner.docs.retain(|key, doc| {
+            if kept.contains(key) {
+                return true;
+            }
+            if listed.contains(key) {
+                evicted = (evicted.0 + 1, evicted.1 + doc.text.len());
+            } else {
+                gone = true;
+            }
+            false
+        });
+        inner.evicted = (inner.evicted.0 + evicted.0, inner.evicted.1 + evicted.1);
+        let initial_fill = !inner.filled;
+        let content_changed = read_since_publish > 0 || gone || evicted.0 > 0;
+        if content_changed || initial_fill {
             inner.filled = true;
             self.publish(&mut inner);
+            if !content_changed {
+                inner.dirty = false;
+            }
         }
-        // A chat gone (deleted, its root removed, chats off) leaves the saved copy at once, not at the
-        // next timed save: its text is not kept on disk past it.
-        let due = removed || inner.saved_at.is_none_or(|at| at.elapsed() >= SAVE_EVERY);
+        // A chat gone leaves the saved copy at once, not at the next timed save: its text is not
+        // kept on disk past it. A chat let go of for room is still listed and its transcript still
+        // on disk: it waits for the timed save, so at the bound the copy is rewritten at most every
+        // [`SAVE_EVERY`], however fast newer chats grow.
+        let due = gone || inner.saved_at.is_none_or(|at| at.elapsed() >= SAVE_EVERY);
         if !(inner.dirty && due) {
             return;
         }
         inner.dirty = false;
         inner.saved_at = Some(Instant::now());
+        let evicted = std::mem::take(&mut inner.evicted);
         // The docs are shared, not copied: the lock is let go before the write.
         let held: Vec<(String, Arc<Doc>)> =
             inner.docs.iter().map(|(key, doc)| (key.clone(), doc.clone())).collect();
         drop(inner);
+        let held_bytes: usize = held.iter().map(|(_, doc)| doc.text.len()).sum();
         let docs = held.iter().map(|(key, doc)| (key.as_str(), &**doc)).collect();
-        if let Err(error) = save(&self.path, &Saved { schema: SCHEMA, docs }) {
-            tracing::warn!(%error, "chat text: not saved");
+        match save(&self.path, &Saved { schema: SCHEMA, docs }) {
+            Ok(written) => {
+                #[cfg(test)]
+                {
+                    let mut inner = lock(&self.inner);
+                    inner.saves = (inner.saves.0 + 1, inner.saves.1 + written);
+                }
+                if evicted.0 > 0 {
+                    tracing::info!(
+                        evicted_chats = evicted.0,
+                        evicted_bytes = evicted.1,
+                        held_chats = held.len(),
+                        held_bytes,
+                        written_bytes = written,
+                        "chat text: at its bound; the oldest chats were let go of since the last save"
+                    );
+                }
+            }
+            Err(error) => tracing::warn!(%error, "chat text: not saved"),
         }
     }
 
@@ -626,6 +729,12 @@ impl ChatText {
         lock(&self.inner).filled
     }
 
+    /// How many saves were written and how many bytes they wrote.
+    #[cfg(test)]
+    pub(crate) fn saves(&self) -> (usize, usize) {
+        lock(&self.inner).saves
+    }
+
     /// How many docs searches have read so far.
     #[cfg(test)]
     pub(crate) fn scanned(&self) -> usize {
@@ -643,14 +752,16 @@ impl ChatText {
 /// home there may be another daemon's now, and the text is user data. Under a held home the
 /// write goes through the folder this daemon locked (`home_fs`), not its path, so a home replaced
 /// after the check passed never gets the text: it lands in the folder that was moved away, or
-/// nowhere. Whole or not at all: a synced temporary copy renamed over the file.
-fn save(path: &Path, saved: &Saved) -> anyhow::Result<()> {
+/// nowhere. Whole or not at all: a synced temporary copy renamed over the file. The bytes written.
+fn save(path: &Path, saved: &Saved) -> anyhow::Result<usize> {
     let checked = crate::config::refuse_lost_home(path);
     if let Some(hook) = SAVE_CHECKED.get() {
         hook(checked.is_ok());
     }
     checked?;
-    Ok(crate::home_fs::write_index_file(path, &serde_json::to_vec(saved)?)?)
+    let bytes = serde_json::to_vec(saved)?;
+    crate::home_fs::write_index_file(path, &bytes)?;
+    Ok(bytes.len())
 }
 
 /// Test seam: called on the saving thread between a save's home check and its write, with

@@ -20,7 +20,7 @@ public final class WindowSurfaceView: NSView, WindowSurfacePainting {
     public init(content: NSView, activeLook: ActiveLookScope?,
                 reduceTransparency: @escaping @MainActor () -> Bool = { ReduceTransparency.shared.isEnabled }) {
         self.content = content
-        backdropView = WindowMaterialView(frame: .zero, images: .shared, activeLook: activeLook)
+        backdropView = WindowMaterialView(frame: .zero, images: .shared, activeLook: activeLook, fillsWindow: true)
         self.reduceTransparency = reduceTransparency
         super.init(frame: content.frame.size == .zero ? NSRect(x: 0, y: 0, width: 480, height: 320) : NSRect(origin: .zero, size: content.frame.size))
         wantsLayer = true

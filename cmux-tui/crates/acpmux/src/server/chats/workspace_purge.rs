@@ -67,7 +67,8 @@ pub(super) async fn handle(
             }
             // Read before the stop: the purge forgets the session.
             let files = own_transcripts(hub, &session.meta());
-            if let Err(e) = hub.kill(&session, true).await {
+            let why = crate::close_why::CloseWhy::by("app", "its workspace was purged");
+            if let Err(e) = hub.kill_why(&session, true, why).await {
                 tracing::warn!(session = %session.id, "workspace purge failed: {}", e.message);
                 continue;
             }

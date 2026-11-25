@@ -203,7 +203,11 @@ try:
     safe_print(f"opened {url}: {json.dumps(opened)[:300]}", flush=True)
     expected = {"bench"} if opts.bench else {f"{frame}.{call}" for frame in FRAMES for call in [*CALLS, "locked"]} | {"parent"}
     done = wait(lambda: app.poll() is not None or set(RESULTS) >= expected, opts.timeout)
-    time.sleep(3)  # test harness: an abort after the last report still fails the run
+    # An abort after the last report still fails the run: watch the app 3 s for an exit (returns at once if it ended).
+    try:
+        app.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        pass
     if app.poll() is not None:
         failed = f"the app exited with {app.returncode} (signal {-app.returncode if app.returncode < 0 else 0})"
     elif not done or not set(RESULTS) >= expected:

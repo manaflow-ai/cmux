@@ -145,6 +145,98 @@ pub fn listing(this: &This, devices: &[Device]) -> Listing {
     Listing { this_device, others }
 }
 
+/// What Your Devices can truly say while it lists nothing (Leo, 2026-11-19, ask-6a79af928f: "i simply
+/// dont see ANYTHING on the scren sharing screen"). The hub is `ready` as soon as this device registers,
+/// before the device list is read. The list comes after the socket connects, and that read can fail. Until
+/// a read succeeds, an empty list means nothing, so "none of your devices" is said only after one.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscoveryInput {
+    /// The hub: `idle`, `starting`, `ready` or `failed`.
+    #[serde(default)]
+    pub status: String,
+    /// Why the hub failed (with `failed`).
+    #[serde(default)]
+    pub status_detail: Option<String>,
+    /// A device-list read succeeded since sign-in.
+    #[serde(default)]
+    pub listed: bool,
+    /// Why the last device-list read failed; none once a read succeeds.
+    #[serde(default)]
+    pub list_error: Option<String>,
+    /// The hub socket: `connected`, `connecting`, `reconnecting`, `disconnected`, `replaced`,
+    /// `removed` or `signedOut`.
+    #[serde(default)]
+    pub connection: String,
+    /// Why the socket's last attempt failed (with `reconnecting`).
+    #[serde(default)]
+    pub connection_detail: Option<String>,
+    /// How many devices the page would list.
+    #[serde(default)]
+    pub shown: usize,
+}
+
+/// One state for Your Devices.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase", tag = "state")]
+pub enum Discovery {
+    /// Rows to list.
+    List,
+    /// Registering, connecting, or waiting for the first read: never "none".
+    Finding,
+    /// The list cannot be read: `reason` for the app to word, `detail` the hub's or socket's own words.
+    Failed { reason: FailReason, detail: Option<String> },
+    /// A read succeeded and holds no device to show.
+    None,
+}
+
+/// Why Your Devices cannot list.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FailReason {
+    /// The hub did not take this device (its registration failed).
+    Hub,
+    /// The device-list read failed.
+    List,
+    /// The socket keeps failing, so the list was never read.
+    Connection,
+    /// Another connection of this device took over.
+    Replaced,
+    /// The hub removed this device.
+    Removed,
+    /// This device is signed out of the hub.
+    SignedOut,
+}
+
+/// What Your Devices says for `input`. With rows, the list. Without them, "none" only after a read
+/// succeeded; the reason when the hub, the read or the socket failed; otherwise "finding".
+pub fn discovery(input: &DiscoveryInput) -> Discovery {
+    if input.shown > 0 {
+        return Discovery::List;
+    }
+    let failed =
+        |reason, detail: Option<&String>| Discovery::Failed { reason, detail: detail.cloned() };
+    if input.status == "failed" {
+        return failed(FailReason::Hub, input.status_detail.as_ref());
+    }
+    match input.connection.as_str() {
+        "replaced" => return failed(FailReason::Replaced, None),
+        "removed" => return failed(FailReason::Removed, None),
+        "signedOut" => return failed(FailReason::SignedOut, None),
+        _ => {}
+    }
+    if let Some(error) = &input.list_error {
+        return failed(FailReason::List, Some(error));
+    }
+    if input.listed {
+        return Discovery::None;
+    }
+    if input.status == "ready" && input.connection == "reconnecting" {
+        return failed(FailReason::Connection, input.connection_detail.as_ref());
+    }
+    Discovery::Finding
+}
+
 #[cfg(test)]
 #[path = "device_list_tests.rs"]
 mod tests;

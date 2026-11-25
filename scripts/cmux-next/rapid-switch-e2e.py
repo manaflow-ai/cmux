@@ -11,6 +11,8 @@ Usage: rapid-switch-e2e.py --socket /tmp/cmux-debug-<tag>[-capslot<N>].sock [--o
 Exit status 0 when every check passes.
 """
 import argparse, json, os, socket, sys, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_until, wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True, help="the tagged app's debug socket")
@@ -60,8 +62,11 @@ def key(name, modifiers):
     """Previous / Next run as the palette runs them: these two actions have no default key (the tab
     keys run Next / Previous Tab in Pane). The reply names the action, as `debug.key`'s did."""
     command = "navigate.next" if name == "}" else "navigate.previous"
+    before = switch_state()
     action(command)
-    time.sleep(0.5)  # test harness: the switch settles
+    # The switch lands (the selected row or the pane's tab changes), then settles. The rows check what it did.
+    wait_until(lambda: switch_state() != before, f"{command} to change the selection", timeout=5, raise_on_timeout=False)
+    wait_stable(switch_state, f"the selection after {command}", timeout=5, raise_on_timeout=False)
     return {"action": command}
 
 
@@ -86,6 +91,10 @@ def focused_pane():
     return next((p for p in panes if p.get("focused")), None) or {}
 
 
+def switch_state():
+    return selected(), focused_pane().get("id"), focused_pane().get("selected_tab")
+
+
 def row(check, expected, observed, ok):
     ROWS.append(ok)
     print(f"{'PASS' if ok else 'FAIL'} | {check} | {expected} | {observed}", flush=True)
@@ -103,7 +112,8 @@ def setup():
     action("workspace.selectFirst")
     if not wait(lambda: selected() and not selected()[0].startswith("itm_") and focused_pane().get("selected_tab"), 15):
         sys.exit(f"no workspace shown: {selected()} {focused_pane()}")
-    time.sleep(1)  # test harness: focus lands in the shown pane
+    # Focus lands in the shown pane: the selection and the focused pane stop changing.
+    wait_stable(switch_state, "focus in the shown pane", timeout=10, interval=0.1)
 
 
 
@@ -119,9 +129,11 @@ def main():
     row("1-tab pane: Previous steps back", "navigate.previous; the first row again",
         f"action={reply.get('action')} {after} -> {back}", reply.get("action") == "navigate.previous" and back == start)
 
+    old_tab = focused_pane().get("selected_tab")
     print("newSurface:", action("newSurface"), flush=True)
-    wait(lambda: focused_pane().get("selected_tab"), 15)
-    time.sleep(1)  # test harness: the new tab takes focus
+    # The new tab takes focus: the focused pane's selected tab changes from the old one, then settles.
+    wait(lambda: (lambda tab: tab and tab != old_tab)(focused_pane().get("selected_tab")), 15)
+    wait_stable(switch_state, "focus on the new tab", timeout=10, interval=0.1)
     workspace, first = selected(), focused_pane().get("selected_tab")
     tabs = [first]
     for _ in range(2):

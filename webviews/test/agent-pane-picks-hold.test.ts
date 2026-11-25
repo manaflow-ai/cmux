@@ -25,7 +25,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Page } from "playwright";
-import { COMPOSER_EDITOR, MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
+import { MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 import {
   chipValues,
   installWireLog,
@@ -147,10 +147,7 @@ await requireBrowserLane("agent-pane-picks-hold.test.ts", async () => {
     const HIGH = /High/;
     const FULL = /Full access/i;
 
-    // Skipped: red on feat-cmux-next (after the switch back to Codex the access chip still reads its
-    // "Mode" placeholder), on every PR's real-daemon job. Put it back with the fix (see the PR that
-    // skipped it).
-    test.skip("Sol, High and Full access hold through a first send, a reload, a daemon restart and a harness switch", async () => {
+    test("Sol, High and Full access hold through a first send, a reload, a daemon restart and a harness switch", async () => {
       const context = await lane.browser.newContext({ viewport: { width: 1100, height: 800 } });
       const page = await context.newPage();
       try {
@@ -160,6 +157,10 @@ await requireBrowserLane("agent-pane-picks-hold.test.ts", async () => {
           await page.goto(paneUrl(lane.base, lane.daemon));
           await page.locator(".nt-field").waitFor();
           await page.waitForFunction(() => !!document.querySelector(".acpmux-access-trigger"));
+          // The page draws a start before it has connected to acpmux (its own catalog's first
+          // harness, Claude Code); the New Tab under test is the one acpmux names: its default
+          // harness (Codex) on Codex's default model.
+          await page.locator(MODEL_PICKER).filter({ hasText: "GPT-6 Astra" }).first().waitFor({ timeout: 90_000 });
           const start = await settled(page);
           note(`new tab: ${JSON.stringify(start)}`);
           await startValueSampler(page);

@@ -13,7 +13,7 @@ public struct CloudWorkspaceSetupWizard {
     public enum Readiness: Equatable, Sendable { case waiting, ready, ended }
 
     /// The localized destination label for an account without a selected team.
-    public nonisolated static let personalAccountTitle = String(localized: "cloud.workspaceSetup.personalAccount", defaultValue: "Personal account", table: "Cloud", bundle: .module)
+    public nonisolated static let personalAccountTitle = String(localized: "cloud.workspaceSetup.personalAccount", defaultValue: "Personal account", table: "Cloud", bundle: .localizedModule)
 
     /// The starting contents of a new machine.
     public nonisolated enum Source: String, Sendable, Equatable {
@@ -228,27 +228,27 @@ public struct CloudWorkspaceSetupWizard {
 }
 
 private enum CloudWorkspaceSetupWizardStrings {
-    nonisolated static let title = String(localized: "cloud.workspaceSetup.title", defaultValue: "New Cloud Workspace", table: "Cloud", bundle: .module)
-    nonisolated static let setupSummary = String(localized: "cloud.workspaceSetup.summary", defaultValue: "Start a new project on an empty VM, or clone a GitHub repository into ~/work.", table: "Cloud", bundle: .module)
-    nonisolated static let emptyOnlySummary = String(localized: "cloud.workspaceSetup.emptyOnlySummary", defaultValue: "Start a new project on an empty VM. Repository setup is not available with this Cloud connection.", table: "Cloud", bundle: .module)
-    nonisolated static let sourceLabel = String(localized: "cloud.workspaceSetup.sourceLabel", defaultValue: "Start with", table: "Cloud", bundle: .module)
-    nonisolated static let emptyChoice = String(localized: "cloud.workspaceSetup.emptyChoice", defaultValue: "Empty VM — start a new project", table: "Cloud", bundle: .module)
-    nonisolated static let repositoryChoice = String(localized: "cloud.workspaceSetup.repositoryChoice", defaultValue: "From repository", table: "Cloud", bundle: .module)
-    nonisolated static let repositoryLabel = String(localized: "cloud.workspaceSetup.repositoryLabel", defaultValue: "GitHub repository (only for From repository)", table: "Cloud", bundle: .module)
-    nonisolated static let repositoryPlaceholder = String(localized: "cloud.workspaceSetup.repositoryPlaceholder", defaultValue: "owner/repository or GitHub URL", table: "Cloud", bundle: .module)
-    nonisolated static let create = String(localized: "cloud.workspaceSetup.create", defaultValue: "Create workspace", table: "Cloud", bundle: .module)
-    nonisolated static let cancel = String(localized: "cloud.workspaceSetup.cancel", defaultValue: "Cancel", table: "Cloud", bundle: .module)
+    nonisolated static let title = String(localized: "cloud.workspaceSetup.title", defaultValue: "New Cloud Workspace", table: "Cloud", bundle: .localizedModule)
+    nonisolated static let setupSummary = String(localized: "cloud.workspaceSetup.summary", defaultValue: "Start a new project on an empty VM, or clone a GitHub repository into ~/work.", table: "Cloud", bundle: .localizedModule)
+    nonisolated static let emptyOnlySummary = String(localized: "cloud.workspaceSetup.emptyOnlySummary", defaultValue: "Start a new project on an empty VM. Repository setup is not available with this Cloud connection.", table: "Cloud", bundle: .localizedModule)
+    nonisolated static let sourceLabel = String(localized: "cloud.workspaceSetup.sourceLabel", defaultValue: "Start with", table: "Cloud", bundle: .localizedModule)
+    nonisolated static let emptyChoice = String(localized: "cloud.workspaceSetup.emptyChoice", defaultValue: "Empty VM — start a new project", table: "Cloud", bundle: .localizedModule)
+    nonisolated static let repositoryChoice = String(localized: "cloud.workspaceSetup.repositoryChoice", defaultValue: "From repository", table: "Cloud", bundle: .localizedModule)
+    nonisolated static let repositoryLabel = String(localized: "cloud.workspaceSetup.repositoryLabel", defaultValue: "GitHub repository (only for From repository)", table: "Cloud", bundle: .localizedModule)
+    nonisolated static let repositoryPlaceholder = String(localized: "cloud.workspaceSetup.repositoryPlaceholder", defaultValue: "owner/repository or GitHub URL", table: "Cloud", bundle: .localizedModule)
+    nonisolated static let create = String(localized: "cloud.workspaceSetup.create", defaultValue: "Create workspace", table: "Cloud", bundle: .localizedModule)
+    nonisolated static let cancel = String(localized: "cloud.workspaceSetup.cancel", defaultValue: "Cancel", table: "Cloud", bundle: .localizedModule)
     /// The VM's agents use the Cloud service's model route: no login moves from this Mac, team machine or not.
-    nonisolated static let modelRouteNote = String(localized: "cloud.workspaceSetup.modelRoute", defaultValue: "Claude and Codex on the VM reach models through the Cloud service. No login moves from this Mac.", table: "Cloud", bundle: .module)
-    nonisolated static let repositoryInvalid = String(localized: "cloud.workspaceSetup.repositoryInvalid", defaultValue: "Enter a GitHub repository as owner/name or a GitHub URL.", table: "Cloud", bundle: .module)
-    nonisolated static let repositoryCredentials = String(localized: "cloud.workspaceSetup.repositoryCredentials", defaultValue: "Remove the username or password from the repository URL. cmux never saves URL credentials on the VM.", table: "Cloud", bundle: .module)
-    nonisolated static let repositoryRefInvalid = String(localized: "cloud.workspaceSetup.repositoryRefInvalid", defaultValue: "The branch, tag, or commit name is not supported.", table: "Cloud", bundle: .module)
-    nonisolated static let environmentSummary = String(localized: "cloud.workspaceSetup.environmentSummary", defaultValue: "Start empty, start in one of your environments, or save a GitHub repository as a new environment. An environment clones the repository and runs its setup; once built, new machines start from it in about a second.", table: "Cloud", bundle: .module)
+    nonisolated static let modelRouteNote = String(localized: "cloud.workspaceSetup.modelRoute", defaultValue: "Claude and Codex on the VM reach models through the Cloud service. No login moves from this Mac.", table: "Cloud", bundle: .localizedModule)
+    nonisolated static let repositoryInvalid = String(localized: "cloud.workspaceSetup.repositoryInvalid", defaultValue: "Enter a GitHub repository as owner/name or a GitHub URL.", table: "Cloud", bundle: .localizedModule)
+    nonisolated static let repositoryCredentials = String(localized: "cloud.workspaceSetup.repositoryCredentials", defaultValue: "Remove the username or password from the repository URL. cmux never saves URL credentials on the VM.", table: "Cloud", bundle: .localizedModule)
+    nonisolated static let repositoryRefInvalid = String(localized: "cloud.workspaceSetup.repositoryRefInvalid", defaultValue: "The branch, tag, or commit name is not supported.", table: "Cloud", bundle: .localizedModule)
+    nonisolated static let environmentSummary = String(localized: "cloud.workspaceSetup.environmentSummary", defaultValue: "Start empty, start in one of your environments, or save a GitHub repository as a new environment. An environment clones the repository and runs its setup; once built, new machines start from it in about a second.", table: "Cloud", bundle: .localizedModule)
     nonisolated static func environmentChoice(_ name: String) -> String {
-        String(format: String(localized: "cloud.workspaceSetup.environmentChoice", defaultValue: "Environment: %@", table: "Cloud", bundle: .module), name)
+        String(format: String(localized: "cloud.workspaceSetup.environmentChoice", defaultValue: "Environment: %@", table: "Cloud", bundle: .localizedModule), name)
     }
-    nonisolated static let newEnvironmentChoice = String(localized: "cloud.workspaceSetup.newEnvironmentChoice", defaultValue: "Save a repository as an environment", table: "Cloud", bundle: .module)
-    nonisolated static let newEnvironmentRepositoryLabel = String(localized: "cloud.workspaceSetup.newEnvironmentRepositoryLabel", defaultValue: "GitHub repository (only for a new environment)", table: "Cloud", bundle: .module)
-    nonisolated static let setupScriptLabel = String(localized: "cloud.workspaceSetup.setupScriptLabel", defaultValue: "Setup command (optional, only for a new environment)", table: "Cloud", bundle: .module)
-    nonisolated static let setupScriptPlaceholder = String(localized: "cloud.workspaceSetup.setupScriptPlaceholder", defaultValue: "bun install", table: "Cloud", bundle: .module)
+    nonisolated static let newEnvironmentChoice = String(localized: "cloud.workspaceSetup.newEnvironmentChoice", defaultValue: "Save a repository as an environment", table: "Cloud", bundle: .localizedModule)
+    nonisolated static let newEnvironmentRepositoryLabel = String(localized: "cloud.workspaceSetup.newEnvironmentRepositoryLabel", defaultValue: "GitHub repository (only for a new environment)", table: "Cloud", bundle: .localizedModule)
+    nonisolated static let setupScriptLabel = String(localized: "cloud.workspaceSetup.setupScriptLabel", defaultValue: "Setup command (optional, only for a new environment)", table: "Cloud", bundle: .localizedModule)
+    nonisolated static let setupScriptPlaceholder = String(localized: "cloud.workspaceSetup.setupScriptPlaceholder", defaultValue: "bun install", table: "Cloud", bundle: .localizedModule)
 }

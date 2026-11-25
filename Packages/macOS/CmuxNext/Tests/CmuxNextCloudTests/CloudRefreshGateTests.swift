@@ -82,7 +82,22 @@ struct CloudRefreshGateTests {
         #expect(await third.value)
     }
 
-    @Test func cancelingOneWaiterKeepsTheSharedRead() async {
+    private func expectPromptCancellation(_ task: Task<Bool, Never>) async {
+        let returned = AsyncStream<Bool>.makeStream()
+        let observer = Task { returned.continuation.yield(await task.value == false) }
+        // A deadline reports a failure without leaving the held read wedged on the old gate.
+        let deadline = Task {
+            try? await Task.sleep(for: .seconds(5))
+            if !Task.isCancelled { returned.continuation.yield(false) }
+        }
+        var result = returned.stream.makeAsyncIterator()
+        #expect(await result.next() == true, "Canceled waiter must return before the read is released")
+        deadline.cancel()
+        observer.cancel()
+    }
+
+    @Test(arguments: [false, true])
+    func cancelingOneWaiterKeepsTheSharedRead(running: Bool) async {
         let gate = CloudRefreshGate(), reads = Reads()
         var entered = reads.entered.stream.makeAsyncIterator()
         var started = reads.started.stream.makeAsyncIterator()
@@ -93,14 +108,41 @@ struct CloudRefreshGateTests {
         _ = await entered.next()
         let surviving = reads.request(gate)
         _ = await entered.next()
+        if running {
+            reads.release(1)
+            #expect(await first.value)
+            #expect(await started.next() == 2)
+        }
         canceled.cancel()
-        reads.release(1)
-        _ = await first.value
-        #expect(await started.next() == 2)
+        await expectPromptCancellation(canceled)
+        if !running {
+            reads.release(1)
+            #expect(await first.value)
+            #expect(await started.next() == 2)
+        }
         reads.release(2)
         #expect(await surviving.value)
         #expect(await canceled.value == false)
         #expect(reads.canceled[2] == false)
+    }
+
+    @Test func cancelingLastWaiterKeepsRestartBehindTheRead() async {
+        let gate = CloudRefreshGate(), reads = Reads()
+        var entered = reads.entered.stream.makeAsyncIterator()
+        var started = reads.started.stream.makeAsyncIterator()
+        let canceled = reads.request(gate)
+        _ = await entered.next()
+        #expect(await started.next() == 1)
+        canceled.cancel()
+        await expectPromptCancellation(canceled)
+        let restarted = reads.request(gate)
+        _ = await entered.next()
+        #expect(reads.count == 1)
+        reads.release(1)
+        #expect(await started.next() == 2)
+        #expect(reads.canceled[1] == true)
+        reads.release(2)
+        #expect(await restarted.value)
     }
 
     @Test func stopCancelsRunningAndQueuedReads() async {

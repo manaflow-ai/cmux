@@ -169,6 +169,48 @@ pub(crate) fn docked_workspaces_enabled(
     requested && !disables(DOCKED_WORKSPACES)
 }
 
+/// The `DisabledFeatures` name of `cmux tmux attach`.
+pub(crate) const TMUX_CONTROL_MODE: &str = "tmux-control-mode";
+/// Turns `cmux tmux attach` on.
+pub(crate) const TMUX_CONTROL_MODE_ENV: &str = "CMUX_TUI_TMUX_CONTROL_MODE";
+
+/// Whether `cmux tmux attach` (plans/feat-control-mode-terminals/DESIGN.md)
+/// is on. The experiment is off by default: `CMUX_TUI_TMUX_CONTROL_MODE=1`
+/// turns it on, and the managed policy or this tester's wave can still turn
+/// it off.
+pub(crate) fn tmux_control_mode_enabled(env: &dyn Fn(&str) -> Option<String>) -> bool {
+    env(TMUX_CONTROL_MODE_ENV)
+        .is_some_and(|value| matches!(value.trim(), "1" | "true" | "on" | "yes"))
+        && !disables(TMUX_CONTROL_MODE)
+}
+
+/// The `DisabledFeatures` name of the hybrid chat start (cmux-cloud-start-core `hybrid`): a
+/// `cmux chat --on cloud` that answers here at once and moves to its Cloud machine once it is up.
+pub(crate) const HYBRID_CHAT_START: &str = "hybrid-chat-start";
+/// Turns the hybrid chat start on (`1`, `true`, `on`, `yes`) or off (`0`, `false`, `off`, `no`)
+/// whatever the plan.
+pub(crate) const HYBRID_CHAT_START_ENV: &str = "CMUX_HYBRID_START";
+
+/// The hybrid start's flag (`hybrid::Account::flag`), which wins over the plan: `CMUX_HYBRID_START`
+/// when it says on or off, else off when the managed policy or this tester's wave disables
+/// [`HYBRID_CHAT_START`] (`disabled`), else on when cmux-next.json's `cloud.autoCloud` is `true`
+/// (`auto_cloud`, read only then; Leo, 2026-11-24: "austin was also really wanting to have a demo
+/// of the auto/hybrid cloud thing"), else none (the plan decides). A `false` or absent key is none,
+/// never off: it leaves the plan's default as it was.
+pub(crate) fn hybrid_chat_start_flag(
+    env: &dyn Fn(&str) -> Option<String>,
+    disabled: &dyn Fn(&str) -> bool,
+    auto_cloud: &dyn Fn() -> Option<bool>,
+) -> Option<bool> {
+    match env(HYBRID_CHAT_START_ENV).as_deref().map(str::trim) {
+        Some("1" | "true" | "on" | "yes") => Some(true),
+        Some("0" | "false" | "off" | "no") => Some(false),
+        _ if disabled(HYBRID_CHAT_START) => Some(false),
+        _ if auto_cloud() == Some(true) => Some(true),
+        _ => None,
+    }
+}
+
 /// Whether the managed policy or this tester's wave turns `feature` off.
 pub(crate) fn disables(feature: &str) -> bool {
     let env = |name: &str| std::env::var(name).ok();
@@ -200,78 +242,5 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use ring::signature::{Ed25519KeyPair, KeyPair};
-
-    fn key_pair() -> Ed25519KeyPair {
-        Ed25519KeyPair::from_seed_unchecked(&[3u8; 32]).unwrap()
-    }
-
-    fn encode(bytes: &[u8]) -> String {
-        base64::engine::general_purpose::STANDARD.encode(bytes)
-    }
-
-    #[test]
-    fn only_the_key_holder_signs_a_document() {
-        let pair = key_pair();
-        let key = encode(pair.public_key().as_ref());
-        let data = br#"{"version":1}"#;
-        let signature = format!("{}\n", encode(pair.sign(data).as_ref()));
-        assert!(verify(data, signature.as_bytes(), &key));
-        assert!(!verify(br#"{"version":2}"#, signature.as_bytes(), &key));
-        assert!(!verify(data, signature.as_bytes(), PUBLIC_KEY));
-        assert!(!verify(data, b"not base64!", &key));
-    }
-
-    #[test]
-    fn a_cohort_replaces_the_default_keys() {
-        let document = serde_json::json!({
-            "version": 1,
-            "default": {"DisabledFeatures": ["a"], "MinimumVersion": "1.0.0"},
-            "cohorts": {"wave-1": {"DisabledFeatures": ["b"]}},
-        });
-        let wave = resolve(&document, "wave-1").unwrap();
-        assert_eq!(disabled_features(&wave), ["b"]);
-        assert_eq!(wave["MinimumVersion"], "1.0.0");
-        assert_eq!(disabled_features(&resolve(&document, "other").unwrap()), ["a"]);
-        assert!(resolve(&serde_json::json!({"version": 2}), "wave-1").is_none());
-    }
-
-    #[test]
-    fn the_cohort_comes_from_the_environment_then_the_settings() {
-        let settings = serde_json::json!({"tester": {"cohort": "mac-wave-2"}});
-        let none = |_: &str| -> Option<String> { None };
-        let set = |name: &str| (name == "CMUX_TUI_COHORT").then(|| "linux-wave-1".to_string());
-        assert_eq!(cohort(&set, Some(&settings)), "linux-wave-1");
-        assert_eq!(cohort(&none, Some(&settings)), "mac-wave-2");
-        assert_eq!(cohort(&none, None), "default");
-    }
-
-    #[test]
-    fn docked_workspaces_stay_off_unless_requested() {
-        let none = |_: &str| -> Option<String> { None };
-        let on = |name: &str| (name == DOCKED_WORKSPACES_ENV).then(|| "1".to_string());
-        let off = |name: &str| (name == DOCKED_WORKSPACES_ENV).then(|| "0".to_string());
-        assert!(!docked_workspaces_enabled(false, &none));
-        assert!(!docked_workspaces_enabled(false, &off));
-        assert_eq!(docked_workspaces_enabled(false, &on), !disables(DOCKED_WORKSPACES));
-        assert_eq!(docked_workspaces_enabled(true, &none), !disables(DOCKED_WORKSPACES));
-    }
-
-    #[test]
-    fn only_a_verified_document_is_cached() {
-        let root = tempfile::tempdir().unwrap();
-        let pair = key_pair();
-        let key = encode(pair.public_key().as_ref());
-        let data = br#"{"version":1,"default":{"DisabledFeatures":["x"]}}"#;
-        let signature = encode(pair.sign(data).as_ref());
-        assert!(store(root.path(), b"{}", signature.as_bytes(), &key).is_err());
-        assert!(cached(root.path(), &key).is_none());
-        store(root.path(), data, signature.as_bytes(), &key).unwrap();
-        assert!(cached(root.path(), &key).is_some());
-        // An edit on disk voids the cache.
-        std::fs::write(root.path().join(CACHE_NAME), br#"{"version":1}"#).unwrap();
-        assert!(cached(root.path(), &key).is_none());
-    }
-}
+#[path = "feature_flags_tests.rs"]
+mod tests;

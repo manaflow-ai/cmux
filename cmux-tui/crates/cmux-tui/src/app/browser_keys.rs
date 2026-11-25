@@ -93,9 +93,19 @@ pub(super) fn browser_character_code(character: char) -> (&'static str, u32) {
     match character {
         'a'..='z' | 'A'..='Z' => {
             let upper = character.to_ascii_uppercase();
-            (BROWSER_LETTER_CODES[(upper as u8 - b'A') as usize], upper as u32)
+            let code = BROWSER_LETTER_CODES
+                .get(usize::from(upper as u8 - b'A'))
+                .copied()
+                .unwrap_or("Unidentified");
+            (code, upper as u32)
         }
-        '0'..='9' => (BROWSER_DIGIT_CODES[(character as u8 - b'0') as usize], character as u32),
+        '0'..='9' => (
+            BROWSER_DIGIT_CODES
+                .get(usize::from(character as u8 - b'0'))
+                .copied()
+                .unwrap_or("Unidentified"),
+            character as u32,
+        ),
         ' ' => ("Space", 32),
         ';' => ("Semicolon", 186),
         '=' => ("Equal", 187),

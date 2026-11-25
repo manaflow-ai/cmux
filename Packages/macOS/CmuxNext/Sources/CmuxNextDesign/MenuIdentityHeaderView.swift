@@ -162,7 +162,7 @@ public final class MenuSwatchStrip: NSView {
     public static let ringRoom: CGFloat = 3
 
     /// The No Color swatch's name (its VoiceOver action and tooltip).
-    public static var noColorTitle: String { String(localized: "menu.swatch.noColor", defaultValue: "No Color", bundle: .module) }
+    public static var noColorTitle: String { String(localized: "menu.swatch.noColor", defaultValue: "No Color", bundle: .localizedModule) }
 
     /// Every swatch in drawing order: the No Color one first when there is one.
     private var swatchCount: Int { choices.count + (clearChoice == nil ? 0 : 1) }

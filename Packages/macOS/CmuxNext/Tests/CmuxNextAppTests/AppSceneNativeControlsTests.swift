@@ -7,7 +7,7 @@ import Testing
 
 /// Every node a custom section (or an app pane) can use draws in AppKit, so no custom view falls back
 /// to SwiftUI and looks unlike the sidebar: Toggle, TextField, Slider, Image, Menu, ProgressView,
-/// ZStack and the shapes, and the decoration props (`frame`, `background`, `borderColor`,
+/// ZStack and the shapes, and the decoration props (`frame`, `background`, `glass`, `borderColor`,
 /// `cornerRadius`, `hoverBackground`, `rotation`). Each control sends its events back to the script.
 @MainActor @Suite(.serialized, .closesItsWindows) struct AppSceneNativeControlsTests {
     private final class Recorder: AppSceneInteraction {
@@ -168,6 +168,49 @@ import Testing
         #expect(layer.backgroundColor != nil)
         #expect(layer.borderWidth == 1)
         #expect(layer.cornerRadius == 6)
+    }
+
+    /// `glass` puts the App's own glass under the node at that level, under its children, rounded by
+    /// `cornerRadius`; adding, swapping or dropping it changes no frame, and an unknown level draws none.
+    @Test func glassDecorationDrawsTheAppGlassAndMovesNothing() throws {
+        let model = Self.scene([
+            .create(id: "card", type: "VStack", props: ["padding": 8, "cornerRadius": 10]),
+            .create(id: "label", type: "Text", props: ["text": "On glass"]),
+            .children(id: "card", children: ["label"]),
+            .root(id: "card"),
+        ])
+        let (window, root) = Self.host(model)
+        defer { window.contentView = nil; window.close() }
+        func node(_ id: String) throws -> AppSceneNodeNSView {
+            try #require(Self.all(in: root).compactMap { $0 as? AppSceneNodeNSView }.first { $0.nodeID == id })
+        }
+        func frames() throws -> [NSRect] { [try node("card").frame, try node("label").frame] }
+        let before = try frames()
+        #expect(try node("card").decorationGlass == nil)
+
+        model.apply([.update(id: "card", props: ["glass": "popover"])])
+        root.layoutSubtreeIfNeeded()
+        let card = try node("card")
+        let popover = try #require(card.decorationGlass)
+        #expect(popover.level == .popover)
+        let surface = try #require(popover.view as? OverlaySurfaceView)
+        #expect(surface.cornerRadius == 10)
+        #expect(!surface.isInteractive)
+        #expect(card.subviews.first === surface)
+        #expect(surface.frame == card.bounds)
+        #expect(try frames() == before)
+
+        model.apply([.update(id: "card", props: ["glass": "chrome", "cornerRadius": 14])])
+        root.layoutSubtreeIfNeeded()
+        let chrome = try #require(try node("card").decorationGlass)
+        #expect(chrome.level == .chrome)
+        #expect((chrome.view as? CardSurfaceView)?.cornerRadius == 14)
+        #expect(surface.superview == nil)
+
+        model.apply([.update(id: "card", props: ["glass": "frosted"])])
+        root.layoutSubtreeIfNeeded()
+        #expect(try node("card").decorationGlass == nil)
+        #expect(try frames() == before)
     }
 
     /// The GitHub PRs sample's section (samples/apps/github-prs/src/main.ts): rows with help, tap and a

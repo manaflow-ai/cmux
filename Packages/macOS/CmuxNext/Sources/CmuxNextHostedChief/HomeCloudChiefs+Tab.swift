@@ -1,3 +1,4 @@
+import CmuxChiefList
 public import CmuxNextDaemon
 import CmuxNextHomeEngine
 import Foundation
@@ -74,8 +75,7 @@ extension HomeCloudChiefs {
     /// The chief whose brain runs on a server: the default one when it is
     /// placed, else the first placed one; nil when no chief is placed.
     public static func placed(in chiefs: [CloudChief]) -> CloudChief? {
-        let placed = chiefs.filter { $0.brainPlace != nil }
-        return placed.first(where: \.isDefault) ?? placed.first
+        ChiefList.placed(in: chiefs)  // the one rule, the iPhone's too
     }
 
     /// Makes sure the user has a Hosted Chief and that it is the default:

@@ -146,7 +146,7 @@ struct TurnStateFeedListFollowTests {
         follow.rewind(to: ("run-a", 10))
         #expect((follow.watchParams["afterSeq"] as? UInt64) == 10)
 
-        guard case .change(_, _, _, _, _, _, _, _, _, _, _, _, _, let listSeq) = try message([
+        guard case .change(_, _, _, _, _, _, _, _, _, _, _, _, _, let listSeq, _) = try message([
             "jsonrpc": "2.0", "method": "_acpmux/session_changed",
             "params": ["sessionId": "a", "kind": "status", "listSeq": 13, "session": summary("a", indicator: "working", title: "A")],
         ]) else { Issue.record("a push is not read"); return }

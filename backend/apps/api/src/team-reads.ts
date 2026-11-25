@@ -49,7 +49,7 @@ export const teamRead = (state: TeamState, op: string, params: unknown, principa
   switch (op) {
     case "team.directory":
       // The first page of each list (old clients); team.members.list and team.hosts.list page the rest.
-      return { ok: true, value: { team: state.team?.id, members: listMembers(state, rows, undefined, DIRECTORY_PAGE).items, hosts: listHosts(state, rows, undefined, DIRECTORY_PAGE).items }, revision: "" }
+      return { ok: true, value: { team: state.team?.id, members: listMembers(state, rows, undefined, DIRECTORY_PAGE).items, hosts: listHosts(state, rows, undefined, DIRECTORY_PAGE, principal).items }, revision: "" }
     case "team.members.list": {
       const q = params as { cursor?: unknown; limit?: unknown; role?: unknown } | null
       const limit = typeof q?.limit === "number" && Number.isInteger(q.limit) ? Math.min(Math.max(q.limit, 1), DIRECTORY_PAGE) : DIRECTORY_PAGE
@@ -72,8 +72,9 @@ export const teamRead = (state: TeamState, op: string, params: unknown, principa
     case "team.hosts.list": {
       const q = params as { cursor?: unknown; limit?: unknown } | null
       const limit = typeof q?.limit === "number" && Number.isInteger(q.limit) ? Math.min(Math.max(q.limit, 1), DIRECTORY_PAGE) : DIRECTORY_PAGE
-      const pageOf = listHosts(state, rows, typeof q?.cursor === "string" && q.cursor.length <= 128 ? q.cursor : undefined, limit)
-      return { ok: true, value: { team: state.team?.id, hosts: pageOf.items, host_count: state.host_count ?? pageOf.items.length, next_cursor: pageOf.next }, revision: "" }
+      const pageOf = listHosts(state, rows, typeof q?.cursor === "string" && q.cursor.length <= 128 ? q.cursor : undefined, limit, principal)
+      // host_count counts the base space's hosts only (TeamState.host_count); a dev build counts only what it lists (build-space.ts).
+      return { ok: true, value: { team: state.team?.id, hosts: pageOf.items, host_count: principal.build_space ? pageOf.items.length : (state.host_count ?? pageOf.items.length), next_cursor: pageOf.next }, revision: "" }
     }
     case "team.policy.get": {
       if (p.version !== undefined && (typeof p.version !== "number" || !Number.isInteger(p.version))) return { ok: false, code: "validation.invalid", message: "version must be an integer" }

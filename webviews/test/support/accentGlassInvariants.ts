@@ -29,6 +29,9 @@
 // on top (react-apps-check shard 8 on #40611, 2026-11-10: about 20 minutes of a 28 to 33 minute
 // shard). Alone, the split counts each part in series and spreads them over the shards.
 //
+// Stages load from test/support/galleryStageServer.ts: the run's built gallery when there is one, else a
+// Vite dev server. On the dev server each stage loads about 650 unbundled modules from one Vite thread,
+// and the 4 vCPU (at times 2) runners these shards moved to on 2026-11-18 made that the bound.
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 // Warm the first stage through its scoped frame. Crawling the generic frame follows every lazy
 // import, including page hosts this scan never renders, and can exhaust the startup budget.
@@ -39,7 +42,9 @@ import { chromium, type Browser, type Page } from "playwright";
 import { loadEntrySources } from "../../scripts/gallery/entries";
 import { findingKey, scanStage, type Finding } from "./accentGlassScan";
 import { warmGalleryFrame } from "./galleryFrame";
+import { galleryStageServer, type GalleryStageServer } from "./galleryStageServer";
 import { requireBrowserLane } from "./requireBrowserLane";
+import { orangeAllowedFor, readOrangeAccentAllowlist } from "./orangeAccentAllowlist";
 import { launchStageBrowser, type StageBrowser } from "./stageBrowser";
 
 export type AccentGlassPart = {
@@ -69,10 +74,10 @@ export async function accentGlassInvariants({ file, part, parts, viteConfig }: A
     );
     // Case (b): each theme the allowlist names may show its own orange accent. One theme of each
     // entry (its dark one) runs every stage again; the default theme's run is case (a).
-    const allowlist = JSON.parse(
-      fs.readFileSync(path.join(webviews, "../schemas/theme/orange-accent-allowlist.json"), "utf8"),
-    ) as { allowed: { name: string; themes: string[] }[] };
+    const allowlist = readOrangeAccentAllowlist(webviews);
     const themes: (string | undefined)[] = [undefined, ...allowlist.allowed.map((entry) => entry.themes[0]!)];
+    // A golden look the allowlist names draws its own theme, orange by design: the same case (b), on its stage only.
+    const orangeAllowedOn = orangeAllowedFor(allowlist);
     const orangeThemes = new Set(allowlist.allowed.flatMap((entry) => entry.themes));
     const everyStage = (await loadEntrySources())
       .filter(({ entry }) => entry.host !== "native")
@@ -96,39 +101,37 @@ export async function accentGlassInvariants({ file, part, parts, viteConfig }: A
       return stage === undefined ? part === 1 : mine.has(stage);
     };
 
-    const { createServer } = await import("vite");
-    let vite: Awaited<ReturnType<typeof createServer>> | undefined;
+    // The stages' server: the run's gallery build when it made one, else the dev server (test/support/galleryStageServer.ts).
+    let stageServer: GalleryStageServer | undefined;
     // One Chromium for the whole part, relaunched when it dies mid-file (test/support/stageBrowser.ts).
     let shared: StageBrowser<Browser, Page> | undefined;
     beforeAll(async () => {
-      vite = await createServer({
-        configFile: path.join(webviews, viteConfig),
-        server: { port: 0, host: "127.0.0.1", strictPort: false },
-        logLevel: "error",
-      });
-      await vite.listen();
       shared = await launchStageBrowser<Browser, Page>({
         launch: () => chromium.launch({ headless: true }),
         open: (browser) => browser.newPage({ viewport: { width: 760, height: 900 } }),
       });
       const first = stages[0];
-      if (first)
-        await warmGalleryFrame(vite, first.entry, {
-          browser: shared.browser,
-          params: { variant: first.variant, theme: first.theme, frame: "component" },
-        });
+      stageServer = await galleryStageServer({
+        configFile: path.join(webviews, viteConfig),
+        warm: async (vite) => {
+          if (first)
+            await warmGalleryFrame(vite, first.entry, {
+              browser: shared!.browser,
+              params: { variant: first.variant, theme: first.theme, frame: "component" },
+            });
+        },
+      });
     });
     afterAll(async () => {
       await shared?.close();
-      await vite?.close();
+      await stageServer?.close();
     });
 
     type Scanned = { stage: string; findings: Finding[] } | { stage: string; error: string };
 
     const scan = async (page: Page, stage: (typeof stages)[number]): Promise<Scanned> => {
       const name = stageName(stage);
-      const orangeAllowed = stage.theme !== undefined && orangeThemes.has(stage.theme);
-      const port = (vite!.httpServer!.address() as { port: number }).port;
+      const orangeAllowed = orangeAllowedOn(stage);
       const query = new URLSearchParams({
         entry: stage.entry,
         variant: stage.variant,
@@ -137,7 +140,7 @@ export async function accentGlassInvariants({ file, part, parts, viteConfig }: A
         ...(stage.theme ? { theme: stage.theme } : {}),
       });
       try {
-        await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?${query}`);
+        await page.goto(`${stageServer!.origin}${stageServer!.framePath}?${query}`);
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, {
           timeout: 20_000,
         });

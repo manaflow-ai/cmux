@@ -17,12 +17,6 @@ type Props = { look: Look };
 const START = Date.UTC(2026, 10, 7, 8, 0, 0);
 const now = () => START + 182_000;
 const counts: WorkingCounts = {
-  agents: 0,
-  commands: 0,
-  sessions: 0,
-  openAgents: () => {},
-  openCommands: () => {},
-  openSessions: () => {},
   tokens: 47_400,
 };
 

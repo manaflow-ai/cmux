@@ -3,10 +3,14 @@ use std::collections::BTreeMap;
 use cmux_remote_protocol::LaneToken;
 use serde::{Deserialize, Serialize};
 
-pub(crate) const MAX_SLOT_SOCKETS: usize = 8;
+/// Sockets on one slot that are not inline circuit sockets: a registration, `MAX_STANDBY_SOCKETS_PER_SLOT`
+/// standbys and up to `MAX_CLIENT_CONTROL_SOCKETS` clients mid-Connect. An inline circuit's two sockets are bounded
+/// by `MAX_CIRCUITS_PER_SLOT` instead and are not counted here (`RelaySlot::socket_counts`).
+pub(crate) const MAX_SLOT_SOCKETS: usize = 12;
 pub(crate) const MAX_SLOT_PENDING_SOCKETS: usize = 4;
 pub(crate) const MAX_CLIENT_CONTROL_SOCKETS: usize = 6;
-pub(crate) const MAX_DAEMON_PENDING_SOCKETS: usize = 1;
+/// A daemon upgrade is Pending until its first message: a registration and a standby it opens beside it can overlap.
+pub(crate) const MAX_DAEMON_PENDING_SOCKETS: usize = 2;
 pub(crate) const MAX_CIRCUIT_SOCKETS: usize = 4;
 pub(crate) const MAX_CIRCUIT_PENDING_SOCKETS: usize = 2;
 pub(crate) const MAX_PENDING_CIRCUITS_PER_SLOT: usize = 16;
@@ -99,6 +103,14 @@ enum CircuitLease {
     },
 }
 
+/// What the slot's inline circuits (`crate::inline`) already take of the ledger's limits: the live ones, and
+/// those allocated inside the current allocation window.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct InlineLoad {
+    pub live: usize,
+    pub allocations_in_window: usize,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct CircuitLedger {
     entries: BTreeMap<String, CircuitLease>,
@@ -128,12 +140,26 @@ impl CircuitLedger {
     }
 
     /// Reserves a pending circuit allocated for `route`.
+    #[cfg(test)]
     pub fn reserve_for(
         &mut self,
         circuit: String,
         deadline_ms: u64,
         now_ms: u64,
         route: Option<PendingRoute>,
+    ) -> bool {
+        self.reserve_beside(circuit, deadline_ms, now_ms, route, InlineLoad::default())
+    }
+
+    /// `reserve_for` with the slot's inline circuits (`crate::inline`) counted against the same total and
+    /// allocation-rate limits as the ledger's own.
+    pub fn reserve_beside(
+        &mut self,
+        circuit: String,
+        deadline_ms: u64,
+        now_ms: u64,
+        route: Option<PendingRoute>,
+        inline: InlineLoad,
     ) -> bool {
         self.prune(now_ms);
         let pending = self
@@ -143,8 +169,9 @@ impl CircuitLedger {
             .count();
         if deadline_ms <= now_ms
             || pending >= MAX_PENDING_CIRCUITS_PER_SLOT
-            || self.entries.len() >= MAX_CIRCUITS_PER_SLOT
-            || self.allocations_in_window >= MAX_CIRCUIT_ALLOCATIONS_PER_WINDOW
+            || self.entries.len().saturating_add(inline.live) >= MAX_CIRCUITS_PER_SLOT
+            || self.allocations_in_window.saturating_add(inline.allocations_in_window)
+                >= MAX_CIRCUIT_ALLOCATIONS_PER_WINDOW
         {
             return false;
         }
@@ -225,6 +252,29 @@ impl CircuitLedger {
             .collect()
     }
 
+    /// Whether one more inline circuit fits beside the ledger's: the same total and allocation-rate limits
+    /// `reserve_beside` applies, read without writing the ledger.
+    pub fn admits_inline(&self, now_ms: u64, inline: InlineLoad) -> bool {
+        let live = self
+            .entries
+            .values()
+            .filter(|lease| {
+                !matches!(lease, CircuitLease::Pending { deadline_ms, .. } | CircuitLease::Active { deadline_ms } if *deadline_ms <= now_ms)
+            })
+            .count();
+        let in_window = if self.allocations_in_window > 0
+            && now_ms
+                < self.allocation_window_started_ms.saturating_add(CIRCUIT_ALLOCATION_WINDOW_MS)
+        {
+            self.allocations_in_window
+        } else {
+            0
+        };
+        live.saturating_add(inline.live) < MAX_CIRCUITS_PER_SLOT
+            && in_window.saturating_add(inline.allocations_in_window)
+                < MAX_CIRCUIT_ALLOCATIONS_PER_WINDOW
+    }
+
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty() && self.allocations_in_window == 0
     }
@@ -248,7 +298,10 @@ mod tests {
     fn slot_admission_reserves_daemon_and_bounds_pending_clients() {
         assert!(admit_slot_socket(SlotSocketCounts::default(), SlotEndpoint::Daemon));
         assert!(!admit_slot_socket(
-            SlotSocketCounts { daemon_pending: 1, ..SlotSocketCounts::default() },
+            SlotSocketCounts {
+                daemon_pending: MAX_DAEMON_PENDING_SOCKETS,
+                ..SlotSocketCounts::default()
+            },
             SlotEndpoint::Daemon,
         ));
         assert!(!admit_slot_socket(

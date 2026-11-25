@@ -2,7 +2,7 @@
 # Build the Screen Sharing helper's executable (plans/cmux-next/screen-sharing-helper.md): the
 # cmux.rd/1 host, `cmux-rd` from cmux-tui/crates/cmux-rd-host (its own Cargo workspace) with
 # only the `link` feature, as the cmux CLI links it. bundle-screen-sharing-helper.sh wraps it
-# in "<app> Screen Sharing.app" (Contents/Library), which the app starts with responsibility
+# in "<app> Helper.app" (Contents/Library), which the app starts with responsibility
 # disclaimed so the Screen Recording and Accessibility grants are the helper's, never cmux's.
 #
 # Same contract as build-mobile-host.sh: CI, fleet and nx-remote builds run Cargo on a miss; a
@@ -17,8 +17,11 @@ usage() {
   sed -n '2,11p' "$0" | sed 's/^# //'
   cat <<'USAGE'
 
-Usage: build-screen-sharing-helper.sh [--output PATH] [--cached-only] [--print-path] [--check-build-allowed]
+Usage: build-screen-sharing-helper.sh [--output PATH] [--cached-only] [--print-path] [--check-build-allowed] [--print-key]
   --output PATH  also copy the binary (and PATH.ref) there
+  --print-key    print the source key and exit (no build; runs on Linux too): the key the
+                 signed helper `cmux app try` carries is published under
+                 (cmux-tui/screen-sharing-helper/<key>/, cmux-tui-team-signed.yml)
 Environment:
   CMUX_NEXT_SCREEN_HELPER_ARCHS  space/comma-separated arm64 and/or x86_64 (default: ARCHS, else host)
   CMUX_NEXT_SCREEN_HELPER_CACHE  cache root (default: cmux-tui/crates/cmux-rd-host/target/hosted/screen-sharing-helper)
@@ -28,6 +31,7 @@ USAGE
 build_allowed() { [[ -n "${CI:-}${GITHUB_ACTIONS:-}${CMUX_FLEET_BUILD_TAG:-}${NX_JOB_ID:-}" ]]; }
 cached_only=0
 print_path=0
+print_key=0
 output=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -35,6 +39,7 @@ while [[ $# -gt 0 ]]; do
     --cached-only) cached_only=1; shift ;;
     --print-path) print_path=1; shift ;;
     --check-build-allowed) build_allowed; exit $? ;;
+    --print-key) print_key=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "error: unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -50,12 +55,13 @@ crate="$repo_root/cmux-tui/crates/cmux-rd-host"
 # routes a pull request to the app scheme compile. The Xcode phase "Bundle Screen Sharing helper"
 # lists the same crates; scripts/cmux-next/tests/test_screen_sharing_helper_inputs.py checks both
 # against Cargo.toml.
-inputs=(cmux-tui/crates/cmux-rd-host cmux-tui/crates/cmux-codecs cmux-tui/crates/cmux-encode
+inputs=(cmux-tui/crates/cmux-rd-host cmux-tui/crates/cmux-codecs cmux-tui/crates/cmux-computer-use cmux-tui/crates/cmux-encode
+  cmux-tui/crates/cmux-file-lock
   cmux-tui/crates/cmux-hub-host cmux-tui/crates/cmux-process cmux-tui/crates/cmux-rd-core
   cmux-tui/crates/cmux-rd-engine cmux-tui/crates/cmux-rd-link cmux-tui/crates/cmux-rd-proto
-  cmux-tui/crates/cmux-transport cmux-tui/vendor cmux-tui/Cargo.toml)
+  cmux-tui/crates/cmux-transport cmux-tui/crates/cmux-wg cmux-tui/vendor cmux-tui/Cargo.toml)
 size_profile=(CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 CARGO_PROFILE_RELEASE_DEBUG=0)
-features="link"
+features="link computer-use"
 key_material="${size_profile[*]} features=$features"$'\n'
 for input in "${inputs[@]}"; do
   key_material+="$(git -C "$repo_root" rev-parse "HEAD:$input" 2>/dev/null || echo "missing:$input")"$'\n'
@@ -66,7 +72,10 @@ while IFS= read -r untracked; do
   [[ -n "$untracked" ]] || continue
   key_material+="$untracked $(git -C "$repo_root" hash-object -- "$untracked" 2>/dev/null || echo unreadable)"$'\n'
 done < <(git -C "$repo_root" ls-files --others --exclude-standard -- "${inputs[@]}" 2>/dev/null || true)
-source_key="$(printf '%s' "$key_material" | shasum -a 256 | cut -c1-16)"
+# shasum on a Mac; sha256sum where perl's shasum is missing (a Linux runner reading --print-key).
+if command -v shasum >/dev/null 2>&1; then sha256() { shasum -a 256; }; else sha256() { sha256sum; }; fi
+source_key="$(printf '%s' "$key_material" | sha256 | cut -c1-16)"
+if [[ "$print_key" -eq 1 ]]; then printf '%s\n' "$source_key"; exit 0; fi
 
 normalize_archs() {
   local raw="${CMUX_NEXT_SCREEN_HELPER_ARCHS:-${ARCHS:-}}"

@@ -89,7 +89,7 @@ struct MobileCoreRPCSessionPipelinedTests {
             payload: try Self.request(id: "times-out"),
             requestID: "times-out",
             deadlineUptimeNanoseconds:
-                DispatchTime.now().uptimeNanoseconds + 10_000_000
+                DispatchTime.now().uptimeNanoseconds + 250_000_000
         )
 
         do {

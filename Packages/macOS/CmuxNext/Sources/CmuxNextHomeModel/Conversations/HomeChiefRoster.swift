@@ -1,4 +1,5 @@
 public import CmuxHomeCore
+import CmuxChiefList
 import Foundation
 
 /// The user's Chiefs as the Home list shows them: every Chief on every host
@@ -42,17 +43,22 @@ public nonisolated struct HomeChiefRoster: Hashable, Sendable, Codable {
     @MainActor public static func make(rows: [InboxRow], local: ConversationID?, hosted: ConversationID?, placed: ConversationID?,
                                        server: String?, showsPlaced: Bool, cloud: Set<ConversationID> = [],
                                        prefersLocal: Bool = false) -> HomeChiefRoster {
-        let chiefRows = rows.filter { $0.kind == .chief }.map(\.id)
-        let listed = Set(chiefRows)
-        let local = local.flatMap { listed.contains($0) ? $0 : nil }
-        let remote = showsPlaced ? placed ?? hosted : hosted ?? placed
-        let main = prefersLocal ? local ?? remote : remote ?? local
-        var places: [ConversationID: HomeChiefPlace] = [:]
-        for id in chiefRows { places[id] = cloud.contains(id) ? .cloud : .thisMac }
-        if let local { places[local] = .thisMac }
-        if let hosted { places[hosted] = .cloud }
-        if let placed { places[placed] = server.map(HomeChiefPlace.server) ?? .server(HomeModelStrings.placeServer) }
-        return HomeChiefRoster(main: main, places: places)
+        // The one Chief list rule (CmuxChiefList), the iPhone's Home's too.
+        let chiefs = rows.filter { $0.kind == .chief }.map { ChiefList.Chief(conversation: $0.id.rawValue, isCloud: cloud.contains($0.id)) }
+        // A server with no name yet is "Paired server", as this list always said.
+        return HomeChiefRoster(ChiefList(chiefs: chiefs, local: local?.rawValue, hosted: hosted?.rawValue, placed: placed?.rawValue,
+                                         server: server, showsPlaced: showsPlaced, prefersLocal: prefersLocal),
+                               unnamedServer: HomeModelStrings.placeServer)
+    }
+
+    /// This roster as the shared list (CmuxChiefList's ``ChiefList``).
+    var list: ChiefList {
+        ChiefList(main: main?.rawValue, places: Dictionary(uniqueKeysWithValues: places.map { ($0.key.rawValue, $0.value.shared) }))
+    }
+
+    init(_ list: ChiefList, unnamedServer: String = "") {
+        self.init(main: list.main.map { ConversationID($0) },
+                  places: Dictionary(uniqueKeysWithValues: list.places.map { (ConversationID($0.key), HomeChiefPlace($0.value, unnamedServer: unnamedServer)) }))
     }
 
     /// This roster while the cloud Chiefs are not read yet (launch): the last launch's main Chief and
@@ -62,19 +68,13 @@ public nonisolated struct HomeChiefRoster: Hashable, Sendable, Codable {
     ///   must not replace it (This Mac is picked and its Chief is listed). A cloud read that fails
     ///   leaves the caller on this path for the whole launch, so a cached cloud Main would stay.
     public func launching(last: HomeChiefRoster, keepsMain: Bool = false) -> HomeChiefRoster {
-        var places = self.places
-        for id in places.keys { if let place = last.places[id] { places[id] = place } }
-        let cached = last.main.flatMap { places[$0] != nil ? $0 : nil }
-        let main = keepsMain ? self.main ?? cached : cached ?? self.main
-        return HomeChiefRoster(main: main, places: places)
+        HomeChiefRoster(list.launching(last: last.list, keepsMain: keepsMain))
     }
 
     /// The list's tag after a Chief's name: where it runs, after "Main" for
     /// the main Chief ("Main · Cloud"), since the same Chief can be listed
     /// on more than one host; a non-default engine follows ("This Mac · UniiChat").
     @MainActor public func tag(for id: ConversationID, engine: String?) -> String? {
-        let parts = [id == main ? HomeModelStrings.mainChief : nil, places[id]?.label, engine]
-            .compactMap { $0 }.filter { !$0.isEmpty }
-        return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
+        list.tag(for: id.rawValue, engine: engine, mainLabel: HomeModelStrings.mainChief) { HomeChiefPlace($0, unnamedServer: "").label }
     }
 }
