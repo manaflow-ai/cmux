@@ -10,6 +10,8 @@
     "agents.check_updates",
     "agents.cycle_variant",
     "agents.open",
+    "app.pane.close",
+    "app.pane.open",
     "app.storage.delete",
     "app.storage.get",
     "app.storage.keys",
