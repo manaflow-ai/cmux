@@ -27,53 +27,28 @@ public nonisolated struct TerminalLinkOpenerRule: Sendable, Hashable {
     public var urlPattern: String?
     public var target: TerminalLinkOpenerTarget
 
-    /// Reads one rule; nil when it has no ` -> ` or names no target.
+    /// Reads one rule; nil when it has no ` -> ` or names no target. Rust reads it
+    /// (`link_rules.opener_rule`).
     public init?(_ text: String) {
-        guard let arrow = text.range(of: "->") else { return nil }
-        let lhs = text[..<arrow.lowerBound].trimmingCharacters(in: .whitespaces)
-        guard let target = TerminalLinkOpenerTarget(String(text[arrow.upperBound...])) else { return nil }
-        var callers: [String] = []
-        var pattern: [Substring] = []
-        for token in lhs.split(separator: " ", omittingEmptySubsequences: true) {
-            if token.lowercased().hasPrefix("caller:") {
-                callers += token.dropFirst("caller:".count).split(separator: ",").map { String($0).lowercased() }
-            } else {
-                pattern.append(token)
-            }
-        }
-        let joined = pattern.joined(separator: " ")
-        self.text = text.trimmingCharacters(in: .whitespaces)
-        self.callers = callers
-        self.urlPattern = joined.isEmpty || joined == "*" ? nil : joined
+        let reply = SettingsRust.answer("link_rules.opener_rule", .object(["text": .string(text)]))
+        guard let rule = reply["rule"].flatMap(Self.init(json:)) else { return nil }
+        self = rule
+    }
+
+    /// A rule from its op form (`{text, callers, urlPattern, target}`).
+    init?(json rule: JSONValue) {
+        guard let written = rule["text"]?.stringValue,
+              let target = rule["target"].flatMap(TerminalLinkOpenerTarget.init(json:)) else { return nil }
+        self.text = written
+        self.callers = rule["callers"]?.arrayValue?.compactMap(\.stringValue) ?? []
+        self.urlPattern = rule["urlPattern"]?.stringValue
         self.target = target
     }
 
-    /// True when `url`, opened by a process chain named `callers`, matches.
+    /// True when `url`, opened by a process chain named `callers`, matches: the opener with this
+    /// rule alone picks it (`link_rules.decide`).
     public func matches(_ url: URL, callers names: [String]) -> Bool {
-        if !callers.isEmpty {
-            let lowered = names.map { $0.lowercased() }
-            guard callers.contains(where: { glob in lowered.contains { globMatches(glob, $0) } }) else { return false }
-        }
-        guard let urlPattern else { return true }
-        return BrowserExternalURLPatternMatcher(patterns: [urlPattern]).matches(url.absoluteString)
+        let opener = TerminalLinkOpener(defaultTarget: .cmux, rules: [self])
+        return opener.decide(url, callers: names).rule == 0
     }
-}
-
-/// `*` and `?` wildcards over the whole name.
-private func globMatches(_ pattern: String, _ name: String) -> Bool {
-    let p = Array(pattern), n = Array(name)
-    var pi = 0, ni = 0, star = -1, mark = 0
-    while ni < n.count {
-        if pi < p.count, p[pi] == "?" || p[pi] == n[ni] {
-            pi += 1; ni += 1
-        } else if pi < p.count, p[pi] == "*" {
-            star = pi; mark = ni; pi += 1
-        } else if star >= 0 {
-            pi = star + 1; mark += 1; ni = mark
-        } else {
-            return false
-        }
-    }
-    while pi < p.count, p[pi] == "*" { pi += 1 }
-    return pi == p.count
 }

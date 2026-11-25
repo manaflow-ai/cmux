@@ -40,24 +40,16 @@ public nonisolated struct BrowserLinkClickSetting: Sendable, Hashable {
     ] }
 
     /// Missing keys are defaults with no diagnostic; a bad value is that
-    /// key's default plus a diagnostic.
+    /// key's default plus a diagnostic. Rust reads it (`link_rules.clicks`).
     static func parse(_ root: JSONValue) -> (BrowserLinkClickSetting, [SettingsDiagnostic]) {
         var setting = fallback
-        guard let links = root.value(at: configPath) else { return (setting, []) }
-        guard case .object(let members) = links else {
-            return (setting, [SettingsDiagnostic(kind: .invalidValue, path: "browser.links", message: "expected an object")])
-        }
-        let choices = Action.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
-        var diagnostics: [SettingsDiagnostic] = []
+        let reply = SettingsRust.answer("link_rules.clicks", .object(["root": root]))
         for (name, field) in keys {
-            guard let value = members[name] else { continue }
-            if let text = value.stringValue, let action = Action(rawValue: text) {
+            if let action = reply["clicks"]?[name]?.stringValue.flatMap(Action.init(rawValue:)) {
                 setting[keyPath: field] = action
-            } else {
-                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "browser.links.\(name)", message: "expected one of \(choices)"))
             }
         }
-        return (setting, diagnostics)
+        return (setting, LinkRouting.linkDiagnostics(reply))
     }
 }
 
