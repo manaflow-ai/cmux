@@ -171,7 +171,7 @@ nonisolated struct AgentPanePromptRelay: Sendable {
         let relay = self
         Task.detached(priority: .utility) {
             var spacing = Self.spacing(attempt: attempt)
-            try? await spacing.wait(owner: "agent-pane.prompt-outbox")
+            try? await spacing.wait(owner: "agent-pane.prompt-outbox")  // concurrency-allow: Backoff.wait is an async clock sleep in a detached task, never a blocking wait
             // A closed connection left it over for the next one (``ended()``); one acpmux took
             // meanwhile (its `_acpmux/prompt_accepted`) is no longer kept.
             guard !socket.isClosed, relay.journal.keeps(daemon: relay.daemon, promptId: entry.promptId) else { return }
