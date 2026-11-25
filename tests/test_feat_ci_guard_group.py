@@ -271,7 +271,7 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
         # touches nothing a guard group reads skips it; an empty route (a push, a router failure) runs it.
         self.assertEqual(self.job()["needs"], ["coalesce", "fast-check-route"])
         self.assertEqual(self.job()["if"],
-                         "${{ (github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && "
+                         "${{ (github.event.action != 'ready_for_review' && (github.event.action != 'labeled' || github.workflow == 'docs-only fallback')) && (!cancelled() && needs.coalesce.outputs.run != 'false' && "
                          "needs.fast-check-route.outputs.ci_guard_group != 'false' && "
                          "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}")
         self.assertEqual(

@@ -105,11 +105,11 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         jobs = workflow["jobs"]
         # nightly-guards runs on every event (the submodule forward-only guard, Guard status), never with the
         # release-notary matrix leg: a push runs the group in parallel in the release-notary job.
-        self.assertEqual(jobs["nightly-guards"]["if"], "${{ (github.event.action != 'ready_for_review') && "
+        self.assertEqual(jobs["nightly-guards"]["if"], "${{ (github.event.action != 'ready_for_review' && (github.event.action != 'labeled' || github.workflow == 'docs-only fallback')) && "
                          "(!cancelled() && needs.coalesce.outputs.run != 'false') }}")
         self.assertEqual(jobs["nightly-guards"]["with"]["linux_guard_tests"], "${{ 'false' }}")
         group = jobs["ci-guard-group"]
-        self.assertEqual(group["if"], "${{ (github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && "
+        self.assertEqual(group["if"], "${{ (github.event.action != 'ready_for_review' && (github.event.action != 'labeled' || github.workflow == 'docs-only fallback')) && (!cancelled() && needs.coalesce.outputs.run != 'false' && "
                          "needs.fast-check-route.outputs.ci_guard_group != 'false' && "
                          "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}")
         steps = {step.get("name"): step for step in group["steps"]}
@@ -163,6 +163,37 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         self.assertTrue(init, "release-notary must initialize ghostty-next before the license compliance test")
         names = [s.get("name") for s in steps]
         self.assertLess(names.index(init[0]["name"]), names.index("Validate app bundle license compliance"))
+
+
+    def test_tooling_tests_runs_on_the_land_tier_only(self):
+        # Goal ci-min-per-pr-140: a head not handed off to land (head_tier.py's cheap tier) skips tooling-tests; land's
+        # `ready-to-land` label starts the workflow again, and only tooling-tests (with its coalesce and tier jobs) runs.
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())
+        triggers = workflow.get(True) or workflow.get("on") or {}
+        self.assertIn("labeled", triggers["pull_request"]["types"])
+        self.assertIn("format('-label-{0}', github.run_id)", workflow["concurrency"]["group"])
+        jobs = workflow["jobs"]
+        land_labels = "github.event.label.name == 'ready-to-land' || github.event.label.name == 'full-ci'"
+        for name in ("coalesce", "tooling-tests-base-red", "tooling-tests"):
+            with self.subTest(job=name):
+                self.assertIn(land_labels, jobs[name]["if"])
+        for name, job in jobs.items():
+            if name in ("coalesce", "tooling-tests-base-red", "tooling-tests"):
+                continue
+            with self.subTest(job=name):
+                cond = str(job.get("if") or "")
+                # A push-only job never sees a pull request's labeled event; every other job skips it.
+                self.assertTrue("github.event.action != 'labeled'" in cond or "github.event_name == 'push'" in cond
+                                or "github.event_name != 'pull_request')" in cond, cond)
+        gate = jobs["tooling-tests-base-red"]
+        self.assertEqual(gate["outputs"]["tier"], "${{ steps.tier.outputs.tier }}")
+        tier = next(step for step in gate["steps"] if step.get("id") == "tier")
+        self.assertTrue(tier.get("continue-on-error"))
+        self.assertIn("head_tier.py", tier["run"])
+        self.assertIn("CI_GUARDS_LAND_TIER != '0'", tier["if"])
+        cond = jobs["tooling-tests"]["if"]
+        self.assertIn("needs.tooling-tests-base-red.outputs.tier != 'cheap'", cond)
+        self.assertIn("needs.tooling-tests-base-red.outputs.tier != 'none'", cond)
 
 
 if __name__ == "__main__":
