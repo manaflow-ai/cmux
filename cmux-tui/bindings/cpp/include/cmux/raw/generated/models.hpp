@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "724282239c9187f7c417cd5288e84b25dda94c802b05dc03917ab16c539d52ce";
+inline constexpr std::string_view kProtocolIrSha256 = "64273ea2052a4bb812246feadd18ffe06fd3087a25510903ee26fa9bb1c3a6c4";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -116,6 +116,7 @@ struct LayoutUndoUndone;
 struct ListAgentsResult;
 struct ListTerminalsResult;
 struct ListWorkspacesKnown;
+struct ListWorkspacesSince;
 struct LivePane;
 struct MachineListeningTcpResult;
 struct MachinePlatform;
@@ -143,6 +144,7 @@ struct ProviderWorkspaceMutationResult;
 struct ReadScreenResult;
 struct ReadScrollbackResult;
 struct ReattachViewResult;
+struct ReleaseWorkspaceNamesResult;
 struct RemoteHostAppPermissions;
 struct RemoteHostAppResult;
 struct RenderCursor;
@@ -522,6 +524,7 @@ struct ReattachViewRequest;
 struct RegisterBrowserProviderRequest;
 struct ReleaseAttachedViewSizeRequest;
 struct ReleaseSurfaceSizeRequest;
+struct ReleaseWorkspaceNamesRequest;
 struct ReloadConfigRequest;
 struct ReloadConfigResult;
 struct RemoteHostAppRequest;
@@ -3755,6 +3758,7 @@ struct ListClientsResult {
 
 struct ListNotificationsRequest {
     Field<std::uint64_t> limit{};
+    std::optional<bool> stats{};
     friend bool operator==(const ListNotificationsRequest&, const ListNotificationsRequest&) = default;
 };
 
@@ -3901,10 +3905,17 @@ struct ListWorkspacesKnown {
     friend bool operator==(const ListWorkspacesKnown&, const ListWorkspacesKnown&) = default;
 };
 
+struct ListWorkspacesSince {
+    std::string epoch{};
+    std::uint64_t seq{};
+    friend bool operator==(const ListWorkspacesSince&, const ListWorkspacesSince&) = default;
+};
+
 struct ListWorkspacesRequest {
     Field<std::uint64_t> after{};
     Field<ListWorkspacesKnown> known{};
     Field<std::uint64_t> limit{};
+    Field<ListWorkspacesSince> since{};
     friend bool operator==(const ListWorkspacesRequest&, const ListWorkspacesRequest&) = default;
 };
 
@@ -4795,6 +4806,16 @@ struct ReleaseAttachedViewSizeRequest {
 struct ReleaseSurfaceSizeRequest {
     Id surface{};
     friend bool operator==(const ReleaseSurfaceSizeRequest&, const ReleaseSurfaceSizeRequest&) = default;
+};
+
+struct ReleaseWorkspaceNamesRequest {
+    friend bool operator==(const ReleaseWorkspaceNamesRequest&, const ReleaseWorkspaceNamesRequest&) = default;
+};
+
+struct ReleaseWorkspaceNamesResult {
+    std::uint64_t released{};
+    std::uint64_t still_pinned{};
+    friend bool operator==(const ReleaseWorkspaceNamesResult&, const ReleaseWorkspaceNamesResult&) = default;
 };
 
 struct ReloadConfigRequest {
@@ -6473,10 +6494,16 @@ struct Workspace {
 };
 
 struct Tree {
+    std::optional<std::vector<Workspace>> changed{};
+    std::optional<bool> delta{};
+    std::optional<std::string> epoch{};
     std::optional<std::string> generation{};
     std::optional<std::uint64_t> next{};
+    std::optional<std::vector<Id>> order{};
     std::optional<std::uint64_t> pane_revision{};
     std::optional<std::string> registry_id{};
+    std::optional<std::vector<Id>> removed{};
+    std::optional<std::uint64_t> seq{};
     std::optional<std::uint64_t> terminal_revision{};
     std::optional<std::uint64_t> total{};
     std::optional<std::string> tree_revision{};
@@ -7411,6 +7438,12 @@ struct Codec<ListWorkspacesKnown> {
 };
 
 template <>
+struct Codec<ListWorkspacesSince> {
+    static Result<Json> encode(const ListWorkspacesSince& value);
+    static Result<ListWorkspacesSince> decode(const Json& value);
+};
+
+template <>
 struct Codec<LivePane> {
     static Result<Json> encode(const LivePane& value);
     static Result<LivePane> decode(const Json& value);
@@ -7570,6 +7603,12 @@ template <>
 struct Codec<ReattachViewResult> {
     static Result<Json> encode(const ReattachViewResult& value);
     static Result<ReattachViewResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ReleaseWorkspaceNamesResult> {
+    static Result<Json> encode(const ReleaseWorkspaceNamesResult& value);
+    static Result<ReleaseWorkspaceNamesResult> decode(const Json& value);
 };
 
 template <>
@@ -9844,6 +9883,12 @@ template <>
 struct Codec<ReleaseSurfaceSizeRequest> {
     static Result<Json> encode(const ReleaseSurfaceSizeRequest& value);
     static Result<ReleaseSurfaceSizeRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ReleaseWorkspaceNamesRequest> {
+    static Result<Json> encode(const ReleaseWorkspaceNamesRequest& value);
+    static Result<ReleaseWorkspaceNamesRequest> decode(const Json& value);
 };
 
 template <>
