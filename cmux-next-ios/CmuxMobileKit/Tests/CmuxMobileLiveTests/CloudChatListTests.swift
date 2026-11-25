@@ -10,6 +10,8 @@ import Testing
     @Test func asksAcpmuxForThisMachinesNewestPage() {
         let params = CloudChatList.params(shown: CloudChatList.pageSize * 2)
         #expect(params["localOnly"] == .bool(true))
+        // acpmux leaves out side chats and subagent sessions before it pages: the phone filters none.
+        #expect(params["topLevelOnly"] == .bool(true))
         #expect(params["limit"]?.numberValue == Double(CloudChatList.pageSize * 2))
         #expect(params["cursor"] == nil)
     }

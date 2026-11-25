@@ -170,7 +170,15 @@ pub enum CircuitService {
     /// whose target is the dialer's Noise-proven key. Hello `{"service":"acpmux-transfer"}`.
     /// Never the WebSocket listener, so it has no connection origin.
     TransferSource,
+    /// The lane-gh broker this machine runs for the person's other machines, each reaching its
+    /// own broker socket (RFD 0127 cut 2, `hub_carrier_broker.rs`), in place of a per-machine
+    /// `ssh -R` forward. Hello `{"service":"lane-gh-broker"}`. Off unless the owner names the
+    /// broker's socket (`laneGhBroker`); rides only a kept circuit's stream.
+    LaneGhBroker,
 }
+
+/// The service name a hello gives [`CircuitService::LaneGhBroker`].
+pub const LANE_GH_BROKER_SERVICE: &str = "lane-gh-broker";
 
 /// The service name a hello gives [`CircuitService::TransferSource`].
 pub const TRANSFER_SERVICE: &str = "acpmux-transfer";
@@ -206,9 +214,11 @@ impl CircuitLane {
             CircuitService::CmuxTui { .. }
             | CircuitService::CmuxTuiResume { .. }
             | CircuitService::TransferSource => Self::Bulk,
+            // A broker call is one request and its answer, which a click waits for.
             CircuitService::Acpmux
             | CircuitService::CmuxTuiSession
-            | CircuitService::MachineCall => Self::Cheap,
+            | CircuitService::MachineCall
+            | CircuitService::LaneGhBroker => Self::Cheap,
         }
     }
 
@@ -307,6 +317,7 @@ fn hello_record(service: CircuitService) -> Bytes {
         }
         CircuitService::MachineCall => serde_json::json!({"service": MACHINE_CALL_SERVICE}),
         CircuitService::TransferSource => serde_json::json!({"service": TRANSFER_SERVICE}),
+        CircuitService::LaneGhBroker => serde_json::json!({"service": LANE_GH_BROKER_SERVICE}),
     };
     let mut record = SERVICE_HELLO.to_vec();
     record.extend_from_slice(body.to_string().as_bytes());
@@ -347,6 +358,9 @@ fn named_service(first: &[u8]) -> Option<Result<CircuitService, ServiceRefusal>>
         }
         (Some(ACPMUX_SERVICE), None, None) if hello.get("port").is_none() => {
             Ok(CircuitService::Acpmux)
+        }
+        (Some(LANE_GH_BROKER_SERVICE), None, None) if hello.get("port").is_none() => {
+            Ok(CircuitService::LaneGhBroker)
         }
         _ => Err(unknown()),
     })
@@ -593,6 +607,8 @@ pub struct HubCarrier {
     machine_call: RwLock<Option<Arc<dyn MachineCallGate>>>,
     /// Whether a circuit may read the pages of a move this machine began; none refuses it.
     transfer: RwLock<Option<Arc<dyn TransferGate>>>,
+    /// Whether a stream may reach this machine's lane-gh broker; none refuses it.
+    lane_gh_broker: RwLock<Option<Arc<dyn broker::LaneGhBrokerGate>>>,
     /// Why this machine's own registration cannot heal by retrying alone, while it cannot
     /// (`credential-unavailable`: no Register ticket comes). [`Self::serve_reason`].
     serve_reason: RwLock<Option<OfflineReason>>,
@@ -643,6 +659,7 @@ impl HubCarrier {
             session: RwLock::new(None),
             machine_call: RwLock::new(None),
             transfer: RwLock::new(None),
+            lane_gh_broker: RwLock::new(None),
             serve_reason: RwLock::new(None),
             kept: mux::KeptCircuits::default(),
             alive: Arc::new(()),
@@ -680,6 +697,7 @@ impl HubCarrier {
             session: RwLock::new(None),
             machine_call: RwLock::new(None),
             transfer: RwLock::new(None),
+            lane_gh_broker: RwLock::new(None),
             serve_reason: RwLock::new(None),
             kept: mux::KeptCircuits::default(),
             alive: Arc::new(()),
@@ -792,6 +810,15 @@ impl HubCarrier {
         self.transfer.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
+    /// Let streams reach this machine's lane-gh broker as `gate` decides (RFD 0127 cut 2).
+    pub fn set_lane_gh_broker_gate(&self, gate: Arc<dyn broker::LaneGhBrokerGate>) {
+        *self.lane_gh_broker.write().unwrap_or_else(|e| e.into_inner()) = Some(gate);
+    }
+
+    fn lane_gh_broker_gate(&self) -> Option<Arc<dyn broker::LaneGhBrokerGate>> {
+        self.lane_gh_broker.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
     /// One live path to `daemon`: a relay circuit with the Noise handshake done, its key pinned
     /// to the platform's `peer_key`, as a byte stream. The caller speaks WebSocket over it.
     pub async fn dial(&self, daemon: &str) -> Result<HubStream, String> {
@@ -876,7 +903,7 @@ impl HubCarrier {
         if self.acpmux_streams.load(Ordering::SeqCst) {
             let slot = self.kept.slot(daemon, lane);
             let refused_until = slot.lock().await.no_acpmux_until;
-            if !refused_until.is_some_and(|until| Instant::now() < until) {
+            if refused_until.is_none_or(|until| Instant::now() >= until) {
                 let hello = hello_record(CircuitService::Acpmux);
                 let mut report = DialReport::default();
                 if let Some(KeptOpen::Stream(stream)) =
@@ -1300,6 +1327,7 @@ impl HubCarrier {
             connection_attempt: ConnectionAttemptId(random_16()?),
             resume: BTreeMap::new(),
             daemon_takes_ik: false,
+            early: Vec::new(),
             handshake_timeout,
         })
     }
@@ -1901,13 +1929,14 @@ impl Incoming {
                 let reached = match named {
                     Ok(CircuitService::Acpmux) => Ok(local),
                     Ok(CircuitService::CmuxTui { port }) => self.cmux_tui(port).await,
-                    // Served above; never reaches a TCP target. A held pipe rides only a kept
-                    // circuit's stream, whose mux serves it; its dialer then opens a plain one.
+                    // Served above; never reaches a TCP target. A held pipe and the broker
+                    // ride only a kept circuit's stream, whose mux serves them.
                     Ok(
                         CircuitService::CmuxTuiResume { .. }
                         | CircuitService::CmuxTuiSession
                         | CircuitService::MachineCall
-                        | CircuitService::TransferSource,
+                        | CircuitService::TransferSource
+                        | CircuitService::LaneGhBroker,
                     ) => Err(ServiceRefusal::new("service.unknown", "no such service")),
                     Err(refusal) => Err(refusal),
                 };
@@ -2320,6 +2349,8 @@ pub async fn start_configured(
     // machine's own way to the source of a move it pulls. A move needs `move` in
     // `meshRelay.controlFrom` on the target, off by default.
     carrier.set_transfer_gate(Arc::new(crate::transfer_service::ConfiguredTransferGate::new(hub)));
+    // The lane-gh broker, to the machines the hub names, only once the owner names its socket.
+    carrier.set_lane_gh_broker_gate(Arc::new(broker::ConfiguredBrokerGate::new(hub)));
     hub.set_transfer_dial(Arc::new(crate::transfer_service::CarrierDial::new(hub)));
     hub.hub_carrier.set(carrier.clone());
     // The start's answer, whether or not the relay takes the registration yet (it retries).
@@ -2413,6 +2444,9 @@ pub mod tickets;
 
 #[path = "hub_carrier_mux.rs"]
 mod mux;
+
+#[path = "hub_carrier_broker.rs"]
+pub mod broker;
 
 #[path = "hub_carrier_rehome.rs"]
 mod rehome;

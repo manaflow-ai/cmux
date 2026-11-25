@@ -199,6 +199,12 @@ public final class LiveSnapshotStore: @unchecked Sendable {
         return result
     }
 
+    /// `loadRest`, read now on the caller's thread: a screen opening on a workspace past the first
+    /// screen of rows (a notification, the Feed) before `loadRest` lands. Read once per launch.
+    public func restNow(_ snapshot: LiveSnapshot, accountID: String) -> [String: LiveSnapshot.MacWorkspaces] {
+        queue.sync { readRest(snapshot, accountID: accountID) }
+    }
+
     /// The whole cache, every row (tests; the app reads `loadFirstScreen` and then `loadRest`).
     public func load(accountID: String) -> LiveSnapshot? {
         guard var snapshot = loadFirstScreen(accountID: accountID) else { return nil }

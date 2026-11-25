@@ -1830,6 +1830,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/chat_transcript_page",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_transcript_find",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/chats_search",
       "params": true,
       "result": true
@@ -2706,6 +2718,54 @@
       "name": "_acpmux/machine.tunnel.rekey",
       "params": true,
       "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/channel/listen",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/channel/unlisten",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/channel/open",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "client_notification",
+      "name": "_acpmux/channel/send",
+      "params": true
+    },
+    {
+      "kind": "client_notification",
+      "name": "_acpmux/channel/close",
+      "params": true
+    },
+    {
+      "kind": "client_notification",
+      "name": "_acpmux/channel/connect",
+      "params": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/channel/opened",
+      "params": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/channel/data",
+      "params": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/channel/closed",
+      "params": true
     },
     {
       "kind": "request",
@@ -6457,45 +6517,6 @@
       ],
       "type": "object"
     },
-    "RollingSummary": {
-      "description": "A chat's rolling summary (`hub/rolling_summary.rs`): one short line on where it stands and\nthe next action, kept current after each turn a person started (or one that ended on a\n`wrap_up`). The sidebar and the chat header draw it.",
-      "properties": {
-        "at": {
-          "description": "When it was written, Unix ms.",
-          "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "next": {
-          "description": "The next action, for the person or the agent; absent when there is none.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "source": {
-          "description": "Who wrote it: `wrap_up` (the agent's own recap and ask, no model call) or `model`.",
-          "type": "string"
-        },
-        "text": {
-          "description": "Where the chat stands, one or two short sentences.",
-          "type": "string"
-        },
-        "turn": {
-          "description": "The chat's turn count it covers.",
-          "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "text",
-        "source",
-        "turn",
-        "at"
-      ],
-      "type": "object"
-    },
     "RouteListParams": {
       "additionalProperties": false,
       "properties": {
@@ -6512,6 +6533,7 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "keepAs": true,
         "secretId": true,
         "sessionId": true,
         "value": true
@@ -7263,17 +7285,6 @@
         "retryDeciding": {
           "description": "Its last turn failed on an error an automatic retry answers, and whether, and when, it\nis retried is not settled yet: `retry` is about to be set or stay null, or the retry is\nstarting or runs (`hub/auto_resume.rs`). `_acpmux/wait` answers for that turn once it is\nsettled. Absent otherwise, and from a peer on an older acpmux.",
           "type": "boolean"
-        },
-        "rollingSummary": {
-          "anyOf": [
-            {
-              "$ref": "#/types/RollingSummary"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Where the chat stands and its next action (`hub/rolling_summary.rs`), for the sidebar\nand the chat header. Absent before the first turn that makes one, and from a peer on an\nolder acpmux."
         },
         "root": {
           "default": "",
@@ -8233,17 +8244,6 @@
           "description": "Its last turn failed on an error an automatic retry answers, and whether, and when, it\nis retried is not settled yet: `retry` is about to be set or stay null, or the retry is\nstarting or runs (`hub/auto_resume.rs`). `_acpmux/wait` answers for that turn once it is\nsettled. Absent otherwise, and from a peer on an older acpmux.",
           "type": "boolean"
         },
-        "rollingSummary": {
-          "anyOf": [
-            {
-              "$ref": "#/types/RollingSummary"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Where the chat stands and its next action (`hub/rolling_summary.rs`), for the sidebar\nand the chat header. Absent before the first turn that makes one, and from a peer on an\nolder acpmux."
-        },
         "root": {
           "default": "",
           "description": "The root of its lineage tree: the first ancestor no agent started; its own\nid for a root. Absent from a peer on an older acpmux.",
@@ -8581,6 +8581,13 @@
           "description": "`_acpmux/sessions` only (a watch refuses it): only the sessions in this status\n(`running`, `ready`, `idle`, `waiting`, `closed`). Empty is no filter.",
           "type": [
             "string",
+            "null"
+          ]
+        },
+        "topLevelOnly": {
+          "description": "`_acpmux/sessions` only (a watch refuses it): exclude side chats (a `side` tag) and\nsessions another chat's agent started (`spawnedBy`, `startedBy`) before pagination: the\nchats a list shows on their own (capability `session-list-top-level-v1`).",
+          "type": [
+            "boolean",
             "null"
           ]
         },
