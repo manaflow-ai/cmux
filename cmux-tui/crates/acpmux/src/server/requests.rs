@@ -3718,6 +3718,7 @@ async fn dispatch_request_with_identity(
                         idle: !hidden && params.get("attending") == Some(&Value::Bool(false)),
                         remote: false,
                         rows: None,
+                        omit_time_breakdown: omits_time_breakdown(&params),
                         quiet_hidden,
                         left_out: 0,
                         left_from: 0,
@@ -3777,6 +3778,7 @@ async fn dispatch_request_with_identity(
                     idle: !hidden && params.get("attending") == Some(&Value::Bool(false)),
                     remote: false,
                     rows: None,
+                    omit_time_breakdown: omits_time_breakdown(&params),
                     quiet_hidden,
                     left_out: 0,
                     left_from: 0,
@@ -4784,4 +4786,10 @@ async fn agent_credentials_update(
     let env = params.get("env").cloned().unwrap_or(Value::Null);
     let credential = crate::agent_credentials::AgentCredential::parse(&json!({"env": env}))?;
     hub.update_credential(id, credential).await
+}
+
+/// The attach asked for no `timeBreakdown` (`omitTimeBreakdown: true`, the phone): its rows leave
+/// it out as its reply does (`SubOpts::omit_time_breakdown`).
+fn omits_time_breakdown(params: &Value) -> bool {
+    params.get("omitTimeBreakdown").and_then(Value::as_bool) == Some(true)
 }

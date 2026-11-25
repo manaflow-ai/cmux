@@ -4183,6 +4183,18 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             if model.isTUI { return 0..<max(0, surface.grid.rows) }
             return presentedTop..<(presentedTop + max(surface.grid.rows, surfaceRows))
         }
+        finder.daemon = { [weak self] in
+            guard let self, !model.isTUI, model.session.findMirror != nil else { return nil }
+            let session = model.session
+            return TerminalFindDaemonSource(
+                page: { try await session.findPage($0) },
+                mapNow: { [weak self] in
+                    guard let self, let mirror = session.findMirror else { return nil }
+                    return TerminalFindRowMap(mirror: mirror, mirrorRows: scrollbar.total)
+                },
+                columns: { [weak self] in max(1, self?.surface.grid.columns ?? 1) },
+                loadHistory: { session.loadHistory(aroundDaemonRow: $0, rowsFromBottom: $1) })
+        }
         finder.highlightHost = { [weak self] in
             guard let self else { return nil }
             return model.isTUI ? tuiHost : scrollView
