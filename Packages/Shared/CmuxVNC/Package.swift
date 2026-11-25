@@ -13,6 +13,10 @@ let swiftSettings: [SwiftSetting] = [
     .enableUpcomingFeature("ExistentialAny"),
 ]
 
+let linuxTesting = ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1"
+let zlibLinkerSettings: [LinkerSetting] = [.linkedLibrary("z")]
+let zlibDependencies: [Target.Dependency] = linuxTesting ? ["zlib"] : []
+
 let package = Package(
     name: "CmuxVNC",
     platforms: [.macOS(.v14), .iOS(.v17)],
@@ -24,11 +28,12 @@ let package = Package(
         .package(path: "../CmuxEgress"),
     ],
     targets: [
-        .systemLibrary(name: "zlib", path: "Sources/zlib"),
-        .target(name: "CmuxVNC", dependencies: [.product(name: "CmuxEgress", package: "CmuxEgress"), "zlib"], swiftSettings: swiftSettings, linkerSettings: [.linkedLibrary("z")]),
-        .target(name: "CmuxVNCDemoServer", dependencies: ["CmuxVNC"], swiftSettings: swiftSettings,
-                linkerSettings: [.linkedLibrary("z")]),
-        .testTarget(name: "CmuxVNCTests", dependencies: ["CmuxVNC", "CmuxVNCDemoServer", "zlib"], swiftSettings: swiftSettings),
+        .systemLibrary(name: "zlib", path: "Sources/zlib", pkgConfig: "zlib", providers: [.apt(["zlib1g-dev"])]),
+        .target(name: "CmuxVNC", dependencies: [.product(name: "CmuxEgress", package: "CmuxEgress")] + zlibDependencies, swiftSettings: swiftSettings, linkerSettings: zlibLinkerSettings),
+        .target(name: "CmuxVNCDemoServer", dependencies: ["CmuxVNC"] + zlibDependencies, swiftSettings: swiftSettings,
+                linkerSettings: zlibLinkerSettings),
+        .testTarget(name: "CmuxVNCTests", dependencies: ["CmuxVNC", "CmuxVNCDemoServer"] + zlibDependencies, swiftSettings: swiftSettings,
+                    linkerSettings: zlibLinkerSettings),
     ]
 )
 
@@ -38,6 +43,9 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
     for targetName in ["CmuxVNC", "CmuxVNCTests"] {
         package.targets.first { $0.name == targetName }?.dependencies.append(
             .product(name: "Crypto", package: "swift-crypto")
+        )
+        package.targets.first { $0.name == targetName }?.dependencies.append(
+            .product(name: "_CryptoExtras", package: "swift-crypto")
         )
     }
 }

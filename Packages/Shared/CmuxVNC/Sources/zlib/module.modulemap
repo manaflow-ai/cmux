@@ -1,5 +1,4 @@
 module zlib [system] {
     header "zlib.h"
-    link "z"
     export *
 }
