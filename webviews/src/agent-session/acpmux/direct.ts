@@ -85,7 +85,7 @@ import type { PeerLinkDetail } from "./linkState";
 import { peerResourcesFromStatus } from "./machineResources";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { resolvedTarget } from "./conversation/sessionRefs";
-import { isNews } from "./conversation/sinceNews";
+import { isNews, isOthersNews } from "./conversation/sinceNews";
 import { noteReplaced } from "./sessionIndex";
 import {
   formerNamesOf,
@@ -640,6 +640,9 @@ const holdsSeq = (events: readonly EventRecord[], seq: number) => {
 /// person's messages it forwards) and typed prompts are not marked.
 const sentByChief = (msg: { promptId?: unknown }) =>
   typeof msg.promptId === "string" && msg.promptId.startsWith("optchat-");
+
+/// No rows: what a rebuild after a window-replacing rail jump keeps frames for (`rebuildHeld`).
+const NO_ROWS: ReadonlyMap<string, AcpmuxRow> = new Map();
 
 /// Page size caps acpmux applies (maxBytes): opening a chat, then each older page as the reader scrolls up.
 /// An older page was 400 records and 256 KiB: a page of a tool-heavy chat was a few turns, so a
@@ -7598,12 +7601,16 @@ export class AcpmuxDirectClient {
       this.scrolledFrom = undefined;
       return;
     }
+    // While the agent's turn runs, what it writes in front of the reader is not new (Leo,
+    // 2026-11-25: "dont mark it as new if it's still going"): only another person's or agent's
+    // message places the line then. The turn's end places it over what the reader scrolled past.
+    const news = this.turnRunning() ? isOthersNews : isNews;
     const rows = this.rows.sorted();
     let message = false;
     for (let index = rows.length - 1; index >= 0 && !message; index -= 1) {
       const row = rows[index]!;
       if (this.rows.orderOf(row.id) <= from.seq) break;
-      message = isNews(row);
+      message = news(row);
     }
     if (!message) return;
     this.scrolledFrom = undefined;
@@ -8357,6 +8364,7 @@ export class AcpmuxDirectClient {
     this.olderCarry = undefined;
     this.cancelOlderPaging();
     this.clearIndexedHistory();
+    this.windowReplaced = true;
     this.rebuildKeepingLiveState();
     this.emit("history");
     if (whole && left.live > this.lastSeq) this.readMissedAfterLag(sessionId, generation, this.lastSeq, 0);
@@ -8399,6 +8407,7 @@ export class AcpmuxDirectClient {
     this.olderCarry = undefined;
     this.cancelOlderPaging();
     this.clearIndexedHistory();
+    this.windowReplaced = true;
     this.rebuildKeepingLiveState();
     this.emit("history");
     return true;
@@ -8738,6 +8747,8 @@ export class AcpmuxDirectClient {
     Object.assign(this, live);
   }
 
+  /// The next rebuild follows a rail jump that replaced the held window: it keeps no message's frame (`rebuildHeld`).
+  private windowReplaced = false;
   private rebuildHeld(changedFrom?: number): void {
     const through = this.replayThrough ?? Number.POSITIVE_INFINITY;
     // A subagent still running started in a turn the refold must read too: its fold starts over.
@@ -8955,7 +8966,12 @@ export class AcpmuxDirectClient {
     // Rows kept from before (a prompt that failed or still sends) are newer than every replayed event.
     this.rows.placeLocalLast();
     this.rows.keepSame(previous);
-    this.rows.adoptFrames(previous);
+    // A rail jump that replaced the held window (`jumpNewer`, `jumpWindow`) shows none of the messages drawn
+    // before it, so no frame is kept for them: matching every gone message against every new one cost a slow
+    // rail click ~100 ms of its paint (bench/chat-fast-scroll.bench.ts, rail_click_paint p95).
+    const replaced = this.windowReplaced;
+    this.windowReplaced = false;
+    this.rows.adoptFrames(replaced ? NO_ROWS : previous);
   }
 
   /// rebuild() replays a partial event window, so keep the live summary, queue and
