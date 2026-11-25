@@ -16,8 +16,9 @@ import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { ChecklistGroup, ChecklistItem, VerifiedLook } from "../customizeChecklist";
 import type { ChecklistLayout } from "./CustomizeChecklist";
+import type { Standup } from "../ops";
 
-type State = "default" | "searched" | "all-open" | "locked";
+type State = "default" | "searched" | "all-open" | "locked" | "standup";
 type Props = { layout: ChecklistLayout | "app-store"; state: State };
 
 /** Looks as the examples folders name them, when the gallery cannot read examples/ itself. */
@@ -57,7 +58,53 @@ async function load() {
   library.entries = [
     ...library.entries,
     { ...library.entries[0]!, name: "setup-manaflow-ai-ember-look", position: library.entries.length + 1, on: true },
+    // Unmerged code in this build: the yolo merges (Leo, 2026-11-23).
+    {
+      ...library.entries[0]!,
+      name: "pr-43496",
+      position: library.entries.length + 2,
+      on: true,
+      code: { pr: 43496, repo: "manaflow-ai/cmux", title: "Cat icon in the dock", note: "newer head 9c1e2f0" },
+    },
+    {
+      ...library.entries[0]!,
+      name: "branch-lane-glass-chrome",
+      position: library.entries.length + 3,
+      on: false,
+      code: { kind: "branch", repo: "manaflow-ai/cmux", source: "lane/glass-chrome", title: "Glass chrome" },
+    },
   ];
+  const standup: Standup = {
+    on: 3,
+    lines: [
+      {
+        name: "pr-43496",
+        kind: "pr",
+        on: true,
+        title: "#43496 Cat icon in the dock",
+        status: "on · newer head 9c1e2f0",
+        link: "https://github.com/manaflow-ai/cmux/pull/43496",
+      },
+      {
+        name: "branch-lane-glass-chrome",
+        kind: "branch",
+        on: false,
+        title: "branch lane/glass-chrome: Glass chrome",
+        status: "off",
+        link: "https://github.com/manaflow-ai/cmux/tree/lane/glass-chrome",
+      },
+      {
+        name: "setup-manaflow-ai-ember-look",
+        kind: "setup",
+        on: true,
+        title: "Ember (manaflow-ai/ember-look)",
+        status: "on",
+        link: "https://github.com/manaflow-ai/ember-look",
+      },
+      { name: "night", kind: "recipe", on: true, title: "night: a darker theme at night", status: "on" },
+    ],
+    text: "",
+  };
   const en = appStrings.en!;
   const strings = {
     language: "en",
@@ -88,6 +135,7 @@ async function load() {
       libraryLocked: null,
       looks,
       sidebarLook,
+      standup,
     });
     const onToggle = (item: ChecklistItem, next: boolean) => {
       const picked = sidebarLookOf(item);
@@ -104,6 +152,8 @@ async function load() {
           onToggle={onToggle}
           layout={layout}
           allOpen={state === "all-open" || state === "locked"}
+          standup={standup}
+          standupOpen={state === "standup"}
         />
       </section>
     );
@@ -120,6 +170,7 @@ const STATES: Record<State, string> = {
   searched: "searched for sidebar: every group filtered at once",
   "all-open": "All Switches open",
   locked: "All Switches open, browser keys managed by the team",
+  standup: "Standup open: every PR, repo and recipe as one line with its state and link, Copy for the Markdown",
 };
 
 const variants: Record<string, { note: string; props: Props }> = {};

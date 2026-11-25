@@ -184,11 +184,15 @@ public struct AgentPaneCloudAsker: Sendable {
     /// cancelled, its pane closed, no window to ask in).
     public let ask: @MainActor @Sendable (AgentPaneCloudAsk) async -> String?
 
+    /// Shows "Waking machine" on the card while the start's machine settles (Rust's `cloud_move_settle` `waking`,
+    /// ask-259986a6c4); nil where there is no card.
+    public var waking: (@MainActor @Sendable (Bool) -> Void)?
+
     public init(ask: @escaping @MainActor @Sendable (AgentPaneCloudAsk) async -> String?) { self.ask = ask }
 
     /// In the card of start `key` in the pane `view` that sent it.
     @MainActor public static func card(_ view: AgentPaneView, start key: String) -> AgentPaneCloudAsker {
-        AgentPaneCloudAsker { [weak view] question in
+        var asker = AgentPaneCloudAsker { [weak view] question in
             guard let asks = view?.model.cloudAsks else { return nil }
             // A reload takes the card away: the question then asks in a dialog over the pane's window.
             let fallback = AgentPaneCloudAsker.dialog { [weak view] in view?.window.map(CmuxDialogScope.window) }
@@ -197,6 +201,8 @@ public struct AgentPaneCloudAsker: Sendable {
                               scripts: ["window.cmuxAcpmuxBridge?.cloudStartProgress?.(\(push.compactText));"])
             }
         }
+        asker.waking = { [weak view] on in if let view { AgentPaneCloudStart.waking(on, start: key, to: view) } }
+        return asker
     }
 
     /// As a cmux dialog in `scope` (nil: none to ask in). A question with a link shows it as a button
