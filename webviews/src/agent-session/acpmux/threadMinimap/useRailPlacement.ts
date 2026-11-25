@@ -8,6 +8,7 @@ import { threadMinimapGutter } from "./gutter.experiment";
 import { threadMinimapRestTick } from "./restTick.experiment";
 import { railPlacement } from "./model";
 import type { RailSide } from "./railSide";
+import { readAtFirstLayout } from "../firstLayout";
 
 /// What the pane edge holds outside the rail: on the right, the VS Code minimap (ChatMinimap.tsx) when it
 /// is on and has its room, so the right rail sits on its inner side instead of under it. The same gutter
@@ -102,9 +103,12 @@ export function useRailPlacement(
     update();
     return { shell, update };
   }, [scroller, paneWidth, columnWidth, display, scale, side, chatMinimap, gutterArm, restTickArm]);
+  // At the frame's own layout, before it paints (firstLayout.ts): no style pass of its own.
   useLayoutEffect(() => {
-    measure();
-  }, [measure]);
+    const node = scroller.current;
+    if (!node) return;
+    return readAtFirstLayout(node, () => void measure());
+  }, [scroller, measure]);
   useEffect(() => {
     const placed = measure();
     if (!placed?.shell) return;

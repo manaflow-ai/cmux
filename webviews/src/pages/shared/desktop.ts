@@ -92,8 +92,12 @@ export function installDesktopLayer(doc: Document = document): void {
   updateHairline(doc);
   // A page-zoom or uiScale change resizes the CSS viewport; it may not fire the resolution query.
   view.addEventListener("resize", () => updateHairline(doc));
-  // SEE-THROUGH: follows the host's theme payload (window.cmuxTheme.apply fires `cmux-theme`).
-  updateSeeThrough(doc);
+  // SEE-THROUGH: follows the host's theme payload (window.cmuxTheme.apply fires `cmux-theme`). Read at
+  // the next frame, before it paints: its probe's computed style resolves the document's style, which
+  // here, as the page's code first runs, is a style pass of its own (10 ms over a restored chat's copy);
+  // in the frame it shares the style pass the frame makes anyway.
+  if (typeof view.requestAnimationFrame === "function") view.requestAnimationFrame(() => updateSeeThrough(doc));
+  else updateSeeThrough(doc);
   view.addEventListener("cmux-theme", () => updateSeeThrough(doc));
   // LIQUID GLASS: the wallpaper lens behind every `.ui-glass` (inert under plain glass, Reduce
   // Transparency, with no host still or with no glass on the page). The fallback keeps a still the
