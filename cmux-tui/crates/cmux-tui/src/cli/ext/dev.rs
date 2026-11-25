@@ -1294,7 +1294,7 @@ impl Session {
                     Ok(Ok(ops)) => {
                         outcome.scene = super::scene::outline(&[&ops]);
                         if VIEWS.contains(&interface.as_str()) {
-                            outcome.recorded = vec![(name.clone(), ops.clone())];
+                            outcome.recorded = vec![(name, ops.clone())];
                         }
                         let (system, problem) = super::design_system::System::load(&pkg.dir);
                         outcome.design = problem

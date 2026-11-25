@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.91"
 license = "GPL-3.0-or-later"
 publish = false
-description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker, cmux-motion, the agent pane policy, the action catalog, the daemon connection rules, the daemon launch rules, the app health model, the launch images, the cmux SDK daemon client, the agent list client, the Chrome cookie sync and live wallpapers"
+description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker, cmux-motion, the agent pane policy, the action catalog, the daemon connection rules, the daemon launch rules, the app health model, the launch images, the pane pictures schedule, the cmux SDK daemon client, the agent list client, the Chrome cookie sync and live wallpapers"
 
 # The workspace of the app's C ABIs, with one Cargo.lock for all four: this
 # crate and the FFI crates it links, which name it in `package.workspace`.
@@ -14,7 +14,7 @@ description = "The one Rust static library the cmux macOS app links: the C ABIs 
 # dependency change in a crate they share needs one lock edit, not one per FFI
 # crate (#40883, #40898).
 [workspace]
-members = ["../cmux-launch-record", "../cmux-launch-shell","../cmux-layout-reducer-ffi", "../cmux-rd-ffi", "../cmux-sdk-ffi"]
+members = ["../cmux-launch-record", "../cmux-launch-shell", "../cmux-layout-cache","../cmux-layout-reducer-ffi", "../cmux-rd-ffi", "../cmux-sdk-ffi"]
 
 [lib]
 crate-type = ["staticlib"]
@@ -25,6 +25,8 @@ acpmux-client = { path = "../acpmux-client" }
 cmux-rd-ffi = { path = "../cmux-rd-ffi" }
 cmux-layout-reducer-ffi = { path = "../cmux-layout-reducer-ffi" }
 cmux-palette-ranker = { path = "../cmux-palette-ranker" }
+# The keymap layer of app.keyStyle and app.shortcutLayout (cmux-keymap src/ffi.rs, include/cmux_keymap.h).
+cmux-keymap = { path = "../cmux-keymap" }
 # The action catalog (descriptors, titles in every app language, default bindings), read at launch.
 cmux-action-catalog = { path = "../cmux-action-catalog" }
 # cmux-next.json's reads for the app (src/settings.rs: cmux-config's app_ops).
@@ -44,6 +46,8 @@ cmux-daemon-launch-core = { path = "../cmux-daemon-launch-core" }
 cmux-health-core = { path = "../cmux-health-core" }
 # Each window's last frame for the launch's first frame (cmux-launch-image src/ffi.rs: naming, caps, pruning, when to capture).
 cmux-launch-image = { path = "../cmux-launch-image" }
+# When a pane's live thumbnail is captured again (cmux-pane-pictures src/ffi.rs: the schedule; the app captures).
+cmux-pane-pictures = { path = "../cmux-pane-pictures" }
 # The spring step and motion tokens (src/motion.rs). No `settings`: the app
 # passes its own settings per call, so no AppKit or env reading here.
 cmux-motion = { path = "../cmux-motion", default-features = false }
@@ -56,6 +60,8 @@ cmux-launch-record = { path = "../cmux-launch-record" }
 cmux-wallpaper = { path = "../cmux-wallpaper" }
 # What the stage-0 launch window shows and which input it holds (src/ffi.rs, include/cmux_launch_shell.h).
 cmux-launch-shell = { path = "../cmux-launch-shell" }
+# Every window's last computed layout across restarts (src/ffi.rs, include/cmux_layout_cache.h): read, validity, reconcile, the write coalescer, the swap wait.
+cmux-layout-cache = { path = "../cmux-layout-cache" }
 # The files lister's child, owned (src/files_lister.rs): it ends with its lister.
 cmux-process = { path = "../cmux-process" }
 # The files lister client and the system calendar ops' JSON (src/files_lister.rs, src/system_calendar.rs).

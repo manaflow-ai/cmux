@@ -1,4 +1,8 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 import Foundation
 
 /// A scripted transcript scroll for the DEBUG lab

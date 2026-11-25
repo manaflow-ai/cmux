@@ -94,8 +94,8 @@ impl NoticeOutbox {
                 if state.closed {
                     return Err(Closed);
                 }
-                let Some(next) = item.take() else { return Ok(()) };
                 if state.backlog.is_empty() && !state.draining {
+                    let Some(next) = item.take() else { return Ok(()) };
                     match self.inner.hub.try_send(next) {
                         Ok(()) => return Ok(()),
                         Err(mpsc::error::TrySendError::Closed(_)) => {
@@ -145,8 +145,19 @@ fn merge_into(
     false
 }
 
+/// Hand the backlog to the hub in order. A notice leaves the backlog only once the hub has room
+/// for it, so until then it still merges with newer changes to its row and counts toward the cap.
 async fn drain(inner: Arc<Inner>) {
     loop {
+        let Ok(permit) = inner.hub.reserve().await else {
+            let mut state = inner.state.lock_or_recover();
+            state.closed = true;
+            state.draining = false;
+            state.backlog.clear();
+            drop(state);
+            inner.room.notify_waiters();
+            return;
+        };
         let next = {
             let mut state = inner.state.lock_or_recover();
             match state.backlog.pop_front() {
@@ -157,16 +168,8 @@ async fn drain(inner: Arc<Inner>) {
                 }
             }
         };
+        permit.send(next);
         inner.room.notify_waiters();
-        if inner.hub.send(next).await.is_err() {
-            let mut state = inner.state.lock_or_recover();
-            state.closed = true;
-            state.draining = false;
-            state.backlog.clear();
-            drop(state);
-            inner.room.notify_waiters();
-            return;
-        }
     }
 }
 

@@ -71,7 +71,7 @@ const inbound = (id: string, text: string) =>
     incoming: { kind: "message", message: { name: "peer-lane", text, raw: text } },
   } as Partial<AcpmuxRow>);
 
-test("F1: an answer clicked on the older of two pinned questions settles the older one", () => {
+test("F1: an answer clicked on the older of two questions settles the older one", () => {
   const rows = [
     line("p1", "user", { text: "Why does it stop on lock?" }),
     line("a1", "assistant", { text: "[taste] Should agents keep working while the Mac is locked?" }),
@@ -84,10 +84,12 @@ test("F1: an answer clicked on the older of two pinned questions settles the old
     line("s3", "turnSummary", { status: "completed" }),
   ];
   const before = turnViewFrom(rows, new Set());
-  const [older, newer] = waitingAsks(before);
+  // Only the newest question pins (turns.ts `waitingAsks`, https://github.com/manaflow-ai/cmux/issues/52766); the older stays answerable
+  // in the transcript.
+  const [older] = before.rows.filter((row) => row.kind === NEXT_STEP);
   expect(older?.nextStep?.ask.question).toBe("Should agents keep working while the Mac is locked?");
-  expect(newer?.nextStep?.ask.question).toBe("Should I post the gallery?");
-  // The person clicks Yes on the older card; its prompt comes after both cards.
+  expect(waitingAsks(before).map((card) => card.nextStep?.ask.question)).toEqual(["Should I post the gallery?"]);
+  // The person clicks Yes on the older card in the transcript; its prompt comes after both cards.
   claimAnswer(askKey(older!), "Yes", at);
   const answered = [...rows, line("p2", "user", { text: "Yes" })];
   const view = turnViewFrom(answered, new Set(), {}, before);
@@ -109,7 +111,7 @@ test("F1: an answer clicked on the older of two pinned questions settles the old
   ]);
 });
 
-test("F1: a typed answer after the newer card answers it, and the older stays pinned and answerable", () => {
+test("F1: a typed answer after the newer card answers it; the older stays answerable, unpinned", () => {
   const rows = [
     line("p1", "user", { text: "Why does it stop on lock?" }),
     line("a1", "assistant", { text: "[taste] Should agents keep working while the Mac is locked?" }),
@@ -124,10 +126,8 @@ test("F1: a typed answer after the newer card answers it, and the older stays pi
   expect(cards[1]?.nextStep?.answer).toBe("Yes");
   expect(cards[0]?.nextStep?.answer).toBeUndefined();
   expect(cards[0]?.nextStep?.superseded).toBeUndefined();
-  // Still waiting on the person, so still pinned: never live in the transcript but hidden above the composer.
-  expect(waitingAsks(view).map((card) => card.nextStep?.ask.question)).toEqual([
-    "Should agents keep working while the Mac is locked?",
-  ]);
+  // The newest question stands for the older ones (https://github.com/manaflow-ai/cmux/issues/52766): answered, nothing stays pinned.
+  expect(waitingAsks(view)).toEqual([]);
 });
 
 test("F2: the card's two copies share the answer on its way, so two clicks send it once", async () => {
