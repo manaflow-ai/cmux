@@ -231,6 +231,8 @@ def mac_live(args):
     """The Mac live update payload of a commit manifest (--manifest only: the darwin build is not this job's)."""
     if not args.manifest or not args.live_from or args.machine_path or args.channel or args.cargo_version:
         fail("--purpose mac-live takes --manifest and --live-from only")
+    if args.tree_key and not re.fullmatch(r"[0-9a-f]{40}", args.tree_key):
+        fail(f"bad tree key {args.tree_key!r}")
     binaries = expected_sha256(args)
     commits, daemon = live_from(args)
     os.makedirs(args.download_dir, exist_ok=True)
@@ -254,6 +256,11 @@ def mac_live(args):
     value = {"schema": SCHEMA, "purpose": MAC_LIVE_PURPOSE, "channel": MAC_LIVE_CHANNEL, "commit": args.commit,
              "committed_at": int(args.committed_at), "published_at": now, "expires_at": now + LIFETIME,
              "live_from": commits, "targets": {MAC_LIVE_TARGET: files}} | ({"daemon_from": daemon} if daemon else {})
+    # The commit's cmux-tui tree: a Team-signed app (a NIGHTLY) takes its daemon from the tree's Team-signed
+    # set (cmux-tui/tree/<key>/team-signed/, cmux-tui-team-signed.yml), each file bound to the unsigned
+    # sha256 named here; the ad-hoc bytes above would leave its Cloud unverified (cmuxterm-hq#11364).
+    if args.tree_key:
+        value["tree_key"] = args.tree_key
     if args.screen_sharing_helper:
         value[MAC_LIVE_HELPER_KEY] = screen_sharing_helper(args)
     return value
@@ -333,7 +340,14 @@ def payload(args):
         # The machine copy is the Cloud machine channel's own build: never a Linux release, and only
         # this run's build of it names its checksums.
         fail("--machine-path is for the cloud-machine payload of --binaries-dir")
-    args.targets = LINUX_RELEASE_TARGETS if release else TARGETS
+    if args.target and release:
+        fail("--target is for the cloud-machine payload: a Linux release names every target")
+    if args.target and set(args.target) - set(TARGETS):
+        fail(f"--target names {sorted(set(args.target) - set(TARGETS))}, not one of {list(TARGETS)}")
+    # --target: a payload of some targets only. point-machine-channel-early points the channel from
+    # the x86_64 build alone, and a second point of the same commit adds aarch64
+    # (web-ota-pointer.py newer's completes rule).
+    args.targets = LINUX_RELEASE_TARGETS if release else tuple(t for t in TARGETS if not args.target or t in args.target)
     args.names = LINUX_RELEASE_NAMES if release else NAMES
     binaries = expected_sha256(args)
     os.makedirs(args.download_dir, exist_ok=True)
@@ -438,6 +452,8 @@ def main(argv):
     p.add_argument("--cargo-version", help="--purpose linux-release: default cmux-tui/Cargo.toml's version")
     p.add_argument("--min-sequence", type=int, default=0,
                    help="--purpose linux-release: the lowest sequence to sign (the channel's current one + 1)")
+    p.add_argument("--target", action="append", choices=TARGETS,
+                   help="--purpose cloud-machine: sign only this target (repeat for more); default every target")
     p.add_argument("--machine-path", action="store_true",
                    help="name the commit's machine copy, cmux-tui/<commit>/machine/<name>-<target>")
     p.add_argument("--tree-key", help="--purpose linux-release: name the tree's copies, cmux-tui/tree/<key>/")

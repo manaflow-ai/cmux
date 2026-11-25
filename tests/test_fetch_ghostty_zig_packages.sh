@@ -58,7 +58,7 @@ fi
 STUB
 chmod +x "$TMP/bin/zig"
 run() { # <hangs> <failures> -> status in $status, seconds in $elapsed
-  rm -rf "$TMP/count" "$TMP/children" "$TMP/cache/tmp"/* "$TMP/cache/p"/* "$TMP/src/zig-pkg"
+  rm -rf "$TMP/count" "$TMP/children" "$TMP/cache/tmp"/* "$TMP/cache/p"/* "$TMP/cache/p.set-aside" "$TMP/src/zig-pkg"
   : > "$TMP/children"
   # Packages an earlier run finished, which a stopped attempt must not touch.
   mkdir -p "$TMP/src/zig-pkg/N-old"
@@ -162,6 +162,19 @@ children_gone || fail "the hung attempt's child process outlived its deadline"
 [ -d "$TMP/src/zig-pkg/N-old" ] && [ -e "$TMP/cache/p/N-old.tar.gz" ] || fail "clearing a hung attempt removed a finished package"
 [ -d "$TMP/cache/p/N-done" ] || fail "the second attempt did not fetch"
 (( elapsed < 20 )) || fail "one 2 s stall took ${elapsed}s"
+[ ! -e "$TMP/cache/p.set-aside" ] || fail "one stall set the package cache aside"
+grep -q "the stalled attempt's processes" "$TMP/out" || fail "a stall did not print what its processes were doing"
+
+# Two stalls in a row on the cache's packages (fsr runners on a restored p/, cmux#54715):
+# p/ moves aside whole and the third attempt starts from an empty p/, which the seed refills.
+run 2 0
+[ "$status" = 0 ] || fail "two hung fetches then a success did not pass"
+[ "$(cat "$TMP/count")" = 3 ] || fail "expected 3 attempts after two hangs, got $(cat "$TMP/count")"
+grep -q "set .*/p aside to .*/p.set-aside" "$TMP/out" || fail "two stalls did not set the package cache aside"
+[ -e "$TMP/cache/p.set-aside/N-old.tar.gz" ] || fail "the set-aside copy lost the cache's archives"
+[ ! -e "$TMP/cache/p/N-old.tar.gz" ] || fail "the attempt after two stalls still had the old archives"
+[ -d "$TMP/cache/p/N-done" ] || fail "the attempt after two stalls did not fetch into a fresh p/"
+children_gone || fail "a hung attempt's child process outlived its deadline"
 
 # A slow fetch that keeps progressing runs past the stall timeout and passes.
 FAKE_ZIG_SLOW=6 run 0 0
@@ -233,7 +246,10 @@ env -u ZIG_GLOBAL_CACHE_DIR -u CMUX_ZIG -u CMUX_ZIG_SEED PATH="$TMP/bin:$PATH" F
 [ "$status" = 0 ] || fail "two failed fetches then a success did not pass with the seed on"
 [ "$(wc -l < "$TMP/seed-count")" = 3 ] || fail "expected the seed before each of 3 attempts, got $(wc -l < "$TMP/seed-count") runs"
 
-direct="$(grep -ln 'fetch-ghostty-zig-packages\.sh' "$ROOT"/.github/workflows/*.yml || true)"
+# A `paths:` entry naming the script (a workflow that reruns when it changes) is not a run of it.
+direct="$(grep -lE '^[^#]*fetch-ghostty-zig-packages\.sh' "$ROOT"/.github/workflows/*.yml | while read -r f; do
+  grep -vE "^[[:space:]]*-[[:space:]]*[\"']?scripts/ci/fetch-ghostty-zig-packages\.sh[\"']?[[:space:]]*$" "$f" | grep -qE '^[^#]*fetch-ghostty-zig-packages\.sh' && echo "$f"
+done || true)"
 [ -z "$direct" ] || { echo "FAIL: these workflows run the fetch script directly instead of .github/actions/ghostty-zig-packages: $direct" >&2; exit 1; }
 grep -q 'scripts/ci/fetch-ghostty-zig-packages.sh' "$ROOT/.github/actions/ghostty-zig-packages/action.yml" \
   || { echo "FAIL: the ghostty-zig-packages action no longer runs the deadlined fetch" >&2; exit 1; }

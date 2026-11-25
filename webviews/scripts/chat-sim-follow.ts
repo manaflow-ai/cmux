@@ -13,7 +13,16 @@
 //     --speed 1 --max-seconds 120 --videos /tmp/follow --out /tmp/follow/report.json
 //
 // Options as chat-sim-watch.ts: --from/--to/--limit, --speed X, --max-gap MS, --width, --height,
-// --max-seconds S. CHAT_SIM_FOLLOW_DEBUG=PREFIX writes each arm's frames to PREFIX-ARM.json. A fixture
+// --max-seconds S, and --start S / --end S: play only that window of the full playback (s, as a whole
+// run's video reads). The history before it is drawn at once, so the run starts a few seconds before the
+// moment that differs and ends at it; the frames measured are the window's. With --videos and a full
+// ffmpeg (scripts/chat-sim-video.ts) each arm's video is also cut to the window as ARM.mp4, and the arms
+// side by side, labelled, as side-by-side.mp4:
+//
+//   bun scripts/chat-sim-follow.ts --replay /tmp/chat-sim/coord-tool-burst.ndjson --arms send,steady \
+//     --start 48 --end 60 --videos /tmp/follow
+//
+// The steps before a window are drawn at once. CHAT_SIM_FOLLOW_DEBUG=PREFIX writes each arm's frames to PREFIX-ARM.json. A fixture
 // that starts mid-turn draws that turn with no live line under the reply, and its reply steps at once
 // on every arm (followGlide.ts followRoom). Needs Chrome (Linux, a lane VM or CI; never a Mac;
 // CMUX_PLAYWRIGHT_BUNDLED_CHROMIUM=1 where only Playwright's Chromium is installed).
@@ -24,6 +33,7 @@ import { CHAT_SIM_PAGE, startChatSimServer } from "../test/support/chatSimServer
 import { NO_PLAYWRIGHT_ON_MACS, playwrightRefusedHere, useSystemChrome } from "../test/support/systemChrome";
 import { JOLT_PX, moves, type Moves } from "../test/support/streamFollowReport";
 import { cutRecords, readRecords } from "./chat-sim-records";
+import { findFfmpeg, stackClips, type Clip } from "./chat-sim-video";
 
 const args = process.argv.slice(2);
 const value = (name: string) => {
@@ -57,6 +67,8 @@ const options: WatchOptions = {
   speed: number("--speed", 1),
   maxGapMs: number("--max-gap", 1500),
   maxSeconds: number("--max-seconds", 120),
+  startS: number("--start"),
+  endS: number("--end"),
 };
 
 /** One drawn frame: the scroll offset, how far the view is from the bottom, and the newest reply row. */
@@ -138,6 +150,7 @@ useSystemChrome(chromium);
 const { vite, base } = await startChatSimServer();
 const browser = await chromium.launch({ headless: true });
 const reports: FollowReport[] = [];
+const clips: Clip[] = [];
 try {
   if (videos) mkdirSync(videos, { recursive: true });
   for (const arm of arms) {
@@ -184,23 +197,38 @@ try {
       requestAnimationFrame(sample);
     }, arm);
     const page = await context.newPage();
+    // The recording starts with the page; the window's start is this far into it.
+    const recordingFrom = performance.now();
+    let windowAtS = 0;
+    let windowPageMs = 0;
+    await page.exposeFunction("__chatSimWindow", async () => {
+      windowAtS = (performance.now() - recordingFrom) / 1000;
+      windowPageMs = await page.evaluate(() => performance.now());
+    });
     page.on("pageerror", (error) => console.error(`chat-sim page: ${error.message}`));
     await page.goto(`${base}${CHAT_SIM_PAGE}?width=${width}&motion=on`);
-    await page.waitForFunction(() => "__chatSim" in window);
+    await page.waitForFunction(() => "__chatSim" in window, undefined, { timeout: 120_000 });
     const watch = (await page.evaluate(
       (watchOptions) =>
         (window as unknown as { __chatSim: { watch(o: unknown): Promise<unknown> } }).__chatSim.watch(watchOptions),
       options,
     )) as WatchResult;
-    const samples = (await page.evaluate(
-      () => (window as unknown as { __followSamples: unknown[] }).__followSamples,
-    )) as FollowSample[];
+    const endedAtS = (performance.now() - recordingFrom) / 1000;
+    // The window's frames only: the history drawn at once before it is not the motion being measured.
+    const samples = (
+      (await page.evaluate(
+        () => (window as unknown as { __followSamples: unknown[] }).__followSamples,
+      )) as FollowSample[]
+    ).filter((sample) => sample.t >= windowPageMs);
     const video = page.video();
     await context.close();
     if (video && videos) {
       const file = path.join(videos, `${path.basename(replay, ".ndjson")}-${arm}-x${options.speed}.webm`);
       copyFileSync(await video.path(), file);
       rmSync(videoDir!, { recursive: true, force: true });
+      clips.push({ file, startS: windowAtS, seconds: endedAtS - windowAtS, label: arm });
+      if (options.startS !== undefined)
+        console.log(`chat-sim-follow ${arm}: the window starts ${windowAtS.toFixed(2)} s into ${file}`);
     }
     if (process.env.CHAT_SIM_FOLLOW_DEBUG)
       writeFileSync(`${process.env.CHAT_SIM_FOLLOW_DEBUG}-${arm}.json`, JSON.stringify(samples));
@@ -211,6 +239,24 @@ try {
 } finally {
   await browser.close();
   await vite.close();
+}
+if (videos && clips.length > 0) {
+  const ffmpeg = findFfmpeg();
+  if (!ffmpeg)
+    console.log("chat-sim-follow: no full ffmpeg (CHAT_SIM_FFMPEG or ffmpeg on PATH); the videos stay whole");
+  else {
+    const name = path.basename(replay, ".ndjson");
+    for (const clip of clips) {
+      const out = path.join(videos, `${name}-${clip.label}-x${options.speed}.mp4`);
+      stackClips(ffmpeg, [clip], out);
+      console.log(`clip: ${out}`);
+    }
+    if (clips.length > 1) {
+      const out = path.join(videos, `${name}-side-by-side-x${options.speed}.mp4`);
+      stackClips(ffmpeg, clips, out);
+      console.log(`side by side: ${out}`);
+    }
+  }
 }
 console.log(
   `| arm | streaming jolts/s | streaming max px | streaming jerk p95 | reader jolts/s | reader max px | reader jerk p95 | newest row jolts/s | newest row max px | scroll jolts/s | scroll max px | frames |`,

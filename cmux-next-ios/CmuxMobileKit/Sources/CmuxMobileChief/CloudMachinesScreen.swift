@@ -31,7 +31,7 @@ public struct CloudMachinesScreen: View {
                         .accessibilityIdentifier("cloudMachines.new")
                 }
             }
-            .refreshable { await model.load() }
+            .refreshable { await model.load(reportFailure: true) }
             .task { await model.load() }
             .sheet(isPresented: $creating) { NewCloudMachineSheet(model: model) }
             .modifier(CloudMachineAlerts(model: model, showsFailure: !model.showsDetail))
@@ -41,9 +41,11 @@ public struct CloudMachinesScreen: View {
     @ViewBuilder private var content: some View {
         switch model.phase {
         case .loading:
+            // placeholder-ok: This personal Cloud list has never answered for this account.
             CmuxSpinner(label: Text("Loading Cloud machines…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("cloudMachines.loading")
+                .placeholderBound("cloud.machines.loading", .milliseconds(2000))
         case .failed(let message):
             ContentUnavailableView {
                 Label("Couldn't load Cloud machines", systemImage: "exclamationmark.triangle")
@@ -261,10 +263,10 @@ struct CloudMachineAlerts: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .alert("Couldn't do that", isPresented: Binding(get: { showsFailure && model.failure != nil }, set: { if !$0 { model.failure = nil } })) {
+            .alert("Couldn't do that", isPresented: Binding(get: { showsFailure && model.shownFailure != nil }, set: { if !$0 { model.dismissFailure() } })) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text(model.failure ?? "")
+                Text(model.shownFailure ?? "")
             }
     }
 }
@@ -282,7 +284,6 @@ struct NewCloudMachineSheet: View {
                 Section {
                     TextField("Name (optional)", text: $name)
                         .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
                         .accessibilityIdentifier("cloudMachines.new.name")
                 }
                 Section {

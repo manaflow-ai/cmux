@@ -38,6 +38,7 @@ import type { DiffViewerLabelResolver } from "../labels";
 import { type AppAction, type AppState } from "./state";
 import { LoadingFileList } from "./Loading";
 import { useSyncedRef } from "./useSyncedRef";
+import { RESIZE_HANDLE_PROPS } from "../scrollers";
 import { diffChromeRows, FILE_TREE_ITEM_HEIGHT, useDiffDensityScale } from "./density";
 
 export function FilesSidebarBackdrop({
@@ -98,6 +99,7 @@ export function filteredFileTreeSource(
 export function FilesSidebar({
   commentEntries,
   commentLabels,
+  commentsThreads = false,
   commentsReview,
   commentsSendState,
   dispatch,
@@ -106,6 +108,8 @@ export function FilesSidebar({
   onActivateItem,
   onSelectComment,
   onSendComments,
+  onReplyComment,
+  onResolveComment,
   onSelectItem,
   onToggleViewedPath,
   selectedPath,
@@ -116,6 +120,7 @@ export function FilesSidebar({
 }: {
   commentEntries: SidebarCommentEntry[];
   commentLabels: DiffCommentLabels;
+  commentsThreads?: boolean;
   /** A review worktree's pull request and its Post to GitHub; absent for an ordinary worktree. */
   commentsReview?: CommentsReview;
   commentsSendState?: CommentsSendState;
@@ -126,6 +131,8 @@ export function FilesSidebar({
   onSelectComment: (entry: SidebarCommentEntry) => void;
   /** Sends every saved comment to the diff's chat; absent when the host cannot. */
   onSendComments?: () => void;
+  onReplyComment?: (comment: SidebarCommentEntry["comment"], message: string) => void;
+  onResolveComment?: (comment: SidebarCommentEntry["comment"], resolved: boolean) => void;
   onSelectItem: (itemId: string) => void;
   onToggleViewedPath: (path: string) => void;
   selectedPath: string;
@@ -168,6 +175,7 @@ export function FilesSidebar({
     >
       <button
         id="files-resize-handle"
+        {...RESIZE_HANDLE_PROPS}
         aria-label={label("files")}
         type="button"
         tabIndex={0}
@@ -250,6 +258,9 @@ export function FilesSidebar({
         labels={commentLabels}
         onSelect={onSelectComment}
         onSend={onSendComments}
+        threads={commentsThreads}
+        onReply={onReplyComment}
+        onResolve={onResolveComment}
         sendState={commentsSendState}
         {...commentsReview}
       />

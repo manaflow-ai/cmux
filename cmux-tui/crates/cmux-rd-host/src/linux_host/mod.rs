@@ -861,7 +861,7 @@ fn deny(id: &str) -> Res<()> {
 
 /// `remove-device DEVICE`: the hub forgets one of the account's devices, signed by this host.
 fn remove_device(id: &str) -> Res<()> {
-    let (_, hub, _) = load()?;
+    let (_, hub, _) = load(serving::OldRecord::Keep)?;
     remove_device_on(&hub, id)?;
     println!("Removed device {id} from the hub.");
     Ok(())

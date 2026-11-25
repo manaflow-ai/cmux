@@ -1,0 +1,23 @@
+{
+  "title": "Key Style Vim: a query opens the New Tab suggestions; Esc hands them the keyboard, j, k, G and gg move, / goes back to the field",
+  "settings": {"app": {"keyStyle": "vim"}, "tabs": {"newTabTemplate": "minimal", "nativeNewTabPage": false}},
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "A New Tab", "cmux": ["action", "run", "newTab.page", "--focus"], "wait": 4, "shot": false},
+    {"title": "The New Tab's pane has the keyboard (9: the last pane, beside Home or alone)", "cmux": ["action", "run", "focusPaneByNumber", "--index", "9"], "wait": 3},
+    {"title": "type g", "rpc": {"method": "debug.key", "params": {"key": "g", "target": "page"}}, "wait": 0.15, "shot": false},
+    {"title": "type i", "rpc": {"method": "debug.key", "params": {"key": "i", "target": "page"}}, "wait": 0.15, "shot": false},
+    {"title": "type t", "rpc": {"method": "debug.key", "params": {"key": "t", "target": "page"}}, "wait": 0.15, "shot": false},
+    {"title": "type h", "rpc": {"method": "debug.key", "params": {"key": "h", "target": "page"}}, "wait": 0.15, "shot": false},
+    {"title": "type u", "rpc": {"method": "debug.key", "params": {"key": "u", "target": "page"}}, "wait": 0.15, "shot": false},
+    {"title": "A query opens the suggestions; typing stays typing", "rpc": {"method": "debug.key", "params": {"key": "b", "target": "page"}}, "wait": 1.5},
+    {"title": "Esc: the field gives the suggestions the keyboard", "rpc": {"method": "debug.key", "params": {"key": "escape", "target": "page"}}, "wait": 1.5},
+    {"title": "j: next row", "rpc": {"method": "debug.key", "params": {"key": "j", "target": "page"}}, "wait": 1.5},
+    {"title": "j: next row", "rpc": {"method": "debug.key", "params": {"key": "j", "target": "page"}}, "wait": 1.5},
+    {"title": "k: previous row", "rpc": {"method": "debug.key", "params": {"key": "k", "target": "page"}}, "wait": 1.5},
+    {"title": "G: last row", "rpc": {"method": "debug.key", "params": {"key": "G", "target": "page"}}, "wait": 1.5},
+    {"title": "g", "rpc": {"method": "debug.key", "params": {"key": "g", "target": "page"}}, "wait": 0.3},
+    {"title": "gg: first row", "rpc": {"method": "debug.key", "params": {"key": "g", "target": "page"}}, "wait": 1.5},
+    {"title": "/: back to the field", "rpc": {"method": "debug.key", "params": {"key": "/", "target": "page"}}, "wait": 1}
+  ]
+}

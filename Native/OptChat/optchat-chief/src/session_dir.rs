@@ -287,7 +287,7 @@ pub const TURN_DENIED_TOOLS: [&str; 24] = [
 /// workspace versus groups, you don't need to make a workspace for that"):
 /// the Chief lists, renames, moves and groups the person's workspaces in its
 /// own turn instead of spawning a helper.
-pub const CHIEF_CMUX_TOOLS: [&str; 36] = [
+pub const CHIEF_CMUX_TOOLS: [&str; 39] = [
     "agents_snapshot",
     "agents_workspace_create",
     "agents_workspace_select",
@@ -311,6 +311,9 @@ pub const CHIEF_CMUX_TOOLS: [&str; 36] = [
     "acpmux_info",
     "acpmux_inbox_read",
     "acpmux_inbox_reply",
+    "acpmux_watch_add",
+    "acpmux_watch_ls",
+    "acpmux_watch_rm",
     "cloud_machines",
     "cloud_chat_start",
     "cloud_chat_send",
@@ -658,14 +661,16 @@ pub fn isolation_env(_paths: &Paths) -> BTreeMap<String, String> {
 
 /// Writes the directory; a file is rewritten only when its bytes differ.
 /// The instructions go to CLAUDE.md for a Claude Code harness (the old
-/// layout; the cached layout puts them in the turn preset's system prompt
-/// and removes the file, `set_claude_md`), to AGENTS.md for any other.
+/// layout; the cached layout puts them in the turn preset's system prompt),
+/// and to AGENTS.md for any other harness. The cached layout keeps the short
+/// Claude-owned pointer so acpmux does not copy AGENTS.md into the preset's
+/// first message.
 pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     std::fs::create_dir_all(paths.session.join(".claude"))?;
     std::fs::create_dir_all(&paths.bin)?;
     // AGENTS.md always (a turn may swap to codex or another harness between
-    // turns, engine.rs); Claude Code reads only CLAUDE.md, which only the
-    // old layout of a Claude harness keeps.
+    // turns, engine.rs); Claude Code reads its own short pointer while the
+    // preset carries the full instructions in the cached layout.
     let chief = paths.bin.join("chief").display().to_string();
     let agents = chief_system_text(
         setup.instructions.as_deref(),
@@ -885,15 +890,22 @@ pub fn write_subagent_agents_md(paths: &Paths, text: &str) -> io::Result<()> {
 /// tell there (section 9: subagents get zoom and date, not spawn).
 pub const SUBAGENT_ENV: &str = "OPTCHAT_SUBAGENT";
 
-/// Writes the session directory's CLAUDE.md (Some) or removes it (None).
+/// Writes the session directory's CLAUDE.md with the full instructions (Some),
+/// or, when the turn's preset carries them as its system prompt (None),
+/// removes it and writes the one-line `.claude/CLAUDE.md` pointer instead, so
+/// acpmux's cross-harness fallback sends no second copy of AGENTS.md.
 pub fn set_claude_md(session: &Path, text: Option<&str>) -> io::Result<()> {
     let path = session.join("CLAUDE.md");
     match text {
         Some(text) => {
+            own_claude_md(session, false)?;
             std::fs::create_dir_all(session)?;
             write_if_changed(&path, text.as_bytes())
         }
-        None => remove_if_present(&path),
+        None => {
+            own_claude_md(session, true)?;
+            remove_if_present(&path)
+        }
     }
 }
 
