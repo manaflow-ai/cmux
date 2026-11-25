@@ -1023,7 +1023,7 @@ fn duress_error(link: &str, phase: &str, fixture: &str, run: u64, what: &str) {
 
 impl OpenDaemon {
     fn start(fixture: &Fixture) -> Self {
-        let (daemon, mut client) = Daemon::launch();
+        let (mut daemon, mut client) = Daemon::launch();
         let base = client.call(json!({"cmd": "new-workspace", "name": "netcond-open",
             "cols": MAC_COLS, "rows": MAC_ROWS}));
         for index in 1..fixture.workspaces {
@@ -1031,6 +1031,7 @@ impl OpenDaemon {
                 "cols": MAC_COLS, "rows": MAC_ROWS}));
         }
         let pane = Daemon::pane_of(&mut client, &base["surface"]);
+        daemon.pane = pane.clone();
         let terminal_id = format!("{:08x}00004000800{:013x}", std::process::id(), 0x200);
         // The stream starts once the scrollback is drawn (the go file) and stops when the
         // daemon's directory is removed, so no writer outlives the bench.
@@ -1832,6 +1833,254 @@ fn terminal_bytes_per_minute() {
     });
     drop(runtime);
     daemon.stop();
+}
+
+// ---------------------------------------------------------------------------------------------
+// Send: tap to the keyed `send`'s answer, with the phone's retry, and what the host applied
+//
+// Leo, 2026-11-24 (relayed, ask-1124-0818): "i think we can maybe be more optimistic sometimes.
+// it is a bit slow on ios." Item 1, the BEFORE. The terminal composer's Send is one `send
+// {surface, text + "\r", key}` on the input lane (cmux-composer-send's `Form::TextReturn`), and it
+// is "visible as sent" when the daemon's answer comes back (the grid shows the text only on the
+// Mac's echo). A send whose answer does not come within the link's give-up (20 s with nothing
+// inbound) or whose channel closes goes again on a fresh channel under the SAME key, until the
+// outbox's 30 s hold after the tap; the daemon applies a key once. After a row the terminal's own
+// bytes say what the host applied: the surface runs `cat >> typed.log` (raw), so a key found twice
+// is a double send, none a lost send.
+//
+// Rows (phase `send`, scale = the row): idle (no shaper, the idle fixture), lte, lossy-3, duress
+// (the duress fixture: 50 workspaces, a 10,000-line terminal streaming, every core spinning, over
+// lte), link-down (lte; at each tap the link drops for `NETCOND_SEND_BLACKOUT_MS`, default 3000).
+// Metrics: `send_visible_ms` (null: no answer within the hold), `sends`, `double_sends`,
+// `lost_sends`, `retries`. Env: `NETCOND_SENDS` (25), `NETCOND_SEND_ROWS`,
+// `NETCOND_SEND_BLACKOUT_MS`, `NETCOND_SEED_BASE`, and the duress fixture's own.
+
+/// Cmux-composer-send's `DEFAULT_HOLD`.
+const SEND_HOLD: Duration = Duration::from_secs(30);
+
+/// Threads that keep every core busy until dropped: the Mac under load.
+struct Spin {
+    stop: Arc<std::sync::atomic::AtomicBool>,
+    threads: Vec<std::thread::JoinHandle<()>>,
+}
+
+impl Spin {
+    fn start() -> Self {
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let cores = std::thread::available_parallelism().map_or(4, usize::from);
+        let threads = (0..cores)
+            .map(|_| {
+                let stop = stop.clone();
+                std::thread::spawn(move || {
+                    let mut x = 1u64;
+                    while !stop.load(Ordering::Relaxed) {
+                        for _ in 0..100_000 {
+                            x = x
+                                .wrapping_mul(6364136223846793005)
+                                .wrapping_add(1442695040888963407);
+                        }
+                        std::hint::black_box(x);
+                    }
+                })
+            })
+            .collect();
+        Self { stop, threads }
+    }
+}
+
+impl Drop for Spin {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        for thread in self.threads.drain(..) {
+            let _ = thread.join();
+        }
+    }
+}
+
+/// The phone's input lane: a channel with its setup answered.
+async fn input_lane(addr: std::net::SocketAddr, deadline: Instant) -> Option<Conn> {
+    let mut conn = timeout(deadline.saturating_duration_since(Instant::now()), Conn::open(addr))
+        .await
+        .ok()?
+        .ok()?;
+    let ids =
+        conn.send(vec![("set-client-info", client_info()), ("identify", json!({}))]).await.ok()?;
+    let last = *ids.last()?;
+    timeout(deadline.saturating_duration_since(Instant::now()), conn.reply(last, |_, _, _, _| {}))
+        .await
+        .ok()??;
+    Some(conn)
+}
+
+/// One send as the outbox does it. Returns (visible_ms, attempts); `conn` is replaced on a loss.
+async fn terminal_send_once(
+    conn: &mut Option<Conn>,
+    addr: std::net::SocketAddr,
+    surface: u64,
+    key: &str,
+    tap: Instant,
+) -> (Option<f64>, u64) {
+    let deadline = tap + SEND_HOLD;
+    let mut attempts = 0;
+    let typed = format!("{key}\r");
+    while Instant::now() < deadline {
+        if conn.is_none() {
+            *conn = input_lane(addr, deadline).await;
+            if conn.is_none() {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                continue;
+            }
+        }
+        let channel = conn.as_mut().unwrap();
+        attempts += 1;
+        let Ok(ids) = channel
+            .send(vec![("send", json!({"surface": surface, "text": typed, "key": key}))])
+            .await
+        else {
+            *conn = None;
+            continue;
+        };
+        // A channel with nothing inbound for the link's give-up is gone.
+        let wait = LINK_GIVE_UP.min(deadline.saturating_duration_since(Instant::now()));
+        match timeout(wait, channel.reply(ids[0], |_, _, _, _| {})).await {
+            Ok(Some(reply)) if reply["ok"] == json!(true) => {
+                return (Some(ms(tap.elapsed())), attempts - 1);
+            }
+            // The daemon refused it (nothing written, the outbox's NotSent).
+            Ok(Some(_)) => return (None, attempts - 1),
+            Ok(None) | Err(_) => *conn = None,
+        }
+    }
+    (None, attempts.saturating_sub(1))
+}
+
+#[test]
+#[ignore = "the send bench: scripts/measure/ios-network-conditions.sh mode=send runs it"]
+fn terminal_send_under_link_conditions() {
+    let file = match std::env::var("NETCOND_PROFILES_FILE") {
+        Ok(path) => ProfileFile::load(Path::new(&path)).unwrap(),
+        Err(_) => ProfileFile::builtin(),
+    };
+    let sends = env_u64("NETCOND_SENDS", 25);
+    let seed_base = env_u64("NETCOND_SEED_BASE", 0);
+    let blackout = Duration::from_millis(env_u64("NETCOND_SEND_BLACKOUT_MS", 3000));
+    let wanted = env_list("NETCOND_SEND_ROWS", "idle,lte,lossy-3,link-down,duress");
+    for loaded in [false, true] {
+        let rows: Vec<&String> =
+            wanted.iter().filter(|r| (r.as_str() == "duress") == loaded).collect();
+        if rows.is_empty() {
+            continue;
+        }
+        let fixture = if loaded {
+            Fixture {
+                name: "duress",
+                workspaces: env_u64("NETCOND_DURESS_WORKSPACES", 50),
+                scrollback: env_u64("NETCOND_DURESS_SCROLLBACK", 10_000),
+                stream_lines: env_u64("NETCOND_DURESS_STREAM_LINES", 50),
+                links: Vec::new(),
+            }
+        } else {
+            Fixture {
+                name: "idle",
+                workspaces: env_u64("NETCOND_IDLE_WORKSPACES", 5),
+                scrollback: env_u64("NETCOND_IDLE_SCROLLBACK", 1_000),
+                stream_lines: 0,
+                links: Vec::new(),
+            }
+        };
+        let daemon = OpenDaemon::start(&fixture);
+        let typed_log = daemon.daemon.dir.join("typed.log");
+        let surface = daemon
+            .daemon
+            .tab(&format!("stty raw -echo 2>/dev/null; exec cat >> '{}'", typed_log.display()));
+        std::thread::sleep(Duration::from_millis(500));
+        println!(
+            "NETCOND-FIXTURE send-{} workspaces={} scrollback={} stream_lines_per_20ms={}",
+            fixture.name, fixture.workspaces, fixture.scrollback, fixture.stream_lines
+        );
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(4)
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let upstream = splice(&daemon.daemon.socket).await;
+            let _spin = loaded.then(Spin::start);
+            for row in &rows {
+                let (profile, down) = match row.as_str() {
+                    "idle" => (None, false),
+                    "lte" | "duress" => (file.get("lte"), false),
+                    "lossy-3" => (file.get("lossy-3"), false),
+                    "link-down" => (file.get("lte"), true),
+                    other => panic!("NETCOND_SEND_ROWS: no row {other}"),
+                };
+                let label = profile
+                    .map_or_else(|| "none".to_owned(), |p| format!("{}@{}", p.name, p.version));
+                let shaper = match profile {
+                    Some(p) => {
+                        match Shaper::start(upstream, p.clone(), seed_base, &Trace::new()).await {
+                            Ok(s) => Some(s),
+                            Err(e) => {
+                                duress_error(&label, "send", row, 0, &format!("shaper: {e}"));
+                                continue;
+                            }
+                        }
+                    }
+                    None => None,
+                };
+                let addr = shaper.as_ref().map_or(upstream, Shaper::addr);
+                let mut conn = input_lane(addr, Instant::now() + WAIT).await;
+                if conn.is_none() {
+                    duress_error(&label, "send", row, 0, "the input lane did not open");
+                    continue;
+                }
+                let tag = std::process::id();
+                let mut keys = Vec::new();
+                let mut retries_total = 0;
+                for i in 0..sends {
+                    let key = format!("nc-{row}-{tag}-{i};");
+                    let tap = Instant::now();
+                    if down && let Some(s) = &shaper {
+                        s.blackout(blackout);
+                    }
+                    let (visible, retries) =
+                        terminal_send_once(&mut conn, addr, surface, &key, tap).await;
+                    retries_total += retries;
+                    duress_emit(&label, "send", row, "send_visible_ms", visible, i);
+                    if visible.is_none() {
+                        duress_error(&label, "send", row, i, "no answer to the send in time");
+                    }
+                    keys.push(key);
+                    tokio::time::sleep(Duration::from_millis(300)).await;
+                }
+                // What the terminal received, read from the file `cat` wrote.
+                tokio::time::sleep(Duration::from_millis(1500)).await;
+                let got = fs::read_to_string(&typed_log).unwrap_or_default();
+                let counts: Vec<usize> =
+                    keys.iter().map(|k| got.matches(k.as_str()).count()).collect();
+                duress_emit(&label, "send", row, "sends", Some(sends as f64), 0);
+                duress_emit(
+                    &label,
+                    "send",
+                    row,
+                    "double_sends",
+                    Some(counts.iter().filter(|c| **c > 1).count() as f64),
+                    0,
+                );
+                duress_emit(
+                    &label,
+                    "send",
+                    row,
+                    "lost_sends",
+                    Some(counts.iter().filter(|c| **c == 0).count() as f64),
+                    0,
+                );
+                duress_emit(&label, "send", row, "retries", Some(retries_total as f64), 0);
+            }
+        });
+        drop(runtime);
+        daemon.daemon.stop();
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
