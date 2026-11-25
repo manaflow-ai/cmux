@@ -7,6 +7,7 @@
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { isCmuxExec, readAnswer } from "./cmuxExec";
 import { mcpCall } from "./mcpCalls";
+import { readRun } from "./customizeRun";
 import type { NextStepAsk, NextStepOption } from "./nextStepAsk";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -70,20 +71,38 @@ export function wrapUpAsk(tool: Tool): NextStepAsk | undefined {
   return args ? askOf(args) : undefined;
 }
 
+/// The other names the tool takes for each field (`ALIASES` in acpmux_mcp_wrap_up.rs): a call
+/// that sent `summary` for `recap` is accepted, so its card draws it too (cmuxterm-hq#18786).
+const ALIASES: Record<string, readonly string[]> = {
+  recap: ["summary", "message", "text", "result"],
+  ask: ["question"],
+  actions: ["options", "buttons", "answers"],
+};
+const field = (args: Record<string, unknown>, name: string): unknown =>
+  [name, ...(ALIASES[name] ?? [])].map((key) => args[key]).find((value) => value != null);
+
 function askOf(args: Record<string, unknown>): NextStepAsk | undefined {
-  const recap = words(args.recap);
-  const question = words(args.ask);
+  const recap = words(field(args, "recap"));
+  const question = words(field(args, "ask"));
   if (!recap && !question) return undefined;
   let options: NextStepOption[] = [];
+  const actions = field(args, "actions");
   if (question) {
-    const labels = Array.isArray(args.actions)
-      ? args.actions
-          .map((action) => words(typeof action === "string" ? action : record(action)?.label))
-          .filter((label): label is string => label !== undefined && label.length <= MAX_LABEL)
-      : [];
-    const unique = [...new Set(labels)].slice(0, MAX_ACTIONS);
+    // An action is its label, or `{label, run}` (customizeRun.ts): a typed action keeps its run.
+    // A `run` the daemon would refuse is dropped, and the button stays an ordinary answer; a typed
+    // action with no label is named for its verb.
+    const VERB = { try: "Try it on", keep: "Keep", revert: "Revert" } as const; // l10n-allow: a prompt to the agent
+    const picked: NextStepOption[] = [];
+    for (const action of Array.isArray(actions) ? actions : []) {
+      const object = record(action);
+      const run = object ? readRun(object.run) : undefined;
+      const label = words(typeof action === "string" ? action : object?.label) ?? (run && VERB[run.customize]);
+      if (label === undefined || label.length > MAX_LABEL || picked.some((option) => option.label === label)) continue;
+      picked.push(run ? { label, run } : { label });
+    }
+    const unique = picked.slice(0, MAX_ACTIONS);
     options = unique.length
-      ? unique.map((label) => ({ label }))
+      ? unique
       : [
           { label: "Yes", key: "recap.yes" }, // l10n-allow: a prompt to the agent, not UI
           { label: "Not now", key: "recap.notNow" }, // l10n-allow: a prompt to the agent, not UI

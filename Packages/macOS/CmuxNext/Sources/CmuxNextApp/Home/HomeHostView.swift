@@ -1,6 +1,7 @@
 import AppKit
 import CmuxHomeCore
 import CmuxHomeRender
+import CmuxNextAccounts
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDaemonService
@@ -8,6 +9,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextChiefMemory
 import CmuxNextChiefPetWiring
+import CmuxNextCloud
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeModel
@@ -18,7 +20,6 @@ import CmuxNextOnboarding
 import CmuxNextPages
 import CmuxNextSidebar
 import CmuxNextWakeups
-import ImageIO
 
 /// A conversation tab's content (`conversation-tabs-v1`, home.md 7): the
 /// native AppKit transcript (`HomeNativeTranscriptView`, MessagesLab's code,
@@ -33,6 +34,7 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
     /// conversation only), made on its first open (``HomeChiefSettingsCard``), never by a switch.
     private let card = HomeChiefSettingsCard()
     private var petRows: ChiefPetSettingsRows?  // the pet's rows in the popover's Appearance section, made with it
+    private var chatLookRows: HomeChiefChatLookRows?  // Bubble Style and Chat Colors in the same section, made with it
     /// The Chief whose character the popover offers and the header wears (nil: the default Chief).
     private var petChief: String? { didSet { if petChief != oldValue { petRows?.chief = petChief; followChosenPicture() } } }
     private(set) var isChief = false { didSet { if isChief != oldValue { watchHeaderPanels(); watchNeedsYou(); watchSetupCard() } } }
@@ -64,12 +66,14 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
     private var isWorking = false
     /// The Chief is answering (Esc stops it; the floating Chief panel hides on Esc only when it is not).
     lazy var turnActions = control.services.home.chiefHomes.turnActions(for: transcript)
+    /// What this Home's stop button runs on it; tests watch it.
+    var stopChief: @MainActor (HomeHostView) -> Void = { HomeChiefActions.stop(shown: $0) }
     /// Where this Chief runs and its other host, for the settings card (no floating switch over the chat).
     private var hostWatch: Task<Void, Never>?
-    /// The card's Runs On chip, on the Chief that `cmux chief move` moves (the header has none).
-    private var runsOn: ChiefRunsOnChip?
     /// Where attachments open and their right-click menu (the transcript holds it weakly).
     private var fileActions: HomeFileActions?
+    /// The live view over the chat while a Chief uses its computer (cmux issue 31488); made at its first turn.
+    private var computerPopup: HomeChiefComputerPopup?
 
     #if DEBUG || CMUX_BENCH_HOOKS
     /// The conversation this view shows (`HomeService.debugHostViews`).
@@ -113,10 +117,6 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
             for await host in ObservationStream({ service?.chiefHost(of: conversation) ?? HomeChiefHostLine() }) {
                 self?.card.setHost(host)
             }
-        }
-        runsOn = ChiefRunsOnChip(model: services.chiefTeleport)
-        runsOn?.follow(for: self, { [weak service] in service?.showsTeleport(conversation: conversation) ?? false }) { [weak self] in
-            self?.card.showTeleport($0)
         }
         // The stop button (HomeHostView+StopAll): a click, Esc and Cmd-. stop the Chief; Option-click stops all agents.
         let registry = services.registry
@@ -179,6 +179,9 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
                 openPendingSettings()
                 isWorking = isChief && typing
                 transcript.isWorking = isWorking
+                // A Cloud Chief's own computer, or the Cloud machine a Chief of this Mac uses.
+                let usesComputer = cloud || ChiefComputerWiring.attachedMachine(control.services, id.rawValue) != nil
+                if isWorking && usesComputer || computerPopup != nil { followComputerPopup(working: isWorking && usesComputer) }
                 turnActions.update(control: control.turnControl, isChief: isChief, working: isWorking, sequence: lastSeq)
                 if cloud != showsCloud || (cloud && hosted != showsHosted) {
                     showsCloud = cloud
@@ -187,7 +190,13 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
                 }
                 card.setName(title)
                 transcript.headerTitle = isChief ? service.chiefName(of: id) : nil
-                if card.isShown { if isChief { card.view?.refresh() } else { card.close() } }
+                if card.isShown {
+                    if isChief {
+                        card.view?.refresh()
+                        card.popover?.profile.refresh()
+                        followComputerControl()
+                    } else { card.close() }
+                }
             }
         }
         // task-owner: lives as long as this view; event-driven (Observation): each Chief of
@@ -204,6 +213,7 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
         }
         // Settings > Home: whether attached photos and videos keep their location.
         transcript.keepLocation = { [weak services] in services?.settings?.snapshot.homeKeepLocation ?? false }
+        transcript.clipboardHistory = service.clipboardHistory; transcript.installPlusMenuActions(services.registry)  // the + menu's recent copies and its rows' actions
 
         spellCheckingWatch = Task { [weak self, weak services] in
             for await enabled in ObservationStream({ services?.settings?.snapshot.agentPaneComposer.spellChecking ?? false }) {
@@ -327,10 +337,11 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
         for task in [availability, engineWatch, avatarsWatch, hostWatch, agentsWatch, shortcutsWatch, spellCheckingWatch, headerPanelsWatch, needsYouWatch, setupCardWatch, firstPage, chiefIntroWatch, chiefOnboardingWatch] {
             task?.cancel()
         }
-        let card = card, transcript = transcript, setupCard = setupCard
+        let card = card, transcript = transcript, setupCard = setupCard, computerPopup = computerPopup
         // task-owner: the main-actor half of this view's release; one call each, then it ends
         Task { @MainActor in
             card.close()
+            computerPopup?.follow(working: false)
             setupCard?.close()
             transcript.stop()
         }
@@ -358,19 +369,38 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
         if card.isShown { if !openOnly { card.close() }; return openOnly }
         guard isChief, window != nil, !isHiddenOrHasHiddenAncestor else { return false }
         card.view?.refresh()  // a card made now reads its engine as it is made
-        return chiefSettings().show(relativeTo: transcript.namePill, toggles: transcript.namePillToggles)
+        let popover = chiefSettings()
+        followComputerControl()
+        return popover.show(relativeTo: transcript.namePill, toggles: transcript.namePillToggles)
     }
 
-    /// The Chief's settings popover, made and wired on its first open.
-    private func chiefSettings() -> HomeChiefSettingsPopover { card.made({ HomeChiefSettingsView(muxHome: control.brainHome, source: control.engineSource()) }, configure: wire) }
+    /// The profile opens at `tab` (the pet's Chief Pet Settings…, the computer popup's click). True if shown.
+    @discardableResult
+    func openProfile(_ tab: HomeChiefProfileTab) -> Bool {
+        let shown = toggleChiefSettings(openOnly: true)
+        if shown { chiefSettings().profile.select(tab) }
+        return shown
+    }
+
+    /// The Chief's settings popover, made and wired on its first open (its Computer tab too).
+    private func chiefSettings() -> HomeChiefSettingsPopover {
+        if let popover = card.popover { return popover }
+        let popover = card.made({ HomeChiefSettingsView(muxHome: control.brainHome, source: control.engineSource()) }, configure: wire)
+        wireComputer(popover, services: control.services)
+        return popover
+    }
 
     private func wire(_ settingsView: HomeChiefSettingsView) {
         let services = control.services, service = services.home, conversation = control.conversation.rawValue
         let petRows = ChiefPetSettingsRows(settings: { [weak services] in services?.settings }, homes: services.chiefPetHomes, picks: services.chiefMascotPicks, uploads: services.chiefAvatarUploads)
-        (petRows.chief, self.petRows) = (petChief, petRows)
+        (petRows.chief, self.petRows, petRows.hidesPickerWhileOff) = (petChief, petRows, true)
+        petRows.onResize = { [weak settingsView] in settingsView?.onResize() }
         petRows.onRefusal = { [settingsView] in settingsView.showNote($0) }  // why an upload was refused
         petRows.install(in: self, addRow: { [settingsView] in settingsView.addAppearanceRow($0, control: $1) },
-                        open: { [weak self] in self?.toggleChiefSettings(openOnly: true) ?? false })
+                        open: { [weak self] in self?.openProfile(.settings) ?? false })
+        chatLookRows = HomeChiefChatLookRows(settings: { [weak services] in services?.settings }, openColors: { [weak self, weak services] in self?.card.close()
+            _ = services?.registry.perform("home.chatColors", invocation: ActionInvocation(arguments: ["conversation": .string(conversation)], origin: .user)) })
+        chatLookRows?.install(addRow: { [settingsView] in settingsView.addAppearanceRow($0, control: $1) })
         // Each Chief's tile reads its own brain home: this re-reads them, so only the
         // Chief whose picture changed draws differently (cx-327wl).
         settingsView.onAvatar = { [weak self, weak service] in self?.loadAvatar(); service?.refreshChiefAvatars() }
@@ -395,8 +425,8 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
             try? services?.settingsWindow.show(section: nil, focus: true, route: "#/settings/chief")
         }
         settingsView.checkHarness = { [weak services] id in (try? await services?.agentHarnesses.doctor(id: id))?["ok"]?.boolValue == true }
-        // Every harness this Mac's acpmux has (Settings > Agents' list), after the official engines.
-        settingsView.listHarnesses = { [weak services] in (try? await services?.agentHarnesses.listed())?.sorted() ?? [] }
+        // Every harness this Mac's acpmux has that a Chief can run on, after the official engines.
+        settingsView.listHarnesses = { [weak services] in (try? await services?.agentHarnesses.chiefEngines()) ?? [] }
         // One rename path for every Chief (HomeService.renameChief): every surface shows the new name at once.
         settingsView.onRename = { [weak service] name in
             await service?.renameChief(conversation: conversation, to: name) ?? .noConnection
@@ -412,7 +442,7 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
     /// never stays over the next pane.
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
-        if newWindow !== window { card.close() }
+        if newWindow !== window { closeChiefSurfaces() }
     }
 
     override func viewDidMoveToWindow() {
@@ -423,7 +453,7 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
 
     override func viewDidHide() {
         super.viewDidHide()
-        card.close()
+        closeChiefSurfaces()
     }
 
     /// This view shows a Chief conversation on screen: the front window's Home that
@@ -475,7 +505,7 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
             // Decoded off the main actor: an upload's still or the registry picture.
             let data = avatar.picture
             // task-owner: one decode of the avatar picture; ends when it is shown
-            let decoded = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { data.flatMap(Self.decode) }.value
+            let decoded = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { data.flatMap(HomePictureDecode.firstFrame) }.value
             // A read for the Chief or the character shown before (another came in since) is dropped.
             guard let self, control.brainHome == home,
                   fallback == fallbackPicture else { return }
@@ -483,13 +513,10 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
             let text = avatar.text  // nil: the header and the hero draw the name's monogram (CH)
             transcript.setChiefAvatar(picture: picture, text: text)  // the header and the first-run hero
             card.setAvatar(picture: picture, text: text ?? transcript.shownMonogram)
+            // The expanded computer page shows the same face.
+            (control.services.pages.provider(.chiefComputer) as? ChiefComputerPages)?
+                .setAvatar(conversation: control.conversation.rawValue, picture: picture, text: text)
         }
-    }
-
-    /// The first frame of the picture `data` holds, decoded now.
-    private nonisolated static func decode(_ data: Data) -> CGImage? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
-        return CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
@@ -530,6 +557,69 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
         if view === focusTarget || view.ownsTypedText { return false }
         if view is NSText || view is NSTextField { return true }
         return transcript.primaryInputShouldTakeKeyboard(from: responder)
+    }
+}
+
+// MARK: The Chief's computer (cmux issue 31488)
+
+extension HomeHostView {
+    /// The popup's place over the page: under the chat's header, at its right edge.
+    private static let computerPopupTop: CGFloat = 60
+    private static let computerPopupInset: CGFloat = 12
+
+    /// Home left its window or hid: the popover closes, so it never stays over the next pane, and the
+    /// computer's live view goes (the next turn brings it back).
+    private func closeChiefSurfaces() {
+        card.close()
+        computerPopup?.follow(working: false)
+        computerPopup?.removeFromSuperview()
+        computerPopup = nil
+    }
+
+    /// The profile's Computer tab and Expand (ChiefComputerWiring), the card's vault, connections
+    /// (cmux issue 34263) and Computer Use picker (cmux issue 36047).
+    private func wireComputer(_ popover: HomeChiefSettingsPopover, services: AppServices) {
+        ChiefComputerWiring.wirePopover(popover, host: services, conversation: control.conversation.rawValue,
+                                        popupChanged: { [weak self] in self?.computerPopup?.update() },
+                                        controlChanged: { [weak self] in self?.followComputerControl() })
+        let view = popover.content, work = services.work
+        view.vault.names = {
+            let index = try? await work.run(.userVisible, mayBlock: .files) { CloudMachineSecrets.read(CloudMachineSecrets.indexURL().path) }
+            return index.flatMap(CloudMachineSecrets.index(from:)).map(CloudMachineSecrets.names(in:))
+        }
+        view.connections.source = .init(services.accounts.chiefConnections)
+        view.bindCloudComputers(services.registry) { [weak services] in
+            services?.machines.cloud.compactMap { $0.effectiveStatus == .destroyed ? nil : .init(id: $0.machineID, title: $0.machine.title) } ?? []
+        }
+    }
+
+    private func followComputerControl() {
+        guard let popover = card.popover else { return }
+        ChiefComputerWiring.followControl(popover, popup: computerPopup, host: control.services, conversation: control.conversation.rawValue)
+    }
+
+    /// A Chief turn started or ended (`working`: a Chief that uses a computer answers): the live view over the chat follows it.
+    private func followComputerPopup(working: Bool) {
+        // A chat kept hidden for a quick switch back (TopHomePageView's recent chats) shows no popup.
+        guard window != nil, !isHiddenOrHasHiddenAncestor || !working else { return }
+        (computerPopup ?? makeComputerPopup()).follow(working: working)
+    }
+
+    /// The popup at the chat's top right, over the page, so no message moves. A click opens the profile at Computer.
+    private func makeComputerPopup() -> HomeChiefComputerPopup {
+        let services = control.services, conversation = control.conversation.rawValue
+        let popup = ChiefComputerWiring.makePopup(host: services, conversation: conversation, suppressed: { [weak self, weak services] in
+            guard let self else { return false }
+            if card.isShown, card.popover?.profile.selectedTab == .computer { return true }
+            return (services?.pages.provider(.chiefComputer) as? ChiefComputerPages)?.shows(conversation, in: window) ?? false
+        }, open: { [weak self] in _ = self?.openProfile(.computer) })
+        computerPopup = popup
+        addSubview(popup)
+        NSLayoutConstraint.activate([
+            popup.topAnchor.constraint(equalTo: topAnchor, constant: Self.computerPopupTop),
+            popup.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.computerPopupInset),
+        ])
+        return popup
     }
 }
 

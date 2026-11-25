@@ -1,6 +1,11 @@
 {
   "family": "project",
   "ops": {
+    "project.actions.list": {
+      "source": "local",
+      "class": "read",
+      "digest": "69316d2a9398f32b"
+    },
     "project.add": {
       "source": "local",
       "class": "mutation",

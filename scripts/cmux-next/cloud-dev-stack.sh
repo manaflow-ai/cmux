@@ -39,6 +39,14 @@
 # Credentials go from pscale straight into the VM over SSH stdin, mode 0600 there; nothing is printed or
 # written on this Mac.
 #
+# Team keys: each stack's mobile Worker serves /v1/ice with TURN, as the shared dev Worker does, from the team's
+# Cloudflare TURN key (1Password "Cloudflare TURN Server API Key", vault Shared). The VM keeps one copy for every
+# stack (<base>/secrets/turn.json, mode 0600). An up sends it from `op` over SSH stdin only when the VM has none or
+# Cloudflare refuses the one it has (a rotated key); without op, or with op signed out, the up goes on and says
+# ICE is STUN only (a phone on another network than its Mac may not link). The API's Stack server key, which it
+# needs to learn a person's teams (a team-scoped token mint), is the development project's key the VM's classic
+# dev backend already keeps (cmuxterm-hq skills/infra/dev-backend); nothing sends it.
+#
 # Lifetime: as long as a dogfooded build may use it. Every stack port goes through the VM's router
 # (cloud-dev-stack/router.mjs), which counts each request as activity. After 2 h with no request and no
 # up/touch (--idle-min, or CMUX_WDEV_IDLE_SECS on the VM) the stack's workerd stops, keeping its files, Durable
@@ -65,6 +73,12 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 helper="$root/scripts/cmux-next/cloud-dev-stack/vm_stack.py"
 router="$root/scripts/cmux-next/cloud-dev-stack/router.mjs"
+# The generation of cloud-dev-stack/vm_stack.py and router.mjs, together: raise it with any change to either. The
+# VM records it only for merged copies, so an up from a checkout of an older base leaves the VM's newer merged
+# copies alone, while a branch that changes either file still installs its own to test them (ensure_helper).
+# CMUX_DEV_STACK_HELPER=merged|branch says which this checkout's copies are, instead of asking git.
+# An older checkout drives a newer vm_stack.py: keep its command line and JSON compatible with older callers.
+HELPER_GENERATION=2
 HOST="${CMUX_DEV_STACK_HOST:-cmux-dev-backend-1}"
 VM_USER="${CMUX_DEV_STACK_USER:-ubuntu}"
 BASE="${CMUX_DEV_STACK_BASE:-/srv/cmux-dev/wrangler}"
@@ -74,6 +88,7 @@ MYSQL_DB="${CMUX_DEV_STACK_MYSQL_DB:-cmux-next-vitess}"
 PS_ORG=cmux
 DEV_BRANCH=development
 CRED_TTL=192h  # outlives the 7 d retention; an up keeps a credential only while it does (vm_stack.py cred_fresh)
+TURN_ITEM="${CMUX_DEV_STACK_TURN_ITEM:-lqvg75d4awzbveq7ny5gyfeyd4}"  # 1Password "Cloudflare TURN Server API Key" (vault Shared)
 SYNC_PATHS=(backend libs clients/ts workers/cmux-vm/sdk cmux-next-ios/backend workers/device-hub)
 
 usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; }
@@ -112,21 +127,51 @@ vm() { "${SSH[@]}" python3 "$BASE/bin/vm_stack.py" "$@"; }
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); $1"; }
 ps() { pscale "$@" --org "$PS_ORG" --format json; }
 
+# Whether this checkout's vm_stack.py and router.mjs are its base's own (merged), or a branch's changes to them.
+# Unknown (no base ref, not a git checkout) counts as a branch: it installs, and records no generation.
+helper_copies() {
+  case "${CMUX_DEV_STACK_HELPER:-}" in merged|branch) echo "$CMUX_DEV_STACK_HELPER"; return ;; esac
+  local ref files=(scripts/cmux-next/cloud-dev-stack/vm_stack.py scripts/cmux-next/cloud-dev-stack/router.mjs)
+  # Equal to the merge base's (an older base), or to the base's tip (a branch whose change has merged since).
+  for ref in "$(git -C "$root" merge-base HEAD "$BASE_REF" 2>/dev/null)" "$BASE_REF"; do
+    [ -n "$ref" ] && git -C "$root" diff --quiet "$ref" -- "${files[@]}" 2>/dev/null && { echo merged; return; }
+  done
+  echo branch
+}
+
 ensure_helper() {
   "${SSH[@]}" true 2>/dev/null || die "cannot reach $VM_USER@$HOST over SSH (tailnet). hq: scripts/dev-backend.sh vm-status wakes a stopped VM."
-  local want have
+  local want have theirs copies record
   want="$(cat "$helper" "$router" | shasum -a 256 | cut -d' ' -f1)"
   have="$("${SSH[@]}" "cat $BASE/bin/vm_stack.py $BASE/bin/router.mjs 2>/dev/null | sha256sum | cut -d' ' -f1" || true)"
-  if [ "$want" != "$have" ]; then
-    "${SSH[@]}" "mkdir -p -m 700 $BASE/bin"
-    # Per-caller names: two ups at once both see an old copy and both install it. The router moves first:
-    # the new helper's install restarts it.
-    local tmp="new.$$.$RANDOM"
-    scp -q -o BatchMode=yes "$router" "$VM_USER@$HOST:$BASE/bin/router.mjs.$tmp"
-    scp -q -o BatchMode=yes "$helper" "$VM_USER@$HOST:$BASE/bin/vm_stack.py.$tmp"
-    "${SSH[@]}" "mv -f $BASE/bin/router.mjs.$tmp $BASE/bin/router.mjs && mv -f $BASE/bin/vm_stack.py.$tmp $BASE/bin/vm_stack.py"
-    vm install >/dev/null
+  copies="$(helper_copies)"
+  # The generation of the merged copies the VM runs (bin/.generation; none after a branch's install). Merged copies
+  # from an older base leave newer merged ones alone: an up from an older worktree put an old router back and
+  # restarted it, dropping every stack's WebSockets (it undid #55854's router fix). A branch's own copies always
+  # install, to be tested, and clear the record: the next up from any base checkout puts merged copies back.
+  theirs="$("${SSH[@]}" "cat $BASE/bin/.generation 2>/dev/null" || true)"
+  [[ "$theirs" =~ ^[0-9]+$ ]] || theirs=0
+  if [ "$want" = "$have" ]; then
+    # The VM already runs these copies. Merged ones it has no record of (a branch installed them, then they
+    # merged as they were) are recorded now, or the next older checkout's up would put its old copies back.
+    if [ "$copies" = merged ] && (( 10#$theirs != 10#$HELPER_GENERATION )); then
+      "${SSH[@]}" "echo $HELPER_GENERATION > $BASE/bin/.generation"
+    fi
+    return 0
   fi
+  if [ "$copies" = merged ] && (( 10#$HELPER_GENERATION < 10#$theirs )); then
+    echo "note: the dev VM runs newer merged stack copies (helper generation $theirs; this checkout's base has $HELPER_GENERATION): left as they are. Update this checkout's base to change them, or CMUX_DEV_STACK_HELPER=branch to install its copies anyway." >&2
+    return 0
+  fi
+  if [ "$copies" = merged ]; then record="echo $HELPER_GENERATION > $BASE/bin/.generation"; else record="rm -f $BASE/bin/.generation"; fi
+  "${SSH[@]}" "mkdir -p -m 700 $BASE/bin"
+  # Per-caller names: two ups at once both see an old copy and both install it. The router moves first:
+  # the new helper's install restarts it. The record changes with the files, in one call.
+  local tmp="new.$$.$RANDOM"
+  scp -q -o BatchMode=yes "$router" "$VM_USER@$HOST:$BASE/bin/router.mjs.$tmp"
+  scp -q -o BatchMode=yes "$helper" "$VM_USER@$HOST:$BASE/bin/vm_stack.py.$tmp"
+  "${SSH[@]}" "mv -f $BASE/bin/router.mjs.$tmp $BASE/bin/router.mjs && mv -f $BASE/bin/vm_stack.py.$tmp $BASE/bin/vm_stack.py && $record"
+  vm install >/dev/null
 }
 
 # The worktree's files (tracked and untracked, not ignored), so an uncommitted edit runs too.
@@ -200,6 +245,25 @@ give_db() {  # give_db KIND MODE
     echo "   deleted the credential it replaces ($old_id)"
   fi
   echo "   $db/$branch: credential $name (TTL $CRED_TTL, on the VM only)"
+}
+
+give_turn() {  # the team's TURN key to the VM when it has none or Cloudflare refuses its copy; never fails an up
+  local state why
+  read -r state why < <(vm turn-status </dev/null | json "print(d['state'], d.get('why') or '')") || state=unknown
+  case "$state" in ok|unverified) echo "   TURN key: on the VM ($why)"; return 0 ;; esac
+  if ! command -v op >/dev/null 2>&1; then
+    echo "   TURN key: ${why:-$state}, and no 1Password CLI (op) here: ICE stays STUN only"; return 0
+  fi
+  # The id is the 32-hex "Turn Token ID" in the item's notes, the token its credential field
+  # (cmux-next-ios/backend/README.md). Both go through the pipe only; vm_stack.py put-turn refuses an empty
+  # or malformed value (a failed op) and a key Cloudflare refuses, keeping what the VM has.
+  if { op item get "$TURN_ITEM" --fields notesPlain </dev/null 2>/dev/null | grep -oE '[0-9a-f]{32}' | head -1
+       op read "op://Shared/$TURN_ITEM/credential" </dev/null 2>/dev/null; } | vm put-turn >/dev/null; then
+    echo "   TURN key: from 1Password to the VM (mode 0600 there, nothing on this Mac's disk)"
+  else
+    echo "   TURN key: not stored (op signed in? the VM's reason is above): ICE stays STUN only"
+  fi
+  return 0
 }
 
 # Delete one stack's PlanetScale credentials and branches from its registry entry (JSON on stdin).
@@ -281,6 +345,7 @@ case "$cmd" in
       if [ "$db_mode" = shared ] && [ "$mode" = branch ]; then die "this branch changes $kind migrations; --db shared would run them against nothing. Drop --db shared."; fi
       give_db "$kind" "$mode"
     done
+    give_turn
     if [ -n "$kinds" ] || [ "$db_mode" = branch ]; then
       echo "== migrate lane-wd-$tag with this tree"
       out="$(vm migrate --tag "$tag")" || die "migration failed (above). Fix it and run up again, or: $0 down --tag $tag"
@@ -303,6 +368,11 @@ case "$cmd" in
     if [ -n "$pub" ]; then echo "Public:  $pub   (and mobile., hub.; off the tailnet, signed-in cmux accounts only)"
     else echo "Public:  none (no free public slot; tailnet only)"; fi
     if [ -n "$platform" ]; then echo "Platform: in the same workerd session, as the API's PLATFORM binding"; fi
+    read -r has_turn has_teams < <(json "k=d.get('keys') or {}; print('yes' if k.get('turn') else 'no', 'yes' if k.get('stack_teams') else 'no')" <<<"$out")
+    if [ "$has_turn" = yes ]; then echo "ICE:     STUN and TURN (the team's Cloudflare TURN key), as the shared dev Worker"
+    else echo "ICE:     STUN only (no TURN key on the VM): a phone on another network than its Mac may not link"; fi
+    if [ "$has_teams" = yes ]; then echo "Teams:   the API reads a person's teams from Stack (the VM's development Stack server key)"
+    else echo "Teams:   no Stack server key on the VM: team-scoped tokens are refused (403) until the team is known"; fi
     echo "Journey: scripts/cmux-next/cloud-dev-stack.sh journey --tag $tag"
     echo "Lifetime: idle $(( idle_min > 0 ? idle_min : 120 )) min stops it, its next request wakes it; released $(json "print(d.get('retain_days') or 7)" <<<"$out") d after this up"
     echo "Delete:  scripts/cmux-next/cloud-dev-stack.sh down --tag $tag"
@@ -313,7 +383,7 @@ case "$cmd" in
     vm status ${tag:+--tag "$tag"} | python3 -c "
 import json,sys
 d=json.load(sys.stdin); c=d['capacity']
-print(f\"host: MemAvailable {c['mem_available_gib']} GiB (floor {c['min_mem_gib']}), disk free {c['disk_free_gib']} GiB (floor {c['min_disk_gib']}), running {c['stacks_running']}/{c['max_stacks']}, stopped {c.get('stacks_stopped', 0)}/{c.get('max_kept', '-')}, classic registrations {c['classic_registered']}\")
+print(f\"host: MemAvailable {c['mem_available_gib']} GiB (floor {c['min_mem_gib']}), disk free {c['disk_free_gib']} GiB (floor {c['min_disk_gib']}), running {c['stacks_running']}/{c['max_stacks']}, stopped {c.get('stacks_stopped', 0)}/{c.get('max_kept', '-')}, classic registrations {c['classic_registered']}, TURN key {'on the VM' if c.get('turn_key') else 'none'}\")
 for s in d['stacks']:
     db=', '.join(f\"{k}:{v['mode']}:{v['database']}/{v['branch']}\" for k,v in s['db'].items())
     print(f\"{s['tag']:<24} {s['state']:<8} {s['url'] or '-':<52} idle {s['idle_min']}/{s['idle_limit_min']} min  mem {s['mem_mib'] or '-'} MiB  {s['commit'] or ''}{' dirty' if s['dirty'] else ''}  {db}  {s['reason'] or ''}\")"

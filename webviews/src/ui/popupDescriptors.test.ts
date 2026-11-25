@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+  actionRow,
   comboboxDescription,
   contextDescription,
   popoverDescription,
@@ -115,4 +116,15 @@ test("native action resolution preserves keep-open and rejects disabled ancestor
   expect(popupAction(model, "hold")?.keepOpen).toBe(true);
   expect(popupAction(model, "control")).toBeUndefined();
   expect(popupAction(model, "missing")).toBeUndefined();
+});
+test("an action row carries its loading state and disabled reason onto the wire", () => {
+  const row = actionRow({ id: "run", label: "Run", loading: true, disabled: true, disabledReason: "Sign in first" });
+  expect(row).toEqual({
+    kind: "action",
+    id: "run",
+    label: "Run",
+    loading: true,
+    disabled: true,
+    disabledReason: "Sign in first",
+  });
 });

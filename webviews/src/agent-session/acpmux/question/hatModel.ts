@@ -245,11 +245,13 @@ function childQuestions(
   return out.reverse();
 }
 
-/// Who asks a started chat's question, short: the chat's own name when it has one (`sessionTitle`
+/// Who asks a started chat's question, short: the name it was given, else the chat's own name when it has one (`sessionTitle`
 /// without its title and prompt), else its agent's name, else what Needs you calls it.
 const NO_WORDS: Translate = () => "";
 function askerName(session: AcpmuxSessionEntry | undefined, fallback: string): string {
   if (!session) return fallback;
+  // The name it was given ("Mango", acpmux `displayName`) first.
+  if (session.displayName) return session.displayName;
   const named = sessionTitle({ ...session, title: "", lastPrompt: "" }, NO_WORDS);
   return named || (session.harness ? harnessName(session.harness) : fallback);
 }

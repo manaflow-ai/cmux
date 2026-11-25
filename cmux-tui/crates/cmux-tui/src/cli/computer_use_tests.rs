@@ -70,6 +70,37 @@ fn bad_commands_are_usage_errors() {
 }
 
 #[test]
+fn the_alerts_commands_parse() {
+    let list = |machine: Option<&str>| Request::Call {
+        tool: "list_alerts".into(),
+        args: json!({}),
+        machine: machine.map(str::to_owned),
+    };
+    assert_eq!(parse(&words("alerts")).unwrap(), list(None));
+    assert_eq!(parse(&words("alerts --json")).unwrap(), list(None));
+    assert_eq!(parse(&words("alerts --json --machine studio")).unwrap(), list(Some("studio")));
+    let args: Vec<String> =
+        ["alerts", "dismiss", "96", "--button", "Not Now", "--machine", "studio"]
+            .iter()
+            .map(|w| (*w).to_owned())
+            .collect();
+    assert_eq!(
+        parse(&args).unwrap(),
+        Request::Call {
+            tool: "dismiss_alert".into(),
+            args: json!({"alert_id": "96", "button": "Not Now"}),
+            machine: Some("studio".into()),
+        }
+    );
+    // No button named, no alert named, or a flag nobody knows: usage errors.
+    assert!(parse(&words("alerts dismiss 96")).is_err());
+    assert!(parse(&words("alerts dismiss --button OK")).is_err());
+    assert!(parse(&words("alerts dismiss")).is_err());
+    assert!(parse(&words("alerts dismiss 96 --button OK --force yes")).is_err());
+    assert!(parse(&words("alerts --all")).is_err());
+}
+
+#[test]
 fn displays_doctor_and_display_screenshots_parse() {
     assert_eq!(
         parse(&words("displays --machine studio")).unwrap(),
@@ -136,6 +167,26 @@ mod doctor_checks {
             helper.detail.contains("staged") && helper.detail.contains("com.cmuxterm.app.nightly")
         );
         assert!(human(&checks, true).contains("can capture and act"));
+    }
+
+    /// The worker runs from `cmux_signed_bundle::helper_folder` (`cmux-next/helper/<id>/`) since
+    /// the stagers share one copy; doctor read only the older root and failed every good Mac.
+    #[test]
+    fn the_shared_helper_folder_is_the_staged_copy() {
+        let mut status = healthy_status();
+        status["worker"]["executable"] = json!(
+            "/Users/p/Library/Application Support/cmux-next/helper/com.cmuxterm.app.nightly.screen-sharing/cmux NIGHTLY Helper.app/Contents/MacOS/cmux-screen-sharing"
+        );
+        let checks = evaluate(None, &ready(), &Reply::Ok(status.clone()), &one_display());
+        assert!(failing(&checks).is_empty(), "{checks:?}");
+        let helper = checks.iter().find(|c| c.name == "helper").unwrap();
+        assert!(helper.detail.contains("com.cmuxterm.app.nightly.screen-sharing"), "{helper:?}");
+        // Run from inside the app instead: not the staged copy.
+        status["worker"]["executable"] = json!(
+            "/Applications/cmux NIGHTLY.app/Contents/Library/cmux NIGHTLY Helper.app/Contents/MacOS/cmux-screen-sharing"
+        );
+        let checks = evaluate(None, &ready(), &Reply::Ok(status), &one_display());
+        assert_eq!(failing(&checks), vec!["helper"]);
     }
 
     #[test]
@@ -295,4 +346,18 @@ fn machine_before_the_command_is_the_fallback() {
         Request::Call { tool: "status".into(), args: json!({}), machine: None }
     );
     assert!(split(&words("workspace list --machine m")).is_none());
+}
+
+/// `cmux --machine studio computer-use upgrade` swapped this Mac's helper and left studio's:
+/// the upgrade is local only, so a named machine is refused before anything changes.
+#[test]
+fn upgrade_on_a_named_machine_is_refused_before_anything_changes() {
+    for text in
+        ["--machine studio computer-use upgrade", "--machine studio computer-use upgrade --undo"]
+    {
+        let (global, rest) = split(&words(text)).expect("a computer-use command");
+        assert_eq!(global.machine.as_deref(), Some("studio"), "{text}");
+        assert_eq!(run(&global, &rest), 2, "{text}");
+    }
+    assert!(parse(&words("upgrade --machine studio")[..]).is_err());
 }

@@ -77,6 +77,12 @@ grep -qx 'test is_red ... FAILED' "$work/red.log" || fail "the failing test is n
 grep -qF 'error: test failed, to rerun pass `-p red --lib`' "$work/red.log" || fail "no rerun line"
 [[ "$(python3 "$verdict" failed "$work/red.log")" == is_red ]] || fail "the verdict does not read the failing test"
 
+# Binary arguments after `--` reach every binary: the red test skipped by its exact name, the run is green.
+"$script" "$work/logs-skip" -p slow-b -p red -- --exact --skip is_red > "$work/skip.log" 2>&1 ||
+  { cat "$work/skip.log"; fail "a run with the red test skipped failed"; }
+grep -q 'test is_red' "$work/skip.log" && fail "--skip did not reach the binary"
+grep -qx 'test passes ... ok' "$work/skip.log" || fail "the binary ran no test with --skip"
+
 # Crash: the signal is named as cargo names it, so test_reds counts the binary as crashed.
 code=0
 RED_CRASH=1 "$script" "$work/logs-crash" -p red > "$work/crash.log" 2>&1 || code=$?

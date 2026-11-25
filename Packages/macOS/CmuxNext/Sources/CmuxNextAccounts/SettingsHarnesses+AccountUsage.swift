@@ -6,13 +6,13 @@ import Foundation
 /// Settings > Agents > Harnesses: each account's 5-hour and weekly usage at rest (Leo, 2026-11-05:
 /// "i meant can you do all of htem", the accounts list's "show 5-hour and weekly usage per account
 /// at rest"). Read when the page refreshes, never on a timer: one `_acpmux/account/usage` per
-/// signed-in Codex account, all at once. Claude Code reports its limits only during a chat, so
-/// Claude accounts are not asked.
+/// signed-in Codex or Claude account, all at once. A Claude account answers the newest limits
+/// its chats saved (Claude Code reports them only during a turn), so it starts nothing.
 extension SettingsHarnesses {
-    /// The accounts whose usage the page asks for: signed-in Codex logins. An API-key account has no
-    /// plan limits, and acpmux refuses a usage read for one.
+    /// The accounts whose usage the page asks for: signed-in Codex and Claude logins. An API-key
+    /// account has no plan limits, and acpmux refuses a usage read for one.
     nonisolated static func usageAccounts(_ accounts: [SettingsProviderAccount]) -> [String] {
-        accounts.filter { $0.family == "codex" && $0.signedIn && !$0.key }.map(\.id)
+        accounts.filter { ["codex", "claude"].contains($0.family) && $0.signedIn && !$0.key }.map(\.id)
     }
 
     /// The `usageLimits` of an `_acpmux/account/usage` reply; null when it read none (`skipped`, or

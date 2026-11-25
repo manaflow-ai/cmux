@@ -3,7 +3,8 @@
 import type { CSSProperties } from "react";
 import { FORK_ICON } from "../icons/forkIcon";
 import { Icon } from "../icons/Icon";
-import "./spinner.css";
+// The working mark lives in Spinner.tsx so a page that needs only it (the diff viewer) does not bundle the icon pack.
+export { Spinner, type SpinnerLook } from "./Spinner";
 
 export type CvIconProps = {
   size?: number;
@@ -82,65 +83,6 @@ export const GitHubMark = ({ size = 16, className, style }: CvIconProps) => (
     <path d="M8 .2a8 8 0 0 0-2.53 15.6c.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.06-.49.06-.49.8.06 1.23.83 1.23.83.71 1.22 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.65-.89-3.65-3.95 0-.87.31-1.59.83-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 8 .2Z" />
   </svg>
 );
-
-/// The working mark. `arc` (the default) is the open arc every spinner draws; `track` is a three-quarter ring with rounded caps on a faint full
-/// ring: still, it reads as a ring part way round, never as the letter "C" an open arc alone draws
-/// (Leo, 2026-11-21: "this spinner is incredibly ugly"). `arc` is the open arc this replaced and
-/// `dots` three pulsing dots; both stay for the gallery's side by sides (BackgroundSpinner.gallery.ts).
-export type SpinnerLook = "track" | "arc" | "dots";
-
-export const Spinner = ({
-  size = 16,
-  className,
-  style,
-  strokeWidth,
-  loading = false,
-  look = "arc",
-}: CvIconProps & { loading?: boolean; strokeWidth?: number; look?: SpinnerLook }) => {
-  // The ring takes the line icons' weight (iconSize.ts ICON_STROKE) so it sits with the clock and terminal beside it.
-  const weight = strokeWidth ?? (look === "track" ? 1.25 : 1.5);
-  return (
-    <svg
-      className={`cv-spinner${look === "dots" ? " cv-spinner--dots" : ""}${className ? ` ${className}` : ""}`}
-      style={style}
-      width={size}
-      height={size}
-      viewBox="0 0 16 16"
-      fill="none"
-      aria-hidden="true"
-      data-working={loading ? undefined : ""}
-      data-spinner-look={look}
-    >
-      {look === "dots" ? (
-        [3.5, 8, 12.5].map((cx, i) => (
-          <circle
-            key={cx}
-            className="cv-spinner__pip"
-            cx={cx}
-            cy="8"
-            r="1.4"
-            fill="currentColor"
-            style={{ animationDelay: `${i * 160}ms` }}
-          />
-        ))
-      ) : (
-        <>
-          {look === "track" && (
-            <circle className="cv-spinner__track" cx="8" cy="8" r="5.75" stroke="currentColor" strokeWidth={weight} />
-          )}
-          <path
-            className="cv-spinner__arc"
-            d={look === "track" ? "M8 2.25A5.75 5.75 0 1 1 2.25 8" : "M8 2.75a5.25 5.25 0 1 1-4.55 2.63"}
-            stroke="currentColor"
-            strokeWidth={weight}
-            strokeLinecap="round"
-          />
-        </>
-      )}
-      {!loading && look !== "dots" && <circle className="cv-spinner__dot" cx="8" cy="8" r="3" />}
-    </svg>
-  );
-};
 
 export const ArxivMark = ({ size = 16, className, style }: CvIconProps) => (
   <svg className={className} style={style} width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">

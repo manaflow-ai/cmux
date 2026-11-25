@@ -10,7 +10,8 @@ FILE="$ROOT/scripts/cmux-next/web-pieces-file.py"
 PUBLISH="$ROOT/scripts/cmux-next/web-pieces-publish.sh"
 TMP=$(mktemp -d)
 SERVER=
-trap '[[ -z "$SERVER" ]] || kill "$SERVER" 2>/dev/null; rm -rf "$TMP"' EXIT
+FORBID=
+trap '[[ -z "$SERVER" ]] || kill "$SERVER" 2>/dev/null || true; [[ -z "$FORBID" ]] || kill "$FORBID" 2>/dev/null || true; rm -rf "$TMP"' EXIT
 fail() { printf 'FAIL: %s\n' "$@" >&2; exit 1; }
 
 # The script's pieces are the crate's.
@@ -60,6 +61,27 @@ take
 # A place that cannot be read is not "no file": the serial is never guessed.
 env CHANNEL=every-merge WEB_PIECES_BASE="http://127.0.0.1:1" WEB_PIECES_KEYS="$TMP/keys-a.json" WEB_PIECES_DRY_RUN=1 \
   "$PUBLISH" "$TMP/work" "$TMP/a.pem" >/dev/null 2>&1 && fail "an unreadable published file was taken as none"
+# A 403 is not "no file" either: only a 404 starts the serial at 1.
+python3 -u -c '
+import http.server, sys
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(403); self.send_header("Content-Length", "0"); self.end_headers()
+s = http.server.HTTPServer(("127.0.0.1", 0), H)
+print("port", s.server_address[1], flush=True)
+s.serve_forever()
+' >"$TMP/forbid.log" 2>&1 &
+FORBID=$!
+fport=
+for _ in $(seq 1 100); do
+  fport=$(sed -n 's/^port \([0-9]*\).*/\1/p' "$TMP/forbid.log" | head -1)
+  [[ -n "$fport" ]] && break
+  sleep 0.1
+done
+[[ -n "$fport" ]] || fail "the 403 test server did not start"
+env CHANNEL=every-merge WEB_PIECES_BASE="http://127.0.0.1:$fport" WEB_PIECES_KEYS="$TMP/keys-a.json" WEB_PIECES_DRY_RUN=1 \
+  "$PUBLISH" "$TMP/work" "$TMP/a.pem" >/dev/null 2>&1 && fail "a 403 for the published file was taken as none"
+kill "$FORBID" 2>/dev/null || true
 
 # The next file continues the serial and keeps the switch it was not asked to change.
 publish OUT_OF="pages/settings=bundled" REASON="blank settings" REFUSE="$key" >/dev/null

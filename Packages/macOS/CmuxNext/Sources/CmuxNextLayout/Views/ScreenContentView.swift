@@ -82,6 +82,9 @@ final class ScreenContentView: NSView {
     /// The pane contents that follow a person's live resize of the window as they follow a divider drag
     /// (`ScreenContentView+WindowLiveResize`); nil outside one.
     var windowResizeListeners: [PaneResizeGestureListener]?
+    /// A presentation during the window's live resize kept a pane out of the viewport at its old size
+    /// (`applyPresentation`, `ScreenContentView+WindowLiveResize`): the resize's end lays it out at its final one.
+    var deferredOffscreenLayout = false
     /// The pane views a resize drag or a key resize's spring moves post no frame notice until it ends
     /// (``FrameNoticeHold``): no titlebar drag-shape walk in each of its frames' commits.
     let paneFrameNotices = FrameNoticeHold()

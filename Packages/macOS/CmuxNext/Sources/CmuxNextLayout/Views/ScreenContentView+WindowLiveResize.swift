@@ -13,6 +13,14 @@ import CmuxNextDesign
 /// - a terminal asks the grid its new size fits and sends it at most once a refresh (`TerminalHostView+PaneMotion`), the
 ///   newest at the end.
 ///
+/// Per tick, only what shows lays out (#50672):
+///
+/// - a pane out of the viewport (a column scrolled past the screen's edge) keeps its old size, out of sight, and lays out
+///   once at the end, before its contents hear the end (`applyPresentation`);
+/// - a pane whose frame stays below the window's top row tells its content nothing of its window-frame moves (the traffic
+///   lights' inset, the top row's line, a hover card) until the end (`PaneHostView.noteWindowFrame(topRowFloor:)`): none
+///   of that can change there, and every pane's moved in every tick of a resize from the bottom edge.
+///
 /// Before this a window resize did none of it: every tick posted every pane view's notice, ran the page tracker
 /// synchronously for each page ancestor, and sent each terminal's grid of the size already shown (Leo 2026-11-22:
 /// "interior resizing is good and fast. exterior (whole-window of app) resizing is bad").
@@ -36,6 +44,13 @@ extension ScreenContentView {
     func windowLiveResizeEnded() {
         guard let listeners = windowResizeListeners else { return }
         windowResizeListeners = nil
+        // The panes kept out of sight at their old size take their final one, before their contents hear the end.
+        if deferredOffscreenLayout {
+            deferredOffscreenLayout = false
+            applyPresentation()
+        }
+        // The window-frame moves held from contents below the top row reach them once.
+        for host in displayedHosts { host.flushDeferredWindowFrame() }
         for listener in listeners { listener.view?.paneResizeGestureReleased() }
         for listener in listeners { listener.view?.paneResizeGestureDidChange(active: false) }
         releasePaneFrameNoticesIfSettled()

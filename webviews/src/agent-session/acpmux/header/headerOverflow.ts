@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { TAB_ROW_ACCESSORY } from "./tabRow";
 
 /// One quick-action button's share of the row at the default interface size: its 24px square and
 /// the 2px gap (header.css). useHeaderFold measures the real pitch, which scales with the interface
@@ -69,7 +70,14 @@ export function useHeaderFold(tools: RefObject<HTMLElement | null>, count: numbe
         px(style.paddingRight) -
         px(style.columnGap) -
         HEADER_LEADING_RESERVE;
-      const width = element.getBoundingClientRect().width;
+      // The row's accessories (tabRow.ts TAB_ROW_ACCESSORY) take only the room the tools leave:
+      // a button never folds to make room for one (Leo, 2026-11-22: "the icons on the top right have gotten
+      // displaced due to putting things on a line").
+      let width = element.getBoundingClientRect().width;
+      for (const accessory of element.querySelectorAll<HTMLElement>(`[${TAB_ROW_ACCESSORY}]`)) {
+        const box = accessory.getBoundingClientRect().width;
+        if (box > 0) width -= box + px(getComputedStyle(element).columnGap);
+      }
       const pitch = tools.current ? measuredPitch(tools.current) : HEADER_TOOL_PITCH;
       setFold(headerFoldCount(width, folded.current, room, count, pitch));
     };

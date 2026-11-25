@@ -463,6 +463,8 @@ class GeneratedFoldTest(unittest.TestCase):
         (repo / "Packages/macOS/CmuxNext/Package.swift").write_text("")
         bin_dir.mkdir()
         # A swift that refuses a --package-path that is not a package, as SwiftPM does.
+        (bin_dir / "uname").write_text("#!/bin/sh\necho Linux\n")
+        (bin_dir / "uname").chmod(0o755)
         (bin_dir / "swift").write_text(
             "#!/usr/bin/env bash\n"
             "args=(\"$@\"); for ((i = 0; i < ${#args[@]}; i++)); do\n"

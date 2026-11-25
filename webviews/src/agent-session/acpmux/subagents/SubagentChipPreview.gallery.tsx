@@ -32,6 +32,8 @@ type Props = {
   look?: Look;
   /// The pane's width in CSS px.
   pane?: number;
+  /// Where the lines sit in the stage: at its top edge (no room above the chip) or its bottom edge.
+  edge?: "top" | "bottom";
 };
 
 type Fixture = { name: string; task: string; kind?: string; action?: string; state?: string; ran: number };
@@ -134,11 +136,14 @@ export default componentEntry<Props>({
     "agent-session/acpmux/conversation/AgentTag.tsx#AgentTag",
   ],
   load: async () => {
+    // This entry is about the chips' cards, so it keeps every name a chip (startedLineCrowd.experiment.ts
+    // `chips`); many starting at once read as icons and a count by default.
+    globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "subagent-started-crowd": "chips" };
     const { SubagentStartedLine } = await import("./SubagentStartedLine");
     const { SubagentDoneLine } = await import("./SubagentDoneLine");
     const { SubagentPreviewCard } = await import("./SubagentPreview");
     const { SubagentNavContext } = await import("./subagentGroupModel");
-    return function GallerySubagentChipPreview({ count, done, look, pane }: Props) {
+    return function GallerySubagentChipPreview({ count, done, look, pane, edge }: Props) {
       const row = started(count);
       const first = row.subagents![1]!;
       return (
@@ -146,7 +151,17 @@ export default componentEntry<Props>({
           <main
             className="acpmux-shell subagent-preview-gallery"
             data-subagent-preview-gallery
-            style={{ padding: "16px", flexDirection: "column", gap: "0", ...(pane ? { width: `${pane}px` } : {}) }}
+            style={{
+              padding: edge ? "var(--ds-space-1) 16px" : "16px",
+              flexDirection: "column",
+              gap: "0",
+              ...(pane ? { width: `${pane}px` } : {}),
+              ...(edge && {
+                boxSizing: "border-box",
+                height: "100vh",
+                justifyContent: edge === "top" ? "flex-start" : "flex-end",
+              }),
+            }}
           >
             <section className="acpmux-row">
               <SubagentStartedLine row={row} />
@@ -221,6 +236,16 @@ export default componentEntry<Props>({
     "done-hover": {
       note: "A finished line's chip: Done, how long it ran, and the last line it said.",
       props: { count: 2, pane: 560, done: true },
+      play: hoverChip(".cv-subagent-done-row .cv-agent-tag"),
+    },
+    "near-top-hover": {
+      note: 'Leo, 2026-11-22, on a hover card drawn over its row: "and more bullshit somehow happened here". The line at the stage\'s top edge: no room above, so the card flips below the row, never onto its words.',
+      props: { count: 9, pane: 560, done: true, edge: "top" },
+      play: hoverChip(`${CHIP}:nth-of-type(2)`),
+    },
+    "near-bottom-hover": {
+      note: "The lines at the stage's bottom edge: the finished line's card opens above its row, clear of the words it describes.",
+      props: { count: 9, pane: 560, done: true, edge: "bottom" },
       play: hoverChip(".cv-subagent-done-row .cv-agent-tag"),
     },
     "keyboard-focus": {

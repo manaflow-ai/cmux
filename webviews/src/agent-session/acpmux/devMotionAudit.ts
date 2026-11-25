@@ -12,7 +12,7 @@ export const isDevScheme = (scheme: unknown): boolean => typeof scheme === "stri
 
 /** Starts the audit once, when this page is a dev build's; `cmuxMotionAudit.report()` lists what it found. */
 export function startDevMotionAudit(scheme: unknown, win: Window = window): void {
-  if (audit || !(import.meta.env.DEV || isDevScheme(scheme))) return;
+  if (audit || !(import.meta.env?.DEV || isDevScheme(scheme))) return;
   try {
     audit = startMotionAudit(win, (move) => {
       const px = Math.max(Math.abs(move.dx), Math.abs(move.dy), Math.abs(move.dw), Math.abs(move.dh));
