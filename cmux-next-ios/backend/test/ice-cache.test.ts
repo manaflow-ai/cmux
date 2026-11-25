@@ -106,3 +106,13 @@ it("mints credentials for our own relay without calling Cloudflare", async () =>
   const mac = Uint8Array.from(atob(own.credential!), (c) => c.charCodeAt(0))
   expect(await crypto.subtle.verify("HMAC", key, mac, new TextEncoder().encode(own.username!))).toBe(true)
 })
+
+it("keeps Cloudflare on the cached path when no own-relay URL is accepted", async () => {
+  const env = { ...bindings(), TURN_SELF_URLS: "relay.test, https://relay.test", TURN_SELF_SECRET: "s3cret" } as Env
+  const fetcher = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(minted("cloudflare"))
+  const ctx = createExecutionContext()
+  const answers = [await cachedIceServers(env, ctx), await cachedIceServers(env, ctx)]
+  for (const answer of answers) expect(answer.iceServers).toContainEqual(expect.objectContaining({ username: "cloudflare" }))
+  await waitOnExecutionContext(ctx)
+  expect(fetcher).toHaveBeenCalledTimes(1)
+})
