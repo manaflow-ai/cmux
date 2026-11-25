@@ -44,7 +44,7 @@ use super::{
     CHUNK_BYTES, DUPLEX_BYTES, HubStream, Incoming, SERVICE_HELLO, ServiceRefusal, Stats,
     connect_session, named_service, read_service_answer, service_answer,
 };
-use super::{CircuitLane as Lane, CircuitService};
+use super::{CircuitLane as Lane, CircuitService, broker};
 
 const OPEN: u8 = 1;
 const ANSWER: u8 = 2;
@@ -376,6 +376,12 @@ impl Mux {
             },
             Ok(CircuitService::Echo) => {
                 self.carry_admitted(id, super::echo_stream(), events, credit).await
+            }
+            Ok(CircuitService::LaneGhBroker) => {
+                match broker::open(incoming.carrier.lane_gh_broker_gate(), from).await {
+                    Ok(local) => self.carry_admitted(id, local, events, credit).await,
+                    Err(refusal) => refuse(refusal).await,
+                }
             }
             Ok(CircuitService::TransferSource) => match incoming.transfer(from).await {
                 Ok((local, serving)) => {
