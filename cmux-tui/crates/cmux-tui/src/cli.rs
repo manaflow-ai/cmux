@@ -5,6 +5,7 @@
 //! accidentally fall back to the private command protocol.
 
 #[cfg(unix)]
+mod account_limit;
 mod action_hint;
 #[cfg(unix)]
 mod agent_config;

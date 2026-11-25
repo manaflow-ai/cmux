@@ -53,6 +53,11 @@ pub mod kind {
     /// retries such a turn once under the model's catalog id when it has one
     /// (`hub/auto_resume/model_reroute.rs`); a sweeper reads this kind for the rest.
     pub const MODEL_UNRECOGNIZED: &str = "model.unrecognized";
+    /// The agent's account used up a usage limit that resets later (Claude Code's "You've hit
+    /// your weekly limit · resets ..."; `usage_limit.rs`): a retry fails the same way until then.
+    pub const USAGE_LIMIT: &str = "usage.limit";
+    /// The agent's provider disabled or suspended its account (`usage_limit.rs`).
+    pub const ACCOUNT_DISABLED: &str = "account.disabled";
 }
 
 /// The `errorKind` of a model call the owner's own gateway could not answer, by the code the
@@ -247,6 +252,11 @@ fn classify(
              so it signs in or renews its sign-in, then send the message again."
         };
         return Some((kind, recovery.into(), Map::new()));
+    }
+    // Before the sign-in kinds: an account out of usage, or one its provider turned off, is not
+    // signed out (another account or agent goes on; cmux#55066).
+    if let Some(limit) = crate::usage_limit::account_limit(message) {
+        return Some((limit.error_kind(), limit.sentence(None), limit.details()));
     }
     // Before `agent.exited`: an agent that died saying it is not signed in needs a sign-in, and
     // sending again would fail the same way.

@@ -1335,6 +1335,88 @@ fn a_failed_turn_without_a_reply_is_a_turn_failure_with_its_reason() {
     assert!(error["details"].get("reply").is_none(), "{error}");
 }
 
+/// cmux#55066: a Claude chat whose account used up its weekly limit answered only Claude's own
+/// "You've hit your weekly limit · resets Nov 27, 7am (UTC)". The answer says which agent's
+/// account, when it resets and the two ways on, and keeps the agent's words as `agent_error`.
+#[test]
+fn a_turn_failed_on_a_used_up_usage_limit_says_what_happened_and_the_way_on() {
+    let said = "You've hit your weekly limit · resets Nov 27, 7am (UTC)";
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+        exec_out(&format!(
+            "@@wait 0\n@@history\n{{\"turns\":[{{\"seq\":3,\"endedAt\":9,\"status\":\"failed\",\
+             \"error\":\"{said}\"}}]}}\n@@last\nno reply\n@@lastexit 1\n"
+        )),
+    ]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--prompt", "x", "--wait"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(exit, 1);
+    assert_eq!(error["code"], "chat.turn_failed", "{error}");
+    let message = error["message"].as_str().unwrap();
+    assert!(
+        message.starts_with(
+            "Claude's account hit its weekly usage limit; it resets Nov 27, 7am (UTC). Sending \
+             again fails the same way until it resets."
+        ),
+        "{message}"
+    );
+    assert!(message.contains("ask Codex instead (--agent codex)"), "{message}");
+    assert!(message.contains("`cmux harness login claude`"), "{message}");
+    let details = &error["details"];
+    assert_eq!(details["errorKind"], "usage.limit", "{error}");
+    assert_eq!(details["agent_error"], said);
+    assert_eq!(details["resets"], "Nov 27, 7am (UTC)");
+    assert_eq!(details["limitWindow"], "weekly");
+    assert_eq!(details["switch_agent"], "codex");
+    assert_eq!(details["sign_in"], "cmux harness login claude");
+}
+
+/// The same on the pushed route, for Codex's own words and a disabled account: Codex suggests
+/// Claude, and a turned-off account names no reset.
+#[test]
+fn a_pushed_turn_failed_on_an_account_limit_says_what_happened_and_the_way_on() {
+    for (said, kind, starts) in [
+        (
+            "You've hit your usage limit. Upgrade to Pro, visit https://chatgpt.com/codex/settings/usage \
+             to purchase more credits or try again at 6:43 PM.",
+            "usage.limit",
+            "Codex's account hit its usage limit; it resets 6:43 PM.",
+        ),
+        (
+            "API Error: 400 This organization has been disabled.",
+            "account.disabled",
+            "Codex's account was turned off by its provider",
+        ),
+    ] {
+        let mut fake = Fake::new(vec![
+            signed_in(),
+            started_with_surface(),
+            exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+        ]);
+        fake.stream = Some(Ok(json!({"socket": "/tmp/link.sock"})));
+        fake.pushes.push_back(Ok(json!({"records": [
+            {"seq": 1, "at": 1_000, "dir": "mux", "kind": "user_message", "msg": {"text": "x"}},
+            {"seq": 2, "at": 1_500, "dir": "mux", "kind": "turn_error", "msg": {"error": said}},
+            {"seq": 3, "at": 1_600, "dir": "mux", "kind": "turn_end", "msg": {"stopReason": "error"}},
+        ], "last_seq": 3, "ended": "turn_end"})));
+        let Outcome::Failed { error, .. } =
+            run(&mut fake, &request(&["--agent", "codex", "--prompt", "x", "--wait"]))
+        else {
+            panic!("{:?}", fake.ran)
+        };
+        assert_eq!(error["code"], "chat.turn_failed", "{error}");
+        let message = error["message"].as_str().unwrap();
+        assert!(message.starts_with(starts), "{message}");
+        assert!(message.contains("ask Claude instead (--agent claude)"), "{message}");
+        assert_eq!(error["details"]["errorKind"], kind, "{error}");
+        assert_eq!(error["details"]["agent_error"], said);
+    }
+}
+
 /// The pushed route: a turn that ends `cancelled` with no reply is `chat.turn_failed`, too.
 #[test]
 fn a_pushed_turn_that_ends_cancelled_without_a_reply_is_a_turn_failure() {

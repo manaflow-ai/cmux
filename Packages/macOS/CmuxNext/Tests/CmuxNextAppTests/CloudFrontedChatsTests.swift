@@ -52,6 +52,22 @@ struct CloudFrontedChatsTests {
         #expect(fronts.front(of: mac) == nil)
     }
 
+    /// cmux#55066: the Cloud tab going (its first turn failed on a used-up limit, its machine stopped) tells the app
+    /// which Mac tab and Cloud chat ended before the Mac tab draws its own page again, so that page says so and gets
+    /// the start's prompt back, never a blank chat.
+    @Test func theCloudTabGoingSaysWhichChatEndedBeforeTheMacTabDrawsAgain() {
+        let fronts = CloudFrontedChats()
+        var events: [String] = []
+        fronts.ended = { mac, cloud in events.append("ended \(mac.key) \(cloud.key)") }
+        fronts.reshow = { events.append("reshow \($0.key)") }
+        fronts.front(mac, with: front)
+        fronts.gone(mac)
+        #expect(events.isEmpty, "closing the Mac tab ends the chat on purpose: no notice")
+        fronts.front(mac, with: front)
+        fronts.gone(front.tab)
+        #expect(events == ["ended mac-tab cloud-tab", "reshow mac-tab"])
+    }
+
     @Test func frontsLastAcrossARelaunch() throws {
         let suite = "CloudFrontedChatsTests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
