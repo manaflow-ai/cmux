@@ -68,14 +68,26 @@ fn both_settings_are_on_by_default_and_compacting_first_needs_batching() {
 }
 
 #[test]
-fn the_compaction_line_is_a_setting_clamped_to_its_range_and_50k_by_default() {
+fn the_compaction_line_is_a_setting_clamped_to_its_range_and_100k_by_default() {
     let line = |doc: Value| settings(Some(&doc)).compact_above;
-    assert_eq!(settings(None).compact_above, 50_000, "the default stays 50K");
+    assert_eq!(settings(None).compact_above, 100_000, "the default is 100K");
     assert_eq!(line(json!({"agents": {"coldWake": {"compactAboveTokens": 80_000}}})), 80_000);
     assert_eq!(line(json!({"agents.coldWake.compactAboveTokens": 120_000})), 120_000);
     assert_eq!(line(json!({"agents.coldWake.compactAboveTokens": 1})), COMPACT_ABOVE_RANGE.0);
     assert_eq!(line(json!({"agents.coldWake.compactAboveTokens": 9e9})), COMPACT_ABOVE_RANGE.1);
-    assert_eq!(line(json!({"agents.coldWake.compactAboveTokens": "big"})), 50_000, "junk");
+    assert_eq!(line(json!({"agents.coldWake.compactAboveTokens": "big"})), 100_000, "junk");
+}
+
+#[test]
+fn the_default_line_sits_above_the_break_even() {
+    // Compacting first must cost less than the plain wake at the default line, and the 50K the
+    // line started at must stay a loss, so the model and the default cannot drift apart.
+    let line = DEFAULT_COMPACT_ABOVE_TOKENS;
+    assert!(cold_compact_cost(line) < plain_wake_cost(line), "the default pays on the wake");
+    let break_even = COLD_COMPACT_OVERHEAD_TOKENS;
+    assert!(line > break_even, "{line} must sit above the {break_even} break-even");
+    assert_eq!(cold_compact_cost(break_even), plain_wake_cost(break_even));
+    assert!(cold_compact_cost(50_000) > plain_wake_cost(50_000), "50K lost about 26K a wake");
 }
 
 #[test]
@@ -183,4 +195,73 @@ async fn a_chat_surgery_refuses_falls_back_to_compact() {
     let answer = hub.surgery(&session, None, true).await;
     assert!(!surgery_suffices(&answer, LINE), "{answer:?}");
     assert!(!hub.cold_wake_surgery(&session, 150_000, LINE).await, "refused: /compact as before");
+}
+
+/// Every wake source joins the batch (module docs): a task's result and an offer's result name
+/// their sender, so in a chat that ran a turn they wait for the window as a lane report does,
+/// and the same prompt with no sender (the person's) never waits.
+#[tokio::test]
+async fn task_and_offer_results_name_their_sender_and_join_the_window() {
+    use crate::prompt_class::PromptClass;
+    use crate::prompt_provenance::{offer_result, task_result};
+    let config = serde_json::from_value(json!({})).unwrap();
+    let hub = Hub::new(config, Box::new(crate::store::MemoryStore::default()));
+    let meta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "giver", "name": "giver",
+        "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
+    }))
+    .unwrap();
+    let session = hub.insert_test_session(meta);
+    session.meta.lock().unwrap().turn_count = 3;
+    let blocks = [json!({"type": "text", "text": "Result"})];
+    let replaced = std::sync::OnceLock::new();
+    let slot = |provenance: &'_ Value, agent: Option<&'_ str>| {
+        let s = super::super::queue::Slot {
+            text: "Result",
+            blocks: &blocks,
+            display_parts: None,
+            client: "acpmux",
+            prompt_id: "r",
+            control: Control::Local,
+            cloud_mobile: false,
+            trust_gate: false,
+            interrupt: false,
+            interrupt_turn: None,
+            provenance: Some(provenance),
+            agent,
+            class: Some(PromptClass::Result),
+            supersede: None,
+            full_access_device: None,
+            replaced: &replaced,
+            no_queue: false,
+            admitted: false,
+            after_turn: false,
+            steer_on_start: false,
+        };
+        super::super::digest::gathers(&session, &s)
+    };
+    let task = task_result("lane-id", "lane-a", "giver", "t1", "done");
+    let offer = offer_result("o1", "child-id", "Suggested task");
+    assert!(slot(&task, Some("lane-a")), "a task result waits for the batch");
+    assert!(slot(&offer, Some("child")), "an offer result waits for the batch");
+    assert!(!slot(&task, None), "unnamed, it was the person's prompt and woke the chat at once");
+    assert!(!slot(&offer, None));
+}
+
+#[test]
+fn a_gather_send_is_refused_what_a_batch_cannot_wait_for() {
+    use crate::prompt_class::PromptClass;
+    let reason = |e: Option<RpcError>| e.map(|e| e.message);
+    let no_sender = reason(gather_refusal(false, None, false, false)).unwrap();
+    assert!(no_sender.contains("--from"), "{no_sender}");
+    for blocker in [PromptClass::Block, PromptClass::Question] {
+        assert!(gather_refusal(true, Some(blocker), false, false).is_some(), "{blocker:?}");
+    }
+    assert!(reason(gather_refusal(true, None, true, false)).unwrap().contains("fire"));
+    assert!(gather_refusal(true, None, false, true).is_some(), "--interrupt, --now, --wait");
+    let refused = gather_refusal(false, None, false, false).unwrap();
+    assert_eq!(refused.data.unwrap()["reason"], "send.gather_refused");
+    for class in [None, Some(PromptClass::Result), Some(PromptClass::Fyi)] {
+        assert!(gather_refusal(true, class, false, false).is_none(), "{class:?} joins the window");
+    }
 }
