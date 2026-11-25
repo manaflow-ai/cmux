@@ -731,6 +731,9 @@ pub struct Socket<'a> {
     /// cmux patch: lower the segment size when full segments keep timing out
     /// ([set_black_hole_fallback](#method.set_black_hole_fallback)).
     black_hole_fallback: bool,
+    /// cmux patch: the most data in the network at once, below the congestion
+    /// window ([set_send_window_cap](#method.set_send_window_cap)).
+    send_window_cap: Option<usize>,
     /// cmux patch: retransmission timeouts in a row, with no ACK of new data
     /// between them, of a head segment larger than the base.
     black_hole_rtos: u8,
@@ -855,6 +858,7 @@ impl<'a> Socket<'a> {
             path_change_retransmit: false,
             retransmit_paused: false,
             black_hole_fallback: false,
+            send_window_cap: None,
             black_hole_rtos: 0,
             path_mss_cap: None,
             repaired_below: None,
@@ -1231,9 +1235,7 @@ impl<'a> Socket<'a> {
     /// cmux patch: the smoothed round-trip time (RFC 6298 SRTT), `None`
     /// before the first measurement.
     pub fn smoothed_rtt(&self) -> Option<Duration> {
-        self.rtte
-            .have_measurement
-            .then(|| Duration::from_millis(self.rtte.srtt as u64))
+        self.rtte.have_measurement.then(|| Duration::from_millis(self.rtte.srtt as u64))
     }
 
     /// cmux patch: the delayed-ACK allowance of tail-loss probes, `None` when they are off.
@@ -1298,6 +1300,24 @@ impl<'a> Socket<'a> {
     /// cmux patch: whether SACK loss recovery is on.
     pub fn sack_recovery(&self) -> bool {
         self.sack_recovery
+    }
+
+    /// cmux patch: the most data the connection keeps in the network at
+    /// once (bytes sent and neither acknowledged nor known lost), below the
+    /// congestion window. The receive window bounds how much a connection
+    /// could use; this bounds how much it does, so an owner that measures
+    /// the path can keep a large buffer for long paths without a whole
+    /// buffer of data queued in front of every segment on short ones.
+    /// Retransmissions and zero window probes do not wait for it.
+    ///
+    /// `None` (the default) leaves the congestion and remote windows alone.
+    pub fn set_send_window_cap(&mut self, cap: Option<usize>) {
+        self.send_window_cap = cap;
+    }
+
+    /// cmux patch: the cap [set_send_window_cap](#method.set_send_window_cap) set.
+    pub fn send_window_cap(&self) -> Option<usize> {
+        self.send_window_cap
     }
 
     /// cmux patch: turn black-hole fallback (RFC 4821 section 7.7, Linux's
@@ -2214,10 +2234,9 @@ impl<'a> Socket<'a> {
         } else {
             self.flight_size()
         };
-        self.congestion_controller
-            .inner()
-            .window()
-            .saturating_sub(in_network)
+        let window = self.congestion_controller.inner().window();
+        let window = self.send_window_cap.map_or(window, |cap| window.min(cap));
+        window.saturating_sub(in_network)
     }
 
     /// Return the amount of octets queued in the receive buffer. This value can be larger than
@@ -3797,15 +3816,10 @@ impl<'a> Socket<'a> {
         // Use max() so a fast-retransmit segment (whose seq_number is local_seq_no, well
         // behind the current frontier) doesn't rewind the tracked "highest sent" sequence.
         let send_max = self.remote_last_seq + self.remote_rewound;
-        self.remote_last_seq = self
-            .remote_last_seq
-            .max(repr.seq_number + repr.segment_len());
+        self.remote_last_seq = self.remote_last_seq.max(repr.seq_number + repr.segment_len());
         // As `keep_send_max`, inline: `repr` still borrows the send buffer.
-        self.remote_rewound = if send_max > self.remote_last_seq {
-            send_max - self.remote_last_seq
-        } else {
-            0
-        };
+        self.remote_rewound =
+            if send_max > self.remote_last_seq { send_max - self.remote_last_seq } else { 0 };
         self.remote_last_ack = repr.ack_number;
         self.remote_last_win = repr.window_len;
 
@@ -7531,6 +7545,38 @@ mod test {
             payload: &data[..1024],
             ..RECV_TEMPL
         }));
+    }
+
+    #[test]
+    #[cfg(feature = "socket-tcp-reno")]
+    fn test_send_window_cap_limits_data_in_flight_below_cwnd() {
+        let mut s = socket_established_with_buffer_sizes(8192, 64);
+        s.set_congestion_control(CongestionControl::Reno);
+        s.remote_win_len = 65535;
+        s.remote_mss = 1024;
+        // Reno's initial window is 2048 bytes; the cap allows one segment.
+        s.set_send_window_cap(Some(1024));
+        assert_eq!(s.send_window_cap(), Some(1024));
+
+        let data = [b'x'; 8192];
+        s.send_slice(&data[..]).unwrap();
+        recv!(s, time 0, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload: &data[..1024],
+            ..RECV_TEMPL
+        }));
+        recv_nothing!(s, time 0);
+
+        // Lifting the cap lets the congestion window's second segment out.
+        s.set_send_window_cap(None);
+        recv!(s, time 0, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 1024,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload: &data[..1024],
+            ..RECV_TEMPL
+        }));
+        recv_nothing!(s, time 0);
     }
 
     #[test]

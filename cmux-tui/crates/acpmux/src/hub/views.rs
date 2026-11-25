@@ -309,6 +309,11 @@ pub fn lane(summary: &Value) -> Value {
 /// leaves part of a secret unmasked. Null when there is neither, or when a
 /// person's own message is the last one (it says nothing new).
 fn lane_step(summary: &Value) -> Value {
+    // A chat waiting for capacity says so, never its harness's raw "API Error: 529 …" reply
+    // (`capacity_wait.rs`): "paused for capacity, resumes ~22:41Z".
+    if let Some(line) = super::capacity_wait::paused_line(&summary["capacityWait"]) {
+        return Value::String(line);
+    }
     let reply = || {
         (summary["lastMessage"]["role"] == "agent")
             .then(|| summary["lastMessage"]["text"].as_str())
@@ -802,7 +807,6 @@ impl Hub {
             last_message: last_message(&m),
             // An expired list is no longer the chat's plan (`task_list.rs`): the row and the hat drop it.
             task_list: super::task_list::current_task_list(&m),
-            rolling_summary: m.rolling_summary.clone(),
             approved_plan: m.approved_plan.clone(),
             queued: session.queued(),
             // The person's unsent text (`set_composer_draft`): an idle app update waits for it.
@@ -940,6 +944,13 @@ impl Hub {
                 m.last_turn.as_ref(),
                 retry.as_ref(),
                 retry_deciding,
+            ),
+            // One calm capacity wait for every client to draw (`capacity_wait.rs`).
+            capacity_wait: super::capacity_wait::of(
+                m.last_turn.as_ref(),
+                retry.as_ref(),
+                retry_deciding,
+                session.rate_hold.until(),
             ),
             // A retry of its failed last turn waits, or is being decided (`auto_resume.rs`).
             retry,
