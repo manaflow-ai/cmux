@@ -91,7 +91,11 @@ fn vscode_settings_map_to_the_editor_section() {
     assert_eq!(at(&section, &["minimap", "enabled"]), Some(&json!(false)));
     assert_eq!(at(&section, &["rulers"]), Some(&json!([80, 120])));
     assert_eq!(at(&section, &["fontLigatures"]), Some(&json!(true)));
-    assert_eq!(at(&section, &["fontWeight"]), Some(&json!("500")), "480 maps to the nearest weight the row offers");
+    assert_eq!(
+        at(&section, &["fontWeight"]),
+        Some(&json!("500")),
+        "480 maps to the nearest weight the row offers"
+    );
     assert_eq!(at(&section, &["cursorStyle"]), Some(&json!("block")));
     assert_eq!(at(&section, &["lineNumbers"]), Some(&json!("relative")));
     assert_eq!(at(&section, &["autoClosingBrackets"]), Some(&json!(false)));
@@ -107,9 +111,14 @@ fn vscode_settings_map_to_the_editor_section() {
     assert_eq!(at(&section, &["languages", "python", "rulers"]), Some(&json!([88])));
     assert_eq!(at(&section, &["languages", "typescript", "formatOnSave"]), Some(&json!(true)));
     assert_eq!(at(&section, &["languages", "javascript", "formatOnSave"]), Some(&json!(true)));
-    let keys = at(&section, &["keybindings"]).and_then(Value::as_array).cloned().unwrap_or_default();
+    let keys =
+        at(&section, &["keybindings"]).and_then(Value::as_array).cloned().unwrap_or_default();
     let commands: Vec<&str> = keys.iter().filter_map(|key| key["command"].as_str()).collect();
-    assert_eq!(commands, ["editor.action.selectHighlights", "-editor.foldAll", "cursorUndo"], "only editor commands come over");
+    assert_eq!(
+        commands,
+        ["editor.action.selectHighlights", "-editor.foldAll", "cursorUndo"],
+        "only editor commands come over"
+    );
     assert_eq!(keys[0]["when"], json!("editorFocus"));
 }
 
@@ -147,8 +156,11 @@ fn zed_settings_map_to_the_editor_section() {
     assert_eq!(at(&section, &["autoSaveDelay"]), Some(&json!(500)));
     assert_eq!(at(&section, &["languages", "python", "tabSize"]), Some(&json!(4)));
     assert_eq!(at(&section, &["languages", "shellscript", "insertSpaces"]), Some(&json!(false)));
-    let keys = at(&section, &["keybindings"]).and_then(Value::as_array).cloned().unwrap_or_default();
-    assert!(keys.contains(&json!({"key": "cmd-shift-l", "command": "editor.action.selectHighlights"})));
+    let keys =
+        at(&section, &["keybindings"]).and_then(Value::as_array).cloned().unwrap_or_default();
+    assert!(
+        keys.contains(&json!({"key": "cmd-shift-l", "command": "editor.action.selectHighlights"}))
+    );
     assert!(keys.contains(&json!({"key": "cmd-j", "command": "editor.fold"})));
     assert_eq!(keys.len(), 2, "a Terminal binding or an action with no Monaco command came over");
 }
@@ -161,7 +173,10 @@ fn the_value_rules_match_swift() {
     assert_eq!(font_weight(&json!("bold")), Some(json!("bold")));
     assert_eq!(font_weight(&json!("heavy")), None);
     assert_eq!(font_weight(&json!(true)), None);
-    assert_eq!(rulers(&json!([0, 1.4, 1001, "80", 2, 3, 4, 5, 6, 7, 8, 9])), Some(json!([1, 2, 3, 4, 5, 6, 7, 8])));
+    assert_eq!(
+        rulers(&json!([0, 1.4, 1001, "80", 2, 3, 4, 5, 6, 7, 8, 9])),
+        Some(json!([1, 2, 3, 4, 5, 6, 7, 8]))
+    );
     assert_eq!(rulers(&json!(80)), None);
     assert!(is_editor_command("-editor.action.x"));
     assert!(is_editor_command("undo"));
@@ -228,11 +243,17 @@ fn sources_read_the_chosen_editor_only() {
     assert_eq!(found.editor, Editor::Cursor);
     assert_eq!(found.files, [cursor_settings.clone()]);
     assert_eq!(found.section["tabSize"], json!(3));
-    assert_eq!(load(home, Choice::Editor(Editor::Zed), read(&texts)).expect("zed").section["tabSize"], json!(2));
+    assert_eq!(
+        load(home, Choice::Editor(Editor::Zed), read(&texts)).expect("zed").section["tabSize"],
+        json!(2)
+    );
     assert_eq!(load(home, Choice::None, read(&texts)), None);
     assert_eq!(load(home, Choice::Editor(Editor::Vscode), read(&texts)), None);
     texts.insert(cursor_keys.clone(), "[]".to_owned());
-    assert_eq!(load(home, Choice::Auto, read(&texts)).expect("cursor").files, [cursor_settings, cursor_keys]);
+    assert_eq!(
+        load(home, Choice::Auto, read(&texts)).expect("cursor").files,
+        [cursor_settings, cursor_keys]
+    );
 
     assert_eq!(Choice::from_setting(Some("zed")), Choice::Editor(Editor::Zed));
     assert_eq!(Choice::from_setting(Some("emacs")), Choice::Auto);
@@ -252,10 +273,16 @@ fn the_copy_writes_only_unset_rows() {
     let writes = copy_writes(&imported, &file);
     let keys: Vec<String> = writes.iter().map(|(path, _)| path.join(".")).collect();
     assert!(writes.len() > 5, "{keys:?}");
-    assert!(!keys.contains(&"editor.tabSize".to_owned()), "the copy replaced a key cmux-next.json had");
+    assert!(
+        !keys.contains(&"editor.tabSize".to_owned()),
+        "the copy replaced a key cmux-next.json had"
+    );
     assert!(!keys.contains(&"editor.wordWrap".to_owned()));
     assert!(keys.contains(&"editor.fontSize".to_owned()));
-    assert!(keys.iter().all(|key| !key.starts_with("editor.languages")), "language blocks stay live, not copied");
+    assert!(
+        keys.iter().all(|key| !key.starts_with("editor.languages")),
+        "language blocks stay live, not copied"
+    );
     let with_choice = copy_writes(&json!({"importFrom": "zed"}), &json!({}));
     assert!(with_choice.is_empty());
 }
@@ -266,12 +293,26 @@ fn the_page_toggles_flip_their_keys() {
     let (wrap, value) = toggle_next("toggleFileEditorWordWrap", None).expect("word wrap");
     assert_eq!(wrap.key, "editor.wordWrap");
     assert_eq!(value, json!("on"));
-    assert_eq!(toggle_next("toggleFileEditorWordWrap", Some(&json!({"wordWrap": "bounded"}))).unwrap().1, json!("off"));
-    assert_eq!(toggle_next("toggleFileEditorWordWrap", Some(&json!({"wordWrap": "off"}))).unwrap().1, json!("on"));
+    assert_eq!(
+        toggle_next("toggleFileEditorWordWrap", Some(&json!({"wordWrap": "bounded"}))).unwrap().1,
+        json!("off")
+    );
+    assert_eq!(
+        toggle_next("toggleFileEditorWordWrap", Some(&json!({"wordWrap": "off"}))).unwrap().1,
+        json!("on")
+    );
     let (minimap, value) = toggle_next("toggleFileEditorMinimap", None).expect("minimap");
     assert_eq!(minimap.key, "editor.minimap.enabled");
     assert_eq!(value, json!(true));
-    assert_eq!(toggle_next("toggleFileEditorMinimap", Some(&json!({"minimap": {"enabled": true}}))).unwrap().1, json!(false));
-    assert_eq!(toggle_next("toggleFileEditorMinimap", Some(&json!({"minimap": false}))).unwrap().1, json!(true));
+    assert_eq!(
+        toggle_next("toggleFileEditorMinimap", Some(&json!({"minimap": {"enabled": true}})))
+            .unwrap()
+            .1,
+        json!(false)
+    );
+    assert_eq!(
+        toggle_next("toggleFileEditorMinimap", Some(&json!({"minimap": false}))).unwrap().1,
+        json!(true)
+    );
     assert_eq!(toggle_next("nope", None), None);
 }

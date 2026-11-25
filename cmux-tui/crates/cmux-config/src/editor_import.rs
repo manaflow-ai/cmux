@@ -40,7 +40,8 @@ pub enum Editor {
 
 impl Editor {
     /// Every editor, in the order `auto` tries them.
-    pub const ALL: [Editor; 5] = [Editor::Vscode, Editor::Cursor, Editor::Windsurf, Editor::Vscodium, Editor::Zed];
+    pub const ALL: [Editor; 5] =
+        [Editor::Vscode, Editor::Cursor, Editor::Windsurf, Editor::Vscodium, Editor::Zed];
 
     /// The `editor.importFrom` choice naming it.
     pub fn id(self) -> &'static str {
@@ -122,7 +123,9 @@ pub fn files(home: &str, editor: Editor) -> (String, String) {
         Editor::Cursor => code("Cursor"),
         Editor::Windsurf => code("Windsurf"),
         Editor::Vscodium => code("VSCodium"),
-        Editor::Zed => (format!("{home}/.config/zed/settings.json"), format!("{home}/.config/zed/keymap.json")),
+        Editor::Zed => {
+            (format!("{home}/.config/zed/settings.json"), format!("{home}/.config/zed/keymap.json"))
+        }
     }
 }
 
@@ -153,7 +156,8 @@ pub struct Found {
 pub fn load(home: &str, choice: Choice, read: impl Fn(&str) -> Option<String>) -> Option<Found> {
     for editor in choice.editors() {
         let (settings_file, keys_file) = files(home, editor);
-        let Some(settings) = read(&settings_file).and_then(|text| crate::jsonc::parse(&text).ok()) else {
+        let Some(settings) = read(&settings_file).and_then(|text| crate::jsonc::parse(&text).ok())
+        else {
             continue;
         };
         if !settings.is_object() {
@@ -218,10 +222,12 @@ const VSCODE_SAME_KEYS: [&str; 31] = [
 ];
 
 /// The keys a language block may set (`editor.languages.<id>`).
-const LANGUAGE_KEYS: [&str; 6] = ["tabSize", "insertSpaces", "detectIndentation", "wordWrap", "rulers", "formatOnSave"];
+const LANGUAGE_KEYS: [&str; 6] =
+    ["tabSize", "insertSpaces", "detectIndentation", "wordWrap", "rulers", "formatOnSave"];
 
 /// Monaco's commands besides `editor.*`: cursor undo and find.
-const MONACO_COMMANDS: [&str; 6] = ["cursorUndo", "cursorRedo", "actions.find", "actions.findWithSelection", "undo", "redo"];
+const MONACO_COMMANDS: [&str; 6] =
+    ["cursorUndo", "cursorRedo", "actions.find", "actions.findWithSelection", "undo", "redo"];
 
 fn get<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
     value.as_object()?.get(key)
@@ -239,7 +245,9 @@ pub fn vscode(settings: &Value, keybindings: Option<&Value>) -> Value {
     let root = settings.as_object().unwrap_or(&empty);
     let flat = |key: &str| root.get(key).or_else(|| value_at(settings, &split_dots(key)));
     for key in VSCODE_SAME_KEYS {
-        if let Some(value) = flat(&format!("editor.{key}")).and_then(|value| vscode_value(key, value)) {
+        if let Some(value) =
+            flat(&format!("editor.{key}")).and_then(|value| vscode_value(key, value))
+        {
             set(&mut out, key, value);
         }
     }
@@ -248,7 +256,9 @@ pub fn vscode(settings: &Value, keybindings: Option<&Value>) -> Value {
     }
     if let Some(ligatures) = flat("editor.fontLigatures") {
         // VS Code also takes a feature string ("'ss01', 'calt'"): ligatures on.
-        let on = ligatures.as_bool().unwrap_or_else(|| !ligatures.as_str().unwrap_or_default().is_empty());
+        let on = ligatures
+            .as_bool()
+            .unwrap_or_else(|| !ligatures.as_str().unwrap_or_default().is_empty());
         out.insert("fontLigatures".into(), Value::Bool(on));
     }
     if let Some(rulers) = flat("editor.rulers").and_then(rulers) {
@@ -256,28 +266,42 @@ pub fn vscode(settings: &Value, keybindings: Option<&Value>) -> Value {
     }
     for key in ["autoClosingBrackets", "autoClosingQuotes"] {
         if let Some(value) = flat(&format!("editor.{key}")) {
-            out.insert(key.into(), Value::Bool(value.as_bool().unwrap_or(value.as_str() != Some("never"))));
+            out.insert(
+                key.into(),
+                Value::Bool(value.as_bool().unwrap_or(value.as_str() != Some("never"))),
+            );
         }
     }
     // VS Code's `true`, `"active"` or `false`.
     if let Some(value) = flat("editor.guides.bracketPairs") {
-        set(&mut out, "guides.bracketPairs", Value::Bool(value.as_bool().unwrap_or(value.is_string())));
+        set(
+            &mut out,
+            "guides.bracketPairs",
+            Value::Bool(value.as_bool().unwrap_or(value.is_string())),
+        );
     }
     if let Some(value) = flat("editor.quickSuggestions") {
         let on = value.as_bool().unwrap_or_else(|| {
             value.as_object().is_some_and(|members| {
-                members.values().any(|item| *item == Value::Bool(true) || item.as_str() == Some("on"))
+                members
+                    .values()
+                    .any(|item| *item == Value::Bool(true) || item.as_str() == Some("on"))
             })
         });
         out.insert("quickSuggestions".into(), Value::Bool(on));
     }
     if let Some(value) = flat("editor.wordBasedSuggestions") {
-        out.insert("wordBasedSuggestions".into(), Value::Bool(value.as_bool().unwrap_or(value.as_str() != Some("off"))));
+        out.insert(
+            "wordBasedSuggestions".into(),
+            Value::Bool(value.as_bool().unwrap_or(value.as_str() != Some("off"))),
+        );
     }
     if let Some(value) = flat("editor.cursorSmoothCaretAnimation") {
         if let Some(flag) = value.as_bool() {
             out.insert("cursorSmoothCaretAnimation".into(), json!(if flag { "on" } else { "off" }));
-        } else if let Some(text) = value.as_str().filter(|text| ["off", "explicit", "on"].contains(text)) {
+        } else if let Some(text) =
+            value.as_str().filter(|text| ["off", "explicit", "on"].contains(text))
+        {
             out.insert("cursorSmoothCaretAnimation".into(), json!(text));
         }
     }
@@ -291,7 +315,10 @@ pub fn vscode(settings: &Value, keybindings: Option<&Value>) -> Value {
         }
         _ => {}
     }
-    if let Some(delay) = flat("files.autoSaveDelay").and_then(Value::as_f64).filter(|x| (100.0..=60_000.0).contains(x)) {
+    if let Some(delay) = flat("files.autoSaveDelay")
+        .and_then(Value::as_f64)
+        .filter(|x| (100.0..=60_000.0).contains(x))
+    {
         out.insert("autoSaveDelay".into(), number_value(delay.round()));
     }
     for key in ["trimTrailingWhitespace", "insertFinalNewline"] {
@@ -323,7 +350,9 @@ pub fn vscode(settings: &Value, keybindings: Option<&Value>) -> Value {
     if !languages.is_empty() {
         out.insert("languages".into(), Value::Object(languages));
     }
-    if let Some(bindings) = keybindings.map(vscode_keybindings).filter(|bindings| !bindings.is_empty()) {
+    if let Some(bindings) =
+        keybindings.map(vscode_keybindings).filter(|bindings| !bindings.is_empty())
+    {
         out.insert("keybindings".into(), Value::Array(bindings));
     }
     Value::Object(out)
@@ -359,7 +388,8 @@ fn font_weight(value: &Value) -> Option<Value> {
         return Some(json!(text));
     }
     let number = value.as_f64().or_else(|| value.as_str().and_then(parse_double))?;
-    let choices = [(300.0, "300"), (400.0, "normal"), (500.0, "500"), (600.0, "600"), (700.0, "bold")];
+    let choices =
+        [(300.0, "300"), (400.0, "normal"), (500.0, "500"), (600.0, "600"), (700.0, "bold")];
     // The first nearest, as Swift's `min(by:)` (NaN keeps the first).
     let mut best = choices[0];
     for choice in &choices[1..] {
@@ -392,14 +422,16 @@ fn vscode_keybindings(value: &Value) -> Vec<Value> {
         .take(500)
         .filter_map(|item| {
             let key = get(item, "key")?.as_str()?;
-            let command = get(item, "command")?.as_str().filter(|command| is_editor_command(command))?;
+            let command =
+                get(item, "command")?.as_str().filter(|command| is_editor_command(command))?;
             let mut entry = Map::new();
             entry.insert("key".into(), json!(key));
             entry.insert("command".into(), json!(command));
-            if let Some(when) = get(item, "when").and_then(Value::as_str) {
-                if !when.is_empty() && char_count(when) <= 300 {
-                    entry.insert("when".into(), json!(when));
-                }
+            if let Some(when) = get(item, "when").and_then(Value::as_str)
+                && !when.is_empty()
+                && char_count(when) <= 300
+            {
+                entry.insert("when".into(), json!(when));
             }
             Some(Value::Object(entry))
         })
@@ -408,7 +440,9 @@ fn vscode_keybindings(value: &Value) -> Vec<Value> {
 
 fn is_editor_command(command: &str) -> bool {
     let id = command.strip_prefix('-').unwrap_or(command);
-    if id.len() > 128 || !id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')) {
+    if id.len() > 128
+        || !id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+    {
         return false;
     }
     id.starts_with("editor.") || MONACO_COMMANDS.contains(&id)
@@ -456,10 +490,14 @@ const ZED_ACTIONS: [(&str, &str); 32] = [
 pub fn zed(settings: &Value, keymap: Option<&Value>) -> Value {
     let mut out = Map::new();
     let at = |key: &str| get(settings, key);
-    if let Some(family) = at("buffer_font_family").and_then(Value::as_str).filter(|family| !family.is_empty()) {
+    if let Some(family) =
+        at("buffer_font_family").and_then(Value::as_str).filter(|family| !family.is_empty())
+    {
         out.insert("fontFamily".into(), json!(family));
     }
-    if let Some(size) = at("buffer_font_size").and_then(Value::as_f64).filter(|x| (6.0..=72.0).contains(x)) {
+    if let Some(size) =
+        at("buffer_font_size").and_then(Value::as_f64).filter(|x| (6.0..=72.0).contains(x))
+    {
         out.insert("fontSize".into(), number_value(size));
     }
     if let Some(weight) = at("buffer_font_weight").and_then(font_weight) {
@@ -473,21 +511,28 @@ pub fn zed(settings: &Value, keymap: Option<&Value>) -> Value {
             out.insert("lineHeight".into(), number_value(1.3));
         }
         Some(value) => {
-            if let Some(custom) = get(value, "custom").and_then(Value::as_f64).filter(|x| *x > 0.0 && *x < 8.0) {
+            if let Some(custom) =
+                get(value, "custom").and_then(Value::as_f64).filter(|x| *x > 0.0 && *x < 8.0)
+            {
                 out.insert("lineHeight".into(), number_value(custom));
             }
         }
         None => {}
     }
     // Zed's font features `{"calt": false}` turn ligatures off.
-    if let Some(calt) = at("buffer_font_features").and_then(|features| get(features, "calt")).and_then(Value::as_bool) {
+    if let Some(calt) = at("buffer_font_features")
+        .and_then(|features| get(features, "calt"))
+        .and_then(Value::as_bool)
+    {
         out.insert("fontLigatures".into(), Value::Bool(calt));
     }
     zed_language(settings, &mut out);
     if at("relative_line_numbers").and_then(Value::as_bool) == Some(true) {
         out.insert("lineNumbers".into(), json!("relative"));
     }
-    if at("gutter").and_then(|gutter| get(gutter, "line_numbers")).and_then(Value::as_bool) == Some(false) {
+    if at("gutter").and_then(|gutter| get(gutter, "line_numbers")).and_then(Value::as_bool)
+        == Some(false)
+    {
         out.insert("lineNumbers".into(), json!("off"));
     }
     if let Some(whitespace) = at("show_whitespaces")
@@ -528,7 +573,9 @@ pub fn zed(settings: &Value, keymap: Option<&Value>) -> Value {
             out.insert("autoSave".into(), json!(if text == "off" { "off" } else { "afterDelay" }));
         }
         Some(value) => {
-            let delay = get(value, "after_delay").and_then(|after| get(after, "milliseconds")).and_then(Value::as_f64);
+            let delay = get(value, "after_delay")
+                .and_then(|after| get(after, "milliseconds"))
+                .and_then(Value::as_f64);
             if let Some(delay) = delay {
                 out.insert("autoSave".into(), json!("afterDelay"));
                 if (100.0..=60_000.0).contains(&delay) {
@@ -562,13 +609,16 @@ pub fn zed(settings: &Value, keymap: Option<&Value>) -> Value {
 /// The keys a Zed settings object and a Zed language block share.
 fn zed_language(settings: &Value, out: &mut Map<String, Value>) {
     let at = |key: &str| get(settings, key);
-    if let Some(size) = at("tab_size").and_then(Value::as_f64).filter(|x| (1.0..=16.0).contains(x)) {
+    if let Some(size) = at("tab_size").and_then(Value::as_f64).filter(|x| (1.0..=16.0).contains(x))
+    {
         out.insert("tabSize".into(), number_value(size.round()));
     }
     if let Some(hard) = at("hard_tabs").and_then(Value::as_bool) {
         out.insert("insertSpaces".into(), Value::Bool(!hard));
     }
-    if let Some(length) = at("preferred_line_length").and_then(Value::as_f64).filter(|x| (10.0..=1000.0).contains(x)) {
+    if let Some(length) =
+        at("preferred_line_length").and_then(Value::as_f64).filter(|x| (10.0..=1000.0).contains(x))
+    {
         out.insert("wordWrapColumn".into(), number_value(length.round()));
     }
     let wrap = match at("soft_wrap").and_then(Value::as_str) {
@@ -585,7 +635,8 @@ fn zed_language(settings: &Value, out: &mut Map<String, Value>) {
         out.insert("rulers".into(), guides);
     }
     if let Some(format) = at("format_on_save") {
-        let on = format.as_bool().unwrap_or_else(|| format.as_str().is_some_and(|text| text != "off"));
+        let on =
+            format.as_bool().unwrap_or_else(|| format.as_str().is_some_and(|text| text != "off"));
         out.insert("formatOnSave".into(), Value::Bool(on));
     }
 }
@@ -595,10 +646,10 @@ fn zed_keybindings(value: &Value) -> Vec<Value> {
     let actions: BTreeMap<&str, &str> = ZED_ACTIONS.into_iter().collect();
     let mut out = Vec::new();
     for block in value.as_array().map(Vec::as_slice).unwrap_or_default() {
-        if let Some(context) = get(block, "context").and_then(Value::as_str) {
-            if !context.contains("Editor") {
-                continue;
-            }
+        if let Some(context) = get(block, "context").and_then(Value::as_str)
+            && !context.contains("Editor")
+        {
+            continue;
         }
         let Some(bindings) = get(block, "bindings").and_then(Value::as_object) else { continue };
         // serde_json's map is sorted by key, as Swift sorts them.
@@ -637,7 +688,9 @@ fn merged(base: Option<&Value>, overlay: &Map<String, Value>) -> Value {
     let mut members = base.and_then(Value::as_object).cloned().unwrap_or_default();
     for (key, value) in overlay {
         let next = match (value.as_object(), members.get(key)) {
-            (Some(object), Some(existing)) if existing.is_object() => merged(Some(existing), object),
+            (Some(object), Some(existing)) if existing.is_object() => {
+                merged(Some(existing), object)
+            }
             _ => value.clone(),
         };
         members.insert(key.clone(), next);
@@ -665,7 +718,8 @@ pub fn copy_writes(imported: &Value, file: &Value) -> Vec<(Vec<String>, Value)> 
         .filter(|row| row.key != "editor.importFrom")
         .filter_map(|row| {
             let value = value_at(&imported, &row.path[1..])?;
-            if schema::accepts(row, value, &domains).is_err() || value_at(file, &row.path).is_some() {
+            if schema::accepts(row, value, &domains).is_err() || value_at(file, &row.path).is_some()
+            {
                 return None;
             }
             Some((row.path.clone(), value.clone()))
@@ -693,13 +747,18 @@ pub const TOGGLES: [Toggle; 2] = [
 pub fn toggle_next(action: &str, section: Option<&Value>) -> Option<(Toggle, Value)> {
     let toggle = TOGGLES.into_iter().find(|toggle| toggle.action == action)?;
     let value = if toggle.action == "toggleFileEditorWordWrap" {
-        let mode = section.and_then(|section| get(section, "wordWrap")).and_then(Value::as_str).unwrap_or("off");
+        let mode = section
+            .and_then(|section| get(section, "wordWrap"))
+            .and_then(Value::as_str)
+            .unwrap_or("off");
         json!(if mode == "off" { "on" } else { "off" })
     } else {
         let minimap = section.and_then(|section| get(section, "minimap"));
         let on = minimap
             .and_then(Value::as_bool)
-            .or_else(|| minimap.and_then(|minimap| get(minimap, "enabled")).and_then(Value::as_bool))
+            .or_else(|| {
+                minimap.and_then(|minimap| get(minimap, "enabled")).and_then(Value::as_bool)
+            })
             .unwrap_or(false);
         Value::Bool(!on)
     };

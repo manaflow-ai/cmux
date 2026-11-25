@@ -92,7 +92,8 @@ fn choice(request: &Value) -> Choice {
 }
 
 fn writes(writes: Vec<(Vec<String>, Value)>) -> Value {
-    let writes: Vec<Value> = writes.into_iter().map(|(path, value)| json!({"path": path, "value": value})).collect();
+    let writes: Vec<Value> =
+        writes.into_iter().map(|(path, value)| json!({"path": path, "value": value})).collect();
     json!({ "writes": writes })
 }
 
@@ -122,7 +123,11 @@ fn editor_load(request: &Value) -> Result<Value, OpError> {
 }
 
 fn editor_map(request: &Value) -> Result<Value, OpError> {
-    let section = editor_import::map(editor(request)?, value(request, "settings")?, request.get("keys").filter(|keys| !keys.is_null()));
+    let section = editor_import::map(
+        editor(request)?,
+        value(request, "settings")?,
+        request.get("keys").filter(|keys| !keys.is_null()),
+    );
     Ok(json!({ "section": section }))
 }
 
@@ -144,7 +149,11 @@ fn classic_preferences(request: &Value) -> Result<Value, OpError> {
         Some(_) => return Err(OpError::Invalid("expected an array `sources`".to_owned())),
     };
     let import = classic::preference_edits(&done, &file, &sources);
-    let edits: Vec<Value> = import.edits.into_iter().map(|(path, value)| json!({"path": path, "value": value})).collect();
+    let edits: Vec<Value> = import
+        .edits
+        .into_iter()
+        .map(|(path, value)| json!({"path": path, "value": value}))
+        .collect();
     Ok(json!({ "edits": edits, "done": import.done }))
 }
 
@@ -159,9 +168,18 @@ fn search_engine(request: &Value) -> Result<Value, OpError> {
     if engine == "custom"
         && let Some(search) = request.get("search").and_then(Value::as_str)
     {
-        let suggest = request.get("suggest").and_then(Value::as_str).map_or(Value::Null, |suggest| json!(suggest));
-        out.push((vec!["browser".to_owned(), "customSearchEngine".to_owned(), "search".to_owned()], json!(search)));
-        out.push((vec!["browser".to_owned(), "customSearchEngine".to_owned(), "suggest".to_owned()], suggest));
+        let suggest = request
+            .get("suggest")
+            .and_then(Value::as_str)
+            .map_or(Value::Null, |suggest| json!(suggest));
+        out.push((
+            vec!["browser".to_owned(), "customSearchEngine".to_owned(), "search".to_owned()],
+            json!(search),
+        ));
+        out.push((
+            vec!["browser".to_owned(), "customSearchEngine".to_owned(), "suggest".to_owned()],
+            suggest,
+        ));
     }
     out.push((vec!["browser".to_owned(), "searchEngine".to_owned()], json!(engine)));
     Ok(writes(out))
@@ -204,8 +222,10 @@ fn legacy_path(request: &Value) -> Result<Value, OpError> {
 }
 
 fn legacy_paths() -> Value {
-    let renames: Vec<Value> =
-        renamed::legacy_paths().into_iter().map(|(path, legacy)| json!({"path": path, "legacy": legacy})).collect();
+    let renames: Vec<Value> = renamed::legacy_paths()
+        .into_iter()
+        .map(|(path, legacy)| json!({"path": path, "legacy": legacy}))
+        .collect();
     json!({ "renames": renames })
 }
 
@@ -218,8 +238,10 @@ fn legacy_value(request: &Value) -> Result<Value, OpError> {
 }
 
 fn toggles() -> Value {
-    let toggles: Vec<Value> =
-        editor_import::TOGGLES.iter().map(|toggle| json!({"action": toggle.action, "key": toggle.key})).collect();
+    let toggles: Vec<Value> = editor_import::TOGGLES
+        .iter()
+        .map(|toggle| json!({"action": toggle.action, "key": toggle.key}))
+        .collect();
     json!({ "toggles": toggles })
 }
 
@@ -243,10 +265,16 @@ mod tests {
 
     #[test]
     fn the_editor_ops_answer_through_the_dispatcher() {
-        assert_eq!(ok("import.editor_choice", json!({"setting": "zed"}))["editors"], json!(["zed"]));
+        assert_eq!(
+            ok("import.editor_choice", json!({"setting": "zed"}))["editors"],
+            json!(["zed"])
+        );
         assert_eq!(ok("import.editor_choice", json!({}))["choice"], json!("auto"));
         let files = ok("import.editor_files", json!({"home": "/Users/me/", "choice": "zed"}));
-        assert_eq!(files["files"], json!(["/Users/me/.config/zed/settings.json", "/Users/me/.config/zed/keymap.json"]));
+        assert_eq!(
+            files["files"],
+            json!(["/Users/me/.config/zed/settings.json", "/Users/me/.config/zed/keymap.json"])
+        );
         let settings = "/Users/me/Library/Application Support/Cursor/User/settings.json";
         let loaded = ok(
             "import.editor_load",
@@ -255,18 +283,30 @@ mod tests {
         assert_eq!(loaded["editor"], json!("cursor"));
         assert_eq!(loaded["files"], json!([settings]));
         assert_eq!(loaded["section"]["fontSize"], json!(15));
-        assert_eq!(ok("import.editor_load", json!({"home": "/Users/me", "choice": "none", "texts": {}})), json!({}));
-        let mapped = ok("import.editor_map", json!({"editor": "vscode", "settings": {"editor.tabSize": 2}}));
+        assert_eq!(
+            ok("import.editor_load", json!({"home": "/Users/me", "choice": "none", "texts": {}})),
+            json!({})
+        );
+        let mapped =
+            ok("import.editor_map", json!({"editor": "vscode", "settings": {"editor.tabSize": 2}}));
         assert_eq!(mapped["section"]["tabSize"], json!(2));
-        assert!(dispatch("import.editor_map", &json!({"editor": "emacs", "settings": {}})).is_err());
-        let section = ok("import.editor_section", json!({"imported": {"tabSize": 2, "fontSize": 15}, "own": {"tabSize": 8}}));
+        assert!(
+            dispatch("import.editor_map", &json!({"editor": "emacs", "settings": {}})).is_err()
+        );
+        let section = ok(
+            "import.editor_section",
+            json!({"imported": {"tabSize": 2, "fontSize": 15}, "own": {"tabSize": 8}}),
+        );
         assert_eq!(section["section"]["tabSize"], json!(8));
         assert_eq!(section["section"]["fontSize"], json!(15));
     }
 
     #[test]
     fn the_toggle_ops_flip_their_keys() {
-        assert_eq!(ok("editor_toggle.all", json!({}))["toggles"][0]["key"], json!("editor.wordWrap"));
+        assert_eq!(
+            ok("editor_toggle.all", json!({}))["toggles"][0]["key"],
+            json!("editor.wordWrap")
+        );
         let wrap = ok("editor_toggle.next", json!({"action": "toggleFileEditorWordWrap"}));
         assert_eq!(wrap, json!({"key": "editor.wordWrap", "value": "on"}));
         assert_eq!(ok("editor_toggle.next", json!({"action": "nope"})), json!({}));
@@ -274,7 +314,8 @@ mod tests {
 
     #[test]
     fn the_classic_ops_answer_edits() {
-        let migrated = ok("migrate.classic", json!({"file": {"app": {"newWorkspacePlacement": "end"}}}));
+        let migrated =
+            ok("migrate.classic", json!({"file": {"app": {"newWorkspacePlacement": "end"}}}));
         assert_eq!(
             migrated["edits"],
             json!([
@@ -293,7 +334,10 @@ mod tests {
                 {"path": ["browser", "enabled"], "value": false},
             ])
         );
-        assert_eq!(ok("import.classic_preferences_pending", json!({"done": prefs["done"]})), json!({"pending": false}));
+        assert_eq!(
+            ok("import.classic_preferences_pending", json!({"done": prefs["done"]})),
+            json!({"pending": false})
+        );
         assert_eq!(ok("import.classic_preferences_pending", json!({})), json!({"pending": true}));
     }
 
@@ -307,12 +351,18 @@ mod tests {
         let renames = ok("migrate.legacy_paths", json!({}));
         assert!(renames["renames"].as_array().is_some_and(|renames| renames.len() >= 5));
         let root = json!({"computerUse": {"enabled": false}});
-        assert_eq!(ok("migrate.legacy_value", json!({"path": ["computerUse", "mode"], "root": root})), json!({"value": "off"}));
+        assert_eq!(
+            ok("migrate.legacy_value", json!({"path": ["computerUse", "mode"], "root": root})),
+            json!({"value": "off"})
+        );
     }
 
     #[test]
     fn the_browser_ops_match_swift() {
-        let custom = ok("import.search_engine", json!({"engine": "custom", "search": "https://s.example/?q=%s"}));
+        let custom = ok(
+            "import.search_engine",
+            json!({"engine": "custom", "search": "https://s.example/?q=%s"}),
+        );
         assert_eq!(
             custom["writes"],
             json!([
@@ -322,11 +372,20 @@ mod tests {
             ])
         );
         let plain = ok("import.search_engine", json!({"engine": "kagi", "search": "ignored"}));
-        assert_eq!(plain["writes"], json!([{"path": ["browser", "searchEngine"], "value": "kagi"}]));
+        assert_eq!(
+            plain["writes"],
+            json!([{"path": ["browser", "searchEngine"], "value": "kagi"}])
+        );
         assert_eq!(ok("import.browser_enabled", json!({"root": {}})), json!({"enabled": true}));
-        let off = ok("import.browser_enabled", json!({"root": {"browser": {"import": {"enabled": false}}}}));
+        let off = ok(
+            "import.browser_enabled",
+            json!({"root": {"browser": {"import": {"enabled": false}}}}),
+        );
         assert_eq!(off, json!({"enabled": false}));
-        let bad = ok("import.browser_enabled", json!({"root": {"browser": {"import": {"enabled": "no"}}}}));
+        let bad = ok(
+            "import.browser_enabled",
+            json!({"root": {"browser": {"import": {"enabled": "no"}}}}),
+        );
         assert_eq!(bad["enabled"], json!(true));
         assert_eq!(bad["diagnostic"]["kind"], json!("invalidValue"));
     }

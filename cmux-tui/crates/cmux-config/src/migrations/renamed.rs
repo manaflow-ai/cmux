@@ -132,17 +132,28 @@ mod tests {
             "appearance": { "backdropArt": "met-sunflowers-436524" },
         });
         assert_eq!(legacy_value(&path("computerUse.mode"), &root), Some(json!("off")));
-        assert_eq!(legacy_value(&path("agentPane.display.sessionInfo.placement"), &root), Some(json!("right")));
+        assert_eq!(
+            legacy_value(&path("agentPane.display.sessionInfo.placement"), &root),
+            Some(json!("right"))
+        );
         assert_eq!(legacy_value(&path("sidebar.workspaceRow.tabCount"), &root), Some(json!(false)));
         assert_eq!(legacy_value(&path("sidebar.workspaceRow.directory"), &root), None);
-        assert_eq!(legacy_value(&path("appearance.background"), &root), Some(json!("van-gogh-sunflowers")));
+        assert_eq!(
+            legacy_value(&path("appearance.background"), &root),
+            Some(json!("van-gogh-sunflowers"))
+        );
         let on = json!({ "computerUse": { "enabled": true } });
         assert_eq!(legacy_value(&path("computerUse.mode"), &on), None);
     }
 
     #[test]
     fn a_backdrop_art_reads_as_a_work_or_none() {
-        let read = |art: Value| legacy_value(&path("appearance.background"), &json!({"appearance": {"backdropArt": art}}));
+        let read = |art: Value| {
+            legacy_value(
+                &path("appearance.background"),
+                &json!({"appearance": {"backdropArt": art}}),
+            )
+        };
         assert_eq!(read(json!("van-gogh-sunflowers")), Some(json!("van-gogh-sunflowers")));
         assert_eq!(read(json!("goya-saturn")), Some(json!("none")));
         assert_eq!(read(json!("no-such-work")), Some(json!("none")));

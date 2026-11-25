@@ -46,7 +46,25 @@ fn classic() -> Value {
 fn applied(file: &Value, edits: &[PathEdit]) -> Value {
     let mut root = file.clone();
     for (path, value) in edits {
-        root = crate::value::with_value(root, path, value.clone());
+        root = match value {
+            Some(value) => crate::value::with_value(&root, value.clone(), path),
+            None => without(root, path),
+        };
+    }
+    root
+}
+
+fn without(mut root: Value, path: &[String]) -> Value {
+    let Some((last, parents)) = path.split_last() else { return root };
+    let mut node = &mut root;
+    for part in parents {
+        match node.get_mut(part) {
+            Some(next) => node = next,
+            None => return root,
+        }
+    }
+    if let Some(members) = node.as_object_mut() {
+        members.remove(last);
     }
     root
 }
@@ -144,7 +162,10 @@ fn link_routing_comes_over_from_this_channel_first() {
         import.edits,
         vec![
             (owned(&["browser", "openLinksInCmuxBrowser"]), json!(false)),
-            (owned(&["browser", "hostsToOpenInEmbeddedBrowser"]), json!(["*.corp.example", "intranet.local"])),
+            (
+                owned(&["browser", "hostsToOpenInEmbeddedBrowser"]),
+                json!(["*.corp.example", "intranet.local"])
+            ),
             (owned(&["browser", "urlsToAlwaysOpenExternally"]), json!(["*zoom.us*"])),
         ]
     );
@@ -168,7 +189,10 @@ fn a_disabled_browser_opened_every_link_outside() {
         vec![
             (owned(&["browser", "openLinksInCmuxBrowser"]), json!(false)),
             (owned(&["browser", "enabled"]), json!(false)),
-            (owned(&["browser", "urlsToAlwaysOpenExternally"]), json!(["re:^https://bank\\.example/"])),
+            (
+                owned(&["browser", "urlsToAlwaysOpenExternally"]),
+                json!(["re:^https://bank\\.example/"])
+            ),
         ]
     );
 }
@@ -187,10 +211,22 @@ fn the_file_and_defaults_win() {
     assert_eq!(import.done.len(), 4);
     // The older key set in the file counts as imported.
     let file = json!({ "browser": { "openTerminalLinksInCmuxBrowser": true } });
-    let import = preference_edits(&BTreeSet::new(), &file, &[json!({"browserOpenTerminalLinksInCmuxBrowser": false})]);
+    let import = preference_edits(
+        &BTreeSet::new(),
+        &file,
+        &[json!({"browserOpenTerminalLinksInCmuxBrowser": false})],
+    );
     assert!(import.edits.is_empty());
     let done: BTreeSet<String> = ["browser.openTerminalLinksInCmuxBrowser".to_owned()].into();
-    assert!(preference_edits(&done, &json!({}), &[json!({"browserOpenTerminalLinksInCmuxBrowser": false})]).edits.is_empty());
+    assert!(
+        preference_edits(
+            &done,
+            &json!({}),
+            &[json!({"browserOpenTerminalLinksInCmuxBrowser": false})]
+        )
+        .edits
+        .is_empty()
+    );
 }
 
 #[test]

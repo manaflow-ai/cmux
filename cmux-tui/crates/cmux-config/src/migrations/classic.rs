@@ -66,7 +66,11 @@ const MAPPED: &[Mapped] = &[
     Mapped {
         classic: &["app", "newWorkspacePlacement"],
         next: &["workspaces", "newPlacement"],
-        table: &[("top", To::Text("top")), ("afterCurrent", To::Text("afterCurrent")), ("end", To::Text("bottom"))],
+        table: &[
+            ("top", To::Text("top")),
+            ("afterCurrent", To::Text("afterCurrent")),
+            ("end", To::Text("bottom")),
+        ],
     },
     Mapped {
         classic: &["app", "equalizeSplitsOnCreate"],
@@ -111,21 +115,39 @@ const MAPPED: &[Mapped] = &[
 fn entries() -> Vec<(Rename, Option<&'static Mapped>)> {
     let mapped = |index: usize| {
         let entry = &MAPPED[index];
-        (Rename { classic: entry.classic, next: entry.next, transform: Transform::Same }, Some(entry))
+        (
+            Rename { classic: entry.classic, next: entry.next, transform: Transform::Same },
+            Some(entry),
+        )
     };
     vec![
         (rename(&["paneBorderColor"], &["layout", "paneBorderColor"]), None),
         (rename(&["activePaneBorderColor"], &["focusRing", "color"]), None),
-        (rename(&["notifications", "paneFlashColor"], &["notifications", "attention", "color"]), None),
+        (
+            rename(&["notifications", "paneFlashColor"], &["notifications", "attention", "color"]),
+            None,
+        ),
         (rename(&["notifications", "paneFlash"], &["notifications", "attention", "flash"]), None),
-        (rename(&["notifications", "paneFlashOnTyping"], &["notifications", "attention", "flashOnTyping"]), None),
+        (
+            rename(
+                &["notifications", "paneFlashOnTyping"],
+                &["notifications", "attention", "flashOnTyping"],
+            ),
+            None,
+        ),
         mapped(0),
         mapped(1),
         mapped(2),
         mapped(3),
         mapped(4),
         (rename(&["diffViewer", "defaultLayout"], &["diff", "layout"]), None),
-        (rename(&["browser", "showSearchSuggestions"], &["browser", "omnibar", "remoteSuggestions"]), None),
+        (
+            rename(
+                &["browser", "showSearchSuggestions"],
+                &["browser", "omnibar", "remoteSuggestions"],
+            ),
+            None,
+        ),
         // Engines next doesn't offer stay unmapped (the row refuses them), and so does "custom".
         (
             Rename {
@@ -140,12 +162,24 @@ fn entries() -> Vec<(Rename, Option<&'static Mapped>)> {
         (rename(&["sidebar", "showPorts"], &["sidebar", "workspaceRow", "ports"]), None),
         (rename(&["sidebar", "showLog"], &["sidebar", "workspaceRow", "log"]), None),
         (rename(&["sidebar", "showProgress"], &["sidebar", "workspaceRow", "progress"]), None),
-        (rename(&["sidebar", "showPullRequests"], &["sidebar", "workspaceRow", "pullRequest"]), None),
+        (
+            rename(&["sidebar", "showPullRequests"], &["sidebar", "workspaceRow", "pullRequest"]),
+            None,
+        ),
         // "Show Branch + Directory" is two rows in next.
-        (rename(&["sidebar", "showBranchDirectory"], &["sidebar", "workspaceRow", "directory"]), None),
+        (
+            rename(&["sidebar", "showBranchDirectory"], &["sidebar", "workspaceRow", "directory"]),
+            None,
+        ),
         (rename(&["sidebar", "showBranchDirectory"], &["sidebar", "workspaceRow", "branch"]), None),
         (rename(&["sidebar", "showAgentActivity"], &["sidebar", "workspaceRow", "working"]), None),
-        (rename(&["sidebar", "showNotificationMessage"], &["sidebar", "workspaceRow", "notification"]), None),
+        (
+            rename(
+                &["sidebar", "showNotificationMessage"],
+                &["sidebar", "workspaceRow", "notification"],
+            ),
+            None,
+        ),
         mapped(7),
     ]
 }
@@ -191,7 +225,9 @@ pub fn rename_edits(file: &Value) -> Vec<PathEdit> {
         if value_at(&file, rename.next).is_none() {
             let next = owned(rename.next);
             let Some(value) = transformed(&rename, mapped, old) else { continue };
-            let accepted = schema.row_at(&next).is_some_and(|row| schema::accepts(row, &value, &domains).is_ok());
+            let accepted = schema
+                .row_at(&next)
+                .is_some_and(|row| schema::accepts(row, &value, &domains).is_ok());
             if !accepted {
                 continue;
             }
@@ -208,8 +244,12 @@ pub fn rename_edits(file: &Value) -> Vec<PathEdit> {
 pub const IMPORTED_KEY: &str = "classicPreferencesImported";
 
 /// The classic preferences a domain may hold, as the app reads them.
-pub const PREFERENCE_KEYS: [&str; 4] =
-    ["browserDisabledOverride", "browserOpenTerminalLinksInCmuxBrowser", "browserHostWhitelist", "browserExternalOpenPatterns"];
+pub const PREFERENCE_KEYS: [&str; 4] = [
+    "browserDisabledOverride",
+    "browserOpenTerminalLinksInCmuxBrowser",
+    "browserHostWhitelist",
+    "browserExternalOpenPatterns",
+];
 
 /// Which classic preference a [`Preference`] reads.
 #[derive(Debug, Clone, Copy)]
@@ -250,7 +290,8 @@ const PREFERENCES: [Preference; 4] = [
 
 impl Preference {
     fn was_imported(&self, done: &BTreeSet<String>) -> bool {
-        done.contains(&self.next.join(".")) || self.legacy.is_some_and(|legacy| done.contains(&legacy.join(".")))
+        done.contains(&self.next.join("."))
+            || self.legacy.is_some_and(|legacy| done.contains(&legacy.join(".")))
     }
 }
 
@@ -258,11 +299,16 @@ impl Preference {
 fn object_bool(value: Option<&Value>) -> Option<bool> {
     match value? {
         Value::Bool(flag) => Some(*flag),
-        Value::Number(number) => match number.as_f64() {
-            Some(x) if x == 0.0 => Some(false),
-            Some(x) if x == 1.0 => Some(true),
-            _ => None,
-        },
+        Value::Number(number) => {
+            let x = number.as_f64()?;
+            if x == 0.0 {
+                Some(false)
+            } else if x == 1.0 {
+                Some(true)
+            } else {
+                None
+            }
+        }
         _ => None,
     }
 }
@@ -292,7 +338,8 @@ pub fn lines(value: &Value) -> Option<Vec<String>> {
         Value::Array(items) => items.iter().map(Value::as_str).collect::<Option<_>>()?,
         _ => return None,
     };
-    let newline = |c: char| matches!(c, '\n' | '\u{B}' | '\u{C}' | '\r' | '\u{85}' | '\u{2028}' | '\u{2029}');
+    let newline =
+        |c: char| matches!(c, '\n' | '\u{B}' | '\u{C}' | '\r' | '\u{85}' | '\u{2028}' | '\u{2029}');
     Some(
         texts
             .into_iter()
@@ -314,7 +361,9 @@ fn read_source(read: Read, source: &Value) -> Option<Value> {
             }
             object_bool(get("browserOpenTerminalLinksInCmuxBrowser")).map(Value::Bool)
         }
-        Read::Enabled => object_bool(get("browserDisabledOverride")).map(|disabled| Value::Bool(!disabled)),
+        Read::Enabled => {
+            object_bool(get("browserDisabledOverride")).map(|disabled| Value::Bool(!disabled))
+        }
         Read::Lines(key) => {
             let raw = get(key)?;
             let raw = match raw {
@@ -345,7 +394,11 @@ pub struct PreferenceImport {
 /// domains, this channel's first) that holds one, once per key: `done` holds
 /// the paths already imported. A value `file` already has wins, and a value
 /// equal to next's default isn't written.
-pub fn preference_edits(done: &BTreeSet<String>, file: &Value, sources: &[Value]) -> PreferenceImport {
+pub fn preference_edits(
+    done: &BTreeSet<String>,
+    file: &Value,
+    sources: &[Value],
+) -> PreferenceImport {
     let file = canonical(file.clone());
     let sources: Vec<Value> = sources.iter().cloned().map(canonical).collect();
     let schema = Schema::embedded();
@@ -360,7 +413,10 @@ pub fn preference_edits(done: &BTreeSet<String>, file: &Value, sources: &[Value]
         if preference.legacy.is_some_and(|legacy| value_at(&file, legacy).is_some()) {
             continue;
         }
-        let Some(value) = sources.iter().find_map(|source| read_source(preference.read, source)) else { continue };
+        let Some(value) = sources.iter().find_map(|source| read_source(preference.read, source))
+        else {
+            continue;
+        };
         if value_at(&file, preference.next).is_some() {
             continue;
         }
