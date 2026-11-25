@@ -78,6 +78,8 @@ pub const DISK_MARGIN_FRACTION: f64 = 0.02;
 pub const DISK_MARGIN_BYTES: u64 = 512 << 20;
 /// Saturated CPU clears after this long below its line.
 pub const CPU_CLEAR_SECS: u64 = 60;
+/// A fraction on a clear line counts as past it: `0.25 + 0.05` is `0.30000000000000004` in f64.
+const AT_LINE: f64 = 1e-9;
 
 impl Default for Lines {
     fn default() -> Self {
@@ -230,9 +232,9 @@ impl Watch {
         } else {
             // Down only past the margin: grow clears to warn at grow + margin, warn to ok
             // at warn + margin.
-            let cleared = if v >= warn + MEM_MARGIN {
+            let cleared = if v + AT_LINE >= warn + MEM_MARGIN {
                 MemLevel::Ok
-            } else if v >= grow + MEM_MARGIN {
+            } else if v + AT_LINE >= grow + MEM_MARGIN {
                 MemLevel::Warn
             } else {
                 MemLevel::Grow
@@ -333,7 +335,8 @@ impl Watch {
         let low =
             bytes < self.lines.disk_bytes || fraction.is_some_and(|f| f < self.lines.disk_fraction);
         let clear = bytes >= self.lines.disk_bytes.saturating_add(DISK_MARGIN_BYTES)
-            && fraction.is_none_or(|f| f >= self.lines.disk_fraction + DISK_MARGIN_FRACTION);
+            && fraction
+                .is_none_or(|f| f + AT_LINE >= self.lines.disk_fraction + DISK_MARGIN_FRACTION);
         let next = if self.disk_low { !clear } else { low };
         if next != self.disk_low {
             self.disk_low = next;
