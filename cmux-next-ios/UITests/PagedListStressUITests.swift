@@ -58,6 +58,38 @@ final class PagedListStressUITests: XCTestCase {
     @MainActor func testDownFastHugeWindowed() { stress("down", .fast, "huge", window: 300) }
     @MainActor func testUpFastHugeWindowed() { stress("up", .fast, "huge", window: 300) }
 
+    // MARK: A resting finger mid-list while rows land (SH-11)
+
+    /// A finger held still on the list, mid-list, while rows are inserted, removed and moved above and
+    /// below the reader (the inserts load): nothing the reader sees may move, by the frame-shift and
+    /// neighbour measures (frames under a finger are judged by both; the push measure only records
+    /// them). Aziz's phone recording of the Feed caught one-row jumps in exactly this state (SH-11:
+    /// no shift of what is on screen unless it is that content changing, or the person's own action).
+    @MainActor func testDownRestingFingerMidListUnderInsertsMovesNothing() { restingFinger("down") }
+    @MainActor func testUpRestingFingerMidListUnderInsertsMovesNothing() { restingFinger("up") }
+
+    @MainActor
+    private func restingFinger(_ direction: String) {
+        let lab = PagedLabDriver.launch("\(direction):normal", extra: ["-cmux-mobile-paged-lab-stress", "inserts"], test: self)
+        let name = "STRESS-\(direction)-resting-inserts"
+        XCTAssertTrue(lab.list.cells.firstMatch.waitForExistence(timeout: 20), "\(name): no rows")
+        // Away from the newest end, so arrivals land out of view and the anchor keeps the reader.
+        for _ in 0..<3 { lab.scroll(towardOlder: true, direction: direction, speed: .medium) }
+        lab.settle(lab.list.cells.firstMatch)
+        let before = lab.reading
+        // Held still for 6 s: the inserts load lands about 480 inserts, 120 removals and moves meanwhile.
+        lab.list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 6)
+        lab.settle(lab.list.cells.firstMatch)
+        lab.attach("\(name)-after")
+        let reading = lab.reading
+        lab.record(name, #"{"direction":"\#(direction)","load":"inserts","resting":true,"hud":\#(reading.json)}"#)
+        XCTAssertGreaterThan(reading.changes, before.changes, "\(name): the load changed nothing while the finger rested")
+        XCTAssertLessThanOrEqual(reading.frameShift, 0.5,
+                                 "\(name): a row being read moved \(reading.frameShift) pt under a resting finger (\(reading.shiftedFrames) frames)")
+        XCTAssertLessThanOrEqual(reading.neighbourShift, 0.5,
+                                 "\(name): a row next to the one read moved \(reading.neighbourShift) pt under a resting finger")
+    }
+
     // MARK: The person's jump to the newest rows, mid-flood
 
     /// The newest-rows pill tapped while rows flood in: the list goes to its newest row on purpose,
