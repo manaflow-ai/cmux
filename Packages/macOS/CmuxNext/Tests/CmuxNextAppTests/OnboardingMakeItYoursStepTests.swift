@@ -128,7 +128,7 @@ import Testing
 
     /// Skip puts back what was set when the step opened, in one write; with nothing picked it writes nothing.
     @Test func skipPutsBackTheOpeningChoices() async {
-        let opening = FirstRunChoices(workStyle: .terminal, density: .compact, background: "daily")
+        let opening = FirstRunChoices(workStyle: .terminal, density: "compact", background: "daily")
         let source = Source(opening)
         let step = MakeItYoursStepModel(source: source)
         step.start()
@@ -136,17 +136,17 @@ import Testing
         step.revert()
         #expect(source.applied.isEmpty, "nothing picked, nothing written")
         step.setWorkStyle(.gui)
-        step.setDensity(.comfortable)
+        #expect(step.setDensity("comfortable"))
         #expect(step.setBackground("hogai-nio"))
         step.revert()
         #expect(source.current == opening)
         #expect(step.choices == opening)
         #expect(source.applied.count == 4, "three picks and one write back")
-        #expect(source.applied.last?.old == FirstRunChoices(workStyle: .gui, density: .comfortable, background: "hogai-nio"))
+        #expect(source.applied.last?.old == FirstRunChoices(workStyle: .gui, density: "comfortable", background: "hogai-nio"))
     }
 
     @Test func skippingTheStepPutsBackTheOpeningChoices() async {
-        let opening = FirstRunChoices(workStyle: .terminal, density: .compact, background: nil)
+        let opening = FirstRunChoices(workStyle: .terminal, density: "compact", background: nil)
         let source = Source(opening)
         let model = OnboardingModel(services: MockOnboardingServices(), step: .makeItYours, choices: source)
         model.stepDidAppear()
@@ -172,6 +172,7 @@ import Testing
         #expect(make["opacity"]?.doubleValue == 0.8)
         #expect(make["opacitySet"]?.boolValue == false)
         #expect(make["material"] == .null)
+        #expect(make["chatsRunIn"]?.stringValue == "local", "chats stay on this Mac until the person picks Cloud")
         #expect(make["materials"]?.arrayValue?.compactMap(\.stringValue) == ["none", "frosted", "glass", "glass-clear"])
         #expect(state["footer"]?["primary"]?.stringValue == "continue")
 
@@ -181,12 +182,16 @@ import Testing
         _ = try await provider.call("cmux.onboarding.makeItYours.opacity", params: ["value": 0.55], context: clicked(303))
         _ = try await provider.call("cmux.onboarding.makeItYours.material", params: ["value": "frosted"], context: clicked(304))
         #expect(source.current == FirstRunChoices(workStyle: .terminal, density: "spacious", background: "daily", opacity: 0.55, material: .frosted))
+        _ = try await provider.call("cmux.onboarding.makeItYours.chatsRunIn", params: ["value": "cloud"], context: clicked(307))
+        #expect(source.current.chatsRunIn == .cloud)
+        #expect(source.applied.last?.old.chatsRunIn == .local)
         let after = try await provider.call("cmux.onboarding.state", params: [:], context: PageCallContext(page: "cmux.onboarding"))
         #expect(after["makeItYours"]?["opacity"]?.doubleValue == 0.55)
         #expect(after["makeItYours"]?["opacitySet"]?.boolValue == true)
         #expect(after["makeItYours"]?["material"]?.stringValue == "frosted")
+        #expect(after["makeItYours"]?["chatsRunIn"]?.stringValue == "cloud")
         for (op, params) in [("background", ["id": "elsewhere"]), ("density", ["value": "huge"]), ("material", ["value": "chrome"]),
-                             ("opacity", ["value": 2])] as [(String, JSONValue)] {
+                             ("opacity", ["value": 2]), ("chatsRunIn", ["value": "moon"])] as [(String, JSONValue)] {
             await #expect(throws: PageError.self) {
                 _ = try await provider.call("cmux.onboarding.makeItYours.\(op)", params: params, context: clicked(310))
             }

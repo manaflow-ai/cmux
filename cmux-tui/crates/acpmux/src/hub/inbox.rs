@@ -1032,7 +1032,8 @@ fn wakes(meta: &SessionMeta, item: &Item) -> bool {
                 || wakes_as(
                     meta,
                     item.class,
-                    item.report || item.waited,
+                    item.report,
+                    item.waited,
                     item.from_session.as_deref(),
                 )
         }
@@ -1048,6 +1049,26 @@ fn earliest_due(new: &[&Item]) -> u64 {
 
 /// Whether `item` is a folded repeat of a program's page (`inbox_page_rule.rs`): it starts no
 /// flush of its own and goes with the next notice.
+/// A session's held-message deadlines for its `ls` row: how many new messages are past their
+/// deadline, and the soonest one's (module docs, "Deadlines"). NOW reads `inboxOverdue` from
+/// `acpmux ls --live --fields` in one call and counts each such session red.
+pub(super) fn deadline_row(session: &Session) -> (usize, Option<u64>) {
+    deadline_counts(&session.inbox().items, now_ms())
+}
+
+fn deadline_counts(items: &[Item], now: u64) -> (usize, Option<u64>) {
+    let mut overdue = 0;
+    let mut due_at: Option<u64> = None;
+    for item in items.iter().filter(|i| !i.noticed && !folded(i)) {
+        let due = item.due();
+        if due < now {
+            overdue += 1;
+        }
+        due_at = Some(due_at.map_or(due, |d| d.min(due)));
+    }
+    (overdue, due_at)
+}
+
 fn folded(item: &Item) -> bool {
     item.verdict == Some(page_rule::Verdict::Fold)
 }
@@ -1061,13 +1082,21 @@ fn ordinary_fyi(item: &Item) -> bool {
 }
 
 /// [`wakes`] for a message of `class` from session `from` not in the inbox yet; `report` is a
-/// report of work this chat gave, or a message that waited for this machine
-/// (`prompt_provenance::waited`).
-fn wakes_as(meta: &SessionMeta, class: PromptClass, report: bool, from: Option<&str>) -> bool {
+/// report of work this chat gave, `waited` a message that waited for this machine
+/// (`prompt_provenance::waited`). A waited message wakes the chat whatever its class, an FYI
+/// too: an idle chat takes no flush turn for what wakes nobody (#55196), so a message sent while
+/// the hub was down (an unclassed one files as an FYI) would otherwise never run.
+fn wakes_as(
+    meta: &SessionMeta,
+    class: PromptClass,
+    report: bool,
+    waited: bool,
+    from: Option<&str>,
+) -> bool {
     match class {
         PromptClass::Block | PromptClass::Question => true,
-        PromptClass::Fyi => false,
-        PromptClass::Result => meta.turn_count == 0 || report || controls(meta, from),
+        PromptClass::Fyi => waited,
+        PromptClass::Result => meta.turn_count == 0 || report || waited || controls(meta, from),
     }
 }
 
@@ -1421,12 +1450,7 @@ impl Hub {
         let waited = crate::prompt_provenance::waited(provenance);
         let surge_on = self.surge_inbox_on();
         let wakes_before_rule = (surge_on && fire_notice(provenance.and_then(|p| p.get("notice"))))
-            || wakes_as(
-                &meta_now,
-                class,
-                is_report(provenance) || waited,
-                sender_session.as_deref(),
-            );
+            || wakes_as(&meta_now, class, is_report(provenance), waited, sender_session.as_deref());
         // A chat on the coordinator list wakes only for a page (`inbox_page_rule.rs`).
         let page_rule_on = page_rule::listed(&*self.config.read().await, &meta_now.name);
         let continuing = self.continuation_pending(session);
