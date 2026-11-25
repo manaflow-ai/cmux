@@ -153,6 +153,8 @@ pub(super) fn ask<'a>(
         harness,
         auto,
         waiting,
+        // The session this connection proved it runs in: its lane's fan-out cap applies.
+        caller: conn.caller().filter(|_| !person),
     }
 }
 
