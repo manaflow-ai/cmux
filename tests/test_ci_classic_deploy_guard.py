@@ -481,6 +481,23 @@ class RequestErrors(unittest.TestCase):
             self.answer([(403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": reset}, body)])
         self.assertIn("rate limit exceeded", str(caught.exception))
 
+    def test_retry_after_zero_cannot_spin(self) -> None:
+        body = json.dumps({"message": "secondary rate limit"}).encode()
+        answers = [(429, {"retry-after": "0"}, body)] * 10
+        with self.assertRaises(guard.Unreadable):
+            self.answer(answers)
+        self.assertEqual(len(answers), 10 - 1 - guard.RATE_LIMIT_RETRIES)
+
+    def test_a_rate_limit_named_only_in_the_message_waits_a_minute(self) -> None:
+        body = json.dumps({"message": "You have exceeded a secondary rate limit"}).encode()
+        got, slept = self.answer([(403, {}, body), {"ok": 2}])
+        self.assertEqual((got, slept), ({"ok": 2}, [60.0]))
+
+    def test_a_body_that_is_not_json_is_shown_raw(self) -> None:
+        with self.assertRaises(guard.Unreadable) as caught:
+            self.answer([(403, {}, b"<html>denied</html>")])
+        self.assertIn("<html>denied</html>", str(caught.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

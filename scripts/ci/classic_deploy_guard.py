@@ -153,9 +153,12 @@ def judge(config: dict, commits: list[str], files_of: Callable[[str], list[str]]
 
 # --- GitHub and Vercel readers -------------------------------------------------------------------------------------
 
-# How long one run may wait, in all, for GitHub's rate limit to reset before it refuses as unreadable. The refused
-# deploy is cancelled only while Vercel still builds it, so the wait stays short.
+# How long one request may wait for a rate limit to reset, and how many times it retries, before it refuses as
+# unreadable. The refused deploy is cancelled only while Vercel still builds it, so the wait stays short. Every wait
+# is at least RATE_LIMIT_MIN_WAIT_S, so a "retry-after: 0" answer cannot spin.
 RATE_LIMIT_WAIT_S = 120.0
+RATE_LIMIT_RETRIES = 3
+RATE_LIMIT_MIN_WAIT_S = 1.0
 
 
 def _http_error_detail(exc: urllib.error.HTTPError) -> tuple[str, float | None]:
@@ -178,10 +181,10 @@ def _http_error_detail(exc: urllib.error.HTTPError) -> tuple[str, float | None]:
         detail += f" (x-ratelimit-remaining {remaining}, resource {headers.get('x-ratelimit-resource') or '?'})"
     wait = None
     if exc.code in (403, 429):
-        if retry_after and retry_after.strip().isdigit():
-            wait = float(retry_after)
-        elif remaining == "0" and reset and reset.strip().isdigit():
-            wait = max(0.0, float(reset) - time.time()) + 1
+        if retry_after and retry_after.strip().isdecimal() and retry_after.strip().isascii():
+            wait = max(RATE_LIMIT_MIN_WAIT_S, float(retry_after))
+        elif remaining == "0" and reset and reset.strip().isdecimal() and reset.strip().isascii():
+            wait = max(0.0, float(reset) - time.time()) + RATE_LIMIT_MIN_WAIT_S
         elif "rate limit" in message.lower():
             wait = 60.0
     return detail, wait
@@ -192,7 +195,7 @@ def _request(url: str, token: str | None, method: str = "GET", accept: str = "ap
     headers = {"Accept": accept, "User-Agent": "classic-deploy-guard"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    waited = 0.0
+    waited, retries = 0.0, 0
     while True:
         request = urllib.request.Request(url, method=method, headers=headers,
                                          data=b"" if method == "PATCH" else None)
@@ -201,10 +204,10 @@ def _request(url: str, token: str | None, method: str = "GET", accept: str = "ap
                 return json.loads(response.read() or b"null")
         except urllib.error.HTTPError as exc:
             detail, wait = _http_error_detail(exc)
-            if wait is not None and waited + wait <= RATE_LIMIT_WAIT_S:
+            if wait is not None and retries < RATE_LIMIT_RETRIES and waited + wait <= RATE_LIMIT_WAIT_S:
                 print(f"::notice::{method} {url.split('?')[0]}: rate limited ({detail}); retrying in {wait:.0f} s")
                 sleep(wait)
-                waited += wait
+                waited, retries = waited + wait, retries + 1
                 continue
             raise Unreadable(f"{method} {url.split('?')[0]}: {detail}") from exc
         except (urllib.error.URLError, TimeoutError, ValueError) as exc:
