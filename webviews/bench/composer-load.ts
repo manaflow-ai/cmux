@@ -1,5 +1,6 @@
 // l10n-allow-file: benchmark diagnostics, not shipped UI.
 import type { Frame, Page } from "playwright";
+import { waitForPageHook, watchPageErrors } from "./support/benchPage";
 
 type Surface = Page | Frame;
 type LoadReceipt = {
@@ -11,13 +12,19 @@ type LoadReceipt = {
   elapsedMs: number;
   maxGapMs: number;
   maxScheduleOffsetMs: number;
+  /// The maxima since the `mark` taken when the typing window opened (see runComposerLoad).
+  windowMaxGapMs: number;
+  windowMaxScheduleOffsetMs: number;
+  windowMaxGapEndMs: number;
   error?: string;
 };
 const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
 const quantile = (xs: number[], q: number) => [...xs].sort((a, b) => a - b)[Math.round((xs.length - 1) * q)] ?? null;
 
-export async function seedComposer(surface: Surface, turns: number) {
-  await surface.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
+export async function seedComposer(surface: Surface, turns: number, errors?: string[]) {
+  // Not a bare waitForFunction: a page that threw while it mounted installs no hook, and the wait
+  // then reads as `Timeout ... log: []` with nothing to point at (bench/support/benchPage.ts).
+  await waitForPageHook(surface, "cmuxAcpmuxDebug", { timeout: 60_000, errors });
   const receipt = await surface.evaluate(
     (count) => (window as any).cmuxAcpmuxDebug.loadSeed(count, { light: true }),
     turns,
@@ -49,14 +56,24 @@ export async function runComposerLoad(
     gap: number;
     stream: number;
     toolLines: number;
+    /// Around the typed keys only (a CPU profile of the window the keys wait in, not the setup).
+    typing?: { start(): Promise<void>; stop(): Promise<void> };
   },
 ) {
   const { port, mode, length, keys, gap } = options;
-  await page.goto(`http://127.0.0.1:${port}/?mock`);
+  // Named apart from the acceptance `errors` list below: these are the page's own thrown/console errors,
+  // collected from the goto onward so a pane that never installs its hook reports what it held instead.
+  const pageErrors = watchPageErrors(page);
+  const response = await page.goto(`http://127.0.0.1:${port}/?mock`);
+  const status = response?.status();
+  // A static server that answers `/` with a 404 body loads as a page: without this the bench waits
+  // 60 s for hooks that page could never install (bench/support/benchPage.ts gotoBenchPage).
+  if (status !== undefined && status >= 400)
+    throw new Error(`runComposerLoad: http://127.0.0.1:${port}/?mock answered ${status}; the pane page is not there`);
   // A light turn reduces to prompt, reply and turnSummary (direct.ts turn_result).
   // Always report/check the actual model count too; the old fixture comment omits the summary.
   const requestedRows = mode === "L3" ? 100000 : length;
-  const seed = await seedComposer(page, Math.ceil(requestedRows / 3));
+  const seed = await seedComposer(page, Math.ceil(requestedRows / 3), pageErrors);
   const rows = seed.rows;
   // L3's receipt, taken before any key: the model reports the full total and its own readiness.
   // The mounted window is diagnostic only; a paged transcript may not hold the newest row locally.
@@ -121,13 +138,20 @@ export async function runComposerLoad(
     if (receipt.error) throw new Error(receipt.error);
   }
   await page.waitForTimeout(500);
-  const readLoads = () =>
+  const readLoads = (mark = false) =>
     Promise.all(
       loads.map(
-        (surface) => surface.evaluate(() => (window as any).cmuxAcpmuxDebug.typingLoad()) as Promise<LoadReceipt>,
+        (surface) =>
+          surface.evaluate(
+            (mark) => (window as any).cmuxAcpmuxDebug.typingLoad(mark ? { mark: true } : undefined),
+            mark,
+          ) as Promise<LoadReceipt>,
       ),
     );
-  const before = await readLoads();
+  // The rate and continuity checks below cover the window from here to the last key's paint: the
+  // stream's first second (its tool row mounting, the page settling) is before any key is timed, so
+  // a stall there says nothing about whether the keys were typed under the requested load.
+  const before = await readLoads(true);
   await page.evaluate(() => {
     const debug = (window as any).cmuxAcpmuxDebug;
     debug.resetTyping();
@@ -164,6 +188,7 @@ export async function runComposerLoad(
   const clocksBefore = await readClocks(page, loads);
   const expected = Array.from({ length: keys }, (_, i) => "abcdefghijklmnopqrstuvwxyz"[i % 26]).join("");
   const late: number[] = [];
+  await options.typing?.start();
   const started = performance.now();
   for (let i = 0; i < keys; i++) {
     const due = started + i * gap;
@@ -175,6 +200,7 @@ export async function runComposerLoad(
   await page.evaluate(
     () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
   );
+  await options.typing?.stop();
   const result = await page.evaluate(() => {
     const debug = (window as any).cmuxAcpmuxDebug;
     return { typing: debug.typingStats(), renders: debug.renders(), watch: (window as any).__finishTypingWatch() };
@@ -188,6 +214,9 @@ export async function runComposerLoad(
       chunks_per_second: (1000 * (receipt.deltas - before[i]!.deltas)) / ms,
       tool_lines_per_second: (1000 * (receipt.toolLines - before[i]!.toolLines)) / ms,
       max_schedule_offset_ms: receipt.maxScheduleOffsetMs,
+      window_max_gap_ms: receipt.windowMaxGapMs,
+      window_max_schedule_offset_ms: receipt.windowMaxScheduleOffsetMs,
+      window_max_gap_end_ms: receipt.windowMaxGapEndMs,
     };
   });
   const samples = result.typing.samples as {
@@ -221,8 +250,8 @@ export async function runComposerLoad(
         !Number.isFinite(r.chunks_per_second) ||
         r.chunks_per_second < rate * 0.9 ||
         r.tool_lines_per_second < lines * 0.9 ||
-        r.maxGapMs > 250 ||
-        r.maxScheduleOffsetMs > 250 ||
+        r.windowMaxGapMs > 250 ||
+        r.windowMaxScheduleOffsetMs > 250 ||
         streamEndOnPageClock(r, clocksAfter.surfaces[i]) < lastPaint - 250,
     )
   )
@@ -273,6 +302,8 @@ export async function runComposerLoad(
     task_observation_threshold_ms: result.watch.task_observation_threshold_ms,
     keys_sharing_frame: [...frames.values()].filter((n) => n > 1).reduce((sum, n) => sum + n, 0),
     driver_late_p95_ms: quantile(late, 0.95),
+    driver_late_max_ms: Math.max(0, ...late),
+    driver_late_max_key: late.indexOf(Math.max(0, ...late)),
     load_rates: loadRates,
     budget_p95_ms: 16,
     budget_p99_ms: 33,

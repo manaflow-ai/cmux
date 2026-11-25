@@ -37,15 +37,33 @@ drift "$schema" docs/mdm/managed-preferences.md \
 # A setting declared outside CmuxNextSettings (CmuxNextDesign's AttentionSettings) changes the exports too.
 drift "$schema" docs/mdm/com.manaflow.cmux.plist Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/AttentionSettings.swift \
   || fail "a setting declared in another CmuxNext module causes the settings exports"
+# The defaults snapshot is bot-only too (RFD 0045): nothing at a pull request head reads it.
 drift schemas/defaults/cmux-next.json Packages/macOS/CmuxNext/Sources/CmuxNextActions/KeyBindingDefaults.swift \
-  || fail "a default binding change causes the defaults snapshot"
+  && fail "the defaults snapshot is bot-only, even with a default binding change"
+grep -q "only the base autofix writes it" "$tmp/out" || fail "the bot-only snapshot says so"
+# pr-autofix-apply.sh reads the bot-only list from the table, so the two cannot disagree.
+printf '%s\n' schemas/defaults/cmux-next.json "$graph" "$schema" | python3 "$OUTPUTS" bot-only > "$tmp/out"
+[[ "$(cat "$tmp/out")" == "$(printf '%s\n' schemas/defaults/cmux-next.json "$graph")" ]] \
+  || fail "bot-only names the snapshot and the graph, not the settings export"
+# The web docs copies are bot-only (RFD 0048): the web tests build the same data at the head, so even a
+# pull request that changes the catalog or the schema carries no copy.
+docs=(web/data/cmux-shortcuts.generated.json web/data/next-docs/cli-reference.generated.json
+  web/data/next-docs/palette-reference.generated.json web/data/next-docs/settings-reference.generated.json)
+printf '%s\n' "${docs[@]}" | python3 "$OUTPUTS" bot-only > "$tmp/out"
+[[ "$(cat "$tmp/out")" == "$(printf '%s\n' "${docs[@]}")" ]] || fail "bot-only names the four web docs copies"
+for doc in "${docs[@]}"; do
+  drift "$doc" plans/cmux-next/action-surfaces.json "$schema" Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionCatalog.xcstrings \
+    web/scripts/export-docs-shortcuts.ts web/scripts/export-next-docs.ts \
+    && fail "$doc is bot-only, even with its inputs changed"
+  grep -q "only the base autofix writes it" "$tmp/out" || fail "$doc says it is bot-only"
+done
 drift cmux-tui/bindings/go/.cmux-resource-api.json cmux-tui/spec/resource-operations-v2.json || fail "a spec change causes the SDK files"
 drift "$cap" Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift \
   || fail "a capability source change causes the daemon export"
 drift "$cap" scripts/cmux-next/base-autofix.sh \
   && fail "the capability export is drift without its source"
-# An output never causes another output: the exports alone do not own the defaults snapshot.
-drift schemas/defaults/cmux-next.json "$schema" && fail "the settings export alone must not cause the defaults snapshot"
+# An output never causes another output: the exports alone do not own the action exports.
+drift plans/cmux-next/actions.md "$schema" && fail "the settings export alone must not cause the action exports"
 # Every output the autofix may push is in the table, so the push never drops a repair the
 # pull request caused (the Java SDK sources and the namespace ratchet were missing once).
 for path in cmux-tui/bindings/java/src/com/cmux/raw/Client.java cmux-tui/bindings/go/raw/generated_ops.go \
@@ -101,8 +119,9 @@ bash "$APPLY" "$tmp/repair.patch" "$repo" --changed "$tmp/changed" > "$tmp/out" 
 #   - pr-autofix-apply.sh accepts it, or refuses it, as the table says (a refused path refuses the whole
 #     pull request repair, so a file the PR autofix writes must be accepted);
 #   - generated_outputs.py has a row for it, or none, as the table says. A new row is a new committed export,
-#     which generated_files_guard.py refuses: the docs reference pages and the app
-#     platform copies have none, so pr-autofix-apply.sh --changed drops them and the base autofix lands them.
+#     which generated_files_guard.py refuses unless it registers a file the base already tracks (the docs
+#     reference pages, bot-only); the app platform copies have none, so pr-autofix-apply.sh --changed drops
+#     them and the base autofix lands them.
 # Each numbered step of base-autofix.sh has a row here: a new generator fails this test until it has one.
 # Fails once at the end, naming every gap. No network.
 scripts="$ROOT_DIR/scripts/cmux-next"
@@ -118,13 +137,13 @@ rows=(
   "1c|-"                                                          # a no-op: page strings are build output
   "1d|cmux-tui/bindings/go/raw/generated_ops.go|1|1|out"
   "1d2|plans/cmux-next/daemon-capabilities.json|1|1|out"
-  "1e|web/data/cmux-shortcuts.generated.json|1|1|out"
-  "1e1|web/data/next-docs/cli-reference.generated.json|1|1|none"
-  "1e1|web/data/next-docs/settings-reference.generated.json|1|1|none"
-  "1e1'|web/data/next-docs/settings-reference.generated.json|1|1|none"  # without --docs-shortcuts
+  "1e|web/data/cmux-shortcuts.generated.json|1|-|out"                # bot-only: apply drops it
+  "1e1|web/data/next-docs/cli-reference.generated.json|1|-|out"      # bot-only
+  "1e1|web/data/next-docs/settings-reference.generated.json|1|-|out" # bot-only
+  "1e1'|web/data/next-docs/settings-reference.generated.json|1|-|out"  # without --docs-shortcuts; bot-only
   "1e2|cmux-tui/crates/cmux-app-host/generated/scopes.json|1|1|out"
-  "1e2|Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/scopes.json|1|1|none"
-  "1e3|schemas/defaults/cmux-next.json|1|-|out"                   # bot-only: apply drops it
+  "1e2|Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/samples/agent-status/cmux-app.json|1|1|none"
+  "1e3|schemas/defaults/cmux-next.json|1|-|out"                   # bot-only: apply drops it (generated_outputs.py bot-only)
   "1e4|-"                                                          # a no-op: the display suite list is derived where read
   "1f|scripts/lint-namespace-types-ratchet.txt|1|1|out"
   "1f'|Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift|1|-|none"  # a source rewrite, not an output

@@ -1014,14 +1014,45 @@ mod tests {
         assert!(!source.reports_rounds(&source.reaches("v2.pr99.through_list_daemon")));
     }
 
-    /// The gate script's group table: each `.gates` group word and the runner it starts.
+    /// The gate script's `gate_runner` cases: each `.gates` group word and the runner it starts.
     fn gate_groups(script: &str) -> HashMap<String, String> {
-        let entry = regex::Regex::new(r"^\s*\[([a-z0-9-]+)\]=(run_[a-z_]+)$").unwrap();
+        let entry = regex::Regex::new(r"^\s*([a-z0-9-]+)\) echo (run_[a-z_]+) ;;$").unwrap();
         script
             .lines()
             .filter_map(|line| entry.captures(line))
             .map(|found| (found[1].to_owned(), found[2].to_owned()))
             .collect()
+    }
+
+    /// One `.gates` line, read the way the gate script reads it: `None` when it is blank after its
+    /// `#` comment is cut, else its group and filter, or `Err` for a line of another shape. A
+    /// filter is one word of `[A-Za-z0-9_]`, so `core mod::gate` is refused here and by the script.
+    fn gate_line(line: &str) -> Result<Option<(&str, &str)>, ()> {
+        let words: Vec<&str> =
+            line.split('#').next().unwrap_or_default().split_whitespace().collect();
+        match words[..] {
+            [] => Ok(None),
+            [group, filter]
+                if filter.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') =>
+            {
+                Ok(Some((group, filter)))
+            }
+            _ => Err(()),
+        }
+    }
+
+    #[test]
+    fn a_gate_line_is_read_with_the_scripts_shape_rule() {
+        assert_eq!(gate_line(""), Ok(None));
+        assert_eq!(gate_line("# a comment"), Ok(None));
+        assert_eq!(
+            gate_line("core replay_append_gate # row 5c"),
+            Ok(Some(("core", "replay_append_gate")))
+        );
+        assert_eq!(gate_line("book v2_pr03d_"), Ok(Some(("book", "v2_pr03d_"))));
+        for bad in ["core", "core mod::gate", "core two words", "core gate-name"] {
+            assert_eq!(gate_line(bad), Err(()), "{bad:?}");
+        }
     }
 
     /// Every line of `scripts/cmux-next/v2-gates.d`, as its file's prefix (`pr03d` for
@@ -1049,13 +1080,10 @@ mod tests {
             );
             let text = fs::read_to_string(&file).unwrap_or_else(|e| panic!("{file:?}: {e}"));
             for (number, line) in text.lines().enumerate() {
-                let words: Vec<&str> =
-                    line.split('#').next().unwrap_or_default().split_whitespace().collect();
-                if words.is_empty() {
-                    continue;
-                }
-                let [group, filter] = words[..] else {
+                let Some((group, filter)) = gate_line(line).unwrap_or_else(|()| {
                     panic!("{file:?}:{}: a gate line is GROUP FILTER: {line:?}", number + 1)
+                }) else {
+                    continue;
                 };
                 let runner = groups.get(group).unwrap_or_else(|| {
                     panic!("{file:?}:{}: {group} is not a gate group", number + 1)

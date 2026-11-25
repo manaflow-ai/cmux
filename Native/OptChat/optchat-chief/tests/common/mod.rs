@@ -150,6 +150,8 @@ pub struct Owner {
     pub run_steps: Vec<(String, Value, Vec<Value>)>,
     /// When set, every attachment upload is refused with this code.
     pub refuse_uploads: Option<String>,
+    /// Every Send Later the brain queued: (conversation, op, send_at_ms).
+    pub scheduled: Vec<(String, Op, u64)>,
     /// Panics outside the owner lock during an original-file upload.
     pub panic_uploads: bool,
     /// Runs outside the owner lock before an original-file upload reads its bytes.
@@ -496,6 +498,19 @@ impl ConversationPort for FakeDaemon {
         Ok(())
     }
 
+    fn schedule(
+        &mut self,
+        conversation: &str,
+        op: &Op,
+        send_at_ms: u64,
+    ) -> Result<String, OpError> {
+        let mut owner = self.0.lock().unwrap();
+        owner
+            .scheduled
+            .push((conversation.to_owned(), op.clone(), send_at_ms));
+        Ok(format!("sch_{}", owner.scheduled.len()))
+    }
+
     fn draft(
         &mut self,
         conversation: &str,
@@ -621,6 +636,9 @@ pub struct Agents {
     /// `new_session` of a session whose name contains the text takes this
     /// long (a Claude Code process that starts slowly).
     pub slow_session: Option<(String, Duration)>,
+    /// Slow session starts under way now, and the most there were at once.
+    pub slow_starting: usize,
+    pub slow_starting_max: usize,
     /// `new_session_watching` never answers: its wait runs, 10 s of it a call, until the watch
     /// ends it (a harness still working on a loaded machine).
     pub hold_starts: bool,
@@ -906,7 +924,13 @@ impl AgentPort for FakeAgents {
         if let Some((part, delay)) = slow
             && spec.name.contains(&part)
         {
+            {
+                let mut inner = self.inner.lock().unwrap();
+                inner.slow_starting += 1;
+                inner.slow_starting_max = inner.slow_starting_max.max(inner.slow_starting);
+            }
             std::thread::sleep(delay);
+            self.inner.lock().unwrap().slow_starting -= 1;
         }
         // acpmux refuses any other session env key (acpmux session_env.rs ALLOWED_KEYS).
         if let Some(key) = spec.env.keys().find(|k| {

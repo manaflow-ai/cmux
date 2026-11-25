@@ -66,6 +66,7 @@
    transcript at its ends. Its scrollbar is hidden in both engines, so the transcript's shared one is
    the only one on screen (SCROLLBARS-THIN; #23285 left this list a second visible scroller). */
 .acpmux-minimap__list {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -372,19 +373,15 @@
   isolation: isolate;
   will-change: transform;
   box-sizing: border-box;
-  /* The edge is an inset shadow one device pixel wide (--cmux-hairline, #20713); appearance.borders
-     none clears it through --acpmux-minimap-rim. Glass, the popover level as the chat's other hover
-     cards (the link preview, a session's card; glass.css GLASS LEVELS), never an opaque fill (Leo
-     2026-10-21). Reduce Transparency turns the fill into the solid popup surface (below) and the blur
-     off (pages/shared/desktop.css). */
-  padding: var(--ds-space-2);
+  /* A hover card (PreviewCard.tsx: .ui-card.ui-glass): the one hover card glass of every other card
+     in the chat (the link preview, a session's card; glass.css GLASS LEVELS), its fill, frost, rim,
+     elevation and its text floor, never a recipe of its own (Leo, 2026-11-20: "WHERE IS THE GLASS
+     EVERYWHERE ALL THESE STUPID F***ING HOVER TOOLTIPS AND HOVER PREVIEW SHIT"). It drew the older
+     popover level by hand before. appearance.borders none clears the glass rim; Reduce Transparency
+     makes the fill the solid popup surface (--glass-opaque). */
+  /* glass-opaque-allow: Reduce Transparency's fill only (glass.css applies it under that setting) */
+  --glass-opaque: var(--surface-popup, var(--acpmux-minimap-card));
   border-radius: var(--ds-radius-xl);
-  background: color-mix(in srgb, var(--glass-surface, var(--acpmux-minimap-base)) var(--ds-glass-popover-tint), transparent);
-  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
-  backdrop-filter: var(--ds-glass-popover-blur);
-  box-shadow:
-    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-minimap-rim, var(--acpmux-minimap-card-ring)),
-    var(--elevation-2);
   color: var(--agent-text);
   font: var(--text-body) / var(--text-body--line-height) var(--font-ui);
   letter-spacing: var(--text-body--letter-spacing);
@@ -392,13 +389,17 @@
   cursor: default;
 }
 /* Reduce Transparency: the solid popup surface. */
-:root[data-reduce-transparency] .acpmux-minimap__card {
+:root:is([data-reduce-transparency], [data-glass="off"]) .acpmux-minimap__card {
   background: var(--surface-popup, var(--acpmux-minimap-card));
 }
 @media (prefers-reduced-transparency: reduce) {
   .acpmux-minimap__card {
     background: var(--surface-popup, var(--acpmux-minimap-card));
   }
+}
+/* Its insets over desktop.css's .ui-card ones, whichever sheet loads last. */
+.acpmux-minimap__card.ui-card {
+  padding: var(--ds-space-2);
 }
 /* The sender of another session's message, above its words: secondary text, one line. */
 .acpmux-minimap__from {
@@ -572,7 +573,7 @@
     --acpmux-landing-highlight: color-mix(in srgb, var(--agent-text) 22%, var(--glass-surface));
   }
 }
-:root[data-reduce-transparency] .acpmux-row .cv-user__bubble {
+:root:is([data-reduce-transparency], [data-glass="off"]) .acpmux-row .cv-user__bubble {
   --acpmux-landing-highlight: color-mix(in srgb, var(--agent-text) 22%, var(--glass-surface));
 }
 /* The full-height map (ScrollMap.tsx): marks sit where their messages are in the chat. A prompt's
@@ -740,4 +741,33 @@
 }
 .acpmux-minimap__show:focus-visible {
   outline: 1px solid var(--agent-focus-ring, var(--acpmux-minimap-text));
+}
+
+/* The transcript's New line, in the gap between rail ticks or at its height on the full map.
+   It occupies no slot and leaves scrolling, focus and prompt hit targets alone. */
+.acpmux-minimap__cutover {
+  position: absolute;
+  inset-inline-start: 0;
+  z-index: var(--layer-raised);
+  width: min(100%, var(--ds-space-3));
+  height: var(--acpmux-minimap-bar-height);
+  border-radius: var(--ds-space-1);
+  background: var(--cmux-app-accent, var(--agent-text));
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.acpmux-minimap__cutover[data-look="band"] {
+  width: 100%;
+  height: var(--ds-space-1);
+  opacity: 0.45;
+}
+.acpmux-minimap__cutover[data-look="dot"] {
+  width: var(--ds-space-1);
+  height: var(--ds-space-1);
+}
+.acpmux-minimap__cutover[data-edge="start"] {
+  transform: none;
+}
+.acpmux-minimap__cutover[data-edge="end"] {
+  transform: translateY(-100%);
 }

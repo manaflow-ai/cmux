@@ -23,7 +23,12 @@ public final class DeviceHub {
     public private(set) var status: Status = .idle
     public private(set) var connection: DeviceHubSocket.State = .disconnected
     public private(set) var me: HubMe?
-    public private(set) var devices: [HubDevice] = []
+    public private(set) var devices: [HubDevice] = [] {
+        didSet { if devices != oldValue { deviceNames = Dictionary(devices.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first }) } }
+    }
+    /// Each device's name by id, kept with ``devices``: a tab title reads one name in O(1), never a scan of the
+    /// device list per tab (hq#22524: `MacScreenPages.deviceName` hung the main thread titling every tab).
+    public private(set) var deviceNames: [String: String] = [:]
     /// A device-list read succeeded since sign-in. `ready` only means this device is registered: the list
     /// comes after the socket connects, so an empty `devices` before it says nothing (ask-6a79af928f).
     public private(set) var devicesListed = false
@@ -36,6 +41,9 @@ public final class DeviceHub {
     /// Permissions by host id (`GET /v1/permissions?host=`); this device's are fetched on every refresh.
     public private(set) var permissions: [String: [HubPermission]] = [:]
     public private(set) var relays: [HubRelay] = []
+    /// The account's "My agents can turn screen sharing and control on my machines" (`GET /v1/settings`):
+    /// off until read, and off again on sign-out.
+    public private(set) var agentsMayShare = false
     /// The opened relay secrets this device holds, by relay id: what the Keychain
     /// holds, loaded off the main actor by ``refreshRelays()`` (a Keychain read can
     /// take seconds), and kept in step by ``saveRelay(id:name:urls:secret:enabled:priority:)``
@@ -213,6 +221,7 @@ public final class DeviceHub {
         devicesListError = nil
         permissions = [:]
         relays = []
+        agentsMayShare = false
         openedSecrets = [:]
         pendingRequests = []
         tickets = [:]
@@ -257,6 +266,8 @@ public final class DeviceHub {
             await refreshPermissions(host: host ?? identity.id)
         case .relaysChanged:
             await refreshRelays()
+        case .settingsChanged:
+            await refreshSettings()
         case let .sessionRequest(request):
             if !pendingRequests.contains(where: { $0.id == request.id }) { pendingRequests.append(request) }
             onSessionPush?(push)
@@ -283,6 +294,17 @@ public final class DeviceHub {
         await refreshDevices()
         for host in permissionHosts { await refreshPermissions(host: host) }
         await refreshRelays()
+        await refreshSettings()
+    }
+
+    /// The account's settings again (a push said they changed, a reconnect).
+    /// A hub that cannot answer (an older one, no route) reads as off and is no error: the
+    /// permission defaults to off, and off is how every path behaved before it existed.
+    public func refreshSettings() async {
+        let run = generation
+        let settings = try? await client.accountSettings()
+        guard run == generation else { return }
+        agentsMayShare = settings?.agentsMayShare ?? false
     }
 
     /// The hosts whose permission lists a refresh reads: this device's own, then every
@@ -382,6 +404,20 @@ public final class DeviceHub {
     public func setMacScreenShared(_ shared: Bool) async throws {
         let device = try await perform { try await $0.setMacScreenShared(shared) }
         replace(device)
+    }
+
+    /// Turns this device's Mac Screen sharing on or off for an owner's agent under the account's
+    /// standing permission; the hub's audit row names the agent session and its device.
+    public func setMacScreenShared(_ shared: Bool, agent: HubAgentActor) async throws {
+        let device = try await perform { try await $0.setMacScreenShared(shared, agent: agent) }
+        replace(device)
+    }
+
+    /// "My agents can turn screen sharing and control on my machines": a person's change only (a
+    /// Settings click or the app's confirm dialog), with this app's full hub session.
+    public func setAgentsMayShare(_ on: Bool) async throws {
+        let settings = try await perform { try await $0.setAgentsMayShare(on) }
+        agentsMayShare = settings.agentsMayShare
     }
 
     public func setPermission(host: String, viewer: String, scope: DeviceScope) async throws {

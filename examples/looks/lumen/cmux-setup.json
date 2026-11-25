@@ -1,0 +1,24 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/lumen-look",
+  "name": "Lumen",
+  "tagline": "An app made of light: neutral glass over your own wallpaper, and your work on a calm plane framed by it.",
+  "description": "A whole cmux look built only from public surfaces. The window and everything on it (sidebar, tab bar, title area) is system glass in one neutral tint over your wallpaper; the agent chat, terminal, editor, diffs, pages and Settings sit on a near-solid plane inset in that glass. Depth is the only hierarchy: no painted rims, glows or extra lines. Theme files for color and material (Lumen, dark, the default; Lumen Light), a few settings, and a stylesheet of cmux.agentPane.style/1 tokens for quiet cards and the prompt bubble. Remove it and everything you had comes back.",
+  "version": "0.2.0",
+  "license": "MIT",
+  "screenshots": ["screenshots/lumen-dark.png", "screenshots/lumen-light.png"],
+
+  "cmuxProfile": 1,
+  "settings": {
+    "appearance.themeFile": "lumen",
+
+    // Tool rows stay quiet: thoughts and tool calls at the normal level of detail. The chat's
+    // fonts and sizes are left as they are: the type scale is the app's own.
+    "agentPane.display.transcriptView": "normal",
+
+    // The address field: corners on the same rule as the panes (8 pt), no shadow, since depth comes
+    // from the material.
+    "browser.omnibar.cornerRadius": 8,
+    "browser.omnibar.shadow": false
+  }
+}

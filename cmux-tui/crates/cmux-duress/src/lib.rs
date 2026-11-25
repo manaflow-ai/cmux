@@ -9,7 +9,10 @@
 //! - [`history`]: synthesized Claude Code scrollback rows;
 //! - [`stream`]: the PTY stream schedule;
 //! - [`chat`]: the chat records;
-//! - [`link`]: the `cmux-fault` link model, as a schedule.
+//! - [`link`]: the `cmux-fault` link model, as a schedule;
+//! - [`scenario`]: named scenarios (`scenarios/*.toml`), their schedule transforms and verdict;
+//! - `replay` (feature `paths`, on by default): a scenario run through ghostty-vt, the
+//!   hybrid/lean projection and `claude::render`.
 //!
 //! Files written into the output folder: `duress.json` (knobs, inputs, counts), `pty-history.bin`,
 //! `pty-stream.jsonl`, `chat.ndjson`. All four are written for every spec, empty where a knob is 0,
@@ -20,6 +23,9 @@ pub mod history;
 pub mod inputs;
 pub mod knobs;
 pub mod link;
+#[cfg(feature = "paths")]
+pub mod replay;
+pub mod scenario;
 pub mod stream;
 
 use std::io::Write;
@@ -85,7 +91,15 @@ struct InputsManifest<'a> {
 /// Expands the recordings under `knobs`. The seed's streams: 1 synthesized text, 2 the stream's
 /// top-up timing, 3 the stream's link, 4 the chat's link.
 pub fn generate(knobs: &Knobs, inputs: &Inputs) -> Result<Generated, String> {
-    let link = knobs.link_profile()?;
+    generate_with_link(knobs, knobs.link_profile()?, inputs)
+}
+
+/// [`generate`] with the link given instead of named by the knobs (a scenario's own profile).
+pub fn generate_with_link(
+    knobs: &Knobs,
+    link: Option<LinkProfile>,
+    inputs: &Inputs,
+) -> Result<Generated, String> {
     let mut seed = Rng::new(knobs.seed);
     let words = inputs::printable_words(&inputs.pty);
     let mut rows = history::Rows::new(seed.split(1), &words);
