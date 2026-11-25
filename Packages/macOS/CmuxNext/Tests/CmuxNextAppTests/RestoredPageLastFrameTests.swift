@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
+import CmuxNextBridge
 import CmuxNextCompat
 @testable import CmuxNextDaemon
 import CmuxNextMobileHost
@@ -30,6 +31,17 @@ import Testing
                                              space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
         context.setFillColor(CGColor(red: 0.8, green: 0.3, blue: 0.2, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: 120, height: 90))
+        return try #require(context.makeImage())
+    }
+
+    /// A picture with detail: a flat one is a blank capture, which no card shows whatever its tab.
+    private static func detailedPicture() throws -> CGImage {
+        let context = try #require(CGContext(data: nil, width: 120, height: 90, bitsPerComponent: 8, bytesPerRow: 0,
+                                             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+        for row in 0..<90 {
+            context.setFillColor(row % 2 == 0 ? CGColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1) : CGColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1))
+            context.fill(CGRect(x: 0, y: row, width: 120, height: 1))
+        }
         return try #require(context.makeImage())
     }
 
@@ -239,8 +251,19 @@ import Testing
         defer { try? FileManager.default.removeItem(at: folder) }
         cache.pageFrames = frames
         cache.findTab = { $0 == tab.id ? tab : nil }
-        let image = await cache.previewImage(for: tab.id, maxPixelSize: CGSize(width: 60, height: 60))
-        #expect(image != nil)
+        #expect(await cache.previewImage(for: tab.id, maxPixelSize: CGSize(width: 60, height: 60)) != nil)
+        let image = try Self.detailedPicture()
+        #expect(await ThumbnailStats.measure(image)?.isBlank == false)
         #expect(await TabPreviewSource.shown(image, key: tab.id, cache: cache) == nil, "a New Tab page's card shows no picture")
+    }
+
+    /// A chat made from a New Tab keeps the New Tab address in its record: its card still shows the chat (the dev build
+    /// of the first New Tab filter showed every such chat's placeholder).
+    @Test func aChatMadeFromANewTabShowsItsPicture() async throws {
+        let cache = cache()
+        let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 45), kind: .conversation, url: "chrome://newtab/"))
+        cache.findTab = { $0 == tab.id ? tab : nil }
+        let image = try Self.detailedPicture()
+        #expect(await TabPreviewSource.shown(image, key: tab.id, cache: cache) != nil, "a chat's card lost its picture to the New Tab filter")
     }
 }
