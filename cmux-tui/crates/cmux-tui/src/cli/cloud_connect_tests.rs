@@ -400,7 +400,7 @@ fn the_pty_run_shows_the_link_and_prompt_and_captures_the_token() {
     let input = pipe_with(b"CODE-123\n");
     let mut out = Vec::new();
     let started = std::time::Instant::now();
-    let token = capture::run(&program, &["setup-token"], Some(input), 200, &mut out).unwrap();
+    let token = capture::run(&program, Some(input), 200, &mut out).unwrap();
     unsafe { libc::close(input) };
     assert_eq!(&*token, TOKEN);
     let shown = String::from_utf8_lossy(&out);
@@ -418,13 +418,12 @@ fn the_pty_run_fails_with_no_token_and_names_a_missing_claude() {
     let dir = tempfile::tempdir().unwrap();
     let program = fake_claude(dir.path(), "echo 'Error: login failed'\nexit 1");
     let mut out = Vec::new();
-    let error = capture::run(&program, &["setup-token"], None, 200, &mut out).unwrap_err();
+    let error = capture::run(&program, None, 200, &mut out).unwrap_err();
     assert!(error.contains("without printing a token"), "{error}");
     assert!(String::from_utf8_lossy(&out).contains("login failed"));
 
     let missing = dir.path().join("no-such-claude");
-    let error =
-        capture::run(missing.to_str().unwrap(), &["setup-token"], None, 200, &mut out).unwrap_err();
+    let error = capture::run(missing.to_str().unwrap(), None, 200, &mut out).unwrap_err();
     assert!(error.contains("not installed"), "{error}");
 }
 
