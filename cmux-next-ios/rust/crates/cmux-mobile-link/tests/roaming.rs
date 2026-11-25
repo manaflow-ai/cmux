@@ -381,6 +381,36 @@ async fn wireguard_roam_takes_a_fresh_turn_allocation() {
     }
 }
 
+/// The phone's plain UDP reaches only TURN relayed addresses (a symmetric
+/// CGNAT in front of a port-restricted Mac: no direct path, and STUN goes
+/// unanswered). Its roam's TURN allocation comes back within a round trip;
+/// the roam installs and announces it then, not after the STUN wait
+/// (1.5 s) that the silent server runs out. Before, the allocation sat
+/// unused for that wait and the stream stalled about 2 s (netlab `move`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_roam_uses_its_turn_allocation_without_waiting_out_stun() {
+    fn only_relays(addr: &std::net::SocketAddr) -> bool {
+        !cmux_mobile_link::testing::is_test_relay(addr)
+    }
+    let turn = TestTurn::start().await;
+    // A STUN server that never answers (as when the new network's route is
+    // not up yet for the roam's one request, or the request is lost).
+    let silent = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    let stun = cmux_mobile_link::api::IceServer {
+        urls: vec![format!("stun:{}", silent.local_addr().unwrap())],
+        ..turn.udp_only()
+    };
+    let phone =
+        DialOptions { ice_servers: vec![turn.udp_only(), stun], drop_udp_to: Some(only_relays), ..options() };
+    let run = stream_across_a_change(phone, options(), Some(Duration::ZERO), Duration::from_secs(4)).await;
+    eprintln!("stun-silent roam: {run:?}");
+    assert_eq!(run.after, LinkPath::Turn);
+    let at = |name: &str| run.marks.iter().find(|(mark, _)| mark == name).map(|(_, at)| *at);
+    let allocated = at("roam_turn_allocated").unwrap_or_else(|| panic!("no allocation: {:?}", run.marks));
+    assert!(allocated < Duration::from_millis(700), "allocation installed at {allocated:?}: {:?}", run.marks);
+    assert!(run.stall < Duration::from_millis(1000), "stalled {:?}", run.stall);
+}
+
 /// The OS reports the new path 300 ms after the old network died: what
 /// was sent into the dead network meanwhile is sent again, so the stall is
 /// that delay plus a round trip, not TCP's 1 s retransmission timeout.
@@ -1004,7 +1034,17 @@ async fn wireguard_link_closes_after_a_60s_blackout() {
     let run = blackout(Duration::from_secs(60), false).await;
     eprintln!("BLACKOUT 60s: {run:?}");
     assert!(cmux_mobile_link::KEEPALIVE_TIMEOUT < Duration::from_secs(60));
-    assert_eq!(run.phone_closed.as_deref(), Some("keepalive timed out"), "{run:?}");
+    // Both keepalives run out about together, and the signaling socket is not
+    // dark: when the Mac's fires first, its `bye` reaches the phone over
+    // signaling, the phone drops the tunnel, and its link reads "peer closed
+    // the link". Either way one side's keepalive ended it.
+    match run.phone_closed.as_deref() {
+        Some("keepalive timed out") => {}
+        Some("peer closed the link") => {
+            assert_eq!(run.mac_closed.as_deref(), Some("keepalive timed out"), "{run:?}");
+        }
+        other => panic!("the phone's link closed with {other:?}: {run:?}"),
+    }
 }
 
 static PHONE_SENDS: std::sync::Mutex<Vec<std::time::Instant>> = std::sync::Mutex::new(Vec::new());
