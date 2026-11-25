@@ -288,7 +288,9 @@ describe("cmux VM image apt index", () => {
   test("smoke refuses openbox only on an image without the agent tools", async () => {
     const command = rolesOffFontsOnCommand();
     expect(command).toContain("{ test -x /opt/cmux/agent-tools/bin/cmux-cua || ! command -v openbox >/dev/null; }");
-    expect(command).toContain("! command -v ffmpeg >/dev/null");
+    // Roll 3641: #56284 bakes ffmpeg, and smoke still refused it.
+    expect(command).toContain("command -v ffprobe >/dev/null");
+    expect(command).not.toContain("! command -v ffmpeg");
     await bashSyntax(command);
   });
 
@@ -528,6 +530,8 @@ describe("cmux VM image /tmp writer after clean (image roll 42888042827: /tmp/op
       expect(out).toContain(`open by pid ${holder.pid}: sleep 300`);
       expect(out).toContain(`named by pid ${namer.pid}:`);
       expect(out).toContain("processes of");
+      expect(out).not.toContain("Usage:");
+      expect(out.trimEnd().split("\n").at(-1)).toContain(`written after clean: ${leftover}`);
     } finally {
       holder.kill("SIGKILL");
       namer.kill("SIGKILL");
