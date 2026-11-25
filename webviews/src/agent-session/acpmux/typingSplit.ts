@@ -291,6 +291,47 @@ export function instrumentView(view: EditorView) {
     });
     return timed("pluginViews", () => updatePluginViews.apply(this, args));
   };
+  wrap(anyView, "updateStateInner", "updateStateInner");
+  const seenConfigs = new WeakSet<object>();
+  const patchFields = () => {
+    const state = view.state as unknown as { config: { fields: { name: string; apply: (...a: unknown[]) => unknown }[] } };
+    if (seenConfigs.has(state.config)) return;
+    seenConfigs.add(state.config);
+    for (const field of state.config.fields) {
+      const apply = field.apply;
+      field.apply = (...a: unknown[]) => timed(`ap:${field.name}`, () => apply(...a));
+    }
+    for (const plugin of view.state.plugins as unknown as { key: string; props: Record<string, unknown> }[]) {
+      const decorations = plugin.props.decorations as ((...a: unknown[]) => unknown) | undefined;
+      if (decorations) plugin.props.decorations = function (this: unknown, ...a: unknown[]) { return timed(`dec:${plugin.key}`, () => decorations.apply(this, a)); };
+    }
+  };
+  patchFields();
+  const origUpdateState = anyView.updateState as (...args: unknown[]) => unknown;
+  let docViewPatched: object | undefined;
+  anyView.updateState = function (this: unknown, ...args: unknown[]) {
+    patchFields();
+    const dv = (anyView as unknown as { docView: Record<string, unknown> }).docView;
+    if (dv !== docViewPatched) {
+      docViewPatched = dv;
+      const proto = Object.getPrototypeOf(dv) as Record<string, unknown>;
+      for (const name of ["update", "updateChildren", "updateOuterDeco"]) {
+        if (wrapped.has(proto) && name === "update") break;
+      }
+      if (!wrapped.has(proto)) {
+        wrapped.add(proto);
+        for (const name of ["update", "updateChildren"]) {
+          const orig = proto[name] as (...a: unknown[]) => unknown;
+          let nest = 0;
+          proto[name] = function (this: unknown, ...a: unknown[]) {
+            if (nest++ > 0) { try { return orig.apply(this, a); } finally { nest--; } }
+            try { return timed(`dv:${name}`, () => orig.apply(this, a)); } finally { nest--; }
+          };
+        }
+      }
+    }
+    return timed("updateStateX", () => origUpdateState.apply(this, args));
+  };
   const scrollToSelection = anyView.scrollToSelection as (...args: unknown[]) => unknown;
   anyView.scrollToSelection = function (this: unknown, ...args: unknown[]) {
     if (cur?.arm === "noscroll") {
