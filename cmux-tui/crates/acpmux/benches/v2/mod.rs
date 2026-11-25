@@ -967,6 +967,111 @@ mod tests {
         );
     }
 
+    /// The lines of a source that are part of an assert statement (`assert!`, `assert_eq!`, a
+    /// `panic!`, or a call to a helper whose name starts `assert`), and the lines that start one.
+    /// A statement runs from its first line until its parentheses close.
+    fn assert_statements(lines: &[&str]) -> (Vec<bool>, Vec<bool>) {
+        let start =
+            regex::Regex::new(r"^\s*(?:[a-z_]+::)*(?:assert[a-z_]*!?|panic!)\s*\(").unwrap();
+        let (mut inside, mut starts) = (vec![false; lines.len()], vec![false; lines.len()]);
+        let mut at = 0;
+        while at < lines.len() {
+            if !start.is_match(lines[at]) {
+                at += 1;
+                continue;
+            }
+            starts[at] = true;
+            let mut depth = 0i64;
+            while at < lines.len() {
+                depth +=
+                    lines[at].matches('(').count() as i64 - lines[at].matches(')').count() as i64;
+                inside[at] = true;
+                at += 1;
+                if depth <= 0 {
+                    break;
+                }
+            }
+        }
+        (inside, starts)
+    }
+
+    /// For each function of `source` and each gate name it spells, an assert statement that
+    /// starts after the name's first mention outside an assert and before its last such
+    /// mention (the line written): the assert's line and the name.
+    fn asserts_before_writes(source: &Source) -> Vec<(usize, String)> {
+        let (inside, starts) = assert_statements(&source.lines);
+        let mut found = Vec::new();
+        for (_, first, last) in &source.functions {
+            let mut mentions: HashMap<&str, Vec<usize>> = HashMap::new();
+            for (at, name) in &source.names {
+                if first <= at && at <= last && !inside[*at] {
+                    mentions.entry(*name).or_default().push(*at);
+                }
+            }
+            for (name, ats) in mentions {
+                let (opens, writes) = (ats[0], ats[ats.len() - 1]);
+                if let Some(assert) = (opens + 1..writes).find(|at| starts[*at]) {
+                    found.push((assert + 1, name.to_owned()));
+                }
+            }
+        }
+        found.sort();
+        found
+    }
+
+    /// A gate test writes its row's line before it asserts anything about the measure: an
+    /// assert that fails first leaves the row with no line, the home reads it "the gate did not
+    /// report a measure" and exits 2, and the night's report carries none of the home's rows
+    /// (`v2.pr05.summary_change`'s 10 µs bound, 2026-11-22 to 11-24). Written first, the line
+    /// is kept and `run-v2-gates.sh` marks it `gate_failed`, so the row reads red with its
+    /// numbers. The check reads a row's first mention (its rounds report, a `let name =`) and
+    /// its last (the line written) in each function, skipping mentions inside assert messages.
+    #[test]
+    fn a_gate_writes_its_row_before_it_asserts() {
+        let mut early = Vec::new();
+        for (file, text) in gate_sources() {
+            let source = Source::read(&text);
+            for (line, name) in asserts_before_writes(&source) {
+                early.push(format!(
+                    "{}:{line} asserts before {name}'s line is written",
+                    file.display()
+                ));
+            }
+        }
+        assert!(
+            early.is_empty(),
+            "move each assert after the row's line is written (the home re-judges the bounds): {early:#?}"
+        );
+    }
+
+    #[test]
+    fn the_assert_check_reads_the_rows_first_and_last_mention() {
+        let text = [
+            "fn late() {",
+            "    gate_rounds::report(\"v2.pr99.late\", &rounds);",
+            "    assert!(",
+            "        god <= small,",
+            "        \"v2.pr99.late: {god}\"",
+            "    );",
+            "    gate(\"v2.pr99.late\", small, god);",
+            "}",
+            "fn written_first() {",
+            "    gate_rounds::report(\"v2.pr99.first\", &rounds);",
+            "    gate(\"v2.pr99.first\", small, god);",
+            "    assert!(god <= small, \"v2.pr99.first: {god}\");",
+            "}",
+            "fn named_in_a_helper_assert() {",
+            "    list_daemon::assert_fds_given_back(\"v2.pr99.helper\", fds);",
+            "    assert!(god <= small);",
+            "    let name = \"v2.pr99.helper\";",
+            "    emit(name, small, god);",
+            "}",
+        ]
+        .join("\n");
+        let source = Source::read(&text);
+        assert_eq!(asserts_before_writes(&source), [(3, "v2.pr99.late".to_owned())]);
+    }
+
     #[test]
     fn a_row_reports_its_rounds_through_the_functions_it_calls() {
         let text = [
@@ -1014,14 +1119,45 @@ mod tests {
         assert!(!source.reports_rounds(&source.reaches("v2.pr99.through_list_daemon")));
     }
 
-    /// The gate script's group table: each `.gates` group word and the runner it starts.
+    /// The gate script's `gate_runner` cases: each `.gates` group word and the runner it starts.
     fn gate_groups(script: &str) -> HashMap<String, String> {
-        let entry = regex::Regex::new(r"^\s*\[([a-z0-9-]+)\]=(run_[a-z_]+)$").unwrap();
+        let entry = regex::Regex::new(r"^\s*([a-z0-9-]+)\) echo (run_[a-z_]+) ;;$").unwrap();
         script
             .lines()
             .filter_map(|line| entry.captures(line))
             .map(|found| (found[1].to_owned(), found[2].to_owned()))
             .collect()
+    }
+
+    /// One `.gates` line, read the way the gate script reads it: `None` when it is blank after its
+    /// `#` comment is cut, else its group and filter, or `Err` for a line of another shape. A
+    /// filter is one word of `[A-Za-z0-9_]`, so `core mod::gate` is refused here and by the script.
+    fn gate_line(line: &str) -> Result<Option<(&str, &str)>, ()> {
+        let words: Vec<&str> =
+            line.split('#').next().unwrap_or_default().split_whitespace().collect();
+        match words[..] {
+            [] => Ok(None),
+            [group, filter]
+                if filter.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') =>
+            {
+                Ok(Some((group, filter)))
+            }
+            _ => Err(()),
+        }
+    }
+
+    #[test]
+    fn a_gate_line_is_read_with_the_scripts_shape_rule() {
+        assert_eq!(gate_line(""), Ok(None));
+        assert_eq!(gate_line("# a comment"), Ok(None));
+        assert_eq!(
+            gate_line("core replay_append_gate # row 5c"),
+            Ok(Some(("core", "replay_append_gate")))
+        );
+        assert_eq!(gate_line("book v2_pr03d_"), Ok(Some(("book", "v2_pr03d_"))));
+        for bad in ["core", "core mod::gate", "core two words", "core gate-name"] {
+            assert_eq!(gate_line(bad), Err(()), "{bad:?}");
+        }
     }
 
     /// Every line of `scripts/cmux-next/v2-gates.d`, as its file's prefix (`pr03d` for
@@ -1049,13 +1185,10 @@ mod tests {
             );
             let text = fs::read_to_string(&file).unwrap_or_else(|e| panic!("{file:?}: {e}"));
             for (number, line) in text.lines().enumerate() {
-                let words: Vec<&str> =
-                    line.split('#').next().unwrap_or_default().split_whitespace().collect();
-                if words.is_empty() {
-                    continue;
-                }
-                let [group, filter] = words[..] else {
+                let Some((group, filter)) = gate_line(line).unwrap_or_else(|()| {
                     panic!("{file:?}:{}: a gate line is GROUP FILTER: {line:?}", number + 1)
+                }) else {
+                    continue;
                 };
                 let runner = groups.get(group).unwrap_or_else(|| {
                     panic!("{file:?}:{}: {group} is not a gate group", number + 1)

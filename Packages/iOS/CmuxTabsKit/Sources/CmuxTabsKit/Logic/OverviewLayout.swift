@@ -1,7 +1,11 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 
 /// Tab overview grid geometry (Mobile Safari, device-measured on an
-/// iPhone 17 Pro Max): two columns with 16 pt insets and gutter, card
+/// iPhone 17 Pro Max): two columns (more on a wider page, `columns`) with 16 pt insets and gutter, card
 /// aspect 1.408, 23 pt title row, 16 pt between rows, first row 60 pt below
 /// the safe area, 48 pt bottom bar 38 pt above the screen bottom.
 ///
@@ -15,6 +19,9 @@ struct OverviewLayout: Equatable, Sendable {
     /// The first `pinned` items are pinned: Safari shows them as capsules
     /// (177 x 30, two per row, 16 pt apart) above the grid.
     var pinned: Int = 0
+    /// Card columns: two on a phone; an unfolded foldable's wider page takes
+    /// more (the host's `tabsKitOverviewColumns`). At least two.
+    var columns: Int = 2
 
     static let pinnedHeight: CGFloat = 30
 
@@ -33,11 +40,28 @@ struct OverviewLayout: Equatable, Sendable {
     /// insets and title row, and "1 Tab" in the bar.
     var isLone: Bool { count - pinned == 1 }
 
-    /// Two-column card width: 177 pt on a 402 pt screen, 196 pt on 440.
-    var columnWidth: CGFloat { ((size.width - 3 * Self.gridInset) / 2).rounded(.down) }
-    /// The card width: two thirds of the screen for a lone tab, else the
-    /// column width.
-    var cardWidth: CGFloat { isLone ? (size.width * 2 / 3).rounded() : columnWidth }
+    /// The column count the layout uses (never fewer than two).
+    var columnCount: Int { max(2, columns) }
+    /// Card width: 177 pt on a 402 pt screen, 196 pt on 440 (two columns).
+    var columnWidth: CGFloat {
+        let n = CGFloat(columnCount)
+        return ((size.width - (n + 1) * Self.gridInset) / n).rounded(.down)
+    }
+    /// Left edge of column `col`: the first at the inset, the last at the
+    /// right inset, the rest evenly between (two columns: the measured
+    /// Safari positions exactly).
+    func columnX(_ col: Int, width: CGFloat) -> CGFloat {
+        let n = columnCount
+        let gap = (size.width - 2 * Self.gridInset - CGFloat(n) * width) / CGFloat(n - 1)
+        return Self.gridInset + CGFloat(col) * (width + gap)
+    }
+    /// The widest a lone tab's card grows: two thirds of a 440 pt phone is
+    /// 293, so every phone keeps Safari's measured lone card, and an unfolded
+    /// foldable's wide page shows a phone's lone card, not one 533 pt wide.
+    static let maxLoneCard: CGFloat = 300
+    /// The card width: two thirds of the screen for a lone tab (at most
+    /// ``maxLoneCard``), else the column width.
+    var cardWidth: CGFloat { isLone ? min((size.width * 2 / 3).rounded(), Self.maxLoneCard) : columnWidth }
     var cardHeight: CGFloat { cardWidth * Self.cardAspect }
     /// Page points (from the page's top) a card shows.
     var cardPageHeight: CGFloat { size.width * Self.cardAspect }
@@ -55,29 +79,29 @@ struct OverviewLayout: Equatable, Sendable {
     var top: CGFloat { pinnedTop + CGFloat(pinnedRows) * (Self.pinnedHeight + Self.rowGap) }
     /// The pinned area's first row (where the grid starts without pins).
     var pinnedTop: CGFloat { safeTop + 60 }
-    var pinnedRows: Int { (pinned + 1) / 2 }
+    var pinnedRows: Int { (pinned + columnCount - 1) / columnCount }
     var barRect: CGRect {
         let bottom = size.height - max(safeBottom, 20) - 4
         return CGRect(x: 0, y: bottom - Self.control, width: size.width, height: Self.control)
     }
     var bottomPadding: CGFloat { size.height - barRect.minY + 12 }
-    var rows: Int { (count - pinned + 1) / 2 }
+    var rows: Int { (count - pinned + columnCount - 1) / columnCount }
     var contentHeight: CGFloat { top + CGFloat(rows) * pitch - Self.rowGap + bottomPadding }
     var maxOffset: CGFloat { max(0, contentHeight - size.height) }
 
     /// Card frame in content coordinates.
     func card(_ index: Int) -> CGRect {
         if index < pinned {
-            let col = index % 2, row = index / 2
-            let x = col == 0 ? Self.gridInset : size.width - Self.gridInset - columnWidth
+            let col = index % columnCount, row = index / columnCount
+            let x = columnX(col, width: columnWidth)
             return CGRect(x: x, y: pinnedTop + CGFloat(row) * (Self.pinnedHeight + Self.rowGap), width: columnWidth, height: Self.pinnedHeight)
         }
         let index = index - pinned
         if isLone, index == 0 {
             return CGRect(x: (size.width - cardWidth) / 2, y: top, width: cardWidth, height: cardHeight)
         }
-        let col = index % 2, row = index / 2
-        let x = col == 0 ? Self.gridInset : size.width - Self.gridInset - cardWidth
+        let col = index % columnCount, row = index / columnCount
+        let x = columnX(col, width: cardWidth)
         return CGRect(x: x, y: top + CGFloat(row) * pitch, width: cardWidth, height: cardHeight)
     }
 
@@ -93,6 +117,16 @@ struct OverviewLayout: Equatable, Sendable {
     /// the gaps around a card as that card; nil outside every slot.
     func slot(at point: CGPoint) -> Int? {
         (0..<count).first { card($0).insetBy(dx: -8, dy: -16).contains(point) }
+    }
+
+    /// This layout holding at least `index + 1` cards. The zoom's card end
+    /// and the live page's card take the grid's own layout through this, so
+    /// they land on the slot the grid draws (one tab plus the new tab's
+    /// placeholder is two cards, not the lone centred card).
+    func holding(_ index: Int) -> OverviewLayout {
+        var grid = self
+        grid.count = max(count, index + 1)
+        return grid
     }
 
     func zoomEndpoint(_ index: Int, contentOrigin: CGPoint?, fallbackOffset: CGFloat) -> CGRect {
@@ -119,6 +153,23 @@ struct OverviewLayout: Equatable, Sendable {
         let clamped = min(maxOffset, max(0, current))
         if isFullyVisible(index, offset: clamped) { return clamped }
         return min(maxOffset, max(0, card(index).minY - top))
+    }
+
+    /// The scroll offset in `resized` (this grid at a new size or column
+    /// count: a foldable folding or unfolding under a settled grid) that keeps
+    /// the grid's place: the first card, pinned or not, still showing below
+    /// the first row's line at `offset` sits as far from that line as it did,
+    /// clamped to the content. A grid at its top stays at its top. Positions
+    /// are read from the first row's line (`pinnedTop`), so a safe area that
+    /// changes with the fold moves nothing.
+    func offset(keepingPlace offset: CGFloat, in resized: OverviewLayout) -> CGFloat {
+        guard offset > 0 else { return 0 }
+        let height = { (i: Int) in i < self.pinned ? Self.pinnedHeight : self.card(i).height + Self.titleRow }
+        guard let first = (0..<count).first(where: { card($0).minY + height($0) - pinnedTop > offset }) else {
+            return resized.maxOffset
+        }
+        let below = card(first).minY - pinnedTop - offset
+        return min(resized.maxOffset, max(0, resized.card(first).minY - resized.pinnedTop - below))
     }
 }
 
@@ -166,5 +217,17 @@ struct CardResidencyPlan: Equatable, Sendable {
         }
         step.next = step.visible.first ?? best?.index
         return step
+    }
+}
+
+/// The grid's card size, for a host that draws a card's picture ahead (at the size the grid
+/// will show it, not a guess that drifts from the grid on a wider page or a lone card).
+public struct TabsKitOverviewGeometry {
+    public init() {}
+    /// The width in points of each card when the grid lists `cards` tabs (the first `pinned`
+    /// of them pinned) in a page `pageWidth` wide with `columns` columns.
+    public static func cardWidth(pageWidth: CGFloat, columns: Int, cards: Int, pinned: Int = 0) -> CGFloat {
+        OverviewLayout(size: CGSize(width: pageWidth, height: 1), safeTop: 0, safeBottom: 0, count: cards,
+                       pinned: pinned, columns: columns).cardWidth
     }
 }

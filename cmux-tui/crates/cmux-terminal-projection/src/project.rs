@@ -335,6 +335,59 @@ fn right_part_on_its_own_row(
 /// (the reader's first flick up); older rows come on demand.
 pub const TAIL_SCREENS: usize = 2;
 
+/// Where a host cell lands once the host's lines are re-wrapped at `cols`:
+/// the daemon's `terminal-find` gives a hit as rows from the bottom of the
+/// host's rows (1: the screen's last row) and a host column, and a phone
+/// re-wrapping the same lines needs its own row and column for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Located {
+    /// Rows from the bottom of the re-wrapped content (1: its last row).
+    pub from_bottom: usize,
+    /// The column on that row, in phone cells.
+    pub column: usize,
+}
+
+/// The re-wrapped place of host row `host_from_bottom` (1 is the screen's
+/// last row), host column `host_column`. None: the model holds fewer rows
+/// than that (the hit is older than what the phone has replayed) or the
+/// column is outside the host's grid.
+pub fn locate(
+    term: &Terminal,
+    cols: usize,
+    compact: bool,
+    host_from_bottom: usize,
+    host_column: usize,
+) -> Option<Located> {
+    let rows: Vec<&Row> = term.history.iter().chain(term.primary_rows().iter()).collect();
+    if host_from_bottom == 0 || host_from_bottom > rows.len() || host_column >= term.cols {
+        return None;
+    }
+    let at = rows.len() - host_from_bottom;
+    let mut first = at;
+    while first > 0 && rows.get(first - 1).is_some_and(|r| r.wrapped) {
+        first -= 1;
+    }
+    let mut last = at;
+    while last + 1 < rows.len() && rows.get(last).is_some_and(|r| r.wrapped) {
+        last += 1;
+    }
+    let line = rows.get(first..=last)?;
+    let wrapped = wrap_line(term, line, term.cols, cols, Some((at - first, host_column)), compact);
+    let (row, column) = wrapped.cursor?;
+    let mut from_bottom = wrapped.rows.len() - row;
+    let mut start = last + 1;
+    while start < rows.len() {
+        let mut end = start;
+        while end + 1 < rows.len() && rows.get(end).is_some_and(|r| r.wrapped) {
+            end += 1;
+        }
+        let below = rows.get(start..=end)?;
+        from_bottom += wrap_line(term, below, term.cols, cols, None, compact).rows.len();
+        start = end + 1;
+    }
+    Some(Located { from_bottom, column })
+}
+
 /// The start (an index in `term.history`) of the logical line holding
 /// history row `index` (`history.len()`: the screen's first line).
 pub fn line_start(term: &Terminal, index: usize) -> usize {
@@ -515,6 +568,10 @@ pub struct View {
     /// The oldest host row (absolute) a reset must paint (rows the reader
     /// is on, or asked for by scrolling up); nil: only the tail window.
     pub keep_from: Option<u64>,
+    /// [`Terminal::history_pushed`] at the last paint: a reset also paints
+    /// every row pushed since, so a phone painted once per frame holds the
+    /// rows a paint per chunk would have streamed to it.
+    pub pushed_at_paint: Option<u64>,
     /// The first host row (absolute) the last reset painted: older rows are
     /// in the model, not on the phone, until [`View::load_older`].
     window_from: u64,
@@ -555,6 +612,7 @@ impl View {
             phone_cursor_visible: true,
             needs_reset: true,
             keep_from: None,
+            pushed_at_paint: None,
             window_from: 0,
             line_cache: HashMap::new(),
             bytes_out: 0,
@@ -604,8 +662,15 @@ impl View {
     /// older ones kept by [`View::keep_from`]. A width change costs this
     /// window, not the whole scrollback.
     fn window_start(&self, term: &Terminal) -> usize {
-        let tail =
+        let mut tail =
             rows_back(term, term.history.len(), self.cols, TAIL_SCREENS * self.rows, self.compact);
+        if let Some(at) = self.pushed_at_paint {
+            // Rows pushed since the last paint (all of them past a clear,
+            // which empties the history).
+            let new = term.history_pushed.saturating_sub(at) as usize;
+            let len = term.history.len();
+            tail = tail.min(line_start(term, len - new.min(len)));
+        }
         match self.keep_from {
             Some(keep) => {
                 let keep = keep.saturating_sub(term.history_dropped) as usize;
@@ -631,6 +696,12 @@ impl View {
 
     /// Brings the phone's terminal to the host's primary screen now.
     pub fn paint(&mut self, term: &mut Terminal, passthrough: &[u8]) -> Option<Paint> {
+        let paint = self.paint_now(term, passthrough);
+        self.pushed_at_paint = Some(term.history_pushed);
+        paint
+    }
+
+    fn paint_now(&mut self, term: &mut Terminal, passthrough: &[u8]) -> Option<Paint> {
         if term.reset_needed {
             // The scrollback was cleared or the host resized: rows are not
             // the ones cached under their numbers.
@@ -795,7 +866,7 @@ impl View {
             // A change in rows the phone's terminal scrolled away: start over.
             self.needs_reset = true;
             term.reset_needed = false;
-            return self.paint(term, passthrough);
+            return self.paint_now(term, passthrough);
         }
         let old_shown_end = shown_end;
         if let Some((row, 0)) = first_changed {
@@ -1065,7 +1136,12 @@ fn plain_keeping_link(out: &mut Vec<u8>, style: Style) -> Style {
     plain
 }
 
-fn write_style(term: &Terminal, out: &mut Vec<u8>, previous: Option<Style>, style: Style) {
+pub(crate) fn write_style(
+    term: &Terminal,
+    out: &mut Vec<u8>,
+    previous: Option<Style>,
+    style: Style,
+) {
     if previous.map(|p| p.link) != Some(style.link) {
         if style.link == 0 {
             out.extend_from_slice(b"\x1b]8;;\x1b\\");
@@ -1084,6 +1160,25 @@ fn write_style(term: &Terminal, out: &mut Vec<u8>, previous: Option<Style>, styl
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn locate_follows_a_host_cell_through_the_rewrap() {
+        let mut term = Terminal::new(10, 3, 100);
+        for &b in b"abcdefghijklmno\r\nxyz" {
+            term.advance(b);
+        }
+        // The host's screen: "abcdefghij" (wrapped), "klmno", "xyz".
+        // At 4 columns: abcd efgh ijkl mno xyz: 'j' (host row 3 from the
+        // bottom, column 9) is on the row 3 from the bottom, column 1.
+        let at = locate(&term, 4, false, 3, 9).unwrap();
+        assert_eq!(at, Located { from_bottom: 3, column: 1 });
+        // 'm' is on the host's row 2 from the bottom, column 2: phone row
+        // "mno", 2 from the bottom, column 0.
+        let at = locate(&term, 4, false, 2, 2).unwrap();
+        assert_eq!(at, Located { from_bottom: 2, column: 0 });
+        assert_eq!(locate(&term, 4, false, 99, 0), None);
+        assert_eq!(locate(&term, 4, false, 0, 0), None);
+    }
 
     #[test]
     fn a_line_rewraps_at_the_phone_width() {

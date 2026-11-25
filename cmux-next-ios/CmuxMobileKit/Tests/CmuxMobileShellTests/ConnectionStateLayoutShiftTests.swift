@@ -18,8 +18,6 @@ import UIKit
 
     static let states: [(String, ConnectionBannerState?)] = [
         ("connected", nil),
-        ("reconnecting", .reconnecting(to: "Mac Studio")),
-        ("connecting", .connecting(to: "Mac Studio")),
         ("offline", .offline),
         ("mac offline", .macOffline("Mac Studio")),
         ("connection failed", .connectionFailed),
@@ -153,8 +151,7 @@ import UIKit
 
     /// A link state is a chip a few words wide, never a sentence across the screen.
     @Test func aLinkStateIsAChipNotASentence() {
-        let links: [ConnectionBannerState] = [.reconnecting(to: "Mac Studio"), .connecting(to: "Mac Studio"), .offline,
-                                              .macOffline("Mac Studio"), .connectionFailed]
+        let links: [ConnectionBannerState] = [.offline, .macOffline("Mac Studio"), .connectionFailed]
         for state in links {
             guard let chip = state.chip else {
                 Issue.record("\(state.text): drawn as a banner, not a chip")
@@ -162,7 +159,7 @@ import UIKit
             }
             #expect(chip.word.split(separator: " ").count <= 2, "\(chip.word): more than two words")
             #expect(!chip.word.hasSuffix(".") && !chip.word.hasSuffix("…"), "\(chip.word): a sentence")
-            let host = UIHostingController(rootView: ConnectionChip(chip, retry: {}))
+            let host = UIHostingController(rootView: ConnectionChip(chip, downSince: nil, retry: {}))
             let size = host.sizeThatFits(in: CGSize(width: 402, height: 200))
             #expect(size.width <= 201, "\(chip.word): \(size.width) pt wide, over half the phone")
         }
