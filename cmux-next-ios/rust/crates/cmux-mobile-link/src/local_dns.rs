@@ -205,10 +205,10 @@ fn assemble(records: Vec<Record>) -> Vec<Found> {
     for record in records {
         let key = record.name.to_ascii_lowercase();
         match record.data {
-            Data::Ptr(target) if key == service => {
-                if !instances.iter().any(|i| i.eq_ignore_ascii_case(&target)) {
-                    instances.push(target);
-                }
+            Data::Ptr(target)
+                if key == service && !instances.iter().any(|i| i.eq_ignore_ascii_case(&target)) =>
+            {
+                instances.push(target);
             }
             Data::Srv { port, target } => {
                 srv.insert(key, (port, target.to_ascii_lowercase()));
