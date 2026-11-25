@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.ui.animations.newWorkspace.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A new workspace row opens in the sidebar. Off shows it there at once."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "新しいワークスペースの行がサイドバーで開きます。オフにするとすぐに表示されます。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ينفتح صف مساحة العمل الجديدة في الشريط الجانبي. عند الإيقاف يظهر فورًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Novi red radnog prostora otvara se u bočnoj traci. Isključeno ga odmah prikazuje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En ny række for arbejdsområdet åbner i sidepanelet. Fra viser den der med det samme."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eine neue Arbeitsbereichszeile öffnet sich in der Seitenleiste. Aus zeigt sie dort sofort."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una fila de espacio de trabajo nueva se abre en la barra lateral. Desactivado la muestra al instante."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Une nouvelle ligne d’espace de travail s’ouvre dans la barre latérale. Désactivé l’affiche aussitôt."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una nuova riga dello spazio di lavoro si apre nella barra laterale. Disattivato la mostra subito."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ជួរកន្លែងធ្វើការថ្មីបើកនៅក្នុងរបារចំហៀង។ បិទ បង្ហាញវាភ្លាមៗ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "새 작업 공간 행이 사이드바에서 열립니다. 끄면 즉시 표시됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En ny rad for arbeidsområdet åpner seg i sidepanelet. Av viser den der med en gang."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nowy wiersz obszaru roboczego otwiera się na pasku bocznym. Wyłączone pokazuje go od razu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uma nova linha de espaço de trabalho se abre na barra lateral. Desativado a mostra na hora."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Новая строка рабочего пространства раскрывается на боковой панели. Выключено показывает её сразу."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แถวพื้นที่ทำงานใหม่จะเปิดในแถบด้านข้าง ปิดจะแสดงทันที"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Yeni çalışma alanı satırı kenar çubuğunda açılır. Kapalı olduğunda hemen gösterilir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Новий рядок робочого простору розкривається на бічній панелі. Вимкнено показує його одразу."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hàng không gian làm việc mới mở ra trong thanh bên. Tắt sẽ hiện ngay."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "新工作区行在侧边栏中展开。关闭后立即显示。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "新工作區列在側邊欄中展開。關閉後立即顯示。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
