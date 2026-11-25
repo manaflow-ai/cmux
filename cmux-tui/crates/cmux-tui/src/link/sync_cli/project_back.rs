@@ -173,7 +173,7 @@ pub(crate) fn release_command(args: &[String]) -> anyhow::Result<Value> {
 
 /// `cmux link project detach --socket S --at REMOTE [--chat ID] FOLDER`: the folder was removed
 /// from its chat. The machine seals and unmounts it, keeping its edits (`projection.detach`); this
-/// Mac stops serving it but keeps its record, so Bring Back (`cmux link sync pull`) or Discard
+/// Mac stops serving it but keeps its record, so Bring Back (`cmux link project back`) or Discard
 /// still finds it.
 pub(crate) fn detach_command(args: &[String]) -> anyhow::Result<Value> {
     let (mut socket, mut at, mut folder, mut chat) = (None, None, None, None);

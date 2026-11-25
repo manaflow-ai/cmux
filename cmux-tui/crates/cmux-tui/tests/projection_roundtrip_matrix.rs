@@ -833,12 +833,32 @@ fn a_folder_removed_mid_turn_keeps_its_edits_for_bring_back_and_refuses_later_wr
     assert!(fs::write(t.at("src/after.txt"), "after\n").is_err());
     assert!(!t.at("src/after.txt").exists(), "a write after the removal landed on the disk");
 
-    let answer = t.brought_back();
+    // Bring Back of a removed folder reads its kept upper layer (`cmux link project back`, what
+    // Bring Back Local's `seed pull --or-copy` runs for a projected folder): the mount is gone.
+    let output = t
+        .mac
+        .cmux()
+        .args(["link", "project", "back", "--socket"])
+        .arg(&t.machine.dial)
+        .arg("--at")
+        .arg(&t.folder)
+        .arg(&t.local)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let answer: Value =
+        serde_json::from_str(stdout.lines().last().unwrap_or("")).unwrap_or_default();
+    assert_eq!(
+        answer["ok"],
+        true,
+        "Bring Back: {stdout}{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert_eq!(read(&t.mac("src/a.txt")), "alpha, edited before the removal\n", "{answer}");
     assert_eq!(read(&t.mac("notes.txt")), "written before\n", "{answer}");
     assert!(!t.mac("src/after.txt").exists(), "{answer}");
 
-    // Added back: served again under the same name, the mount reads the kept edits.
+    // Added back: served again under the same name, the mount reads the edits brought home.
     assert_eq!(name, t.projection_name());
     let _server = t.restart_server();
     assert_eq!(read(&t.at("src/a.txt")), "alpha, edited before the removal\n");
