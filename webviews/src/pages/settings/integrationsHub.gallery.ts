@@ -4,8 +4,18 @@
 // the calls waiting for the person with Approve once, Approve and don't ask again and Deny; Rules
 // and Audit beside them. Reconnect on a dead key, the pause switch.
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
-import { connected, MOCK_CATALOG, mockConnectionsCatalog, mockConnectionsState } from "./mockConnections";
+import {
+  connected,
+  CONNECTIONS_UPCOMING_LAB,
+  ensureConnectionsUpcomingLabRow,
+  MOCK_CATALOG,
+  mockConnectionsCatalog,
+  mockConnectionsState,
+} from "./mockConnections";
 import { MOCK_HUB_GITHUB, MOCK_HUB_STRIPE, mockHubOverview, mockHubState } from "./mockHub";
+
+// The Upcoming Connections Labs row, until the checked-in export (regenerated on a Mac) lists it.
+ensureConnectionsUpcomingLabRow();
 
 const shown: PageFixtureStep = { selector: '[data-card="integrationsHub"]', action: "wait" };
 const tab = (name: "connections" | "approvals" | "rules" | "audit"): PageFixtureStep => ({
@@ -35,7 +45,22 @@ export default settingsPageEntry({
     }),
     connections: variant({
       steps: [shown, tab("connections"), grid],
-      note: "The Connections tab: the catalog grid in rank order (Linear for the team with 23 tools, Sentry yours with 14, Exa takes a pasted key, Figma says why it is not here), then the linked Stripe account.",
+      note: "The Connections tab: the catalog grid in rank order (Linear for the team with 23 tools, Sentry yours with 14, then Atlassian, Notion and Vercel one tap each; Exa takes a pasted key, Figma says why it is not here), then the linked Stripe account.",
+    }),
+    "connections-top-five": variant({
+      connections: mockConnectionsState(mockConnectionsCatalog(MOCK_CATALOG)),
+      steps: [shown, tab("connections"), grid],
+      note: "Nothing connected yet: Linear, Sentry, Atlassian, Notion and Vercel lead the grid, each one Connect.",
+    }),
+    "connections-upcoming": variant({
+      options: { values: { [CONNECTIONS_UPCOMING_LAB]: true } },
+      steps: [shown, tab("connections"), grid],
+      note: "Labs > Upcoming Connections on: Slack, Gmail, Google Calendar and Google Drive list after the rest, each saying Not set up on this deployment yet, with no button.",
+    }),
+    "connections-vercel-pending": variant({
+      connections: { ...mockConnectionsState(), pending: "vercel" },
+      steps: [shown, tab("connections"), grid],
+      note: "Connect on Vercel: the CLI listens on 127.0.0.1:47215 for the sign-in to come back, the tile waits, and the grid refreshes when it does.",
     }),
     "connections-team": variant({
       activeTeam: "team-acme",
