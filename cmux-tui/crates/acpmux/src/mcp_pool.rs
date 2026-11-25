@@ -300,18 +300,18 @@ fn ensure_server(sh: &Arc<Shared>, st: &mut State, scope: &cmux_scope::Scope) ->
             let Ok(m) = serde_json::from_str::<Value>(&l) else { continue };
             from_server(&sh2, m);
         }
-        server_gone(&sh2, generation);
+        reap(server_gone(&sh2, generation)).await;
     });
     Ok(())
 }
 
 /// The server's stdout closed: its chats' open requests fail and every chat is let go, so each
 /// shim connects again, replays its `initialize` and starts a fresh server.
-fn server_gone(sh: &Arc<Shared>, generation: u64) {
-    let child = {
+fn server_gone(sh: &Arc<Shared>, generation: u64) -> Option<cmux_process::Child> {
+    {
         let mut st = sh.lock();
         if st.generation != generation {
-            return;
+            return None;
         }
         tracing::warn!(key = %sh.key, "mcp pool: shared server exited");
         st.to_server = None;
@@ -326,17 +326,16 @@ fn server_gone(sh: &Arc<Shared>, generation: u64) {
         st.clients.clear();
         st.order.clear();
         st.child.take()
-    };
-    reap(child);
+    }
 }
 
-fn reap(child: Option<cmux_process::Child>) {
-    if let Some(mut child) = child {
-        // A server still running after the grace is killed by the drop.
-        std::thread::spawn(move || {
-            let _ = child.wait_timeout(STOP_GRACE);
-            drop(child);
-        });
+/// Waits up to [`STOP_GRACE`] for a server whose stdin closed to exit; one still running then
+/// is killed by the drop.
+async fn reap(child: Option<cmux_process::Child>) {
+    let Some(mut child) = child else { return };
+    let until = tokio::time::Instant::now() + STOP_GRACE;
+    while matches!(child.try_wait(), Ok(None)) && tokio::time::Instant::now() < until {
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
 
@@ -541,7 +540,7 @@ async fn client(pool: Arc<Pool>, stream: UnixStream) -> Result<()> {
                 st.to_server = None; // closes its stdin
                 st.child.take()
             };
-            reap(child);
+            reap(child).await;
         });
     }
     Ok(())
@@ -581,119 +580,136 @@ fn shim(socket: &Path, key: &str) -> Result<()> {
         let _ = o.write_all(line(v).as_bytes());
         let _ = o.flush();
     };
-    {
-        let state = state.clone();
-        let out = out.clone();
-        std::thread::spawn(move || {
-            let stdin = std::io::stdin();
-            for l in stdin.lock().lines() {
-                let Ok(l) = l else { break };
-                let Ok(m) = serde_json::from_str::<Value>(&l) else { continue };
-                let mut st = state.lock().unwrap_or_else(PoisonError::into_inner);
-                let method = m.get("method").and_then(Value::as_str);
-                match (method, m.get("id")) {
-                    (Some("initialize"), Some(_)) => st.initialize = Some(m.clone()),
-                    (Some("notifications/initialized"), None) => st.initialized = true,
-                    _ => {}
-                }
-                let request = method.is_some().then(|| m.get("id").cloned()).flatten();
-                let sent =
-                    st.up.as_mut().is_some_and(|up| up.write_all(line(&m).as_bytes()).is_ok());
-                match request {
-                    Some(id) if sent => {
-                        st.open.insert(id.to_string(), id);
-                    }
-                    // Between connections a request fails at once; the harness can ask again.
-                    Some(id) => {
-                        write_out(&out, &error(id, "the shared MCP server is starting again"))
-                    }
-                    None => {}
-                }
-            }
-            // The harness is done with the server: the relay below sees its socket end.
-            let mut st = state.lock().unwrap_or_else(PoisonError::into_inner);
-            st.closed = true;
-            if let Some(up) = st.up.take() {
-                let _ = up.shutdown(std::net::Shutdown::Both);
-            }
-        });
-    }
-    let mut backoff = Duration::from_millis(100);
-    let mut first = true;
-    let closed =
-        |state: &Mutex<ShimState>| state.lock().unwrap_or_else(PoisonError::into_inner).closed;
-    loop {
-        if closed(&state) {
-            return Ok(());
-        }
-        let stream = match std::os::unix::net::UnixStream::connect(socket) {
-            Ok(s) => s,
-            Err(e) if first => return Err(e).context(format!("connect {}", socket.display())),
-            Err(_) => {
-                std::thread::sleep(backoff);
-                backoff = (backoff * 2).min(Duration::from_secs(5));
-                continue;
-            }
-        };
-        let started = std::time::Instant::now();
-        let mut up = stream.try_clone()?;
+    // The first connection fails the start: the harness shows a server that did not start.
+    let mut first_stream = Some(
+        std::os::unix::net::UnixStream::connect(socket)
+            .with_context(|| format!("connect {}", socket.display()))?,
+    );
+    // Scoped: the stdin reader ends at the harness's EOF, which also ends the relay.
+    std::thread::scope(|threads| {
         {
-            let mut st = state.lock().unwrap_or_else(PoisonError::into_inner);
-            let mut hello = format!("{key}\n");
-            if !first {
-                // A new daemon or server: it hears the harness's `initialize` again.
-                if let Some(init) = &st.initialize {
-                    let mut init = init.clone();
-                    init["id"] = json!(REPLAY_ID);
-                    hello.push_str(&line(&init));
+            let state = state.clone();
+            let out = out.clone();
+            threads.spawn(move || {
+                let stdin = std::io::stdin();
+                for l in stdin.lock().lines() {
+                    let Ok(l) = l else { break };
+                    let Ok(m) = serde_json::from_str::<Value>(&l) else { continue };
+                    let mut st = state.lock().unwrap_or_else(PoisonError::into_inner);
+                    let method = m.get("method").and_then(Value::as_str);
+                    match (method, m.get("id")) {
+                        (Some("initialize"), Some(_)) => st.initialize = Some(m.clone()),
+                        (Some("notifications/initialized"), None) => st.initialized = true,
+                        _ => {}
+                    }
+                    let request = method.is_some().then(|| m.get("id").cloned()).flatten();
+                    let sent =
+                        st.up.as_mut().is_some_and(|up| up.write_all(line(&m).as_bytes()).is_ok());
+                    match request {
+                        Some(id) if sent => {
+                            st.open.insert(id.to_string(), id);
+                        }
+                        // Between connections a request fails at once; the harness can ask again.
+                        Some(id) => {
+                            write_out(&out, &error(id, "the shared MCP server is starting again"))
+                        }
+                        None => {}
+                    }
                 }
-                if st.initialized {
-                    hello.push_str(&line(
-                        &json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
-                    ));
+                // The harness is done with the server: the relay below sees its socket end.
+                let mut st = state.lock().unwrap_or_else(PoisonError::into_inner);
+                st.closed = true;
+                if let Some(up) = st.up.take() {
+                    let _ = up.shutdown(std::net::Shutdown::Both);
                 }
-            }
-            if st.closed {
+            });
+        }
+        let mut backoff = Duration::from_millis(100);
+        let mut first = true;
+        let closed =
+            |state: &Mutex<ShimState>| state.lock().unwrap_or_else(PoisonError::into_inner).closed;
+        loop {
+            if closed(&state) {
                 return Ok(());
             }
-            if up.write_all(hello.as_bytes()).is_err() {
-                continue;
-            }
-            st.up = Some(up);
-        }
-        first = false;
-        let reader = std::io::BufReader::new(stream);
-        for l in reader.lines() {
-            let Ok(l) = l else { break };
-            let Ok(m) = serde_json::from_str::<Value>(&l) else { continue };
-            if m.get("method").is_none()
-                && let Some(id) = m.get("id")
+            let stream = match first_stream
+                .take()
+                .map_or_else(|| std::os::unix::net::UnixStream::connect(socket), Ok)
             {
-                if id == REPLAY_ID {
+                Ok(s) => s,
+                Err(_) => {
+                    std::thread::sleep(backoff);
+                    backoff = (backoff * 2).min(Duration::from_secs(5));
                     continue;
                 }
-                state.lock().unwrap_or_else(PoisonError::into_inner).open.remove(&id.to_string());
+            };
+            let started = std::time::Instant::now();
+            let mut up = stream.try_clone()?;
+            {
+                let mut st = state.lock().unwrap_or_else(PoisonError::into_inner);
+                let mut hello = format!("{key}\n");
+                if !first {
+                    // A new daemon or server: it hears the harness's `initialize` again.
+                    if let Some(init) = &st.initialize {
+                        let mut init = init.clone();
+                        init["id"] = json!(REPLAY_ID);
+                        hello.push_str(&line(&init));
+                    }
+                    if st.initialized {
+                        hello.push_str(&line(
+                            &json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+                        ));
+                    }
+                }
+                if st.closed {
+                    return Ok(());
+                }
+                if up.write_all(hello.as_bytes()).is_err() {
+                    continue;
+                }
+                st.up = Some(up);
             }
-            write_out(&out, &m);
+            first = false;
+            let reader = std::io::BufReader::new(stream);
+            for l in reader.lines() {
+                let Ok(l) = l else { break };
+                let Ok(m) = serde_json::from_str::<Value>(&l) else { continue };
+                if m.get("method").is_none()
+                    && let Some(id) = m.get("id")
+                {
+                    if id == REPLAY_ID {
+                        continue;
+                    }
+                    state
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .open
+                        .remove(&id.to_string());
+                }
+                write_out(&out, &m);
+            }
+            if closed(&state) {
+                return Ok(());
+            }
+            // The daemon or the server went away: the harness's open requests fail.
+            let open = {
+                let mut st = state.lock().unwrap_or_else(PoisonError::into_inner);
+                st.up = None;
+                std::mem::take(&mut st.open)
+            };
+            for (_, id) in open {
+                write_out(
+                    &out,
+                    &error(id, "the shared MCP server went away; it is starting again"),
+                );
+            }
+            if started.elapsed() > Duration::from_secs(30) {
+                backoff = Duration::from_millis(100);
+            }
+            std::thread::sleep(backoff);
+            backoff = (backoff * 2).min(Duration::from_secs(5));
         }
-        if closed(&state) {
-            return Ok(());
-        }
-        // The daemon or the server went away: the harness's open requests fail.
-        let open = {
-            let mut st = state.lock().unwrap_or_else(PoisonError::into_inner);
-            st.up = None;
-            std::mem::take(&mut st.open)
-        };
-        for (_, id) in open {
-            write_out(&out, &error(id, "the shared MCP server went away; it is starting again"));
-        }
-        if started.elapsed() > Duration::from_secs(30) {
-            backoff = Duration::from_millis(100);
-        }
-        std::thread::sleep(backoff);
-        backoff = (backoff * 2).min(Duration::from_secs(5));
-    }
+    })
 }
 
 #[cfg(test)]
