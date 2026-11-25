@@ -19,17 +19,43 @@ public struct CloudHostReplicaSetRequest: DaemonRequest, CustomStringConvertible
     public var clientVersion: String?
     /// The name phones show for this Mac.
     public var hostName: String
+    /// Seals every published state (RFD 0163 row 7). Off (nil) unless the
+    /// daemon serves ``DaemonCapability/cloudHostReplicaSeal``: an older
+    /// daemon ignores the field and would publish in the clear.
+    public var seal: CloudHostReplicaSeal?
 
-    public init(apiBaseURL: String, installToken: String, expiresAt: UInt64, clientVersion: String? = nil, hostName: String) {
+    public init(apiBaseURL: String, installToken: String, expiresAt: UInt64, clientVersion: String? = nil, hostName: String,
+                seal: CloudHostReplicaSeal? = nil) {
         self.apiBaseURL = apiBaseURL
         self.installToken = installToken
         self.expiresAt = expiresAt
         self.clientVersion = clientVersion
         self.hostName = hostName
+        self.seal = seal
     }
 
-    /// Never prints the token.
-    public var description: String { "cloud-host-replica-set(\(apiBaseURL), expires_at: \(expiresAt))" }
+    /// Never prints the token or the seal's key.
+    public var description: String {
+        "cloud-host-replica-set(\(apiBaseURL), expires_at: \(expiresAt), sealed: \(seal.map { "\($0.viewers.count) viewers" } ?? "no"))"
+    }
+}
+
+/// The `seal` of `cloud-host-replica-set` (cmux-next-ios PROTOCOL.md "Host
+/// replica sealed state"): the Mac identity key and the key agreement key
+/// (`pushKey`) of every device the pairing store pairs now.
+public struct CloudHostReplicaSeal: Sendable, Equatable, Encodable, CustomStringConvertible {
+    /// The Mac identity key's 32-byte private scalar, base64.
+    public var sourceKey: String
+    /// The paired devices' P-256 public keys (X9.63), base64; 1 to 16.
+    public var viewers: [String]
+
+    public init(sourceKey: String, viewers: [String]) {
+        self.sourceKey = sourceKey
+        self.viewers = viewers
+    }
+
+    /// Never prints the key.
+    public var description: String { "CloudHostReplicaSeal(\(viewers.count) viewers)" }
 }
 
 /// `cloud-host-replica-clear`: drops the lease. `purge` deletes the cloud

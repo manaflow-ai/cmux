@@ -4474,6 +4474,43 @@ Result<HomeInboxRow> Codec<HomeInboxRow>::decode(const Json& value) {
     return result;
 }
 
+Result<Json> Codec<HostReplicaSeal>::encode(const HostReplicaSeal& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_source_key = encode_value(value.source_key);
+    if (!encoded_source_key) return std::move(encoded_source_key).error();
+    object.emplace("source_key", std::move(encoded_source_key).value());
+    auto encoded_viewers = encode_value(value.viewers);
+    if (!encoded_viewers) return std::move(encoded_viewers).error();
+    object.emplace("viewers", std::move(encoded_viewers).value());
+    return Json(std::move(object));
+}
+
+Result<HostReplicaSeal> Codec<HostReplicaSeal>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    HostReplicaSeal result{};
+    const Json* field_source_key = value.find("source_key");
+    if (!field_source_key) {
+        return make_error(ErrorCode::decode, "missing required field 'source_key'");
+    }
+    if (field_source_key) {
+        auto decoded = decode_value<std::string>(*field_source_key);
+        if (!decoded) return std::move(decoded).error();
+        result.source_key = std::move(decoded).value();
+    }
+    const Json* field_viewers = value.find("viewers");
+    if (!field_viewers) {
+        return make_error(ErrorCode::decode, "missing required field 'viewers'");
+    }
+    if (field_viewers) {
+        auto decoded = decode_value<std::vector<std::string>>(*field_viewers);
+        if (!decoded) return std::move(decoded).error();
+        result.viewers = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<HostSizeMode>::encode(const HostSizeMode& value) {
     switch (value) {
         case HostSizeMode::smallest: return Json(std::string("smallest"));
@@ -21163,6 +21200,11 @@ Result<Json> Codec<CloudHostReplicaSetRequest>::encode(const CloudHostReplicaSet
     auto encoded_install_token = encode_value(value.install_token);
     if (!encoded_install_token) return std::move(encoded_install_token).error();
     object.emplace("install_token", std::move(encoded_install_token).value());
+    if (!value.seal.is_absent()) {
+        auto encoded = encode_value(value.seal);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("seal", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -21215,6 +21257,16 @@ Result<CloudHostReplicaSetRequest> Codec<CloudHostReplicaSetRequest>::decode(con
         auto decoded = decode_value<std::string>(*field_install_token);
         if (!decoded) return std::move(decoded).error();
         result.install_token = std::move(decoded).value();
+    }
+    const Json* field_seal = value.find("seal");
+    if (field_seal) {
+        if (field_seal->is_null()) {
+            result.seal = Field<HostReplicaSeal>::null();
+        } else {
+            auto decoded = decode_value<HostReplicaSeal>(*field_seal);
+            if (!decoded) return std::move(decoded).error();
+            result.seal = Field<HostReplicaSeal>(std::move(decoded).value());
+        }
     }
     return result;
 }
@@ -48400,6 +48452,9 @@ constexpr std::array<CommandFieldRequirement, 8> kCommand34FieldRequirements{{
     {"origin", 7U, ""},
     {"reason", 0U, "close-reason-v1"},
 }};
+constexpr std::array<CommandFieldRequirement, 1> kCommand51FieldRequirements{{
+    {"seal", 12U, "cloud-host-replica-seal-v1"},
+}};
 constexpr std::array<CommandFieldRequirement, 1> kCommand86FieldRequirements{{
     {"answers", 0U, "conversation-run-answers-v1"},
 }};
@@ -48674,7 +48729,7 @@ constexpr std::array<CommandMetadata, 313> kCommands{{
     {"cloud-conversation-unsubscribe", "local-admin", 12U, "cloud-conversations-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"cloud-environment", "local-admin", 12U, "cloud-environments-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"cloud-host-replica-clear", "local-admin", 12U, "cloud-host-replica-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"cloud-host-replica-set", "local-admin", 12U, "cloud-host-replica-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"cloud-host-replica-set", "local-admin", 12U, "cloud-host-replica-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand51FieldRequirements)},
     {"cloud-host-replica-status", "local-admin", 12U, "cloud-host-replica-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"cloud-inbox-list", "local-admin", 12U, "cloud-conversations-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"cloud-inbox-op", "local-admin", 12U, "conversation-inbox-state-v1", false, "", "", std::span<const CommandFieldRequirement>{}},

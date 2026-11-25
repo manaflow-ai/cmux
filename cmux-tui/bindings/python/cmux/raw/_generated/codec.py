@@ -80,6 +80,7 @@ MODEL_BY_PATH = {
     'types/HistorySearchHit': models.HistorySearchHit,
     'types/HistorySearchRange': models.HistorySearchRange,
     'types/HomeInboxRow': models.HomeInboxRow,
+    'types/HostReplicaSeal': models.HostReplicaSeal,
     'types/HostSizePolicy': models.HostSizePolicy,
     'types/HostSizePolicyRequest': models.HostSizePolicyRequest,
     'types/IdMapping': models.IdMapping,

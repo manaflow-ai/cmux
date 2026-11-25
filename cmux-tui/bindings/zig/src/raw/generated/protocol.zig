@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "b78fea3142c415dfd279b2371c233d5c3927cf9113fe109686884610a4fed8f2";
+pub const ir_sha256 = "47540d4e48fcb71cd9d3cb688218d9d69953c811b7b33e69d4b25ec26442b591";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1140,6 +1140,11 @@ pub const HomeInboxRow = struct {
         "pin_position",
         "preview",
     };
+};
+
+pub const HostReplicaSeal = struct {
+    source_key: []const u8,
+    viewers: []const []const u8,
 };
 
 pub const HostSizeMode = enum {
@@ -5045,6 +5050,7 @@ pub const CloudHostReplicaSetRequest = struct {
     expires_at: u64,
     host_name: []const u8,
     install_token: []const u8,
+    seal: wire.Field(HostReplicaSeal) = .absent,
 };
 
 pub const CloudHostReplicaSetResult = JsonValue;
@@ -5057,6 +5063,9 @@ pub fn cloudHostReplicaSet(client: anytype, request: CloudHostReplicaSetRequest)
             .authority = "local-admin",
             .since = 12,
             .capability = "cloud-host-replica-v1",
+            .fields = &.{
+                .{ .name = "seal", .since = 12, .capability = "cloud-host-replica-seal-v1" },
+            },
         },
         request,
     );

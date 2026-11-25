@@ -11883,6 +11883,39 @@
     }
    },
    "additional_properties": false
+  },
+  "HostReplicaSeal": {
+   "kind": "object",
+   "fields": {
+    "source_key": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "The host's P-256 identity key: its 32-byte private scalar, base64. Never logged or echoed."
+     ]
+    },
+    "viewers": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "min_items": 1,
+      "max_items": 16
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "The paired devices' P-256 key agreement keys (SEC1), base64; each gets its own envelope."
+     ]
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -26628,6 +26661,20 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "seal": {
+      "type": {
+       "kind": "ref",
+       "name": "HostReplicaSeal"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "cloud-host-replica-seal-v1",
+      "constraints": [
+       "RFD 0163 row 7: every published state is sealed to the viewers (cmux-next-ios PROTOCOL.md \"Host replica sealed state\"). A seal that does not parse refuses the lease. Send it only to a daemon advertising cloud-host-replica-seal-v1."
+      ]
      }
     },
     "additional_properties": false

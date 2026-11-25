@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR b78fea3142c415dfd279b2371c233d5c3927cf9113fe109686884610a4fed8f2. */
+/* cmux-tui mux protocol 12, IR 47540d4e48fcb71cd9d3cb688218d9d69953c811b7b33e69d4b25ec26442b591. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "b78fea3142c415dfd279b2371c233d5c3927cf9113fe109686884610a4fed8f2" as const;
+export const SDK_IR_SHA256 = "47540d4e48fcb71cd9d3cb688218d9d69953c811b7b33e69d4b25ec26442b591" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -740,7 +740,12 @@ export const COMMAND_METADATA = {
     "authority": "local-admin",
     "since": 12,
     "capability": "cloud-host-replica-v1",
-    "fields": {},
+    "fields": {
+      "seal": {
+        "since": 12,
+        "capability": "cloud-host-replica-seal-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "The verified cmux app connection only. Leases the app's install token to the host replica publisher, which enrolls the host and publishes host:<host>/session; never echoes the token. See plans/cmux-next/object-sync/DESIGN.md and spec/commands.md."
@@ -8019,6 +8024,39 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "HostReplicaSeal": {
+    "additional_properties": false,
+    "fields": {
+      "source_key": {
+        "constraints": [
+          "The host's P-256 identity key: its 32-byte private scalar, base64. Never logged or echoed."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "viewers": {
+        "constraints": [
+          "The paired devices' P-256 key agreement keys (SEC1), base64; each gets its own envelope."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array",
+          "max_items": 16,
+          "min_items": 1
         }
       }
     },
@@ -19384,6 +19422,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "seal": {
+          "capability": "cloud-host-replica-seal-v1",
+          "constraints": [
+            "RFD 0163 row 7: every published state is sealed to the viewers (cmux-next-ios PROTOCOL.md \"Host replica sealed state\"). A seal that does not parse refuses the lease. Send it only to a daemon advertising cloud-host-replica-seal-v1."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "HostReplicaSeal"
           }
         }
       },

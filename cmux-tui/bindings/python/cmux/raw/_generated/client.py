@@ -165,8 +165,8 @@ class GeneratedClientMixin:
     def cloud_host_replica_clear(self, *, purge: Union[bool, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('cloud-host-replica-clear', CloudHostReplicaClearRequest(purge=purge))
 
-    def cloud_host_replica_set(self, api_base_url: str, expires_at: int, host_name: str, install_token: str, *, client_version: Union[str, None, MissingType] = MISSING) -> JsonValue:
-        return self._invoke_command('cloud-host-replica-set', CloudHostReplicaSetRequest(api_base_url=api_base_url, expires_at=expires_at, host_name=host_name, install_token=install_token, client_version=client_version))
+    def cloud_host_replica_set(self, api_base_url: str, expires_at: int, host_name: str, install_token: str, *, client_version: Union[str, None, MissingType] = MISSING, seal: Union[HostReplicaSeal, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('cloud-host-replica-set', CloudHostReplicaSetRequest(api_base_url=api_base_url, expires_at=expires_at, host_name=host_name, install_token=install_token, client_version=client_version, seal=seal))
 
     def cloud_host_replica_status(self) -> JsonValue:
         return self._invoke_command('cloud-host-replica-status', CloudHostReplicaStatusRequest())

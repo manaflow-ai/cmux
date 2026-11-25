@@ -984,6 +984,13 @@ class HomeInboxRow:
 
 
 @dataclass(frozen=True)
+class HostReplicaSeal:
+    __cmux_schema_path__: ClassVar[str] = 'types/HostReplicaSeal'
+    source_key: str
+    viewers: List[str]
+
+
+@dataclass(frozen=True)
 class HostSizePolicy:
     __cmux_schema_path__: ClassVar[str] = 'types/HostSizePolicy'
     mode: HostSizeMode
@@ -3124,6 +3131,7 @@ class CloudHostReplicaSetRequest:
     host_name: str
     install_token: str
     client_version: Union[str, None, MissingType] = field(default=MISSING)
+    seal: Union[HostReplicaSeal, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -6906,6 +6914,7 @@ __all__ = [
     'HistorySearchHit',
     'HistorySearchRange',
     'HomeInboxRow',
+    'HostReplicaSeal',
     'HostSizePolicy',
     'HostSizePolicyRequest',
     'IdMapping',

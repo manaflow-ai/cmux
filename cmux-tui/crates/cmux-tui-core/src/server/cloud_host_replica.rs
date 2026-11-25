@@ -27,11 +27,12 @@ use serde_json::{Map, Value};
 
 use super::{Mux, list_workspaces_reply};
 use crate::cloud_conversations::{
-    CloudError, HostOpRefusal, HostReplica, HostReplicaParams, HostSource,
+    CloudError, HostOpRefusal, HostReplica, HostReplicaParams, HostSource, ReplicaSeal,
 };
 use crate::workspace_registry::Actor;
 
 pub(super) use crate::cloud_conversations::CLOUD_HOST_REPLICA_CAPABILITY as CAPABILITY;
+pub(super) use crate::cloud_conversations::CLOUD_HOST_REPLICA_SEAL_CAPABILITY as SEAL_CAPABILITY;
 
 /// The ops the cloud may forward, each with the params fields that pass.
 const FORWARDED_OPS: &[(&str, &[&str])] = &[(
@@ -59,6 +60,11 @@ pub(super) struct HostReplicaSetParams {
     #[serde(default)]
     client_version: Option<String>,
     host_name: String,
+    /// `cloud-host-replica-seal-v1` (RFD 0163 row 7, off unless the app sends
+    /// it): the host identity key and the paired devices' keys; every state
+    /// is then published sealed. Never logged.
+    #[serde(default)]
+    seal: Option<ReplicaSeal>,
 }
 
 /// `cloud-host-replica-clear`.
@@ -86,16 +92,21 @@ fn replica(mux: &Mux, client: u64) -> anyhow::Result<&HostReplica> {
 }
 
 pub(super) fn set(mux: &Mux, client: u64, params: HostReplicaSetParams) -> anyhow::Result<Value> {
-    let HostReplicaSetParams { api_base_url, install_token, expires_at, client_version, host_name } =
-        params;
-    // The command surface has no seal yet (RFD 0163 row 7, slice 1): off.
+    let HostReplicaSetParams {
+        api_base_url,
+        install_token,
+        expires_at,
+        client_version,
+        host_name,
+        seal,
+    } = params;
     let lease = HostReplicaParams {
         api_base_url,
         install_token,
         expires_at,
         client_version,
         host_name,
-        seal: None,
+        seal,
     };
     Ok(replica(mux, client)?.set_lease(lease)?)
 }

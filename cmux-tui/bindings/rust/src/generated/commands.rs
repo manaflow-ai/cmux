@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR b78fea3142c415dfd279b2371c233d5c3927cf9113fe109686884610a4fed8f2.
+// cmux-tui mux protocol 12, IR 47540d4e48fcb71cd9d3cb688218d9d69953c811b7b33e69d4b25ec26442b591.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -819,6 +819,8 @@ pub struct CloudHostReplicaSetRequest {
     pub expires_at: u64,
     pub host_name: String,
     pub install_token: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub seal: Optional<T::HostReplicaSeal>,
 }
 
 #[rustfmt::skip]
@@ -4873,6 +4875,10 @@ impl CmuxClient {
     }
 
     pub fn cloud_host_replica_set(&mut self, request: CloudHostReplicaSetRequest) -> Result<CloudHostReplicaSetResult> {
+        if !request.seal.is_missing() {
+            self.require_protocol_field("cloud-host-replica-set", 12)?;
+            self.require_capability_field("cloud-host-replica-set", "cloud-host-replica-seal-v1")?;
+        }
         self.execute(&CLOUD_HOST_REPLICA_SET_METADATA, &request)
     }
 
