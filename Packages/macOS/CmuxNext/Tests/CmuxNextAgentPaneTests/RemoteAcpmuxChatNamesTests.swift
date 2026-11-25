@@ -36,8 +36,8 @@ import Testing
         let notes = Mutex<[String]>([])
         var all: [String] { notes.withLock { $0 } }
         var chatNoted: RemoteAcpmuxWire.ChatNoted {
-            { [notes] summary, host in
-                notes.withLock { $0.append("\(host) \(summary["sessionId"] as? String ?? "?") \(summary["title"] as? String ?? "-")") }
+            { [self] summary, host in
+                self.notes.withLock { $0.append("\(host) \(summary["sessionId"] as? String ?? "?") \(summary["title"] as? String ?? "-")") }
             }
         }
     }
