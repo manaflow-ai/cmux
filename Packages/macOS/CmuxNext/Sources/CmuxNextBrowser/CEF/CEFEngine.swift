@@ -1,3 +1,4 @@
+public import AppKit
 public import CmuxNextCompat
 public import CmuxNextDesign
 public import Foundation
@@ -208,6 +209,19 @@ public final class CEFEngine: BrowserEngine {
     /// The timed steps of Chromium's start in this process (`debug.cef`).
     public var startMarks: [CEFStartMark] { CEFStartSteps.shared.marks }
 
+    /// `startReport.launchMarks(now:)` plus the start's points before `CefInitialize` as `cef.step.<name>`
+    /// (`start_called`, `map_waited_first_frame`, `map_done`, `keychain_done`, `launch_prep_read`, `first_frame_waited`),
+    /// each once, to see which step holds `cef.initialize_start` back.
+    ///
+    /// - Parameter now: Seconds since the process started, on the caller's clock.
+    /// - Returns: Each mark's name and its offset from now.
+    public func launchMarks(now: Double) -> [(name: String, offset: Double)] {
+        let uptime = Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1e9
+        let steps: Set = ["start_called", "map_waited_first_frame", "map_done", "keychain_done", "launch_prep_read", "first_frame_waited"]
+        let points = CEFStartSteps.shared.marks.filter { $0.milliseconds == 0 && steps.contains($0.name) }
+        return startReport.launchMarks(now: now) + points.map { ("cef.step." + $0.name, Double($0.startUptimeNanos) / 1e9 - uptime) }
+    }
+
 
     /// The framework read before CefInitialize (`CEFFrameworkPrefetch`), `debug.cef`'s
     /// `prefetch` fields: bytes, files and milliseconds; nil before one ran. `map_ms` is the time
@@ -281,7 +295,7 @@ public final class CEFEngine: BrowserEngine {
     public var pumpStats: CEFPumpStats? { CEFRuntime.shared.pump?.stats }
 
     /// What the fork's page tracker read from host views (for `debug.cef`).
-    public var trackerStats: CEFTrackerStats { CEFHostView.trackerStats.with(hostedPages: hostedPageFields) }
+    @MainActor public var trackerStats: CEFTrackerStats { CEFHostView.trackerStats.with(hostedPages: hostedPageFields) }
 
     /// Chromium asked for a window (a link, `window.open`,
     /// `chrome.windows.create`) and no Chromium window of its profile exists:
@@ -312,6 +326,13 @@ public final class CEFEngine: BrowserEngine {
     public var chromePolicyID: @MainActor () -> String? {
         get { CEFRuntime.shared.chromePolicyIDSetting }
         set { CEFRuntime.shared.chromePolicyIDSetting = newValue }
+    }
+
+    /// SECURITY: whether an input event is the person's own (the app's `PersonInputCheck`): only their click or key in
+    /// a Chromium page takes its WebAuthn back from an agent (``CEFTab/allowWebAuthnForPerson()``). None is until set.
+    public var personInput: @MainActor (NSEvent) -> Bool {
+        get { CEFRuntime.shared.windowRequests.linkClicks.isPerson }
+        set { CEFRuntime.shared.windowRequests.linkClicks.isPerson = newValue }
     }
 
     /// What modified link clicks do (cmux.json `browser.links.*`;
@@ -367,7 +388,7 @@ public final class CEFEngine: BrowserEngine {
     private func makeReadyTab(_ configuration: BrowserTabConfiguration) -> CEFTab {
         let runtime = CEFRuntime.shared
         runtime.adopt(stores: stores, signInCallbacks: signInCallbacks)
-        let pane = configuration.pane ?? BrowserPaneID(rawValue: "tab-" + configuration.id.rawValue)
+        let pane = configuration.pane ?? BrowserPaneID(rawValue: CEFPaneHost.ownTabPrefix + configuration.id.rawValue)
         let key = CEFPaneKey(pane: pane, profile: configuration.profile, machineKey: configuration.machineStore?.machineKey,
                              offTheRecord: stores.offTheRecord.isOffTheRecord(configuration.profile))
         let host = runtime.host(for: key, lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)
@@ -389,7 +410,7 @@ public final class CEFEngine: BrowserEngine {
     /// `timeout` passes, commits the cookie stores, awaits `beforeEngineStop`
     /// right before the main thread blocks in CefShutdown, then calls it. The
     /// App awaits this from `applicationShouldTerminate`. No-op when CEF never started.
-    public func shutdown(timeout: Duration = .seconds(3), beforeEngineStop: @MainActor () async -> Void) async {
-        await CEFRuntime.shared.shutdown(timeout: timeout, beforeEngineStop: beforeEngineStop)
+    public func shutdown(timeout: Duration = .seconds(3), stopsEngine: Bool = true, beforeEngineStop: @MainActor () async -> Void) async {
+        await CEFRuntime.shared.shutdown(timeout: timeout, stopsEngine: stopsEngine, beforeEngineStop: beforeEngineStop)
     }
 }

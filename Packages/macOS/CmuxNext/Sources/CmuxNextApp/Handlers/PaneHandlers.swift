@@ -132,9 +132,7 @@ enum PaneHandlers {
             break
         }
         let axis: SplitAxis = plan.horizontal ? .horizontal : .vertical
-        let sizing = insertion?.sizing ?? controller.flatMap { controller in
-            content?.layoutModel.splitSizingChanges(splitting: controller.layoutPaneID, axis: axis)
-        } ?? []
+        let sizing = insertion?.sizing ?? controller.flatMap { content?.layoutModel.splitSizingChanges(splitting: $0.layoutPaneID, axis: axis) } ?? []
         let daemonDirection = SplitDirection(rawValue: plan.daemonDirection) ?? .right
         let swapTowards = plan.swapTowards.flatMap(PaneDirection.init(rawValue:))
         let intent = content?.beginFocusIntent()
@@ -169,6 +167,7 @@ enum PaneHandlers {
         let work: ActionWork = Task {
             var landed = false
             defer { ctx.services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
+            defer { content?.layoutModel.settleSplitSizing(shownSizing, landed: landed) } // sent once the split landed, else dropped
             await previous?.value
             do {
                 let created = if let intended {
@@ -179,13 +178,10 @@ enum PaneHandlers {
                 BenchSpans.mark(provisional == nil ? "split.reply" : "split.reply.optimistic")
                 if provisional == nil { content?.expectFocus(on: created.surface, generation: intent) }
                 landed = true
-                if let shownSizing { content?.layoutModel.commitSplitSizing(shownSizing) }
                 return nil
             } catch is PaneSplitCancelled {
-                if let shownSizing { content?.layoutModel.cancelSplitSizing(shownSizing) }
                 return nil // the person closed the new pane first
             } catch {
-                if let shownSizing { content?.layoutModel.cancelSplitSizing(shownSizing) }
                 logger.error("split failed: \(String(describing: error), privacy: .public)")
                 return .create("split", error)
             }

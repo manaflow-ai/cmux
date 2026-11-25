@@ -4,6 +4,7 @@
 // offers Send now; hovered, Copy, Retry and the X come first and Send now last (PendingSteer.tsx). The
 // same chat as the gallery's `agent-pane.queued-user-footer` `stack` variant: a Claude Code chat
 // (acpmux `backgroundsWork`), so the X shows, with the newest steer as the snapshot's `newestOwnSteer`.
+import type { TaskGoal } from "./goal";
 import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
 
 const SECOND = 1_000;
@@ -12,7 +13,7 @@ export const WAITING_STEER_IDS = ["waiting-steer-1", "waiting-steer-2", "waiting
 
 /// The snapshot fields acpmux would send with these rows, which a debug seed sets beside them.
 export type SeedSnapshotFields = Pick<AcpmuxSnapshot, "isWorking" | "waitingSteers" | "newestOwnSteer"> & {
-  summary: { steering: boolean; backgroundsWork: boolean };
+  summary: { steering?: boolean; backgroundsWork?: boolean; goal?: TaskGoal };
 };
 
 export const WAITING_STEERS_SNAPSHOT: SeedSnapshotFields = {

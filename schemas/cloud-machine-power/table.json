@@ -1,0 +1,832 @@
+{
+  "events": [
+    "pause",
+    "resume",
+    "delete",
+    "attach",
+    "succeeded",
+    "failed",
+    "timed_out",
+    "daemon_ready",
+    "observed_running",
+    "observed_paused",
+    "observed_failed",
+    "observed_destroyed",
+    "observed_unknown"
+  ],
+  "generations": "Every transition that issues an effect issues it under a new generation (issued + 1), so an old timer or answer can never match.",
+  "refusals": [
+    "destroyed",
+    "operation_in_flight",
+    "not_running",
+    "not_paused",
+    "not_ready",
+    "not_awaited",
+    "stale_generation"
+  ],
+  "source": "cmux-tui/crates/cmux-cloud-machine/src/power.rs",
+  "stale": "An answer (succeeded, failed, timed_out, daemon_ready, observed_*) whose generation is not the one the state awaits is refused stale_generation; a state that awaits nothing refuses it not_awaited; destroyed refuses every event. A refusal leaves the machine unchanged.",
+  "states": [
+    {
+      "awaits": true,
+      "inFlight": true,
+      "state": "provisioning",
+      "status": "provisioning"
+    },
+    {
+      "awaits": true,
+      "inFlight": false,
+      "state": "running",
+      "status": "running"
+    },
+    {
+      "awaits": false,
+      "inFlight": false,
+      "state": "ready",
+      "status": "running"
+    },
+    {
+      "awaits": false,
+      "inFlight": false,
+      "state": "failed",
+      "status": "failed"
+    },
+    {
+      "awaits": false,
+      "inFlight": false,
+      "state": "paused",
+      "status": "paused"
+    },
+    {
+      "awaits": false,
+      "inFlight": false,
+      "state": "destroyed",
+      "status": "destroyed"
+    },
+    {
+      "awaits": true,
+      "inFlight": false,
+      "state": "unknown",
+      "status": "unknown"
+    },
+    {
+      "awaits": true,
+      "inFlight": true,
+      "state": "pausing",
+      "status": "pausing"
+    },
+    {
+      "awaits": true,
+      "inFlight": true,
+      "state": "starting",
+      "status": "starting"
+    },
+    {
+      "awaits": true,
+      "inFlight": true,
+      "state": "deleting",
+      "status": "deleting"
+    }
+  ],
+  "transitions": [
+    {
+      "event": "pause",
+      "from": "provisioning",
+      "refusal": "operation_in_flight"
+    },
+    {
+      "event": "resume",
+      "from": "provisioning",
+      "refusal": "operation_in_flight"
+    },
+    {
+      "event": "delete",
+      "from": "provisioning",
+      "refusal": "operation_in_flight"
+    },
+    {
+      "event": "attach",
+      "from": "provisioning",
+      "refusal": "operation_in_flight"
+    },
+    {
+      "effects": [
+        "await_daemon",
+        "arm_timer"
+      ],
+      "event": "succeeded",
+      "from": "provisioning",
+      "to": "running"
+    },
+    {
+      "effects": [],
+      "event": "failed",
+      "from": "provisioning",
+      "to": "failed"
+    },
+    {
+      "effects": [
+        "refresh",
+        "arm_timer"
+      ],
+      "event": "timed_out",
+      "from": "provisioning",
+      "to": "unknown"
+    },
+    {
+      "event": "daemon_ready",
+      "from": "provisioning",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_running",
+      "from": "provisioning",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_paused",
+      "from": "provisioning",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_failed",
+      "from": "provisioning",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_destroyed",
+      "from": "provisioning",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_unknown",
+      "from": "provisioning",
+      "refusal": "not_awaited"
+    },
+    {
+      "effects": [
+        "pause",
+        "arm_timer"
+      ],
+      "event": "pause",
+      "from": "running",
+      "to": "pausing"
+    },
+    {
+      "event": "resume",
+      "from": "running",
+      "refusal": "not_paused"
+    },
+    {
+      "effects": [
+        "delete",
+        "arm_timer"
+      ],
+      "event": "delete",
+      "from": "running",
+      "to": "deleting"
+    },
+    {
+      "event": "attach",
+      "from": "running",
+      "refusal": "not_ready"
+    },
+    {
+      "event": "succeeded",
+      "from": "running",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "failed",
+      "from": "running",
+      "refusal": "not_awaited"
+    },
+    {
+      "effects": [
+        "refresh",
+        "arm_timer"
+      ],
+      "event": "timed_out",
+      "from": "running",
+      "to": "unknown"
+    },
+    {
+      "effects": [],
+      "event": "daemon_ready",
+      "from": "running",
+      "to": "ready"
+    },
+    {
+      "event": "observed_running",
+      "from": "running",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_paused",
+      "from": "running",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_failed",
+      "from": "running",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_destroyed",
+      "from": "running",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_unknown",
+      "from": "running",
+      "refusal": "not_awaited"
+    },
+    {
+      "effects": [
+        "pause",
+        "arm_timer"
+      ],
+      "event": "pause",
+      "from": "ready",
+      "to": "pausing"
+    },
+    {
+      "event": "resume",
+      "from": "ready",
+      "refusal": "not_paused"
+    },
+    {
+      "effects": [
+        "delete",
+        "arm_timer"
+      ],
+      "event": "delete",
+      "from": "ready",
+      "to": "deleting"
+    },
+    {
+      "effects": [
+        "attach"
+      ],
+      "event": "attach",
+      "from": "ready",
+      "to": "ready"
+    },
+    {
+      "event": "succeeded",
+      "from": "ready",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "failed",
+      "from": "ready",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "timed_out",
+      "from": "ready",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "daemon_ready",
+      "from": "ready",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_running",
+      "from": "ready",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_paused",
+      "from": "ready",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_failed",
+      "from": "ready",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_destroyed",
+      "from": "ready",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_unknown",
+      "from": "ready",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "pause",
+      "from": "failed",
+      "refusal": "not_running"
+    },
+    {
+      "event": "resume",
+      "from": "failed",
+      "refusal": "not_paused"
+    },
+    {
+      "effects": [
+        "delete",
+        "arm_timer"
+      ],
+      "event": "delete",
+      "from": "failed",
+      "to": "deleting"
+    },
+    {
+      "event": "attach",
+      "from": "failed",
+      "refusal": "not_running"
+    },
+    {
+      "event": "succeeded",
+      "from": "failed",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "failed",
+      "from": "failed",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "timed_out",
+      "from": "failed",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "daemon_ready",
+      "from": "failed",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_running",
+      "from": "failed",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_paused",
+      "from": "failed",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_failed",
+      "from": "failed",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_destroyed",
+      "from": "failed",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_unknown",
+      "from": "failed",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "pause",
+      "from": "paused",
+      "refusal": "not_running"
+    },
+    {
+      "effects": [
+        "resume",
+        "arm_timer"
+      ],
+      "event": "resume",
+      "from": "paused",
+      "to": "starting"
+    },
+    {
+      "effects": [
+        "delete",
+        "arm_timer"
+      ],
+      "event": "delete",
+      "from": "paused",
+      "to": "deleting"
+    },
+    {
+      "event": "attach",
+      "from": "paused",
+      "refusal": "not_running"
+    },
+    {
+      "event": "succeeded",
+      "from": "paused",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "failed",
+      "from": "paused",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "timed_out",
+      "from": "paused",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "daemon_ready",
+      "from": "paused",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_running",
+      "from": "paused",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_paused",
+      "from": "paused",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_failed",
+      "from": "paused",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_destroyed",
+      "from": "paused",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_unknown",
+      "from": "paused",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "pause",
+      "from": "destroyed",
+      "refusal": "destroyed"
+    },
+    {
+      "event": "resume",
+      "from": "destroyed",
+      "refusal": "destroyed"
+    },
+    {
+      "event": "delete",
+      "from": "destroyed",
+      "refusal": "destroyed"
+    },
+    {
+      "event": "attach",
+      "from": "destroyed",
+      "refusal": "destroyed"
+    },
+    {
+      "event": "succeeded",
+      "from": "destroyed",
+      "refusal": "destroyed"
+    },
+    {
+      "event": "failed",
+      "from": "destroyed",
+      "refusal": "destroyed"
+    },
+    {
+      "event": "timed_out",
+      "from": "destroyed",
+      "refusal": "destroyed"
+    },
+    {
+      "event": "daemon_ready",
+      "from": "destroyed",
+      "refusal": "destroyed"
+    },
+    {
+      "event": "observed_running",
+      "from": "destroyed",
+      "refusal": "destroyed"
+    },
+    {
+      "event": "observed_paused",
+      "from": "destroyed",
+      "refusal": "destroyed"
+    },
+    {
+      "event": "observed_failed",
+      "from": "destroyed",
+      "refusal": "destroyed"
+    },
+    {
+      "event": "observed_destroyed",
+      "from": "destroyed",
+      "refusal": "destroyed"
+    },
+    {
+      "event": "observed_unknown",
+      "from": "destroyed",
+      "refusal": "destroyed"
+    },
+    {
+      "event": "pause",
+      "from": "unknown",
+      "refusal": "not_running"
+    },
+    {
+      "event": "resume",
+      "from": "unknown",
+      "refusal": "not_paused"
+    },
+    {
+      "effects": [
+        "delete",
+        "arm_timer"
+      ],
+      "event": "delete",
+      "from": "unknown",
+      "to": "deleting"
+    },
+    {
+      "event": "attach",
+      "from": "unknown",
+      "refusal": "not_running"
+    },
+    {
+      "event": "succeeded",
+      "from": "unknown",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "failed",
+      "from": "unknown",
+      "refusal": "not_awaited"
+    },
+    {
+      "effects": [
+        "refresh",
+        "arm_timer"
+      ],
+      "event": "timed_out",
+      "from": "unknown",
+      "to": "unknown"
+    },
+    {
+      "event": "daemon_ready",
+      "from": "unknown",
+      "refusal": "not_awaited"
+    },
+    {
+      "effects": [
+        "await_daemon",
+        "arm_timer"
+      ],
+      "event": "observed_running",
+      "from": "unknown",
+      "to": "running"
+    },
+    {
+      "effects": [],
+      "event": "observed_paused",
+      "from": "unknown",
+      "to": "paused"
+    },
+    {
+      "effects": [],
+      "event": "observed_failed",
+      "from": "unknown",
+      "to": "failed"
+    },
+    {
+      "effects": [],
+      "event": "observed_destroyed",
+      "from": "unknown",
+      "to": "destroyed"
+    },
+    {
+      "effects": [],
+      "event": "observed_unknown",
+      "from": "unknown",
+      "to": "unknown"
+    },
+    {
+      "event": "pause",
+      "from": "pausing",
+      "refusal": "operation_in_flight"
+    },
+    {
+      "event": "resume",
+      "from": "pausing",
+      "refusal": "operation_in_flight"
+    },
+    {
+      "event": "delete",
+      "from": "pausing",
+      "refusal": "operation_in_flight"
+    },
+    {
+      "event": "attach",
+      "from": "pausing",
+      "refusal": "operation_in_flight"
+    },
+    {
+      "effects": [],
+      "event": "succeeded",
+      "from": "pausing",
+      "to": "paused"
+    },
+    {
+      "effects": [
+        "refresh",
+        "arm_timer"
+      ],
+      "event": "failed",
+      "from": "pausing",
+      "to": "unknown"
+    },
+    {
+      "effects": [
+        "refresh",
+        "arm_timer"
+      ],
+      "event": "timed_out",
+      "from": "pausing",
+      "to": "unknown"
+    },
+    {
+      "event": "daemon_ready",
+      "from": "pausing",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_running",
+      "from": "pausing",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_paused",
+      "from": "pausing",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_failed",
+      "from": "pausing",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_destroyed",
+      "from": "pausing",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_unknown",
+      "from": "pausing",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "pause",
+      "from": "starting",
+      "refusal": "operation_in_flight"
+    },
+    {
+      "event": "resume",
+      "from": "starting",
+      "refusal": "operation_in_flight"
+    },
+    {
+      "event": "delete",
+      "from": "starting",
+      "refusal": "operation_in_flight"
+    },
+    {
+      "event": "attach",
+      "from": "starting",
+      "refusal": "operation_in_flight"
+    },
+    {
+      "effects": [
+        "await_daemon",
+        "arm_timer"
+      ],
+      "event": "succeeded",
+      "from": "starting",
+      "to": "running"
+    },
+    {
+      "effects": [],
+      "event": "failed",
+      "from": "starting",
+      "to": "failed"
+    },
+    {
+      "effects": [
+        "refresh",
+        "arm_timer"
+      ],
+      "event": "timed_out",
+      "from": "starting",
+      "to": "unknown"
+    },
+    {
+      "event": "daemon_ready",
+      "from": "starting",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_running",
+      "from": "starting",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_paused",
+      "from": "starting",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_failed",
+      "from": "starting",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_destroyed",
+      "from": "starting",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_unknown",
+      "from": "starting",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "pause",
+      "from": "deleting",
+      "refusal": "operation_in_flight"
+    },
+    {
+      "event": "resume",
+      "from": "deleting",
+      "refusal": "operation_in_flight"
+    },
+    {
+      "event": "delete",
+      "from": "deleting",
+      "refusal": "operation_in_flight"
+    },
+    {
+      "event": "attach",
+      "from": "deleting",
+      "refusal": "operation_in_flight"
+    },
+    {
+      "effects": [],
+      "event": "succeeded",
+      "from": "deleting",
+      "to": "destroyed"
+    },
+    {
+      "effects": [
+        "refresh",
+        "arm_timer"
+      ],
+      "event": "failed",
+      "from": "deleting",
+      "to": "unknown"
+    },
+    {
+      "effects": [
+        "refresh",
+        "arm_timer"
+      ],
+      "event": "timed_out",
+      "from": "deleting",
+      "to": "unknown"
+    },
+    {
+      "event": "daemon_ready",
+      "from": "deleting",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_running",
+      "from": "deleting",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_paused",
+      "from": "deleting",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_failed",
+      "from": "deleting",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_destroyed",
+      "from": "deleting",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "observed_unknown",
+      "from": "deleting",
+      "refusal": "not_awaited"
+    }
+  ],
+  "version": 1
+}

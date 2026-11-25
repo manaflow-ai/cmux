@@ -3,6 +3,8 @@
    blue), no border, no fill: it reads as a footnote to the reply, not a banner. It folds its own
    height open and closed on the house settle, so nothing over it jumps. */
 .acpmux-share-nudge {
+  /* A fit card (cardFit.css) takes the column's width: containment collapses a box sized to its content. */
+  width: 100%;
   display: grid;
   grid-template-rows: 1fr;
   animation: acpmux-share-nudge-open var(--cmux-motion-settle, 180ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1))
@@ -49,6 +51,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: var(--ds-space-1);
   height: var(--ds-control-compact, 20px);
   padding: 0 var(--ds-space-1);
   border: 0;
@@ -67,12 +70,30 @@
 }
 .acpmux-share-nudge__action:hover,
 .acpmux-share-nudge__close:hover {
-  background: var(--ds-color-hover);
+  background: var(--ds-surface-hover);
 }
 .acpmux-share-nudge__action:focus-visible,
 .acpmux-share-nudge__close:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--agent-text) 40%, transparent);
   outline-offset: 1px;
+}
+
+/* The line stays centred in its column (cardFit.css would push the actions to the end): while it
+   fits, words and actions hug in the middle; in a narrow pane the actions take their own line under
+   the words, centred too. */
+.acpmux-share-nudge__row.cv-fit-row {
+  column-gap: var(--ds-space-2);
+}
+.acpmux-share-nudge__text.cv-fit-text {
+  text-align: center;
+}
+.acpmux-share-nudge__actions.cv-fit-actions {
+  margin-inline: 0;
+}
+@container (min-width: 360px) {
+  .acpmux-share-nudge__text.cv-fit-text {
+    flex: 0 1 auto;
+  }
 }
 
 /* Gallery only: the harness notice's card, a title over the line. */
@@ -101,6 +122,9 @@
 }
 
 /* Gallery only: left-aligned under the reply, in the transcript's text column. */
+.acpmux-share-nudge[data-look="reply"] .acpmux-share-nudge__text {
+  text-align: start;
+}
 .acpmux-share-nudge[data-look="reply"] .acpmux-share-nudge__row {
   justify-content: flex-start;
   padding-inline: var(--cv-inset, var(--ds-space-4));

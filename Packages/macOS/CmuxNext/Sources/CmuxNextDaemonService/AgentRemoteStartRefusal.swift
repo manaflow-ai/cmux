@@ -20,11 +20,15 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
     public var signInExpired = false
     /// The refused harness id from the refusal's `data` (`cmux`, the cmux router), for a refusal that names one.
     public var harness: String?
+    /// The machine's acpmux reason code (`data.reason`, such as `permission.denied`) of a refusal this table has no
+    /// words for: the message names it beside the code, so a bare `agent_session.refused` never hides the cause
+    /// (the Cloud carrier drill, cmuxterm-hq run 43973035740). Nil when the refusal gave none.
+    public var reason: String?
 
     public init(code: String, machine: String, folder: String? = nil, detail: String? = nil, keyedRestartSafe: Bool? = nil,
-                agentName: String? = nil, signInExpired: Bool = false, harness: String? = nil) {
+                agentName: String? = nil, signInExpired: Bool = false, harness: String? = nil, reason: String? = nil) {
         (self.code, self.machine, self.folder, self.detail, self.keyedRestartSafe) = (code, machine, folder, detail, keyedRestartSafe)
-        (self.agentName, self.signInExpired, self.harness) = (agentName, signInExpired, harness)
+        (self.agentName, self.signInExpired, self.harness, self.reason) = (agentName, signInExpired, harness, reason)
     }
 
     /// A start refused because its agent is not signed in on the machine (cmux-tui
@@ -52,7 +56,14 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
         return Self(code: code, machine: machine, folder: folder, detail: error.message, keyedRestartSafe: error.keyedRestartSafe,
                     agentName: refusedHarness.flatMap { $0.isEmpty ? nil : name($0) },
                     signInExpired: signIn && error.details?["errorKind"]?.stringValue == "auth.expired",
-                    harness: named ? dataHarness : nil)
+                    harness: named ? dataHarness : nil, reason: reasonCode(error.details?["reason"]?.stringValue))
+    }
+
+    /// `text` when it is a short reason code (letters, digits, `._-`, at most 64), as the machine sends one; never prose.
+    static func reasonCode(_ text: String?) -> String? {
+        guard let text, (1...64).contains(text.count) else { return nil }
+        let code = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+        return text.unicodeScalars.allSatisfy(code.contains) ? text : nil
     }
 
     /// The refusal's typed facts for the page (`data` of its JSON-RPC error): an agent not signed in
@@ -166,7 +177,7 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
                                   "This chat belongs to this Mac, so it does not run on %@.", machine)
         default:
             RefusalStrings.format("handlers.refusal.agentRemoteStart.refused",
-                                  "%1$@ refused to start the agent chat (%2$@).", machine, code)
+                                  "%1$@ refused to start the agent chat (%2$@).", machine, reason.map { "\(code): \($0)" } ?? code)
         }
     }
 }

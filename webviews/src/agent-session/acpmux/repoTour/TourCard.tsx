@@ -8,6 +8,7 @@ import { useT } from "../i18n";
 import { errorMessage } from "../transportErrors";
 import type { Tour, TourTask } from "./tourModel";
 import "./tour.css";
+import { WithFacts } from "../chips/FactsHoverCard";
 
 /// Starts one task (App.tsx `chat.tour.start`): a worktree of the chat's folder and a chat there.
 export type StartTourTask = (task: TourTask) => Promise<unknown>;
@@ -114,20 +115,24 @@ function TourTaskRow({ task, onStart }: { task: TourTask; onStart?: StartTourTas
       <div className="acpmux-tour-task-head">
         <span className="acpmux-tour-task-title">{task.title}</span>
         {onStart && !readOnly && (
-          <button
-            type="button"
-            className="acpmux-tour-start"
-            data-state={run.state}
-            disabled={run.state === "starting" || run.state === "started"}
-            onClick={start}
-            title={t("tour.startTitle")}
-          >
-            {run.state === "starting"
-              ? t("tour.starting")
-              : run.state === "started"
-                ? t("tour.started")
-                : t("tour.start")}
-          </button>
+          <WithFacts facts={[{ value: t("tour.startTitle") }]}>
+            {(facts) => (
+              <button
+                {...facts}
+                type="button"
+                className="acpmux-tour-start"
+                data-state={run.state}
+                disabled={run.state === "starting" || run.state === "started"}
+                onClick={start}
+              >
+                {run.state === "starting"
+                  ? t("tour.starting")
+                  : run.state === "started"
+                    ? t("tour.started")
+                    : t("tour.start")}
+              </button>
+            )}
+          </WithFacts>
         )}
       </div>
       <p className="acpmux-tour-task-prompt">{task.prompt}</p>

@@ -416,6 +416,26 @@ fn pending_join_as(home: &Path, credential: &str, joined_by: Option<&str>, finge
 }
 
 #[tokio::test]
+async fn a_sign_in_sets_aside_another_accounts_pending_join_before_redeeming() {
+    // user_me's proposal is left pending (its sign-out never reached acpmux); user_other signs in.
+    let home = tempfile::tempdir().unwrap();
+    pending_join(home.path(), Some(JOINED_BY_SIGN_IN), "box-a");
+    let port = FakeHub::at(home.path());
+    let outcome =
+        enroll_at(home.path(), HUB, "box", Some("user_other"), Some("box-a"), &port).await;
+    assert_eq!(outcome, EnrollOutcome::Joined);
+    assert!(!home.path().join("machine-join.pending.json").exists());
+    assert_eq!(queued_credentials(home.path()), vec!["cmm_pending".to_owned()]);
+    // The same account's own proposal is left for its join to finish.
+    let home = tempfile::tempdir().unwrap();
+    pending_join(home.path(), Some(JOINED_BY_SIGN_IN), "box-a");
+    let port = FakeHub::at(home.path());
+    assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::Joined);
+    assert!(home.path().join("machine-join.pending.json").exists());
+    assert!(queued_credentials(home.path()).is_empty());
+}
+
+#[tokio::test]
 async fn a_sign_out_retires_and_revokes_a_sign_in_join_left_pending() {
     // The sign-in's redeem landed, then its answer or probe failed: no record, a proposal.
     let home = tempfile::tempdir().unwrap();

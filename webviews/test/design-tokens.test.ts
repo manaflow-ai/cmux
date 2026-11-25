@@ -92,6 +92,11 @@ describe("design token ratchet", () => {
     ["animation-duration", "0s", undefined],
     ["animation-timing-function", "cubic-bezier(0.2, 0.8, 0.2, 1)", "easing"],
     ["transition", "transform var(--cmux-motion-standard) linear", undefined],
+    ["transition", "all var(--cmux-motion-micro) var(--cmux-ease-out)", "transition-all"],
+    ["transition", "opacity var(--cmux-motion-micro), all var(--cmux-motion-micro)", "transition-all"],
+    ["transition-property", "all", "transition-all"],
+    ["transition-property", "opacity, transform", undefined],
+    ["transition", "background-color var(--cmux-motion-micro) var(--cmux-ease-out)", undefined],
   ] as const)("token literal %s: %s", (property, value, kind) => {
     expect(tokenLiteralKind(property, value)).toBe(kind);
   });

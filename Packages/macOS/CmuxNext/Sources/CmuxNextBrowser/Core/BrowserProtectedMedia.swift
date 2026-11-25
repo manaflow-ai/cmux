@@ -132,6 +132,6 @@ extension BrowserProtectedMedia {
     /// The note the reopened WebKit tab shows.
     public static var reopenedNotice: String {
         String(localized: "browser.protectedMedia.reopenedInWebKit",
-               defaultValue: "Opened in WebKit: this site’s protected media does not play in Chromium.", bundle: .module)
+               defaultValue: "Opened in WebKit: this site’s protected media does not play in Chromium.", bundle: .localizedModule)
     }
 }

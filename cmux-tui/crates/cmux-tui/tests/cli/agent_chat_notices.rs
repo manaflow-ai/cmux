@@ -34,6 +34,12 @@ fn chat(daemon: &Daemon) -> (u64, String) {
     let work = fs::canonicalize(daemon.dir.join("work")).unwrap();
     let trust = json!({work.to_str().unwrap(): "trusted"});
     fs::write(daemon.dir.join("acpmux/trust.json"), trust.to_string()).unwrap();
+    // acpmux refuses a config another user can write; a 002 umask (Ubuntu's default) gives 664.
+    std::fs::set_permissions(
+        daemon.dir.join("acpmux/trust.json"),
+        <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o600),
+    )
+    .unwrap();
     let surface = daemon.own_agent_tab();
     let started = daemon.start_chat(surface);
     assert_eq!(started["ok"], true, "{started}");
@@ -344,4 +350,148 @@ fn a_chat_open_in_two_tabs_posts_one_notice_per_turn_and_per_wait() {
         json!({"sessionId": session, "permissionId": permission, "optionId": "no"}),
     );
     asking.join().unwrap();
+}
+
+/// `list-notifications` with `stats: true` says how often agent notices were read and how fast,
+/// per kind (pursuit research:notifications:2026-11-24): a finish a pane showed at once counts
+/// as read within 60 s, and a wait nobody answered yet as unread and recent.
+#[test]
+fn notice_stats_count_reads_per_kind() {
+    let daemon = machine("notice-stats");
+    let (surface, session) = chat(&daemon);
+    let mut acpmux = Acpmux::connect(&daemon, &session);
+    acpmux.prompt(&session, "hello there");
+    let done = notice(&daemon, surface, |row| row["acknowledged"] == false);
+    acpmux.call("_acpmux/view", json!({"sessionId": session, "visible": true}));
+    notice(&daemon, surface, |row| row["id"] == done["id"] && row["acknowledged"] == true);
+    acpmux.call("_acpmux/view", json!({"sessionId": session, "visible": false}));
+
+    let asking = {
+        let mut asker = Acpmux::connect(&daemon, &session);
+        let session = session.clone();
+        std::thread::spawn(move || asker.prompt(&session, "ask: write the file"))
+    };
+    notice(&daemon, surface, |row| {
+        row["acknowledged"] == false
+            && row["title"].as_str().is_some_and(|t| t.ends_with("needs input"))
+    });
+
+    let listed = daemon.rpc(json!({"id": 9, "cmd": "list-notifications", "stats": true}));
+    let stats = &listed["data"]["agent_notice_stats"];
+    // The reading, for a run with --nocapture.
+    eprintln!("agent_notice_stats: {stats}");
+    let finished = &stats["kinds"]["finished"];
+    assert_eq!(finished["posted"], 1, "{stats}");
+    assert_eq!(finished["read_within_60s"], 1, "{stats}");
+    assert_eq!(finished["acted_rate"], 1.0, "{stats}");
+    assert!(finished["read_ms_p50"].as_u64().is_some_and(|ms| ms <= 60_000), "{stats}");
+    let waiting = &stats["kinds"]["needs_input"];
+    assert_eq!(waiting["posted"], 1, "{stats}");
+    assert_eq!(waiting["unread_recent"], 1, "{stats}");
+    assert_eq!(waiting["acted_rate"], Value::Null, "{stats}");
+    assert_eq!(stats["all"]["posted"], 2, "{stats}");
+
+    // Without `stats` the reply stays as it was.
+    let plain = daemon.rpc(json!({"id": 10, "cmd": "list-notifications"}));
+    assert!(plain["data"].get("agent_notice_stats").is_none(), "{plain}");
+
+    let info = acpmux.call("_acpmux/info", json!({"sessionId": session}));
+    let permission = info["result"]["pending"][0]["permissionId"].clone();
+    acpmux.call(
+        "_acpmux/permission_respond",
+        json!({"sessionId": session, "permissionId": permission, "optionId": "no"}),
+    );
+    asking.join().unwrap();
+}
+
+/// Answers the chat's first pending ask with its reject option (any harness's shape: a
+/// permission, a question, a plan approval), else cancels the turn.
+fn answer_pending(acpmux: &mut Acpmux, session: &str) {
+    let info = acpmux.call("_acpmux/info", json!({"sessionId": session}));
+    let pending = info["result"]["pending"][0].clone();
+    let options = pending["options"].as_array().cloned().unwrap_or_default();
+    let option = options
+        .iter()
+        .find(|o| o["kind"].as_str().is_some_and(|k| k.starts_with("reject")))
+        .or(options.first())
+        .and_then(|o| o["optionId"].as_str().map(str::to_owned));
+    match (pending["permissionId"].as_str(), option) {
+        (Some(permission), Some(option)) => {
+            let answered = acpmux.call(
+                "_acpmux/permission_respond",
+                json!({"sessionId": session, "permissionId": permission, "optionId": option}),
+            );
+            assert!(answered.get("error").is_none(), "{answered}");
+        }
+        _ => {
+            acpmux.call("session/cancel", json!({"sessionId": session}));
+        }
+    }
+}
+
+/// A question is a wait like a permission (goal notify-every-finish: "every finished turn,
+/// permission request and question"): each harness's question, and a plan to approve, posts
+/// exactly one "needs input" notice for a chat open in two tabs, and answering it reads it.
+#[test]
+fn every_kind_of_question_posts_one_needs_input_notice_per_wait() {
+    let daemon = machine("notice-questions");
+    let (surface, session) = chat(&daemon);
+    let other_surface = second_tab(&daemon, &session);
+    let (marker_surface, marker_session) = chat(&daemon);
+    let tabs = [surface, other_surface];
+    let mut marker = Acpmux::connect(&daemon, &marker_session);
+    let mut acpmux = Acpmux::connect(&daemon, &session);
+
+    let kinds = [
+        "question: which one",
+        "plan-ask: read, then fix",
+        "xai-question: which one",
+        "cursor-question: which one",
+    ];
+    for (round, kind) in kinds.iter().enumerate() {
+        let before: Vec<Value> = titled(&daemon, &tabs, "needs input")
+            .into_iter()
+            .map(|row| row["id"].clone())
+            .collect();
+        let fresh = |daemon: &Daemon| -> Vec<Value> {
+            titled(daemon, &tabs, "needs input")
+                .into_iter()
+                .filter(|row| !before.contains(&row["id"]))
+                .collect()
+        };
+        let asking = {
+            let mut asker = Acpmux::connect(&daemon, &session);
+            let session = session.clone();
+            let kind = kind.to_string();
+            std::thread::spawn(move || asker.prompt(&session, &kind))
+        };
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while fresh(&daemon).is_empty() {
+            assert!(
+                Instant::now() < deadline,
+                "{kind}: no needs-input notice: {:?}",
+                all_notices(&daemon)
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let fence = format!("marker {round}");
+        marker.prompt(&marker_session, &fence);
+        notice(&daemon, marker_surface, |row| {
+            row["body"].as_str().is_some_and(|b| b.contains(&fence))
+        });
+        let waiting = fresh(&daemon);
+        assert_eq!(waiting.len(), 1, "{kind}: one wait, one notice: {waiting:?}");
+        assert_eq!(waiting[0]["source"], "agent", "{kind}: {:?}", waiting[0]);
+
+        answer_pending(&mut acpmux, &session);
+        let id = waiting[0]["id"].clone();
+        let read = |row: &Value| row["id"] == id && row["acknowledged"] == true;
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !all_notices(&daemon).iter().any(read) {
+            let all = all_notices(&daemon);
+            assert!(Instant::now() < deadline, "{kind}: answered, still unread: {all:?}");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        asking.join().unwrap();
+    }
 }

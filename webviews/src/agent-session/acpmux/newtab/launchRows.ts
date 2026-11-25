@@ -264,11 +264,18 @@ function startable(cwd: string | undefined): cwd is string {
   return !!cwd && cwd.startsWith("/") && !/^\/(?:(?:Users|home)(?:\/[^/]+)?)?\/?$/.test(cwd) && !isAgentHome(cwd);
 }
 
+/// The folder the field completes from for a chat: its own folder when it works on this Mac and may start one.
+export function omnibarFolder(session: AcpmuxSessionEntry): string | undefined {
+  if (session.peer || session.hostKind === "cloud" || !startable(session.cwd)) return undefined;
+  return session.cwd.replace(/(.)\/+$/, "$1");
+}
+
 /// The folders the field completes from: this Mac's projects in the host's order, then the
-/// folders of the newest chats here, once each.
+/// folders of the newest chats here (`recent`, newest first: sessionList.ts `recentFolders` of
+/// `omnibarFolder`), once each.
 export function omnibarFolders(
   projects: readonly { cwd: string; peer?: string }[] | undefined,
-  sessions: readonly AcpmuxSessionEntry[],
+  recent: readonly string[],
 ): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -280,8 +287,9 @@ export function omnibarFolders(
     out.push(key);
   };
   for (const project of projects ?? []) if (!project.peer) add(project.cwd);
-  const local = sessions.filter((session) => !session.peer && session.hostKind !== "cloud");
-  const newest = [...local].sort((a, b) => (b.activityAt ?? b.updatedAt ?? 0) - (a.activityAt ?? a.updatedAt ?? 0));
-  for (const session of newest) add(session.cwd);
+  for (const folder of recent) {
+    if (out.length >= MAX_KNOWN_FOLDERS) break;
+    add(folder);
+  }
   return out;
 }

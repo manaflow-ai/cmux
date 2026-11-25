@@ -99,6 +99,41 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       mcp: { expose: "never", group: "internal" }
     } as CloudOpDef
   ],
+  // Sign-in hand-off to another device of the same person (auth-handoff.ts): audit only, on the person's
+  // personal team. `handoff` is a prefix of the code's hash, never the code.
+  ...(["auth.handoff.minted", "auth.handoff.redeemed", "auth.handoff.refused"] as const).map(
+    (name) =>
+      [
+        name,
+        {
+          name,
+          owner: "cloud:TeamDO",
+          class: "mutation",
+          risk: "mutate-own",
+          target: "team",
+          principals: ["system"],
+          params: Schema.Struct({
+            handoff: Schema.optionalKey(Schema.String),
+            stage: Schema.optionalKey(Schema.Literals(["mint", "redeem"])),
+            reason: Schema.optionalKey(Schema.String),
+            device: Schema.optionalKey(Schema.String),
+            minted_device: Schema.optionalKey(Schema.String),
+            session: Schema.optionalKey(Schema.String),
+            expires_at: Schema.optionalKey(Schema.Number)
+          }),
+          result: Schema.Unknown,
+          errors: [],
+          docs:
+            name === "auth.handoff.minted"
+              ? "Internal: the person's signed-in app minted a one-time sign-in hand-off code for another device."
+              : name === "auth.handoff.redeemed"
+                ? "Internal: a device redeemed a sign-in hand-off code and got a new session."
+                : "Internal: a sign-in hand-off mint or redeem was refused.",
+          cli: { path: "", visible: false },
+          mcp: { expose: "never", group: "internal" }
+        } as CloudOpDef
+      ] as const
+  ),
   [
     "domain.rechecked",
     {
@@ -436,6 +471,57 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       result: Schema.Unknown,
       errors: [],
       docs: "Internal: UserDO confirmed the revocation of a removed server's install.",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
+    "server.pairing.recorded",
+    {
+      name: "server.pairing.recorded",
+      owner: "cloud:TeamDO",
+      class: "mutation",
+      risk: "mutate-shared",
+      target: "host",
+      principals: ["system"],
+      params: Schema.Struct({ host: HostId, install: InstallId, pairing_object: Schema.String, invite_object: Schema.NullOr(Schema.String) }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: the Durable Object ids of the pairing record and invite that made a server (never the codes), kept a while so a revoke can spend them.",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
+    "server.pairing.spent",
+    {
+      name: "server.pairing.spent",
+      owner: "cloud:TeamDO",
+      class: "mutation",
+      risk: "mutate-shared",
+      target: "host",
+      principals: ["system"],
+      params: Schema.Struct({ host: HostId }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: TeamDO spent a removed server's pairing record and invite.",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
+    "server.signed_out",
+    {
+      name: "server.signed_out",
+      owner: "cloud:TeamDO",
+      class: "mutation",
+      risk: "mutate-shared",
+      target: "host",
+      principals: ["system"],
+      params: Schema.Struct({ install: InstallId }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: a paired server's own install signed itself out (cmux server unpair); its host leaves the directory.",
       cli: { path: "", visible: false },
       mcp: { expose: "never", group: "internal" }
     } as CloudOpDef

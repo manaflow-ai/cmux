@@ -34,6 +34,11 @@ struct Store {
     blobs: Mutex<HashMap<String, Vec<u8>>>,
     uploaded: AtomicU64,
     served: AtomicU64,
+    /// GC roots by pair: the tree each names.
+    roots: Mutex<HashMap<String, String>>,
+    /// `POST /v1/sync/roots` asked, and how many still to refuse with 503.
+    root_posts: AtomicU64,
+    refuse_roots: AtomicU64,
 }
 
 fn serve_store() -> (String, Arc<Store>) {
@@ -95,6 +100,26 @@ fn answer_http(mut connection: std::net::TcpStream, store: &Store) {
             "200 OK",
             json!({"grant": GRANT, "expiresAt": "2099-01-01T00:00:00Z"}).to_string().into_bytes(),
         ),
+        ("POST", "/v1/sync/roots") => {
+            store.root_posts.fetch_add(1, Ordering::SeqCst);
+            let asked: Value = serde_json::from_slice(&body).unwrap();
+            let (pair, tree) = (asked["pair"].as_str().unwrap(), asked["tree"].as_str().unwrap());
+            let blobs = store.blobs.lock().unwrap();
+            if store
+                .refuse_roots
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |left| left.checked_sub(1))
+                .is_ok()
+            {
+                ("503 Service Unavailable", b"{}".to_vec())
+            } else if !blobs.get(tree).is_some_and(|blob| blob.starts_with(b"cmux-sync-tree 1\n")) {
+                ("404 Not Found", b"{}".to_vec())
+            } else {
+                let mut roots = store.roots.lock().unwrap();
+                roots.insert(pair.to_string(), tree.to_string());
+                let body = json!({"pair": pair, "tree": tree, "roots": roots.len()});
+                ("200 OK", body.to_string().into_bytes())
+            }
+        }
         ("PUT", path) => {
             let hash = path.trim_start_matches("/v1/sync/blobs/");
             if sha(&body) != hash {
@@ -396,7 +421,7 @@ fn the_store_moves_each_blob_from_the_mac_once_and_the_link_copy_stays_the_fallb
     let edit_direct = push(&direct_a, &repo, None, &unused);
     let edit = push(&a, &repo, Some(&origin), &store);
     assert_eq!(std::fs::read(a.home.join("work/app/src/m3/f3.rs")).unwrap(), bytes);
-    assert!(edit.uploaded < 256 * 1024, "edit uploaded {}", edit.uploaded);
+    assert!(edit.uploaded < 256 * 1024, "edit uploaded {}: {}", edit.uploaded, edit.summary);
     // A write that small goes over the link: a store round trip costs more.
     assert_eq!(edit.summary["store"]["reason"], "small", "{}", edit.summary);
 
@@ -572,4 +597,97 @@ fn a_push_whose_fetch_a_newer_push_cancelled_stops_without_a_link_copy() {
     // Nothing of the 3 MiB file crossed the link.
     let link = machine.sent.load(Ordering::SeqCst) - before;
     assert!(link < 1024 * 1024, "{link} bytes went over the link");
+}
+
+/// The one root the store holds: its pair and the blobs its tree names, checked to be
+/// the tree format (the header, then sorted lowercase SHA-256 lines).
+fn only_root(store: &Store) -> (String, Vec<String>) {
+    let roots = store.roots.lock().unwrap().clone();
+    assert_eq!(roots.len(), 1, "{roots:?}");
+    let (pair, tree) = roots.into_iter().next().unwrap();
+    let text = String::from_utf8(store.blobs.lock().unwrap()[&tree].clone()).unwrap();
+    let mut lines = text.split_terminator('\n');
+    assert_eq!(lines.next(), Some("cmux-sync-tree 1"));
+    let named: Vec<String> = lines.map(str::to_owned).collect();
+    assert!(text.ends_with('\n'));
+    for sha in &named {
+        assert!(sha.len() == 64 && sha.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')));
+    }
+    assert!(named.windows(2).all(|pair| pair[0] < pair[1]), "not sorted");
+    (pair, named)
+}
+
+#[test]
+fn a_push_registers_its_folders_gc_root_naming_every_blob_it_keeps() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let repo = root.join("app");
+    std::fs::create_dir_all(repo.join("assets")).unwrap();
+    // Over the whole-file limit: stored as pieces.
+    let big = noise(21, 9 * 1024 * 1024);
+    std::fs::write(repo.join("assets/big.bin"), &big).unwrap();
+    std::fs::write(repo.join("readme.md"), b"hello\n").unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    let (origin, store) = serve_store();
+    let machine = machine(&root, "rooted");
+    let first = push(&machine, &repo, Some(&origin), &store);
+    assert_eq!(first.summary["store"]["used"], true, "{}", first.summary);
+
+    // The pair: the SHA-256 of the folder, a NUL and the machine folder, never a path.
+    let remote = machine.home.join("work/app");
+    let mut key = repo.as_os_str().as_encoded_bytes().to_vec();
+    key.push(0);
+    key.extend_from_slice(remote.as_os_str().as_encoded_bytes());
+    let (pair, named) = only_root(&store);
+    assert_eq!(pair, sha(&key));
+    // Every blob this push stored is named, but the plan (a fetch's, done) and the tree.
+    let tree = store.roots.lock().unwrap()[&pair].clone();
+    let stored: Vec<(String, bool)> = store
+        .blobs
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(sha, blob)| {
+            let plan = serde_json::from_slice::<Value>(blob)
+                .is_ok_and(|value| value.get("files").is_some() && value.get("version").is_some());
+            (sha.clone(), plan)
+        })
+        .collect();
+    for (blob, plan) in &stored {
+        if !plan && *blob != tree {
+            assert!(named.contains(blob), "{blob} is stored but not rooted");
+        }
+    }
+    assert!(named.contains(&sha(b"hello\n")));
+    // The big file is named by its pieces, not by its own hash.
+    assert!(!named.contains(&sha(&big)));
+
+    // An edit (small, over the link): the same pair, its tree naming the kept history too,
+    // and the big file's pieces this Mac recorded the first time.
+    std::fs::write(repo.join("readme.md"), b"hello again\n").unwrap();
+    push(&machine, &repo, Some(&origin), &store);
+    let (again, named_again) = only_root(&store);
+    assert_eq!(again, pair);
+    assert!(named_again.contains(&sha(b"hello\n")), "the history's version is not rooted");
+    assert!(named_again.contains(&sha(b"hello again\n")));
+    for (blob, plan) in &stored {
+        if !plan && *blob != tree {
+            assert!(named_again.contains(blob), "{blob} dropped from the root");
+        }
+    }
+
+    // A store that refuses the root: the push still succeeds, says so once, and the next
+    // push registers it.
+    std::fs::write(repo.join("readme.md"), b"third\n").unwrap();
+    store.refuse_roots.store(2, Ordering::SeqCst);
+    let refused = run_push(&machine, &repo, Some(&origin));
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert!(refused.status.success(), "{}{stderr}", String::from_utf8_lossy(&refused.stdout));
+    assert_eq!(stderr.matches("\"store_root\"").count(), 1, "{stderr}");
+    assert!(!only_root(&store).1.contains(&sha(b"third\n")));
+    push(&machine, &repo, Some(&origin), &store);
+    let (_, named_last) = only_root(&store);
+    assert!(named_last.contains(&sha(b"third\n")));
 }

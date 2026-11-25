@@ -21,7 +21,7 @@
   cursor: default;
 }
 .cv-walk__head:hover {
-  background: var(--ds-color-hover);
+  background: var(--ds-surface-hover);
 }
 .cv-walk__head:focus-visible {
   outline: 2px solid var(--accent, currentColor);

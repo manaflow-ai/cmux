@@ -146,6 +146,8 @@ extension SettingsHarnesses {
     /// - `accountAdd {family, way, name?, secret?}`: `way` `new` makes a login folder of its own under
     ///   ~/.cmux/accounts (a shadow home for Codex), then types its sign-in; `key` adds an API-key route
     ///   whose `secret` is a reference (`keychain:NAME`, `env:VAR`, `file:/path`; acpmux refuses a raw key).
+    ///   Family `github` (`way` `new`) types gh's own `gh auth login --web`: the terminal fallback of
+    ///   Settings > Accounts' in-place GitHub sign-in on a daemon without it.
     /// - `accountSignIn {account}` and `accountSignOut {account}`: the CLI's own login or logout, in its folder.
     /// - `accountRename {account, name}`, `accountDefault {account}` (new chats of its family run on it) and
     ///   `accountRemove {account}` (acpmux keeps a backup of the route file; the login folder stays).
@@ -157,6 +159,12 @@ extension SettingsHarnesses {
             guard let id = params["account"]?.stringValue, accounts?.contains(where: { $0.id == id }) == true,
                   let on = params["on"]?.boolValue else { throw PageError.invalidParams("accountEnable needs a listed account and on") }
             _ = try await callAccounts(environment, .accountSet, ["id": id, "enabled": on])
+        case "accountAdd" where params["family"]?.stringValue == "github":
+            // A daemon without `_acpmux/account/sign_in` (the page's in-place card answered no sign-in):
+            // gh's own browser login in a terminal tab, as Cloud's GitHub setup types it, instead of
+            // nothing (logins done right; Leo, 2026-11-22: "this is simply logins, done righr.").
+            try await typeLine("gh auth login --hostname github.com --git-protocol https --web")
+            pendingLogins.insert("github")
         case "accountAdd":
             guard let family = params["family"]?.stringValue, ["codex", "claude"].contains(family), let accounts else {
                 throw PageError.invalidParams("accountAdd needs a family with accounts")

@@ -10,6 +10,7 @@ import {
   findMissingGlassMarkup,
   findOpaqueGlass,
   findOpaqueOverlays,
+  findSolidRoleTooltips,
   findSolidTooltipMarkup,
 } from "../scripts/check-glass-never-opaque";
 
@@ -280,6 +281,48 @@ test("a gallery stage is not an overlay surface", () => {
   try {
     writeFileSync(join(dir, "Menu.gallery.css"), ".menu-gallery-card { background: Canvas; }");
     expect(findOpaqueOverlays(dir)).toEqual([]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// A hover surface a page draws by hand (role="tooltip") is glass too (Leo, 2026-11-20: "WHERE IS THE
+// GLASS EVERYWHERE ALL THESE STUPID F***ING HOVER TOOLTIPS AND HOVER PREVIEW SHIT"). The header
+// icons' preview was one: its class named no tooltip and its sheet set no blur, so no check saw it.
+test("every hand-drawn hover surface (role=tooltip) in the page code is glass", () => {
+  expect(findSolidRoleTooltips()).toEqual([]);
+});
+
+test("the role=tooltip check flags the old solid header preview and passes the glass one", () => {
+  const dir = mkdtempSync(join(tmpdir(), "glass-never-opaque-role-tooltip-"));
+  try {
+    writeFileSync(
+      join(dir, "Old.tsx"),
+      [
+        "export const old = (",
+        "  <div",
+        '    className="acpmux-header-preview"',
+        '    role="tooltip"',
+        "    style={{ top: 0 }}",
+        "  >",
+        "    Browser",
+        "  </div>",
+        ");",
+      ].join("\n"),
+    );
+    writeFileSync(
+      join(dir, "Glass.tsx"),
+      [
+        "export const glass = (",
+        "  <div",
+        "    ref={setCard}",
+        '    className="ui-card ui-glass acpmux-header-preview"',
+        '    role="tooltip"',
+        "  />",
+        ");",
+      ].join("\n"),
+    );
+    expect(findSolidRoleTooltips(dir)).toEqual(['Old.tsx:4: "acpmux-header-preview"']);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
