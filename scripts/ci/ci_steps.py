@@ -307,6 +307,7 @@ class StepResults:
         self.meta = meta
         self.timeout = timeout
         self.error = ""  # the first failed call, for the job's summary line: a silent miss hides a refusal
+        self.down = False  # an unreachable store costs one timeout, not one per step and write
 
     def failed(self, what: str, err: Exception) -> None:
         if not self.error:
@@ -337,6 +338,8 @@ class StepResults:
         return cls(env.get("CI_STEP_RESULTS_URL") or CONTROLLER, write, meta)
 
     def lookup(self, key: str, step: str, audit: bool = False) -> dict | None:
+        if self.down:
+            return None
         query = urllib.parse.urlencode({"key": key, "step": step, **({"audit": "1"} if audit else {})})
         try:
             with urllib.request.urlopen(f"{self.url}?{query}", timeout=self.timeout) as resp:
@@ -347,11 +350,12 @@ class StepResults:
             return None
         except (OSError, ValueError) as err:
             self.failed("lookup", err)
+            self.down = isinstance(err, OSError)
             return None
         return found if isinstance(found, dict) and found.get("key") == key else None
 
     def post(self, key: str, step: str, outcome: str, seconds: float, audit: bool = False) -> None:
-        if not self.write:
+        if not self.write or self.down:
             return
         body = json.dumps({"key": key, "step": step, "outcome": outcome, "seconds": round(seconds, 1),
                            "audit": audit, **self.meta}).encode()
@@ -359,8 +363,11 @@ class StepResults:
                                      headers={"Content-Type": "application/json"})
         try:
             urllib.request.urlopen(req, timeout=self.timeout).close()
+        except urllib.error.HTTPError as err:
+            self.failed("write", err)
         except (OSError, ValueError) as err:
             self.failed("write", err)
+            self.down = isinstance(err, OSError)
 
 
 def audited(key: str, env: dict[str, str]) -> bool:

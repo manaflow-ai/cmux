@@ -392,7 +392,6 @@ class StepResultsTest(unittest.TestCase):
 
         server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         threading.Thread(target=server.serve_forever, daemon=True).start()
-        self.addCleanup(server.shutdown)
         store = ci_steps.StepResults(f"http://127.0.0.1:{server.server_port}", True, {})
         code, out, _ran = self.run_job(store)
         self.assertEqual(code, 0, out)
@@ -404,6 +403,20 @@ class StepResultsTest(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertIn("write HTTP 404", out, "a 404 lookup is a miss; the refused write still shows")
         self.assertNotIn("lookup HTTP", out)
+        server.shutdown()
+        server.server_close()
+        store = ci_steps.StepResults(f"http://127.0.0.1:{server.server_port}", True, {})
+        calls = []
+        real = ci_steps.urllib.request.urlopen
+
+        def counted(*args, **kwargs):
+            calls.append(args)
+            return real(*args, **kwargs)
+        with mock.patch.object(ci_steps.urllib.request, "urlopen", counted):
+            code, out, _ran = self.run_job(store)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(len(calls), 1, "an unreachable store is called once, then left alone")
+        self.assertIn("lookup failed", out)
 
     def test_a_pass_is_stored_then_reused_and_the_setup_skipped(self) -> None:
         store = FakeStore()
