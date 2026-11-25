@@ -378,6 +378,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         history_from: None,
         history_kept_through: None,
         fork_requests: Default::default(),
+        fork_start: None,
         fork_parent_verified: None,
         agent_info: None,
         agent_capabilities: None,
@@ -470,6 +471,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         turn_cap_noticed: None,
         delegator: None,
         cold: None,
+        auto_session: None,
         fork_of_subagent: None,
     }
 }
