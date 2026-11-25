@@ -428,9 +428,10 @@ struct Driver {
     /// peer's first data. Until a tunnel TCP connection has measured one, it
     /// sets the RTO new connections start with ([`Driver::path_rtt`]).
     handshake_rtt: Option<Duration>,
-    /// When this side last answered an initiation, until the peer's first
-    /// data on that session times the round trip.
-    responded_at: Option<Instant>,
+    /// When this side last answered an initiation, and the session index it
+    /// gave in that response, until the peer's first data on that session
+    /// times the round trip.
+    responded_at: Option<(Instant, u32)>,
     /// Dials waiting for a session ([`Driver::begin_connect`]).
     held_connects: Vec<HeldConnect>,
     scratch: Vec<u8>,
@@ -451,14 +452,34 @@ struct HeldConnect {
 /// initiation boringtun resent on its own, not the one timed.
 const HANDSHAKE_SAMPLE_MAX: Duration = Duration::from_secs(5);
 
+/// The session index at bytes 4..8 of a WireGuard message: the sender's
+/// own in a response, the receiver's in a data message.
+fn wg_index(message: &[u8]) -> Option<u32> {
+    message.get(4..8).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+}
+
 /// The peer's first data on a session this side answered: the handshake's
-/// round trip.
-fn note_answered(responded_at: &mut Option<Instant>, handshake_rtt: &mut Option<Duration>) {
-    if let Some(at) = responded_at.take() {
-        let rtt = Instant::now().saturating_duration_since(at);
-        if rtt < HANDSHAKE_SAMPLE_MAX {
-            *handshake_rtt = Some(rtt);
-        }
+/// round trip. Only data addressed to the answered session counts. When both
+/// sides initiate at once (a relay's round trip is long enough for the
+/// handshakes to cross), the first data to arrive can belong to the session
+/// the peer initiated, sent before this side's response reached it; timed
+/// from the response, that sample was under the path's round trip (153 ms on
+/// a 400 ms relay) and new connections resent their SYN-ACK early.
+fn note_answered(
+    datagram: &[u8],
+    responded_at: &mut Option<(Instant, u32)>,
+    handshake_rtt: &mut Option<Duration>,
+) {
+    let Some((at, index)) = *responded_at else {
+        return;
+    };
+    if classify(datagram) != DatagramClass::WireGuardData || wg_index(datagram) != Some(index) {
+        return;
+    }
+    *responded_at = None;
+    let rtt = Instant::now().saturating_duration_since(at);
+    if rtt < HANDSHAKE_SAMPLE_MAX {
+        *handshake_rtt = Some(rtt);
     }
 }
 
@@ -680,7 +701,7 @@ impl Driver {
                     if !input.is_empty() && classify(input) == DatagramClass::WireGuardData {
                         self.underlay.authenticated(origin);
                         note_inbound(&mut self.watchdog, &mut self.last_inbound, &mut self.resumed);
-                        note_answered(&mut self.responded_at, &mut self.handshake_rtt);
+                        note_answered(datagram, &mut self.responded_at, &mut self.handshake_rtt);
                     }
                     break;
                 }
@@ -693,6 +714,7 @@ impl Driver {
                     // Nor does it begin a session: the handshake it
                     // answers is unchecked, so it leaves the watchdog armed.
                     let kind = classify(packet);
+                    let index = wg_index(packet);
                     let cookie = kind == DatagramClass::WireGuardCookieReply;
                     if kind == DatagramClass::WireGuardResponse {
                         self.wait_for_handshake_until
@@ -706,7 +728,7 @@ impl Driver {
                     // An answered handshake message begins a new session.
                     if handshake && !cookie && !input.is_empty() {
                         replay = self.watchdog.on_new_session();
-                        self.time_handshake(input_kind, kind);
+                        self.time_handshake(input_kind, kind, index);
                     }
                     input = &[];
                 }
@@ -735,7 +757,7 @@ impl Driver {
                     }
                     self.underlay.authenticated(origin);
                     note_inbound(&mut self.watchdog, &mut self.last_inbound, &mut self.resumed);
-                    note_answered(&mut self.responded_at, &mut self.handshake_rtt);
+                    note_answered(datagram, &mut self.responded_at, &mut self.handshake_rtt);
                     if hello.is_some() || off_path.is_some() {
                         // Taken above; neither is activity.
                     } else if let Some(probe) = probing::decode(packet).filter(|_| allowed) {
@@ -943,8 +965,9 @@ impl Driver {
     }
 
     /// Time the handshake that `input` (an initiation or response) just
-    /// completed or answered, `output` being what this side sent back.
-    fn time_handshake(&mut self, input: DatagramClass, output: DatagramClass) {
+    /// completed or answered, `output` being what this side sent back and
+    /// `index` its session index.
+    fn time_handshake(&mut self, input: DatagramClass, output: DatagramClass, index: Option<u32>) {
         let now = Instant::now();
         if input == DatagramClass::WireGuardResponse {
             let rtt = self.initiated_at.map(|at| now.saturating_duration_since(at));
@@ -952,7 +975,7 @@ impl Driver {
                 self.handshake_rtt = Some(rtt);
             }
         } else if output == DatagramClass::WireGuardResponse {
-            self.responded_at = Some(now);
+            self.responded_at = index.map(|index| (now, index));
         }
     }
 

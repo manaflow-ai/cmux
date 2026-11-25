@@ -198,3 +198,29 @@ async fn crossed_initiations_with_queued_data_bring_up_a_session() {
     // between would leave both responses unexpected, costing another round.
     assert_eq!((client_initiations, server_initiations), (1, 1), "initiations each side answered");
 }
+
+/// Data with the given receiver index, as a WireGuard data message.
+fn data_to(index: u32) -> Vec<u8> {
+    let mut message = vec![0u8; 32];
+    message[0] = 4;
+    message[4..8].copy_from_slice(&index.to_le_bytes());
+    message
+}
+
+#[test]
+fn responder_sample_waits_for_data_on_the_answered_session() {
+    let answered = Instant::now() - Duration::from_millis(400);
+    let mut responded_at = Some((answered, 7));
+    let mut handshake_rtt = None;
+    // Data on the session the peer initiated (crossed handshakes) is not
+    // an answer to this side's response.
+    note_answered(&data_to(9), &mut responded_at, &mut handshake_rtt);
+    assert_eq!(handshake_rtt, None, "sampled data on another session");
+    assert!(responded_at.is_some(), "dropped the pending sample");
+    note_answered(&data_to(7), &mut responded_at, &mut handshake_rtt);
+    assert!(
+        handshake_rtt.is_some_and(|rtt| rtt >= Duration::from_millis(400)),
+        "answered session's data gave {handshake_rtt:?}"
+    );
+    assert!(responded_at.is_none());
+}
