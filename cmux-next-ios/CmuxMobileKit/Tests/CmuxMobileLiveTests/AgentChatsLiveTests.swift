@@ -85,10 +85,7 @@ import Testing
                 return [reply(#"""
                 {"sessions":[
                   {"sessionId":"sess-a","title":"Fix the build","harness":"claude","cwd":"/Users/me/src/app","status":"running","updatedAt":1700000000000,"startedBy":null,"tags":{},"rollingSummary":{"text":"Parser fixed, CI running.","next":"Merge the PR","source":"model","turn":3,"at":1}},
-                  {"sessionId":"sess-b","title":null,"lastPrompt":"Why is CI red?","harness":"codex","cwd":"/Users/me/src/web","status":"idle","tags":{"archived":"1699"}},
-                  {"sessionId":"sess-s","title":"Side","harness":"claude","cwd":"/x","status":"idle","tags":{"side":"sess-a"}},
-                  {"sessionId":"sess-c","title":"Child","harness":"claude","cwd":"/x","status":"idle","spawnedBy":"sess-a","tags":{}},
-                  {"sessionId":"sess-t","title":"Sub-session","harness":"codex","cwd":"/x","status":"idle","startedBy":"sess-gone","depth":1,"tags":{}}
+                  {"sessionId":"sess-b","title":null,"lastPrompt":"Why is CI red?","harness":"codex","cwd":"/Users/me/src/web","status":"idle","tags":{"archived":"1699"}}
                 ],"nextCursor":"k1.2"}
                 """#.replacingOccurrences(of: "\n", with: ""))]
             case "_acpmux/archive":
@@ -141,6 +138,8 @@ import Testing
         #expect((request.1["limit"] as? NSNumber)?.intValue == LiveWorkspaceCreationBackend.chatPageSize)
         // acpmux, not the phone, drops a peer's chats (`localOnly`): the page is this Mac's own.
         #expect(request.1["localOnly"] as? Bool == true)
+        // acpmux, not the phone, leaves out side chats and subagent sessions (`topLevelOnly`).
+        #expect(request.1["topLevelOnly"] as? Bool == true)
         #expect(request.1["cursor"] == nil)
         _ = try await backend.agentChats(on: "m", cursor: "k1.2")
         #expect(seen.acpmuxCalls.last { $0.0 == "_acpmux/sessions" }?.1["cursor"] as? String == "k1.2")
