@@ -43,14 +43,17 @@ export const CATEGORY_CARDS = [
   "extensions",
   "contextMenus",
   "sharedLinks",
+  "archivedWorkspaces",
   "customizeLibrary",
   "looksGallery",
+  "customizeProgress",
   "customizeChecklist",
   "tailnet",
   "models",
   "keys",
   "mcpServers",
   "integrationsHub",
+  "automationsCloud",
 ] as const;
 
 /** A non-schema part a category draws (host lists, the theme studio, file actions). */
