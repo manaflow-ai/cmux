@@ -371,4 +371,5 @@ enum CloudHandlers {
     static func requireAttachableState(_ session: CloudMachineSession, waitingOutResume limit: Duration) async throws {
         let settled = await CloudWait.settle(of: { session.machine.shownStatus }, within: limit) { await session.refresher?(false) }
         if settled != .proceed { try requireAttachableState(session) }
+    }
 }
