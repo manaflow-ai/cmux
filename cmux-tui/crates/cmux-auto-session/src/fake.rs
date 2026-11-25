@@ -106,6 +106,9 @@ pub struct FakeAutoCloud {
     install: Install,
     /// This caller has no network. Clones of the handle share it.
     offline: Arc<AtomicBool>,
+    /// This caller's reads of a chat's inbox do not answer yet (`hold_inbox_reads`), and
+    /// whether one waits. Clones of the handle share both.
+    inbox_held: Arc<(AtomicBool, AtomicBool)>,
 }
 
 impl Default for FakeAutoCloud {
@@ -122,6 +125,7 @@ impl FakeAutoCloud {
             caller: Caller::Owner,
             install: Install::Laptop("install_1".to_owned()),
             offline: Arc::new(AtomicBool::new(false)),
+            inbox_held: Arc::default(),
         }
     }
 
@@ -155,6 +159,7 @@ impl FakeAutoCloud {
             caller,
             install,
             offline: Arc::new(AtomicBool::new(false)),
+            inbox_held: Arc::default(),
         }
     }
 
@@ -183,6 +188,34 @@ impl FakeAutoCloud {
     pub fn set_offline(&self, offline: bool) {
         self.offline.store(offline, Ordering::SeqCst);
         self.lock().wake();
+    }
+
+    /// With `true`, a read of a chat's inbox through this handle (and its clones) does not
+    /// answer until this is called with `false`: a holder caught in the middle of taking its
+    /// inbox. Every other call answers as usual.
+    pub fn hold_inbox_reads(&self, hold: bool) {
+        let mut store = self.lock();
+        self.inbox_held.0.store(hold, Ordering::SeqCst);
+        store.wake();
+    }
+
+    /// Whether a read of a chat's inbox through this handle waits now (`hold_inbox_reads`).
+    pub fn inbox_read_waits(&self) -> bool {
+        self.inbox_held.1.load(Ordering::SeqCst)
+    }
+
+    /// One look of an inbox read that may be held: ready once the reads are not held.
+    fn inbox_released(&self, cx: &mut Context<'_>) -> Poll<()> {
+        let mut store = self.lock();
+        let held = self.inbox_held.0.load(Ordering::SeqCst);
+        self.inbox_held.1.store(held, Ordering::SeqCst);
+        if !held {
+            return Poll::Ready(());
+        }
+        if !store.wakers.iter().any(|waker| waker.will_wake(cx.waker())) {
+            store.wakers.push(cx.waker().clone());
+        }
+        Poll::Pending
     }
 
     /// A chat's size limit; the real store's is 512 MiB. It bounds three things apart: the
