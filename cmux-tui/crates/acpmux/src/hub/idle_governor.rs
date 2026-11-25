@@ -57,7 +57,7 @@ pub(super) fn period_for(next: NextEvent, idle: std::time::Duration) -> std::tim
 
 /// What a prompt's start wakes its chat for, logged as the `woke` line's `cause`: `person` for the
 /// person's own turn, else its provenance's kind (`prompt_provenance.rs`), `prompt` when it names
-/// none this knows.
+/// none this knows. A resent peer message (`waited`) is `outbox`.
 pub(super) fn prompt_wake_cause(person: bool, provenance: Option<&Value>) -> &'static str {
     if person {
         return "person";
@@ -65,6 +65,10 @@ pub(super) fn prompt_wake_cause(person: bool, provenance: Option<&Value>) -> &'s
     let Some(p) = provenance else { return "prompt" };
     if p.get("bgTaskId").is_some() {
         return "bg-notice";
+    }
+    // A peer's message the outbox held and sent again once the link came back.
+    if crate::prompt_provenance::waited(provenance) {
+        return "outbox";
     }
     match p.get("kind").and_then(Value::as_str) {
         Some("auto_resume") => "auto_resume",
@@ -134,6 +138,8 @@ mod tests {
         assert_eq!(prompt_wake_cause(false, Some(&parked)), "rate-hold");
         let notice = json!({"kind": "notice"});
         assert_eq!(prompt_wake_cause(false, Some(&notice)), "notice");
+        let resent = json!({"kind": "agent_message", "waited": true});
+        assert_eq!(prompt_wake_cause(false, Some(&resent)), "outbox");
         let odd = json!({"kind": "something_new"});
         assert_eq!(prompt_wake_cause(false, Some(&odd)), "prompt");
     }

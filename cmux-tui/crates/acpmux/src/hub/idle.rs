@@ -28,7 +28,7 @@
 //! person typing into the chat (`_acpmux/typing`, `wake_for_typing`, so the
 //! agent is up by the time they send), or any request that needs the agent.
 //! Every hibernation and every wake is logged with its cause and duration: a prompt's wake names
-//! its sender (`person`, `agent-msg`, `bg-notice`, `auto_resume`, `rate-hold`, `notice`,
+//! its sender (`person`, `agent-msg`, `bg-notice`, `outbox`, `auto_resume`, `rate-hold`, `notice`,
 //! `trigger`, `unverified`, else `prompt`; `idle_governor.rs` `prompt_wake_cause`).
 //! A wake that fails fails its prompt like any start that fails (its
 //! `turn_error`, which the chat shows with Retry).
