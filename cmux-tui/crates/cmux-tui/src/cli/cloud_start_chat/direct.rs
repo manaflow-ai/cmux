@@ -21,6 +21,13 @@
 //! - `cloud exec --target machine:ID --command CMD --json`: the machine's client session exec (or
 //!   the cmux API's exec route on a provider with none), as `machine access exec` runs it.
 //!
+//! The machine's lifecycle takes the same route, so a lane VM pauses, resumes and deletes what it
+//! started with no app ([`run_if_requested`]): `cloud pause-machine|resume-machine|kill-machine
+//! --target machine:ID` (`vm:ID` too; kill needs `--yes`) answered from `cloud.machine.pause`,
+//! `cloud.machine.start` and `cloud.machine.delete` as `{machine_id, machine_name, status}` (kill:
+//! `{machine_id, deleted: true}`), and `cloud list-machines` as above. A message to a chat already
+//! running on a machine (`cmux chat send|read|wait SESSION`) runs its exec here too.
+//!
 //! Auth: `CMUX_CLOUD_ACCESS_TOKEN` (a cmux session's access token: `cmux-autocloud login`'s, or the
 //! agent test account's in CI) in the team `CMUX_CLOUD_TEAM` (absent: the session's personal team),
 //! on `CMUX_CLOUD_API_URL`. The credential goes only in request headers and is redacted from every
@@ -78,6 +85,9 @@ pub(super) trait Cloud {
     fn get(&mut self, machine: &str) -> Result<Row, Value>;
     fn create(&mut self, name: &str, key: &str) -> Result<Row, Value>;
     fn start(&mut self, machine: &str, key: &str) -> Result<Row, Value>;
+    fn pause(&mut self, machine: &str, key: &str) -> Result<Row, Value>;
+    /// Deleted, or already gone.
+    fn delete(&mut self, machine: &str, key: &str) -> Result<(), Value>;
     /// `{stdout, stderr, exit_code}`, the credential redacted.
     fn exec(&mut self, machine: &str, command: &str, timeout_ms: u64) -> Result<Value, Value>;
     fn team(&self) -> Option<String>;
@@ -120,6 +130,28 @@ fn error(code: &str, message: impl Into<String>) -> Value {
     json!({"code": code, "message": message.into(), "retryable": false})
 }
 
+/// The machine `--target machine:ID` (or `vm:ID`, or a bare ID) names.
+fn target<'w>(args: &'w [String], verb: &str) -> Result<&'w str, Value> {
+    let Some(target) = flag(args, "--target") else {
+        return Err(error("usage.invalid", format!("cloud {verb} needs --target machine:ID")));
+    };
+    let id =
+        target.strip_prefix("machine:").or_else(|| target.strip_prefix("vm:")).unwrap_or(target);
+    if id.is_empty() || id.contains(':') {
+        return Err(error("usage.invalid", format!("cloud {verb} takes --target machine:ID")));
+    }
+    Ok(id)
+}
+
+fn lifecycle(row: &Row) -> Value {
+    json!({
+        "machine_id": row.id,
+        "machine_name": row.name,
+        "status": row.status,
+        "route": "direct",
+    })
+}
+
 fn flag<'w>(args: &'w [String], name: &str) -> Option<&'w str> {
     args.iter().position(|word| word == name).and_then(|at| args.get(at + 1)).map(String::as_str)
 }
@@ -142,8 +174,12 @@ impl DirectRunner<'_> {
         else {
             return refused(error("usage.invalid", "cloud exec needs --target and --command"));
         };
-        let Some(machine) = target.strip_prefix("machine:") else {
-            return refused(error("usage.invalid", "cloud exec takes --target machine:ID"));
+        let Some(machine) = target.strip_prefix("machine:").or_else(|| target.strip_prefix("vm:"))
+        else {
+            return refused(error(
+                "usage.invalid",
+                "cloud exec takes --target machine:ID or vm:ID",
+            ));
         };
         match self.cloud.exec(machine, command, EXEC_TIMEOUT_MS) {
             Ok(answer) => answered(answer),
@@ -151,10 +187,65 @@ impl DirectRunner<'_> {
         }
     }
 
+    fn pause_machine(&mut self, args: &[String]) -> Ran {
+        let id = match target(args, "pause-machine") {
+            Ok(id) => id,
+            Err(error) => return refused(error),
+        };
+        let key = self.cloud.new_key();
+        match self.cloud.pause(id, &key) {
+            Ok(row) => answered(lifecycle(&row)),
+            // Already paused (or pausing): answer what it is now.
+            Err(e) if at(&e, "code") == "cloud.machine.not_running" => match self.cloud.get(id) {
+                Ok(row) => answered(lifecycle(&row)),
+                Err(error) => refused(error),
+            },
+            Err(error) => refused(error),
+        }
+    }
+
+    fn resume_machine(&mut self, args: &[String]) -> Ran {
+        let id = match target(args, "resume-machine") {
+            Ok(id) => id,
+            Err(error) => return refused(error),
+        };
+        let key = self.cloud.new_key();
+        match self.cloud.start(id, &key) {
+            Ok(row) => answered(lifecycle(&row)),
+            // Already running (or starting): answer what it is now.
+            Err(e) if at(&e, "code") == "cloud.machine.not_paused" => match self.cloud.get(id) {
+                Ok(row) => answered(lifecycle(&row)),
+                Err(error) => refused(error),
+            },
+            Err(error) => refused(error),
+        }
+    }
+
+    fn kill_machine(&mut self, args: &[String]) -> Ran {
+        let id = match target(args, "kill-machine") {
+            Ok(id) => id,
+            Err(error) => return refused(error),
+        };
+        if !args.iter().any(|word| matches!(word.as_str(), "--yes" | "-y" | "--confirm")) {
+            return refused(error(
+                "usage.invalid",
+                format!("cloud kill-machine deletes vm:{id} and its disk: add --yes"),
+            ));
+        }
+        let key = self.cloud.new_key();
+        match self.cloud.delete(id, &key) {
+            Ok(()) => answered(json!({"machine_id": id, "deleted": true, "route": "direct"})),
+            Err(error) => refused(error),
+        }
+    }
+
     /// The machine `--name` or `--target` names, made or started, once it runs with a host.
     fn machine(&mut self, args: &[String]) -> Result<Row, Value> {
         let row = if let Some(target) = flag(args, "--target") {
-            let id = target.strip_prefix("machine:").unwrap_or(target);
+            let id = target
+                .strip_prefix("machine:")
+                .or_else(|| target.strip_prefix("vm:"))
+                .unwrap_or(target);
             self.cloud.get(id)?
         } else if let Some(name) = flag(args, "--name") {
             let found =
@@ -305,12 +396,21 @@ impl Runner for DirectRunner<'_> {
             (Some("cloud"), Some("list-machines")) => self.list_machines(),
             (Some("cloud"), Some("start-session")) => self.start_session(args),
             (Some("cloud"), Some("exec")) => self.cloud_exec(args),
+            (Some("cloud"), Some("pause-machine")) => self.pause_machine(args),
+            (Some("cloud"), Some("resume-machine")) => self.resume_machine(args),
+            (Some("cloud"), Some("kill-machine")) => self.kill_machine(args),
             _ => self.inner.cmux(args),
         }
     }
     fn cmux_by(&mut self, args: &[String], until: Instant) -> Ran {
         match (args.first().map(String::as_str), args.get(1).map(String::as_str)) {
-            (Some("cloud"), Some("list-machines" | "start-session" | "exec")) => self.cmux(args),
+            (
+                Some("cloud"),
+                Some(
+                    "list-machines" | "start-session" | "exec" | "pause-machine" | "resume-machine"
+                    | "kill-machine",
+                ),
+            ) => self.cmux(args),
             _ => self.inner.cmux_by(args, until),
         }
     }
@@ -523,6 +623,28 @@ impl Cloud for Api {
         .map(|started| row_of(started.machine))
     }
 
+    fn pause(&mut self, machine: &str, key: &str) -> Result<Row, Value> {
+        use cmux_cloud_wire::{CloudMachinePauseOp, CloudMachinePauseParams};
+        self.call::<CloudMachinePauseOp>(
+            CloudMachinePauseParams { machine: machine.to_owned() },
+            Some(key),
+        )
+        .map(|paused| row_of(paused.machine))
+    }
+
+    fn delete(&mut self, machine: &str, key: &str) -> Result<(), Value> {
+        use cmux_cloud_wire::{CloudMachineDeleteOp, CloudMachineDeleteParams};
+        match self.call::<CloudMachineDeleteOp>(
+            CloudMachineDeleteParams { machine: machine.to_owned() },
+            Some(key),
+        ) {
+            Ok(_) => Ok(()),
+            // A retry whose first delete landed, or a machine already gone: deleted either way.
+            Err(e) if at(&e, "code") == "cloud.machine.not_found" => Ok(()),
+            Err(e) => Err(e),
+        }
+    }
+
     fn exec(&mut self, machine: &str, command: &str, timeout_ms: u64) -> Result<Value, Value> {
         use cmux_cloud_api::session::{mint_session, redact};
         let handle =
@@ -593,5 +715,52 @@ impl Cloud for Api {
             .map(|v| v.trim().to_owned())
             .filter(|v| !v.is_empty())
             .map(|v| (name.to_owned(), v))
+    }
+}
+
+/// `cloud list-machines|pause-machine|resume-machine|kill-machine` on the direct route
+/// ([`Route::choose`]): answered by the cmux API and printed as the app prints them. `None` leaves
+/// every other command, and every command on the app route, where it went before.
+pub(in crate::cli) fn run_if_requested(args: &[String]) -> Option<i32> {
+    let (global, command_args) = super::super::parse_globals(args).ok()?;
+    let [cloud, verb, ..] = command_args.as_slice() else { return None };
+    if cloud != "cloud"
+        || !matches!(
+            verb.as_str(),
+            "list-machines" | "pause-machine" | "resume-machine" | "kill-machine"
+        )
+    {
+        return None;
+    }
+    if command_args.iter().any(|word| word == "--help" || word == "-h") {
+        return None;
+    }
+    if Route::choose(&global, |key| std::env::var(key).ok()) != Route::Direct {
+        return None;
+    }
+    let mut api = match Api::from_env(|key| std::env::var(key).ok()) {
+        Ok(api) => api,
+        Err(error) => return Some(super::super::wire::print_local_error(&error, global.output, 2)),
+    };
+    let mut inner = super::SelfRunner::new(&global);
+    let ran = DirectRunner { inner: &mut inner, cloud: &mut api }.cmux(&command_args);
+    Some(match super::step_result(&ran) {
+        Ok(answer) => super::super::wire::print_local_success(&answer, global.output),
+        Err(error) => super::super::wire::print_local_error(&error, global.output, 1),
+    })
+}
+
+/// Runs `body` on the route [`Route::choose`] takes: the app's verbs, or the cmux API's.
+pub(super) fn on_route(
+    global: &GlobalArgs,
+    runner: &mut dyn Runner,
+    body: impl FnOnce(&mut dyn Runner) -> super::Outcome,
+) -> super::Outcome {
+    match Route::choose(global, |key| std::env::var(key).ok()) {
+        Route::App => body(runner),
+        Route::Direct => match Api::from_env(|key| std::env::var(key).ok()) {
+            Ok(mut api) => body(&mut DirectRunner { inner: runner, cloud: &mut api }),
+            Err(error) => super::Outcome::Failed { error, exit: 2 },
+        },
     }
 }
