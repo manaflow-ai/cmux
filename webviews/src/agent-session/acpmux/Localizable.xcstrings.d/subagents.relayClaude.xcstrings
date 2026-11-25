@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "subagents.relayClaude" : {
+      "comment" : "Agent pane: the prompt a subagent's own composer sends its Claude Code chat when the subagent's agentId is not known yet (keep SendMessage as is); {name} is the subagent, {message} what the person typed, kept as is on the lines after",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use SendMessage to send your subagent \"{name}\" the message below, word for word. If it has finished, SendMessage resumes it.\n\n{message}"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "استخدم SendMessage لإرسال الرسالة أدناه حرفيًا إلى الوكيل الفرعي \"{name}\". إن كان قد انتهى، فإن SendMessage يستأنفه.\n\n{message}"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Koristi SendMessage da podagentu \"{name}\" pošalješ poruku ispod, doslovno. Ako je završio, SendMessage ga nastavlja.\n\n{message}"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Brug SendMessage til at sende din underagent \"{name}\" beskeden nedenfor, ord for ord. Hvis den er færdig, genoptager SendMessage den.\n\n{message}"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sende deinem Subagenten \"{name}\" mit SendMessage die Nachricht unten, Wort für Wort. Ist er fertig, setzt SendMessage ihn fort.\n\n{message}"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usa SendMessage para enviar a tu subagente \"{name}\" el mensaje de abajo, palabra por palabra. Si ya terminó, SendMessage lo reanuda.\n\n{message}"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Utilise SendMessage pour envoyer à ton sous-agent \"{name}\" le message ci-dessous, mot pour mot. S'il a terminé, SendMessage le relance.\n\n{message}"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usa SendMessage per inviare al tuo subagente \"{name}\" il messaggio qui sotto, parola per parola. Se ha finito, SendMessage lo riprende.\n\n{message}"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SendMessage を使って、サブエージェント「{name}」 に下のメッセージをそのまま送ってください。終了している場合は SendMessage が再開します。\n\n{message}"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ប្រើ SendMessage ដើម្បីផ្ញើសារខាងក្រោមទៅភ្នាក់ងាររង \"{name}\" ពាក្យដោយពាក្យ។ បើវាបានបញ្ចប់ SendMessage នឹងបន្តវា។\n\n{message}"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SendMessage로 하위 에이전트 \"{name}\"에게 아래 메시지를 그대로 보내세요. 이미 끝났다면 SendMessage가 다시 이어 갑니다.\n\n{message}"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bruk SendMessage til å sende underagenten \"{name}\" meldingen nedenfor, ord for ord. Hvis den er ferdig, gjenopptar SendMessage den.\n\n{message}"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Użyj SendMessage, aby wysłać podagentowi \"{name}\" poniższą wiadomość, słowo w słowo. Jeśli skończył, SendMessage go wznowi.\n\n{message}"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use SendMessage para enviar ao seu subagente \"{name}\" a mensagem abaixo, palavra por palavra. Se ele já terminou, SendMessage o retoma.\n\n{message}"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "С помощью SendMessage отправь своему субагенту \"{name}\" сообщение ниже, слово в слово. Если он завершился, SendMessage его возобновит.\n\n{message}"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ใช้ SendMessage ส่งข้อความด้านล่างถึงเอเจนต์ย่อย \"{name}\" แบบคำต่อคำ หากทำงานเสร็จแล้ว SendMessage จะให้ทำงานต่อ\n\n{message}"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SendMessage ile \"{name}\" adlı alt ajanına aşağıdaki mesajı kelimesi kelimesine gönder. Bitmişse SendMessage onu sürdürür.\n\n{message}"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "За допомогою SendMessage надішли своєму субагенту \"{name}\" повідомлення нижче, слово в слово. Якщо він завершився, SendMessage його відновить.\n\n{message}"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dùng SendMessage để gửi cho subagent \"{name}\" tin nhắn bên dưới, nguyên văn. Nếu nó đã xong, SendMessage sẽ tiếp tục nó.\n\n{message}"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "用 SendMessage 把下面的消息原样发给你的子代理“{name}”。如果它已结束，SendMessage 会让它继续。\n\n{message}"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "用 SendMessage 把下面的訊息原樣傳給你的子代理「{name}」。如果它已結束，SendMessage 會讓它繼續。\n\n{message}"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
