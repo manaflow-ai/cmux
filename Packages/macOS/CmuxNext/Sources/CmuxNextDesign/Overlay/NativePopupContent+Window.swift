@@ -36,7 +36,10 @@ struct NativePopupWindowLayout {
         }
         var built: [Part] = []
         func add(_ rows: [NativePopupRow], top: CGFloat, height: (NativePopupRow) -> CGFloat) -> CGFloat {
-            let offsets = RowOffsets(heights: rows.map { Double(height($0)) })
+            var heights: [Double] = []
+            heights.reserveCapacity(rows.count)
+            for row in rows { heights.append(Double(height(row))) }
+            let offsets = RowOffsets(heights: heights)
             built.append(Part(start: built.last.map(\.range.upperBound) ?? 0, top: top, offsets: offsets))
             return CGFloat(offsets.length)
         }
