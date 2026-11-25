@@ -191,7 +191,6 @@ pub mod live_models;
 pub mod local_stream;
 pub mod log_keep;
 pub mod log_sink;
-pub mod perf_trace;
 pub mod login_env;
 pub mod lossy_lines;
 #[cfg(test)]
@@ -248,6 +247,7 @@ pub mod peer;
 pub mod peer_kept_tokens;
 pub mod peer_last_good;
 pub mod peer_link;
+pub mod perf_trace;
 // One host-wide gate for peer links' dials, so many dropped links do not redial in one instant.
 pub mod peer_dial_gate;
 pub(crate) mod peer_notice_outbox;
