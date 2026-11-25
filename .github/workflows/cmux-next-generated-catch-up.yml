@@ -44,9 +44,6 @@ jobs:
   # vars.CMUX_NEXT_GENERATED_CATCH_UP_COALESCE = '0' catches up on every move again.
   coalesce:
     if: github.repository == 'manaflow-ai/cmux'
-    # actions: read: base-coalesce lists this workflow's runs to re-run a window whose run failed.
-    permissions:
-      actions: read
     uses: ./.github/workflows/base-coalesce.yml
     with:
       key: cmux-next-generated-catch-up
