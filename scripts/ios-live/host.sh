@@ -220,12 +220,26 @@ build_app() {
     app="$(cat "$root/live/app-path")"
   else
     build_kind=plain
-    xcodebuild -project "$src/cmux-next-ios/CmuxMobileApp.xcodeproj" -scheme CmuxMobileApp -configuration Demo \
-      -destination 'generic/platform=iOS Simulator' -derivedDataPath "$root/dd" -jobs "$jobs" \
-      CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
-      COMPILER_INDEX_STORE_ENABLE=NO \
-      'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG CMUX_MOBILE_DEMO' build >"$log" 2>&1 \
-      || { grep -E "error:" "$log" | sort -u | head -30 >&2; die "build failed (log $log)"; }
+    plain_build() {
+      xcodebuild -project "$src/cmux-next-ios/CmuxMobileApp.xcodeproj" -scheme CmuxMobileApp -configuration Demo \
+        -destination 'generic/platform=iOS Simulator' -derivedDataPath "$root/dd" -jobs "$jobs" \
+        CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+        COMPILER_INDEX_STORE_ENABLE=NO \
+        'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG CMUX_MOBILE_DEMO' build >"$log" 2>&1
+    }
+    if ! plain_build; then
+      # A slot's module cache can be left with truncated .pcm files (a build killed mid-write, a
+      # full disk): every later build then fails with "is not a valid module file". Set the cache
+      # aside (kept, not deleted) and build once more, which rebuilds it.
+      if grep -q "is not a valid module file" "$log" && [[ -d "$root/dd/ModuleCache.noindex" ]]; then
+        local aside="$root/dd/ModuleCache.noindex.bad-$(date -u +%Y%m%dT%H%M%SZ)"
+        echo "ios-live: truncated module cache; set aside as $aside, building again" >&2
+        mv "$root/dd/ModuleCache.noindex" "$aside"
+        plain_build || { grep -E "error:" "$log" | sort -u | head -30 >&2; die "build failed (log $log)"; }
+      else
+        grep -E "error:" "$log" | sort -u | head -30 >&2; die "build failed (log $log)"
+      fi
+    fi
     app="$root/dd/Build/Products/Demo-iphonesimulator/CmuxMobileApp.app"
   fi
   ln -sf "$log" "$root/logs/build-latest.log"
