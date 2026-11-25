@@ -409,7 +409,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // A web link that opens on the Mac opens beside the terminal, in this workspace (the Mac's
         // Cmd-click); a public page opens on this iPhone (TerminalLinkRoute).
         host.model.linkOpener = context.openLink
-        return AnyView(TerminalTabSlotPage(slot: slot, insets: context.safeAreaInsets, isInteractive: context.isInteractive))
+        return AnyView(TerminalTabSlotPage(slot: slot, insets: context.safeAreaInsets, chromeTop: context.chromeTop,
+                                           isInteractive: context.isInteractive))
     }
 
     /// Releases a tab that fell out of the warm set: its Mac attach and its
@@ -895,10 +896,11 @@ final class TerminalTabSlot {
 struct TerminalTabSlotPage: View {
     let slot: TerminalTabSlot
     let insets: EdgeInsets
+    var chromeTop: CGFloat?
     let isInteractive: Bool
 
     var body: some View {
-        TerminalTabPage(host: slot.host, insets: insets, isInteractive: isInteractive)
+        TerminalTabPage(host: slot.host, insets: insets, chromeTop: chromeTop, isInteractive: isInteractive)
             .id(ObjectIdentifier(slot.host))
     }
 }
