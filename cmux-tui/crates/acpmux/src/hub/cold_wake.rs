@@ -380,15 +380,8 @@ impl Hub {
         tokens: u64,
         line: u64,
     ) -> bool {
-        let dry = self.surgery(session, None, true).await;
-        if !surgery_suffices(&dry, line) {
-            tracing::info!(session = %session.id, tokens, outcome = ?dry.as_ref().map_err(|e| &e.message), "cold wake surgery skipped");
-            return false;
-        }
-        let answer = self.surgery(session, None, false).await;
-        let applied = surgery_applied(&answer);
-        tracing::info!(session = %session.id, tokens, applied, outcome = ?answer.as_ref().map_err(|e| &e.message), "cold wake surgery");
-        applied
+        tracing::debug!(session = %session.id, tokens, "cold wake surgery");
+        self.surgery_before_compact(session, line, "cold_wake").await
     }
 
     /// `cache_compact.rs`'s check but for the queue: no turn holds the lock, no Web or phone turn
