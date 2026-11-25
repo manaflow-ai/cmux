@@ -162,6 +162,10 @@ _VIEWER_DETAILS = (
     ("went offline", "peer offline"),
     ("Nobody answered", "expired"),
     ("connection to", "connection dropped"),
+    ("is over", "session over, reason not one the phone names"),
+    ("changed this iPhone's access", "permission revoked"),
+    ("signed out", "signed out"),
+    ("was removed from your devices", "viewer removed"),
 )
 
 

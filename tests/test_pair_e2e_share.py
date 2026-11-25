@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/ci"))
-from cmux_next_pair_share_host import TaggedShareHost, share_without_asking_off
+from cmux_next_pair_share_host import TaggedShareHost, share_log_line, share_without_asking_off
 from cmux_next_pair_share_phone import PairShareFailure, PairSharePhone, screen_sharing_page_state, viewer_state
 from cmux_next_screen_sharing_proof import positive_fps
 
@@ -145,7 +145,38 @@ class MacRowTests(unittest.TestCase):
                 phone.request_share("rig", "abc-1")
 
 
+class ShareLogTests(unittest.TestCase):
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.host = TaggedShareHost("/rig/Mac.app", {"ACPMUX_HOME": folder.name})
+
+    def test_only_share_host_lines_after_the_cursor_with_urls_and_tokens_cut(self):
+        self.host.log.write_text("share-host: before the baseline\n")
+        self.host.log_cursor = self.host.log.stat().st_size
+        with self.host.log.open("a") as log:
+            log.write("other: unrelated\n")
+            log.write("share-host: session s1: no helper: none at https://x.example/a?t=1\n")
+            log.write("share-host: end not sent: " + "a" * 40 + "\n")
+        self.assertEqual(self.host.share_log(),
+                         "share-host log: share-host: session s1: no helper: none at <url> | "
+                         "share-host: end not sent: <cut>")
+
+    def test_a_missing_log_says_so(self):
+        self.assertEqual(self.host.share_log(), "share-host log: FileNotFoundError")
+
+    def test_a_long_line_is_cut(self):
+        self.assertEqual(len(share_log_line("share-host: " + "word " * 100)), 240)
+
+
 class ViewerStateTests(unittest.TestCase):
+    def test_a_session_over_card_names_that_no_known_reason_came(self):
+        nodes = [{"AXIdentifier": "screenSharing.page"}, {"AXLabel": "Sharing ended"},
+                 {"AXLabel": "The session with Rig Mac is over."}]
+        self.assertEqual(viewer_state(nodes, "Rig Mac"),
+                         "viewer: ended (session over, reason not one the phone names); views: screenSharing.page; "
+                         "meter: none")
+
     def test_a_share_problem_alert_names_its_fixed_reason(self):
         nodes = [{"AXIdentifier": "screenSharing.page"},
                  {"AXLabel": "Couldn't share Rig Mac"},

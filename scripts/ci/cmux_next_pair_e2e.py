@@ -609,7 +609,7 @@ def run_pair(a, note, share):
                     try:
                         phone.wait_frame(timeout=60, name=target["deviceName"])
                     except RuntimeError as error:
-                        raise RuntimeError(f"{error}; {host.summary()}") from error
+                        raise RuntimeError(f"{error}; {host.summary()}; {host.share_log()}") from error
                     share.pass_step()
                     probe_input.verify_click(phone.tap_center())
                     share.pass_step()
