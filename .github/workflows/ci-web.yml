@@ -184,6 +184,10 @@ jobs:
         env:
           REACT_APPS_SHARDS: "8"
           FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          # Into feat-cmux-next a FULL path runs the sampled pick; its post-merge batch runs every shard
+          # (webviews_pr_shards.py full_to_batch). CI_WEBVIEWS_FULL_TO_BATCH=0 runs every shard for it again.
+          CI_WEBVIEWS_PR_BASE: ${{ github.base_ref }}
+          CI_WEBVIEWS_FULL_TO_BATCH: ${{ vars.CI_WEBVIEWS_FULL_TO_BATCH || '1' }}
           CMUX_WEB_TEST_DURATIONS: ${{ runner.temp }}/webviews-durations/manifest.json
           CMUX_WEB_TEST_JOBS: "8"
           CMUX_WEB_TEST_DEV_JOBS: "4"
@@ -649,6 +653,11 @@ jobs:
           CMUX_REAL_ACPMUX: "1"
           CMUX_BROWSER_TESTS: "1"
           FAST_CHECKS_OUT: ${{ runner.temp }}/agent-pane-real-acpmux
+          # Both files share one cache of the React Compiler's output (reactCompiler.mjs), as
+          # scripts/ci/run-webviews-tests.sh gives every other web file: without it each file's Vite
+          # compiles the pane again (cold warm-up 37-60 s on a 16-core VM, past warmDevServer's 100 s
+          # on a busy runner), and with it the second file warms in about 10 s.
+          CMUX_VITE_TRANSFORM_CACHE: ${{ runner.temp }}/vite-transforms
         run: |
           status=0
           for file in test/agent-pane-new-chat-settles.test.ts test/agent-pane-picks-hold.test.ts; do

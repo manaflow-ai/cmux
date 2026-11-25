@@ -26,9 +26,10 @@ import Testing
         let folder = root.appending(path: RelaunchAfterimage.folderName)
         let pictures = [RelaunchAfterimage.Picture(number: 11, frame: CGRect(x: 10, y: 20, width: 300, height: 200), image: try Self.image()),
                         RelaunchAfterimage.Picture(number: 12, frame: CGRect(x: 40, y: 50, width: 640, height: 480), image: try Self.image())]
-        #expect(RelaunchAfterimage.write(pictures, activates: true, to: folder))
+        #expect(RelaunchAfterimage.write(pictures, activates: true, status: "Restarting…", to: folder))
         let plan = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: folder.appending(path: "plan.json"))) as? [String: Any])
         #expect(plan["activates"] as? Bool == true)
+        #expect(plan["status"] as? String == "Restarting…") // the line over the front picture, so the picture never reads as a frozen window
         #expect(plan["deadlineMs"] as? Int == 8000)
         let windows = try #require(plan["windows"] as? [[String: Any]])
         #expect(windows.map { $0["above"] as? Int } == [11, 12])

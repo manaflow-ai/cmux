@@ -8,7 +8,10 @@
 //! resolves, kept as long as a spare) and writes the ticket `~/chats/.reserved` naming it.
 //! `cmux-tui-core`'s `owner_cloud_cwd` gives the first home chat that folder by renaming the
 //! ticket (one atomic winner, `agent_session_folders.rs`), so its `session/new` keys the warm
-//! entry and takes it. The next home chat gets `~/chats/<surface id>` as before.
+//! entry and takes it. That take reserves a fresh folder and warms it at once
+//! ([`Hub::refill_reserved_home`]), so the second and every later home chat on the machine takes
+//! a warm agent too: production app-chat probes on the 11-24 nightly paid `session_new` 3.6 to
+//! 10.4 s on a second chat (52 s once) against 0.8 to 1.6 s warm.
 //!
 //! A chat that names a model connection (a credential in its key), or runs with
 //! `CMUX_AGENT_DISPLAYS=per-workspace` (the workspace id is in the key), misses and starts cold.
@@ -96,6 +99,30 @@ impl Hub {
     /// its entry wanted again. `wait`: answer once the agent is ready (or failed, or the wait
     /// ran out). Local, trusted callers only (the handler checks).
     pub async fn reserve_home_warm(self: &Arc<Self>, wait: bool) -> Result<Value, RpcError> {
+        self.reserve_home_warm_after(None, wait).await
+    }
+
+    /// A home chat just took the reserved entry for `taken`: reserve the next folder and warm it,
+    /// in the background.
+    pub(super) fn refill_reserved_home(&self, taken: PathBuf) {
+        let Some(hub) = self.hub_ref.get().and_then(std::sync::Weak::upgrade) else { return };
+        self.scope.spawn_named("pool-reserve-refill", async move {
+            match hub.reserve_home_warm_after(Some(taken), false).await {
+                Ok(answer) => tracing::info!(%answer, "the next home chat's folder is reserved"),
+                Err(error) => {
+                    tracing::info!(?error, "the next home chat's folder was not reserved")
+                }
+            }
+        });
+    }
+
+    /// [`reserve_home_warm`](Self::reserve_home_warm); `taken`: the folder a chat just took,
+    /// never warmed again (its ticket still names it when the chat came without taking it).
+    async fn reserve_home_warm_after(
+        self: &Arc<Self>,
+        taken: Option<PathBuf>,
+        wait: bool,
+    ) -> Result<Value, RpcError> {
         if crate::launch_policy::agent_launch_disabled() {
             return Ok(
                 json!({"accepted": false, "reason": crate::launch_policy::DISABLED_MESSAGE}),
@@ -118,6 +145,10 @@ impl Hub {
             .ok_or_else(|| {
                 RpcError::invalid_params("the reserved chat folder could not be made")
             })?;
+        if taken.as_ref() == Some(&folder) {
+            return Ok(json!({"accepted": false,
+                "reason": "the reserved folder's ticket still names the folder a chat took"}));
+        }
         self.wait_startup().await;
         // The default harness and model, as a home chat's `session/new` with no pick takes them.
         let spec = self.pool_spec_in(None, None, folder, None, &PrewarmShape::default()).await?;
