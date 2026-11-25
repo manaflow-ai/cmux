@@ -982,7 +982,8 @@ public struct AgentChatBottomStack: View {
             // drags that start above it).
             .simultaneousGesture(DragGesture(minimumDistance: 14).onChanged { value in
                 let t = value.translation
-                if surface.composerFocused, t.height > 14, t.height > abs(t.width) * 1.5 { surface.composerFocused = false }
+                if surface.composerFocused, !ChatComposerTextView.isScrollingDraft,
+                   t.height > 14, t.height > abs(t.width) * 1.5 { surface.composerFocused = false }
             })
         }
         .padding(.bottom, bottomPadding)

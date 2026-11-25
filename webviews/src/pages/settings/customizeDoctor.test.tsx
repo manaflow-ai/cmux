@@ -65,13 +65,12 @@ test("a stale layer and a broken theme: each draws its title, place, detail and 
   expect(notice()!.querySelector(".doctor-line")!.textContent).toBe(mockDoctor().line!);
 });
 
-test("all eleven kinds (override and not-default among them) draw, warnings first", async () => {
+test("all ten kinds (override among them) draw, warnings first", async () => {
   await open({ doctor: mockAllDoctor() });
   const kinds = [...card()!.querySelectorAll<HTMLElement>("[data-doctor-finding]")].map(
     (row) => row.dataset.doctorKind,
   );
-  expect(new Set(kinds).size).toBe(11);
-  expect(kinds).toContain("not-default");
+  expect(new Set(kinds).size).toBe(10);
   expect(kinds).toContain("override");
   const levels = [...card()!.querySelectorAll<HTMLElement>("[data-doctor-finding]")].map((row) => row.dataset.level);
   expect(levels.indexOf("info")).toBeGreaterThan(levels.lastIndexOf("warning"));
@@ -183,7 +182,7 @@ test("the banner treatment draws a warning Notice with Review; inline draws the 
   setDoctorTreatment("inline");
   await open({ doctor: mockDoctor() });
   const inline = card()!.querySelector<HTMLElement>('[data-doctor-notice="inline"]')!;
-  expect(inline.querySelector("[data-count]")!.textContent).toBe("3");
+  expect(inline.querySelector("[data-count]")!.textContent).toBe("2");
   expect(page!.container.querySelectorAll("[data-doctor-notice]")).toHaveLength(1);
 });
 
@@ -239,16 +238,15 @@ test("the banner's Recover… opens the card with Recover's question open, still
   expect(page!.provider.doctorRuns).toEqual([]);
 });
 
-test("Leo's hidden pane dividers: the not-default finding says yours and the default, and Follow default runs at once", async () => {
-  const id = DOCTOR_FINDINGS.notDefault!.id;
+// Leo, 2026-11-25, on "Customization Problems 50 ... You are not following the default for
+// sidebar.priorityView.shown and 49 more": "what is this and why is it so ugly".
+test("info findings alone are no problem: no card and no notice; next to a warning they are listed, not counted", async () => {
+  await open({ doctor: report([DOCTOR_FINDINGS.unknownKey!, DOCTOR_FINDINGS.ignored!, DOCTOR_FINDINGS.override!]) });
+  expect(card()).toBeNull();
+  expect(notice()).toBeNull();
+  page!.unmount();
   await open({ doctor: mockDoctor() });
-  expect(finding(id).dataset.doctorKind).toBe("not-default");
-  expect(finding(id).textContent).toContain("Yours: 0, default: follows Window opacity.");
-  expect(fix(id, "follow-default").textContent).toBe("Follow default");
-  await click(fix(id, "follow-default"));
-  await settle();
-  expect(card()!.querySelector("[data-doctor-confirm]")).toBeNull();
-  expect(page!.provider.doctorRuns).toEqual([{ verb: "doctor-fix", id, fix: "follow-default" }]);
-  expect(card()!.querySelector(`[data-doctor-finding="${id}"]`)).toBeNull();
-  expect(card()!.querySelector("[data-doctor-said]")!.textContent).toContain("a copy of your settings file is kept");
+  expect(finding(DOCTOR_FINDINGS.unknownKey!.id).dataset.level).toBe("info");
+  expect(notice()!.querySelector("[data-count]")!.textContent).toBe("2");
+  expect(notice()!.querySelector(".doctor-line")!.textContent).not.toContain("is not a setting");
 });
