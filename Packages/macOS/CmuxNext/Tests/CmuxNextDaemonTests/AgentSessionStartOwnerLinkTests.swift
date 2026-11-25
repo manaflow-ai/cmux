@@ -87,6 +87,27 @@ import Testing
         #expect(AgentSessionAttachClient.credentialsCapability(harness: "claude") == AgentSessionAttachClient.startCredentialsCapability)
     }
 
+    /// A provider key's credential (cmux#48428) and an OpenCode start's credential go only to a machine whose cmux-tui
+    /// takes `CMUX_PROVIDER_*` and the OpenCode family; an older one would refuse the start, so it is refused here first
+    /// with the code that updates the machine.
+    @Test func aProviderCredentialGoesOnlyToADaemonThatTakesIt() async throws {
+        let owner = [DaemonCapability.agentSessionStartVMKind.rawValue, AgentSessionAttachClient.startCredentialsCapability,
+                     AgentSessionAttachClient.startCodexCredentialsCapability]
+        let provider = ["CMUX_PROVIDER_ID": "openrouter", "CMUX_PROVIDER_API_KEY": "sk-or-v1-0123",
+                        "CMUX_PROVIDER_ANTHROPIC_URL": "https://openrouter.ai/api", "CMUX_PROVIDER_ANTHROPIC_AUTH": "bearer"]
+        let older = try await start(serving: owner, ownerLink: link(3, 3), harness: "claude", credentials: provider)
+        #expect(older.refusal == AgentSessionAttachClient.codexCredentialsUnsupported)
+        #expect(older.frame == nil, "a provider credential went to a daemon that refuses it")
+        let opencode = try await start(serving: owner, ownerLink: link(3, 3), harness: "opencode", credentials: ["ANTHROPIC_API_KEY": "sk-ant"])
+        #expect(opencode.refusal == AgentSessionAttachClient.codexCredentialsUnsupported)
+
+        let current = try await start(serving: owner + [AgentSessionAttachClient.startProviderCredentialsCapability],
+                                      ownerLink: link(3, 3), harness: "claude", credentials: provider)
+        #expect(current.refusal != AgentSessionAttachClient.codexCredentialsUnsupported)
+        #expect((current.frame?["credentials"] as? [String: Any])?["env"] as? [String: String] == provider)
+        #expect(AgentSessionAttachClient.credentialsCapability(harness: "opencode") == AgentSessionAttachClient.startProviderCredentialsCapability)
+    }
+
     /// A new Cloud machine's first start (or a down machine that reconnects on use): its link was
     /// not up yet, or came up again, while the start connected. The answer is taken again around
     /// the connection that is now live, instead of refusing the start the next try would allow.

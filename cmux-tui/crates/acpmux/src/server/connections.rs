@@ -29,8 +29,13 @@ use super::Origin;
 use super::accounts::{self, CLAUDE_LOGIN_ID};
 use crate::chatgpt;
 use crate::hub::Hub;
+use crate::providers;
 use crate::routes::{self, Auth, Bindings, Route, RouteFile, RouteKind};
 use crate::rpc::{RpcError, method};
+
+mod keys;
+
+use keys::{add_key, check_key, key_add_params};
 
 pub(super) const METHODS: &[&str] = &[
     method::MUX_CONNECTIONS,
@@ -91,64 +96,6 @@ pub(super) struct Connection {
     pub serves_cloud: bool,
 }
 
-/// An API-key provider: its label, the families it serves and its base URLs.
-struct Provider {
-    id: &'static str,
-    label: &'static str,
-    families: &'static [&'static str],
-    anthropic: Option<&'static str>,
-    openai: Option<&'static str>,
-    /// OpenRouter's Anthropic endpoint takes the key as a bearer token.
-    bearer: bool,
-}
-
-const PROVIDERS: &[Provider] = &[
-    Provider {
-        id: "anthropic",
-        label: "Anthropic API key",
-        families: &["claude"],
-        anthropic: Some("https://api.anthropic.com"),
-        openai: None,
-        bearer: false,
-    },
-    Provider {
-        id: "openai",
-        label: "OpenAI API key",
-        families: &["codex"],
-        anthropic: None,
-        openai: Some("https://api.openai.com/v1"),
-        bearer: false,
-    },
-    Provider {
-        id: "openrouter",
-        label: "OpenRouter API key",
-        families: &["claude", "codex"],
-        anthropic: Some("https://openrouter.ai/api"),
-        openai: Some("https://openrouter.ai/api/v1"),
-        bearer: true,
-    },
-    Provider {
-        id: "google",
-        label: "Google AI API key",
-        families: &["gemini"],
-        anthropic: None,
-        openai: Some("https://generativelanguage.googleapis.com/v1beta/openai"),
-        bearer: false,
-    },
-    Provider {
-        id: "xai",
-        label: "xAI API key",
-        families: &["codex"],
-        anthropic: None,
-        openai: Some("https://api.x.ai/v1"),
-        bearer: false,
-    },
-];
-
-fn provider(id: &str) -> Option<&'static Provider> {
-    PROVIDERS.iter().find(|p| p.id == id)
-}
-
 struct Facts {
     kind: &'static str,
     provider: String,
@@ -159,15 +106,50 @@ struct Facts {
     builtin: bool,
 }
 
-/// Whether a connection can serve a Cloud chat (Revision 2: its credential goes to the
-/// machine's agent): a ChatGPT plan, a Claude Code token, an Anthropic or OpenAI key. The Mac's
-/// CLI logins and added subscription accounts serve local chats only.
+/// Whether a connection can serve a Cloud chat (Revisions 2 and 3: its credential goes to the
+/// machine's agent): a ChatGPT plan, a Claude Code token, or a key of a provider the catalog
+/// reaches from a Cloud agent (`crate::providers`). The Mac's CLI logins and added subscription
+/// accounts serve local chats only.
 pub(super) fn serves_cloud(kind: &str, provider: &str) -> bool {
     match kind {
         "chatgpt-plan" | "claude-token" => true,
-        "api-key" => matches!(provider, "anthropic" | "openai"),
+        "api-key" => crate::providers::find(provider).is_some_and(|p| p.unavailable.is_none()),
         _ => false,
     }
+}
+
+/// Where a key connection's agents reach its provider: a catalog provider's own endpoints (its
+/// Bedrock region from the route's check URL), or the endpoint a named-endpoint route holds.
+pub(super) fn route_endpoints(file: &RouteFile) -> Option<providers::Endpoints> {
+    let p = providers::find(file.provider())?;
+    if p.group != providers::Group::Custom {
+        return Some(providers::endpoints(p, file.health_url.as_deref().and_then(bedrock_region)));
+    }
+    let auth = match file.auth {
+        Some(Auth::ApiKey) => providers::AnthropicAuth::XApiKey,
+        _ => providers::AnthropicAuth::Bearer,
+    };
+    Some(providers::Endpoints {
+        anthropic: file.anthropic_base_url.clone().map(|base| (base, auth)),
+        responses: file.openai_base_url.clone(),
+        opencode: None,
+        region: None,
+    })
+}
+
+/// The region of a Bedrock check URL (`https://bedrock-mantle.REGION.api.aws/v1/models`).
+fn bedrock_region(url: &str) -> Option<&str> {
+    providers::bedrock_region(url)
+}
+
+/// The families a key connection serves: the ones its route file names, which a spawn goes by
+/// (`Route::serves`), so a key saved before Revision 3 lists what it still serves; for a route
+/// that names none, its endpoints' (Revision 3) when the catalog knows it.
+fn key_families(file: &RouteFile) -> Vec<String> {
+    if !file.families.is_empty() {
+        return file.families.clone();
+    }
+    route_endpoints(file).map(|e| e.families()).unwrap_or_default()
 }
 
 fn connection(route: &Route, facts: Facts, b: &Bindings) -> Connection {
@@ -265,17 +247,10 @@ pub(super) fn list(dir: Option<&Path>, home: &Path, b: &Bindings) -> Vec<Connect
             }
             RouteKind::DirectApiKey => {
                 let provider_id = file.provider().to_owned();
-                let families = if file.families.is_empty() {
-                    provider(&provider_id)
-                        .map(|p| p.families.iter().map(|f| (*f).to_owned()).collect())
-                        .unwrap_or_default()
-                } else {
-                    file.families.clone()
-                };
                 Facts {
                     kind: "api-key",
                     provider: provider_id,
-                    families,
+                    families: key_families(file),
                     signed_in: file.secret.is_some(),
                     email: None,
                     plan: None,
@@ -366,6 +341,7 @@ pub(super) fn state(dir: Option<&Path>, home: &Path) -> Value {
         "connections": connections,
         "spread": b.spread.unwrap_or(true),
         "order_explicit": !b.connection_order.is_empty(),
+        "providers": providers::listed(),
     })
 }
 
@@ -400,47 +376,6 @@ pub(super) fn set_order(
 pub(super) fn set_spread(dir: Option<&Path>, home: &Path, on: bool) -> Result<Value, RpcError> {
     routes::update_bindings(home, |b| b.spread = Some(on)).map_err(|e| route_error(&e))?;
     Ok(state(dir, home))
-}
-
-/// Adds a provider API key whose secret is a reference (`keychain:ITEM`); never the key.
-pub(super) fn add_key(
-    dir: Option<&Path>,
-    home: &Path,
-    provider_id: &str,
-    secret: &str,
-    label: Option<&str>,
-) -> Result<(String, Value), RpcError> {
-    let p = provider(provider_id).ok_or_else(|| {
-        RpcError::invalid_params(format!(
-            "unknown provider {provider_id:?}: one of {}",
-            routes::PROVIDERS.join(", ")
-        ))
-    })?;
-    let id = std::iter::once(format!("{}-key", p.id))
-        .chain((2..1000).map(|n| format!("{}-key-{n}", p.id)))
-        .find(|id| routes::find(dir, id).is_err())
-        .ok_or_else(|| RpcError::invalid_params("too many keys for this provider"))?;
-    let file = RouteFile {
-        name: Some(label.map(str::trim).filter(|l| !l.is_empty()).unwrap_or(p.label).to_owned()),
-        kind: RouteKind::DirectApiKey,
-        families: p.families.iter().map(|f| (*f).to_owned()).collect(),
-        anthropic_base_url: p.anthropic.map(str::to_owned),
-        openai_base_url: p.openai.map(str::to_owned),
-        auth: p.bearer.then_some(Auth::Bearer),
-        secret: Some(secret.to_owned()),
-        headers: Default::default(),
-        health_url: None,
-        fallback: vec![],
-        auto_fallback: false,
-        notes: None,
-        account_home: None,
-        shadow_of: None,
-        disabled: false,
-        provider: Some(p.id.to_owned()),
-    };
-    // `add` validates: an inline key is refused (route.secret_inline).
-    routes::add(dir, &id, &file, false).map_err(|e| route_error(&e))?;
-    Ok((id, state(dir, home)))
 }
 
 /// Adds Claude Code's `claude setup-token` token as a secret reference (`keychain:ITEM`).
@@ -483,14 +418,44 @@ pub(super) fn add_claude_token(
     Ok((id, state(dir, home)))
 }
 
-/// What a Cloud machine's agent needs from a secret-reference connection: its family, kind,
-/// the variable it is delivered in and the reference. A ChatGPT plan is not one (its token is
-/// the daemon's own, `chatgpt::Service::token_lasting`).
+/// What a Cloud machine's agent needs from a connection: its family, kind, how its credential
+/// is delivered, and the secret reference (none for a ChatGPT plan: its token is the daemon's own,
+/// `chatgpt::Service::token_lasting`).
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct CredentialPlan {
+    pub family: String,
+    pub kind: &'static str,
+    pub delivery: Delivery,
+    pub reference: Option<String>,
+}
+
+/// How a credential reaches the machine.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) enum Delivery {
+    /// Revision 2: the secret alone, in this variable.
+    One(&'static str),
+    /// Revision 3: the secret with its provider and endpoints (`providers::delivery`).
+    Provider(&'static str, providers::Endpoints),
+}
+
+impl CredentialPlan {
+    /// The env the machine's agent launches on, with `value` the resolved secret.
+    pub fn env(&self, value: String) -> serde_json::Map<String, Value> {
+        match &self.delivery {
+            Delivery::One(var) => [((*var).to_owned(), Value::String(value))].into_iter().collect(),
+            Delivery::Provider(id, endpoints) => providers::delivery(id, endpoints, value)
+                .into_iter()
+                .map(|(k, v)| (k.to_owned(), Value::String(v)))
+                .collect(),
+        }
+    }
+}
+
 pub(super) fn credential_plan(
     dir: Option<&Path>,
     home: &Path,
     id: &str,
-) -> Result<(String, &'static str, &'static str, Option<String>), RpcError> {
+) -> Result<CredentialPlan, RpcError> {
     let found = list(dir, home, &routes::bindings(home))
         .into_iter()
         .find(|c| c.id == id)
@@ -504,26 +469,33 @@ pub(super) fn credential_plan(
             .with_data(json!({"reason": "connections.disabled", "id": id})));
     }
     let family = found.families.first().cloned().unwrap_or_default();
-    let var = match (found.kind, found.provider.as_str()) {
-        ("chatgpt-plan", _) => {
-            return Ok((family, "chatgpt-plan", "CMUX_CHATGPT_ACCESS_TOKEN", None));
-        }
-        ("claude-token", _) => "CLAUDE_CODE_OAUTH_TOKEN",
-        ("api-key", "anthropic") => "ANTHROPIC_API_KEY",
-        ("api-key", _) => "OPENAI_API_KEY",
-        _ => unreachable_kind(id)?,
-    };
+    if found.kind == "chatgpt-plan" {
+        let delivery = Delivery::One("CMUX_CHATGPT_ACCESS_TOKEN");
+        return Ok(CredentialPlan { family, kind: "chatgpt-plan", delivery, reference: None });
+    }
     let route = routes::find(dir, id).map_err(|e| route_error(&e))?;
-    let secret = route.file.secret.ok_or_else(|| {
+    let delivery = match (found.kind, found.provider.as_str()) {
+        ("claude-token", _) => Delivery::One("CLAUDE_CODE_OAUTH_TOKEN"),
+        // Revision 2's keys keep their one variable, which every machine since takes.
+        ("api-key", "anthropic") => Delivery::One("ANTHROPIC_API_KEY"),
+        ("api-key", "openai") => Delivery::One("OPENAI_API_KEY"),
+        ("api-key", _) => {
+            let p = providers::find(&found.provider).ok_or_else(|| unreachable_kind(id))?;
+            let endpoints = route_endpoints(&route.file).ok_or_else(|| unreachable_kind(id))?;
+            Delivery::Provider(p.id, endpoints)
+        }
+        _ => return Err(unreachable_kind(id)),
+    };
+    let reference = route.file.secret.ok_or_else(|| {
         RpcError::invalid_params(format!("{id} has no secret"))
             .with_data(json!({"reason": "connections.no_secret", "id": id}))
     })?;
-    Ok((family, found.kind, var, Some(secret)))
+    Ok(CredentialPlan { family, kind: found.kind, delivery, reference: Some(reference) })
 }
 
-fn unreachable_kind(id: &str) -> Result<&'static str, RpcError> {
-    Err(RpcError::invalid_params(format!("{id} does not serve Cloud chats"))
-        .with_data(json!({"reason": "connections.not_cloud", "id": id})))
+fn unreachable_kind(id: &str) -> RpcError {
+    RpcError::invalid_params(format!("{id} does not serve Cloud chats"))
+        .with_data(json!({"reason": "connections.not_cloud", "id": id}))
 }
 
 /// The secret a reference names; the error says why it did not resolve, never a value.
@@ -657,14 +629,21 @@ pub(super) async fn handle(
             Ok(state)
         }
         method::MUX_CONNECTIONS_KEY_ADD => {
-            let provider = need("provider")?;
-            let secret = need("secret")?;
-            let label = text("label").map(str::to_owned);
-            let (_, state) = blocking(move || {
-                add_key(dir.as_deref(), &home, &provider, &secret, label.as_deref())
-            })
-            .await??;
+            let add = key_add_params(
+                &need("provider")?,
+                &need("secret")?,
+                text("label"),
+                text("baseUrl"),
+                text("protocol"),
+                text("region"),
+            )?;
+            // The key is checked with its provider before anything is written (Revision 3).
+            let checked = check_key(&add).await?;
+            let (id, mut state) = blocking(move || add_key(dir.as_deref(), &home, &add)).await??;
             announce_later(hub);
+            if let Some(object) = state.as_object_mut() {
+                object.insert("added".into(), json!({"id": id, "check": checked.as_json()}));
+            }
             Ok(state)
         }
         method::MUX_CONNECTIONS_REMOVE => {
@@ -753,9 +732,8 @@ pub(super) async fn handle(
         method::MUX_CONNECTIONS_CREDENTIAL => {
             let id = need("id")?;
             let (d, h, i) = (dir.clone(), home.clone(), id.clone());
-            let (family, kind, var, reference) =
-                blocking(move || credential_plan(d.as_deref(), &h, &i)).await??;
-            let (value, expires_at) = match reference {
+            let plan = blocking(move || credential_plan(d.as_deref(), &h, &i)).await??;
+            let (value, expires_at) = match plan.reference.clone() {
                 None => {
                     let (token, expires_at) = hub
                         .chatgpt
@@ -767,9 +745,12 @@ pub(super) async fn handle(
                 // The keychain may ask: off the runtime's threads.
                 Some(reference) => (blocking(move || resolve(&id, &reference)).await??, None),
             };
-            Ok(
-                json!({"family": family, "kind": kind, "env": {var: value}, "expires_at": expires_at}),
-            )
+            Ok(json!({
+                "family": plan.family,
+                "kind": plan.kind,
+                "env": plan.env(value),
+                "expires_at": expires_at,
+            }))
         }
         method::MUX_CONNECTIONS_CHATGPT_IMPORT => {
             let secret_file = need("secret_file")?;
@@ -836,17 +817,29 @@ mod tests {
         );
     }
 
-    struct Dirs {
-        _root: tempfile::TempDir,
-        routes: PathBuf,
-        home: PathBuf,
+    pub(super) struct Dirs {
+        pub(super) _root: tempfile::TempDir,
+        pub(super) routes: PathBuf,
+        pub(super) home: PathBuf,
     }
 
-    fn dirs() -> Dirs {
+    pub(super) fn dirs() -> Dirs {
         let root = tempfile::tempdir().unwrap();
         let (routes, home) = (root.path().join("routes"), root.path().join("home"));
         std::fs::create_dir_all(&routes).unwrap();
         Dirs { _root: root, routes, home }
+    }
+
+    /// `key.add` without the network check (`check_key`).
+    pub(super) fn add_key(
+        dir: Option<&Path>,
+        home: &Path,
+        provider: &str,
+        secret: &str,
+        label: Option<&str>,
+    ) -> Result<(String, Value), RpcError> {
+        let add = key_add_params(provider, secret, label, None, None, None)?;
+        super::add_key(dir, home, &add)
     }
 
     fn state_ids(state: &Value) -> Vec<String> {
@@ -887,12 +880,39 @@ mod tests {
         assert_eq!(routes::bindings(&d.home).spread, Some(false));
     }
 
+    /// cmux#48428 review: a key saved before Revision 3 keeps its saved families, which spawns go
+    /// by; it is listed with them, not with what the catalog would give a new key.
+    #[test]
+    fn a_saved_key_is_listed_with_the_families_its_route_serves() {
+        let d = dirs();
+        add_key(Some(&d.routes), &d.home, "openrouter", "keychain:cmux-or", None).unwrap();
+        let route = routes::find(Some(&d.routes), "openrouter-key").unwrap();
+        let text = std::fs::read_to_string(&route.path).unwrap();
+        let old =
+            text.lines()
+                .map(|l| {
+                    if l.starts_with("families") { "families = [\"claude\", \"codex\"]" } else { l }
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+        assert_ne!(old, text, "the route file names its families: {text}");
+        std::fs::write(&route.path, old).unwrap();
+
+        let route = routes::find(Some(&d.routes), "openrouter-key").unwrap();
+        assert!(!route.serves("opencode"));
+        let listed = list(Some(&d.routes), &d.home, &routes::bindings(&d.home));
+        let key = listed.iter().find(|c| c.id == "openrouter-key").unwrap();
+        assert_eq!(key.families, vec!["claude".to_owned(), "codex".to_owned()]);
+    }
+
     #[test]
     fn a_key_is_added_as_a_reference_and_listed_with_its_provider() {
         let d = dirs();
         let inline = add_key(Some(&d.routes), &d.home, "openrouter", "sk-or-v1-abc", None);
         assert_eq!(inline.unwrap_err().data.unwrap()["reason"], "route.secret_inline");
         assert!(add_key(Some(&d.routes), &d.home, "mistral", "keychain:x", None).is_err());
+        let e = add_key(Some(&d.routes), &d.home, "supergrok", "keychain:x", None).unwrap_err();
+        assert_eq!(e.data.unwrap()["reason"], "providers.sign_in_only", "no key to keep");
         let (id, state) =
             add_key(Some(&d.routes), &d.home, "openrouter", "keychain:cmux-or", Some("Mine"))
                 .unwrap();
@@ -906,10 +926,11 @@ mod tests {
             .unwrap();
         assert_eq!(key["kind"], "api-key");
         assert_eq!(key["provider"], "openrouter");
-        assert_eq!(key["families"], json!(["claude", "codex"]));
+        assert_eq!(key["families"], json!(["claude", "codex", "opencode"]));
         assert_eq!(key["label"], "Mine");
         assert_eq!(key["signed_in"], true);
-        assert_eq!(key["serves_cloud"], false, "Revision 2: only Anthropic and OpenAI keys");
+        assert_eq!(key["serves_cloud"], true, "Revision 3: every catalog provider");
+        assert!(state["providers"].as_array().unwrap().iter().any(|p| p["id"] == "openrouter"));
         let (second, _) =
             add_key(Some(&d.routes), &d.home, "openrouter", "keychain:cmux-or-2", None).unwrap();
         assert_eq!(second, "openrouter-key-2");
@@ -918,7 +939,7 @@ mod tests {
         assert_eq!(route.file.provider.as_deref(), Some("openrouter"));
     }
 
-    fn secret_file(d: &Dirs, name: &str, value: &str) -> String {
+    pub(super) fn secret_file(d: &Dirs, name: &str, value: &str) -> String {
         let path = d._root.path().join(name);
         std::fs::write(&path, format!("{value}\n")).unwrap();
         crate::router_socket::owner_only(&path);
@@ -984,9 +1005,13 @@ mod tests {
             ("claude-token", "anthropic", true),
             ("api-key", "anthropic", true),
             ("api-key", "openai", true),
-            ("api-key", "openrouter", false),
-            ("api-key", "google", false),
-            ("api-key", "xai", false),
+            ("api-key", "openrouter", true),
+            ("api-key", "google", true),
+            ("api-key", "xai", true),
+            ("api-key", "custom", true),
+            ("api-key", "supergrok", false),
+            ("api-key", "github-copilot", false),
+            ("api-key", "mistral", false),
             ("codex-login", "openai", false),
             ("claude-login", "anthropic", false),
             ("subscription", "openai", false),
@@ -1020,13 +1045,15 @@ mod tests {
             routes::env_for(&route, "claude", &d.home),
             Err(routes::RouteError::Unavailable(_))
         ));
-        let (family, kind, var, secret) =
-            credential_plan(Some(&d.routes), &d.home, "claude-token").unwrap();
+        let plan = credential_plan(Some(&d.routes), &d.home, "claude-token").unwrap();
         assert_eq!(
-            (family.as_str(), kind, var),
-            ("claude", "claude-token", "CLAUDE_CODE_OAUTH_TOKEN")
+            (plan.family.as_str(), plan.kind, &plan.delivery),
+            ("claude", "claude-token", &Delivery::One("CLAUDE_CODE_OAUTH_TOKEN"))
         );
-        assert_eq!(resolve("claude-token", &secret.unwrap()).unwrap(), "sk-ant-oat01-secret");
+        assert_eq!(
+            resolve("claude-token", &plan.reference.unwrap()).unwrap(),
+            "sk-ant-oat01-secret"
+        );
     }
 
     #[test]
@@ -1034,17 +1061,31 @@ mod tests {
         let d = dirs();
         let anthropic = secret_file(&d, "a", "sk-ant-api-1");
         let openai = secret_file(&d, "o", "sk-proj-1");
+        let openrouter = secret_file(&d, "r", "sk-or-v1-1");
         add_key(Some(&d.routes), &d.home, "anthropic", &anthropic, None).unwrap();
         add_key(Some(&d.routes), &d.home, "openai", &openai, None).unwrap();
-        add_key(Some(&d.routes), &d.home, "openrouter", "keychain:cmux-or", None).unwrap();
-        let (family, kind, var, _) =
-            credential_plan(Some(&d.routes), &d.home, "anthropic-key").unwrap();
-        assert_eq!((family.as_str(), kind, var), ("claude", "api-key", "ANTHROPIC_API_KEY"));
-        let (family, _, var, secret) =
-            credential_plan(Some(&d.routes), &d.home, "openai-key").unwrap();
-        assert_eq!((family.as_str(), var), ("codex", "OPENAI_API_KEY"));
-        assert_eq!(resolve("openai-key", &secret.unwrap()).unwrap(), "sk-proj-1");
-        for id in ["openrouter-key", "codex-login", "claude-login"] {
+        add_key(Some(&d.routes), &d.home, "openrouter", &openrouter, None).unwrap();
+        let plan = credential_plan(Some(&d.routes), &d.home, "anthropic-key").unwrap();
+        assert_eq!((plan.family.as_str(), plan.kind), ("claude", "api-key"));
+        assert_eq!(
+            plan.env("sk-ant-api-1".into()),
+            json!({"ANTHROPIC_API_KEY": "sk-ant-api-1"}).as_object().unwrap().clone()
+        );
+        let plan = credential_plan(Some(&d.routes), &d.home, "openai-key").unwrap();
+        assert_eq!(
+            (plan.family.as_str(), &plan.delivery),
+            ("codex", &Delivery::One("OPENAI_API_KEY"))
+        );
+        assert_eq!(resolve("openai-key", &plan.reference.unwrap()).unwrap(), "sk-proj-1");
+        // Revision 3: a provider key goes with its provider and endpoints.
+        let plan = credential_plan(Some(&d.routes), &d.home, "openrouter-key").unwrap();
+        let env = plan.env(resolve("openrouter-key", plan.reference.as_ref().unwrap()).unwrap());
+        assert_eq!(env["CMUX_PROVIDER_API_KEY"], "sk-or-v1-1");
+        assert_eq!(env["CMUX_PROVIDER_ID"], "openrouter");
+        assert_eq!(env["CMUX_PROVIDER_ANTHROPIC_URL"], "https://openrouter.ai/api");
+        assert_eq!(env["CMUX_PROVIDER_ANTHROPIC_AUTH"], "bearer");
+        assert_eq!(env["CMUX_PROVIDER_RESPONSES_URL"], "https://openrouter.ai/api/v1");
+        for id in ["codex-login", "claude-login"] {
             let e = credential_plan(Some(&d.routes), &d.home, id).unwrap_err();
             assert_eq!(e.data.unwrap()["reason"], "connections.not_cloud", "{id}");
         }
@@ -1090,13 +1131,12 @@ mod tests {
         assert_eq!(plan.email.as_deref(), Some("alex@example.com"));
         assert_eq!(plan.plan.as_deref(), Some("plus"));
         assert!(plan.serves_cloud);
-        let (family, kind, var, secret) =
-            credential_plan(Some(&d.routes), &d.home, "chatgpt").unwrap();
+        let plan = credential_plan(Some(&d.routes), &d.home, "chatgpt").unwrap();
         assert_eq!(
-            (family.as_str(), kind, var),
-            ("codex", "chatgpt-plan", "CMUX_CHATGPT_ACCESS_TOKEN")
+            (plan.family.as_str(), plan.kind, &plan.delivery),
+            ("codex", "chatgpt-plan", &Delivery::One("CMUX_CHATGPT_ACCESS_TOKEN"))
         );
-        assert!(secret.is_none(), "the daemon's own token, not a reference");
+        assert!(plan.reference.is_none(), "the daemon's own token, not a reference");
         // A sign-in from the retired token-sharing client (`oaiapp_...`) reads signed out: its
         // token is refused by OpenAI, so the person signs in again (cmux#45774).
         let old = chatgpt::store::Record { client_id: "oaiapp_x".into(), ..record.clone() };

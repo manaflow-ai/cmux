@@ -722,8 +722,31 @@ export type ModelConnectionKind =
   | "claude-token"
   | "api-key";
 
-/** A model provider a connection pays (product names, shown as they are). */
-export type ModelProvider = "openai" | "anthropic" | "openrouter" | "google" | "xai";
+/** A model provider a connection pays (product names, shown as they are): an id of acpmux's provider
+ * catalog (`ModelsState.providers`), such as `openai`, `anthropic`, `openrouter` or `custom`. */
+export type ModelProvider = string;
+
+/** A field a provider's key needs beside it: a named endpoint's base URL, Bedrock's region. */
+export type ModelProviderField = "base-url" | "region";
+
+/** One provider of acpmux's catalog (cmux-tui `acpmux::providers`, cmux#48428), as Add a Connection lists it. */
+export type ModelProviderInfo = {
+  id: string;
+  label: string;
+  group: "subscription" | "api-key" | "custom";
+  /** Where the person makes a key (https only), or null. */
+  console: string | null;
+  fields: ModelProviderField[];
+  /** The agents its key runs; empty for a named endpoint, whose protocol decides. */
+  families: string[];
+  /** A named endpoint's protocols: `anthropic`, `anthropic-bearer`, `responses`. */
+  protocols: string[];
+  /** True: a key is checked with the provider before it is kept. */
+  checked: boolean;
+  servesCloud: boolean;
+  /** Why no key is taken here (`providers.sign_in_only`), or null. */
+  unavailable: string | null;
+};
 
 /** One of the person's connections (acpmux `_acpmux/connections`), in the order threads use them. */
 export type ModelConnection = {
@@ -759,6 +782,8 @@ export type ModelsState = {
   /** `attempt`: a Continue with ChatGPT sign-in waiting on the browser; `error`: the last one's
    * failure code (`access_denied`, `no_chatgpt_account`, ...). */
   chatgpt: { attempt: string | null; error: string | null };
+  /** acpmux's provider catalog; older hosts omit it and the page lists its own five key providers. */
+  providers?: ModelProviderInfo[];
 };
 
 /** One Settings > Models gesture. `addKey`, `addClaudeToken` and `orgKey` carry a pasted secret once:
@@ -774,7 +799,16 @@ export type ModelsRun =
   | { action: "connectClaude" }
   | { action: "claudeSetupToken" }
   | { action: "addClaudeToken"; token: string; label?: string }
-  | { action: "addKey"; provider: ModelProvider; key: string; label?: string }
+  | {
+      action: "addKey";
+      provider: ModelProvider;
+      key: string;
+      label?: string;
+      /** A named endpoint's base URL (https) and protocol; Bedrock's region. acpmux checks them and the key. */
+      baseUrl?: string;
+      protocol?: string;
+      region?: string;
+    }
   | { action: "orgKey"; agent: "claude" | "codex"; key: string | null }
   | { action: "members"; ownConnections?: boolean; chooseRunout?: boolean };
 

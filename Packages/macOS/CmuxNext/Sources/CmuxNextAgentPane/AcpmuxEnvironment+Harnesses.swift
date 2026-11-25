@@ -116,7 +116,7 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
     case chatgptCancel = "_acpmux/connections/chatgpt.cancel"
     /// `{id}`: removes a connection (a ChatGPT plan revokes its refresh token first).
     case connectionsRemove = "_acpmux/connections/remove"
-    /// `{provider, secret: "keychain:ITEM", label?}`: an API-key connection; never the key itself.
+    /// `{provider, secret: "keychain:ITEM", label?, baseUrl?, protocol?, region?}`: an API-key connection; never the key itself.
     case connectionsKeyAdd = "_acpmux/connections/key.add"
     /// A Claude setup token's `keychain:ITEM` reference (`{secret, label?}`) as a `claude-token` connection.
     case claudeTokenAdd = "_acpmux/connections/claude_token.add"
@@ -135,7 +135,10 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
         case .add: .seconds(90)
         case .terminalTranscriptPage, .terminalTranscriptFind, .list, .remove, .restore, .reload, .secretSet, .icon, .accounts, .accountSet, .routeRemove, .routeDefaultSet,
              .connections, .connectionsOrderSet, .connectionsSpreadSet, .chatgptCancel: .seconds(10)
-        case .routeAdd, .connectionsKeyAdd, .claudeTokenAdd: .seconds(20)
+        case .routeAdd, .claudeTokenAdd: .seconds(20)
+        // Reads the key's Keychain item, then checks the key with its provider (at most 8 s) before the route is
+        // written: a deadline past both, so a slow check is never taken for a refusal (cmux#48428).
+        case .connectionsKeyAdd: .seconds(45)
         // Starts the callback listener; a ChatGPT plan's removal calls the revocation endpoint.
         case .chatgptBegin, .connectionsRemove: .seconds(30)
         // The daemon holds a wait up to 25 s.

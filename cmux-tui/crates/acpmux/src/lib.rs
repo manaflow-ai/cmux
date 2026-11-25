@@ -286,6 +286,7 @@ pub mod protected_folders;
 pub mod protocol;
 pub mod provenance_keys;
 mod provider_cloud_auth;
+pub mod providers;
 pub mod qos;
 pub mod question_answer;
 pub(crate) mod questions;

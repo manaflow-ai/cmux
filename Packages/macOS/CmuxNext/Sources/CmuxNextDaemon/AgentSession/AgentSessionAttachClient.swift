@@ -61,10 +61,18 @@ public actor AgentSessionAttachClient {
     /// The refusal of a Codex start that carries a credential to a daemon without ``startCodexCredentialsCapability``,
     /// before it is sent; `AgentRemoteStartRefusal.olderDaemonCodes` updates the machine and starts again.
     public static let codexCredentialsUnsupported = "app.codex_credentials_update"
-    /// The capability a start of `harness` needs to carry the owner's model credential: a Codex one needs
-    /// ``startCodexCredentialsCapability``, every other one ``startCredentialsCapability``.
+    /// A provider key's credential (`CMUX_PROVIDER_ID` and its endpoints, cmux#48428; cmux-tui `agent_session_start.rs`
+    /// `PROVIDER_CREDENTIAL_NAMES`) and an OpenCode start's credential: an older machine refuses the names or the family.
+    public static let startProviderCredentialsCapability = "agent-session-start-provider-credentials-v1"
+    /// The name that marks a provider key's credential env.
+    public static let providerCredentialID = "CMUX_PROVIDER_ID"
+    /// The capability a start of `harness` needs to carry the owner's model credential: an OpenCode one needs
+    /// ``startProviderCredentialsCapability``, a Codex one ``startCodexCredentialsCapability``, every other one
+    /// ``startCredentialsCapability``. A provider key's credential needs ``startProviderCredentialsCapability`` too,
+    /// which ``start(cwd:harness:homeConfirmed:personKey:ownerLink:model:permissionMode:startMode:credentials:)`` checks.
     public static func credentialsCapability(harness: String?) -> String {
-        harness == "codex" ? startCodexCredentialsCapability : startCredentialsCapability
+        if harness?.lowercased().hasPrefix("opencode") == true { return startProviderCredentialsCapability }
+        return harness == "codex" ? startCodexCredentialsCapability : startCredentialsCapability
     }
     /// A Cloud machine's running link id while its connect answer says the caller owns it, else nil
     /// (`CloudLinkSession.ownerLink`).
@@ -122,6 +130,8 @@ public actor AgentSessionAttachClient {
         var credentials = false
         /// `agent-session-start-codex-credentials-v1`.
         var codexCredentials = false
+        /// `agent-session-start-provider-credentials-v1`.
+        var providerCredentials = false
         /// `agent-session-trust-vm-kind-v1`.
         var trustVMKind = false
         /// `agent-session-children-v1`.
@@ -250,6 +260,10 @@ public actor AgentSessionAttachClient {
             }
             guard credentials == nil || harness != "codex" || served.codexCredentials else {
                 throw AgentSessionAttachError(code: Self.codexCredentialsUnsupported, message: "the machine's cmux would drop the Codex credential")
+            }
+            let needsProvider = credentials.map { $0[Self.providerCredentialID] != nil || harness?.lowercased().hasPrefix("opencode") == true } ?? false
+            guard !needsProvider || served.providerCredentials else {
+                throw AgentSessionAttachError(code: Self.codexCredentialsUnsupported, message: "the machine's cmux would refuse the provider credential")
             }
         }
         let params = Self.startParams(cwd: cwd, harness: harness, homeConfirmed: homeConfirmed, personKey: personKey,
@@ -964,6 +978,7 @@ public actor AgentSessionAttachClient {
                             startMode: identity.supports(DaemonCapability.agentSessionStartMode.rawValue),
                             credentials: identity.supports(Self.startCredentialsCapability),
                             codexCredentials: identity.supports(Self.startCodexCredentialsCapability),
+                            providerCredentials: identity.supports(Self.startProviderCredentialsCapability),
                             trustVMKind: identity.supports(DaemonCapability.agentSessionTrustVMKind.rawValue),
                             children: identity.supports(DaemonCapability.agentSessionChildren.rawValue),
                             fork: identity.supports(DaemonCapability.agentSessionFork.rawValue),

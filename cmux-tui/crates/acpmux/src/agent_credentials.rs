@@ -60,8 +60,13 @@ pub const CHATGPT_ACCOUNT: &str = "CMUX_CHATGPT_ACCOUNT_ID";
 /// The header the ChatGPT Codex backend reads the account from.
 pub const ACCOUNT_HEADER: &str = "chatgpt-account-id";
 
-/// The only names a credential may set.
+/// The only names a Revision 2 credential may set (one of them).
 pub const NAMES: [&str; 4] = [CLAUDE_OAUTH, ANTHROPIC_KEY, OPENAI_KEY, CHATGPT_TOKEN];
+
+/// A provider credential (Revision 3, `crate::providers::wire`): the key, its provider and the
+/// endpoints it goes to, every one checked here again; the agent's own variables are made from
+/// them at the spawn ([`apply`]).
+use crate::providers::wire as provider_wire;
 
 /// Set by [`apply`] on a credentialed agent's env to the name of its variable (a name, never a
 /// value): what lets a daemon that adopts the agent later take that variable back ([`recovered`]),
@@ -70,7 +75,7 @@ pub const MARKER: &str = "ACPMUX_LAUNCH_CREDENTIAL";
 
 /// What a credentialed agent never inherits: the machine's coderouter route, and every other
 /// provider login or endpoint switch that would outrank the credential or send it elsewhere.
-pub const UNSET: [&str; 15] = [
+pub const UNSET: [&str; 24] = [
     "ANTHROPIC_BASE_URL",
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
@@ -86,6 +91,26 @@ pub const UNSET: [&str; 15] = [
     "CMUX_CHATGPT_ACCESS_TOKEN",
     "CMUX_CHATGPT_ACCOUNT_ID",
     "CMUX_CODEX_AUTH",
+    "AWS_BEARER_TOKEN_BEDROCK",
+    "CMUX_PROVIDER_API_KEY",
+    "CMUX_PROVIDER_ID",
+    "CMUX_PROVIDER_ANTHROPIC_URL",
+    "CMUX_PROVIDER_ANTHROPIC_AUTH",
+    "CMUX_PROVIDER_RESPONSES_URL",
+    "CMUX_PROVIDER_REGION",
+    "CMUX_OPENCODE_AUTH",
+    "ANTHROPIC_BEDROCK_BASE_URL",
+];
+
+/// What a Bedrock credential's agent also never inherits: AWS credentials the image may carry
+/// would outrank the Bedrock key (cmux#48428). Every other agent keeps them, so `aws` still works
+/// from its shell.
+pub const UNSET_FOR_BEDROCK: [&str; 5] = [
+    "AWS_PROFILE",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "AWS_REGION",
 ];
 
 /// The Codex provider a ChatGPT plan token runs on: the ChatGPT Codex backend
@@ -99,22 +124,38 @@ pub const OPENAI_BASE: &str = "https://api.openai.com/v1";
 /// The longest value taken (a ChatGPT JWT is a few KiB).
 const MAX_VALUE_BYTES: usize = 16 * 1024;
 
+/// The Codex provider a provider credential's Responses endpoint runs on.
+pub const PROVIDER_CODEX: &str = "cmux_provider";
+
 /// The family a credential serves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Family {
     Claude,
     Codex,
+    OpenCode,
 }
 
 impl Family {
-    /// The family of a harness family name (`claude`, `claude-…`, `codex`, `codex-…`).
+    /// The family of a harness family name (`claude`, `claude-…`, `codex`, `codex-…`,
+    /// `opencode`, `opencode2`).
     pub fn of_harness(family: &str) -> Option<Self> {
         if family.starts_with("claude") {
             Some(Self::Claude)
         } else if family.starts_with("codex") {
             Some(Self::Codex)
+        } else if family.starts_with("opencode") {
+            Some(Self::OpenCode)
         } else {
             None
+        }
+    }
+
+    /// The image launcher's own-or-team switch for this agent (`CMUX_<AGENT>_AUTH`).
+    fn auth_switch(self) -> &'static str {
+        match self {
+            Self::Claude => "CMUX_CLAUDE_AUTH",
+            Self::Codex => "CMUX_CODEX_AUTH",
+            Self::OpenCode => "CMUX_OPENCODE_AUTH",
         }
     }
 }
@@ -149,6 +190,9 @@ impl AgentCredential {
             .get("env")
             .and_then(Value::as_object)
             .ok_or_else(|| refused("`env` must be an object"))?;
+        if env.contains_key(provider_wire::KEY) {
+            return Self::parse_provider(env).map_err(refused);
+        }
         if env.len() != 1 {
             return Err(refused("`env` names exactly one variable"));
         }
@@ -166,12 +210,92 @@ impl AgentCredential {
         Ok(Self { env: out })
     }
 
-    /// The family its variable serves.
-    pub fn family(&self) -> Family {
-        if self.env.contains_key(CLAUDE_OAUTH) || self.env.contains_key(ANTHROPIC_KEY) {
-            Family::Claude
-        } else {
-            Family::Codex
+    /// A provider credential: the names of [`provider_wire::NAMES`] only, the key and a provider
+    /// this machine's catalog knows, token-shaped values, `https://` endpoints and a region and
+    /// auth it can read, and at least one way to an agent.
+    fn parse_provider(env: &serde_json::Map<String, Value>) -> Result<Self, &'static str> {
+        let mut out = BTreeMap::new();
+        for (name, value) in env {
+            if !provider_wire::NAMES.contains(&name.as_str()) {
+                return Err("a variable this launch does not take");
+            }
+            let value = value.as_str().ok_or("a value must be a string")?;
+            if !token_shaped(value) {
+                return Err("a value is not a token");
+            }
+            out.insert(name.clone(), value.to_owned());
+        }
+        let id = out.get(provider_wire::ID).ok_or("a provider credential names its provider")?;
+        if crate::providers::find(id).is_none() {
+            return Err("a provider this machine does not know");
+        }
+        for url in [provider_wire::ANTHROPIC_URL, provider_wire::RESPONSES_URL] {
+            if let Some(v) = out.get(url)
+                && crate::providers::check_base_url(v).as_deref() != Ok(v.as_str())
+            {
+                return Err("an endpoint is not an https URL");
+            }
+        }
+        if let Some(v) = out.get(provider_wire::REGION)
+            && crate::providers::check_region(v).is_err()
+        {
+            return Err("a region is not an AWS region");
+        }
+        let credential = Self { env: out };
+        match credential.anthropic_auth() {
+            Some(Err(())) => return Err("an Anthropic auth this machine does not know"),
+            Some(Ok(crate::providers::AnthropicAuth::Bedrock))
+                if !credential.env.contains_key(provider_wire::REGION) =>
+            {
+                return Err("Bedrock needs its region");
+            }
+            Some(Ok(a))
+                if a != crate::providers::AnthropicAuth::Bedrock
+                    && !credential.env.contains_key(provider_wire::ANTHROPIC_URL) =>
+            {
+                return Err("an Anthropic auth needs its endpoint");
+            }
+            _ => {}
+        }
+        if ![Family::Claude, Family::Codex, Family::OpenCode].iter().any(|f| credential.serves(*f))
+        {
+            return Err("a provider credential that reaches no agent");
+        }
+        Ok(credential)
+    }
+
+    fn provider(&self) -> Option<&str> {
+        self.env.get(provider_wire::ID).map(String::as_str)
+    }
+
+    /// Whether it is an Amazon Bedrock key, whose agent must not inherit AWS credentials.
+    fn is_bedrock(&self) -> bool {
+        self.provider() == Some("bedrock")
+            || matches!(self.anthropic_auth(), Some(Ok(crate::providers::AnthropicAuth::Bedrock)))
+    }
+
+    fn anthropic_auth(&self) -> Option<Result<crate::providers::AnthropicAuth, ()>> {
+        self.env
+            .get(provider_wire::ANTHROPIC_AUTH)
+            .map(|a| crate::providers::AnthropicAuth::parse(a).ok_or(()))
+    }
+
+    /// Whether it serves a `family` agent: a Revision 2 credential its own agent (and OpenCode an
+    /// Anthropic or OpenAI key, which OpenCode reads as they are); a provider credential each agent
+    /// its endpoints reach.
+    pub fn serves(&self, family: Family) -> bool {
+        if let Some(id) = self.provider() {
+            return match family {
+                Family::Claude => matches!(self.anthropic_auth(), Some(Ok(_))),
+                Family::Codex => self.env.contains_key(provider_wire::RESPONSES_URL),
+                Family::OpenCode => crate::providers::opencode_env(id).is_some(),
+            };
+        }
+        let has = |name: &str| self.env.contains_key(name);
+        match family {
+            Family::Claude => has(CLAUDE_OAUTH) || has(ANTHROPIC_KEY),
+            Family::Codex => has(OPENAI_KEY) || has(CHATGPT_TOKEN),
+            Family::OpenCode => has(ANTHROPIC_KEY) || has(OPENAI_KEY),
         }
     }
 
@@ -222,14 +346,18 @@ pub fn apply(
     env: &mut BTreeMap<String, String>,
 ) -> bool {
     let Some(harness) = Family::of_harness(family) else { return false };
-    if harness != credential.family() {
+    if !credential.serves(harness) {
         return false;
     }
     let mut unset: Vec<String> = env
         .get(crate::routes::UNSET_KEY)
         .map(|l| l.split(',').filter(|k| !k.is_empty()).map(str::to_owned).collect())
         .unwrap_or_default();
-    for key in UNSET {
+    // Every variable OpenCode reads a catalog provider's key from goes too: an inherited one
+    // would pick another provider than the delivered key's.
+    let opencode = crate::providers::PROVIDERS.iter().filter_map(|p| p.opencode.map(|o| o.env));
+    let bedrock = if credential.is_bedrock() { &UNSET_FOR_BEDROCK[..] } else { &[] };
+    for key in UNSET.into_iter().chain(opencode).chain(bedrock.iter().copied()) {
         env.remove(key);
         if !unset.iter().any(|u| u == key) {
             unset.push(key.to_owned());
@@ -240,6 +368,15 @@ pub fn apply(
         env.insert(k.clone(), v.clone());
     }
     env.insert(MARKER.to_owned(), credential.names().collect::<Vec<_>>().join(","));
+    if credential.provider().is_some() {
+        apply_provider(credential, harness, argv, env);
+        return true;
+    }
+    if harness == Family::OpenCode {
+        // OpenCode reads an Anthropic or OpenAI key as it is; the launcher keeps its own mode.
+        env.insert(harness.auth_switch().to_owned(), "own".to_owned());
+        return true;
+    }
     if harness == Family::Codex {
         let provider = if credential.is_chatgpt_plan() {
             // The backend acts for the account the token names; a token that names none sends
@@ -267,6 +404,60 @@ pub fn apply(
     true
 }
 
+/// A provider credential's agent variables (Revision 3): Claude Code on its Anthropic endpoint (or
+/// its Bedrock mode), Codex on a custom provider to its Responses endpoint reading
+/// [`provider_wire::KEY`], OpenCode with the key in its provider's own variable (from this
+/// machine's catalog, never a name the wire gave). The image launcher is pinned to the agent's own
+/// sign-in mode, so it never layers the CodeRouter route over it.
+fn apply_provider(
+    credential: &AgentCredential,
+    harness: Family,
+    argv: &mut Vec<String>,
+    env: &mut BTreeMap<String, String>,
+) {
+    let get = |name: &str| credential.env.get(name).cloned().unwrap_or_default();
+    let key = get(provider_wire::KEY);
+    env.insert(harness.auth_switch().to_owned(), "own".to_owned());
+    match harness {
+        Family::Claude => match credential.anthropic_auth() {
+            Some(Ok(crate::providers::AnthropicAuth::Bedrock)) => {
+                env.insert("CLAUDE_CODE_USE_BEDROCK".to_owned(), "1".to_owned());
+                env.insert("AWS_BEARER_TOKEN_BEDROCK".to_owned(), key);
+                env.insert("AWS_REGION".to_owned(), get(provider_wire::REGION));
+            }
+            Some(Ok(auth)) => {
+                env.insert("ANTHROPIC_BASE_URL".to_owned(), get(provider_wire::ANTHROPIC_URL));
+                let var = match auth {
+                    crate::providers::AnthropicAuth::XApiKey => ANTHROPIC_KEY,
+                    _ => "ANTHROPIC_AUTH_TOKEN",
+                };
+                env.insert(var.to_owned(), key);
+            }
+            _ => {}
+        },
+        Family::Codex => {
+            let base = get(provider_wire::RESPONSES_URL);
+            set_codex_provider(
+                argv,
+                &CodexProvider {
+                    name: PROVIDER_CODEX,
+                    base_url: &base,
+                    env_key: provider_wire::KEY,
+                    account: false,
+                },
+            );
+        }
+        Family::OpenCode => {
+            if let Some(oc) = credential.provider().and_then(crate::providers::opencode_env) {
+                env.insert(oc.env.to_owned(), key);
+                if let Some(region) = credential.env.get(provider_wire::REGION) {
+                    env.insert("AWS_REGION".to_owned(), region.clone());
+                }
+            }
+        }
+    }
+}
+
 /// The credential an agent [`apply`] launched on, read back from its process env (`environ`: the
 /// NUL-separated `NAME=value` list of `/proc/PID/environ`): the one variable [`MARKER`] names,
 /// checked as [`AgentCredential::parse`] checks a sent one. None when the agent was not launched on
@@ -281,12 +472,14 @@ pub fn recovered(environ: &[u8]) -> Option<AgentCredential> {
 
 /// [`recovered`] over an agent's env already split into `NAME` to value.
 fn recovered_in(vars: &BTreeMap<&str, &str>) -> Option<AgentCredential> {
-    let name = *vars.get(MARKER)?;
-    if !NAMES.contains(&name) {
-        return None;
+    let mut env = serde_json::Map::new();
+    for name in vars.get(MARKER)?.split(',') {
+        if !NAMES.contains(&name) && !provider_wire::NAMES.contains(&name) {
+            return None;
+        }
+        env.insert(name.to_owned(), Value::String((*vars.get(name)?).to_owned()));
     }
-    let value = *vars.get(name)?;
-    AgentCredential::parse(&serde_json::json!({"env": {name: value}})).ok()
+    AgentCredential::parse(&serde_json::json!({ "env": env })).ok()
 }
 
 /// The launch credential's variables in the env an agent was started with ([`MARKER`] and the
@@ -421,7 +614,8 @@ mod tests {
     #[test]
     fn only_one_known_token_shaped_variable_is_taken() {
         let ok = AgentCredential::parse(&json!({"env": {CLAUDE_OAUTH: "sk-ant-oat01-abc_DEF"}}));
-        assert_eq!(ok.unwrap().family(), Family::Claude);
+        let ok = ok.unwrap();
+        assert!(ok.serves(Family::Claude) && !ok.serves(Family::Codex));
         for bad in [
             json!({"env": {"PATH": "/evil"}}),
             json!({"env": {CLAUDE_OAUTH: "a b"}}),
@@ -643,5 +837,195 @@ mod tests {
         assert!(!apply(&c, "opencode", &mut argv, &mut e));
         assert_eq!(e["OPENAI_BASE_URL"], "https://coderouter.cmux.internal/v1");
         assert!(!e.contains_key(CLAUDE_OAUTH));
+    }
+
+    fn provider(pairs: &[(&str, &str)]) -> Result<AgentCredential, RpcError> {
+        let env: serde_json::Map<String, Value> =
+            pairs.iter().map(|(k, v)| ((*k).to_owned(), json!(v))).collect();
+        AgentCredential::parse(&json!({ "env": env }))
+    }
+
+    const OPENROUTER: &[(&str, &str)] = &[
+        ("CMUX_PROVIDER_API_KEY", "sk-or-v1-abc"),
+        ("CMUX_PROVIDER_ID", "openrouter"),
+        ("CMUX_PROVIDER_ANTHROPIC_URL", "https://openrouter.ai/api"),
+        ("CMUX_PROVIDER_ANTHROPIC_AUTH", "bearer"),
+        ("CMUX_PROVIDER_RESPONSES_URL", "https://openrouter.ai/api/v1"),
+    ];
+
+    /// cmux#48428: a provider key reaches each agent its endpoints serve, in that agent's own
+    /// variables, with the image launcher pinned to its own mode.
+    #[test]
+    fn a_provider_key_runs_claude_codex_and_opencode_on_its_own_endpoints() {
+        let c = provider(OPENROUTER).unwrap();
+        let mut e = env(&[
+            ("ANTHROPIC_BASE_URL", "https://coderouter.cmux.internal"),
+            ("ANTHROPIC_API_KEY", crate::cloud_model_plane::PLACEHOLDER),
+        ]);
+        assert!(apply(&c, "claude", &mut vec!["claude".to_owned()], &mut e));
+        assert_eq!(e["ANTHROPIC_BASE_URL"], "https://openrouter.ai/api");
+        assert_eq!(e["ANTHROPIC_AUTH_TOKEN"], "sk-or-v1-abc");
+        assert!(!e.contains_key("ANTHROPIC_API_KEY"), "a bearer endpoint gets no x-api-key");
+        assert_eq!(e["CMUX_CLAUDE_AUTH"], "own");
+
+        let mut argv: Vec<String> = ["codex", "app-server"].map(str::to_owned).into();
+        let mut e = BTreeMap::new();
+        assert!(apply(&c, "codex", &mut argv, &mut e));
+        let joined = argv.join(" ");
+        assert!(joined.contains("model_provider=\"cmux_provider\""), "{joined}");
+        assert!(
+            joined.contains(
+                "model_providers.cmux_provider.base_url=\"https://openrouter.ai/api/v1\""
+            )
+        );
+        assert!(joined.contains("model_providers.cmux_provider.env_key=\"CMUX_PROVIDER_API_KEY\""));
+        assert!(!joined.contains("sk-or-v1-abc"), "the key is never on the command line");
+        assert_eq!(e["CMUX_CODEX_AUTH"], "own");
+
+        let mut e = BTreeMap::new();
+        assert!(apply(&c, "opencode", &mut vec!["opencode".to_owned()], &mut e));
+        assert_eq!(e["OPENROUTER_API_KEY"], "sk-or-v1-abc");
+        assert_eq!(e["CMUX_OPENCODE_AUTH"], "own");
+
+        // An x-api-key endpoint and Bedrock's own mode.
+        let kimi = provider(&[
+            ("CMUX_PROVIDER_API_KEY", "sk-kimi-1"),
+            ("CMUX_PROVIDER_ID", "kimi-code"),
+            ("CMUX_PROVIDER_ANTHROPIC_URL", "https://api.kimi.com/coding"),
+            ("CMUX_PROVIDER_ANTHROPIC_AUTH", "x-api-key"),
+        ])
+        .unwrap();
+        let mut e = BTreeMap::new();
+        assert!(apply(&kimi, "claude", &mut vec!["claude".to_owned()], &mut e));
+        assert_eq!(e[ANTHROPIC_KEY], "sk-kimi-1");
+        assert!(!apply(&kimi, "codex", &mut vec!["codex".to_owned()], &mut BTreeMap::new()));
+        let bedrock = provider(&[
+            ("CMUX_PROVIDER_API_KEY", "ABSKbedrock"),
+            ("CMUX_PROVIDER_ID", "bedrock"),
+            ("CMUX_PROVIDER_ANTHROPIC_AUTH", "bedrock"),
+            ("CMUX_PROVIDER_REGION", "us-west-2"),
+        ])
+        .unwrap();
+        let mut e = BTreeMap::new();
+        assert!(apply(&bedrock, "claude", &mut vec!["claude".to_owned()], &mut e));
+        assert_eq!(e["CLAUDE_CODE_USE_BEDROCK"], "1");
+        assert_eq!(e["AWS_BEARER_TOKEN_BEDROCK"], "ABSKbedrock");
+        assert_eq!(e["AWS_REGION"], "us-west-2");
+        assert!(!e.contains_key("ANTHROPIC_BASE_URL"));
+    }
+
+    /// cmux#48428 review: only a Bedrock key clears the AWS credentials the agent inherited; an
+    /// OpenRouter key or a Claude token leaves them, so `aws` still works from the agent's shell.
+    #[test]
+    fn only_a_bedrock_key_clears_inherited_aws_credentials() {
+        let aws = [
+            ("AWS_PROFILE", "work"),
+            ("AWS_ACCESS_KEY_ID", "AKIAX"),
+            ("AWS_SECRET_ACCESS_KEY", "s"),
+            ("AWS_SESSION_TOKEN", "t"),
+            ("AWS_REGION", "eu-west-1"),
+        ];
+        let unset_list = |e: &BTreeMap<String, String>| e[crate::routes::UNSET_KEY].clone();
+
+        let openrouter = provider(OPENROUTER).unwrap();
+        let token =
+            AgentCredential::parse(&json!({"env": {CLAUDE_OAUTH: "sk-ant-oat01-abc"}})).unwrap();
+        for (c, family) in [(&openrouter, "opencode"), (&openrouter, "claude"), (&token, "claude")]
+        {
+            let mut e = env(&aws);
+            assert!(apply(c, family, &mut vec![family.to_owned()], &mut e));
+            for (k, v) in aws {
+                assert_eq!(e.get(k).map(String::as_str), Some(v), "{family} keeps {k}");
+                assert!(!unset_list(&e).split(',').any(|u| u == k), "{family} unsets {k}");
+            }
+        }
+
+        let bedrock = provider(&[
+            ("CMUX_PROVIDER_API_KEY", "ABSKbedrock"),
+            ("CMUX_PROVIDER_ID", "bedrock"),
+            ("CMUX_PROVIDER_ANTHROPIC_AUTH", "bedrock"),
+            ("CMUX_PROVIDER_REGION", "us-west-2"),
+        ])
+        .unwrap();
+        let mut e = env(&aws);
+        assert!(apply(&bedrock, "claude", &mut vec!["claude".to_owned()], &mut e));
+        for k in ["AWS_PROFILE", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"]
+        {
+            assert!(!e.contains_key(k), "Bedrock drops {k}");
+            assert!(unset_list(&e).split(',').any(|u| u == k), "Bedrock unsets {k}");
+        }
+        assert_eq!(e["AWS_REGION"], "us-west-2", "the key's own region replaces the inherited one");
+    }
+
+    #[test]
+    fn a_provider_credential_takes_only_checked_names_endpoints_and_providers() {
+        let with = |name: &str, value: &str| {
+            let mut pairs: Vec<(&str, &str)> =
+                OPENROUTER.iter().copied().filter(|(k, _)| *k != name).collect();
+            pairs.push((name, value));
+            provider(&pairs)
+        };
+        for (name, value) in [
+            ("CMUX_PROVIDER_ID", "made-up"),
+            ("CMUX_PROVIDER_ANTHROPIC_URL", "http://openrouter.ai/api"),
+            ("CMUX_PROVIDER_RESPONSES_URL", "https://x.example/v1?k=1"),
+            ("CMUX_PROVIDER_ANTHROPIC_AUTH", "basic"),
+            ("CMUX_PROVIDER_REGION", "nowhere"),
+            ("LD_PRELOAD", "/tmp/x.so"),
+            ("CMUX_PROVIDER_API_KEY", "a b"),
+        ] {
+            assert!(with(name, value).is_err(), "{name}={value}");
+        }
+        // Bedrock without its region, an auth without its endpoint, nothing an agent can use.
+        assert!(
+            provider(&[
+                ("CMUX_PROVIDER_API_KEY", "k"),
+                ("CMUX_PROVIDER_ID", "bedrock"),
+                ("CMUX_PROVIDER_ANTHROPIC_AUTH", "bedrock")
+            ])
+            .is_err()
+        );
+        assert!(
+            provider(&[
+                ("CMUX_PROVIDER_API_KEY", "k"),
+                ("CMUX_PROVIDER_ID", "glm"),
+                ("CMUX_PROVIDER_ANTHROPIC_AUTH", "bearer")
+            ])
+            .is_err()
+        );
+        assert!(
+            provider(&[("CMUX_PROVIDER_API_KEY", "k"), ("CMUX_PROVIDER_ID", "custom")]).is_err()
+        );
+        // A provider OpenCode reads from its own variable serves OpenCode alone.
+        let google =
+            provider(&[("CMUX_PROVIDER_API_KEY", "AIza1"), ("CMUX_PROVIDER_ID", "google")])
+                .unwrap();
+        assert!(google.serves(Family::OpenCode));
+        assert!(!google.serves(Family::Claude) && !google.serves(Family::Codex));
+    }
+
+    #[test]
+    fn a_provider_credential_comes_back_whole_from_the_agents_env() {
+        let c = provider(OPENROUTER).unwrap();
+        let (mut argv, mut e) = (vec!["claude".to_owned()], env(&[("HOME", "/home/cmux")]));
+        assert!(apply(&c, "claude", &mut argv, &mut e));
+        let pairs: Vec<(&str, &str)> = e.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        assert_eq!(recovered(&environ(&pairs)), Some(c));
+        // A marker naming a variable outside both sets brings back nothing.
+        let bad = environ(&[
+            (MARKER, "CMUX_PROVIDER_API_KEY,PATH"),
+            ("CMUX_PROVIDER_API_KEY", "k"),
+            ("PATH", "/x"),
+        ]);
+        assert_eq!(recovered(&bad), None);
+    }
+
+    #[test]
+    fn opencode_runs_on_an_anthropic_or_openai_key_as_it_is() {
+        let c = AgentCredential::parse(&json!({"env": {OPENAI_KEY: "sk-proj-abc"}})).unwrap();
+        let mut e = BTreeMap::new();
+        assert!(apply(&c, "opencode", &mut vec!["opencode".to_owned()], &mut e));
+        assert_eq!(e[OPENAI_KEY], "sk-proj-abc");
+        assert_eq!(e["CMUX_OPENCODE_AUTH"], "own");
     }
 }

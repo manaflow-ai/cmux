@@ -986,7 +986,7 @@ export class SettingsStore {
   async runModels(run: ModelsRun): Promise<string | null> {
     const reply = await this.request("cmux.settings.models.run", run);
     await this.refreshModels();
-    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
+    return reply.ok ? null : userMessage(reply.error, { ...SETTINGS_SENTENCES, ...modelsKeySentences() });
   }
 
   /** One Harnesses gesture (Settings > Agents), then a fresh read of the part. */
@@ -1670,4 +1670,16 @@ export function valueOf(state: SettingsState, key: string): unknown {
 /** How soon the Models state is read again: only while this Mac's connections could not be listed. */
 export function modelsRetryMs(state: ModelsState | undefined): number | false {
   return state && !state.personal.available ? 2000 : false;
+}
+
+/** What a refused Settings > Models key add says: acpmux's check of the key and its fields
+ * (cmux-tui/docs/model-connections.md "Revision 3"), by the code the host relays. */
+export function modelsKeySentences(): Record<string, string> {
+  return {
+    "cmux.models.connections.key_rejected": t("settingsWindow.models.key.rejected"),
+    "cmux.models.connections.unreachable": t("settingsWindow.models.key.unreachable"),
+    "cmux.models.connections.bad_base_url": t("settingsWindow.models.key.badEndpoint"),
+    "cmux.models.connections.bad_protocol": t("settingsWindow.models.key.badEndpoint"),
+    "cmux.models.connections.bad_region": t("settingsWindow.models.key.badRegion"),
+  };
 }

@@ -60,10 +60,17 @@ public final class CloudSetup {
         public func choice(family: String, model: String?, account: String?) -> Choice {
             if let personal {
                 let serving = personal.filter { $0.enabled && $0.signedIn && $0.servesCloud && $0.families.contains(family) }
-                if let pick = serving.first(where: { $0.id == account }) ?? serving.first { return .connection(id: pick.id, family: family) }
+                // OpenCode runs on a key only when the picker names that connection: a key added for Claude or
+                // Codex never takes over an OpenCode chat's own route (cmux#48428).
+                let fallsToOrder = CloudSetup.setupFamilies.contains(family)
+                if let pick = serving.first(where: { $0.id == account }) ?? (fallsToOrder ? serving.first : nil) {
+                    return .connection(id: pick.id, family: family)
+                }
             }
             if organization?.contains(family) == true { return .organization(family: family) }
-            return personal == nil ? .fallback : .setup(family: family, model: model)
+            // An OpenCode chat runs on a provider key when one serves it (cmux#48428), else on the machine's own path
+            // as before: nothing holds it back.
+            return personal == nil || !CloudSetup.setupFamilies.contains(family) ? .fallback : .setup(family: family, model: model)
         }
 
         /// Whether a connection serves `family`; nil when this Mac's connections were not read.
@@ -99,8 +106,11 @@ public final class CloudSetup {
         }
     }
 
-    /// The families a Cloud chat runs (the picker's agent, as the gateway names them).
-    public nonisolated static let families = ["claude", "codex"]
+    /// The families a Cloud chat runs on a connection (the picker's agent, as the gateway names them). OpenCode runs
+    /// on a provider key's connection (cmux#48428).
+    public nonisolated static let families = ["claude", "codex", "opencode"]
+    /// The families a start with nothing to serve it holds back with Set up Cloud; an OpenCode one starts as before.
+    public nonisolated static let setupFamilies: Set<String> = ["claude", "codex"]
 
     /// The family of the picker's agent (`claude`, `codex`, or a harness profile named after one);
     /// nil for an agent Cloud's gateway does not serve, which the rule never holds back.

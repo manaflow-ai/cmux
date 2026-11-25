@@ -7,7 +7,10 @@
 // Add a Connection (the "+", or `#/settings/models?focus=models.add`, which cmux://settings/models/add
 // opens) is a sheet with a search field: Subscriptions (ChatGPT through Continue with ChatGPT; Claude
 // Code through `claude setup-token` in a cmux terminal tab and a paste field for the token it prints)
-// and API keys (a password field and an optional label). A pasted key or token lives only in the open
+// and API keys (a password field and an optional label), drawn from acpmux's provider catalog
+// (`models.providers`, cmux#48428): coding plans under Subscriptions, API keys, and named endpoints (a
+// base URL and the protocol it speaks) under Custom endpoint; acpmux checks each key with its provider
+// before it keeps it. A provider that signs in only through its own app says so and takes no key. A pasted key or token lives only in the open
 // form until it is sent, then is cleared; the app moves it into the Keychain and the page never sees it
 // again. A Mac login Cloud threads cannot use (servesCloud false) says This Mac only (Revision 2), with
 // Set Up for Cloud, which opens Settings > Cloud on the row that sets one up (CloudModelsCard.tsx).
@@ -27,8 +30,16 @@ import { Select } from "../editors/Select";
 import { Switch } from "../editors/ToggleEditor";
 import { planName } from "../harnesses";
 import { Icon } from "../icons";
-import { SETTINGS_SENTENCES, type ModelConnection, type ModelProvider, type ModelsRun, type ModelsState } from "../ops";
+import {
+  SETTINGS_SENTENCES,
+  type ModelConnection,
+  type ModelProvider,
+  type ModelProviderInfo,
+  type ModelsRun,
+  type ModelsState,
+} from "../ops";
 import { sectionHref } from "../router";
+import { modelsKeySentences } from "../store";
 import { t } from "../strings";
 import { userMessage } from "../../shared/userMessage";
 import { DeviceSignInCard } from "../../shared/signIn/DeviceSignInCard";
@@ -40,8 +51,9 @@ export const MODELS_ADD_FOCUS = "models.add";
 /** Where a ChatGPT plan's usage is managed (the plan's own page). */
 export const CHATGPT_USAGE_URL = "https://chatgpt.com/settings/usage";
 
-/** Product names, shown as they are in every language. */
-export const PROVIDERS: Record<ModelProvider, string> = {
+/** Product names, shown as they are in every language: the five key providers an acpmux before its
+ * provider catalog takes, and the label of any other provider acpmux lists. */
+export const PROVIDERS: Record<string, string> = {
   anthropic: "Anthropic",
   openai: "OpenAI",
   openrouter: "OpenRouter",
@@ -51,13 +63,47 @@ export const PROVIDERS: Record<ModelProvider, string> = {
 const KEY_PROVIDERS: ModelProvider[] = ["anthropic", "openai", "openrouter", "google", "xai"];
 const AGENT_NAMES: Record<"claude" | "codex", string> = { claude: "Claude", codex: "Codex" };
 
+/** A provider's product name: acpmux's catalog label, else the page's own, else its id. */
+export function providerName(provider: ModelProvider, catalog: readonly ModelProviderInfo[] = []): string {
+  return catalog.find((info) => info.id === provider)?.label ?? PROVIDERS[provider] ?? provider;
+}
+
+/** The providers Add a Connection lists: acpmux's catalog, or the five key providers of an older acpmux. */
+export function providerCatalog(models: Pick<ModelsState, "providers">): ModelProviderInfo[] {
+  if (models.providers?.length) return models.providers;
+  return KEY_PROVIDERS.map((id) => ({
+    id,
+    label: PROVIDERS[id] ?? id,
+    group: "api-key",
+    console: null,
+    fields: [],
+    families: [],
+    protocols: [],
+    checked: false,
+    servesCloud: id === "anthropic" || id === "openai",
+    unavailable: null,
+  }));
+}
+
+/** The brand mark each provider shows (agentBrands.generated.ts names); any other draws its monogram. */
+const PROVIDER_MARKS: Record<string, string> = {
+  anthropic: "anthropic",
+  openai: "openai",
+  openrouter: "openrouter",
+  google: "gemini",
+  xai: "grok",
+  supergrok: "grok",
+  "github-copilot": "copilot",
+  "ollama-cloud": "ollama",
+  "kimi-code": "kimi",
+  meta: "meta",
+};
+
 /** The brand mark a connection shows (agentBrands.generated.ts names). */
 function markOf(connection: Pick<ModelConnection, "kind" | "provider">): string {
   if (connection.kind === "claude-login" || connection.kind === "claude-token") return "claude";
   if (connection.kind === "codex-login" || connection.kind === "chatgpt-plan") return "openai";
-  return (
-    { anthropic: "anthropic", openai: "openai", openrouter: "openrouter", google: "gemini", xai: "grok" } as const
-  )[connection.provider];
+  return PROVIDER_MARKS[connection.provider] ?? connection.provider;
 }
 
 /** "Authenticated as alex@example.com · ChatGPT Pro", "API key", or "Not signed in". */
@@ -106,7 +152,7 @@ export function useModelsRun(): { busy: boolean; error: string | null; run: Run 
           return refusal === null;
         },
         (failure: unknown) => {
-          setError(userMessage(failure, SETTINGS_SENTENCES));
+          setError(userMessage(failure, { ...SETTINGS_SENTENCES, ...modelsKeySentences() }));
           return false;
         },
       )
@@ -145,7 +191,9 @@ export function ModelsCard({ focus }: { focus: string | null }) {
       <PersonalSection models={models} busy={busy} run={run} onAdd={() => setAdding(true)} />
       <OrganizationSection models={models} busy={busy} run={run} />
       {models.members && <MembersSection members={models.members} busy={busy} run={run} />}
-      {adding && <AddConnectionSheet models={models} busy={busy} run={run} onClose={() => setAdding(false)} />}
+      {adding && (
+        <AddConnectionSheet models={models} busy={busy} error={error} run={run} onClose={() => setAdding(false)} />
+      )}
     </div>
   );
 }
@@ -794,41 +842,71 @@ export type SheetStart = "chatgpt" | "claude" | ModelProvider | null;
 type Choice =
   | { kind: "chatgpt"; title: string; detail: string }
   | { kind: "claude"; title: string; detail: string }
-  | { kind: "key"; provider: ModelProvider; title: string; detail: string };
+  | { kind: "key"; provider: ModelProvider; info: ModelProviderInfo; title: string; detail: string };
 
 const SUBSCRIPTIONS: Choice[] = [
   { kind: "chatgpt", title: "ChatGPT", detail: "chatgpt.com" },
   { kind: "claude", title: "Claude Code", detail: "claude.ai" },
 ];
 
-const keyChoice = (provider: ModelProvider): Choice => ({
+/** The host a console URL names (`openrouter.ai`), shown under the provider. */
+function hostOf(url: string | null): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).host;
+  } catch {
+    return null;
+  }
+}
+
+const keyChoice = (info: ModelProviderInfo): Choice => ({
   kind: "key",
-  provider,
-  title: PROVIDERS[provider],
-  detail: t("settingsWindow.models.sheet.apiKey"),
+  provider: info.id,
+  info,
+  title: info.label,
+  detail: info.unavailable
+    ? t("settingsWindow.models.sheet.signInOnly")
+    : info.group === "subscription"
+      ? t("settingsWindow.models.sheet.planKey")
+      : (hostOf(info.console) ?? t("settingsWindow.models.sheet.apiKey")),
 });
 
-function startChoice(start: SheetStart): Choice | null {
+function startChoice(start: SheetStart, catalog: readonly ModelProviderInfo[]): Choice | null {
   if (start === null) return null;
-  return SUBSCRIPTIONS.find((choice) => choice.kind === start) ?? keyChoice(start as ModelProvider);
+  const subscription = SUBSCRIPTIONS.find((choice) => choice.kind === start);
+  if (subscription) return subscription;
+  const info = catalog.find((entry) => entry.id === start);
+  return info ? keyChoice(info) : null;
 }
 
 export function AddConnectionSheet({
   models,
   busy,
+  error: refusal = null,
   run,
   onClose,
   start = null,
 }: {
   models: ModelsState;
   busy: boolean;
+  /** The last refusal's sentence (a key the provider refused), shown in the sheet over its form. */
+  error?: string | null;
   run: Run;
   onClose(): void;
   start?: SheetStart;
 }) {
+  const catalog = providerCatalog(models);
   const [query, setQuery] = useState("");
-  const [picked, setPicked] = useState<Choice | null>(() => startChoice(start));
-  const keys: Choice[] = KEY_PROVIDERS.map(keyChoice);
+  const [picked, setPicked] = useState<Choice | null>(() => startChoice(start, catalog));
+  // The choice the last gesture went out for: its refusal shows only while that choice is open, so
+  // going back and picking another provider starts clean.
+  const [ranFor, setRanFor] = useState<Choice | null>(null);
+  const sheetRun: Run = (gesture) => {
+    setRanFor(picked);
+    return run(gesture);
+  };
+  const shownRefusal = picked && (ranFor === picked || ranFor === null) ? refusal : null;
+  const inGroup = (group: ModelProviderInfo["group"]) => catalog.filter((info) => info.group === group).map(keyChoice);
   const needle = query.trim().toLocaleLowerCase();
   const matches = (choice: Choice) =>
     !needle || `${choice.title} ${choice.detail}`.toLocaleLowerCase().includes(needle);
@@ -836,9 +914,10 @@ export function AddConnectionSheet({
     {
       id: "subscriptions",
       title: t("settingsWindow.models.sheet.subscriptions"),
-      choices: SUBSCRIPTIONS.filter(matches),
+      choices: [...SUBSCRIPTIONS, ...inGroup("subscription")].filter(matches),
     },
-    { id: "keys", title: t("settingsWindow.models.sheet.apiKeys"), choices: keys.filter(matches) },
+    { id: "keys", title: t("settingsWindow.models.sheet.apiKeys"), choices: inGroup("api-key").filter(matches) },
+    { id: "custom", title: t("settingsWindow.models.sheet.custom"), choices: inGroup("custom").filter(matches) },
   ].filter((group) => group.choices.length > 0);
   // A ChatGPT sign-in that finishes with a new connection closes the sheet; Cancel or a failure keeps it.
   const { attempt, error } = models.chatgpt;
@@ -872,6 +951,11 @@ export function AddConnectionSheet({
           )}
           <h2>{picked ? picked.title : title}</h2>
         </header>
+        {shownRefusal && (
+          <p className="row-error" role="alert" data-models-sheet-error="">
+            {shownRefusal}
+          </p>
+        )}
         {!picked && (
           <>
             <Input
@@ -924,7 +1008,7 @@ export function AddConnectionSheet({
           <div className="accounts-form" data-models-way="chatgpt">
             <p className="row-help">{t("settingsWindow.models.chatgpt.help")}</p>
             {attempt || error ? (
-              <ChatGPTStatus chatgpt={models.chatgpt} busy={busy} run={run} />
+              <ChatGPTStatus chatgpt={models.chatgpt} busy={busy} run={sheetRun} />
             ) : (
               <div className="accounts-buttons">
                 <Button
@@ -941,35 +1025,54 @@ export function AddConnectionSheet({
             )}
           </div>
         )}
-        {picked?.kind === "claude" && <ClaudeTokenForm busy={busy} run={run} onDone={onClose} />}
-        {picked?.kind === "key" && <KeyForm provider={picked.provider} busy={busy} run={run} onDone={onClose} />}
+        {picked?.kind === "claude" && <ClaudeTokenForm busy={busy} run={sheetRun} onDone={onClose} />}
+        {picked?.kind === "key" &&
+          (picked.info.unavailable ? (
+            <p className="row-help" data-models-way="unavailable" data-models-key-form={picked.provider}>
+              {t("settingsWindow.models.key.signInOnly", picked.info.label)}
+            </p>
+          ) : (
+            <KeyForm info={picked.info} busy={busy} run={sheetRun} onDone={onClose} />
+          ))}
       </div>
     </Dialog>
   );
 }
 
-function KeyForm({
-  provider,
-  busy,
-  run,
-  onDone,
-}: {
-  provider: ModelProvider;
-  busy: boolean;
-  run: Run;
-  onDone(): void;
-}) {
+/** The protocols a named endpoint speaks, in plain words (technical names, shown as they are). */
+const PROTOCOL_NAMES: Record<string, string> = {
+  anthropic: "Anthropic Messages (x-api-key)",
+  "anthropic-bearer": "Anthropic Messages (Bearer)",
+  responses: "OpenAI Responses",
+};
+
+function KeyForm({ info, busy, run, onDone }: { info: ModelProviderInfo; busy: boolean; run: Run; onDone(): void }) {
+  const provider = info.id;
+  const name = info.label;
   const keyId = useId();
   const labelId = useId();
+  const baseUrlId = useId();
+  const protocolId = useId();
+  const regionId = useId();
+  const needsBaseUrl = info.fields.includes("base-url");
+  const needsRegion = info.fields.includes("region");
   const [key, setKey] = useState("");
   const [label, setLabel] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [protocol, setProtocol] = useState(info.protocols[0] ?? "");
+  const [region, setRegion] = useState("");
+  const fieldsReady = (!needsBaseUrl || (baseUrl.trim() && protocol)) && (!needsRegion || region.trim());
   const send = () => {
     const value = key.trim();
-    if (!value || busy) return;
+    if (!value || busy || !fieldsReady) return;
     const named = label.trim();
-    const gesture: ModelsRun = named
-      ? { action: "addKey", provider, key: value, label: named }
-      : { action: "addKey", provider, key: value };
+    const gesture: ModelsRun = { action: "addKey", provider, key: value };
+    if (named) gesture.label = named;
+    if (needsBaseUrl) {
+      gesture.baseUrl = baseUrl.trim();
+      gesture.protocol = protocol;
+    }
+    if (needsRegion) gesture.region = region.trim();
     // The key leaves the page's state before it is sent; a refusal asks for it again.
     setKey("");
     void run(gesture).then((ok) => ok && onDone());
@@ -984,7 +1087,59 @@ function KeyForm({
         send();
       }}
     >
-      <p className="row-help">{t("settingsWindow.models.key.help", PROVIDERS[provider])}</p>
+      <p className="row-help">{t("settingsWindow.models.key.help", name)}</p>
+      {info.checked && info.group !== "custom" && (
+        <p className="row-help">{t("settingsWindow.models.key.checked", name)}</p>
+      )}
+      {needsBaseUrl && (
+        <>
+          <label className="row-help" id={baseUrlId}>
+            {t("settingsWindow.models.key.baseUrl")}
+          </label>
+          <Input
+            className="field"
+            type="url"
+            aria-labelledby={baseUrlId}
+            data-models-field="base-url"
+            autoComplete="off"
+            spellCheck={false}
+            maxLength={2048}
+            placeholder="https://"
+            value={baseUrl}
+            disabled={busy}
+            onChange={(event) => setBaseUrl(event.target.value)}
+          />
+          <label className="row-help" id={protocolId}>
+            {t("settingsWindow.models.key.protocol")}
+          </label>
+          <Select value={protocol} disabled={busy} labelId={protocolId} onChange={setProtocol}>
+            {info.protocols.map((value) => (
+              <option key={value} value={value}>
+                {PROTOCOL_NAMES[value] ?? value}
+              </option>
+            ))}
+          </Select>
+        </>
+      )}
+      {needsRegion && (
+        <>
+          <label className="row-help" id={regionId}>
+            {t("settingsWindow.models.key.region")}
+          </label>
+          <Input
+            className="field"
+            aria-labelledby={regionId}
+            data-models-field="region"
+            autoComplete="off"
+            spellCheck={false}
+            maxLength={32}
+            placeholder="us-east-1"
+            value={region}
+            disabled={busy}
+            onChange={(event) => setRegion(event.target.value)}
+          />
+        </>
+      )}
       <label className="row-help" id={keyId}>
         {t("settingsWindow.models.key.field")}
       </label>
@@ -1007,13 +1162,18 @@ function KeyForm({
         aria-labelledby={labelId}
         autoComplete="off"
         maxLength={128}
-        placeholder={PROVIDERS[provider]}
+        placeholder={name}
         value={label}
         disabled={busy}
         onChange={(event) => setLabel(event.target.value)}
       />
       <div className="accounts-buttons">
-        <Button type="submit" className="button" data-models-action="addKey" disabled={busy || !key.trim()}>
+        <Button
+          type="submit"
+          className="button"
+          data-models-action="addKey"
+          disabled={busy || !key.trim() || !fieldsReady}
+        >
           {t("settingsWindow.models.key.add")}
         </Button>
         <Button
