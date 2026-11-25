@@ -142,10 +142,6 @@ impl Mux {
             }
             ResourceCreationPreparation::Execute { intent, .. } => intent,
         };
-        anyhow::ensure!(
-            state.workspaces.len() < WORKSPACE_REGISTRY_LIMIT,
-            "workspace limit reached ({WORKSPACE_REGISTRY_LIMIT})"
-        );
         let workspace_slot = self.next_id();
         let public_id = WorkspacePublicId::parse(
             intent["workspace_public_id"]

@@ -53,8 +53,16 @@ export type Diagnostic = { path: string | string[]; message: string; kind?: stri
  */
 export type RowNoteData = { path: string; kind: string; file?: string };
 
-/** `recent_fonts`: font families written lately to any font setting, newest first (RecentFonts.swift). */
-export type Domains = { themes: string[]; font_families: string[]; sounds: string[]; recent_fonts: string[] };
+/** `recent_fonts`: font families written lately to any font setting, newest first (RecentFonts.swift).
+ * `ui_font_families`: every installed family, proportional ones too, for the App Font row
+ * (`domain:ui_font_family`); `font_families` holds the fixed-pitch ones. */
+export type Domains = {
+  themes: string[];
+  font_families: string[];
+  ui_font_families: string[];
+  sounds: string[];
+  recent_fonts: string[];
+};
 
 /** Published value domains; `null` for a domain the app never published. */
 export type PublishedDomains = { [K in keyof Domains]: string[] | null };
@@ -1086,6 +1094,15 @@ export type TailnetState = {
   error?: string;
 };
 
+/** Result of adding or removing one Cloud machine from the person's tailnet. The auth key is never returned. */
+export type TailnetVMReply = {
+  ok: boolean;
+  vm?: string;
+  node?: { dnsName?: string; ips?: string[]; tags?: string[]; online?: boolean };
+  errorCode?: "missing_vm" | "missing_key" | "cli_unavailable";
+  error?: string;
+};
+
 /** One entry of the customize library (`cmux --json customize library`; cmux-customize
  * `library.rs` `Listed`): something the person applied, kept as a layer they turn on and off. */
 export type LibraryEntry = {
@@ -1212,6 +1229,34 @@ export type LibraryAnswer = {
   message?: string;
 };
 
+/** A connection the page reports to the checklist (`cmux customize checklist --has NAME`): the
+ * steps Rust cannot read from a file. */
+export type ChecklistFact = "models" | "mcp" | "github" | "phone";
+
+/** One step of the Customize cmux checklist (cmux-customize `checklist.rs` `StepState`). `route`
+ * is a Settings route (`/settings/CATEGORY?focus=card.ID`) where the step is done. */
+export type ChecklistStep = {
+  id: string;
+  title: { key: string; text: string };
+  detail: { key: string; text: string };
+  route: string;
+  done: boolean;
+  /** `setting`: a setting, binding or library entry says so; `connected`: a fact the page reported;
+   * `checked`: checked off by hand. Null while not done. */
+  done_by: "setting" | "connected" | "checked" | null;
+};
+
+/** The Customize cmux checklist and the person's progress (`cmux --json customize checklist`). */
+export type Checklist = {
+  /** `customize.checklist.enabled`; false once dismissed. */
+  enabled: boolean;
+  done: number;
+  total: number;
+  /** The first step not done; null when every one is. */
+  next: string | null;
+  steps: ChecklistStep[];
+};
+
 /** A customization being tried on (`cmux customize try`; cmux-customize `try_on.rs`): applied now,
  * back to generation `revert_to` by itself at `expires_ms` unless the person keeps it. */
 export type CustomizeTryOn = {
@@ -1261,6 +1306,29 @@ export type SharesState = {
   /** A chat's tab title by its surface number; a chat with no open tab has none. */
   titles?: Record<string, string>;
 };
+
+/** Settings > Sidebar > Archived Workspaces (`cmux.settings.archived.list`, cmux#51635): every
+ * archived workspace and archived link, tab or app row, in sidebar order. The sidebar draws none of
+ * them; this card opens, restores or deletes them, like ChatGPT's Settings > Data controls > Archived
+ * chats. */
+export type ArchivedEntryWire = {
+  /** `workspace`, or `item` for a link, tab or app row of the sidebar. */
+  kind: "workspace" | "item";
+  /** The workspace id, or the sidebar item's id. */
+  id: string;
+  title: string;
+  /** The group it sits in; null when loose. */
+  group: string | null;
+  /** The computer it is on; null for an item. */
+  machine: string | null;
+};
+export type ArchivedState = {
+  /** False before a window's sidebar is up: the card says so instead of listing. */
+  available: boolean;
+  rows?: ArchivedEntryWire[];
+};
+export type ArchivedAction = "open" | "restore" | "delete";
+export type ArchivedRun = { action: ArchivedAction; kind: ArchivedEntryWire["kind"]; id: string };
 
 /** Settings > Keys (`cmux.settings.keys.list`): what `cmux keys ls --json` lists (cmux-tui
  * cli/key_broker.rs) and the key requests agents sent with `cmux keys request` that wait for the
@@ -1688,6 +1756,134 @@ export type HubRun =
   | { action: "approve"; id: string; remember?: boolean }
   | { action: "pause"; paused: boolean }
   | ({ action: "addRule" } & HubRuleFields);
+
+/** A label for one choice the automation form offers (the CLI's catalog). */
+export type AutocloudChoice = { value: string; label: string };
+
+/** A condition over the event JSON: `path` is dot-separated (`workflow_run.pull_requests.0.number`). */
+export type AutocloudCondition = { path: string; op: string; value?: string | string[] };
+
+/** What an automation is (cmux-tui cli/autocloud.rs `check_spec`): the form edits it, the CLI checks it.
+ * The trigger union stays open: types the platform adds later pass through as written. */
+export type AutocloudSpec = {
+  name: string;
+  trigger:
+    | { type: "github"; events: string[]; repository: string }
+    | { type: "webhook" }
+    | { type: "schedule"; cron: string; timeZone?: string }
+    | ({ type: string } & Record<string, unknown>);
+  conditions: AutocloudCondition[];
+  action: {
+    type?: "start_agent";
+    repo: string;
+    ref: string;
+    harness: string;
+    model?: string;
+    prompt: string;
+    postBack?: "comment" | "none";
+    openPr?: boolean;
+  };
+  guardrails: { cooldownSeconds?: number; maxRunsPerDay?: number; maxConcurrent?: number; maxMinutesPerRun?: number };
+};
+
+/** One run (`run_view`): every label is the CLI's. */
+export type AutocloudRun = {
+  id: string | null;
+  status: string;
+  statusLabel: string;
+  tone: "good" | "warn" | "bad" | "plain";
+  eventText: string;
+  whenText: string | null;
+  minutesText: string | null;
+  machine?: string | null;
+  links: Array<{ label: string; url: string }>;
+  matchedText?: string | null;
+  errorText?: string | null;
+};
+
+/** One automation (`automation_view`); `spec` is what the edit form starts from. */
+export type AutocloudAutomation = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  revision: number;
+  triggerType: string | null;
+  triggerText: string;
+  conditionsText: string | null;
+  actionText: string;
+  lastRun: AutocloudRun | null;
+  lastRunText: string;
+  webhookUrl: string | null;
+  spec: AutocloudSpec;
+};
+
+/** A template the gallery offers: a whole spec to start from. */
+export type AutocloudTemplate = { id: string; title: string; summary: string; spec: AutocloudSpec };
+
+export type AutocloudCatalog = {
+  triggerTypes: AutocloudChoice[];
+  githubEvents: AutocloudChoice[];
+  ops: AutocloudChoice[];
+  harnesses: AutocloudChoice[];
+  samples: AutocloudChoice[];
+};
+
+/** `cmux autocloud overview --json`, or the CLI's refusal. `available: false` is a deployment with
+ * no automations yet (calm, not a failure). */
+export type AutocloudOverview =
+  | {
+      ok: true;
+      available: boolean;
+      message?: string;
+      platform?: string;
+      team?: string;
+      automations: AutocloudAutomation[];
+      templates: AutocloudTemplate[];
+      catalog: AutocloudCatalog;
+    }
+  | { ok: false; error: { code: string; message: string } };
+
+/** Settings > Automations (`SettingsAutomationsCloud.state`). */
+export type AutocloudState = {
+  loading: boolean;
+  problem: "unavailable" | "failed" | null;
+  overview: AutocloudOverview | null;
+  /** The last edit's refusal, in the platform's or the CLI's words. */
+  error: { action: string; code: string; message: string } | null;
+};
+
+/** `cmux autocloud preview`: the rendered ref and prompt and each condition against the sample. */
+export type AutocloudPreview = {
+  ok: true;
+  sample: string;
+  ref: string;
+  prompt: string;
+  missing: string[];
+  missingText: string | null;
+  conditions: Array<{ text: string; holds: boolean; actualText: string }>;
+  matches: boolean;
+  matchText: string;
+};
+
+/** One Automations action; create, update, toggle and remove run only on a click. */
+export type AutocloudAction =
+  | { action: "refresh" }
+  | { action: "preview"; spec: AutocloudSpec; sample?: string }
+  | { action: "runs" | "remove"; id: string }
+  | { action: "create"; spec: AutocloudSpec }
+  | { action: "update"; id: string; spec: AutocloudSpec }
+  | { action: "toggle"; id: string; enabled: boolean };
+
+/** The CLI's answer to one action: a preview, a run log, the automation it saved (with a new
+ * webhook's secret, once), or its refusal. */
+export type AutocloudAnswer = {
+  ok: boolean;
+  error?: { code: string; message: string };
+  runs?: AutocloudRun[];
+  automation?: AutocloudAutomation;
+  secret?: string;
+  secretText?: string;
+} & Partial<Omit<AutocloudPreview, "ok">>;
 
 /** One catalog server in Settings > Integrations > Connections, as `cmux mcp-servers catalog --json` shapes it
  * (cmux-tui cli/mcp_servers.rs `entry_view`): every label is the CLI's. Never a key. */
@@ -2168,6 +2364,26 @@ export type SettingsOps = {
   "cmux.settings.tailnet.login": [Record<string, never>, TailnetState | null];
   /** Native, the person's click: signs the node out and closes its listeners. */
   "cmux.settings.tailnet.logout": [Record<string, never>, TailnetState | null];
+  /** Native: joins one Cloud machine using a key supplied only for this gesture via stdin. */
+  "cmux.settings.tailnet.joinVM": [
+    {
+      vm: string;
+      key: string;
+      oauth?: boolean;
+      loginServer?: string;
+      hostname?: string;
+      tags?: string[];
+      ssh?: boolean;
+      ephemeral?: boolean;
+      servePorts?: string[];
+      /** The person ticked "Allow plain HTTP" for an http:// login server (`--allow-http`). */
+      allowHttp?: boolean;
+      switch?: boolean;
+    },
+    TailnetVMReply,
+  ];
+  /** Native: removes one Cloud machine from the person's tailnet. */
+  "cmux.settings.tailnet.leaveVM": [{ vm: string }, TailnetVMReply];
   /** Native: one `cmux customize` verb through the bundled CLI, for the try-on bar. */
   "cmux.settings.customize.run": [{ verb: "status" | "keep" | "revert" }, CustomizeAnswer];
   /** Settings > Team > Compute: the team's Cloud allotment, who uses what, and the scheduler's
@@ -2180,9 +2396,19 @@ export type SettingsOps = {
   "cmux.settings.shares.list": [Record<string, never>, SharesState];
   /** Native: the share stops working and its guests leave at once; a daemon refusal rejects. */
   "cmux.settings.shares.revoke": [{ share_id: string }, unknown];
+  /** Native: the archived workspaces and links (Settings > Sidebar > Archived Workspaces). */
+  "cmux.settings.archived.list": [Record<string, never>, ArchivedState];
+  /** Native: open, restore (unarchive) or delete (close) one listed row; `error` is a refusal. */
+  "cmux.settings.archived.run": [ArchivedRun, { error?: string }];
   /** Native: one `cmux customize library` verb through the bundled CLI (Appearance >
    * Customization Library). A change runs only on the person's click or key in the page. */
   "cmux.settings.customize.library": [LibraryRun, LibraryAnswer];
+  /** Native: the Customize cmux checklist through the bundled CLI (`cmux --json customize checklist
+   * --has NAME...`), read-only (Settings > General). */
+  "cmux.settings.customize.checklist": [
+    { has: ChecklistFact[] },
+    { checklist?: Checklist; code?: string; message?: string },
+  ];
   /** Native: Settings > Keys: this Mac's keys (`cmux keys ls`, never a value) and the waiting requests. */
   "cmux.settings.keys.list": [Record<string, never>, KeysState];
   /** Native, the person's click: the value goes to `cmux keys put` on stdin only, and the agent's
@@ -2224,6 +2450,8 @@ export type SettingsOps = {
   "cmux.settings.hub.state": [Record<string, never>, HubState];
   /** Native: one Integrations gesture (`cmux hub link|remove|rule|pause`, or an approval answered on the click). */
   "cmux.settings.hub.run": [HubRun, unknown];
+  "cmux.settings.autocloud.state": [Record<string, never>, AutocloudState];
+  "cmux.settings.autocloud.run": [AutocloudAction, AutocloudAnswer];
   /** Native: Settings > Integrations > Connections, the hosted MCP catalog as `cmux mcp-servers catalog --json` shapes it. */
   "cmux.settings.connections.state": [Record<string, never>, ConnectionsState];
   /** Native: one Connections gesture (`cmux mcp-servers connect|reconnect|remove|enable`, or a refresh). */
