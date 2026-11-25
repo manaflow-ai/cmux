@@ -31,7 +31,7 @@ import { openPicker } from "../pickerOpeners";
 import { startRefusalRoute } from "../startRefusal";
 import { paneKnowsNewChat } from "../locationRow";
 import { translate, type Translate } from "../i18n";
-import { inThisVisit, type useFolderTrustAsk } from "../useFolderTrustAsk";
+import { inThisVisit, type useFolderTrustAsk, composerTrustBlock } from "../useFolderTrustAsk";
 import { bindsHeldSendNow } from "../heldSendBinding";
 import { TrayPullTab } from "../subagents/TrayPullTab";
 import { pullTabCounts } from "../subagents/trayPullTabModel";
@@ -143,6 +143,8 @@ export type PaneComposerDeps = {
   subagentDraftKey: string;
   /// A message to the subagent did not reach the chat: its note shows over the box.
   subagentFailed: boolean;
+  /// acpmux's queue for the composer's queued cards, the same list while it holds the same prompts.
+  composerTurnQueue: AcpmuxSnapshot["queue"];
   t: Translate;
   reviewing: boolean;
   snapshot: AcpmuxSnapshot;
@@ -429,6 +431,7 @@ export type PaneComposerDeps = {
 export function drawPaneComposer({
   hostOverload,
   markDockEdge,
+  composerTurnQueue,
   readOnlySubagent,
   subagentRelay,
   subagentDraftKey,
@@ -1014,7 +1017,7 @@ export function drawPaneComposer({
             snapshot={composerDrawn}
             guestHarnesses={guestsHere ? composerSnapshot.catalog : undefined}
             headerCwd={snapshot.summary?.cwd ?? ""}
-            turnQueue={snapshot.queue}
+            turnQueue={composerTurnQueue}
             sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
             placeholder={isSideSession ? t("sideSession.placeholder") : undefined}
             switching={Boolean(switchView.intent)}
@@ -1682,7 +1685,7 @@ export function drawPaneComposer({
             // The folder's trust question holds Send only for a remote chat and Start Agent
             // (trustSendOff): a prompt sent under it waits in the pane (trustHeld.ts), or goes now to
             // a chat whose agent already runs (trustPasses). A read in flight (`{}`) holds nothing.
-            blocked={trustSendOff || !trustAsk.blocked?.reason ? trustAsk.blocked : undefined}
+            blocked={composerTrustBlock(trustSendOff, trustAsk.blocked)}
             // A new chat on another machine holds Send while its agent is not set up there.
             blockSend={
               blockSend ||
