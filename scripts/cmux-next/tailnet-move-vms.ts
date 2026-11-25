@@ -61,6 +61,28 @@ const machineName = (run: string, side: "a" | "b") => `${NAME_PREFIX}${run}${CHE
 const live = (r: any) => r?.status !== "deleted" && r?.status !== "deleting";
 const idOf = (r: any) => String(r?.id ?? r?.machine_id);
 
+/**
+ * cloud.machine.create under its idempotency key. The ops API can hold the create past op()'s 60 s fetch
+ * (run 45591326173: "The operation timed out." with both creates in flight); the same key may be sent again,
+ * and a machine that landed meanwhile is found by its name.
+ */
+async function createMachine(api: Api, name: string, key: string, label: string): Promise<string> {
+  const t0 = Date.now();
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const created = await api.op("cloud.machine.create", { name, size: CHAT_START_SIZE }, key);
+      return String(created?.machine?.id ?? created?.machine ?? created?.machine_id ?? created?.id);
+    } catch (e) {
+      const msg = redact(String((e as Error)?.message ?? e));
+      const found = (await listAllMachines((p) => api.read("cloud.machine.list", p)).catch(() => [] as any[])).find((r) => r?.name === name && live(r));
+      say(`${label}: create attempt ${attempt} after ${Math.round((Date.now() - t0) / 1000)} s: ${msg.slice(0, 200)}${found ? `; ${idOf(found)} exists (${found.status})` : ""}`);
+      if (found) return idOf(found);
+      if (attempt >= 6) throw new Error(`${name}: cloud.machine.create never answered in ${attempt} tries: ${msg.slice(0, 300)}`);
+      await new Promise((res) => setTimeout(res, 5000));
+    }
+  }
+}
+
 const ECHO = `import socket, sys, threading
 NAME = sys.argv[1].encode()
 def serve(c):
@@ -83,8 +105,7 @@ async function backend(api: Api, run: string, side: "a" | "b", loginServer: stri
   const name = machineName(run, side);
   const label = side.toUpperCase();
   const t0 = Date.now();
-  const created = await api.op("cloud.machine.create", { name, size: CHAT_START_SIZE }, `tailnet-move-${run}-${side}`);
-  const machine = String(created?.machine?.id ?? created?.machine ?? created?.machine_id ?? created?.id);
+  const machine = await createMachine(api, name, `tailnet-move-${run}-${side}`, label);
   await waitMachine(api, machine, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
   const exec = directExec(api, machine, { secrets });
   for (let i = 0; ; i++) {
