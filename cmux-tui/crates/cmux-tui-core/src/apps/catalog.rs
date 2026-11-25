@@ -163,6 +163,37 @@ impl Package {
         entry.get("export")?.as_str().map(str::to_string)
     }
 
+    /// The app's `contributes.keybindings` for `apps-list`, in keybindings.json
+    /// form (`{key, command, when?, args?}`) for the client's app binding
+    /// layer: a cmux action as written, an own op as `app.command.run`
+    /// `{app, command}` (the palette row's run). Only entries the manifest
+    /// validator accepted are listed (`cmux_app_manifest::keybindings`).
+    pub fn keybindings(&self) -> Vec<Value> {
+        cmux_app_manifest::keybindings::keybindings(&self.manifest)
+            .into_iter()
+            .map(|binding| {
+                let builtin = cmux_app_manifest::keybindings::is_builtin_action(&binding.command);
+                let mut entry = serde_json::json!({ "key": binding.key() });
+                if builtin {
+                    entry.set("command", Value::String(binding.command));
+                    if let Some(args) = binding.args {
+                        entry.set("args", args);
+                    }
+                } else {
+                    entry.set("command", Value::String("app.command.run".into()));
+                    entry.set(
+                        "args",
+                        serde_json::json!({ "app": self.id, "command": binding.command }),
+                    );
+                }
+                if let Some(when) = binding.when {
+                    entry.set("when", Value::String(when));
+                }
+                entry
+            })
+            .collect()
+    }
+
     /// The app's palette commands for `apps-list`: the catalog ops with a
     /// `palette` entry, as `{op, title, when?, keys?, page_keys?}`. Chords
     /// stay in #44151's app binding layer; page keys are routed after a
