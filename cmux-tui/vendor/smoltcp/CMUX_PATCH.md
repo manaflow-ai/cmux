@@ -56,6 +56,23 @@ flowing while holes are repaired. A retransmission timeout drops the scoreboard
 (RFC 2018 section 8), and resending the head restarts the RTO, as the
 duplicate-ACK fast retransmit does. Blocks count only when both edges fall
 inside the flight. A peer that did not permit SACK gets the plain behavior.
+RACK time-based loss detection (RFC 8985) rides on the same scoreboard: the socket
+remembers when each run of new data was first sent (32 records), and a hole is
+lost once it was sent more than srtt + a reorder window ago while data sent
+LATER was SACKed, without waiting for three duplicate ACKs or three segments'
+worth of SACKed bytes (which tiny keystroke segments never reach in time). The
+reorder window is srtt/4, times a multiplier (up to 4) that grows each time a
+DSACK block shows a retransmission was spurious. Send order is (send time, end
+sequence), so segments sent in the same poll are ordered by sequence (RFC 8985's
+RACK.end_seq). Only the expired records' bytes are lost, not the whole hole they
+sit in. A timer in `poll_at` and `dispatch` re-evaluates at the earliest expiry.
+A retransmission restarts the clock of the records it overlaps (splitting one
+it only partly covers) and makes them in flight again; when RACK declares that
+retransmission lost too, its bytes are due again even below `sack_high_rxt`. A
+retransmission pause (tunnel hold) also stops SACK and RACK resends. An RTO
+forgets the records. Upstreaming: this
+is RACK without min-RTT filtering (srtt stands in) and without RACK's own
+reorder-window decay; smoltcp's tail-loss probe is the TLP half already.
 As a receiver, an ACK now carries up to three SACK blocks, not one: the block of
 the segment that triggered it, then the lowest others. cmux-wg turns recovery
 on, and builds smoltcp with a 32-range assembler
@@ -130,8 +147,14 @@ The patch adds a BBR-style controller, `CongestionControl::Bbr`, behind the
 (`CMUX_WG_ULTRA_CC=cubic` goes back). Its window is twice the bandwidth-delay
 product: the highest delivery rate of the last 10 rounds that were not
 app-limited, times the minimum RTT of the last 10 s. Startup grows the window
-by every acknowledged byte until the rate grows under 25 % for 3 rounds. Loss
-does not shrink the window. An RTO saves the window and resends one segment
+by every acknowledged byte, up to 2.885 times the BDP measured so far, until
+the rate grows under 25 % for 3 rounds or a loss comes. A loss episode bounds
+the window to 0.7 of the flight at the loss but never under the BDP, so a random
+loss costs no throughput, and the bound grows one segment a round (BBRv2's
+inflight_hi): a queue shallower than the BDP is not overfilled every few rounds.
+A round counts at most the window it began with as delivered, so a repaired
+hole, whose cumulative ACK covers data SACKed rounds ago, does not read as a
+burst of bandwidth. An RTO saves the window and resends one segment
 (packet conservation); the next ACK of new data brings the window back. Two RTOs
 in a row, with nothing acknowledged between them, restart the model. cmux-wg paces its
 datagrams itself, so the controller has no pacing gain cycle and no PROBE_RTT.

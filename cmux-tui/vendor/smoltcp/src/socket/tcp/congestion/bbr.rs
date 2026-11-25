@@ -4,17 +4,23 @@
 //! rate (the highest delivery rate over the last [`BW_ROUNDS`] rounds that
 //! were not limited by the application) times the minimum RTT (over
 //! [`MIN_RTT_WINDOW`]) gives the path's bandwidth-delay product, and the
-//! window is [`CWND_GAIN`] of it. A segment lost at random on a lossy link
-//! does not shrink the window; it is repaired by SACK or the retransmit
-//! timer as before. Only RTOs in a row with nothing acknowledged between them
-//! (a dead or badly congested path) collapse the window and restart the model.
+//! window is [`CWND_GAIN`] of it. A loss episode bounds the window (BBRv2's
+//! inflight_hi) to [`LOSS_BETA_MILLI`] of the flight at the loss, never under
+//! the bandwidth-delay product, so a random loss costs no throughput while a
+//! queue too shallow for the gain is not overfilled every few rounds; the
+//! bound grows one segment a round. A round's delivery counts at most the
+//! window it began with, so a hole's repair (the cumulative ACK covering data
+//! SACKed rounds ago) is not taken for a burst of bandwidth. Only RTOs in a
+//! row with nothing acknowledged between them (a dead or badly congested
+//! path) collapse the window and restart the model.
 //!
 //! cmux-wg paces every tunnel datagram itself, so this controller is window
 //! based only: there is no pacing gain cycle and no PROBE_RTT phase (the
 //! window floor of [`initial_window`] keeps a lull from starving a burst).
-//! Startup grows the window by every byte acknowledged, like slow start,
+//! Startup grows the window by every byte acknowledged, like slow start, up
+//! to [`STARTUP_GAIN_MILLI`] of the bandwidth-delay product measured so far,
 //! until the delivery rate grows less than [`FULL_BW_GROWTH_PCT`] percent
-//! for [`FULL_BW_ROUNDS`] rounds.
+//! for [`FULL_BW_ROUNDS`] rounds, or a loss ends it.
 
 use crate::{
     socket::tcp::RttEstimator,
@@ -30,6 +36,14 @@ const BW_ROUNDS: usize = 10;
 const MIN_RTT_WINDOW: Duration = Duration::from_secs(10);
 /// The window over the bandwidth-delay product once startup ends.
 const CWND_GAIN: usize = 2;
+/// The bound on the flight after a loss, in thousandths of the flight at
+/// the loss.
+const LOSS_BETA_MILLI: usize = 700;
+/// The cap on the window in startup, in thousandths of the bandwidth-delay
+/// product measured so far (BBR's 2/ln 2): the rate can still double each
+/// round, but the three rounds that show it stopped growing do not stack
+/// eight times the path's BDP in its queue.
+const STARTUP_GAIN_MILLI: usize = 2885;
 /// Startup ends after this many rounds in which the rate grew less than
 /// [`FULL_BW_GROWTH_PCT`] percent.
 const FULL_BW_ROUNDS: u8 = 3;
@@ -62,6 +76,8 @@ pub struct Bbr {
     bw_next: usize,
     round_start: Option<Instant>,
     round_delivered: usize,
+    /// The window when the current round began, the most it can deliver.
+    round_cwnd: usize,
     round_app_limited: bool,
     min_rtt_ms: Option<u32>,
     min_rtt_at: Instant,
@@ -71,6 +87,8 @@ pub struct Bbr {
     /// lost more of itself at high loss, and the backed-off RTO outlasted the
     /// user timeout).
     saved_cwnd: Option<usize>,
+    /// The bound a loss set on the window, grown a segment a round.
+    inflight_hi: Option<usize>,
     /// No new data ACKed and no RTO yet, so an MSS learned from the handshake
     /// may still resize the initial window.
     initial: bool,
@@ -89,11 +107,13 @@ impl Bbr {
             bw_next: 0,
             round_start: None,
             round_delivered: 0,
+            round_cwnd: 0,
             round_app_limited: false,
             min_rtt_ms: None,
             min_rtt_at: Instant::ZERO,
             rtos: 0,
             saved_cwnd: None,
+            inflight_hi: None,
             initial: true,
         }
     }
@@ -135,7 +155,12 @@ impl Bbr {
     /// check whether the rate stopped growing.
     fn end_round(&mut self, now: Instant, start: Instant) {
         let elapsed = (now - start).total_micros().max(1);
-        let rate = (self.round_delivered as u64).saturating_mul(1_000_000) / elapsed;
+        // A round delivers at most the window it began with: more is data
+        // SACKed in earlier rounds that a repaired hole let the cumulative
+        // ACK cover at once, and counting it would credit the path with a
+        // rate it never carried.
+        let delivered = self.round_delivered.min(self.round_cwnd);
+        let rate = (delivered as u64).saturating_mul(1_000_000) / elapsed;
         // An app-limited round says little about the path: it only counts when
         // it beats the estimate, and it never ages the filter otherwise.
         if !self.round_app_limited || rate > self.max_bw() {
@@ -154,6 +179,9 @@ impl Bbr {
                 }
             }
         }
+        if let Some(hi) = self.inflight_hi.as_mut() {
+            *hi = hi.saturating_add(self.mss);
+        }
         self.round_start = None;
     }
 
@@ -164,6 +192,7 @@ impl Bbr {
         self.bw = [0; BW_ROUNDS];
         self.round_start = None;
         self.round_delivered = 0;
+        self.inflight_hi = None;
     }
 }
 
@@ -189,6 +218,7 @@ impl Controller for Bbr {
             None => {
                 self.round_start = Some(now);
                 self.round_delivered = 0;
+                self.round_cwnd = self.cwnd;
                 // Less than half the window in flight: the sender, not the
                 // path, set this round's rate.
                 self.round_app_limited = in_flight + len < self.cwnd / 2;
@@ -202,18 +232,37 @@ impl Controller for Bbr {
 
         let cap = self.rwnd.max(self.floor());
         if self.startup {
-            self.cwnd = self.cwnd.saturating_add(len).min(cap);
+            let startup_cap = self.bdp().map_or(cap, |bdp| {
+                (bdp.saturating_mul(STARTUP_GAIN_MILLI) / 1000).max(self.floor())
+            });
+            self.cwnd = self.cwnd.saturating_add(len).min(startup_cap.max(self.cwnd)).min(cap);
             return;
         }
         let target = self
             .bdp()
-            .map_or(self.cwnd, |bdp| (bdp * CWND_GAIN).max(self.floor()));
+            .map_or(self.cwnd, |bdp| (bdp * CWND_GAIN).max(self.floor()))
+            .min(self.inflight_hi.unwrap_or(usize::MAX));
         self.cwnd = if self.cwnd < target {
             self.cwnd.saturating_add(len).min(target)
         } else {
             target
         }
         .min(cap);
+    }
+
+    /// A loss episode means the flight overfilled the bottleneck's queue
+    /// (BBRv2's inflight_hi): startup ends, and the window is held under
+    /// [`LOSS_BETA_MILLI`] of the flight at the loss, but never under the
+    /// bandwidth-delay product, which still fills the pipe, so a random loss
+    /// costs no throughput. The bound then grows one segment a round, like
+    /// Reno, so a shallow queue sees a loss about once a second, not every few
+    /// rounds.
+    fn on_loss(&mut self, _now: Instant, in_flight: usize) {
+        self.startup = false;
+        let bdp = self.bdp().unwrap_or(0).max(self.floor());
+        let bound = (in_flight.saturating_mul(LOSS_BETA_MILLI) / 1000).max(bdp);
+        self.inflight_hi = Some(self.inflight_hi.map_or(bound, |hi| hi.min(bound).max(bdp)));
+        self.cwnd = self.cwnd.min(bound);
     }
 
     fn on_rto(&mut self, _now: Instant, _in_flight: usize) {
@@ -296,30 +345,62 @@ mod test {
     }
 
     #[test]
-    fn random_loss_does_not_shrink_the_window() {
+    fn a_loss_bounds_the_window_but_never_under_the_bdp() {
         let mut bbr = bbr();
         let mut now = Instant::from_millis(0);
         drive(&mut bbr, &mut now, 30, 50, 1_250_000, MSS);
         let window = bbr.window();
+        let bdp = bbr.bdp().unwrap();
+        assert!(window >= 2 * bdp - MSS, "window {window} bdp {bdp}");
+        // Losses in every round: the window stays at the BDP or above, so a
+        // random loss costs no throughput.
         for _ in 0..10 {
-            bbr.on_sack_loss(now, window);
-            bbr.on_loss(now, window);
-            bbr.on_dup_ack(now, MSS, window);
+            bbr.on_sack_loss(now, bbr.window());
+            bbr.on_loss(now, bbr.window());
+            bbr.on_dup_ack(now, MSS, bbr.window());
             drive(&mut bbr, &mut now, 1, 50, 1_250_000, MSS);
         }
-        assert!(
-            bbr.window() >= window * 9 / 10,
-            "{} < {}",
-            bbr.window(),
-            window
-        );
+        let bounded = bbr.window();
+        assert!(bounded >= bdp && bounded < window, "{bounded} bdp {bdp} window {window}");
+        // With no more loss the bound grows a segment a round.
+        drive(&mut bbr, &mut now, 5, 50, 1_250_000, MSS);
+        assert!(bbr.window() > bounded && bbr.window() <= bounded + 6 * MSS);
         // One RTO alone (a tail loss) resends one segment, then the next ACK
         // of new data restores the window.
+        let window = bbr.window();
         bbr.on_rto(now, window);
         assert_eq!(bbr.window(), MSS);
         now += Duration::from_millis(50);
         bbr.on_ack(now, MSS, 0, &rtte(50));
-        assert!(bbr.window() >= window * 9 / 10);
+        assert!(bbr.window() >= window);
+    }
+
+    #[test]
+    fn a_loss_in_startup_ends_it() {
+        let mut bbr = bbr();
+        let mut now = Instant::from_millis(0);
+        drive(&mut bbr, &mut now, 3, 50, 1_250_000, MSS);
+        assert!(bbr.startup);
+        let window = bbr.window();
+        bbr.on_loss(now, window);
+        assert!(!bbr.startup);
+        assert!(bbr.window() <= window * 7 / 10 + MSS, "{} of {window}", bbr.window());
+    }
+
+    #[test]
+    fn a_repaired_hole_is_not_a_burst_of_bandwidth() {
+        let mut bbr = bbr();
+        let mut now = Instant::from_millis(0);
+        drive(&mut bbr, &mut now, 30, 50, 1_250_000, MSS);
+        let bw = bbr.max_bw();
+        let rtt = rtte(50);
+        // A round's first ACK, then the hole's repair: the cumulative ACK
+        // covers a hundred windows SACKed long ago.
+        now += Duration::from_millis(1);
+        bbr.on_ack(now, MSS, bbr.window(), &rtt);
+        now += Duration::from_millis(50);
+        bbr.on_ack(now, 100 * bbr.window(), bbr.window(), &rtt);
+        assert!(bbr.max_bw() <= bw * 2, "{} vs {bw}", bbr.max_bw());
     }
 
     #[test]

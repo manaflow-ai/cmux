@@ -21,9 +21,11 @@ Prints one word on stdout and exits 0:
 With --phase app-debug it reads the pull request app compile's own check instead (the build fleet's Debug
 `--app` compile of a same-repository pull request head, configuration "debug"): the controller submits it
 when that job is queued or when this read names the pull request, and it never stands for the land Release.
+With --phase test-compile --packages A,B it reads the pull request's test-target compile of those packages
+(`swift build --build-tests`, configuration "test-compile"); the read submits it.
 
 Reasons go to stderr. Usage:
-  fleet_compile_result.py --sha SHA --repo OWNER/NAME [--pr N] [--phase app-debug] [--wait 1500] [--no-record 600]
+  fleet_compile_result.py --sha SHA --repo OWNER/NAME [--pr N] [--phase app-debug|test-compile [--packages A,B]] [--wait 1500] [--no-record 600]
 """
 import argparse
 import json
@@ -38,7 +40,7 @@ HOLD_MAX = 90  # under the gateway's ~100 s request limit
 RECIPE = 2
 CONFIGURATION = "release-onone"
 # The phases a read can name, and the configuration each one's record carries.
-PHASES = {"": CONFIGURATION, "app-debug": "debug"}
+PHASES = {"": CONFIGURATION, "app-debug": "debug", "test-compile": "test-compile"}
 
 
 def judge(record, sha, repo, configuration=CONFIGURATION):
@@ -97,7 +99,7 @@ def fetch(url, timeout):
 
 
 def read(sha, repo, pr="", wait=1500, no_record=600, results=RESULTS, fetch=fetch, now=time.monotonic,
-         sleep=time.sleep, gap=30, phase=""):
+         sleep=time.sleep, gap=30, phase="", packages=""):
     """Wait up to `wait` s for this head's verdict; (word, reason)."""
     start = now()
     deadline = start + wait
@@ -106,6 +108,8 @@ def read(sha, repo, pr="", wait=1500, no_record=600, results=RESULTS, fetch=fetc
         q["pr"] = pr
     if phase:
         q["phase"] = phase
+    if packages:
+        q["packages"] = packages
     base = f"{results}/{sha}?{urllib.parse.urlencode(q)}"
     down_since = None
     busy_since = None
@@ -162,12 +166,19 @@ def main(argv=None):
     p.add_argument("--wait", type=int, default=1500)
     p.add_argument("--no-record", type=int, default=600)
     p.add_argument("--phase", default="", choices=sorted(PHASES))
+    p.add_argument("--packages", default="", help="comma or space separated; phase test-compile only")
     a = p.parse_args(argv)
     if len(a.sha) != 40 or any(c not in "0123456789abcdef" for c in a.sha):
         print(f"fleet compile result: bad sha {a.sha!r}", file=sys.stderr)
         print("none")
         return 0
-    word, why = read(a.sha, a.repo, a.pr if a.pr.isdigit() else "", a.wait, a.no_record, phase=a.phase)
+    packages = ",".join(sorted({x for x in a.packages.replace(",", " ").split() if x}))
+    if a.phase == "test-compile" and not packages:
+        print("fleet compile result: --phase test-compile needs --packages", file=sys.stderr)
+        print("none")
+        return 0
+    word, why = read(a.sha, a.repo, a.pr if a.pr.isdigit() else "", a.wait, a.no_record, phase=a.phase,
+                     packages=packages if a.phase == "test-compile" else "")
     print(f"fleet compile result for {a.sha}: {word} ({why})", file=sys.stderr)
     print(word)
     return 0
