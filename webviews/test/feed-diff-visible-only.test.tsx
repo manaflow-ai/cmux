@@ -275,6 +275,87 @@ test("select-all copies the whole diff, its end in the block below the window, a
   expect(copy().copied).toBe(whole);
 });
 
+// An empty line shows a space so it keeps its height; the copy is the attachment's text, not what the
+// lines show. A diff whose text ends in a line end has an empty last line, and select-all copied it
+// as a space.
+const blankDiffs = {
+  "ends in a line end": `${diffLines(10_000).join("\n")}\n`,
+  "has an empty line in the middle": diffLines(10_000)
+    .map((line, index) => (index === 5_000 ? "" : line))
+    .join("\n"),
+  "has lines of only spaces and tabs": diffLines(10_000)
+    .map((line, index) => (index === 4_000 ? "   " : index === 6_000 ? "\t" : index === 9_999 ? " \t " : line))
+    .join("\n"),
+};
+for (const [kind, text] of Object.entries(blankDiffs))
+  test(`select-all of a 10,000-line diff that ${kind} copies its text byte for byte`, async () => {
+    host = dom.window.document.getElementById("root")!;
+    root = createRoot(host);
+    await act(async () =>
+      root!.render(
+        <div className="feed-detail-scroll">
+          <DiffPreview attachment={{ id: "a", name: "change.diff", mime: "text/x-diff", size: 0, text }} />
+        </div>,
+      ),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    const pane = host.querySelector<HTMLElement>(".feed-detail-scroll")!;
+    const box = host.querySelector<HTMLElement>(".feed-diff-lines")!;
+    // At the top, and scrolled to the last line (the empty one, where the text ends in a line end).
+    for (const scrolled of [0, LINE * 10_001]) {
+      await act(async () => {
+        pane.scrollTop = scrolled;
+        pane.dispatchEvent(new dom.window.Event("scroll"));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      const first = box.firstElementChild as HTMLElement;
+      const range = dom.window.document.createRange();
+      range.setStart(first.dataset.gap === undefined ? first.firstChild! : first, 0);
+      range.setEnd(box.lastElementChild!, 0);
+      const selection = dom.window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      const { text: copied, taken } = copySelection();
+      expect(taken).toBe(true);
+      expect(copied.length).toBe(text.length);
+      expect(JSON.stringify(copied.slice(-8))).toBe(JSON.stringify(text.slice(-8)));
+      expect(copied === text).toBe(true);
+    }
+  });
+
+test("a copy that starts and ends on empty lines, across lines not mounted, copies no space for them", async () => {
+  const text = diffLines(1_000)
+    .map((line, index) => (index === 2 || index === 900 ? "" : line))
+    .join("\n");
+  host = dom.window.document.getElementById("root")!;
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <div className="feed-detail-scroll">
+        <DiffPreview attachment={{ id: "a", name: "change.diff", mime: "text/x-diff", size: 0, text }} />
+      </div>,
+    ),
+  );
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const pane = host.querySelector<HTMLElement>(".feed-detail-scroll")!;
+  const empty = lineAt(2)!;
+  expect(empty.textContent).toBe(" ");
+  // From the end of empty line 2 (after the space it shows), held while the pane scrolls to line 900.
+  await act(async () => {
+    dom.window.getSelection()!.setBaseAndExtent(empty.firstChild!, 1, empty.firstChild!, 1);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  await scrollTo(pane, 890);
+  const end = lineAt(900)!;
+  expect(end.textContent).toBe(" ");
+  await act(async () => {
+    dom.window.getSelection()!.extend(end.firstChild!, 1);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  const all = text.split("\n");
+  expect(copySelection()).toEqual({ text: ["", ...all.slice(3, 900), ""].join("\n"), taken: true });
+});
+
 test("the line a selection starts on stays mounted while the pane scrolls far past it", async () => {
   const { pane } = await mount(1_000);
   const anchor = [...lines()][3] as HTMLElement;
