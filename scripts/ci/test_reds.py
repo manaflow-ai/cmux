@@ -1330,9 +1330,11 @@ def runner_shut_down(log: str) -> str | None:
 # (leo-workspace#11281): the step is the last "##[group]Run ..." line before the log's first ##[error], in the raw log
 # and in `gh run view --log` alike. A step the job ran after that error (a checkout with continue-on-error, then the
 # change's own steps) keeps its verdict. Whether the change itself can break the checkout (a submodule pin it moves)
-# is the caller's to read: this reads the log only.
+# is the caller's to read: this reads the log only. The runner's own job-completed hook (`Run '/opt/cmux-job-clean.sh'`
+# on the fleet, after "A job completed hook has been configured ...") is no step of the job: the read ends there.
 CHECKOUT_RUN = "##[group]Run "
 CHECKOUT_ACTION = "actions/checkout@"
+JOB_COMPLETED_HOOK = "A job completed hook has been configured"
 
 
 def died_in_checkout(log):
@@ -1341,6 +1343,8 @@ def died_in_checkout(log):
     step = None
     first = None
     for line in (log or "").splitlines():
+        if JOB_COMPLETED_HOOK in line:
+            break
         if CHECKOUT_RUN in line:
             step = line.split(CHECKOUT_RUN, 1)[1].strip()
             if first is not None and not step.startswith(CHECKOUT_ACTION):

@@ -2104,6 +2104,57 @@ class VolatileTokens(unittest.TestCase):
         self.assertIn("fail differently", verdict.reasons[0])
 
 
+CHECKOUT_DEATH_LOG = FIXTURES / "51655-changes-checkout-job-514215463833.log"
+
+
+class DiedInCheckout(unittest.TestCase):
+    """A job that died in actions/checkout before any step of the change ran (cmux#51655 at fd3c0b17, 'changes'):
+    infra to re-run, read as leo-workspace tools/ws-check's failed_in_checkout reads it."""
+
+    def test_the_real_checkout_death_is_read_with_its_first_error(self):
+        said = reds.died_in_checkout(CHECKOUT_DEATH_LOG.read_text())
+        self.assertIsNotNone(said)
+        self.assertIn("Operation too slow", said)
+
+    def test_the_gh_run_view_shape_reads_the_same(self):
+        text = "\n".join(f"changes\tUNKNOWN STEP\t{line}" for line in CHECKOUT_DEATH_LOG.read_text().splitlines())
+        self.assertIn("Operation too slow", reds.died_in_checkout(text))
+
+    def test_a_later_step_failure_keeps_its_verdict(self):
+        text = "\n".join([
+            "2026-11-25T19:16:19Z ##[group]Run actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+            "2026-11-25T19:16:20Z Checking out the ref",
+            "2026-11-25T19:16:21Z ##[group]Run python3 tests/test_x.py",
+            "2026-11-25T19:16:22Z ##[error]Process completed with exit code 1.",
+            "2026-11-25T19:16:23Z A job completed hook has been configured by the self-hosted runner administrator",
+        ])
+        self.assertIsNone(reds.died_in_checkout(text))
+
+    def test_a_step_that_ran_after_a_checkout_error_keeps_its_verdict(self):
+        # A checkout with continue-on-error, then the change's own step: that step ran, so its red is judged.
+        text = "\n".join([
+            "##[group]Run actions/checkout@v4",
+            "##[error]fatal: could not fetch abc from promisor remote",
+            "##[group]Run python3 tests/test_x.py",
+            "##[error]Process completed with exit code 1.",
+        ])
+        self.assertIsNone(reds.died_in_checkout(text))
+
+    def test_the_runners_job_completed_hook_is_no_step_of_the_job(self):
+        text = "\n".join([
+            "##[group]Run actions/checkout@v4",
+            "##[error]The process '/usr/local/bin/git' failed with exit code 128",
+            "A job completed hook has been configured by the self-hosted runner administrator",
+            "##[group]Run '/opt/cmux-job-clean.sh'",
+        ])
+        self.assertIn("exit code 128", reds.died_in_checkout(text))
+
+    def test_no_error_or_no_log_is_no_checkout_death(self):
+        self.assertIsNone(reds.died_in_checkout(None))
+        self.assertIsNone(reds.died_in_checkout("##[group]Run actions/checkout@v4\nok"))
+        self.assertIsNone(reds.died_in_checkout("##[error]before any step"))
+
+
 class LostRunner(unittest.TestCase):
     """A job whose runner was lost is infra, not a verdict: never the PR's own red, it needs a re-run."""
 
