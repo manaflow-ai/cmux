@@ -197,5 +197,11 @@ package nonisolated struct FeedApproveDecision: Sendable, Equatable {
         package var install: String
         package var timestampMs: Int64
         package var signature: String
+
+        package init(install: String, timestampMs: Int64, signature: String) {
+            self.install = install
+            self.timestampMs = timestampMs
+            self.signature = signature
+        }
     }
 }

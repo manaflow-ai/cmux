@@ -150,7 +150,6 @@
     "CmuxAgentQuestion": {"layer": "core", "package": "Packages/Shared/CmuxAgentQuestion", "note": "harness-neutral question model"},
     "CmuxPagePushBound": {"layer": "core", "package": "Packages/Shared/CmuxPagePushBound", "note": "how much the host feeds a chat page that does not drain"},
     "CmuxInstallAuthCore": {"layer": "core", "package": "Packages/Shared/CmuxInstallAuthCore", "note": "install auth crypto values"},
-    "CmuxFeedPushCore": {"layer": "core", "package": "Packages/Shared/CmuxFeedPushCore", "note": "feed push crypto values"},
     "CmuxTheme": {"layer": "core", "package": "Packages/Shared/CmuxTheme", "note": "theme values; core CmuxNextDesignTokens depends on it"},
     "CmuxTerminalSizing": {"layer": "core", "package": "Packages/Shared/CmuxTerminalSizing", "note": "pure terminal sizing math"},
     "CmuxVisibleRows": {"layer": "core", "package": "Packages/Shared/CmuxVisibleRows", "note": "the visible-rows work meter a list keeps (no AppKit, no UIKit)"},

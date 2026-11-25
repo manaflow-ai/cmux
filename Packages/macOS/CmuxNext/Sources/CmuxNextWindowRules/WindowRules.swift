@@ -20,6 +20,16 @@ public nonisolated struct WindowRules: Sendable {
         return decoded
     }
 
+    /// One JSON call whose request is already JSON (an answer the app received, passed on as
+    /// is); nil when it does not answer.
+    public func call<Reply: Decodable>(_ operation: String, json data: Data, as: Reply.Type) -> Reply? {
+        guard let reply = callData(operation, data), let decoded = try? JSONDecoder().decode(Reply.self, from: reply) else {
+            Self.log.fault("window rule \(operation, privacy: .public) did not answer")
+            return nil
+        }
+        return decoded
+    }
+
     private func callData(_ operation: String, _ data: Data) -> Data? {
         var capacity = 4096
         for _ in 0..<2 {
