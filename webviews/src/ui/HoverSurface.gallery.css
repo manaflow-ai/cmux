@@ -1,0 +1,59 @@
+.hover-surface-gallery {
+  position: relative;
+  height: 100%;
+  padding: var(--ds-space-4);
+  box-sizing: border-box;
+  color: var(--cmux-text, CanvasText);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+.hover-surface-gallery-rows > * {
+  margin: 0 0 var(--grid-base);
+}
+.hover-surface-gallery-subagent,
+.hover-surface-gallery-composer,
+.hover-surface-gallery-chips {
+  color: var(--cmux-text-secondary, color-mix(in srgb, var(--cmux-text, CanvasText) 64%, transparent));
+}
+.hover-surface-gallery-chips {
+  display: flex;
+  justify-content: space-between;
+}
+.hover-surface-gallery-chip {
+  color: var(--cmux-text, CanvasText);
+  font-weight: var(--weight-emphasis);
+}
+.hover-surface-gallery-muted {
+  opacity: 0.7;
+}
+/* Placed as each surface would be (inline in the entry): the card above its chip, over the rows above it, the keyed label above the
+   model chip over the composer's placeholder, the title tooltip under its row. */
+.hover-surface-gallery .ui-tooltip,
+.hover-surface-gallery .ui-title-tooltip {
+  position: absolute;
+  z-index: var(--layer-tooltip);
+}
+.hover-surface-gallery-card {
+  display: grid;
+  gap: var(--grid-base);
+  width: 300px;
+  font-size: var(--text-detail);
+}
+
+/* NOW: the look before. The card on the App's popover glass, drawn here as a clear veil (the App's
+   own glass is not in the gallery), over the rows blurred in place; the labels on the tooltip veil
+   over text that is not blurred. */
+.hover-surface-gallery[data-look="now"] .ui-card.ui-glass {
+  --glass-tint: color-mix(in srgb, var(--surface-popup) 30%, transparent);
+  --glass-elevation: var(--elevation-2);
+}
+/* MENU and DENSE try other veils over the One arm (the doubled attribute outranks ui/hoverLook.css).
+   MENU: the menu level's veil (design-scale.json glass "menu": 80% light, 72% dark). */
+:root[data-hover-look][data-hover-look] .hover-surface-gallery[data-look="menu"] :is(.ui-tooltip, .ui-title-tooltip).ui-glass {
+  --glass-tint: color-mix(in srgb, var(--surface-popup) var(--ds-transient-web-tint), transparent);
+}
+/* DENSE: 86%, the content cards' veil (design-scale.json glassContent), under the 90% cap. */
+:root[data-hover-look][data-hover-look] .hover-surface-gallery[data-look="dense"] :is(.ui-tooltip, .ui-title-tooltip).ui-glass {
+  --glass-tint: color-mix(in srgb, var(--surface-popup) 86%, transparent);
+}

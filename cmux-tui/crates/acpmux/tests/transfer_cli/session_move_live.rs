@@ -14,9 +14,9 @@ use std::collections::BTreeMap;
 const HOPS: usize = 10;
 
 /// One side of the pair: its daemon and the folder the chat gets there.
-struct Side {
-    daemon: Daemon,
-    folder: PathBuf,
+pub(super) struct Side {
+    pub(super) daemon: Daemon,
+    pub(super) folder: PathBuf,
 }
 
 async fn pair(tag: &str, logs: &Path) -> [Side; 2] {
@@ -37,7 +37,7 @@ async fn pair(tag: &str, logs: &Path) -> [Side; 2] {
     })
 }
 
-async fn events(rpc: &mut Rpc, id: &str) -> Vec<Value> {
+pub(super) async fn events(rpc: &mut Rpc, id: &str) -> Vec<Value> {
     // A page is bounded in bytes as well as in records: read on until the log's end.
     let (mut events, mut after) = (Vec::new(), 0);
     loop {
@@ -84,7 +84,7 @@ fn steps(events: &[Value]) -> Vec<(String, usize, usize)> {
     order.into_iter().map(|call| (call.clone(), seen[&call].0, seen[&call].1)).collect()
 }
 
-async fn move_to_the_other(from: &Side, to: &Side, id: &str, mode: &[&str]) -> Duration {
+pub(super) async fn move_to_the_other(from: &Side, to: &Side, id: &str, mode: &[&str]) -> Duration {
     let mut command = daemon_env::tokio_command(&from.daemon.home, daemon_env::Agents::Deny);
     command
         .args(["--json", "session", "move", id, "--machine", "target"])
@@ -171,7 +171,8 @@ async fn there_and_back(tag: &str, mode: &[&str]) {
         };
         let (had, has) = (steps(&left), steps(&arrived));
         assert_eq!(has[..had.len()], had[..], "hop {hop}: the steps the source held");
-        let closed = here.call("_acpmux/info", json!({"sessionId": id})).await;
+        let kept = here.call("_acpmux/info", json!({"sessionIds": [id], "row": true})).await;
+        let closed = &kept["rows"][0];
         assert_eq!(closed["status"], "closed", "hop {hop}: one home at a time: {closed}");
         assert_eq!(closed["movedTo"]["host"], "target", "hop {hop}: {closed}");
         let kept = there.call("_acpmux/draft_get", json!({"sessionId": id})).await;

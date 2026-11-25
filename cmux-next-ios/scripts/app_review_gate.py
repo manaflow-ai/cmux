@@ -40,7 +40,7 @@ Usage:
   cmux-next-ios/scripts/app_review_gate.py lint --source-root . --lane appstore \
       [--app path/CmuxMobileApp.app | --ipa path/CmuxMobileApp.ipa] [--check-urls] [--json out.json]
   cmux-next-ios/scripts/app_review_gate.py report --lint lint.json \
-      [--xcresult-json tests.json ...] [--asc-validate asc.json] [--out report.md]
+      [--xcresult-json tests.json ...] [--asc-validate asc.json] [--asc-versions versions.json] [--out report.md]
   cmux-next-ios/scripts/app_review_gate.py version --source-root .   # the version asc validates
 
 Lanes: appstore (the AppStore configuration, com.cmux.app), internal (cmux
@@ -1479,18 +1479,90 @@ def asc_findings(path: Path) -> list[dict]:
 
     collect(body)
     out = []
+    seen: set[tuple[str, str, str]] = set()
     for c in checks:
         sev = str(c.get("severity", "")).lower()
         blocking = c.get("blocking") in (True, "true") or sev in ("error", "warning")
-        out.append({
-            "rule": f"asc.{c.get('code') or c.get('id') or c.get('check') or 'check'}",
-            "guideline": guideline_for_asc(str(c.get("code") or c.get("id") or c.get("check") or "")),
+        code = str(c.get("code") or c.get("id") or c.get("checkId") or c.get("check") or "")
+        message = str(c.get("message") or c.get("title") or "")
+        submitted = re.search(r'non-editable state "?([A-Z_]+)', message) if code == ASC_EDITABLE else None
+        if submitted and submitted.group(1) in SUBMITTED_STATES:
+            # asc's "Use an editable version state before submission" is advice
+            # for a submit; a version Apple already has is no blocker. Run
+            # 45615832158 read 1.0.0 WAITING_FOR_REVIEW as one, so readiness
+            # stayed red for the whole review.
+            blocking = False
+        finding = {
+            "rule": f"asc.{code or 'check'}",
+            "guideline": guideline_for_asc(code),
             "severity": "blocker" if blocking else "info",
             "source": f"asc ({path.stem})",
             "message": c.get("message") or c.get("title") or json.dumps(c)[:200],
             "where": c.get("resource") or c.get("resourceId") or "",
-        })
+        }
+        # asc prints each check under both remediation.steps and checks.
+        key = (finding["rule"], str(finding["where"]), str(finding["message"]))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(finding)
     return out
+
+
+ASC_EDITABLE = "version.state.editable"
+# A version in one of these states is submitted: Apple has it, nothing on it
+# can be edited, and asc's editable-state check only says so.
+SUBMITTED_STATES = frozenset({
+    "WAITING_FOR_REVIEW", "IN_REVIEW", "PENDING_DEVELOPER_RELEASE", "PENDING_APPLE_RELEASE",
+    "PROCESSING_FOR_APP_STORE", "READY_FOR_SALE", "READY_FOR_DISTRIBUTION",
+})
+
+
+# An App Store version in one of these states has been on sale: after it,
+# App Store Connect asks every new version for What's New.
+ON_SALE_STATES = frozenset({
+    "READY_FOR_SALE", "READY_FOR_DISTRIBUTION", "REPLACED_WITH_NEW_VERSION",
+    "REMOVED_FROM_SALE", "DEVELOPER_REMOVED_FROM_SALE",
+})
+ASC_WHATS_NEW = "asc.metadata.required.whats_new"
+
+
+def is_first_app_store_version(path: Path | None, version: str) -> bool:
+    """Whether `version` is the app's first App Store version, from `asc
+    versions list --paginate --output json`: the list names it and no other
+    version has ever been on sale. Unknown (no list, unreadable, an error
+    body) is False, so the gate fails closed."""
+    if path is None or not version:
+        return False
+    try:
+        body = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return False
+    data = body.get("data") if isinstance(body, dict) else body
+    if not isinstance(data, list) or not data:
+        return False
+    listed = False
+    for item in data:
+        if not isinstance(item, dict):
+            return False
+        attrs = item.get("attributes", item)
+        if not isinstance(attrs, dict):
+            return False
+        if (attrs.get("versionString") or attrs.get("version")) == version:
+            listed = True
+            continue
+        states = {attrs.get("appStoreState"), attrs.get("appVersionState"), attrs.get("state")}
+        if states & ON_SALE_STATES:
+            return False
+    return listed
+
+
+def asc_validated_version(path: Path) -> str:
+    try:
+        body = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return ""
+    return str(body.get("versionString") or "") if isinstance(body, dict) else ""
 
 
 def guideline_for_asc(code: str) -> str:
@@ -1668,9 +1740,22 @@ def cmd_report(args: argparse.Namespace) -> int:
     # --asc-skipped (a pull request has no release secrets) does not excuse it.
     submission = any(body.get("lane") == "internal-submission" for body in lints)
     asc = None
+    validated_version = ""
     for item in args.asc_validate or []:
         if Path(item).is_file():
             asc = (asc or []) + asc_findings(Path(item))
+            validated_version = validated_version or asc_validated_version(Path(item))
+    versions = Path(args.asc_versions) if args.asc_versions else None
+    if asc and any(f["rule"] == ASC_WHATS_NEW for f in asc) and is_first_app_store_version(versions, validated_version):
+        # App Store Connect refuses What's New on an app's first App Store
+        # version: run 45102744374 failed "STATE_ERROR: Attribute 'whatsNew'
+        # cannot be edited at this time" on cmux INTERNAL 1.2.0.
+        asc = [f for f in asc if f["rule"] != ASC_WHATS_NEW]
+        asc.append({"rule": "asc.whats_new.first-version", "guideline": "2.3", "severity": "info",
+                    "source": "asc versions",
+                    "message": f"{validated_version} is the app's first App Store version, which takes no What's New "
+                               "(App Store Connect refuses it: run 45102744374), so asc's empty What's New is not a blocker",
+                    "where": validated_version})
     if asc:
         findings += asc
     if asc is None and (not args.asc_skipped or submission):
@@ -1775,6 +1860,8 @@ def main(argv: list[str] | None = None) -> int:
     report = sub.add_parser("report")
     report.add_argument("--lint", action="append")
     report.add_argument("--asc-validate", action="append")
+    report.add_argument("--asc-versions",
+                        help="`asc versions list --paginate --output json`: an app's first App Store version takes no What's New")
     report.add_argument("--asc-skipped", action="store_true",
                         help="asc validate cannot run for this event (a PR has no release secrets)")
     report.add_argument("--xcresult-json", action="append")

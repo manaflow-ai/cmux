@@ -8,7 +8,7 @@ import { useId, useRef, useState } from "react";
 import { Dialog } from "../../ui/Dialog";
 import { DialogButton } from "../../ui/DialogButton";
 import { focusRoute } from "../../ui/focusRoute";
-import { CLAUDE_SETUP_TOKEN_COMMAND } from "../shared/claudeSetupToken";
+import { CLAUDE_SETUP_TOKEN_COMMAND, normalizeClaudeToken } from "../shared/claudeSetupToken";
 import { checkToken, connectRequest, refusalText, type ClaudeConnect } from "./claudeConnect";
 import { CopyButton } from "./conversation/CopyButton";
 import { useT } from "./i18n";
@@ -116,7 +116,7 @@ export function ClaudeConnectDialog({
                 aria-invalid={check === "invalid" || undefined}
                 aria-describedby={`${ids}-token-help`}
                 onChange={(event) => {
-                  setToken(event.target.value);
+                  setToken(normalizeClaudeToken(event.target.value));
                   setError(undefined);
                 }}
               />

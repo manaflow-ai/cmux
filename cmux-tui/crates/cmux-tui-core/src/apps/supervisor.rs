@@ -275,6 +275,8 @@ pub(super) struct Inner {
     pub safe_mode: Option<crate::safe_mode_flag::Flag>,
     /// The crash loop record (`safe_mode.rs`).
     pub launches: super::safe_mode::Launches,
+    /// The safe mode bisect (`safe_mode_bisect.rs`), only while safe mode is on.
+    pub bisect: Option<super::safe_mode_bisect::Bisect>,
     /// Apps whose host failed (an init error, repeated crashes), with why;
     /// cleared when a host of theirs is ready again.
     pub failed: HashMap<String, String>,
@@ -305,6 +307,8 @@ pub(super) struct Inner {
     pub widgets: super::widgets::WidgetState,
     /// Extension signal sources' last values and floors (`signal_sources.rs`).
     pub signal_sources: super::signal_sources::SignalSources,
+    /// `cmux.pane/1` opens with arguments, waiting for the pane's result (`pane_flow.rs`).
+    pub pane_opens: super::pane_flow::PaneOpens,
 }
 
 /// Work to do after the lock is released. Messages to hosts are not in this
@@ -359,7 +363,7 @@ pub struct Supervisor {
     transactions: AtomicU64,
     /// `apps-set` commits take turns here, so the supervisor lock is free
     /// while one writes `apps.json` (`Supervisor::set`).
-    commits: Mutex<()>,
+    pub(super) commits: Mutex<()>,
     /// One `apps.json` write at a time (`Supervisor::persist`).
     persisting: Mutex<()>,
     /// App host processes spawned (`safe_mode.rs` `host_spawns`).
@@ -374,6 +378,8 @@ pub struct Supervisor {
     pub(super) link_changed: Mutex<(bool, bool)>,
     /// Deployed instances of apps with a `deploy` block (`deploy.rs`).
     pub(super) deployments: super::deploy::Deployments,
+    /// Git installs: staged fetches and the transport (`git_install.rs`).
+    pub(super) git: super::git_install::GitState,
     /// The owner's keepers observers (`AppsSlot::add_server_observer`),
     /// told outside the lock when [`Self::kept_servers`] changes.
     server_observers: OnceLock<super::ServerObservers>,
@@ -404,6 +410,8 @@ impl Supervisor {
         let safe_mode =
             super::safe_mode::initial(config.safe_mode_file.as_deref(), config.safe_mode_env);
         let launches = super::safe_mode::load_launches(config.state_dir.as_deref());
+        let bisect =
+            safe_mode.as_ref().and(super::safe_mode_bisect::load(config.state_dir.as_deref()));
         let last_good = super::rollback::load(config.state_dir.as_deref());
         // Snapshot before startup seeds: an existing install must not change the
         // person's layout on upgrade, but a newly appearing customize app may.
@@ -496,6 +504,7 @@ impl Supervisor {
                 customize_reads_offered: None,
                 safe_mode,
                 launches,
+                bisect,
                 failed: HashMap::new(),
                 local_prints,
                 local_rejected_logged: HashMap::new(),
@@ -507,6 +516,7 @@ impl Supervisor {
                 pages: Default::default(),
                 widgets: Default::default(),
                 signal_sources: Default::default(),
+                pane_opens: Default::default(),
             }),
             config,
             router,
@@ -527,6 +537,7 @@ impl Supervisor {
             local_reload_pass: Mutex::new(()),
             link_changed: Mutex::new((false, false)),
             deployments: super::deploy::Deployments::load(config_state_dir.as_deref()),
+            git: Default::default(),
             server_observers: OnceLock::new(),
             #[cfg(test)]
             emit_pause: Mutex::new(None),
@@ -584,7 +595,13 @@ impl Supervisor {
         let apps: Vec<Value> = ids
             .into_iter()
             .map(|id| {
-                let mut row = entry(id, inner.catalog.packages.get(id), inner.mirror.apps.get(id));
+                let keys = self.page_key_overrides(&inner, id);
+                let mut row = entry(
+                    id,
+                    inner.catalog.packages.get(id),
+                    inner.mirror.apps.get(id),
+                    keys.as_ref(),
+                );
                 row.set("instance", self.instance_json(id));
                 let (run_state, can_rollback) = Self::run_facts(&inner, id);
                 if let Some(run_state) = run_state {
@@ -659,8 +676,13 @@ impl Supervisor {
                     }
                 })
                 .map(|()| {
-                    let mut record =
-                        entry(&app, inner.catalog.packages.get(&app), inner.mirror.apps.get(&app));
+                    let keys = self.page_key_overrides(&inner, &app);
+                    let mut record = entry(
+                        &app,
+                        inner.catalog.packages.get(&app),
+                        inner.mirror.apps.get(&app),
+                        keys.as_ref(),
+                    );
                     // Lets a client drop list replies older than this commit.
                     record.set("revision", json!(inner.mirror.revision));
                     record
@@ -901,6 +923,33 @@ impl Supervisor {
         guard
     }
 
+    /// Read an installed app's `cmux.keys` overrides only when its catalog
+    /// actually declares page keys. Other apps never open storage on list.
+    fn page_key_overrides(&self, inner: &Inner, app: &str) -> Option<Value> {
+        let installed = inner.mirror.apps.get(app).is_some_and(|r| r.installed);
+        if !installed || !inner.catalog.packages.get(app).is_some_and(Package::has_page_keys) {
+            return None;
+        }
+        let storage = self.storage();
+        let value = storage
+            .as_ref()?
+            .call(app, "app.storage.get", &json!({ "key": super::page_keys::OVERRIDES_KEY }))
+            .ok()?;
+        value.is_object().then_some(value)
+    }
+
+    /// Refresh every client after an app changes its page-key overrides.
+    pub(super) fn page_keys_changed(&self, app: &str) {
+        let revision =
+            self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner).mirror.revision;
+        self.emit(vec![Out::Broadcast(json!({
+            "event": "apps-changed",
+            "revision": revision,
+            "transaction": "page-keys",
+            "app": app,
+        }))]);
+    }
+
     /// Writes `apps.json` durably: temp file, fsync, rename.
     pub(super) fn persist(&self, mirror: &Mirror) -> std::io::Result<()> {
         use std::io::Write as _;
@@ -1045,7 +1094,12 @@ fn scope_classes(facts: &mirror::Facts) -> serde_json::Map<String, Value> {
 }
 
 /// One `apps-list` entry.
-pub(super) fn entry(id: &str, package: Option<&Package>, record: Option<&Record>) -> Value {
+pub(super) fn entry(
+    id: &str,
+    package: Option<&Package>,
+    record: Option<&Record>,
+    key_overrides: Option<&Value>,
+) -> Value {
     let facts = package.map(Package::facts);
     let source =
         record.map(|r| r.source).or(package.map(|p| p.source)).unwrap_or(mirror::Source::User);
@@ -1072,7 +1126,10 @@ pub(super) fn entry(id: &str, package: Option<&Package>, record: Option<&Record>
         // client may read icons and images straight from the package.
         "bundle_dir": package.map(|p| p.dir.to_string_lossy().into_owned()),
         // Palette entries (`apps-run {app, op}` runs them).
-        "commands": package.map(Package::palette_commands).unwrap_or_default(),
+        "commands": package.map(|p| p.palette_commands(key_overrides)).unwrap_or_default(),
+        // `contributes.keybindings` in keybindings.json form, for the
+        // client's app binding layer (an own op runs as `app.command.run`).
+        "keybindings": package.map(Package::keybindings).unwrap_or_default(),
         "manifest": package.map(|p| p.manifest.clone()).unwrap_or(Value::Null),
         // The web panes the client may host (`render: web`): each page's
         // file root inside `bundle_dir` and its entry file, as the manifest

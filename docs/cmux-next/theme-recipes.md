@@ -33,13 +33,16 @@ Each one is in the Theme File list by name. Your own file with the same name win
 | `moss` | A forest floor: deep green blocks with no lines, a lichen accent | `appearance.chromeStyle: "blocks"`, `appearance.theme: "Everforest Dark Hard"`, a darker `appearance.surfaces.sidebar.color` |
 | `meadow` | Moss in daylight: sage and cream blocks, a fern-green accent | `appearance.chromeStyle: "blocks"`, `appearance.theme: "Everforest Light Med"`, a sage `appearance.surfaces.sidebar.color` |
 | `lily-pond` | See-through teal blocks over Monet's water lilies, a lily-pink accent | `appearance.chromeStyle: "blocks"`, `appearance.background: "monet-water-lilies"`, `appearance.backgroundBlur: "glass"`, `appearance.surfaces.*.opacity` |
+| `miku` | Miku teal on sea-green glass, a teal cursor and pink accents, five public-domain teal paintings through the day; shuffles your own pictures once you name their folder | `colors.cursor`, `appearance.background: "schedule"`, `appearance.backgroundSchedule`, `appearance.backgroundBlur: "glass"` |
+| `minimal-sessions` | Only the sidebar: one line per session, its status first, then its name; your colors stay | `sidebar.workspaceRow.statusPlacement: "leading"`, `appearance.statusIndicator.iconSet`, `sidebar.detailedStatusIcons`, every `sidebar.workspaceRow.*` element off but `working` and `progress` (the spinners), `sidebar.showColors: false` |
 
 ## What a theme file can and can't change
 
 A theme file is a pit of success: it can only set how cmux looks, never what it does.
 
-- It takes look settings only: `appearance.*`, `ui.animation*`, `ui.calm`, the terminal font and the
-  sidebar's shape. A key that does something (a shortcut, a command, an agent setting) is refused
+- It takes look settings only: `appearance.*`, `ui.animation*`, `ui.calm`, the terminal font, the
+  sidebar's shape, how its rows draw (density, text size, status icons and where they sit, which
+  row elements show, the row layout) and its grouping. A key that does something (a shortcut, a command, an agent setting) is refused
   with "a theme file sets only look settings".
 - Each value gets the same check as `cmux settings set`. A bad one is dropped and the rest still
   applies.
@@ -73,6 +76,12 @@ as a set of fonts) installs the same way with `cmux snippet install`.
 
 `cmux theme import FILE` only copies one theme file into the themes folder; add `--use` to put it
 on, or run the `cmux theme use NAME` it prints.
+
+`cmux theme import FILE` also takes a terminal color scheme: base16 YAML, iTerm2 `.itermcolors`,
+Windows Terminal JSON, a Ghostty theme, or a VS Code color theme (the `.json` an editor theme
+extension ships; comments and trailing commas are fine). A VS Code theme's `terminal.ansi*`
+colors become the 16 terminal colors; one without them gets each from its nearest syntax color.
+It installs as a terminal theme; `cmux theme set appearance.theme "<its name>"` puts it on.
 
 ## Share a theme so people find it
 
@@ -157,7 +166,7 @@ the primitives that keep a mod fast.
 
 ## The thinking look (settings a look sets)
 
-A look's setup can set how the running line and Jump to latest move while an agent works. All four
+A look's setup can set how the running line and Jump to latest move while an agent works. All of them
 are agent-settable settings (`cmux settings set`, the palette, MCP `settings_set`); each default
 draws what cmux draws without a look, and a change applies at once:
 
@@ -166,10 +175,69 @@ draws what cmux draws without a look, and a change applies at once:
 | `agentPane.display.thinking.shimmer` | `cadenced`, `continuous` | `cadenced` | `continuous`: the light band crosses the running line's words and running tool rows pass after pass, eased in and out, as Claude's desktop app draws it. `cadenced` is one one-second pass every four seconds |
 | `agentPane.display.thinking.shimmerPeriod` | 600 to 4000 ms | 1250 | One continuous pass |
 | `agentPane.display.thinking.shimmerBand` | 0 to 240 px | 0 | The band's lit width on any line; 0 keeps the band half the line wide |
-| `agentPane.display.thinking.jumpButton` | `arrow`, `dots` | `arrow` | `dots`: while the agent works, Jump to latest shows three dots in the theme accent that trade size between the middle and the ends; the arrow shows on hover and once the agent stops |
+| `agentPane.display.thinking.jumpButton` | `arrow`, `dots`, `glyph` | `arrow` | `dots`: while the agent works, Jump to latest shows three dots in the theme accent that trade size between the middle and the ends; `glyph`: it plays the look's thinking glyph instead (below). The arrow shows on hover and once the agent stops |
+| `agentPane.display.thinking.glyph` | a `cmux.particles/1` document | none | The look's own thinking dots, played before the running line's words while the agent works, each activity with the document's trigger for it (`read`, `execute`, `sendMessage`, `thinking`, ...; any other plays `cycle`). The document format is [ABI.md "Particles choreography"](../../cmux-tui/crates/cmux-app-host/js/ABI.md); cmux refuses an invalid one and says where it goes wrong |
+| `agentPane.display.thinking.glyphSize` | 0 to 16 pt | 0 | The dot size Jump to latest plays the glyph at; 0 keeps the document's `particle.size`. The running line and sidebar rows always use the document's size |
+
+A look keeps the glyph as a file of its folder and names it in `cmux-setup.json`; installing the look
+or `cmux customize try PATH/cmux-setup.json` reads the file into the setting:
+
+```json
+"settings": {
+  "agentPane.display.thinking.glyph": { "$file": "thinking-glyph.json" },
+  "agentPane.display.thinking.glyphSize": 2.4,
+  "agentPane.display.thinking.jumpButton": "glyph"
+}
+```
+
+`{"$file": PATH}` works for any setting: PATH is relative, inside the look's folder, a plain file
+(no link) under 64 KB of JSON or JSONC. The look's own sidebar rows (`cmux.sidebar.rows/1`) can
+play the same glyph while a row works with `indicator: "glyph"` (or `{"choreography": "glyph",
+"trigger": "execute"}`), or a document of their own with `{"choreography": {...}, "trigger": ...}`.
 
 Reduce Motion, static status indicators and animations off hold all of them still. The Claude look
 sets `continuous`, 1250, 80 and `dots`.
+
+## Surface tokens (shape, edge and shadow)
+
+A look restyles a surface's corner, edge and shadow in two ways: settings, for the surfaces the app
+draws natively, and CSS variables, for the web surfaces a look's stylesheet reaches
+(`agent-pane/theme.css`, `markdown/theme.css`, `diff/theme.css`, `picker/theme.css`,
+`fileViewer/theme.css`; a recipe ships them beside its settings). Every token's default draws what cmux
+draws without a look.
+
+Every button and text field on those pages (`ui/controls.css`):
+
+| Variable | Default | What it sets |
+| --- | --- | --- |
+| `--cmux-button-radius` | the control radius (`--ds-radius-control`) | every button's corner, all sizes |
+| `--cmux-button-border` | `0` | every button's border (a `border` value: `1px solid #0001`) |
+| `--cmux-button-shadow` | `none` | every button's shadow at rest: a paired light and dark drop shadow, say |
+| `--cmux-input-radius` | the field radius (`--ds-radius-sm`, `-md`, `-lg` by size) | every text field's corner, all sizes |
+| `--cmux-input-border` | `0` | every text field's border |
+| `--cmux-input-shadow` | `none` | every text field's shadow: an inset well, say |
+
+A shadow token loses to a variant's own edge (the outline field's hairline) and to every focus ring,
+so focus stays visible in any look.
+
+```css
+:root {
+  --cmux-button-radius: 14px;
+  --cmux-button-shadow: -3px -3px 6px rgb(255 255 255 / 70%), 3px 3px 6px rgb(0 0 0 / 14%);
+  --cmux-input-shadow: inset 2px 2px 4px rgb(0 0 0 / 12%), inset -2px -2px 4px rgb(255 255 255 / 70%);
+}
+```
+
+The native surfaces take settings a theme file sets:
+
+| Surface | Settings |
+| --- | --- |
+| Every edge at once | `appearance.borders` (`none` clears them), `appearance.chromeStyle` |
+| Glass, window wide | `appearance.backgroundBlur` (`none` turns it off), `appearance.glassTransparency` |
+| Panes | `layout.paneCornerRadius`, `layout.cornerPadding`, `layout.paneBorder`, `layout.paneBorderWidth`, `layout.paneBorderColor`, `appearance.cornerFlush` |
+| Split dividers | `appearance.surfaces.splitDivider.color` and `.opacity`, `appearance.metrics.dividerThickness` |
+| Sidebar | `sidebar.border`, `sidebar.borderWidth`, `sidebar.sectionLook`, `appearance.surfaces.sidebar.*` |
+| Omnibar | `browser.omnibar.cornerRadius`, `browser.omnibar.shadow`, `browser.omnibar.glass` |
 
 ## Not in a theme file yet
 
@@ -177,3 +245,7 @@ These parts of a look are still built into the app:
 
 - the thinking indicator's look in the agent pane (a Debug setting today, `StatusWorkingLook`)
 - the motion of the jump to latest button, beyond `agentPane.display.thinking.jumpButton` above
+- a shadow on any native surface (sidebar rows and sections, panes, split dividers, the tab bar and
+  titlebar buttons), and a corner radius or border for the sidebar's rows and sections apart from
+  the settings above
+- glass on or off for one native surface rather than the whole window

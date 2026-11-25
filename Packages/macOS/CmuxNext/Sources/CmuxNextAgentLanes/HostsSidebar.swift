@@ -1,6 +1,8 @@
 public import CmuxNextServer
 public import CmuxNextSidebar
 import CmuxNextCompat
+import CmuxNextDesignTokens
+import CmuxNextWakeups
 import Foundation
 public import Observation
 
@@ -54,7 +56,7 @@ public final class HostsSidebar {
             self.stopAging = stopAging
         }
 
-        /// Mesh-only joined Macs use the signed-in dial flow; linked rows use the ordinary workspace action.
+        /// Mesh-only joined machines (Mac or Linux) use the signed-in dial flow; linked rows use the ordinary workspace action.
         public func open(_ machine: MachineSectionRow) {
             switch MachineRow(machine: machine).action {
             case .dialJoined(let joined): openJoined(joined)
@@ -79,10 +81,9 @@ public final class HostsSidebar {
 
         var action: RowAction? {
             if let joined = machine.joined, machine.id == JoinedMachine.healthID(joined.id) {
-                // A mesh-only joined row is a presence/management row. Only an online Mac
-                // supports the signed-in dial flow; Linux and Windows rows have no daemon
-                // machine id that workspace.newOnMachine could accept.
-                return joined.state == .online && joined.isMac ? .dialJoined(joined) : nil
+                // A mesh-only joined row opens through its hub route (``SignedInMachineDial``), which
+                // makes the server row workspace.newOnMachine runs on; an offline one stays closed.
+                return joined.opensOverHub ? .dialJoined(joined) : nil
             }
             return machine.isConnected ? .newWorkspace : .connect
         }
@@ -99,7 +100,6 @@ public final class HostsSidebar {
     @ObservationIgnored private var visible: @MainActor () -> Bool = { true }
     @ObservationIgnored private var running = false
     public private(set) var expanded = true
-
     public init(host: Host? = nil, visible: @escaping @MainActor () -> Bool = { true }) {
         self.host = host
         self.visible = visible
@@ -185,6 +185,20 @@ public final class HostsSidebar {
         return Self.rows(machines: host.rows(), expanded: expanded)
     }
 
+    /// A connect nobody asked for in this row (a launch connect, a redial) draws nothing: the row keeps its name,
+    /// no "Connecting…", no spinner, however long it lasts (Leo, 2026-11-24: "all the connecting... indicators and
+    /// the graying out of workspaces, nah let's not do that. let's just keep optimistically connecting and
+    /// reinforcing the connection"). A resume the person started and a failure are still said.
+    nonisolated static func holdsConnect(_ machine: MachineSectionRow) -> Bool {
+        guard machine.isConnecting, !machine.failed else { return false }
+        // A Cloud machine the person is waking (resuming) or that is paused/failed/deleted still says so.
+        switch machine.serverState {
+        case nil: return true
+        case .some(.resuming), .some(.paused), .some(.failed), .some(.deleted): return false
+        default: return true
+        }
+    }
+
     /// Handles the header, Add Host and machine-row clicks. Returns false for another transient item.
     public func activate(_ id: LayoutItemID) -> Bool {
         guard let host, host.enabled() else { return false }
@@ -214,7 +228,7 @@ public final class HostsSidebar {
         }
 
         var header = SidebarItemInfo(title: "Hosts", symbol: "server.rack", badge: machines.isEmpty ? nil : machines.count)
-        header.activity = machines.contains(where: { $0.isConnecting && !$0.failed }) ? .working : .idle
+        header.activity = machines.contains(where: { $0.isConnecting && !$0.failed && !holdsConnect($0) }) ? .working : .idle
         add(Self.headerID, header)
         guard expanded else { return items }
 
@@ -224,11 +238,13 @@ public final class HostsSidebar {
         add(Self.addID, addHost)
         for machine in machines {
             var info = SidebarItemInfo(title: machine.name, symbol: symbol(for: machine))
-            info.caption = caption(for: machine)
+            let quiet = holdsConnect(machine)
+            // A connect says nothing about the link: no caption (the tile shows the name), no spinner.
+            info.caption = quiet ? nil : caption(for: machine)
             info.tooltip = machine.failure
             info.indent = 1
-            info.isMissing = !machine.isConnected && !machine.isConnecting && machine.serverState == nil
-            info.activity = machine.isConnecting && !machine.failed ? .working : .idle
+            // Never greyed: an offline machine says "Offline" in its caption, at full strength.
+            info.activity = machine.isConnecting && !machine.failed && !quiet ? .working : .idle
             add(LayoutItemID(Self.rowPrefix + machine.id), info)
         }
         return items
@@ -254,7 +270,6 @@ public final class HostsSidebar {
             case .deleted: return "Deleted"
             }
         }
-        if machine.isConnecting { return "Connecting…" }
         return machine.isConnected ? "Connected" : "Offline"
     }
 }
