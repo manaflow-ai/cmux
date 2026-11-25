@@ -61,6 +61,9 @@ public final class HostBrowserSignInFlow {
     @ObservationIgnored private var popupAge: (attemptID: UInt64, isFresh: @Sendable () -> Bool)?
     @ObservationIgnored private var activeCallbackState: String?
     @ObservationIgnored private var activeAttemptSelectsAccount = false
+    /// The active attempt's own page opener (the app's in-app browser tab), used instead of
+    /// `openExternalURL` for its first open; nil opens in the default browser.
+    @ObservationIgnored private var activeAttemptOpener: (@MainActor (URL) -> Bool)?
     @ObservationIgnored private var pendingManualCallbackState: String?
     /// App-issued states a callback may present after the popup ends.
     @ObservationIgnored private var issuedCallbackStates = HostBrowserIssuedCallbackStates()
@@ -144,6 +147,26 @@ public final class HostBrowserSignInFlow {
             return activeAttemptTask
         }
         return startAttempt(selectAccount: selectAccount, inDefaultBrowser: inDefaultBrowser)
+    }
+
+    /// Start a sign-in whose hosted page `open` shows (the app's own browser tab) instead of the popup.
+    /// The attempt waits for its `<scheme>://auth-callback` as after a default-browser handoff, and that
+    /// callback must still carry the attempt's state (``handleCallbackURL(_:delivery:)``). When `open`
+    /// cannot show the page, the default browser opens it. A handed-off attempt is reused as in
+    /// ``beginSignIn(selectAccount:inDefaultBrowser:)``.
+    @discardableResult
+    public func beginSignIn(selectAccount: Bool = false, openingWith open: (@MainActor (URL) -> Bool)?) -> Task<Bool, Never> {
+        guard let open else { return beginSignIn(selectAccount: selectAccount, inDefaultBrowser: true) }
+        log.log("auth.browser.beginSignIn signedIn=\(coordinator.isAuthenticated) signingIn=\(isSigningIn) selectAccount=\(selectAccount) inApp=true")
+        if !selectAccount,
+           let activeAttemptID,
+           handedOffAttemptID == activeAttemptID,
+           let activeAttemptTask {
+            isPresentingSignIn = true
+            signInIsSlow = true
+            return activeAttemptTask
+        }
+        return startAttempt(selectAccount: selectAccount, inDefaultBrowser: true, opener: open)
     }
 
     /// Ends the sign-in in progress (the person's Cancel). A late callback
@@ -330,12 +353,14 @@ public final class HostBrowserSignInFlow {
 
     // MARK: - Attempt lifecycle
 
-    private func startAttempt(selectAccount: Bool = false, inDefaultBrowser: Bool = false) -> Task<Bool, Never> {
+    private func startAttempt(selectAccount: Bool = false, inDefaultBrowser: Bool = false,
+                              opener: (@MainActor (URL) -> Bool)? = nil) -> Task<Bool, Never> {
         if let activeAttemptID {
             log.log("auth.browser.attempt.replace previous=\(activeAttemptID)")
         }
         cancelActiveAttempt()
         activeAttemptSelectsAccount = selectAccount
+        activeAttemptOpener = opener
         lastFailure = nil
         nextAttemptID &+= 1
         let attemptID = nextAttemptID
@@ -452,7 +477,16 @@ public final class HostBrowserSignInFlow {
         signInIsSlow = true
         guard handedOffAttemptID != attemptID, let state = activeCallbackState else { return }
         log.log("auth.browser.handoff.continueInDefaultBrowser attempt=\(attemptID)")
-        if openExternalURL(attemptSignInURL(state)) {
+        let url = attemptSignInURL(state)
+        // The attempt's own opener (the in-app tab) first, once; the default browser when it cannot show the page.
+        let opener = activeAttemptOpener
+        activeAttemptOpener = nil
+        let opened = opener.map { open in
+            let shown = open(url)
+            log.log("auth.browser.handoff.inApp attempt=\(attemptID) shown=\(shown)")
+            return shown
+        } ?? false
+        if opened || openExternalURL(url) {
             // Browser launched: keep the attempt parked so the
             // eventual cmux://auth-callback resumes it. A parked handoff that
             // never gets its callback ends after the handoff wait, not the
@@ -526,6 +560,7 @@ public final class HostBrowserSignInFlow {
         activeAttemptTask = nil
         handedOffAttemptID = nil
         activeCallbackState = nil
+        activeAttemptOpener = nil
         issuedCallbackStates.removeAll()
         activeSession?.cancel()
         activeSession = nil
