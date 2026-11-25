@@ -556,6 +556,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
 
     let store = crate::store::open(&config.store, &home())?;
     crate::mcp_gateway::start(&home()).await; // before any session starts
+    #[cfg(unix)]
+    crate::mcp_pool::start(&home()).await;
     let mut moved_listener = false;
     // The handed web listener, when it is bound where this start would bind (and the address
     // still passes the listener rule above); otherwise closed before the bind below.
