@@ -4852,6 +4852,27 @@ class UnreadPartFirstTests(unittest.TestCase):
         d = cron.decide(state, at(30), None, None, self.supported, None, newest=self.NEW)
         self.assertEqual(d["action"], "finish")
 
+    def test_a_tip_whose_build_failed_gives_way_after_its_linux_bound(self):
+        # 2026-11-25: tip 6c8931ce22be's app build failed at 10:32Z; its 24 Linux parts held a newer tip off for hours.
+        state = cron.empty_state(T0)
+        state["part_stored"] = {n: {"sha": self.OLD, "at": cron.iso(T0), "rows": 1} for n in ALL if n != "build"}
+        cron.decide(state, T0, self.OLD, None, self.supported, None)
+        cur = state["current"]
+        cron.record_part(cur, "build", {"state": "failed", "build_failed": True, "worker": cron.BENCH_WORKER}, "u", T0)
+        self.assertTrue(cron.build_failed_tip(cur))
+        d = cron.decide(state, at(1), None, None, self.supported, None, newest=None)
+        self.assertNotIn("superseded", state["current"], "no newer commit: it keeps going")
+        d = cron.decide(state, at(1), None, None, self.supported, None, newest=self.NEW)
+        self.assertEqual(state["current"]["superseded"]["by"], self.NEW)
+        self.assertIn("coord-sim", d["linux_parts"], "its Linux parts still run inside the bound")
+        d = cron.decide(state, at(1 + cron.SUPERSEDED_LINUX_HOURS + 0.1), None, None, self.supported, None, newest=self.NEW)
+        self.assertEqual(d["action"], "finish")
+        self.assertIn("build failed", d["reason"])
+
+    def test_a_bisect_step_whose_build_failed_is_not_superseded(self):
+        cur = {"kind": "bisect", "sha": self.OLD, "parts": {"wake": {"state": "build_failed"}}}
+        self.assertFalse(cron.build_failed_tip(cur), "a bisect step skips the commit when it ends (drop_dead_measurement)")
+
     def test_an_unread_part_goes_ahead_of_a_stale_one(self):
         state = self.mid_tip()
         state["part_stored"]["wake"]["at"] = cron.iso(at(-40))
