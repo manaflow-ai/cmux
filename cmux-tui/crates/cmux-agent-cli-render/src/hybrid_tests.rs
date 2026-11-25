@@ -13,6 +13,69 @@ fn grid(rows: &[&[(&str, Style)]]) -> Grid {
     grid
 }
 
+/// A colored wide glyph's right half looks like a blank, but it goes with its glyph in one
+/// set: a clear of the right half alone would erase the glyph in the viewer's terminal.
+#[test]
+fn a_wide_glyph_and_its_right_half_change_together() {
+    let drawn = Grid::blank(20, 4);
+    let mut overlay = Overlay::new(20, 4);
+    overlay.apply(&overlay.diff(&drawn, &grid(&[&[("ab", Style::PLAIN)]])));
+    let real = grid(&[&[("漢", Style::fg(174))]]);
+    let spans = overlay.diff(&drawn, &real);
+    assert_eq!(spans.len(), 1, "{spans:?}");
+    let Span::Set { row: 0, col: 0, cells } = &spans[0] else { panic!("{spans:?}") };
+    assert_eq!(cells.len(), 2, "{spans:?}");
+    assert_eq!((cells[0].text.as_str(), cells[1].text.as_str()), ("漢", ""));
+}
+
+/// A wide glyph whose right half changes to another style (a plain spacer) is written after
+/// its right half, so the blank there does not erase it.
+#[test]
+fn a_wide_glyph_goes_after_a_right_half_of_another_style() {
+    let drawn = Grid::blank(20, 4);
+    let mut overlay = Overlay::new(20, 4);
+    overlay.apply(&overlay.diff(&drawn, &grid(&[&[("abc", Style::PLAIN)]])));
+    let mut real = grid(&[&[("x漢y", Style::fg(174))]]);
+    real.cells[0][2].style = Style::PLAIN;
+    let spans = overlay.diff(&drawn, &real);
+    let at: Vec<(u16, u16, usize)> = spans
+        .iter()
+        .map(|s| match s {
+            Span::Set { row, col, cells } => (*row, *col, cells.len()),
+            Span::Clear { row, col, len } => (*row, *col, usize::from(*len)),
+        })
+        .collect();
+    assert_eq!(at, vec![(0, 0, 1), (0, 2, 1), (0, 1, 1), (0, 3, 1)], "{spans:?}");
+    let Span::Set { cells, .. } = &spans[2] else { panic!("{spans:?}") };
+    assert_eq!(cells[0].text, "漢");
+    overlay.apply(&spans);
+    assert_eq!(real.parity(&overlay.compose(&drawn)), (80, 80));
+}
+
+/// A wide glyph that opens its span, with a right half of another style, ends that span: no
+/// set of no cells is left open for the next change to send (the phone refuses one and falls
+/// back, the claude-code-2.1.310 parity fixture's frame 31).
+#[test]
+fn a_wide_glyph_alone_in_its_span_leaves_no_empty_set() {
+    let drawn = Grid::blank(20, 4);
+    let mut overlay = Overlay::new(20, 4);
+    overlay.apply(&overlay.diff(&drawn, &grid(&[&[("abc", Style::PLAIN)]])));
+    let mut real = grid(&[&[("漢y", Style::fg(174))]]);
+    real.cells[0][1].style = Style::PLAIN;
+    let spans = overlay.diff(&drawn, &real);
+    let at: Vec<(u16, u16, usize)> = spans
+        .iter()
+        .map(|s| match s {
+            Span::Set { row, col, cells } => (*row, *col, cells.len()),
+            Span::Clear { row, col, len } => (*row, *col, usize::from(*len)),
+        })
+        .collect();
+    assert!(at.iter().all(|&(_, _, n)| n > 0), "{spans:?}");
+    assert_eq!(at, vec![(0, 1, 1), (0, 0, 1), (0, 2, 1)], "{spans:?}");
+    overlay.apply(&spans);
+    assert_eq!(real.parity(&overlay.compose(&drawn)), (80, 80));
+}
+
 #[test]
 fn a_delta_turns_the_drawn_screen_into_the_real_one() {
     let drawn = grid(&[&[("> hi", Style::PLAIN)], &[("hello", Style::fg(174))]]);
