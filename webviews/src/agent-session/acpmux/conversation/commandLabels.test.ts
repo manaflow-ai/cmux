@@ -33,9 +33,10 @@ const label = (item: AcpmuxActivity) => {
   return toolLabel(
     item.tool!,
     item.text,
-    (command) => t(running ? "tools.runningCommand" : "tools.ranCommand", { command }),
+    (command) => (running ? command : t("tools.ranCommand", { command })),
     undefined,
-    t(running ? "tools.runningUnnamed" : "tools.ranUnnamed"),
+    running ? undefined : t("tools.ranUnnamed"),
+    !running,
   );
 };
 
@@ -218,7 +219,7 @@ test("a running command reads as written until it finishes; cleaning is for fini
   const item = shell(`agent-memory search "better tooltips" 2>/dev/null | head -10`, {
     status: "in_progress",
   });
-  expect(label(item)).toBe(`Running agent-memory search "better tooltips" 2>/dev/null | head -10`);
+  expect(label(item)).toBe(`agent-memory search "better tooltips" 2>/dev/null | head -10`);
 });
 
 test("the live line names the command as written, whitespace normalised", () => {

@@ -89,8 +89,9 @@
 //! - an idle chat: as ONE turn of its own, at once for messages the person's own turn held back
 //!   ([`Inbox::held_by_person`]; FYIs alone are not held so, they wait for the flush as they
 //!   would have in that turn), else [`WAKE_DEBOUNCE_MS`] after the oldest message that may
-//!   wake it came (a burst is one turn), or [`FLUSH_MS`] after the oldest of any, so none is
-//!   stranded. A message that may wake it: a blocker (a block or a question,
+//!   wake it came (a burst is one turn). What may not wake it waits for its next turn, never a
+//!   flush of its own (a cold prompt cache rewritten to carry FYIs), except a coordinator's held
+//!   status, which goes [`FLUSH_MS`] after it came (`inbox_page_rule.rs`). A message that may wake it: a blocker (a block or a question,
 //!   `prompt_class.rs`), a report of work it gave (a lane's report, a task's result), or an
 //!   action (a result, the default) from the session that started it
 //!   (its lineage parent) or the one that first gave it work (`SessionMeta::delegator`: the
@@ -1241,7 +1242,10 @@ fn first_work_waits(session: &Session) -> bool {
 /// turn's continuation, the cache compaction), whose turns take notices and steers as before.
 pub(super) fn persons_prompt(agent: Option<&str>, provenance: Option<&Value>) -> bool {
     let kind = provenance.and_then(|p| p.get("kind")).and_then(Value::as_str);
-    let auto_resume = matches!(kind, Some("auto_resume" | super::idle::cache_compact::KIND));
+    let auto_resume = matches!(
+        kind,
+        Some("auto_resume" | super::idle::cache_compact::KIND | super::cold_wake::KIND)
+    );
     agent.is_none()
         && !auto_resume
         && !is_notice(provenance)
@@ -1737,8 +1741,6 @@ impl Hub {
                 // `FLUSH_MS` old (module docs).
                 // A folded repeat (`inbox_page_rule.rs`) waits as an FYI does.
                 let fyi_only = new.iter().all(|i| ordinary_fyi(i) || folded(i));
-                // A folded repeat starts no flush of its own in an idle chat.
-                let clocked = new.iter().filter(|i| !folded(i)).map(|i| i.at).min();
                 // Read before a Stop's `due_now` below takes the inbox mutably.
                 let urgent = new.iter().any(|i| steers_at_once(&meta, i));
                 let coalesced = new
@@ -1774,6 +1776,7 @@ impl Hub {
                             }
                             if stopping
                                 || !steers
+                                || turn.prompt_id.starts_with(super::cold_wake::COMPACT_ID_PREFIX)
                                 || turn.persons
                                 || inbox.held_by_person
                                 || capped(&meta, turn.started_at, now)
@@ -1820,15 +1823,41 @@ impl Hub {
                             // waited there too, so the hold lets go of them and they wait for the
                             // flush or the next notice.
                             let waking = new.iter().filter(|i| wakes(&meta, i)).map(|i| i.at).min();
-                            let flush = clocked.map_or(u64::MAX, |at| at.saturating_add(FLUSH_MS));
+                            // No flush of its own in an idle chat off the coordinator list: what
+                            // wakes nobody waits for the chat's next real turn. Each flush was a
+                            // turn of its own [`FLUSH_MS`] on, past a 5-minute prompt cache, so a
+                            // full cache write to carry FYIs and results nobody asked to wake for
+                            // (one lane VM, 24 h: 191 `[inbox]` notice turns, 91 of them
+                            // more than 5 minutes after the chat's last reply). Leo, 2026-11-25:
+                            // "let's continue while not doing bad cache writes!". A coordinator's
+                            // held status (`inbox_page_rule.rs`, judged) keeps its 20-minute
+                            // ceiling.
+                            let flush = new
+                                .iter()
+                                .filter(|i| !folded(i) && i.verdict.is_some())
+                                .map(|i| i.at)
+                                .min()
+                                .map_or(u64::MAX, |at| at.saturating_add(FLUSH_MS));
+                            // A blocker or a fire notice wakes after the burst window; anything
+                            // else that wakes a chat whose prompt cache lapsed waits for its cold
+                            // batch (`cold_wake.rs`), and goes in with what else came meanwhile.
+                            let blocker = new.iter().any(|i| {
+                                i.fire
+                                    || matches!(i.class, PromptClass::Block | PromptClass::Question)
+                            });
                             if fyi_only {
                                 inbox.held_by_person = false;
                             }
+                            let cold = if blocker || waking.is_none() {
+                                None
+                            } else {
+                                self.cold_batch_due(session, &meta, now)
+                            };
                             let due = if inbox.held_by_person || inbox.due_now {
                                 now
                             } else {
                                 waking.map_or(flush, |at| {
-                                    at.saturating_add(WAKE_DEBOUNCE_MS).min(flush)
+                                    cold.unwrap_or(at.saturating_add(WAKE_DEBOUNCE_MS)).min(flush)
                                 })
                             };
                             let retry = match inbox.refused_at {
@@ -2144,6 +2173,7 @@ impl Hub {
     /// back, and its wake timer is done.
     pub(super) fn inbox_turn_started(self: &Arc<Self>, session: &Arc<Session>) {
         self.disarm_inbox(session);
+        self.cold_batch_turn_started(session);
         let persons = persons_turn(session);
         let mut inbox = session.inbox();
         inbox.refused_at = 0;
@@ -2285,7 +2315,15 @@ impl Hub {
         let surge_on = self.surge_inbox_on();
         let mut counts = surge::Counts::default();
         let mut recent_held = std::collections::VecDeque::new();
-        let mut items: Vec<Item> = Vec::new();
+        // The messages the scan holds, in log order; a slot empties when its message is
+        // withdrawn (`inbox_removed`), so a long inbox of handled messages is never held whole.
+        let mut items: Vec<Option<Item>> = Vec::new();
+        let mut slots: std::collections::HashMap<String, Vec<usize>> = Default::default();
+        // The ids of the messages withdrawn while the scan held them (or after it read their
+        // withdrawal): each is marked removed below, as a held one was.
+        let mut removed_held: Vec<String> = Vec::new();
+        // Whether the log holds any message the scan did not hold apart (a surge-held one).
+        let mut any_item = false;
         let mut noticed: std::collections::HashMap<String, String> = Default::default();
         let mut read: std::collections::HashSet<String> = Default::default();
         let mut removed: std::collections::HashSet<String> = Default::default();
@@ -2353,7 +2391,13 @@ impl Hub {
                         }
                         recent_held.push_back(item);
                     } else {
-                        items.push(item);
+                        any_item = true;
+                        if removed.contains(&item.prompt_id) {
+                            removed_held.push(item.prompt_id);
+                        } else {
+                            slots.entry(item.prompt_id.clone()).or_default().push(items.len());
+                            items.push(Some(item));
+                        }
                     }
                 }
                 "inbox_noticed" => {
@@ -2375,14 +2419,22 @@ impl Hub {
                 "inbox_read" => read.extend(ids()),
                 "inbox_removed" => {
                     let id = e.msg.get("promptId").and_then(Value::as_str).unwrap_or_default();
+                    for slot in slots.remove(id).unwrap_or_default() {
+                        if let Some(item) = items.get_mut(slot).and_then(Option::take) {
+                            removed_held.push(item.prompt_id);
+                        }
+                    }
                     removed.insert(id.to_owned());
                 }
                 _ => {}
             }
             true
         });
+        drop(slots);
+        let mut items: Vec<Item> = items.into_iter().flatten().collect();
+        any_item |= !recent_held.is_empty();
         items.extend(recent_held);
-        if scanned.is_err() || (items.is_empty() && counts.seq == 0) {
+        if scanned.is_err() || (!any_item && counts.seq == 0) {
             return;
         }
         // The state itself: `Session::inbox` calls this to fill it.
@@ -2394,6 +2446,10 @@ impl Hub {
                 *live = counts;
             }
         }
+        inbox.removed.extend(removed_held);
+        // The ids the inbox holds: a set, not a walk of the inbox for each restored message.
+        let mut held: std::collections::HashSet<String> =
+            inbox.items.iter().map(|i| i.prompt_id.clone()).collect();
         for mut item in items {
             if removed.contains(&item.prompt_id) {
                 inbox.removed.insert(item.prompt_id.clone());
@@ -2404,7 +2460,7 @@ impl Hub {
                 || removed.contains(&item.prompt_id)
                 || inbox.removed.contains(&item.prompt_id)
                 || inbox.trimmed.contains(&item.prompt_id)
-                || inbox.items.iter().any(|i| i.prompt_id == item.prompt_id)
+                || held.contains(&item.prompt_id)
             {
                 continue;
             }
@@ -2417,6 +2473,7 @@ impl Hub {
                 surge_held = true;
             }
             item.read |= read.contains(&item.prompt_id);
+            held.insert(item.prompt_id.clone());
             inbox.items.push(item);
         }
         trim(&mut inbox);
@@ -2505,13 +2562,13 @@ impl Hub {
         let (mut found, mut removed, mut noticed) = (false, false, false);
         let mut surge_thread = None;
         let mut answer: Option<super::queue::Answer> = None;
-        let kinds = ["inbox", "inbox_noticed", "inbox_answered", "inbox_removed"];
+        let kinds = INBOX_ANSWER_KINDS;
         // Only the records naming it are read whole: by `promptId`, or in a list of prompts
         // (`promptIds`, which the head holds: a coordinator's every resend read all its notices).
         let keep = &mut |h: &crate::store::KindHead<'_>| -> bool {
             h.unread || h.prompt_id == Some(prompt_id) || h.names(|p| p == prompt_id)
         };
-        let _ = self.scan_for_rebuild_keyed(session, &kinds, keep, &mut |e: EventRecord| {
+        let _ = self.scan_for_rebuild_keyed(session, kinds, keep, &mut |e: EventRecord| {
             let own = e.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id);
             match e.kind.as_str() {
                 "inbox" if own => {
@@ -2748,24 +2805,29 @@ fn trim(inbox: &mut Inbox) {
         .chain(inbox.carrying.iter().map(|c| &c.ids))
         .flat_map(|ids| ids.iter().cloned())
         .collect();
-    while inbox.items.len() > KEEP {
-        let gone = |i: &Item| {
-            i.surge_held
-                || (i.read && i.noticed && i.answered.is_some() && !carried.contains(&i.prompt_id))
-        };
-        match inbox.items.iter().position(gone) {
-            Some(i) => {
-                let item = inbox.items.remove(i);
-                // The archive reader and resend ledger still resolve an evicted held post.
-                if item.surge_held {
-                    inbox.held_evicted.insert(item.thread);
-                } else {
-                    inbox.trimmed.insert(item.prompt_id);
-                }
+    let gone = |i: &Item| {
+        i.surge_held
+            || (i.read && i.noticed && i.answered.is_some() && !carried.contains(&i.prompt_id))
+    };
+    // The oldest `excess` messages that may go, in one pass. One `Vec::remove` each moved every
+    // later message, so restoring a long inbox cost its length squared.
+    let mut excess = inbox.items.len() - KEEP;
+    let items = std::mem::take(&mut inbox.items);
+    let mut kept = Vec::with_capacity(items.len() - excess);
+    for item in items {
+        if excess > 0 && gone(&item) {
+            excess -= 1;
+            // The archive reader and resend ledger still resolve an evicted held post.
+            if item.surge_held {
+                inbox.held_evicted.insert(item.thread);
+            } else {
+                inbox.trimmed.insert(item.prompt_id);
             }
-            None => break,
+        } else {
+            kept.push(item);
         }
     }
+    inbox.items = kept;
 }
 
 #[path = "inbox_team_page.rs"]
@@ -2774,3 +2836,8 @@ mod team_page;
 #[cfg(test)]
 #[path = "inbox_tests.rs"]
 mod tests;
+
+/// The kinds a resent inbox message's answer is read from (`Hub::logged_inbox_answer`): each is in
+/// `store` `KEYED_KINDS`, so the read takes the chat's held heads (a test keeps them there).
+pub(crate) const INBOX_ANSWER_KINDS: &[&str] =
+    &["inbox", "inbox_noticed", "inbox_answered", "inbox_removed"];

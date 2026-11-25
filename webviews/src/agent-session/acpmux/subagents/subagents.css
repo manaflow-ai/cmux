@@ -529,12 +529,14 @@ button.cv-subagent > :last-child {
 }
 /* The running turn's todo list, opened from the header (SubagentTray.tsx `plan`; Leo, 2026-11-03, on
    the composer hat): the plan's own marks in the lines' icon column, one line per step, no card of its
-   own inside the tray's glass. Past five steps it scrolls in place, as the lines do. In a short pane
-   it gives up height alongside the lines, so neither one is pushed out of the clipped tray. */
+   own inside the tray's glass. Up to eight steps show whole (a sixth step hid under five rows with no
+   sign it was there, cmux#51039); past that it scrolls in place with the step at work kept in view
+   (SubagentTray.tsx `planBox`). In a short pane it gives up height alongside the lines, so neither
+   one is pushed out of the clipped tray. */
 .acpmux-running-tray__plan {
   flex: 0 1 auto;
   min-height: 0;
-  max-height: calc(5 * var(--ui-row-height, 28px));
+  max-height: calc(8 * var(--ui-row-height, 28px));
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -1368,11 +1370,6 @@ button.cv-subagent > :last-child {
   flex: none;
   margin-inline-start: auto;
 }
-/* Started task names use the available sentence width instead of the shared tag's 40% cap. */
-.cv-subagent-started .cv-agent-activity__sentence > .cv-agent-tag {
-  flex: 0 1 auto;
-  max-width: none;
-}
 /* The name chip takes the room the line has and is cut, with an ellipsis, only at the row's edge,
    never at AgentTag.css's 40% cap (#29754); the words before it keep their width. A block box so
    text-overflow draws the ellipsis; the 20px line keeps it one line. */
@@ -2041,6 +2038,9 @@ button.cv-subagent > :last-child {
   /* How strong the surface is: faint at rest once revealed, so it reads as a control before the
      pointer reaches it; lit on hover; darker while pressed. */
   --acpmux-tuck-ink: 6%;
+  /* Over the rim's resize band (a resize handle's layer, scrollers.ts RESIZE_HANDLE_CSS), so the
+     revealed tuck keeps the middle of the band's clicks. */
+  z-index: calc(var(--cmux-resize-handle-layer, 2) + 1);
   top: 0;
   width: calc(2 * var(--ds-space-48));
   height: var(--ds-space-3);
@@ -2836,8 +2836,9 @@ button.cv-subagent > :last-child {
      colour (a dark slab on the hat's lighter glass, the same fault as the icons' old ring): the header's
      words under a spread icon blur out, and it follows any theme. */
   background: var(--ds-surface-inset);
+  /* glass-raw-blur-allow: an 8 px soften under the hat's fanned faces so the header's words blur out, a backing inside the hat's glass, not a glass surface */
   -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px); /* glass-raw-blur-allow: the same soften, unprefixed */
 }
 
 /* ---------- The count's characters (HatCount.tsx, hatCount.experiment.ts) ----------
@@ -2973,4 +2974,90 @@ button.cv-subagent > :last-child {
 }
 .acpmux-tray-pull[data-quiet] .acpmux-tray-pull__tab:hover .acpmux-tray-pull__slot {
   color: var(--agent-text);
+}
+
+/* ---------- The hat on the composer's columns (cmux#51039) ----------
+   The person, 2026-11-22, on the plan card over the composer: "its not perfectly the same icon size (we
+   need to make sure that we do this well for all densities) and make sure that the spacing left and right
+   is all equal", then "maybe we should align the + and the terminal icon here?". The hat stands on the
+   box's own columns at every density: each row's leading mark centres in +'s box, its words start
+   where the prompt's do (one lead gap after that box), and the header's glyphs (its leading mark, the
+   panel button, the chevron) grow with the composer's glyphs in the composer's control box, so they
+   sit over +, Stop and the mic at the same size. test/hat-composer-icon-grid.test.ts measures it. */
+.acpmux-running-tray {
+  --acpmux-tray-lead-box: var(--acpmux-composer-control, 28px);
+  /* The composer's control box (Stop, the mic), which the panel button takes. */
+  --acpmux-tray-control: var(--acpmux-composer-control, 28px);
+  /* A subagent face's size (HatFaces.tsx). */
+  --acpmux-tray-face: 14px;
+  --acpmux-tray-lead-gap: var(--acpmux-composer-lead-gap, 8px);
+  /* A row icon crops its grid's margin (icons/iconSize.ts ROW_VIEWBOX), so at 14 of the composer's 16
+     its ink is the composer glyphs' size: the panel button's and the mic's both 13.5 px at Default. */
+  --acpmux-tray-glyph: calc(var(--acpmux-composer-glyph, 16px) * 14 / 16);
+  /* The lead box's room on each side of a glyph of the header's size. */
+  --acpmux-tray-lead-room: calc((var(--acpmux-tray-lead-box) - var(--acpmux-tray-glyph)) / 2);
+}
+/* The header's glyphs, at the composer's size. */
+/* A harness mark (the stack's, a kind's) keeps its own size: its badge and mask cut are drawn for it. */
+.acpmux-running-tray__head :is(.acpmux-lineage__icon, .acpmux-running-tray__kind) > svg,
+.acpmux-running-tray :is(.acpmux-running-tray__open, .acpmux-running-tray__hide) > svg {
+  width: var(--acpmux-tray-glyph);
+  height: var(--acpmux-tray-glyph);
+}
+/* The header's leading mark fills +'s box, its glyph on that box's centre; the words follow one lead
+   gap after it, as the prompt follows +. */
+.acpmux-running-tray__head > .acpmux-lineage__icon {
+  box-sizing: border-box;
+  width: var(--acpmux-tray-lead-box);
+  justify-content: center;
+  margin-inline-end: calc(var(--acpmux-tray-lead-gap) - var(--ds-space-2, 8px));
+}
+.acpmux-running-tray__head > .acpmux-running-tray__stack {
+  padding-inline-start: var(--acpmux-tray-lead-room);
+}
+.acpmux-running-tray__head > .acpmux-running-tray__stack > .acpmux-running-tray__stack-mark:first-child {
+  margin-inline-end: calc(var(--acpmux-tray-lead-room) + var(--acpmux-tray-lead-gap) - var(--ds-space-1, 4px));
+}
+.acpmux-running-tray__head > .acpmux-running-tray__stack:has(> .acpmux-running-tray__stack-mark:only-child) {
+  margin-inline-end: calc(var(--acpmux-tray-lead-gap) - var(--ds-space-2, 8px));
+}
+.acpmux-running-tray__head > .acpmux-running-tray__stack:has(> .acpmux-running-tray__stack-mark:only-child) > .acpmux-running-tray__stack-mark {
+  margin-inline-end: var(--acpmux-tray-lead-room);
+}
+/* The kinds' header: its first kind's mark in +'s box, the count one lead gap after it. With the
+   subagents' faces first (HatFaces.tsx), the first face centres in +'s box. */
+.acpmux-running-tray__kinds > :first-child:not(.acpmux-running-tray__kind, .acpmux-running-tray__kind-unit:has(> .acpmux-running-tray__kind:first-child)) {
+  margin-inline-start: calc((var(--acpmux-tray-lead-box) - var(--acpmux-tray-face)) / 2);
+}
+/* A kind stands alone or in its unit (with its separator, the `tally` arm's wrapping). */
+.acpmux-running-tray__kinds > .acpmux-running-tray__kind:first-child > :first-child,
+.acpmux-running-tray__kinds > .acpmux-running-tray__kind-unit:first-child > .acpmux-running-tray__kind:first-child > :first-child {
+  margin-inline: var(--acpmux-tray-lead-room) calc(var(--acpmux-tray-lead-room) + var(--acpmux-tray-lead-gap) - var(--ds-space-1, 4px));
+}
+/* The panel button is the composer's control box, centred on the header's row. */
+.acpmux-running-tray__open {
+  top: calc((var(--acpmux-tray-head-height) - var(--acpmux-tray-control)) / 2);
+  height: var(--acpmux-tray-control);
+}
+/* The lines and the plan's steps under the header keep its columns: each mark centred in +'s box, its
+   words at the prompt's start. */
+.acpmux-running-tray .acpmux-agent-line__button > .acpmux-lineage__icon {
+  box-sizing: border-box;
+  width: var(--acpmux-tray-lead-box);
+  justify-content: center;
+}
+.acpmux-running-tray .acpmux-agent-line__button > .acpmux-summary-text {
+  margin-left: calc(var(--acpmux-tray-lead-box) + var(--acpmux-tray-lead-gap) + var(--acpmux-tray-indent, 0px));
+}
+.acpmux-running-tray__plan .cv-plan__item {
+  gap: calc((var(--acpmux-tray-lead-box) - 12px) / 2 + var(--acpmux-tray-lead-gap));
+}
+.acpmux-running-tray__plan .cv-plan__mark {
+  margin-inline-start: calc((var(--acpmux-tray-lead-box) - 12px) / 2);
+}
+
+/* The hat's one caret (HatChevron.tsx): the Goal row's and the header's, one size at every density. */
+.acpmux-hat-chevron {
+  width: calc(var(--acpmux-composer-glyph, 16px) * 14 / 16);
+  height: calc(var(--acpmux-composer-glyph, 16px) * 14 / 16);
 }

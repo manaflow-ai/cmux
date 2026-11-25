@@ -76,6 +76,17 @@ fn keep_record_held(home: &Path, port: u16, earlier: &[u16], holder: Option<Hold
     .expect("keeps the record");
 }
 
+/// The `--mcp-config` the daemon wrote for a chat: what the harness dials for as long as it runs.
+fn write_chat_config(home: &Path, session: &str, port: u16) {
+    let config = json!({"mcpServers": {"acpmux": {"type": "http",
+        "url": format!("http://127.0.0.1:{port}/mcp/{session}/tools/acpmux")}}});
+    crate::agent_tools::write_private(
+        &home.join("run").join("mcp").join(format!("{session}.json")),
+        &serde_json::to_vec(&config).expect("the config"),
+    )
+    .expect("writes the config");
+}
+
 fn read_record(home: &Path) -> Listener {
     let bytes = std::fs::read(home.join("run").join("mcp-gateway.json")).expect("the record");
     serde_json::from_slice(&bytes).expect("the record parses")
@@ -397,6 +408,102 @@ async fn a_chat_configured_before_a_restart_moved_the_gateway_is_served_at_its_o
     assert_eq!(read_record(home.path()).earlier, vec![stranded], "still remembered for the next");
 }
 
+/// The chats a short or lost record forgot: `run/mcp-gateway.json` remembers a bounded list of a
+/// single daemon's runs, but the `--mcp-config` files name every port a live chat still dials, so
+/// the gateway reads those too and serves what it can bind.
+#[tokio::test]
+async fn a_chat_configured_at_a_port_the_record_forgot_is_served_again() {
+    let home = tempfile::tempdir().unwrap();
+    let forgotten = free_port().await;
+    let now = free_port().await;
+    // A record that has nothing to say about `forgotten`: it fell off, or this daemon is new.
+    keep_record(home.path(), now, &[]);
+    write_chat_config(home.path(), "chat-j", forgotten);
+    let g = gateway_waiting(home.path(), Duration::ZERO).await;
+    assert_eq!(g.port(), now, "new chats still get the port the record advertises");
+    assert_eq!(
+        g.recovered_ports(),
+        vec![forgotten],
+        "the port the chat's own config names is served, though no record named it"
+    );
+    g.keep("chat-j", launch(home.path())).unwrap();
+    let init = json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "harness"}}});
+    let answer = rpc_at(&g, forgotten, "chat-j", init).await;
+    assert_eq!(
+        answer.pointer("/result/serverInfo/name"),
+        Some(&json!("fake")),
+        "the forgotten port answers, instead of ECONNREFUSED"
+    );
+    assert!(
+        read_record(home.path()).earlier.contains(&forgotten),
+        "and it is written down, so the next daemon takes it back too"
+    );
+}
+
+/// A loopback url that is not one of this gateway's routes is not a port to take: another server's.
+#[test]
+fn a_loopback_url_that_is_not_a_gateway_route_is_not_read_as_a_port() {
+    let home = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(home.path().join("run").join("mcp")).unwrap();
+    std::fs::write(
+        home.path().join("run").join("mcp").join("chat-k.json"),
+        r#"{"mcpServers": {"other": {"url": "http://127.0.0.1:7777/sse"},
+             "acpmux": {"url": "http://127.0.0.1:41227/mcp/chat-k/tools/acpmux"}}}"#,
+    )
+    .unwrap();
+    assert_eq!(ports_chats_are_configured_at(home.path()), vec![41_227]);
+}
+
+/// With no kept port, the port comes from the home path, not from the kernel: a daemon whose
+/// record was lost (a reinstall, a wiped run directory, an unreadable file) lands where its
+/// predecessor landed, which is where the live chats are configured.
+#[tokio::test]
+async fn a_gateway_with_no_record_takes_the_port_its_home_derives() {
+    let home = tempfile::tempdir().unwrap();
+    let g = gateway_waiting(home.path(), Duration::ZERO).await;
+    assert_eq!(
+        g.port(),
+        derived_port(home.path()),
+        "the same port again, instead of a fresh ephemeral one no config names"
+    );
+    assert_eq!(read_record(home.path()).port, g.port());
+}
+
+/// The mask stands in for the span, so a port is derived without a remainder: they must agree, or
+/// a derived port could land outside the dynamic range.
+#[test]
+fn the_derived_port_mask_is_the_span() {
+    assert_eq!(DERIVED_PORT_MASK + 1, u64::from(DERIVED_PORT_SPAN));
+    assert!(DERIVED_PORT_SPAN.is_power_of_two(), "a mask only stands in for a power of two");
+}
+
+/// Two homes on one machine derive different ports, and one home derives the same port every time.
+#[test]
+fn the_port_a_home_derives_is_its_own_and_does_not_move() {
+    let one = Path::new("/home/leo/.acpmux");
+    let two = Path::new("/home/leo/.acpmux-second");
+    assert_eq!(derived_port(one), derived_port(one));
+    assert_ne!(derived_port(one), derived_port(two));
+    for home in [one, two] {
+        let port = derived_port(home);
+        assert!((DERIVED_PORT_BASE..DERIVED_PORT_BASE + DERIVED_PORT_SPAN).contains(&port));
+    }
+}
+
+/// The derived port held by something else (another home that probed into it, any program): the
+/// gateway steps up from it instead of jumping to an ephemeral port.
+#[tokio::test]
+async fn a_derived_port_something_else_holds_steps_the_gateway_up() {
+    let home = tempfile::tempdir().unwrap();
+    let first = derived_port(home.path());
+    let Ok(_squatter) = TcpListener::bind(("127.0.0.1", first)).await else {
+        // Another test's gateway or a real daemon already holds it; nothing to prove here.
+        return;
+    };
+    let g = gateway_waiting(home.path(), Duration::ZERO).await;
+    assert_eq!(g.port(), first + 1, "one up from the derived port, not an ephemeral one");
+}
+
 /// `stdio_view` reads a chat's `cmux` entry at an earlier port as its stdio launch too; a reader
 /// that judged it by url alone (`bg_hook::route`) saw a stranded chat as somebody else's server.
 #[test]
@@ -699,4 +806,27 @@ fn a_gateway_server_is_an_http_entry_for_claude_code_and_acp() {
     assert!(crate::agent_tools::takes_http(Some(&json!({"mcpCapabilities": {"http": true}}))));
     assert!(!crate::agent_tools::takes_http(Some(&json!({"mcpCapabilities": {"http": false}}))));
     assert!(!crate::agent_tools::takes_http(None));
+}
+
+/// A server that writes progress faster than its harness reads the SSE stream: the request holds
+/// one note however many come, the reader gets the newest, and the ones it replaced are counted
+/// (RFD 0124 R4).
+#[test]
+fn progress_for_a_slow_reader_keeps_only_the_newest_note() {
+    let (progress, mut notes) = watch::channel((0, None));
+    let before = progress_coalesced();
+    for n in 0..10_000 {
+        post_progress(
+            &progress,
+            json!({"method": "notifications/progress", "params": {"progress": n}}),
+        );
+    }
+    let mut seen = 0;
+    let note = newest_progress(&mut notes, &mut seen).expect("the newest note");
+    assert_eq!(note["params"]["progress"], 9_999);
+    assert!(progress_coalesced() - before >= 9_999, "the replaced notes are counted");
+    assert!(newest_progress(&mut notes, &mut seen).is_none(), "a note is read once");
+    post_progress(&progress, json!({"params": {"progress": 10_000}}));
+    let next = newest_progress(&mut notes, &mut seen).expect("the next note");
+    assert_eq!(next["params"]["progress"], 10_000);
 }

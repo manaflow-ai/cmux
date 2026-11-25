@@ -7,6 +7,7 @@ import CmuxMobileDiff
 import CmuxMobileMarkdown
 import CmuxMobileModel
 import CmuxSpinner
+import GameController
 import SwiftUI
 import UIKit
 
@@ -19,6 +20,18 @@ struct ChatRestingStack: Codable, Equatable {
     /// Before any tab measured its stack: the transcript's long-standing defaults (a 96 pt
     /// stack resting 80 pt above the page's bottom).
     static let fallback = ChatRestingStack(height: 96, bottomGap: 80)
+}
+
+/// A transcript's reading place: the row at the top of the visible part, by its row id, and how
+/// far the view is scrolled past that row's top, in points.
+public struct ChatReadingAnchor: Equatable, Sendable {
+    public var row: String
+    public var offset: Double
+
+    public init(row: String, offset: Double) {
+        self.row = row
+        self.offset = offset
+    }
 }
 
 /// View state of one open agent chat, shared by its transcript and its
@@ -34,6 +47,12 @@ public final class AgentChatSurface {
     }
     /// Told when the draft changes: a workspace tab keeps it on disk (`ComposerDraftStore`).
     @ObservationIgnored public var onTextChange: (@MainActor (String) -> Void)?
+    /// Where the reader was when the app last ran (a workspace tab's chat, `LastPlaceMemory`):
+    /// applied once, when the transcript first lays out its cached rows, instead of the newest
+    /// turn. A row that is not among them leaves the chat on its newest turn.
+    @ObservationIgnored public var restoreAnchor: ChatReadingAnchor?
+    /// Told when the reader comes to rest: the row at the top, or nil on the newest turn.
+    @ObservationIgnored public var onReadingAnchor: (@MainActor (ChatReadingAnchor?) -> Void)?
     /// The transcript holds its rows as they are (the page is shown as a
     /// small card on the tab grid): streamed changes wait and apply in one
     /// reload when this goes back to false, or on `refreshHeldTranscript()`.
@@ -713,12 +732,17 @@ struct AgentChatLoadingState: View {
     var body: some View {
         VStack(spacing: 12) {
             CmuxSpinner()
+            // The words keep their room while hidden, so they fade in later without moving the
+            // spinner (``AgentChatStore/loadingTextShows``).
             Text(Self.text(store))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+                .opacity(store.loadingTextShows ? 1 : 0)
+                .animation(.cmuxMobileSmooth.unlessReduceMotion, value: store.loadingTextShows)
         }
         .multilineTextAlignment(.center)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(Self.text(store)))
         .accessibilityIdentifier("agentChat.loadingHistory")
     }
 }
@@ -739,6 +763,7 @@ struct AgentChatConnectionLine: View {
                     .padding(.leading, 20)
                     .alignmentGuide(.top) { $0[.bottom] + 8 }
                     .accessibilityIdentifier("agentChat.connectionLine")
+                    .placeholderBound("chat.connection.chip", .milliseconds(0))
                     .transition(.opacity)
             }
         }
@@ -849,6 +874,10 @@ public struct AgentChatBottomStack: View {
                     PlanProgressBar(progress: progress, entries: entries)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
+                if !store.outgoing.isEmpty {
+                    OutgoingMessagesView(store: store)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
                 if !store.queue.isEmpty {
                     QueuedPromptsView(store: store, text: $surface.text)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -888,6 +917,14 @@ public struct AgentChatBottomStack: View {
                                  })
                         .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .named(Self.stackSpace)).minY }) { offset in
                             if composerOffset != offset { composerOffset = offset }
+                        }
+                        // The space between the composer and a raised keyboard is darkened from the
+                        // card's middle down, as the ChatGPT and Claude iOS apps draw it (Leo,
+                        // 2026-11-23: "they properly darken the ... space between the ios composer
+                        // and the built in keyboard"). The band runs on under the keyboard, which
+                        // covers it, so it never shows an edge while the keyboard moves.
+                        .background(alignment: .top) {
+                            KeyboardSkirt(shown: composerFocused && GCKeyboard.coalesced == nil)
                         }
                         // After the geometry reader: the entrance is render only, so the stack's
                         // measured place (the transcript's inset, the keyboard pin) is the resting one.
@@ -970,6 +1007,27 @@ public struct AgentChatBottomStack: View {
                 withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { surface.showPermissionChoices() }
             }
         }
+    }
+}
+
+/// The darkened band from a composer's middle down to and under the system keyboard
+/// (`Color.cmuxMobileKeyboardSkirt`). Shown while the composer has focus and no hardware keyboard is
+/// attached (one leaves no software keyboard to sit on). Draws only; touches pass through.
+struct KeyboardSkirt: View {
+    var shown: Bool
+    /// How far the band runs on below the composer: past the gap and into the keyboard's area.
+    static let reach: CGFloat = 400
+
+    var body: some View {
+        GeometryReader { proxy in
+            Color.cmuxMobileKeyboardSkirt
+                .frame(width: proxy.size.width, height: proxy.size.height / 2 + Self.reach)
+                .offset(y: proxy.size.height / 2)
+                .opacity(shown ? 1 : 0)
+                .animation(.cmuxMobileSmooth.unlessReduceMotion, value: shown)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
@@ -1079,6 +1137,8 @@ struct UserBubble: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 11)
                 .background(Color.cmuxMobileChatBubble, in: .rect(cornerRadius: 20, style: .continuous))
+                // A bubble with no words and no attachment is an empty grey bubble: never drawn.
+                .placeholderBound("chat.user.empty", .milliseconds(0), when: prompt.isEmpty && attachments.isEmpty)
         }
         .selectionMenu(menuRows)
         .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in Self.maxWidth(in: width) }
