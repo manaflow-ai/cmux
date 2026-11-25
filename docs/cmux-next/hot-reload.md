@@ -337,7 +337,10 @@ does not. Where the copy opens:
 `CMUX_SIDE_PLACEMENT=parked|shown|front` sets the default (`CMUX_SIDE_PLACEMENT=front cmux app try .` to watch a try yourself). `try-pr.sh` takes `--shown` and `--front` through.
 `hot-verify.py look --kit` launches `--shown` (the kit records the main display), as does
 `scripts/measure/try-pr-side-instance.sh` (it shoots the display). With no clang or no console session the park
-display cannot be made, and the copy opens `--shown`, which `launch` says.
+display cannot be made, and the copy opens `--shown`, which `launch` says. A park display that fails says why in its ready file (or is
+seen gone), so the fallback costs a moment, not the 15 s ready bound, and the failure is remembered for this boot for
+`SIDE_INSTANCE_PARK_RETRY_S` (900 s) so a re-try opens `--shown` without asking again. `cmux app try`'s receipt times
+`launch` and `socket` as their own phases and keeps what the launch said (`launch.note`).
 
 ### An agent's loop: apply, probe, roll back
 

@@ -23,6 +23,7 @@ import signal
 import subprocess
 import sys
 import textwrap
+import time
 import unittest
 from pathlib import Path
 
@@ -44,6 +45,10 @@ OPEN = textwrap.dedent('''\
     sleeper = lambda: subprocess.Popen(["sleep", "300"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                        stderr=subprocess.DEVNULL, start_new_session=True).pid
     if "--ready-file" in args:
+        if os.environ.get("FAKE_PARK_FAIL") == "said":
+            # park-display.m's failed(): the reason into the ready file, then exit
+            open(args[args.index("--ready-file") + 1], "w").write("failed no virtual display\\n")
+            sys.exit(0)
         if os.environ.get("FAKE_PARK_FAIL"):
             sys.exit(0)
         state["park_pid"] = sleeper()
@@ -82,9 +87,16 @@ PS = textwrap.dedent('''\
 
 PGREP = textwrap.dedent('''\
     #!/usr/bin/env python3
-    import json, os
-    state = json.load(open(os.environ["FAKE_STATE"]))
-    if state.get("park_pid"): print(state["park_pid"])
+    import json, os, sys
+    state = json.load(open(os.environ["FAKE_STATE"])) if os.path.exists(os.environ["FAKE_STATE"]) else {}
+    pid = state.get("park_pid")
+    alive = False
+    if pid:
+        try: os.kill(pid, 0); alive = True
+        except OSError: pass
+    # as pgrep: exit 1 when no process matches
+    if not alive: sys.exit(1)
+    print(pid)
 ''')
 
 
@@ -176,13 +188,43 @@ class SideInstanceParkedLaunchTests(unittest.TestCase):
         self.assertIn("CMUX_NEXT_NO_ACTIVATE=1", self.copy_open())
         self.assertNotEqual(self.side("launch", "probe", CMUX_SIDE_PLACEMENT="sideways").returncode, 0)
 
+    def timed(self, *args: str, **env: str) -> tuple[subprocess.CompletedProcess, float]:
+        began = time.monotonic()
+        result = self.side(*args, **env)
+        return result, time.monotonic() - began
+
     def test_no_park_display_falls_back_to_shown_and_says_so(self):
-        result = self.side("launch", "probe", FAKE_PARK_FAIL="1")
+        # Both ways a park display fails: it says why in the ready file, or it dies without a word. Either falls back
+        # in a moment: the 15 s ready bound, waited out, was 15 of the probe's 17.35 s re-try (2026-11-25).
+        for fail, said in (("said", "no virtual display"), ("1", "exited without a word")):
+            with self.subTest(fail=fail):
+                (self.tmp / "side/.park-display-unavailable").unlink(missing_ok=True)
+                result, took = self.timed("launch", "probe", FAKE_PARK_FAIL=fail)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertLess(took, 5, result.stderr)
+                self.assertIn("(shown)", result.stdout)
+                self.assertIn("no park display", result.stderr)
+                self.assertIn(said, result.stderr)
+                self.assertEqual(self.copy_open()[:2], ["-n", "-g"])
+                self.assertNotIn("--env", self.copy_open())
+                self.assertEqual(self.side("stop", "probe").returncode, 0)
+
+    def test_a_failed_park_display_is_not_asked_again_soon(self):
+        self.assertEqual(self.side("launch", "probe", FAKE_PARK_FAIL="said").returncode, 0)
+        self.assertEqual(self.side("stop", "probe").returncode, 0)
+        self.open_log.unlink()
+        # The re-try opens no park display: it knows, and says so.
+        result = self.side("launch", "probe")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("(shown)", result.stdout)
-        self.assertIn("no park display", result.stderr)
-        self.assertEqual(self.copy_open()[:2], ["-n", "-g"])
-        self.assertNotIn("--env", self.copy_open())
+        self.assertIn("not asked again", result.stderr)
+        self.assertEqual([args for args in self.opens() if "--ready-file" in args], [])
+        self.assertEqual(self.side("stop", "probe").returncode, 0)
+        # Past SIDE_INSTANCE_PARK_RETRY_S it is asked again, and a display that comes up clears the memory.
+        result = self.side("launch", "probe", SIDE_INSTANCE_PARK_RETRY_S="0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("(parked, on park display screen 2)", result.stdout)
+        self.assertFalse((self.tmp / "side/.park-display-unavailable").exists())
 
     def test_stop_ends_the_park_display_with_the_copy(self):
         self.assertEqual(self.side("launch", "probe").returncode, 0)
