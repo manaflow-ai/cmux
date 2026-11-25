@@ -343,6 +343,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let settings = SettingsController(writer: SettingsEditSender(services.daemon.settingsFile.edit(json:file:)), registry: registry, fileURL: launch.fileURL, launch: launch) // the home daemon writes the file
         settings.applyManagedFeaturesNow()
         ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloud.auth).start()
+        // GitHub's install redirect reaching cmux's own browser: finished here, with no "Open cmux?" prompt.
+        let cloudAuth = services.cloud.auth
+        BrowserExternalApps.shared.ownLinks = { CloudGitHubCompletion.handle($0, auth: cloudAuth) }
         self.settings = settings
         services.settings = settings
         UserOnlySettingConfirmation.install(settings, services: services)

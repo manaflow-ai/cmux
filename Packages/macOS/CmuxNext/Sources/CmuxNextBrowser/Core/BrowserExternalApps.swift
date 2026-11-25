@@ -39,6 +39,13 @@ public final class BrowserExternalApps {
     }
     #endif
 
+    /// cmux's own links, which the app answers itself: set once at launch (`AppDelegate`), true when it
+    /// handled `url`. A page in cmux's browser that hands off to cmux (cmux.com's GitHub install callback
+    /// redirecting to `cmux://integration/complete`) needs no "Open cmux?" prompt: it is already in cmux,
+    /// and handing it to `NSWorkspace` would only bounce back here. Only links the app finishes with its own
+    /// checks belong here (the GitHub completion still needs a state the API signed for this person).
+    public var ownLinks: ((URL) -> Bool)?
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
     }
@@ -48,6 +55,7 @@ public final class BrowserExternalApps {
     /// prompt, including schemes that open immediately from a click.
     func open(_ url: URL, from page: URL?, engine: BrowserEngineKind = .webkit, userGesture: Bool,
               ask: (BrowserPromptKind, String, @escaping (BrowserPromptResponse) -> Void) -> Void) {
+        if ownLinks?(url) == true { return }
         guard let scheme = url.scheme?.lowercased(), let app = NSWorkspace.shared.urlForApplication(toOpen: url) else { return }
         // A non-gesture navigation can be a redirect whose source is the
         // previously committed page, so it cannot safely inherit that site's
