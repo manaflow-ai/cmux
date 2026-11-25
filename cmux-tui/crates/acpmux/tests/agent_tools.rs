@@ -211,7 +211,7 @@ async fn local_sessions_get_the_browser_and_computer_use_tools_and_skills() {
             "cmux-subsessions",
             "cmux-forum",
             "acpmux",
-            // cmux's hosted MCP, on by default where the `cmux` CLI is (the fake one here).
+            // The hosted tools (`hosted_mcp.rs`), on by default.
             acpmux::hosted_mcp::SERVER_NAME,
             acpmux::agent_tools::SAVED_SERVERS_NAME
         ],

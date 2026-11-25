@@ -1312,7 +1312,7 @@ export default pinKindsHead(
         play: async (ctx) => {
           await openTray(ctx);
           await ctx.click({ selector: ".acpmux-running-tray .acpmux-agent-line__button" });
-          await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-of"));
+          await ctx.waitFor(() => ctx.document.querySelector(".acpmux-view-corner"));
         },
         snapshot: rowsChat([
           agent("Make autoland land again", 6.2, "running", {

@@ -78,7 +78,8 @@ SAMPLE_WHY = "sampled shards"
 #            runs its shard-independent checks (Oxlint, Oxfmt, type check, budgets, PR-scoped rules) and no test file;
 #   sampled: shard 1 and the touched tests; when the change has an every-shard input outside FULL, also two shards
 #            sampled from the head commit (the base batch runs every shard and bisects a red to its PR);
-#   full:    a FULL path below, the full-ci label, a base push, the base batch, or a failed pick: every shard.
+#   full:    a FULL path below, the full-ci label, a base push, the base batch, or a failed pick: every shard. A FULL
+#            path on a pull request into feat-cmux-next is sampled instead (full_to_batch): its batch runs every shard.
 # The repository variable CI_WEBVIEWS_PUSH_CLASSES=0 runs the pick as it was before the classes.
 # FULL stays short: each is an input whose miss only a full run can show, because it decides what every shard runs.
 FULL = (
@@ -252,6 +253,22 @@ def classes_on() -> bool:
     return os.environ.get("CI_WEBVIEWS_PUSH_CLASSES", "1") != "0"
 
 
+# The base whose post-merge batch runs every shard (cmux-next-post-merge.yml, suite `web`): a pull request into it
+# with a FULL path runs the sampled pick, and the full matrix runs once per batch, which bisects a red to its pull
+# request and opens the revert. Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period."
+# Over 11-24T01..11-25T01, 44 pull request runs ran all 8 shards: 21.2k runner-minutes, about 480 a run, against
+# 38k for the 1,639 runs of one or two shards. CI_WEBVIEWS_FULL_TO_BATCH=0 (a repository variable) runs every shard
+# for them again; another base, or the full-ci label, still runs every shard.
+BATCHED_BASE = "feat-cmux-next"
+BATCHED_WHY = "every shard runs in the feat-cmux-next post-merge batch"
+
+
+def full_to_batch() -> bool:
+    """A FULL path on this pull request runs the sampled pick: its base batches every shard after the merge."""
+    return (os.environ.get("CI_WEBVIEWS_PR_BASE", "") == BATCHED_BASE
+            and os.environ.get("CI_WEBVIEWS_FULL_TO_BATCH", "1") != "0")
+
+
 # webviews/package.json is on FULL for its pins: a new bun, React or test library version changes every test file. An
 # edit to its "scripts" alone moves no pin (bun.lock, a FULL path of its own, holds the versions). package.json alone
 # made 20 of the 38 every-shard pull request picks of 11-23 18Z..11-24 18Z, and this rule passes 4 of its 7 merged
@@ -374,16 +391,17 @@ def classify(repo: Path, base: str, head: str, count: int) -> tuple[str, list[in
     except subprocess.CalledProcessError as err:
         return "full", everything, f"cannot diff {base}..{head} ({err.stderr.strip()})", {}
     why = full_rule(files, repo, base, head)
-    if why:
+    if why and not full_to_batch():
         return "full", everything, why, {}
     selector = wa.Selector(repo)
     fast = {f: fast_why(repo, selector, base, head, f) for f in files}
     rest = [f for f in files if not fast[f]]
-    if not rest:
+    if not rest and not why:
         shown = "; ".join(fast[f] for f in files[:3]) + (f"; and {len(files) - 3} more" if len(files) > 3 else "")
         return "fast", [1], f"{shown or 'no file changed'}: shard 1's checks, no test file", {}
     direct: set[str] = set()
-    wide: list[str] = []
+    # A FULL path into the batched base: sampled, as a wide input is, and the batch runs every shard.
+    wide: list[str] = [f"{why} ({BATCHED_WHY})"] if why else []
     for f in rest:
         found, reason = touched(selector, [f])
         if found is None:

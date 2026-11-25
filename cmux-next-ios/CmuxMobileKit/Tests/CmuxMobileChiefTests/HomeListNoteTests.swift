@@ -6,7 +6,7 @@ import Testing
 /// account whose every Mac is offline. The note waits only on a list that can still come.
 struct HomeListNoteTests {
     private func note(live: Bool, macsKnown: Bool, anyOnline: Bool) -> HomeListNote {
-        HomeListNote.make(rows: nil, showingKept: false, homeMacID: nil,
+        HomeListNote.make(rows: nil, homeMacID: nil,
                           macsMayExist: HomeListNote.macsMayAnswer(live: live, macsKnown: macsKnown, anyOnline: anyOnline),
                           searching: false, failing: false)
     }
@@ -26,7 +26,7 @@ struct HomeListNoteTests {
     }
 
     @Test func aChosenMacStillConnects() {
-        #expect(HomeListNote.make(rows: nil, showingKept: false, homeMacID: "mac-1", macsMayExist: false,
+        #expect(HomeListNote.make(rows: nil, homeMacID: "mac-1", macsMayExist: false,
                                   searching: false, failing: false) == .connecting)
     }
 }
