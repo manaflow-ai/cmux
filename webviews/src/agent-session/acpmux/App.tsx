@@ -269,7 +269,7 @@ import { transcriptBackground } from "./summary/sessionSummary";
 import { openSourceFile } from "./session-info/sourcesSectionModel";
 import { useSessionInfo } from "./session-info/useSessionInfo";
 import { toggleRemoteControl, useRemoteControl } from "./remoteControl";
-import { useSessionInfoCloud } from "./hybrid/HybridMounts";
+import { HybridChip, useSessionInfoCloud } from "./hybrid/HybridMounts";
 import {
   type BackgroundCommand,
   backgroundCommands,
@@ -689,6 +689,7 @@ import { cloudChatHintDue, cloudChatHintShown, useCloudChatHint, useCloudChatHin
 import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
 import { evacuateActions } from "./place/usePlace";
+import { PlaceChip } from "./place/PlaceMounts";
 import { awaitsProjectPreview, takeProjectPreview } from "./newtab/newProject";
 import {
   copyShowsRunningTurn,
@@ -10104,6 +10105,25 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setTakenOverAt(Date.now());
     composerHandle.current?.focus();
   };
+  // A started chat's Local, Cloud, Auto chips beside the composer's picker (the floating chat has none), built
+  // once per chat: inline in drawPaneComposer it was a new `placeControl` on every pane render, and each
+  // streamed chunk under a running turn drew the composer and its box again in the frames a typed key waits on
+  // (composer-typing L1/L3: 190 composer renders per 500 keys, all `placeControl`). A move asks what it would
+  // strand at click time, through the refs.
+  const placeSession = quick ? undefined : snapshot.sessionId;
+  const placeControl = useMemo(() => {
+    if (!placeSession) return undefined;
+    const claims = () => ({
+      queued: snapshotRef.current?.queue.length ?? 0,
+      hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
+    });
+    return (
+      <>
+        <PlaceChip session={placeSession} say={notices.transient} claims={claims} />
+        <HybridChip session={placeSession} say={notices.transient} claims={claims} />
+      </>
+    );
+  }, [placeSession, notices.transient]);
   const composer = drawPaneComposer({
     markDockEdge,
     hostOverload,
@@ -10137,6 +10157,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     chatSignIns,
     switchLoginCommand,
     composerHandle,
+    placeControl,
     healthStale,
     connectMachine,
     chooseWorkspaceFolder,
