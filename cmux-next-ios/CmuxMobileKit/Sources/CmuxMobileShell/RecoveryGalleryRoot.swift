@@ -41,6 +41,8 @@ import SwiftUI
 /// - `lastsent`: the terminal's top strip back to the last line sent (Leo 2026-11-23: "click (tap)
 ///   the top bit of the terminal in phone to jump to that last sent bit"): A, the pill the page
 ///   shows; B, a full-width bar; C, the top edge alone (`TerminalLastSentGallery`).
+/// - `favicons`: browser tab cards with no picture: today's globe, then the site monogram (A, Settings
+///   → Advanced → Site Monograms on Tab Cards) and the variants it was picked from, B and C.
 /// - `quiet-before`, `quiet-a`, `quiet-b`, `quiet-c`: the places that said "Updating…" over rows
 ///   the phone had, before and in three variants (Leo 2026-11-24: "they dont need to know that
 ///   it's updating before they KNOW it's updating"); A is the one the app shows (`QuietUpdatingGallery`).
@@ -125,6 +127,8 @@ public struct RecoveryGalleryRoot: View {
                     }
             case "lastsent":
                 TerminalLastSentGallery()
+            case "favicons":
+                SiteMonogramGallery()
             case "agentmark":
                 AgentAvatarHostGallery(variant: variant)
             default:
