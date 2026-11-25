@@ -747,6 +747,7 @@ fn the_bundle_copy_is_private_and_removed() {
     assert!(!snapshot.bundle.exists(), "the upload is removed");
 }
 
+mod carry;
 mod dogfood;
 mod export;
 mod head_first;
