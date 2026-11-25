@@ -4370,7 +4370,7 @@
       "type" : "boolean"
     },
     "experiments.terminalHistoryFind" : {
-      "default" : false,
+      "default" : true,
       "description" : "Cmd-F in a terminal searches its whole history, with case, whole-word and regex options.",
       "title" : "Terminal History Find",
       "type" : "boolean"
@@ -6396,6 +6396,12 @@
       "title" : "Settle Finished Chats",
       "type" : "boolean"
     },
+    "sidebar.showAgentSessions" : {
+      "default" : false,
+      "description" : "Sessions an agent starts list under the session that started them. Off, they stay in the parent chat's list; one that needs you still shows.",
+      "title" : "Show Sessions Started by Agents",
+      "type" : "boolean"
+    },
     "sidebar.showAutomaticSessions" : {
       "default" : false,
       "description" : "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list.",
@@ -7588,6 +7594,18 @@
       "title" : "UpdateChannel",
       "type" : "string"
     },
+    "updates.automatic" : {
+      "default" : "download",
+      "description" : "Install When Idle restarts cmux once you have been away, never while an agent works or a message is unsent. Terminals and agents keep running.",
+      "enum" : [
+        "off",
+        "notify",
+        "download",
+        "idle"
+      ],
+      "title" : "Automatic Updates",
+      "type" : "string"
+    },
     "updates.channel" : {
       "default" : "nightly",
       "description" : "Stable gets builds that ran a week without problems; Canary and Dev get them first.",
@@ -7599,12 +7617,6 @@
       ],
       "title" : "Update Channel",
       "type" : "string"
-    },
-    "updates.checkAutomatically" : {
-      "default" : true,
-      "description" : "updates.checkAutomatically",
-      "title" : "Check for Updates Automatically",
-      "type" : "boolean"
     },
     "updates.checkIntervalSeconds" : {
       "default" : 3600,
@@ -7623,12 +7635,6 @@
       ],
       "title" : "Live Background Updates",
       "type" : "string"
-    },
-    "updates.downloadAutomatically" : {
-      "default" : true,
-      "description" : "Off: cmux asks before downloading. It always asks before restarting.",
-      "title" : "Download Updates Automatically",
-      "type" : "boolean"
     },
     "updates.idleInstallMaxWaitSeconds" : {
       "default" : 600,
@@ -7650,12 +7656,6 @@
       "default" : false,
       "description" : "A downloaded update installs as cmux quits. Terminals keep running.",
       "title" : "Install Updates When Quitting",
-      "type" : "boolean"
-    },
-    "updates.installWhenIdle" : {
-      "default" : false,
-      "description" : "Installs a downloaded update and restarts while you are away: no input for the time below, or the screen locked. Never over an unsent message. Agents and their turns keep running.",
-      "title" : "Update When Idle",
       "type" : "boolean"
     },
     "updates.installWhenIdleMinutes" : {
