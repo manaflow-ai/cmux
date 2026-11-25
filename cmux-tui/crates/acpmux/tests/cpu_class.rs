@@ -452,6 +452,9 @@ impl RealDaemon {
             .env("ACPMUX_HEALTH_FETCH", "0")
             .env("ACPMUX_CATALOG_FETCH", "0")
             .env("ACPMUX_PROBE_HARNESSES", "fake")
+            // The dynamic class's controller reads the runner's real load: off, so a busy runner
+            // cannot demote what these checks read (its own tests drive it with samples).
+            .env("ACPMUX_CPU_PRESSURE", "off")
             .env_remove("ACPMUX_SESSION_ID")
             .stdin(std::process::Stdio::null());
         match self.class {
@@ -533,9 +536,106 @@ fn cpu_class_a_claude_launcher_stays_above_background_by_default() {
     assert!(priority > BACKGROUND_PRI, "the launcher runs at background class (pri {priority})");
 }
 
-/// Claude Code itself still runs below the GUI, with the tools its turns start.
+/// Claude Code itself defaults to `dynamic`: the agent tier's nice, and on a calm Mac no
+/// background class (Leo, 2026-11-25: Lucas's tool calls sat at background class for 87 minutes).
 #[test]
-fn cpu_class_claude_itself_runs_at_background_by_default() {
+fn cpu_class_claude_itself_runs_above_background_while_the_host_is_calm() {
     let priority = default_class_of_claude_harness_named("cl", "claude");
-    assert_eq!(priority, BACKGROUND_PRI, "Claude Code is not at background class");
+    assert!(priority > BACKGROUND_PRI, "Claude Code is at background class (pri {priority})");
+}
+
+use acpmux::cpu_class::pressure::{DEMOTE_AFTER, PROMOTE_AFTER, Sample};
+
+/// A contended Mac: every core busy, the interactive thread 6 ms late.
+const HOT: Sample = Sample { busy: 1.0, late_ms: 6.0 };
+/// Lucas's Mac once his CPU fell to 80%.
+const EIGHTY: Sample = Sample { busy: 0.8, late_ms: 1.0 };
+
+/// The `dynamic` class through the hub: a session whose start is over runs above background
+/// class; while the host is contended its harness and the tool its turn had already started go to
+/// background class together; once it clears both come back, and `session info` counts the spell.
+#[tokio::test]
+async fn cpu_class_a_demoted_session_is_promoted_when_pressure_clears_with_its_existing_tools() {
+    let dir = scratch("dy");
+    let (hub, mut c) = daemon(logged(&dir, &[("ACPMUX_SESSION_CPU_CLASS", "dynamic")])).await;
+    let id = c.new_session(&dir, "dyn").await.unwrap();
+    let [(harness, _)] = class_log(&dir)[..] else { panic!("{:?}", class_log(&dir)) };
+    let tool = c.probe_tool(&id, &dir).await;
+    let calm = (class_priority(harness), class_priority(tool));
+    for _ in 0..DEMOTE_AFTER {
+        hub.cpu_pressure_tick(Some(HOT)).await;
+    }
+    let contended = (class_priority(harness), class_priority(tool));
+    let demoted = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    for _ in 0..PROMOTE_AFTER {
+        hub.cpu_pressure_tick(Some(EIGHTY)).await;
+    }
+    let cleared = (class_priority(harness), class_priority(tool));
+    let promoted = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    kill(tool);
+    assert!(calm.0 > BACKGROUND_PRI && calm.1 > BACKGROUND_PRI, "a calm host demoted: {calm:?}");
+    assert_eq!(contended, (BACKGROUND_PRI, BACKGROUND_PRI), "harness and its running tool");
+    assert_eq!(demoted["cpuClass"]["class"], "dynamic", "{}", demoted["cpuClass"]);
+    assert_eq!(demoted["cpuClass"]["now"], "background", "{}", demoted["cpuClass"]);
+    assert_eq!(demoted["cpuClass"]["host"]["yielding"], true, "{}", demoted["cpuClass"]);
+    assert!(cleared.0 > BACKGROUND_PRI, "the harness stayed demoted: {cleared:?}");
+    assert!(cleared.1 > BACKGROUND_PRI, "its tool stayed demoted: {cleared:?}");
+    assert_eq!(promoted["cpuClass"]["now"], "normal", "{}", promoted["cpuClass"]);
+    assert_eq!(promoted["cpuClass"]["demotions"], 1, "{}", promoted["cpuClass"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A turn the person waits on (their prompt in a chat they show, before its first token) keeps
+/// its harness and its tool at normal class however contended the host is; its first token ends
+/// the wait, and the next pass demotes it.
+#[tokio::test]
+async fn cpu_class_a_waited_on_turn_is_never_demoted() {
+    let dir = scratch("dw");
+    let (hub, mut c) = daemon(logged(&dir, &[("ACPMUX_SESSION_CPU_CLASS", "dynamic")])).await;
+    let id = c.new_session(&dir, "waited").await.unwrap();
+    // The person shows the chat.
+    c.request(method::MUX_ATTACH, json!({"sessionId": id})).await.unwrap();
+    let [(harness, _)] = class_log(&dir)[..] else { panic!("{:?}", class_log(&dir)) };
+    let out = dir.join("wait.json");
+    let gate = dir.join("wait.json.gate");
+    let path = std::ffi::CString::new(gate.as_os_str().as_encoded_bytes()).unwrap();
+    // SAFETY: valid NUL-terminated path.
+    assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+    let text = format!("class-wait: {}", out.display());
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]});
+    // Unanswered until the turn ends: sent without waiting for its reply.
+    c.tx.send(Message::request(9_999, method::SESSION_PROMPT, prompt).to_line()).await.unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    while !out.exists() {
+        assert!(std::time::Instant::now() < deadline, "the turn never started its tool");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let tool = read_json(&out)["sleeper"].as_i64().unwrap() as i32;
+    for _ in 0..DEMOTE_AFTER * 2 {
+        hub.cpu_pressure_tick(Some(HOT)).await;
+    }
+    let waiting = (class_priority(harness), class_priority(tool));
+    let info = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    // Its first token.
+    let open =
+        |gate: PathBuf| tokio::task::spawn_blocking(move || std::fs::write(gate, b"go\n").unwrap());
+    tokio::time::timeout(Duration::from_secs(20), open(gate.clone())).await.unwrap().unwrap();
+    let mut answered = waiting;
+    for _ in 0..100 {
+        hub.cpu_pressure_tick(Some(HOT)).await;
+        answered = (class_priority(harness), class_priority(tool));
+        if answered == (BACKGROUND_PRI, BACKGROUND_PRI) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    // The turn's end.
+    tokio::time::timeout(Duration::from_secs(20), open(gate)).await.unwrap().unwrap();
+    kill(tool);
+    assert!(waiting.0 > BACKGROUND_PRI, "the waited-on harness was demoted: {waiting:?}");
+    assert!(waiting.1 > BACKGROUND_PRI, "the waited-on turn's tool was demoted: {waiting:?}");
+    assert_eq!(info["cpuClass"]["waitedOn"], true, "{}", info["cpuClass"]);
+    assert_eq!(info["cpuClass"]["host"]["yielding"], true, "{}", info["cpuClass"]);
+    assert_eq!(answered, (BACKGROUND_PRI, BACKGROUND_PRI), "not demoted after its first token");
+    let _ = std::fs::remove_dir_all(&dir);
 }

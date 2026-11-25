@@ -108,8 +108,15 @@ fn a_harness_starts_at_the_daemons_priority_and_yields_once_started() {
     starts_at_the_daemons_priority_and_yields("normal");
 }
 
-/// `background`: the product's default for every harness but a Claude Code launcher
-/// (`cpu_class::DEFAULT`). Linux has no background class, so the agent tier's nice is all the
+/// `dynamic`: the product's default for every harness but a Claude Code launcher
+/// (`cpu_class::DEFAULT`): the agent tier's nice, and background class only while the Mac is
+/// contended (`cpu_class/pressure.rs`).
+#[test]
+fn a_dynamic_class_harness_yields_to_the_agent_tier() {
+    starts_at_the_daemons_priority_and_yields("dynamic");
+}
+
+/// `background`, by name. Linux has no background class, so the agent tier's nice is all the
 /// lowering it gets there; on macOS the harness is also in background class.
 #[test]
 fn a_background_class_harness_also_yields_to_the_agent_tier() {
