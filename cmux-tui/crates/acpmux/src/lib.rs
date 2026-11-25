@@ -242,6 +242,7 @@ pub mod name_match;
 mod named_files_watch;
 pub mod native;
 pub mod no_panic;
+pub mod notice_read;
 pub mod offer_mcp;
 pub mod oom_rank;
 pub mod opaque_agent_id;
