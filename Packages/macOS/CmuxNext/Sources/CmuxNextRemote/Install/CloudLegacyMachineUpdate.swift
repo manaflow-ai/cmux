@@ -18,7 +18,8 @@ import Foundation
 /// the bundle's manifest, or for a DEV build the published pin of its own commit or cmux-tui tree,
 /// as `cmux link machine update` resolves it), the machine checks the download against that pin's
 /// SHA-256 before it replaces anything, and the script is the app's own resource (`script`, in CmuxNextApp).
-public nonisolated enum CloudLegacyMachineUpdate {
+public nonisolated struct CloudLegacyMachineUpdate {
+    public nonisolated init() {}
     /// The app's pinned Linux build for Cloud machines.
     public typealias Pin = CloudLegacyPin
 
