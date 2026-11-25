@@ -129,20 +129,17 @@ async fn list_window_gate_measures_running_subscriptions_at_both_sizes() {
     let god_p95 = best_p95(&god_rounds);
     let all_god_samples = god_rounds.iter().flatten().copied().collect::<Vec<_>>();
     let all_god_p95 = p95(&all_god_samples);
-    // Each row is written before it is judged, and every judgement waits for the last row, so one
-    // red row neither hides its own numbers nor the next row's ("the gate did not report a measure").
+    // Each row's line goes out before its bounds: a bound that fails leaves the row in the
+    // measures file, and the v2 home reads it red with its numbers rather than as no measure.
     gate("v2.pr05.first_list_window", small_p95, god_p95, all_god_p95);
-    let mut failures = Vec::new();
-    if god_p95 > small_p95.saturating_mul(12) / 10 {
-        failures.push(format!(
-            "first window p95 grew beyond 1.2x: small={small_p95}ns god={god_p95}ns"
-        ));
-    }
-    if all_god_p95 > small_p95.saturating_mul(2) {
-        failures.push(format!(
-            "first window all-sample p95 exceeded 2x small p95: small={small_p95}ns god={all_god_p95}ns"
-        ));
-    }
+    assert!(
+        god_p95 <= small_p95.saturating_mul(12) / 10,
+        "first window p95 grew beyond 1.2x: small={small_p95}ns god={god_p95}ns"
+    );
+    assert!(
+        all_god_p95 <= small_p95.saturating_mul(2),
+        "first window all-sample p95 exceeded 2x small p95: small={small_p95}ns god={all_god_p95}ns"
+    );
 
     let small_index = populated_index("s", 20);
     let god_index = populated_index("g", 11_000);
@@ -157,20 +154,15 @@ async fn list_window_gate_measures_running_subscriptions_at_both_sizes() {
     let all_god_change_samples = god_changes.iter().flatten().copied().collect::<Vec<_>>();
     let all_god_change_p95 = p95(&all_god_change_samples);
     gate("v2.pr05.summary_change", small_change_p95, god_change_p95, all_god_change_p95);
-    if god_change_p95 > small_change_p95.saturating_mul(37) / 10 {
-        failures.push(format!(
-            "summary change p95 grew beyond 3.7x: small={small_change_p95}ns god={god_change_p95}ns"
-        ));
-    }
-    if all_god_change_p95 > small_change_p95.saturating_mul(62) / 10 {
-        failures.push(format!(
-            "summary change all-sample p95 exceeded 6.2x small p95: small={small_change_p95}ns god={all_god_change_p95}ns"
-        ));
-    }
-    if god_change_p95 > 10_000 {
-        failures.push(format!("summary change god p95 exceeded 10us: {god_change_p95}ns"));
-    }
-    assert!(failures.is_empty(), "PR5 list gate failures (all rows were emitted): {failures:?}");
+    assert!(
+        god_change_p95 <= small_change_p95.saturating_mul(37) / 10,
+        "summary change p95 grew beyond 3.7x: small={small_change_p95}ns god={god_change_p95}ns"
+    );
+    assert!(
+        all_god_change_p95 <= small_change_p95.saturating_mul(62) / 10,
+        "summary change all-sample p95 exceeded 6.2x small p95: small={small_change_p95}ns god={all_god_change_p95}ns"
+    );
+    assert!(god_change_p95 <= 10_000, "summary change god p95 exceeded 10us: {god_change_p95}ns");
 }
 
 #[test]
