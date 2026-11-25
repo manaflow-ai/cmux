@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.agentSkills.problem.unavailable" : {
+      "comment" : "Settings > Agents > Claude Code & Codex > Skills: this build has no bundled cmux CLI to read the list with.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This build has no cmux command line tool to read them."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لا تتضمن هذه النسخة أداة سطر أوامر cmux لقراءتها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ova verzija nema cmux alat komandne linije da ih pročita."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne version har intet cmux-kommandolinjeværktøj til at læse dem."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Diesem Build fehlt das cmux-Befehlszeilenwerkzeug, um sie zu lesen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Esta versión no tiene la herramienta de línea de comandos de cmux para leerlas."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cette version n’a pas l’outil en ligne de commande cmux pour les lire."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Questa build non ha lo strumento a riga di comando di cmux per leggerle."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このビルドには読み込みに使う cmux コマンドラインツールがありません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កំណែនេះគ្មានឧបករណ៍បន្ទាត់ពាក្យបញ្ជា cmux ដើម្បីអានវាទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 빌드에는 목록을 읽을 cmux 명령줄 도구가 없습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne versjonen har ikke cmux-kommandolinjeverktøyet som leser dem."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ta wersja nie ma narzędzia wiersza poleceń cmux, aby je odczytać."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Esta versão não tem a ferramenta de linha de comando do cmux para lê-las."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "В этой сборке нет инструмента командной строки cmux, чтобы их прочитать."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "บิลด์นี้ไม่มีเครื่องมือบรรทัดคำสั่ง cmux สำหรับอ่านรายการ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu sürümde bunları okuyacak cmux komut satırı aracı yok."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "У цій збірці немає інструмента командного рядка cmux, щоб їх прочитати."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bản dựng này không có công cụ dòng lệnh cmux để đọc chúng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此版本没有用于读取它们的 cmux 命令行工具。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此版本沒有用來讀取它們的 cmux 命令列工具。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
