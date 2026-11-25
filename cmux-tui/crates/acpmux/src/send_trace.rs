@@ -144,8 +144,8 @@ pub fn first_update(session: &str) {
     };
     let Some(p) = p else { return };
     let end_ms = now_ms();
-    drop(p.step);
     let Some(body) = body(&p, end_ms, machine_id()) else { return };
+    drop(p.step);
     let Ok(rt) = tokio::runtime::Handle::try_current() else { return };
     let trace_id = p.trace_id;
     rt.spawn(post(trace_id, body));
