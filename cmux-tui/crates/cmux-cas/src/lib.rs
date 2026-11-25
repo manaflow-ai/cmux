@@ -16,11 +16,13 @@
 
 pub mod assemble;
 pub mod cdc;
+pub mod fetch;
 pub mod id;
 pub mod manifest;
 pub mod pack;
 pub mod plan;
 pub mod pointer;
+pub mod publish;
 pub mod store;
 
 pub use id::Id;
