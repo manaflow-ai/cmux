@@ -643,6 +643,12 @@ pub mod method {
     pub const MUX_TAILNET_LOGIN: &str = "_acpmux/tailnet/login";
     pub const MUX_TAILNET_STATE: &str = "_acpmux/tailnet/state";
     pub const MUX_TAILNET_LOGOUT: &str = "_acpmux/tailnet/logout";
+    /// One placement update (`cmux_tailnet_front::PlacementMessage`: set, moved, removed) for
+    /// the stable tailnet node's front; answers a `PlacementReply`. Local clients only.
+    pub const MUX_TAILNET_PLACEMENT: &str = "_acpmux/tailnet/placement";
+    /// Join the embedded node to the person's own tailnet with a one-time key
+    /// (`tailnet/embedded_join.rs`, `JoinParams` v1).
+    pub const MUX_TAILNET_JOIN: &str = "_acpmux/tailnet/join";
     /// The person's phones that may sign an allow (`hub/approvers.rs`).
     pub const MUX_APPROVERS_SET: &str = "_acpmux/approvers_set";
     /// The person's app: the folders of the workspaces its daemon lists now,
@@ -967,6 +973,11 @@ pub mod method {
     pub const MUX_FORUM_ANNOUNCE: &str = "_acpmux/forum/announce";
     pub const MUX_FORUM_RULES: &str = "_acpmux/forum/rules";
     pub const MUX_FORUM_ACK: &str = "_acpmux/forum/ack";
+    /// The team's hosted forum (`hub/forum_hosted.rs`): a calling session opens a thread,
+    /// replies on one, or searches them.
+    pub const MUX_FORUM_POST: &str = "_acpmux/forum/post";
+    pub const MUX_FORUM_REPLY: &str = "_acpmux/forum/reply";
+    pub const MUX_FORUM_SEARCH: &str = "_acpmux/forum/search";
     /// The background-process registry (`hub/processes.rs`): list a chat's
     /// (or every chat's) background processes, read one's output, and stop
     /// one.
@@ -1128,6 +1139,9 @@ pub mod method {
     /// A chat's row change as only what changed, to a connection that asked for it
     /// (`server/session_patch.rs`).
     pub const MUX_SESSION_PATCH: &str = "_acpmux/session_patch";
+    /// A client that missed a chat's row asks for it whole again (`server/session_patch.rs`,
+    /// version 2).
+    pub const MUX_SESSION_RESYNC: &str = "_acpmux/session_resync";
     /// One peer's burst of row changes, to a watcher that asked for batches (`hub/list_guard.rs`
     /// `send_remote_batch`).
     pub const MUX_PEER_ROWS_CHANGED: &str = "_acpmux/peer_rows_changed";
