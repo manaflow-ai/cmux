@@ -16,7 +16,7 @@ import { categories, categoryOf, defaultCategory, isCategory } from "./categorie
 import { MockTeams } from "./mockTeams";
 import { mockThemeColors } from "./mockThemes";
 import { schema } from "./schema";
-import { mockDevicesState } from "./mockProvider";
+import { mockDevicesState, mockDomains } from "./mockProvider";
 import { ACCOUNT_LISTS } from "../shared/signIn/galleryFixtures";
 import MARTIN_PANDEMONIUM from "../../gallery/fixtures/art/martin-pandemonium.jpg?inline";
 import FRIEDRICH_FOREST_MOONLIGHT from "../../gallery/fixtures/art/friedrich-forest-moonlight.jpg?inline";
@@ -1106,6 +1106,16 @@ Object.assign(variants, {
     focus: "notifications.attention.mark",
     options: { values: { "notifications.attention.mark": "glow" } },
     note: "Settings > Notifications with Needs You Look set to Glow: a waiting tab or sidebar row glows in place of its badge.",
+  }),
+  // What's New custom-notification-sound (https://github.com/manaflow-ai/cmux/issues/55219): a sound
+  // of the person's own picked with Custom Sound… (the menu's last item) and a Sound Duration.
+  "custom-notification-sound": variant("notifications", {
+    focus: "notifications.sounds.maxSeconds",
+    options: {
+      values: { "notifications.sound": "My Chime", "notifications.sounds.maxSeconds": 3 },
+      domains: { ...mockDomains, sounds: [...mockDomains.sounds, "My Chime"] },
+    },
+    note: "Sound set to a custom file (My Chime) and Sound Duration at 3 s.",
   }),
   // What's New agent-blocked-notification: Agent Blocked delivery set to Banner (default Off).
   "agent-blocked-banner": variant("notifications", {
