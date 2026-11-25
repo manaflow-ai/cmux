@@ -26,7 +26,7 @@ extension TabContentCache {
             return await PreviewImageCache.fit(image, maxPixelSize)
         }
         // Leave, hibernation and disk pictures decode from their JPEG when drawn: the card gets a bitmap made off the main thread.
-        var kept = held ?? previews.image(for: key) ?? hibernation?.snapshots.image(for: key)
+        var kept = pageThumbnails.image(for: key) ?? previews.image(for: key) ?? hibernation?.snapshots.image(for: key)
         if kept == nil { kept = await pageFrames?.lastPicture(key) }
         guard let image = kept else { return nil }
         return await PreviewImageCache.decoded(image, maxPixelSize)
@@ -114,7 +114,7 @@ extension TabContentCache {
     static let relaunchStandInCap: Duration = .seconds(3)
     /// A browser page that is not incognito.
     func keepsFrameOnDisk(_ key: String) -> Bool {
-        guard let page = browsers[key]?.tab, page is CEFTab || page is WebKitTab else { return false }
+        guard let page = browsers[key]?.tab, page is CEFTab || page is WebKitTab, !BrowserNewTabPage.isNewTabPage(page.state.url) else { return false }  // a New Tab page pictures nothing
         return !cef.stores.offTheRecord.isOffTheRecord(page.profileID) && !browserTabs.isIncognitoTab(key)
     }
     func keepFrameOnDisk(_ image: CGImage, for key: String) {

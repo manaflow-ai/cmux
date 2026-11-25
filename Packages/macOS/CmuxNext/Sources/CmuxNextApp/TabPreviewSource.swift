@@ -34,7 +34,7 @@ final class TabPreviewSource: TabPreviewProvider {
     /// only its prompt over a see-through background pictured as an empty gray well, Leo
     /// 2026-10-20).
     static func shown(_ image: CGImage?, key: String, cache: TabContentCache) async -> CGImage? {
-        if let page = cache.browsers[key]?.tab, BrowserNewTabPage.isNewTabPage(page.state.url) { return nil }
+        if BrowserNewTabPage.isNewTabPage(cache.browsers[key]?.tab.state.url?.absoluteString ?? cache.tabModel(key)?.url ?? "") { return nil }  // no page yet: its recorded address
         guard let image else { return nil }
         return await ThumbnailStats.measure(image)?.isBlank == true ? nil : image
     }
