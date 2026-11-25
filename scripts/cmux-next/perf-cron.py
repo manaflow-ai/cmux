@@ -39,7 +39,7 @@ Subcommands: fetch-state, plan, fleet-check, run-part, part-cleanup, run-linux-p
 replay-results (see each --help). Tests: scripts/cmux-next/tests/test_perf_cron.py (decisions) and test_perf_cron_io.py (GitHub, git, the
 fleet client and multi-tick runs, faked) (run them yourself; no CI job runs them).
 """
-import argparse, collections, datetime, hashlib, importlib.util, io, json, os, random, re, shutil, subprocess, sys, tempfile, time
+import argparse, collections, copy, datetime, hashlib, importlib.util, io, json, os, random, re, shutil, subprocess, sys, tempfile, time
 import urllib.error, urllib.parse, urllib.request, zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -99,6 +99,7 @@ STALE_HOURS = 24
 # terminal.throughput.ratio) need one every 24 h. Four hours under that leave room for one queue wait and the part.
 PART_STALE_HOURS = 20
 SUPERSEDE_AFTER_HOURS = 24  # a tip measurement younger than this keeps its Mac parts for an unread part (supersede_for_unread)
+SUPERSEDED_LINUX_HOURS = 2  # a superseded tip's Linux parts get this long to finish (supersede_for_unread)
 ABANDON_HOURS = 12          # of active time: the hours a measurement spent yielding to the fleet do not count
 ABANDON_WALL_HOURS = 48     # the hard cap, yielding included
 # A tip measurement closed at its bound (close_at_bound) has this long to finish before it is abandoned after all.
@@ -226,14 +227,15 @@ PARTS = [
     {"name": "tabs", "args": [*MEASURE, "--suite=budgets", "--only=tab_scale,tab_close,surfaces_scale"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "tabs", "run_seconds": 1500},
     # The app's idle memory, empty and with 10 idle agent chats open (memory-agents-cron.py, bench_memory.py on the
-    # acpmux test agent): the rows behind goals ram-baseline and memory-per-chat in cmuxterm-hq's NOW (CMUX-571).
+    # acpmux test agent): the rows behind goals ram-baseline and memory-per-chat in cmuxterm-hq's NOW (CMUX-571). Its
+    # settled samples (150 s after the launch and after the last open, memory.app_agents.settled.) add about 5 minutes.
     # It measures the bench configuration (Release optimization, split-spring.sh --config=bench), the build people
     # run: the goal compares it with other apps' release builds and with the 2026-11-08 Release baseline (app process
     # 243-285 MB). Rows before this were the Debug build, whose app process read 323.3 MB at 8c515cc5, so a Debug row
     # read as growth that was the build. The bench build is the one throughput uses: one build serves both parts.
     {"name": "memory-agents", "args": [*MEASURE, "--config=bench", "--suite=memory-agents", "--agents=10"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents",
-     "run_seconds": 2400},  # 1500 s for the bench, plus a cold bench build (800 s) when this part runs first
+     "run_seconds": 2700},  # 1800 s for the bench (with its settled samples), plus a cold bench build (800 s) when this part runs first
     # Terminal throughput (scripts/cmux-next/terminal-throughput-bench.py): a 200 MB burst through a NEXT terminal and
     # through standalone Ghostty on the same host, MB/s each and NEXT/Ghostty. Reporting only (REPORT_ONLY_ROW_RE): the
     # CMUX-571 goal terminal-throughput reads terminal.throughput.ratio. One step runs both terminals. NEXT runs in the
@@ -282,6 +284,16 @@ PARTS = [
     # run_seconds: step 343b7e82 ran 2768 s with a cold build of 2522 s and its three rounds (2026-11-19), plus margin.
     {"name": "wake", "args": [*MEASURE, "--suite=wake"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "wake", "run_seconds": 3300},
+    # Typing in an agent chat's composer under load (typing-frame-bench.py --modes, the load modes every under-load
+    # harness shares in webviews/bench/load-modes.json; Leo, 2026-11-16: "but typing under load is not good enough"):
+    # 200 keys per mode, L0 idle to L5 everything at once, against the real agent. Rows typing.agentpane.<mode>.*: the
+    # native key dispatch to the page's after-frame callback p95 (16 ms) and p99 (33 ms), and keys lost or reordered
+    # (0). A mode whose run is not complete, or that the native bench cannot fully load (its mode_missing), has no
+    # row: its number would read as the whole mode. The rows behind cmuxterm-hq NOW's typing-under-load rows.
+    # run_seconds: step 3b72dd7b ran all six modes in about 3200 s with its queue and build (cmux20-bench, 2026-11-20).
+    {"name": "typing-load", "args": [*MEASURE, "--suite=typing-frame", "--modes=all", "--surfaces=agentpane",
+                                     "--chat-agent=real", "--rounds=1", "--samples=200"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "typing_frame", "needs": "typing-load", "run_seconds": 3600},
     # One chat at 1 MB, 100 MB, 1 GB and 4 GB (scripts/cmux-next/chat-size-ratio.py, goal infinite-chats in cmuxterm-hq's
     # NOW): each size seeded by the app's own acpmux store, opened in the app --runs times; open to first content, fling
     # frame p95, composer key to paint p95, renderer + GPU footprint and the daemon's footprint for the chat, each over
@@ -313,6 +325,11 @@ PARTS = [
     # A 1,000,000-event chat (webviews/bench/million-event-chat.bench.ts, CMUX-571, cmux#37713): the pane client's open,
     # one older page and its heap, for long turns and for 4-record turns. Its own part (about 2 minutes).
     {"name": "web-ui-million", "where": "linux", "kind": "webui", "needs": "web-ui-million"},
+    # What 10 open agent chats cost one shared renderer beside an empty one (webviews/bench/chat-pages-memory.bench.ts,
+    # goal memory-per-chat in cmuxterm-hq's NOW): renderer PSS empty and at 10, MB per chat and the ratio to empty
+    # (chat_pages_memory.n10.ratio_vs_empty), a Linux reading that does not wait for the one Mac measure host. Its own
+    # part: the suite's default benches already fill its 30-minute cap (about 1 minute).
+    {"name": "web-ui-memory", "where": "linux", "kind": "webui", "needs": "web-ui-memory"},
     # A chat at any length (webviews/bench/chat-100k-flat.bench.ts, goal chats-flat-at-any-length in cmuxterm-hq's NOW):
     # a 100k-row chat opened and grown live, one and 20 at once, against empty chats: renderer idle CPU, streaming CPU
     # and PSS, and the worst of those ratios (chat_100k_flat.ratio_max). Its own part, under the 30-minute run cap.
@@ -323,6 +340,11 @@ PARTS = [
     {"name": "web-ui-scroll-up", "where": "linux", "kind": "webui", "needs": "web-ui-scroll-up"},
     # Its 20 chats grown live to 100k rows each, about 28 minutes on its own (chat_100k_flat.grown_many.*).
     {"name": "web-ui-flat-grown", "where": "linux", "kind": "webui", "needs": "web-ui-flat"},
+    # The sim's stress ladder (webviews/bench/sim-ladder.bench.ts, goal sim-fidelity-flat-ladder in cmuxterm-hq's NOW):
+    # chats and browser tabs at 1, 10 and 100, the cost per added item at 100 over at 10 on renderer CPU, script ms/s,
+    # PSS and the focused chat's frame p95 (sim_ladder.ratio_max). Its own part, under the 30-minute run cap.
+    {"name": "web-ui-ladder", "where": "linux", "kind": "webui", "needs": "web-ui-ladder"},
+    {"name": "web-ui-fidelity", "where": "linux", "kind": "webui", "needs": "web-ui-ladder"},
     # Composer typing under load (webviews/bench/composer-typing.bench.ts, CMUX-571): 500 keys in Chromium and WebKit
     # under idle, a focused stream, ten streaming documents and a focused 100k-row stream; keydown to paint p95/p99
     # (webui.composer_typing.*) against report-only 16/33 ms targets. Its own part, under the 30-minute run cap.
@@ -331,10 +353,32 @@ PARTS = [
     # (webviews/bench/chat-fast-scroll.bench.ts, Leo 2026-11-22 "lags on scrolling ... when he's scrolling really
     # fast"): fling frame intervals and blank frames, rail click to paint and clicks that never loaded. Its own part.
     {"name": "web-ui-scroll", "where": "linux", "kind": "webui", "needs": "web-ui-scroll"},
+    # One orchestrator chat with 16 sub-sessions, local and Cloud, all streaming (webviews/bench/orchestrator-16.bench.ts,
+    # RFD 0167 row 12): every frame's time with the frame limit off; webui.orchestrator.c16.frame_ms_p99 is NOW's
+    # competitive.orchestrator.p99_frame_ms_16_children. Its own part.
+    {"name": "web-ui-orchestrator", "where": "linux", "kind": "webui", "needs": "web-ui-orchestrator"},
+    # The power-user input stress harness's long seed (webviews/bench/power-user-bursts.bench.ts, Leo 2026-11-22: "we
+    # need to test like power users more often"): 150 seeded waves of overlapping input bursts in Chromium and WebKit;
+    # frame p95/p99, input to paint, caret lag, dropped keys, stray layout shift and blank frames per input class
+    # (webui.power_user.*). Its own part, under the 30-minute run cap.
+    {"name": "web-ui-power-user", "where": "linux", "kind": "webui", "needs": "web-ui-power-user"},
+    # A settled page after a chat or workspace switch (webviews/bench/settled-page.bench.ts, goal settled-page-ceiling,
+    # Leo 2026-11-21: "reach a settled page (zero layout shift after first paint, streaming included) within 2x of a
+    # derived bound"): webui.settled_page.score_max is NOW's settled_page_score_max. The suite marks it ownPart, so the
+    # web-ui part never ran it and the row read unknown. Its own part, about 3 minutes.
+    {"name": "web-ui-settled", "where": "linux", "kind": "webui", "needs": "web-ui-settled"},
     # One live chat's disk growth (scripts/measure/chat-disk-growth.py, the same goal): a release acpmux streams one
     # chat to 100k rows on simulated time against an empty chat; bytes per simulated hour and their ratio
     # (chat_disk.growth_ratio). About 30 s after the build, which runs first under its own cap.
     {"name": "chat-disk", "where": "linux", "kind": "webui", "needs": "chat-disk"},
+    # cmux Cloud claim-to-ready (scripts/cmux-next/cloud-claim-rows.py): p50 and p95 over the newest 24 production
+    # claims the hourly Cloud journey (cloud-journey-prod.yml) made, read from its probe.json artifacts; no machine is
+    # made here. Its rows are cloud.claim_to_ready*, report-only (REPORT_ONLY_ROW_RE): the number is the deployed
+    # Cloud's, not the measured commit's, so a bisect over cmux commits could not find its culprit. Their targets are
+    # cmuxterm-hq plans/cloud/ARCHITECTURE-2026-11.md T3 "Click to agent ready", shown and marked over target.
+    # Its command took 101 s for 24 claims (2026-11-19, a lane VM); the script stops reading at 240 s (DEADLINE_S).
+    {"name": "cloud-claim", "where": "linux", "kind": "webui", "needs": "cloud-claim", "row_prefix": "cloud.",
+     "run_seconds": 300},
     # Terminal scroll integrity (scripts/measure/terminal-scroll-stress-linux.sh, goal terminal-scroll-integrity in
     # cmuxterm-hq's NOW): blank rows, missing rows and viewport jumps while scrolled back, on a local daemon and over
     # a loopback sshd, in the byte client's own mirror and in the daemon's render viewport. Counts, target 0. Its
@@ -373,6 +417,7 @@ ROW_PARTS = [
     (r"^memory\.app_agents\.", "memory-agents"), (r"^idle_budget\.", "idle-budget"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"),
     (r"^launch\.cold\.", "launch-cold"),
     (r"^launch\.relaunch\.", "relaunch"), (r"^launch\.wake_proxy\.", "wake"), (r"^launch\.", "launch"),
+    (r"^terminal\.throughput\.", "throughput"), (r"^typing\.", "typing-load"),
     (r"^terminal\.throughput\.", "throughput"), (r"^cef_resize\.", "cef-resize"), (r"^terminal\.scroll\.", "terminal-scroll"),
     (r"^power\.", "power"),
     (r"^chat_size\.", "chat-size"),
@@ -383,13 +428,20 @@ ROW_PARTS = [
     (r"^webui\.chat_open_paired\.", "web-ui-god"),
     (r"^webui\.(god_ratio\.|[a-z0-9_]+\.god\.)", "web-ui-god"), (r"^webui\.infinite_items\.", "infinite-items"),
     (r"^webui\.million_event_chat\.", "web-ui-million"),
+    (r"^webui\.chat_pages_memory\.", "web-ui-memory"),
     (r"^webui\.chat_100k_flat\.grown_many\.", "web-ui-flat-grown"),
     (r"^webui\.chat_100k_flat\.", "web-ui-flat"),
+    (r"^webui\.sim_ladder\.", "web-ui-ladder"),
+    (r"^webui\.sim_fidelity\.", "web-ui-fidelity"),
     (r"^webui\.transcript_scroll_up_scale\.", "web-ui-scroll-up"),
     (r"^webui\.composer_typing\.", "web-ui-typing"),
     (r"^webui\.chat_fast_scroll\.", "web-ui-scroll"),
+    (r"^webui\.orchestrator\.", "web-ui-orchestrator"),
     (r"^webui\.sidebar_chats_fling\.", "web-ui-scroll"),
+    (r"^webui\.power_user\.", "web-ui-power-user"),
+    (r"^webui\.settled_page\.", "web-ui-settled"),
     (r"^webui\.chat_disk\.", "chat-disk"),
+    (r"^cloud\.claim_to_ready", "cloud-claim"),
     (r"^webui\.daemon_restart\.", "daemon-restart"),
     (r"^webui\.coord_sim\.", "coord-sim"),
     (r"^webui\.chat_search\.", "chat-search"),
@@ -407,8 +459,10 @@ ROW_PARTS = [
 # part's Ghostty idle mW and the app's ratio to it are the terminal row's comparison: shown, not judged (that row has
 # Ghostty's mW as budget). The chat search's fill and the CLI's scan (chat-search) are context for its judged
 # keystroke row: shown, not judged.
-REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\."
-                                r"|acp\.[^.]+\.typing\.(to_listener|to_work)$|launch\.wake_proxy\.awake_echo_ms$"
+REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\.|cloud\.claim_to_ready"
+                                r"|acp\.[^.]+\.typing\.(to_listener|to_work|to_frame_frames)$"
+                                r"|acp\.[^.]+\.frame_interval$|acp\.[^.]+-(capped|full|nolimit)\."
+                                r"|launch\.wake_proxy\.awake_echo_ms$"
                                 r"|webui\.chat_open_paired\.(god\.)?[a-z0-9_]+\.attach_to_latest$"
                                 r"|power\.idle\.terminal\.(ghostty_mw|vs_ghostty)$"
                                 r"|webui\.chat_search\.(fill|scan_keystroke)\b)")
@@ -731,6 +785,38 @@ def refresh_ms_of(report):
     return float(r) if isinstance(r, (int, float)) and 2 <= r <= 50 else None
 
 
+# The typing-load part's budgets (Leo's target for typing under load): key dispatch to after-frame p95 and p99.
+TYPING_P95_MS = 16.0
+TYPING_P99_MS = 33.0
+
+
+def typing_frame_rows(report):
+    """typing.<surface>.<mode>.{after_frame, after_frame_p99, lost_keys} from typing-frame-bench.py's --modes runs: one
+    set per complete run whose mode the native bench loads in full (mode_missing empty). A mode with several rounds
+    keeps its worst round. An incomplete run, or a mode the bench loads only in part, gives no row."""
+    out = {}
+    for run in report.get("runs") or []:
+        if not isinstance(run, dict) or not run.get("mode") or run.get("complete") is not True or run.get("mode_missing"):
+            continue
+        p50, p95 = run.get("dispatch_to_after_frame_p50_ms"), run.get("dispatch_to_after_frame_p95_ms")
+        p99 = run.get("dispatch_to_after_frame_p99_ms")
+        if not all(isinstance(v, (int, float)) for v in (p50, p95, p99)):
+            continue
+        expected, observed = run.get("expected_keys"), run.get("observed_keys")
+        lost = expected - observed if isinstance(expected, int) and isinstance(observed, int) else None
+        if run.get("text_exact") is not True or run.get("key_order_ok") is not True:
+            lost = max(lost or 0, 1)
+        prefix = f"typing.{run.get('surface') or 'agentpane'}.{run['mode']}"
+        rows = {f"{prefix}.after_frame": {"p50": p50, "p95": p95, "unit": "ms", "budget": TYPING_P95_MS, "floor": 2.0},
+                f"{prefix}.after_frame_p99": {"p50": p99, "p95": p99, "unit": "ms", "budget": TYPING_P99_MS, "floor": 4.0}}
+        if lost is not None:
+            rows[f"{prefix}.lost_keys"] = {"p50": lost, "p95": lost, "unit": "keys", "budget": 0, "floor": COUNT_FLOOR}
+        for name, row in rows.items():
+            if name not in out or row["p95"] > out[name]["p95"]:
+                out[name] = row
+    return out
+
+
 def rows_of_part(part, report, budgets_mod, budgets):
     """{row name: {p50, p95, unit, budget, floor}} from one part's report."""
     out = {}
@@ -779,6 +865,8 @@ def rows_of_part(part, report, budgets_mod, budgets):
                         p50, p95 = budgets_mod.pct(values, 0.5), budgets_mod.pct(values, 0.95)
                         out[f"{prefix}.{mode}.{mark}"] = {"p50": round(p50, 1), "p95": round(p95, 1), "unit": "ms",
                                                         "budget": budget, "floor": 20.0}
+    elif part["kind"] == "typing_frame":
+        out.update(typing_frame_rows(report))
     elif part["kind"] == "diff":
         sidecar, stream = report.get("sidecar") or {}, report.get("stream") or {}
 
@@ -1065,7 +1153,7 @@ def target_of(name, row, refresh_ms):
         # Scaling rows are judged only by their 1000-vs-baseline ratio. Their absolute
         # latency is intentionally advisory and must not inherit the generic 10 ms target.
         return None
-    if name.startswith(("diff.", "launch.", "webui.", "terminal.key_to_echo.", "cef_resize.")):
+    if name.startswith(("diff.", "launch.", "webui.", "cloud.", "terminal.key_to_echo.", "cef_resize.")):
         return row.get("budget")
     if unit in ("frames", "checks") or name.endswith(".dropped"):
         return 0
@@ -1171,6 +1259,8 @@ def linux_bench_runs(root, part="diff-viewer"):
     if part == "web-ui-million":
         only = "million-event-chat,million-event-chat-short"
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", only], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-memory":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-pages-memory"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-flat":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-scroll-up":
@@ -1179,10 +1269,20 @@ def linux_bench_runs(root, part="diff-viewer"):
     if part == "web-ui-flat-grown":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat-grown"],
                           os.path.join(root, "webviews"), {})}
+    if part == "web-ui-ladder":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "sim-ladder"], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-fidelity":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "sim-fidelity"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-scroll":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-fast-scroll,sidebar-chats-fling"], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-orchestrator":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "orchestrator-16"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-typing":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "composer-typing"], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-power-user":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "power-user-bursts"], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-settled":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "settled-page"], os.path.join(root, "webviews"), {})}
     if part == "coord-sim":
         # The release builds first, in a run of their own (each run has its own 30-minute cap), then 300 s of load.
         script = os.path.join(root, COORD_SIM)
@@ -1192,6 +1292,8 @@ def linux_bench_runs(root, part="diff-viewer"):
     if part == "chat-disk" or part == "terminal-scroll":
         script = os.path.join(root, CHAT_DISK if part == "chat-disk" else TERMINAL_SCROLL)
         return {"build": (["bash", script, "build-only"], root or ".", {}), "suite": (["bash", script], root or ".", {})}
+    if part == "cloud-claim":
+        return {"suite": (["python3", os.path.join(root, CLOUD_CLAIM)], root or ".", {})}
     if part == "daemon-restart":
         script = os.path.join(root, DAEMON_RESTART)
         return {"build": (["bash", script, "build-only"], root or ".", {}), "suite": (["bash", script], root or ".", {})}
@@ -1299,17 +1401,21 @@ def with_build(parts):
 
 
 def unread_parts(state):
-    """The Mac parts (build aside) that never produced a reading in the state (pure): no stored rows
-    (state['part_stored'], store_part_rows) and no row of theirs in state['part_rows'] or state['row_history']."""
+    """The parts (build aside), Mac and Linux, that never produced a reading in the state (pure): no stored rows
+    (state['part_stored'], store_part_rows) and no row of theirs in state['part_rows'] or state['row_history'].
+
+    Linux parts count too (2026-11-24: web-ui-orchestrator, cmux#54205, merged after tip b76703549055, which had
+    measured 13 of its 45 parts in 229 h; a Linux part runs only in a measurement whose commit has its bench, so NOW's
+    competitive.orchestrator.p99_frame_ms_16_children read unknown until that tip ended)."""
     read = set(state.get("part_stored") or {}) if isinstance(state.get("part_stored"), dict) else set()
     for key in ("part_rows", "row_history"):
         if isinstance(state.get(key), dict):
             read |= {part_for_row(name) for name in state[key] if isinstance(name, str)}
-    return [p["name"] for p in PARTS if p["name"] != "build" and not is_linux_part(p["name"]) and p["name"] not in read]
+    return [p["name"] for p in PARTS if p["name"] != "build" and p["name"] not in read]
 
 
 def unread_missing(state, cur):
-    """The unread Mac parts (unread_parts) the tip measurement in flight cannot run: its commit predates them (pure).
+    """The unread parts (unread_parts) the tip measurement in flight cannot run: its commit predates them (pure).
     Empty unless it still has a Mac part to do."""
     if not cur or cur.get("kind") != "tip" or not needs_mac(cur):
         return []
@@ -1326,6 +1432,19 @@ def supersede_for_unread(state, t, newest, supported_parts):
     2026-11-22: tip 9a55953f had measured 24 of its 28 parts in 165 h, and chat-size (cmux#48916, merged after it)
     had never run, so NOW's infinite_chat_size_ratio_max read unknown for days."""
     cur = state.get("current")
+    gave = cur.get("superseded") if isinstance(cur, dict) and isinstance(cur.get("superseded"), dict) else None
+    if gave and cur.get("parts_todo"):
+        # Its Linux parts may still run, for SUPERSEDED_LINUX_HOURS: the newer tip measures them again anyway, and
+        # a Linux request the build controller never answers otherwise held the measurement to ABANDON_WALL_HOURS
+        # while the newer tip, with the unread part, waited (tip 12aa19c2, 2026-11-23: Mac parts superseded, then
+        # web-ui-growth unanswered 23 h, so chat-size never ran). A record with no `at` predates this bound: ends now.
+        since = parse_started(gave.get("at"))
+        if since and hours_between(since, t) < SUPERSEDED_LINUX_HOURS:
+            return None
+        for name in list(cur["parts_todo"]):
+            cur["parts"][name] = {"state": "superseded", "reason": gave.get("why") or "superseded"}
+        cur["parts_todo"] = []
+        return gave.get("why") or "superseded"
     missing = unread_missing(state, cur)
     if not missing or not newest:
         return None
@@ -1343,7 +1462,7 @@ def supersede_for_unread(state, t, newest, supported_parts):
         cur["parts_todo"].remove(name)
     cur.pop("host_asked_since", None)
     end_yield(cur, t)
-    cur["superseded"] = {"by": newest, "why": why}
+    cur["superseded"] = {"by": newest, "why": why, "at": iso(t)}
     return why
 
 
@@ -1374,8 +1493,32 @@ def part_order(state, todo, t):
             | set(state.get("part_rows") or {})
         seen = {part_for_row(n) for n in names}
         never = [n for n in never if n not in seen] + [n for n in never if n in seen]
-    first = never + [n for _, _, n in sorted(stale)]
+    # A part with no stored rows that ran and failed in the newest tip measurement goes after the stale ones: it would
+    # otherwise stay first in every measurement, since a failure stores nothing. On 2026-11-24 seven such Linux parts
+    # (coord-sim with no shapes file, web-ui-flat timing out, ...) were ahead of web-ui-god, whose rows were 2.6 days
+    # old and which two measurements in a row ended at their bound before reaching.
+    failing = ran_failed(state)
+    stale_names = [n for _, _, n in sorted(stale)]
+    first = [n for n in never if n not in failing] + stale_names + [n for n in never if n in failing]
     return [n for n in todo if n == "build"] + first + [n for n in todo if n != "build" and n not in first]
+
+
+# A failed_why of a history entry from before ran_failed: run-linux-part's own failure ("NAME: exit N", "NAME: timed
+# out after N s"), not a part that never ran.
+RAN_FAILED_WHY = re.compile(r"^[a-z0-9-]+( gen)?: (exit -?\d+|timed out after |.*No such file)")
+
+
+def ran_failed(state):
+    """The parts that ran and failed in the newest tip measurement (pure): its history entry's ran_failed, else for an
+    older entry the failed_why reasons that are a run's own failure (RAN_FAILED_WHY)."""
+    for entry in reversed(state.get("history") or []):
+        if not isinstance(entry, dict) or entry.get("kind") != "tip" or "failed_parts" not in entry:
+            continue
+        if isinstance(entry.get("ran_failed"), list):
+            return set(entry["ran_failed"])
+        why = entry.get("failed_why") if isinstance(entry.get("failed_why"), dict) else {}
+        return {n for n, w in why.items() if RAN_FAILED_WHY.match(str(w))}
+    return set()
 
 
 def measurement_id(cur):
@@ -2344,18 +2487,30 @@ def supported_parts_at(sha):
             ok = has_path(sha, f"{STATE_GROWTH_BENCH}")
         elif need == "web-ui-flat":
             ok = has_path(sha, f"{FLAT_100K_BENCH}")
+        elif need == "web-ui-ladder":
+            ok = has_path(sha, f"{SIM_LADDER_BENCH}")
         elif need == "web-ui-scroll-up":
             ok = has_path(sha, f"{SCROLL_UP_SCALE_BENCH}")
         elif need == "web-ui-scroll":
             ok = has_path(sha, f"{CHAT_FAST_SCROLL_BENCH}")
+        elif need == "web-ui-orchestrator":
+            ok = has_path(sha, f"{ORCHESTRATOR_BENCH}")
         elif need == "web-ui-typing":
             ok = has_path(sha, f"{COMPOSER_TYPING_ROWS}")
+        elif need == "web-ui-power-user":
+            ok = has_path(sha, f"{POWER_USER_BENCH}")
+        elif need == "web-ui-settled":
+            ok = has_path(sha, f"{SETTLED_PAGE_BENCH}")
         elif need == "web-ui-million":
             ok = has_path(sha, f"{MILLION_EVENT_BENCH}")
+        elif need == "web-ui-memory":
+            ok = has_path(sha, f"{CHAT_PAGES_MEMORY_BENCH}")
         elif need == "infinite-items":
             ok = has_path(sha, f"{INFINITE_ITEMS}")
         elif need == "chat-disk":
             ok = has_path(sha, f"{CHAT_DISK}")
+        elif need == "cloud-claim":
+            ok = has_path(sha, f"{CLOUD_CLAIM}")
         elif need == "typing":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
@@ -2393,6 +2548,11 @@ def supported_parts_at(sha):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = f"--suite={need}" in text
+        elif need == "typing-load":
+            # The load modes (--modes) and the agent chat surface arrived together with load_modes.py (cmux#44479).
+            text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/typing-frame-bench.py"],
+                                  capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
+            ok = "--modes" in text and "agentpane" in text and has_path(sha, "scripts/cmux-next/load_modes.py")
         elif need == "tabs":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/perf-budgets.py"],
                                   capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
@@ -2437,13 +2597,20 @@ WEBUI_SUITE = "webviews/bench/web-ui-suite.ts"
 UPDATE_ONE_BENCH = "webviews/bench/update-one.bench.ts"
 STATE_GROWTH_BENCH = "webviews/bench/state-growth.bench.ts"
 MILLION_EVENT_BENCH = "webviews/bench/million-event-chat.bench.ts"
+CHAT_PAGES_MEMORY_BENCH = "webviews/bench/chat-pages-memory.bench.ts"
 FLAT_100K_BENCH = "webviews/bench/chat-100k-flat.bench.ts"
+SIM_LADDER_BENCH = "webviews/bench/sim-ladder.bench.ts"
 SCROLL_UP_SCALE_BENCH = "webviews/bench/transcript-scroll-up-scale.bench.ts"
 # The web-ui-typing part needs the load modes (composer-load.ts) and their rows (composerTypingRows.ts).
 COMPOSER_TYPING_ROWS = "webviews/bench/composerTypingRows.ts"
 CHAT_FAST_SCROLL_BENCH = "webviews/bench/chat-fast-scroll.bench.ts"
+ORCHESTRATOR_BENCH = "webviews/bench/orchestrator-16.bench.ts"
+# The web-ui-power-user part's adapter around the power-user input stress harness.
+POWER_USER_BENCH = "webviews/bench/power-user-bursts.bench.ts"
+SETTLED_PAGE_BENCH = "webviews/bench/settled-page.bench.ts"
 INFINITE_ITEMS = "scripts/measure/infinite-items-linux.sh"
 CHAT_DISK = "scripts/measure/chat-disk-growth-linux.sh"
+CLOUD_CLAIM = "scripts/cmux-next/cloud-claim-rows.py"
 CHAT_SEARCH = "scripts/measure/chat-search-linux.sh"
 TERMINAL_SCROLL = "scripts/measure/terminal-scroll-stress-linux.sh"
 DAEMON_RESTART = "scripts/measure/daemon-restart-linux.sh"
@@ -3223,6 +3390,8 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
                   for n in failed}
     if failed_why:
         entry["failed_why"] = failed_why
+    # The parts that ran and failed (not those never run): part_order puts them after the stale parts next time.
+    entry["ran_failed"] = [n for n in failed if cur["parts"][n].get("state") == "failed"]
     state.setdefault("history", []).append(entry)
     state["history"] = state["history"][-60:]
     base_rows = judging_rows(state, t)
@@ -3345,7 +3514,8 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
         streak = [v for v in prev.get("recovering") or [] if isinstance(v, dict)]
         streak.append({"sha": cur["sha"], "p95": p95, "at": iso(t), "run_url": run_url})
         if len(streak) < RECOVER_RUNS:
-            regressions.append({**prev, "recovering": streak})
+            # Its newest reading, so the probe and NOW read this run's value, not the one it was detected at.
+            regressions.append({**prev, "recovering": streak, "last_p95": p95, "last_at": iso(t)})
         else:
             closing[name] = streak[:-1]
     for r in [r for r in regs if r["name"] in old] + confirmed:
@@ -3360,6 +3530,8 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
             r["range"] = {"good": start, "bad": first, "skip": [], "steps": 0}
             r.setdefault("first_bad", {"sha": cur["sha"], "run_url": run_url, "measured_at": iso(t)})
         r["confirmed"] = True
+        # The newest reading of an open regression (this run's value), as a recovering one keeps above.
+        r["last_p95"], r["last_at"] = r["p95"], iso(t)
         regressions.append(r)
     now_bad = {r["name"] for r in regressions} | held
     row_ok.update({name: cur["sha"] for name in judged if name not in now_bad})
@@ -3617,13 +3789,20 @@ def plan(o):
         clear_parts(o.dir)  # a dropped or replaced measurement's part files must never be read as the new one's
     linux_request, route = "", ""
     if d.get("linux_part") and state.get("current"):
-        route = linux_route(state["current"], d["linux_part"], t, bool(getattr(o, "linux_controller", False)),
-                            commit_has(d["sha"], LINUX_SCRIPT))
-        if route != "runner":
-            linux_request = d["linux_part"] if route == "request" else ""
-            print(f"perf-cron: Linux part {d['linux_part']}: "
-                  + ("asked of the build controller" if linux_request else "its request to the build controller waits for an answer"))
-            d["linux_part"] = ""
+        cur = state["current"]
+        order = [d["linux_part"]] + [p for p in part_order(state, cur["parts_todo"], t)
+                                     if is_linux_part(p) and p != d["linux_part"]]
+        runner, linux_request, waiting = linux_picks(cur, order, t, bool(getattr(o, "linux_controller", False)),
+                                                     commit_has(d["sha"], LINUX_SCRIPT))
+        for part in waiting:
+            print(f"perf-cron: Linux part {part}: its request to the build controller waits for an answer")
+        if linux_request:
+            print(f"perf-cron: Linux part {linux_request}: asked of the build controller")
+        if runner != d["linux_part"]:
+            d["reason"] += (f"; Linux: {runner or 'none'} on the runner, {linux_request or 'none'} asked of the "
+                            f"controller, {len(waiting)} waiting for its answer")
+        d["linux_part"] = runner
+        route = "go" if runner or linux_request else "wait"
     cur = state.get("current")
     if cur and route == "wait" and not d.get("part"):
         # Only the controller's answer is awaited: the wait does not count against ABANDON_HOURS (review of
@@ -3927,15 +4106,25 @@ def restart_note(restarts):
 # job), so the job left no result three ticks running, the part ended yielded_out, and no infinite_items row was
 # stored after 2026-11-17 06:41Z.
 LINUX_RUN_SECONDS = 1800
+# Parts whose one run outlasts the 30 minutes. chat-100k-flat's seven launches (each about a minute of CPU settle, then
+# three idle and three streaming windows) were still in long_x20 when the suite's 1200 s timeout killed it, so
+# web-ui-flat stored no chat_100k_flat row after 2026-11-17 (Actions run 45422305557); its 20 chats grown live to
+# 100k rows timed out at 1770 s in two cron ticks running. The suite's own timeoutMs for each sits 5 minutes under.
+LINUX_RUN_SECONDS_BY_PART = {"web-ui-flat": 2700, "web-ui-flat-grown": 3300}
 LINUX_SETUP_MINUTES = 10
 LINUX_JOB_MIN_MINUTES = 40
+
+
+def linux_run_seconds(name):
+    """The cap of each bench run of Linux part NAME (pure)."""
+    return LINUX_RUN_SECONDS_BY_PART.get(name, LINUX_RUN_SECONDS)
 
 
 def linux_job_minutes(name):
     """The linux job's timeout-minutes for Linux part NAME (pure): its runs' caps and the setup. web-ui-god's paired
     rounds stop at GOD_PAIRED_DEADLINE_S of the part's time, so they add no run of their own."""
     runs = [n for n in linux_bench_runs("", name) if n != "paired"]
-    return max(LINUX_JOB_MIN_MINUTES, LINUX_SETUP_MINUTES + len(runs) * -(-LINUX_RUN_SECONDS // 60))
+    return max(LINUX_JOB_MIN_MINUTES, LINUX_SETUP_MINUTES + len(runs) * -(-linux_run_seconds(name) // 60))
 
 
 def run_capped(argv, cwd, env, timeout):
@@ -3970,7 +4159,7 @@ def last_json_object(text):
     return None
 
 
-def webui_summary(report):
+def webui_summary(report, prefix="webui"):
     """The web-ui part's rows as Markdown lines, slowest first relative to their target (rows with no target after,
     by p95), then the benches that failed (pure): what a lane fixes first."""
     rows = [r for r in (report.get("rows") or []) if isinstance(r, dict) and isinstance(r.get("p95"), (int, float))
@@ -3984,7 +4173,7 @@ def webui_summary(report):
     for r in rows:
         unit = r.get("unit") or "ms"
         target = f"{r['target']} {unit}" if ratio(r) >= 0 else "-"
-        lines.append(f"| webui.{r.get('name')} | {r['p95']} {unit} | {target} | "
+        lines.append(f"| {prefix}.{r.get('name')} | {r['p95']} {unit} | {target} | "
                      + (f"{ratio(r) * 100:.0f} %" if ratio(r) >= 0 else "-") + " |")
     for f in report.get("failed") or []:
         if isinstance(f, dict):
@@ -4027,6 +4216,14 @@ def prepare_ghostty(root, env, run=run_capped, timeout=900):
     return env, tail
 
 
+WAKEUP_LINE_RE = re.compile(r"(left alone for|at rest for) [0-9.]+ s: [0-9]+ wakeups \(")
+
+
+def webui_wakeup_lines(stdout, limit=40):
+    """The web UI suite's bench lines that count and name an idle page's wakeups (pure), at most LIMIT."""
+    return [line.strip()[:1200] for line in (stdout or "").splitlines() if WAKEUP_LINE_RE.search(line)][:limit]
+
+
 def cmd_run_linux_part(o):
     """One Linux part, in a checkout of the measured commit with the webviews packages installed. diff-viewer (Rust
     too): scripts/benchmark-diff-viewer.sh's two benches without their budget env, so they report instead of failing.
@@ -4047,15 +4244,20 @@ def cmd_run_linux_part(o):
             tail += [f"paired: {len(report['paired']['rounds'])} rounds, {report['paired']['stopped']}"]
             continue
         before = host_contention() if part != "web-ui" else []
-        stdout, stderr, code = run_capped(argv, cwd, {**env, **extra}, LINUX_RUN_SECONDS)
+        stdout, stderr, code = run_capped(argv, cwd, {**env, **extra}, linux_run_seconds(part))
         value = last_json_object(stdout) if code is not None else None
         if code is None:
-            code = f"timeout ({LINUX_RUN_SECONDS} s)"
+            code = f"timeout ({linux_run_seconds(part)} s)"
         # A script that prints its error to stdout (no stderr) still shows it.
         tail += [f"{name}: exit {code}"] + (stderr.strip() or (stdout if code != 0 else "")).splitlines()[-10:]
         if before:
             load[name] = contention_factor(before + host_contention())
         if PART_BY_NAME[part]["kind"] == "webui":
+            # The benches' own lines naming what woke an idle page (chat-switch's "left alone for 10 s: N wakeups
+            # (...); <sources>"): the report keeps only the counts, so the job log carries the callbacks behind a
+            # nonzero rest_wakeups (goal idle-wakeups) instead of a rerun to find them.
+            for line in webui_wakeup_lines(stdout):
+                print(f"perf-cron web-ui: {line}")
             if isinstance(value, dict):
                 report = value
                 failed = [f for f in value.get("failed") or [] if isinstance(f, dict)]
@@ -4070,7 +4272,7 @@ def cmd_run_linux_part(o):
         else:
             report[name] = value
     if PART_BY_NAME[part]["kind"] == "webui":
-        for line in webui_summary(report):
+        for line in webui_summary(report, PART_BY_NAME[part].get("row_prefix", "webui")):
             print(f"perf-cron web-ui: {line}")
     else:
         report["bench_versions"] = diff_bench_versions(ROOT)
@@ -4613,6 +4815,10 @@ LINUX_REQUESTS_MAX = 2
 # Past the part's own cap: the controller keeps a request until a worker is idle (perfCronWaitFor), and the result
 # reaches the state through a result run or replay-results.
 LINUX_ANSWER_SLACK_MINUTES = 60
+# The Linux parts the controller never runs: cloud-claim reads the production Cloud journey's artifacts with the run's
+# own token (the linux job's GH_TOKEN), which a pool worker has not. Asked of the controller, it waited two answer
+# windows (about 3 h 20 min) for an answer that never comes before it ran on the runner.
+LINUX_RUNNER_ONLY = frozenset({"cloud-claim"})
 
 
 def linux_answer_minutes(part):
@@ -4624,7 +4830,7 @@ def linux_route(cur, part, t, controller, has_script):
     """Where this tick runs Linux part PART: 'request' (ask the build controller), 'wait' (a request is in its answer
     window: nothing else runs it) or 'runner' (the linux job). Keeps cur['linux_requests'][part]; record_part clears
     it. Without the controller route, or at a commit without LINUX_SCRIPT, always 'runner'."""
-    if not controller or not has_script:
+    if not controller or not has_script or part in LINUX_RUNNER_ONLY:
         return "runner"
     asks = cur.setdefault("linux_requests", {})
     ask = asks.get(part) if isinstance(asks.get(part), dict) else None
@@ -4645,6 +4851,31 @@ def linux_route(cur, part, t, controller, has_script):
         ask["fell_back_at"] = iso(t)
         return "runner"
     return "request"
+
+
+def linux_picks(cur, order, t, controller, has_script):
+    """This tick's Linux parts (runner part, controller request, parts waiting), taking ORDER's parts in turn: a part
+    whose request is in its answer window (linux_route 'wait') holds back only itself. The linux and linux-request
+    jobs are separate, so one tick may run a part on the runner and ask the controller for another. linux_route
+    keeps state, so it runs on a copy to look and on CUR only for the parts picked. Before 2026-11-23 the first part
+    in order alone was routed: while coord-sim's request waited (about 3 h a window), no Linux part ran, and a
+    superseded measurement (no Mac part) stored 5 Linux parts in 19 h."""
+    look = {"linux_requests": copy.deepcopy(cur.get("linux_requests") if isinstance(cur.get("linux_requests"), dict) else {})}
+    runner, request, waiting = "", "", []
+    for part in order:
+        how = linux_route(look, part, t, controller, has_script)
+        if how == "wait":
+            waiting.append(part)
+        elif how == "runner" and not runner:
+            runner = part
+        elif how == "request" and not request:
+            request = part
+        if runner and (request or not controller or not has_script):
+            break
+    for part in (runner, request):
+        if part:
+            linux_route(cur, part, t, controller, has_script)
+    return runner, request, waiting
 
 
 def commit_has(sha, path):

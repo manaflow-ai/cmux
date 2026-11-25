@@ -76,6 +76,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `home.attachments.keepLocation` (off: strip location) and `home.channelsEnabled`; off when unset.
     public var homeKeepLocation = HomeKeepLocationSetting.fallback, homeChannelsEnabled = HomeChannelsSetting.fallback
     public var homeChiefPetEnabled = HomeChiefPetSetting.fallback, homeChiefPetMascot = HomeChiefPetSetting.mascotDefault
+    /// `home.clipboardHistory`: the Chief composer's + menu lists recent copies; on when unset.
+    public var homeClipboardHistory = HomeClipboardHistorySetting.fallback
     /// `home.feedInChief`: the main Chief's conversation shows the Feed's notices; on when unset.
     public var homeFeedInChief = HomeFeedRowsSetting.fallback
     /// `home.chiefDock.edge`: the window edge the Chief docks to (``ChiefDockSetting``), `left` when unset; `home.chiefDock.sidePanel`: every window keeps it docked there (Chief in Side Panel), off when unset.
@@ -88,6 +90,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var homeServer: HomeServerSetting.Value = .hosted
     /// `labs.previewFeatures`; off when unset.
     public var previewFeatures = CmuxConfigSnapshot.previewFeaturesDefault
+    /// `labs.appStore`: the App Store shows (``showsAppStore``); off when unset.
+    public var appStore = CmuxConfigSnapshot.appStoreDefault
     /// `labs.liveTree`: the opt-in live-tree status card in the agent pane; off when unset.
     public var liveTree = CmuxConfigSnapshot.liveTreeDefault
     /// `labs.voiceRoom` (off when unset) and `labs.voiceRoomURL` (trimmed; empty is the local room server).
@@ -101,6 +105,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var pauseAgentMachines = CmuxConfigSnapshot.pauseAgentMachinesDefault
     /// `customize.fromTheApp`: the Customize Inspector (hold Option) and right-click Customize…; off when unset.
     public var customizeFromTheApp = CmuxConfigSnapshot.customizeFromTheAppDefault
+    /// `customize.doctorNotice`: the toast naming a file or layer that changes the setup (`CustomizeDoctorNotice`); on when unset.
+    public var customizeDoctorNotice = CmuxConfigSnapshot.customizeDoctorNoticeDefault
     /// `labs.agentCustomization`: Settings shows and edits Claude Code's and Codex's own MCP servers, skills and commands (`cmux agent-config`); off when unset.
     public var agentCustomization = CmuxConfigSnapshot.agentCustomizationDefault
     /// `labs.hostsSidebar`: the Rex-style Hosts section projects the Machines catalog into the sidebar; off when unset.
@@ -314,6 +320,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var terminalFontSize: Double?
     /// `terminal.term`: the `TERM` new local terminals start with; `xterm-256color` when unset or invalid.
     public var terminalTerm: TerminalTerm = TerminalTermSetting.fallback
+    /// `terminal.predictiveLocalEcho`: remote terminals draw typed characters before their echo; on when unset or invalid.
+    public var terminalPredictiveLocalEcho: Bool = TerminalPredictiveEchoSetting.fallback
     /// `history.terminalCommands` (opt-in terminal command history).
     public var recordsTerminalCommands: Bool = TerminalCommandHistorySetting.fallback
     /// `navigation.historyScope`: what Back and Forward walk (`workspace`, `window`, `surface`).
@@ -348,6 +356,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var macScreen = MacScreenSettings()
     /// `remote.*`: cmux Remote (sharing this Mac while cmux is quit).
     public var remote = RemoteSettings()
+    /// `remoteDesktop.*`: the viewer's defaults for a new Screen Sharing session (quality, frame rate, bitrate).
+    public var remoteDesktop = RemoteDesktopDefaults()
     /// `macScreen.debug.*`: the Development section's Mac Screen switches (DEV builds read them).
     public var macScreenDebug = MacScreenDebugSettings()
     /// `deviceHub.*`: the Development section's device hub address (DEV builds read it).
@@ -400,6 +410,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(AgentMouseSetting.parse(root), \.browserAgentMouse)
         snapshot.takeHome(root)
         snapshot.take(Self.parsePreviewFeatures(root), \.previewFeatures)
+        snapshot.take(Self.parseLabsToggle(root, path: appStorePath, fallback: appStoreDefault), \.appStore)
         snapshot.take(Self.parseLabsToggle(root, path: liveTreePath, fallback: liveTreeDefault), \.liveTree)
         snapshot.take(Self.parseLabsToggle(root, path: voiceRoomPath, fallback: voiceRoomDefault), \.voiceRoom)
         snapshot.take(Self.parseLabsText(root, path: voiceRoomURLPath, fallback: voiceRoomURLDefault), \.voiceRoomURL)
@@ -407,6 +418,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(Self.parseLabsToggle(root, path: liveCodePath, fallback: liveCodeDefault), \.liveCode)
         snapshot.take(Self.parseLabsToggle(root, path: pauseAgentMachinesPath, fallback: pauseAgentMachinesDefault), \.pauseAgentMachines)
         snapshot.take(Self.parseLabsToggle(root, path: customizeFromTheAppPath, fallback: customizeFromTheAppDefault), \.customizeFromTheApp)
+        snapshot.take(Self.parseLabsToggle(root, path: customizeDoctorNoticePath, fallback: customizeDoctorNoticeDefault), \.customizeDoctorNotice)
         snapshot.take(Self.parseLabsToggle(root, path: agentCustomizationPath, fallback: agentCustomizationDefault), \.agentCustomization)
         snapshot.take(Self.parseLabsToggle(root, path: hostsSidebarPath, fallback: hostsSidebarDefault), \.hostsSidebar)
         snapshot.take(BrowserHibernationSetting.parse(root), \.browserHibernation)
@@ -414,6 +426,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(LinkRouting.parse(root), \.linkRouting)
         snapshot.take(TerminalLinkOpener.parse(root), \.terminalLinkOpener)
         snapshot.take(TerminalTermSetting.parse(root), \.terminalTerm)
+        snapshot.take(TerminalPredictiveEchoSetting.parse(root), \.terminalPredictiveLocalEcho)
         snapshot.take(TextEditorSetting.parse(root), \.textEditor)
         snapshot.take(EditorDefaultSetting.parse(root), \.editorDefault)
         snapshot.take(RemoteLocalhostSetting.parse(root), \.remoteLocalhost)
@@ -547,6 +560,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.mobile = MobileSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.macScreen = MacScreenSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.remote = RemoteSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.remoteDesktop = RemoteDesktopDefaults.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.macScreenDebug = MacScreenDebugSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.deviceHub = DeviceHubSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.take(AppThemeSetting().parse(root), \.appTheme)

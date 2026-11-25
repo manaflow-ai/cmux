@@ -94,13 +94,16 @@ const LOOK_PREFIXES: [&str; 8] = [
     "app.uiScale",
 ];
 /// Look keys outside those prefixes: the terminal font and the chat code font;
-/// the sidebar's shape, edges, text, group headers and buttons, and the sidebar
-/// look (`sidebar_look`); the tab strip's and titlebar's buttons and inactive
+/// the sidebar's shape, edges, text, group headers and buttons, whether its
+/// menus are drawn (so the menu look styles them), the sidebar look
+/// (`sidebar_look`), and how its rows draw (status icons, timestamps, colors,
+/// grouping), so one file restyles the sidebar as a whole (the shipped
+/// `minimal-sessions`); the tab strip's and titlebar's buttons and inactive
 /// tabs; pane corners; the agent chat's text sizes, sender marks and Session
 /// Info; and the transcript look and its tokens
 /// (docs/cmux-next/transcript-customization.md). Keep in step with Swift
 /// `ThemeFileOverlay.lookKeys`.
-const LOOK_KEYS: [&str; 39] = [
+const LOOK_KEYS: [&str; 45] = [
     "terminal.fontFamily",
     "agentPane.display.code.family",
     "terminal.fontSize",
@@ -111,6 +114,7 @@ const LOOK_KEYS: [&str; 39] = [
     "agentPane.display.transcriptLook",
     "agentPane.display.transcriptTokens",
     "sidebar.look",
+    "sidebar.drawnMenus",
     "sidebar.density",
     "sidebar.textSize",
     "sidebar.groupHeader.background",
@@ -122,6 +126,11 @@ const LOOK_KEYS: [&str; 39] = [
     "sidebar.controlsOnHover",
     "sidebar.detailedStatusIcons",
     "sidebar.showColors",
+    "sidebar.showTimestamps",
+    "workspaceColors.indicatorStyle",
+    "sidebar.groupBy",
+    "sidebar.groupHeader.memberCount",
+    "sidebar.groupHeader.unreadCount",
     "sidebar.spacesVisibility",
     "tabs.toolbarButtons",
     "tabs.plusButton",
@@ -141,13 +150,22 @@ const LOOK_KEYS: [&str; 39] = [
     "agentPane.display.senderIcon.corner",
     "agentPane.display.trayHandle",
 ];
+/// The workspace row's own keys (`sidebar.workspaceRow.<name>`: which
+/// elements show, their order, where the status mark sits, the row layout).
+/// One segment only: the per-kind overrides
+/// (`sidebar.workspaceRow.<kind>.<name>`) stay in cmux-next.json.
+const ROW_PREFIX: &str = "sidebar.workspaceRow.";
 
 /// Whether a theme file may set `row`: a look setting an agent may set too.
 pub fn is_look(row: &Row) -> bool {
     let id = row.key.as_str();
     row.agent_settable
         && !EXCLUDED_KEYS.contains(&id)
-        && (LOOK_KEYS.contains(&id) || LOOK_PREFIXES.iter().any(|prefix| id.starts_with(prefix)))
+        && (LOOK_KEYS.contains(&id)
+            || LOOK_PREFIXES.iter().any(|prefix| id.starts_with(prefix))
+            || id
+                .strip_prefix(ROW_PREFIX)
+                .is_some_and(|name| !name.is_empty() && !name.contains('.')))
 }
 
 /// Every look row, in schema order.
@@ -191,11 +209,15 @@ pub fn readable_path(config_dir: &Path, name: &str, bundled: Option<&Path>) -> O
 /// The theme files cmux ships (`Resources/theme-files`, the app's
 /// `Contents/Resources/theme-files`), so the daemon and the CLI read them
 /// with no app bundle. A user's file of the same name wins.
-const SHIPPED: [(&str, &str); 9] = [
+const SHIPPED: [(&str, &str); 10] = [
     ("charcoal", include_str!("../../../../../Resources/theme-files/charcoal.json")),
     ("classic-desktop", include_str!("../../../../../Resources/theme-files/classic-desktop.json")),
     ("claude-desktop", include_str!("../../../../../Resources/theme-files/claude-desktop.json")),
     ("harbor", include_str!("../../../../../Resources/theme-files/harbor.json")),
+    (
+        "minimal-sessions",
+        include_str!("../../../../../Resources/theme-files/minimal-sessions.json"),
+    ),
     ("lily-pond", include_str!("../../../../../Resources/theme-files/lily-pond.json")),
     ("meadow", include_str!("../../../../../Resources/theme-files/meadow.json")),
     ("moss", include_str!("../../../../../Resources/theme-files/moss.json")),
@@ -619,6 +641,10 @@ fn expectation(refusal: &Refusal) -> String {
             format!("expected a {name}: {}", values.join(", "))
         }
         Accepted::Domain { name, .. } => format!("expected an installed {name}"),
+        Accepted::Json { .. } => match accepted.first_problem() {
+            Some(problem) => format!("expected a value of its shape ({problem})"),
+            None => "expected a value of its shape".to_owned(),
+        },
     }
 }
 

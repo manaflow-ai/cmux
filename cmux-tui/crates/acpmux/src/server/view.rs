@@ -55,6 +55,9 @@ pub(super) fn attach(hub: &Hub, conn: &Conn, s: &crate::hub::Session, opts: SubO
         }
     };
     let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
+    // The client starts this chat over: its next chunk goes whole (`chunk_deltas.rs`).
+    conn.chunk_deltas.forget(&s.id);
+    conn.interest.attach(&s.id);
     // Its live stream starts after the chat's last record now; read under the subscriptions'
     // lock, so a lap's catch-up never reads from before it (`stream_cursor.rs`).
     conn.stream_cursors.start(&s.id, s.meta().last_seq);
@@ -108,9 +111,13 @@ pub(super) fn subscribe_remote(hub: &Hub, conn: &Conn, id: &str, opts: Option<Su
         conn.message_notices.lock().unwrap_or_else(|e| e.into_inner()).forget(None, id);
         conn.stream_cursors.forget(id);
     }
+    if opts.is_some() {
+        conn.chunk_deltas.forget(id);
+    }
     let mut next = opts.or(before).unwrap_or_default();
     next.remote = true;
     next.idle = false;
+    conn.interest.attach(id);
     subs.insert(id.to_owned(), next);
 }
 
@@ -119,6 +126,7 @@ pub(super) fn subscribe_remote(hub: &Hub, conn: &Conn, id: &str, opts: Option<Su
 /// peer's chat of the same raw id becomes this one.
 pub(super) fn subscribe_local(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
     let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
+    conn.interest.attach(&s.id);
     match subs.get_mut(&s.id) {
         None => {
             // A lap catches this ACP subscription up from here too (`stream_cursor.rs`); a
@@ -128,7 +136,10 @@ pub(super) fn subscribe_local(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
             hub.attach_count(s, 1, true);
         }
         Some(opts) if opts.remote => {
-            conn.stream_cursors.start(&s.id, s.meta().last_seq);
+            // A chat that came back from the peer it moved to goes on from the last record of
+            // it sent (`follow.rs`), not from the log's end.
+            let at = conn.follows.to_local(&s.id).unwrap_or_else(|| s.meta().last_seq);
+            conn.stream_cursors.start(&s.id, at);
             opts.remote = false;
             hub.attach_count(s, 1, !opts.hidden);
             conn.message_notices
@@ -144,8 +155,11 @@ pub(super) fn subscribe_local(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
 pub(super) fn detach(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
     let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
     conn.message_notices.lock().unwrap_or_else(|e| e.into_inner()).forget(None, &s.id);
+    conn.chunk_deltas.forget(&s.id);
     conn.stream_cursors.forget(&s.id);
+    conn.follows.forget(&s.id);
     if let Some(mut before) = subs.remove(&s.id) {
+        conn.interest.detach(&s.id);
         conn.unbind_mailbox_receipt(&s.id);
         if !before.remote {
             settle_idle(hub, s, &mut before);
@@ -155,11 +169,12 @@ pub(super) fn detach(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
     hub.presence.leave(&s.id, &conn.id);
 }
 
-/// `_acpmux/view {sessionId, visible, attending?, seenSeq?}`: whether this attached client shows
+/// `_acpmux/view {sessionId, visible, attending?, seenSeq?, cutoverSeq?}`: whether this attached client shows
 /// the chat, and whether its person attends it (default true: a client that never says counts as
 /// watched, as before). `seenSeq` is the log seq the client had at its person's last input, where
-/// a chat they stopped attending was left off (`hub/seen.rs`). Answers `{lastReturn}` when the
-/// person's return put "New since you looked" on the chat.
+/// a chat they stopped attending was left off (`hub/seen.rs`). `cutoverSeq` is a transient recap
+/// pin for the visible, attending pane. Answers `{lastReturn}` when the person's return put
+/// "New since you looked" on the chat.
 pub(super) fn view(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     let s = hub.resolve(session_key(params)?)?;
     let visible = params
@@ -178,6 +193,12 @@ pub(super) fn view(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcE
             Some(v.as_u64().ok_or_else(|| RpcError::invalid_params("seenSeq must be a log seq"))?)
         }
     };
+    let cutover = match params.get("cutoverSeq") {
+        None | Some(Value::Null) => None,
+        Some(v) => Some(
+            v.as_u64().ok_or_else(|| RpcError::invalid_params("cutoverSeq must be a log seq"))?,
+        ),
+    };
     let author = crate::author::author(params)?;
     if author.is_some() && a_link(conn) {
         return Err(crate::hub::presence::peer_unsupported());
@@ -189,7 +210,14 @@ pub(super) fn view(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcE
         .filter(|sub| !sub.remote)
         .ok_or_else(|| RpcError::invalid_params("attach to the session before _acpmux/view"))?;
     if open(conn) {
-        hub.presence.view(&s.id, &conn.id, &Who::of(author.as_ref()), visible)?;
+        hub.presence.view_with_cutover(
+            &s.id,
+            &conn.id,
+            &Who::of(author.as_ref()),
+            visible,
+            attending,
+            cutover,
+        )?;
     }
     if author.is_none() && visible {
         hub.recap_person_shows(&s);

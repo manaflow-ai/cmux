@@ -416,5 +416,33 @@ class FramesTests(unittest.TestCase):
         self.assertFalse(any(l.startswith("LR-FRAMES") for l in lines))
 
 
+class PerceivedTests(unittest.TestCase):
+    """record=1: LR-PERCEIVED per side, the medians of launch_shift.py's numbers over the recorded launches."""
+
+    def test_a_recorded_side_prints_its_perceived_headline(self):
+        page = "".join(f"{(i * 7) % 200 + 20:02x}" for i in range(256))
+        with tempfile.TemporaryDirectory() as root:
+            rows = [row("head", "prime", front=HOME, marks=HOME_MARKS)]
+            for n in (1, 2, 3):
+                folder = os.path.join(root, f"record-run{n}", "window-1")
+                os.makedirs(folder)
+                frames = 40
+                with open(os.path.join(folder, "frames.json"), "w") as f:
+                    json.dump({"times": [i / 60 for i in range(frames)], "processMs": [500 + n + i * 16.7 for i in range(frames)],
+                               "cells": [page] * frames, "moved": [0] * frames, "movedRects": [[] for _ in range(frames)],
+                               "window": [[0, 0, 1000, 600]] * frames, "alpha": [1.0] * frames, "endedBy": "time"}, f)
+                rows.append(row("head", f"run{n}", front=HOME, marks=dict(HOME_MARKS), record_dir=os.path.dirname(folder)))
+            _, lines = run(rows, seeded="home")
+        line = next(l for l in lines if l.startswith("LR-PERCEIVED head "))
+        self.assertIn("settled_match_ms=502 shift_score=0 tti_ms=400 first_frame_is_final=true", line)
+        self.assertIn("tti_mark=window_usable", line)
+        self.assertIn("recorded=3/3", line)
+
+    def test_no_recording_no_line(self):
+        _, lines = run([row("head", "prime", front=HOME, marks=HOME_MARKS), row("head", "run1", front=HOME, marks=HOME_MARKS)],
+                       seeded="home")
+        self.assertFalse(any(l.startswith("LR-PERCEIVED") for l in lines))
+
+
 if __name__ == "__main__":
     unittest.main()

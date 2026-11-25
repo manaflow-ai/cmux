@@ -16,32 +16,11 @@ name: cmux-next terminal suites
 # (CI_SIDE_LANE_RUNNER, as cmux-tui.yml's macOS job); without that variable it
 # skips.
 
-# Pull requests into feat-cmux-next run the two Linux jobs too, on the same paths, as advisory checks: no ruleset
-# requires them, and their names end "(advisory)" on a pull request, so land-judge and next-autoland never wait on or
-# refuse for them; a red is a follow-up (ci-oops soft class), not a merge block. The push run stays as it was, so the
-# base keeps its verdict while the pull request copy proves itself. The macOS job stays push-only (owned minis).
+# CI cut 2026-11-24 (goal ci-runner-min-per-day-50k): pull requests no longer run this advisory check; it gated
+# nothing (no ruleset requires it, land-judge skips "(advisory)" names). Landings on feat-cmux-next and dispatch
+# still run it, so a red shows up on base. The "(advisory)" name and pull_request conditions below stay inert.
 on:
   push:
-    branches: [feat-cmux-next]
-    paths:
-      - ghostty-next
-      - cmux-tui/crates/ghostty-vt/**
-      - cmux-tui/crates/ghostty-vt-sys/**
-      - cmux-tui/crates/cmux-pty/**
-      - cmux-tui/crates/cmux-terminal-sizing/**
-      - cmux-tui/crates/cmux-terminal-client/**
-      - cmux-tui/crates/cmux-encode/**
-      - cmux-tui/crates/cmux-terminal-projection/**
-      - cmux-tui/Cargo.lock
-      - schemas/terminal-corpus/**
-      - Packages/Shared/CmuxTerminalSizing/**
-      - Packages/Shared/CmuxTerminalStream/**
-      - .github/workflows/cmux-next-terminal.yml
-      # A README or notes file alone starts nothing here (tests/test_ci_docs_only_prs.py); no build reads them.
-      - "!**/README.md"
-      - "!**/COORDINATION.md"
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
     branches: [feat-cmux-next]
     paths:
       - ghostty-next
@@ -122,11 +101,14 @@ jobs:
           export ZIG="$CMUX_ZIG"
           out="$RUNNER_TEMP/parity"
           status=0
-          PARITY_OUT="$out" cargo test --locked --release -p cmux-terminal-projection -- --nocapture --test-threads=2 || status=$?
+          # instant_perf (small vs god, cmux-next-ios/design/instant-perf.md) runs alone after.
+          PARITY_OUT="$out" cargo test --locked --release -p cmux-terminal-projection -- --nocapture --test-threads=2 --skip projection_small_vs_god || status=$?
+          CMUX_INSTANT_PERF_OUT="$out" cargo test --locked --release -p cmux-terminal-projection --test instant_perf -- --nocapture || status=$?
           PARITY_OUT="$out" cargo test --locked --release -p cmux-terminal-projection --test bench -- --ignored --nocapture layout_change || status=$?
           for f in "$out/parity.md" "$out/resize.md" "$out/layout.md"; do
             [ -f "$f" ] && { cat "$f"; echo; } >> "$GITHUB_STEP_SUMMARY"
           done
+          python3 ../cmux-next-ios/scripts/instant_perf_table.py "$out" >> "$GITHUB_STEP_SUMMARY" || true
           exit "$status"
 
   swift-terminal-linux:
@@ -154,7 +136,7 @@ jobs:
     name: terminal crates (cmux-pty and corpus snapshot, macOS)
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.repository_owner == 'manaflow-ai' && vars.CI_SIDE_LANE_RUNNER != '' && github.event_name != 'pull_request') }}
     # The bot's third attempt leaves the minis, as in ci-macos.yml, so a refused run cannot loop there.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt <= 2 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
     timeout-minutes: 40
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next

@@ -1,12 +1,15 @@
-//! `cmux-projection`: a projected checkout of a git commit on a lane VM.
+//! `cmux-projection`: a projected checkout of a git commit, on a lane VM (FUSE) or a Mac (NFSv3
+//! from localhost, `cmux_projection::nfs`: no kernel or app extension, no prompt).
 //!
 //! ```text
 //! cmux-projection git-mount --git-dir MIRROR --commit REV --at PATH [--keep DIR] [--fresh]
-//!                           [--name NAME] [--ready-file FILE]
+//!                           [--name NAME] [--ready-file FILE] [--sparse FILE]
 //! cmux-projection git-lower --git-dir MIRROR --commit REV --at PATH --index FILE [--sparse FILE]
 //!                           [--keep DIR] [--trees DIR] [--ready-file FILE] [--allow-other]
 //! cmux-projection git-unmount --at PATH
 //! cmux-projection seed --git-dir MIRROR --listen ADDR [--rate BYTES_PER_S] [--conns N]
+//!                      [--yield-lock FILE]... [--heartbeat URL --repo OWNER/NAME
+//!                      [--advertise URL] [--zone ZONE]]
 //! ```
 //!
 //! `git-lower` mounts commit REV's tree read only at PATH (every write answers EROFS) for many
@@ -20,22 +23,34 @@
 //! reads its lower as root (it needs `user_allow_other` in `/etc/fuse.conf`).
 //!
 //! `git-mount` mounts commit REV of the bare repo MIRROR at PATH and serves it until PATH is
-//! unmounted (`git-unmount`, or `fusermount3 -u PATH`). What it writes lands in an upper folder
+//! unmounted (`git-unmount`, or `fusermount3 -u PATH` on Linux, `umount PATH` on a Mac). What it writes lands in an upper folder
 //! under `--keep` (default `~/.cache/cmux-projection/<hash of PATH>`), which also holds the mtime
 //! book and the build output folders (`target/` and the like), so mount the same PATH again and
 //! cargo finds its last build fresh. `--fresh` starts a new checkout: the upper folder and the
 //! worktree's index are made anew. git sees PATH as a worktree of MIRROR named NAME (default
 //! `projected-<hash of PATH>`). Once the mount is up it prints one JSON line of timings on stderr
-//! and writes it to `--ready-file`.
+//! and writes it to `--ready-file`. `--sparse FILE` checks out only what FILE's non-cone sparse
+//! patterns keep (one a line, as `git sparse-checkout set --no-cone --stdin` reads them): the rest
+//! is not projected, its index entries are skip-worktree, and the worktree records the patterns
+//! as git does, so `git status` stays clean and `git sparse-checkout list` prints them.
 //!
 //! The blobs MIRROR lacks are first asked of the fleet's seeds, the controller SSD and R2 that the
 //! environment names, each answer checked against its id (`cmux_projection::peers`, hq RFD 0008),
 //! and only the rest come from GitHub; `CMUX_PROJECTION_PEERS=0` sends them all to GitHub. `seed` serves MIRROR's blobs read only on ADDR
-//! (a tailnet or VPC address, never 0.0.0.0) for the other hosts' chains.
+//! (a tailnet or VPC address, never 0.0.0.0) for the other hosts' chains, answering busy while a
+//! `--yield-lock` is held or a GitHub Actions job runs on the host. With `--heartbeat` (the
+//! controller's `POST /v1/seeds/heartbeat`) it tells the controller's seed index every minute that
+//! it holds `--repo`, reachable at `--advertise` (default `http://ADDR`), in `--zone`. The
+//! environment fills what the flags leave out: `CMUX_PROJECTION_SEED_RATE`,
+//! `CMUX_PROJECTION_SEED_YIELD_LOCKS` (colon-separated), `CMUX_PROJECTION_SEED_HEARTBEAT_URL`,
+//! `CMUX_PROJECTION_SEED_TOKEN_FILE` (the heartbeat's bearer token), `CMUX_PROJECTION_SEED_REPO`
+//! and `CMUX_PROJECTION_ZONE`.
+//! `s3-push` puts MIRROR's blobs into an S3-compatible bucket. It signs each HEAD and PUT with
+//! the configured store keys, skips blobs already held, and prints one JSON result line.
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn main() -> std::process::ExitCode {
-    match linux::run(std::env::args().skip(1).collect()) {
+    match cli::run(std::env::args().skip(1).collect()) {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("cmux-projection: {error:#}");
@@ -44,30 +59,37 @@ fn main() -> std::process::ExitCode {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn main() -> std::process::ExitCode {
-    eprintln!("cmux-projection: mounts are Linux only");
+    eprintln!("cmux-projection: mounts are Linux and macOS only");
     std::process::ExitCode::from(2)
 }
 
-#[cfg(target_os = "linux")]
-mod linux {
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod cli {
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
     use cmux_projection::git::{self, Book, GitBlobs, Layout, Projection, Worktree};
+    #[cfg(target_os = "linux")]
     use cmux_projection::mount;
+    #[cfg(target_os = "macos")]
+    use cmux_projection::nfs as mount;
     use cmux_projection::overlay::Overlay;
     use cmux_projection::peers::{self, Chain, SeedLimits};
 
+    use cmux_projection::sparse::Sparse;
+
     const USAGE: &str = "usage: cmux-projection git-mount --git-dir MIRROR --commit REV --at PATH \
-                         [--keep DIR] [--fresh] [--name NAME] [--ready-file FILE]\n       \
+                         [--keep DIR] [--fresh] [--name NAME] [--ready-file FILE] [--sparse FILE]\n       \
                          cmux-projection git-lower --git-dir MIRROR --commit REV --at PATH \
                          --index FILE [--sparse FILE] [--keep DIR] [--trees DIR] [--ready-file FILE] [--allow-other]\n       \
                          cmux-projection git-unmount --at PATH\n       \
                          cmux-projection seed --git-dir MIRROR --listen ADDR [--rate BYTES_PER_S] \
-                         [--conns N]";
+                         [--conns N] [--yield-lock FILE]... [--heartbeat URL --repo OWNER/NAME \
+                         [--advertise URL] [--zone ZONE]]\n       \
+                         cmux-projection s3-push --git-dir MIRROR --to BASE [--commit REV]";
 
     #[derive(Default)]
     struct Args {
@@ -83,6 +105,12 @@ mod linux {
         listen: Option<String>,
         rate: Option<u64>,
         conns: Option<usize>,
+        to: Option<String>,
+        yield_locks: Vec<PathBuf>,
+        heartbeat: Option<String>,
+        advertise: Option<String>,
+        zone: Option<String>,
+        repo: Option<String>,
         fresh: bool,
         allow_other: bool,
     }
@@ -116,6 +144,12 @@ mod linux {
                 "--listen" => parsed.listen = Some(value.clone()),
                 "--rate" => parsed.rate = Some(value.parse()?),
                 "--conns" => parsed.conns = Some(value.parse()?),
+                "--to" => parsed.to = Some(value.clone()),
+                "--yield-lock" => parsed.yield_locks.push(value.into()),
+                "--heartbeat" => parsed.heartbeat = Some(value.clone()),
+                "--advertise" => parsed.advertise = Some(value.clone()),
+                "--zone" => parsed.zone = Some(value.clone()),
+                "--repo" => parsed.repo = Some(value.clone()),
                 _ => anyhow::bail!("unknown flag {flag}\n{USAGE}"),
             }
             at += 2;
@@ -129,14 +163,20 @@ mod linux {
         if command == "seed" {
             return seed(&args);
         }
+        if command == "s3-push" {
+            return s3_push(&args);
+        }
         let at = args.at.clone().ok_or_else(|| anyhow::anyhow!("--at is required\n{USAGE}"))?;
         match command.as_str() {
             "git-mount" => git_mount(&args, &at),
             "git-lower" => git_lower(&args, &at),
             "git-unmount" => {
-                let status =
-                    std::process::Command::new("fusermount3").arg("-u").arg(&at).status()?;
-                anyhow::ensure!(status.success(), "fusermount3 -u {} failed", at.display());
+                #[cfg(target_os = "linux")]
+                let (program, flags): (&str, &[&str]) = ("fusermount3", &["-u"]);
+                #[cfg(target_os = "macos")]
+                let (program, flags): (&str, &[&str]) = ("/sbin/umount", &[]);
+                let status = std::process::Command::new(program).args(flags).arg(&at).status()?;
+                anyhow::ensure!(status.success(), "{program} {} failed", at.display());
                 Ok(())
             }
             _ => anyhow::bail!(USAGE),
@@ -157,14 +197,159 @@ mod linux {
             !addr.ip().is_unspecified(),
             "--listen takes the tailnet or VPC address, never every interface (0.0.0.0, 0, [::])"
         );
+        let env = |name: &str| std::env::var(name).ok().filter(|value| !value.trim().is_empty());
         let mut limits = SeedLimits::default();
-        if let Some(rate) = args.rate {
+        if let Some(rate) =
+            args.rate.or_else(|| env("CMUX_PROJECTION_SEED_RATE")?.trim().parse().ok())
+        {
             limits.rate = rate;
         }
         if let Some(conns) = args.conns {
             limits.conns = conns;
         }
-        peers::serve(&git_dir.canonicalize()?, &listen, limits)
+        limits.yield_locks.clone_from(&args.yield_locks);
+        if let Some(locks) = env("CMUX_PROJECTION_SEED_YIELD_LOCKS") {
+            limits
+                .yield_locks
+                .extend(locks.split(':').filter(|lock| !lock.is_empty()).map(PathBuf::from));
+        }
+        let git_dir = git_dir.canonicalize()?;
+        if let Some(url) =
+            args.heartbeat.clone().or_else(|| env("CMUX_PROJECTION_SEED_HEARTBEAT_URL"))
+        {
+            let repo =
+                args.repo.clone().or_else(|| env("CMUX_PROJECTION_SEED_REPO")).ok_or_else(
+                    || anyhow::anyhow!("--heartbeat needs --repo OWNER/NAME\n{USAGE}"),
+                )?;
+            let seed_url = args.advertise.clone().unwrap_or_else(|| format!("http://{addr}"));
+            let zone =
+                args.zone.clone().or_else(|| env("CMUX_PROJECTION_ZONE")).unwrap_or_default();
+            let token = env("CMUX_PROJECTION_SEED_TOKEN_FILE")
+                .and_then(|file| std::fs::read_to_string(file).ok())
+                .map(|token| token.trim().to_owned());
+            let host = std::fs::read_to_string("/proc/sys/kernel/hostname")
+                .map(|host| host.trim().to_owned())
+                .unwrap_or_default();
+            let beat = || peers::Beat {
+                host: host.clone(),
+                seed_url: seed_url.clone(),
+                zone: zone.clone(),
+                repos: vec![peers::beat_repo(&git_dir, &repo)],
+            };
+            // Bound first, so a port already taken fails the seed before it is advertised.
+            let listener = std::net::TcpListener::bind(&listen)?;
+            std::thread::scope(|scope| {
+                scope.spawn(|| peers::heartbeat(&url, token.as_deref(), &beat));
+                peers::serve_on(&git_dir, listener, &limits);
+            });
+            return Ok(());
+        }
+        peers::serve(&git_dir, &listen, limits)
+    }
+
+    /// How many blobs `s3-push` reads and sends at once.
+    const PUSH_WORKERS: usize = 8;
+
+    fn s3_push(args: &Args) -> anyhow::Result<()> {
+        use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+
+        use cmux_projection::git::ObjectReader;
+        use cmux_projection::s3::{Config, Pushed, Store};
+
+        let started = Instant::now();
+        let git_dir = args
+            .git_dir
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("--git-dir is required\n{USAGE}"))?
+            .canonicalize()?;
+        let to = args.to.clone().ok_or_else(|| anyhow::anyhow!("--to is required\n{USAGE}"))?;
+        let store = Store::new(Config::push_target_from_env(&to).map_err(anyhow::Error::msg)?)?;
+        let mut oids: Vec<String> = match &args.commit {
+            Some(rev) => {
+                let (commit, _) = git::resolve(&git_dir, rev)?;
+                git::ls_tree(&git_dir, &commit)?
+                    .into_iter()
+                    .filter(|item| item.mode != 0o160_000)
+                    .map(|item| item.oid)
+                    .collect()
+            }
+            None => std::io::read_to_string(std::io::stdin())?
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(str::to_owned)
+                .collect(),
+        };
+        oids.sort_unstable();
+        oids.dedup();
+        let (next, stored, had, failed, bytes) = (
+            AtomicUsize::new(0),
+            AtomicUsize::new(0),
+            AtomicUsize::new(0),
+            AtomicUsize::new(0),
+            AtomicU64::new(0),
+        );
+        let denied = AtomicBool::new(false);
+        // Every reader starts before any work, so a store that can't be read fails the push
+        // instead of leaving blobs unsent behind a count of zero failures.
+        let readers = (0..PUSH_WORKERS.min(oids.len()))
+            .map(|_| ObjectReader::spawn(&git_dir))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        std::thread::scope(|scope| {
+            for mut reader in readers {
+                let (next, stored, had, failed, bytes, denied, oids, store) =
+                    (&next, &stored, &had, &failed, &bytes, &denied, &oids, &store);
+                scope.spawn(move || {
+                    while !denied.load(Ordering::Relaxed) {
+                        let Some(oid) = oids.get(next.fetch_add(1, Ordering::Relaxed)) else {
+                            return;
+                        };
+                        let result = reader
+                            .blob(oid)
+                            .ok_or_else(|| anyhow::anyhow!("{oid}: not in the mirror"))
+                            .and_then(|blob| Ok((store.push(oid, &blob)?, blob.len())));
+                        match result {
+                            Ok((Pushed::Stored, len)) => {
+                                stored.fetch_add(1, Ordering::Relaxed);
+                                bytes.fetch_add(
+                                    u64::try_from(len).unwrap_or(u64::MAX),
+                                    Ordering::Relaxed,
+                                );
+                            }
+                            Ok((Pushed::Had, _)) => {
+                                had.fetch_add(1, Ordering::Relaxed);
+                            }
+                            // Keys that may not write refuse every blob: stop on the first.
+                            Ok((Pushed::Denied(status), _)) => {
+                                failed.fetch_add(1, Ordering::Relaxed);
+                                if !denied.swap(true, Ordering::Relaxed) {
+                                    eprintln!(
+                                        "cmux-projection: s3-push: {} answered {status}; stopped",
+                                        store.config.base
+                                    );
+                                }
+                            }
+                            Err(error) => {
+                                if failed.fetch_add(1, Ordering::Relaxed) < 5 {
+                                    eprintln!("cmux-projection: s3-push: {error:#}");
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        });
+        let (stored, had, failed) = (stored.into_inner(), had.into_inner(), failed.into_inner());
+        let unsent = oids.len().saturating_sub(stored + had + failed);
+        println!(
+            "{{\"blobs\":{},\"stored\":{stored},\"had\":{had},\"failed\":{failed},\
+             \"unsent\":{unsent},\"bytes\":{},\"ms\":{}}}",
+            oids.len(),
+            bytes.into_inner(),
+            ms(started)
+        );
+        anyhow::ensure!(failed + unsent == 0, "{} blobs were not stored", failed + unsent);
+        Ok(())
     }
 
     /// FNV-1a: a short stable name for a mount path.
@@ -209,85 +394,12 @@ mod linux {
         Ok(missing.len())
     }
 
-    /// One line of a sparse-checkout file (`git sparse-checkout set --no-cone`; cone mode writes
-    /// the same syntax): `!` negates, a trailing `/` matches folders only, a `/` before the end
-    /// anchors it at the top, `*` and `?` match within one path segment.
-    struct SparseRule {
-        negated: bool,
-        folder_only: bool,
-        anchored: bool,
-        glob: String,
-    }
-
-    /// The rules in a sparse-checkout file's `text`, in order (the last that matches decides).
-    fn sparse_rules(text: &str) -> Vec<SparseRule> {
-        text.lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty() && !line.starts_with('#'))
-            .filter_map(|line| {
-                let (negated, line) =
-                    line.strip_prefix('!').map_or((false, line), |rest| (true, rest));
-                let folder_only = line.ends_with('/');
-                let line = line.trim_end_matches('/');
-                let anchored = line.contains('/');
-                let glob = line.trim_start_matches('/').to_owned();
-                (!glob.is_empty()).then_some(SparseRule { negated, folder_only, anchored, glob })
-            })
-            .collect()
-    }
-
-    /// `text` matches `glob`, where `*` and `?` never match a `/`.
-    fn glob_matches(glob: &[u8], text: &[u8]) -> bool {
-        match (glob.split_first(), text.split_first()) {
-            (None, None) => true,
-            (Some((b'*', glob_rest)), _) => {
-                glob_matches(glob_rest, text)
-                    || text
-                        .split_first()
-                        .is_some_and(|(&c, text_rest)| c != b'/' && glob_matches(glob, text_rest))
-            }
-            (Some((b'?', glob_rest)), Some((&c, text_rest))) => {
-                c != b'/' && glob_matches(glob_rest, text_rest)
-            }
-            (Some((g, glob_rest)), Some((c, text_rest))) => {
-                g == c && glob_matches(glob_rest, text_rest)
-            }
-            _ => false,
-        }
-    }
-
-    /// Whether git checks out `path` (a file) under `rules`, as non-cone sparse checkout decides
-    /// it: the deepest of the path and its folders that some rule matches decides, by the last
-    /// rule that matches it; a path nothing matches is left out.
-    fn sparse_keeps(path: &str, rules: &[SparseRule]) -> bool {
-        let mut subject = path;
-        let mut folder = false;
-        loop {
-            let name = subject.rsplit_once('/').map_or(subject, |(_, name)| name);
-            let decided = rules.iter().rev().find(|rule| {
-                (folder || !rule.folder_only)
-                    && if rule.anchored {
-                        glob_matches(rule.glob.as_bytes(), subject.as_bytes())
-                    } else {
-                        glob_matches(rule.glob.as_bytes(), name.as_bytes())
-                    }
-            });
-            if let Some(rule) = decided {
-                return !rule.negated;
-            }
-            match subject.rsplit_once('/') {
-                Some((parent, _)) => (subject, folder) = (parent, true),
-                None => return false,
-            }
-        }
-    }
-
     #[cfg(test)]
     #[test]
-    fn sparse_rules_decide_as_git_does() {
-        let cone = sparse_rules("/*\n!/*/\n/cmux-tui/\n!/cmux-tui/*/\n/cmux-tui/crates/x/\n");
+    fn sparse_rules_decide_as_git_does() -> anyhow::Result<()> {
+        let cone = Sparse::parse("/*\n!/*/\n/cmux-tui/\n!/cmux-tui/*/\n/cmux-tui/crates/x/\n")?;
         // wt's own patterns: everything but some folders, one file put back.
-        let wt = sparse_rules("/*\n!/cmux-next-ios/verify/\n!/web/\n/web/package.json\n");
+        let wt = Sparse::parse("/*\n!/cmux-next-ios/verify/\n!/web/\n/web/package.json\n")?;
         for (path, in_cone, in_wt) in [
             ("README.md", true, true),
             ("cmux-tui/Cargo.toml", true, true),
@@ -300,12 +412,13 @@ mod linux {
             ("web/index.ts", false, false),
             ("web/package.json", false, true),
         ] {
-            assert_eq!(sparse_keeps(path, &cone), in_cone, "cone {path}");
-            assert_eq!(sparse_keeps(path, &wt), in_wt, "wt {path}");
+            assert_eq!(cone.includes(path), in_cone, "cone {path}");
+            assert_eq!(wt.includes(path), in_wt, "wt {path}");
         }
-        let names = sparse_rules("*.md\n");
-        assert!(sparse_keeps("docs/a.md", &names));
-        assert!(!sparse_keeps("docs/a.rs", &names));
+        let names = Sparse::parse("*.md\n")?;
+        assert!(names.includes("docs/a.md"));
+        assert!(!names.includes("docs/a.rs"));
+        Ok(())
     }
 
     /// `git-lower`: commit REV's tree, read only, at PATH, and its index at FILE.
@@ -340,15 +453,9 @@ mod linux {
         let fetch_ms = ms(phase);
 
         let phase = Instant::now();
-        let mut items = git::ls_tree_cached(&git_dir, &commit, &listing)?;
-        let mut skipped = Vec::new();
-        if let Some(sparse) = &args.sparse {
-            let rules = sparse_rules(&std::fs::read_to_string(sparse)?);
-            let (kept, left): (Vec<_>, Vec<_>) =
-                items.into_iter().partition(|item| sparse_keeps(&item.path, &rules));
-            items = kept;
-            skipped = left;
-        }
+        let sparse = args.sparse.as_deref().map(Sparse::load).transpose()?;
+        let items = git::ls_tree_cached(&git_dir, &commit, &listing)?;
+        let (items, skipped) = Sparse::partition(sparse.as_ref(), items);
         let links = git::link_texts(&git_dir, &items)?;
         let ls_tree_ms = ms(phase);
 
@@ -462,7 +569,9 @@ mod linux {
         let fetch_ms = ms(phase);
 
         let phase = Instant::now();
+        let sparse = args.sparse.as_deref().map(Sparse::load).transpose()?;
         let items = git::ls_tree_cached(&git_dir, &commit, &listing)?;
+        let (items, skipped) = Sparse::partition(sparse.as_ref(), items);
         let links = git::link_texts(&git_dir, &items)?;
         let ls_tree_ms = ms(phase);
 
@@ -494,9 +603,15 @@ mod linux {
         }
         // SAFETY: getuid and getgid cannot fail.
         let owner = unsafe { (libc::getuid(), libc::getgid()) };
-        if args.fresh || !admin.join("index").exists() {
-            let index = git::index_bytes(&projection.index, owner.0, owner.1)?;
-            Worktree::write(&git_dir, &name, &at, &commit, &index, &projection.real_dirs)?;
+        // Other sparse patterns than last time make the index anew too: its skip-worktree bits
+        // follow the patterns.
+        if args.fresh
+            || !admin.join("index").exists()
+            || !Worktree::sparse_matches(&admin, sparse.as_ref())
+        {
+            let index = git::index_bytes_sparse(&projection.index, &skipped, owner.0, owner.1)?;
+            Worktree::write(&git_dir, &name, &at, &commit, &index, &projection.real_dirs)?
+                .set_sparse(&git_dir, sparse.as_ref())?;
         }
         book.save(&book_file)?;
         let index_ms = ms(phase);

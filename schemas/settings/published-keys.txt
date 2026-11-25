@@ -3,6 +3,7 @@
 # tests/published_keys.rs). Add new rows with:
 # CMUX_PUBLISHED_KEYS_WRITE=1 cargo test -p cmux-config --test published_keys
 agentPane.attachmentView
+agentPane.composerLook
 agentPane.composerRing
 agentPane.dictationShortcut
 agentPane.dictationSource
@@ -38,6 +39,8 @@ agentPane.display.thinking.jumpButton
 agentPane.display.thinking.shimmer
 agentPane.display.thinking.shimmerBand
 agentPane.display.thinking.shimmerPeriod
+agentPane.display.transcriptLook
+agentPane.display.transcriptTokens
 agentPane.display.transcriptView
 agentPane.display.trayHandle
 agentPane.display.trayTucked
@@ -47,6 +50,7 @@ agentPane.display.width
 agentPane.editedFiles.maxRows
 agentPane.editedFiles.scope
 agentPane.editedFiles.show
+agentPane.emptyChatComposerPosition
 agentPane.images.remote
 agentPane.links.openCitationsInEditor
 agentPane.links.outsideRoots
@@ -104,6 +108,7 @@ app.startAgentGlobalHotKey
 app.uiScale
 app.warnBeforeClosingAgentSession
 app.warnBeforeClosingTab
+app.warnBeforeQuitShortcut
 appearance.accent
 appearance.agentGlow
 appearance.appTheme
@@ -149,6 +154,7 @@ appearance.hue
 appearance.iconTheme
 appearance.inactiveWindowDim
 appearance.interfaceScale
+appearance.liquidGlass
 appearance.machineColors
 appearance.metrics.chromeFontSize
 appearance.metrics.columnGap
@@ -206,6 +212,7 @@ appearance.surfaces.tabBar.opacity
 appearance.surfaces.terminal.color
 appearance.surfaces.terminal.opacity
 appearance.tabBarBackground
+appearance.terminalCellBackgrounds
 appearance.theme
 appearance.themeEdits
 appearance.themeFile
@@ -292,6 +299,7 @@ chief.subagentSidebar
 chief.subagentSidebarHideWords
 chief.subagentSidebarMinWords
 chief.subagentSidebarShowWords
+cloud.agentMemory.follow
 cloud.agentsStartWithoutAsking
 cloud.newWorkspaceFolder
 cloud.newWorkspacesInCloud
@@ -311,6 +319,7 @@ computerUse.pauseOnTakeover
 computerUse.settle
 computerUse.showCursor
 contextMenus.showCustomizeItem
+customize.doctorNotice
 customize.fromTheApp
 developerTools.appPages
 deviceHub.url
@@ -494,6 +503,7 @@ notifications.attention.showOnTab
 notifications.attention.style
 notifications.attention.terminals
 notifications.attention.width
+notifications.delivery.blocked
 notifications.delivery.permissionRequest
 notifications.delivery.question
 notifications.delivery.taskComplete
@@ -521,6 +531,7 @@ notifications.sources.cli.dismissal
 notifications.sources.terminal.dismissal
 notifications.suppressWhileTypingSeconds
 notifications.timeoutSeconds
+notifications.toast.style
 palette.aliases
 palette.pins
 palette.scopes.commands.prefix
@@ -596,6 +607,8 @@ sidebar.pinnedBandsScroll
 sidebar.priorityView.enabled
 sidebar.priorityView.shown
 sidebar.sectionLook
+sidebar.sections.hidden
+sidebar.sections.order
 sidebar.sessionTree
 sidebar.settleFinished
 sidebar.showAutomaticSessions
@@ -654,6 +667,9 @@ sidebar.workspaceRow.browser.working
 sidebar.workspaceRow.directory
 sidebar.workspaceRow.icon
 sidebar.workspaceRow.lastActivity
+sidebar.workspaceRow.lines
+sidebar.workspaceRow.linesByAgent
+sidebar.workspaceRow.linesByKind
 sidebar.workspaceRow.log
 sidebar.workspaceRow.mixed.agentStatus
 sidebar.workspaceRow.mixed.branch
@@ -793,3 +809,5 @@ workspaces.hibernation.enabled
 workspaces.hibernation.hiddenSpaceMinutes
 workspaces.hibernation.idleMinutes
 workspaces.newPlacement
+worktrees.autoCleanup
+worktrees.cleanBuildCaches

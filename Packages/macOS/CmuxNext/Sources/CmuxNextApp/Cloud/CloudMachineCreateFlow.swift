@@ -1,6 +1,7 @@
 import CmuxNextCloud
 import CmuxNextDaemon
 import Foundation
+import os
 
 /// Creates one Cloud machine through the Cloud app server (cx-t2rz), with
 /// the person in the loop for the G8 approval (cx-wb5.65):
@@ -82,10 +83,10 @@ struct CloudMachineCreateFlow {
     /// How long the same-key calls go on after the approval before ``Failure/stillPending`` (the op call's own timeout), read on `now`.
     var patience: Duration = CloudAppOpRunner.timeout, now: @MainActor () -> ContinuousClock.Instant = { .now }
 
-    /// The default machine named `name` (trimmed; empty is none): 4 vCPU, 16 GB of memory and a 64 GB disk, so a
-    /// chat's folder fits (the backend checks the plan); `sizeShown` false when the plan picks the size.
+    /// The default machine named `name` (trimmed; empty is none): 2 vCPU, 4 GB, 20 GB disk, the platform's spare size (cmux-platform#1756),
+    /// so a start claims a warm spare; a larger folder raises the disk (`atLeast`); `sizeShown` false when the plan picks the size.
     static func named(_ name: String?, sizeShown: Bool = true, askedBy: String? = nil) -> Machine {
-        Machine(name: name.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }, cpu: 4, memoryMB: 16384, diskMB: 65536, sizeShown: sizeShown, askedBy: askedBy)
+        Machine(name: name.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }, cpu: 2, memoryMB: 4096, diskMB: 20480, sizeShown: sizeShown, askedBy: askedBy)
     }
 
     /// Creates a machine; `startedByPerson` is true for the person's own
@@ -152,7 +153,7 @@ struct CloudMachineCreateFlow {
                               ask: @MainActor (_ request: String) async -> Bool) async throws -> JSONValue {
         var confirmed = confirmed
         var approved: String?, since = now() // `since`: when this attempt learned the approval was answered
-        var attempt = 0; let ensure = self.beside, waits = Int(patience.components.seconds) // each wait is 1 s or more: never more waits than seconds
+        var attempt = 0; let ensure = self.beside, waits = Self.waits(within: patience) // the clock ends it first
         async let besideDone: Void = ensure()
         for _ in 0...max(waits, 0) {
             do {
@@ -172,8 +173,10 @@ struct CloudMachineCreateFlow {
                     confirmed = true
                 }
                 onAnswering(request)
+                let steps = Self.steps() // a measured start's `machine.ensure` and `machine.approve`
                 do {
-                    await besideDone; try await approve(request, op, args)
+                    await besideDone; steps?.done("machine.ensure")
+                    defer { steps?.done("machine.approve") }; try await approve(request, op, args)
                 } catch let failure as CloudApprovalAnswer.Failure
                             where failure.alreadyAnswered(request: request, answeredEarlier: request == answering) {
                     // An earlier attempt answered it and was cancelled before it could record that: the
@@ -193,8 +196,33 @@ struct CloudMachineCreateFlow {
         throw Failure.stillPending(request: approved ?? "")
     }
 
-    /// 1, 2, 4 … 8 s between the same-key retries after the approval.
-    static func backoff(_ attempt: Int) -> Duration { .seconds(min(8, 1 << min(max(attempt - 1, 0), 3))) }
+    /// 250 ms, 500 ms, then 1 s between the same-key calls after the approval. A pending call costs about 200 ms, and
+    /// an op the server finishes while the flow waits is only seen at the next call: the old 1, 2, 4, 8 s (capped at
+    /// 8 s) left a start whose server held the create 8 to 70 s waiting about 3.5 s past its machine (the chat probe's
+    /// starts, 2026-11-21).
+    static func backoff(_ attempt: Int) -> Duration {
+        switch attempt {
+        case ...1: .milliseconds(250)
+        case 2: .milliseconds(500)
+        default: .seconds(1)
+        }
+    }
+
+    /// The most same-key calls after the approval: enough that their backoffs add up to `patience`, so the flow's
+    /// deadline ends the calls, and a clock that stands still still ends at this count.
+    static func waits(within patience: Duration) -> Int {
+        var waited = Duration.zero, attempt = 1
+        while waited < patience { waited += backoff(attempt); attempt += 1 }
+        return attempt
+    }
+
+    /// The clock that marks the approval's parts of a measured start's `machine` step (``CloudStartSteps``): the wait
+    /// for the create's `user.ensure`, then the approval's answer (its reads and `feed.answer`). None outside a start.
+    @MainActor static func steps() -> CloudStartSteps? {
+        CloudStartStepRecord.current == nil ? nil : CloudStartSteps(logger: stepLogger)
+    }
+
+    private static let stepLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
 }
 
 extension CloudMachineCreateFlow.Failure: CustomStringConvertible, LocalizedError {

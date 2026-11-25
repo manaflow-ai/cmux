@@ -24,6 +24,7 @@
 //! text area reports are answered here in host cells
 //! ([`Projection::take_replies`]).
 
+pub mod held;
 pub mod project;
 pub mod style;
 pub mod terminal;
@@ -49,6 +50,17 @@ pub enum Segment {
     Raw(Vec<u8>),
 }
 
+/// What a vertical pan over the alternate screen does
+/// ([`Projection::alt_pan`]): bytes the phone paints on its own surface
+/// (nothing sent), then rows of wheel for the app on the Mac, as before
+/// held rows (0: nothing goes to the Mac).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AltPan {
+    pub paint: Vec<u8>,
+    /// Rows of wheel for the app (positive: toward older content).
+    pub forward_rows: f64,
+}
+
 /// One terminal's projection.
 pub struct Projection {
     term: Terminal,
@@ -59,6 +71,14 @@ pub struct Projection {
     /// Right-anchored rows are laid out at the phone's width
     /// ([`project::View::compact`]).
     compact: bool,
+    /// How many held rows back the phone's surface shows the alternate
+    /// screen (0: the app's live screen).
+    alt_back: usize,
+    /// The part of a row a pan moved that no row moved for yet.
+    alt_fraction: f64,
+    /// The rows back went to the app with a pan past the held rows: only
+    /// what moves further goes, until the app's repaint shows live.
+    alt_forwarded: bool,
 }
 
 impl Projection {
@@ -70,6 +90,9 @@ impl Projection {
             view: None,
             reader_rows_from_end: 0,
             compact: true,
+            alt_back: 0,
+            alt_fraction: 0.0,
+            alt_forwarded: false,
         }
     }
 
@@ -89,6 +112,8 @@ impl Projection {
     /// resize; the phone's terminal starts over at the next paint.
     pub fn set_host_grid(&mut self, cols: usize, rows: usize) {
         self.term.resize(cols, rows);
+        self.alt_back = 0;
+        self.alt_forwarded = false;
     }
 
     /// Where the reader is (phone rows from the end of the phone's
@@ -137,6 +162,7 @@ impl Projection {
         if let Some(old) = &self.view {
             view.bytes_out = old.bytes_out;
             view.resets = old.resets;
+            view.pushed_at_paint = old.pushed_at_paint;
             // The reader's lines (in the old view's rows, above its live
             // part) and a screen above them stay in the window.
             let live = old.live_rows();
@@ -204,6 +230,29 @@ impl Projection {
     /// phone is painted at the next feed (a reset whose replay follows).
     pub fn feed(&mut self, bytes: &[u8], paint: bool) -> Vec<Segment> {
         let mut segments = Vec::new();
+        // New output while the reader is back in the held rows (Claude
+        // Code's spinner repaints several times a second while it works,
+        // which is when one reads back): the reader stays where they are.
+        // In one synchronized update the surface shows the live screen, so
+        // the app's bytes draw on what they expect, takes them, then shows
+        // the same held rows again. The reader's place is kept in rows ever
+        // held, so rows held meanwhile do not move what they read. After a
+        // pan past the held rows the app's answer is what they asked for:
+        // that shows live.
+        let reading = (self.alt_back > 0 && self.term.is_alternate() && !self.alt_forwarded)
+            .then(|| self.term.held.pushed().saturating_sub(self.alt_back as u64));
+        let mut sync_open = false;
+        if reading.is_some() {
+            let mut live = held::paint_live(&self.term);
+            live.truncate(live.len() - b"\x1b[?2026l".len());
+            segments.push(Segment::Raw(live));
+            sync_open = true;
+        } else {
+            let live = self.alt_return_live();
+            if !live.is_empty() {
+                segments.push(Segment::Raw(live));
+            }
+        }
         let mut raw_start: Option<usize> = self.term.is_alternate().then_some(0);
         for (i, &byte) in bytes.iter().enumerate() {
             let was = self.term.is_alternate();
@@ -225,7 +274,13 @@ impl Projection {
                 raw_start = Some(i + 1);
             } else {
                 let start = raw_start.take().unwrap_or(0);
-                segments.push(Segment::Raw(bytes.get(start..=i).unwrap_or_default().to_vec()));
+                let mut raw = bytes.get(start..=i).unwrap_or_default().to_vec();
+                if std::mem::take(&mut sync_open) {
+                    raw.extend_from_slice(b"\x1b[?2026l");
+                }
+                self.alt_back = 0;
+                self.alt_fraction = 0.0;
+                segments.push(Segment::Raw(raw));
                 self.term.passthrough.clear();
                 segments.push(Segment::Alternate(false));
                 // The phone's primary screen was drawn at another grid meanwhile.
@@ -240,7 +295,128 @@ impl Projection {
         } else if paint && let Some(paint) = self.paint() {
             segments.push(paint);
         }
+        if self.term.is_alternate() {
+            self.term.observe_held();
+        }
+        if std::mem::take(&mut sync_open) {
+            match reading {
+                Some(anchor) if self.term.is_alternate() && !self.term.held.is_empty() => {
+                    let held = &self.term.held;
+                    let back = held.pushed().saturating_sub(anchor) as usize;
+                    self.alt_back = back.clamp(1, held.len());
+                    segments.push(Segment::Raw(held::paint_back(&self.term, held, self.alt_back)));
+                }
+                _ => {
+                    // What was held is gone (the app cleared it): live.
+                    self.alt_back = 0;
+                    self.alt_fraction = 0.0;
+                    let mut end = held::paint_live(&self.term);
+                    if !self.term.is_alternate() {
+                        end = b"\x1b[?2026l".to_vec();
+                    }
+                    segments.push(Segment::Raw(end));
+                }
+            }
+        }
         segments
+    }
+
+    /// A vertical pan of `rows` (positive: toward older content; a part of a
+    /// row carries to the next pan) over the alternate screen. Within the
+    /// held rows the phone paints them itself and nothing goes to the Mac.
+    /// Past the oldest held row, the rest goes to the app as wheel rows (and
+    /// the rows already back, so the app scrolls to where the reader is);
+    /// past the live screen, likewise. An app that asked for mouse reports
+    /// pans its held rows on the phone too, and gets the wheel past them.
+    /// Everything goes to the app, as before held rows, on the primary
+    /// screen and while nothing is held.
+    pub fn alt_pan(&mut self, rows: f64) -> AltPan {
+        if !rows.is_finite() || rows == 0.0 {
+            return AltPan::default();
+        }
+        if !self.term.is_alternate() || (self.alt_back == 0 && self.term.held.is_empty()) {
+            let paint = self.alt_return_live();
+            self.alt_fraction = 0.0;
+            return AltPan { paint, forward_rows: rows };
+        }
+        self.alt_fraction += rows;
+        let whole = self.alt_fraction.trunc();
+        self.alt_fraction -= whole;
+        let step = whole.abs().min(1e9) as usize;
+        if step == 0 {
+            return AltPan::default();
+        }
+        let held = self.term.held.len();
+        let before = self.alt_back;
+        let mut forward = 0.0;
+        if whole > 0.0 {
+            let take = step.min(held.saturating_sub(self.alt_back));
+            self.alt_back += take;
+            let past = step - take;
+            if past > 0 {
+                let back = if self.alt_forwarded { 0 } else { self.alt_back };
+                forward = (back + past) as f64;
+                self.alt_forwarded = true;
+            }
+        } else {
+            let take = step.min(self.alt_back);
+            self.alt_back -= take;
+            let past = step - take;
+            if past > 0 {
+                forward = -(past as f64);
+            }
+        }
+        let paint = if self.alt_back == before {
+            Vec::new()
+        } else if self.alt_back == 0 {
+            self.alt_forwarded = false;
+            held::paint_live(&self.term)
+        } else {
+            held::paint_back(&self.term, &self.term.held, self.alt_back)
+        };
+        AltPan { paint, forward_rows: forward }
+    }
+
+    /// A key or a tap (or the app's answer to a pan past the held rows): the
+    /// phone's surface shows the app's live screen again. The bytes that repaint it (empty when it
+    /// already does).
+    pub fn alt_return_live(&mut self) -> Vec<u8> {
+        self.alt_fraction = 0.0;
+        self.alt_forwarded = false;
+        if self.alt_back == 0 {
+            return Vec::new();
+        }
+        self.alt_back = 0;
+        if !self.term.is_alternate() {
+            return Vec::new();
+        }
+        held::paint_live(&self.term)
+    }
+
+    /// The bytes that paint the app's live screen, wherever the reader is
+    /// (tests, the bench).
+    pub fn alt_live_paint(&self) -> Vec<u8> {
+        held::paint_live(&self.term)
+    }
+
+    /// How many held rows back the surface shows the alternate screen.
+    pub fn alt_rows_back(&self) -> usize {
+        self.alt_back
+    }
+
+    /// Rows held for a pan over the alternate screen, and their bytes.
+    pub fn held(&self) -> (usize, usize) {
+        (self.term.held.len(), self.term.held.bytes())
+    }
+
+    /// Paints what feeds with `paint` false changed since the last paint:
+    /// a phone that takes several chunks before it draws paints them once.
+    /// Nothing on the alternate screen (its bytes went through as they came).
+    pub fn flush(&mut self) -> Vec<Segment> {
+        if self.term.is_alternate() {
+            return Vec::new();
+        }
+        self.paint().into_iter().collect()
     }
 
     /// Answers for the program (cursor and text area reports, in host cells).

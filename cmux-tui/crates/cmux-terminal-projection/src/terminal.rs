@@ -5,6 +5,7 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
+use crate::held::HeldRows;
 use crate::style::{Interner, Style, StyleTable};
 use crate::unicode::{self, WidthEffect};
 
@@ -112,6 +113,9 @@ pub struct Terminal {
     pub history: VecDeque<Row>,
     /// Rows dropped from the front of `history` (its limit) since the last reset.
     pub history_dropped: u64,
+    /// Rows ever pushed to `history`, never reset (a clear or `ESC c`
+    /// keeps counting): what a view has not painted yet is the difference.
+    pub history_pushed: u64,
     history_limit: usize,
     cursor: Cursor,
     /// The primary screen's cursor while the alternate screen is up.
@@ -145,6 +149,9 @@ pub struct Terminal {
     /// The private mode the alternate screen was entered with (47, 1047 or
     /// 1049), for the phone's terminal to enter it the same way.
     pub alt_mode: u16,
+    /// What the alternate screen's app moved off its screen
+    /// ([`crate::held`]), for a pan the phone paints itself.
+    pub held: HeldRows,
     /// The scrollback or every row changed in a way a diff cannot follow
     /// (RIS, ED 3, a host resize): the view starts over.
     pub reset_needed: bool,
@@ -176,6 +183,7 @@ impl Terminal {
             alt_active: false,
             history: VecDeque::new(),
             history_dropped: 0,
+            history_pushed: 0,
             history_limit,
             cursor: Cursor::default(),
             primary_cursor: Cursor::default(),
@@ -201,6 +209,7 @@ impl Terminal {
             passthrough: Vec::new(),
             replies: Vec::new(),
             alt_mode: 1049,
+            held: HeldRows::default(),
             reset_needed: true,
             screen_cleared: 0,
             prompt_seen: false,
@@ -235,6 +244,51 @@ impl Terminal {
         if self.alt_active { &self.alt } else { &self.primary }
     }
 
+    /// The end of a batch of bytes on the alternate screen: the held rows
+    /// infer what a repaint moved ([`HeldRows::observe`]), unless the app
+    /// marks its frames (then only a whole frame is compared).
+    pub fn observe_held(&mut self) {
+        if self.alt_active && !self.held.framed() {
+            self.held.observe(&self.alt);
+        }
+    }
+
+    /// The scroll region's first and last rows (0-based, inclusive).
+    pub fn scroll_region(&self) -> (usize, usize) {
+        (self.scroll_top, self.scroll_bottom.min(self.rows - 1))
+    }
+
+    /// The app asked for mouse reports (X10, normal, button or any motion):
+    /// a wheel is its own, so a pan goes to it as a wheel.
+    pub fn mouse_reporting(&self) -> bool {
+        [9, 1000, 1002, 1003].iter().any(|mode| self.modes.get(mode).copied().unwrap_or(false))
+    }
+
+    /// Sequences that put a terminal whose cells match this one in the same
+    /// drawing state: origin mode, the cursor, its pen, character sets and
+    /// visibility (a pending wrap is not restored).
+    pub fn write_pen(&self, out: &mut Vec<u8>) {
+        let mut y = self.cursor.y;
+        if self.origin {
+            out.extend_from_slice(b"\x1b[?6h");
+            y = y.saturating_sub(self.scroll_top);
+        }
+        out.extend_from_slice(format!("\x1b[{};{}H", y + 1, self.cursor.x + 1).as_bytes());
+        crate::project::write_style(self, out, None, self.cursor.style);
+        if self.charsets[0] {
+            out.extend_from_slice(b"\x1b(0");
+        }
+        if self.charsets[1] {
+            out.extend_from_slice(b"\x1b)0");
+        }
+        if self.shift_out {
+            out.push(0x0e);
+        }
+        if self.cursor_visible {
+            out.extend_from_slice(b"\x1b[?25h");
+        }
+    }
+
     /// The cursor (column, row) on the screen in use.
     pub fn cursor(&self) -> (usize, usize) {
         (self.cursor.x, self.cursor.y)
@@ -265,6 +319,7 @@ impl Terminal {
                 fit(row, cols);
             }
         }
+        self.held.clear();
         self.cols = cols;
         self.rows = rows;
         self.scroll_top = 0;
@@ -756,7 +811,15 @@ impl Terminal {
                 self.cursor_position(0, 0);
             }
             7 => self.autowrap = on,
-            25 => self.cursor_visible = on,
+            25 => {
+                // Shown again after a hidden redraw: the app's frame is whole.
+                let frame_end = on && !self.cursor_visible;
+                self.cursor_visible = on;
+                if frame_end && self.alt_active {
+                    self.held.frame_end(&self.alt);
+                }
+            }
+            2026 if !on && self.alt_active => self.held.frame_end(&self.alt),
             47 | 1047 | 1049 => {
                 if on && !self.alt_active {
                     self.alt_mode = mode;
@@ -787,6 +850,7 @@ impl Terminal {
         if on == self.alt_active {
             return;
         }
+        self.held.clear();
         self.screen_cleared += 1;
         if on {
             if save_cursor {
@@ -818,7 +882,9 @@ impl Terminal {
         let links = std::mem::take(&mut self.links);
         let passthrough = std::mem::take(&mut self.passthrough);
         let replies = std::mem::take(&mut self.replies);
+        let pushed = self.history_pushed;
         *self = Terminal::new(cols, rows, limit);
+        self.history_pushed = pushed;
         // Interned strings stay valid for cells still on the phone.
         self.styles = styles;
         self.graphemes = graphemes;
@@ -1192,6 +1258,8 @@ impl Terminal {
             self.screen().insert(bottom, blank_row(cols, erased));
             if to_history {
                 self.push_history(row);
+            } else if self.alt_active {
+                self.held.push(row);
             }
         }
     }
@@ -1204,6 +1272,9 @@ impl Terminal {
             self.screen().remove(bottom);
             self.screen().insert(top, blank_row(cols, erased));
         }
+        if self.alt_active {
+            self.held.pop(n);
+        }
     }
 
     fn push_history(&mut self, mut row: Row) {
@@ -1211,6 +1282,7 @@ impl Terminal {
         row.cells.truncate(keep);
         row.cells.shrink_to_fit();
         self.history.push_back(row);
+        self.history_pushed += 1;
         while self.history.len() > self.history_limit {
             self.history.pop_front();
             self.history_dropped += 1;
@@ -1220,6 +1292,14 @@ impl Terminal {
     fn erase_display(&mut self, mode: u16) {
         let erased = self.erased_id();
         let (x, y, rows, cols) = (self.cursor.x, self.cursor.y, self.rows, self.cols);
+        // A full-screen app clearing its page to draw the next one without
+        // scrolling: the page it clears is held as a screen.
+        if self.alt_active && (matches!(mode, 2 | 22) || (mode == 0 && x == 0 && y == 0)) {
+            let (top, bottom) = self.scroll_region();
+            if let Some(region) = self.alt.get(top..=bottom) {
+                self.held.push_frame(region);
+            }
+        }
         match mode {
             0 => {
                 self.erase_line(0);
