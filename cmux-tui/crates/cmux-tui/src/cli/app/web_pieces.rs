@@ -145,17 +145,17 @@ pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
         Some("check") => {
             let options = options(&["state", "channel", "base", "active", "kept"], &["offline"])?;
             let channel = channel_of(options.value("channel")).ok_or_else(usage)?;
+            let named = options.value("base");
+            let base = base_url(named.unwrap_or(DEFAULT_BASE)).map_err(UsageError::new)?;
+            if named.is_some() {
+                // The person named this base (--base) and base_url accepted it; a redirect off
+                // it is still checked.
+                cmux_egress::allow_named(&base);
+            }
             Command::Check(Check {
                 state: state_dir(options.value("state")).ok_or_else(usage)?,
                 channel: channel.to_owned(),
-                base: base_url(
-                    options
-                        .value("base")
-                        // The person named this base (--base); a redirect off it is still checked.
-                        .inspect(|b| cmux_egress::allow_named(b))
-                        .unwrap_or(DEFAULT_BASE),
-                )
-                .map_err(UsageError::new)?,
+                base,
                 active: options.value("active").map(key_arg).transpose()?,
                 kept: options.values("kept").into_iter().map(key_arg).collect::<Result<_, _>>()?,
                 offline: options.flag("offline"),

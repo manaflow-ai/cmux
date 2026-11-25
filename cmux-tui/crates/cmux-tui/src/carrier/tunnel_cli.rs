@@ -132,10 +132,18 @@ pub(crate) fn parse_keys(line: &[u8]) -> Result<(Zeroizing<[u8; 32]>, InstallKey
     Ok((wg, install))
 }
 
-/// The origin the person named (`--vm-api` else `CMUX_VM_API_URL`, or
-/// `--platform`), let past the egress gate; a redirect off it is still checked.
+/// The origin the person named (`--vm-api` else `CMUX_VM_API_URL`, or `--platform`), an empty
+/// one unset; [`secure_named`] checks it.
 pub(crate) fn named_origin(flag: Option<String>, env: Option<String>) -> Option<String> {
-    flag.or(env).filter(|v| !v.trim().is_empty()).inspect(|v| cmux_egress::allow_named(v.trim()))
+    flag.or(env).filter(|v| !v.trim().is_empty())
+}
+
+/// `origin` as a secure cmux origin, then let past the egress gate: only an origin the check
+/// accepts is allowed, and a redirect off it is still checked.
+pub(crate) fn secure_named(origin: &str) -> Result<String, String> {
+    let origin = crate::cli::secure_cloud_origin(origin.trim())?;
+    cmux_egress::allow_named(&origin);
+    Ok(origin)
 }
 
 /// The VM API of the deployment whose platform origin is `platform`.
@@ -231,7 +239,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
             cmux_cloud_client::backend::PLATFORM_ORIGIN_ENV
         ));
     };
-    let platform = match crate::cli::secure_cloud_origin(platform.trim()) {
+    let platform = match secure_named(&platform) {
         Ok(origin) => origin,
         Err(why) => return usage(&why),
     };
@@ -240,7 +248,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
     let Some(vm_api) = vm_api else {
         return usage(&format!("name the VM API with --vm-api URL or {VM_API_ENV}"));
     };
-    let vm_api = match crate::cli::secure_cloud_origin(vm_api.trim()) {
+    let vm_api = match secure_named(&vm_api) {
         Ok(origin) => origin,
         Err(why) => return usage(&why),
     };

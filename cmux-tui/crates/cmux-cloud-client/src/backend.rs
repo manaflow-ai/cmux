@@ -30,7 +30,13 @@ pub fn platform_origin_from(env: impl Fn(&str) -> Option<String>) -> Option<Stri
         .map(|value| value.trim().to_owned())
         .find(|value| !value.is_empty())
         // The person named this hub (CMUX_PLATFORM_ORIGIN); a redirect off it is still checked.
-        .inspect(|origin| cmux_egress::allow_named(origin))
+        // Only an https origin passes: every caller refuses plain http to a remote hub, and a
+        // refused origin must not stay allowed (loopback is local to the gate anyway).
+        .inspect(|origin| {
+            if origin.get(..8).is_some_and(|s| s.eq_ignore_ascii_case("https://")) {
+                cmux_egress::allow_named(origin);
+            }
+        })
 }
 
 /// [`platform_origin_from`] of this process's environment.
@@ -147,5 +153,12 @@ mod tests {
         assert_eq!(origin.as_deref(), Some("https://hub-named-backend-test.org"));
         assert!(cmux_egress::check(host, "test").is_ok());
         assert!(cmux_egress::check("unrelated-hub-backend-test.org", "test").is_err());
+        // A plain-http hub, which every caller's origin check refuses, names nothing.
+        let refused = "refused-hub-backend-test.org";
+        let origin = platform_origin_from(|key| {
+            (key == PLATFORM_ORIGIN_ENV).then(|| format!("http://{refused}"))
+        });
+        assert_eq!(origin.as_deref(), Some("http://refused-hub-backend-test.org"));
+        assert!(cmux_egress::check(refused, "test").is_err());
     }
 }

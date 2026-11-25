@@ -694,4 +694,20 @@ fn the_named_base_passes_the_gate() {
     assert!(matches!(parse(&args(&words)), Ok(Some(_))));
     assert!(cmux_egress::check(host, "test").is_ok());
     assert!(cmux_egress::check("unrelated-base-web-pieces-test.org", "test").is_err());
+    // A base base_url refuses (plain http to a remote host) names nothing.
+    let refused = "refused-base-web-pieces-test.org";
+    let base = format!("http://{refused}/web/");
+    let words = [
+        "app",
+        "web-pieces",
+        "check",
+        "--state",
+        "/tmp/s",
+        "--channel",
+        "nightly",
+        "--base",
+        &base,
+    ];
+    assert!(parse(&args(&words)).is_err());
+    assert!(cmux_egress::check(refused, "test").is_err());
 }
