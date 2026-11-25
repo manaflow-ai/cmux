@@ -8,7 +8,8 @@ import SwiftUI
 import UIKit
 
 /// Synthetic host data, rendered by the production browser and TabsKit controls.
-/// Launch with `-cmux-mobile-browser-events empty|context|select|dialog|prompt|page-menu`.
+/// Launch with `-cmux-mobile-browser-events empty|context|select|dialog|prompt|page-menu|video`
+/// (`video`: the page is a moving clip, no synthetic backdrop over it).
 @MainActor
 public struct BrowserEventsDemoRoot: View {
     public static var isRequested: Bool {
@@ -72,6 +73,8 @@ private final class BrowserEventsDemoFixture {
             print("browser-events-demo: browser.page not found")
             return
         }
+        // The clip is the page itself: nothing drawn over the stream.
+        guard scene != "video" else { return }
         installBackdrop(in: page)
         if scene == "context" {
             presentContextMenu(on: page)
