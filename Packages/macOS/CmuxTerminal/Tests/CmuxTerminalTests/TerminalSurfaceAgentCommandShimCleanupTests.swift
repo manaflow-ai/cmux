@@ -446,6 +446,15 @@ struct TerminalSurfaceAgentCommandShimCleanupTests {
         #expect(FileManager.default.isExecutableFile(atPath: directory.appendingPathComponent("codex").path))
         let thisProcess = try #require(AgentPIDProcessIdentity(pid: getpid()))
         #expect(owners(of: directory).contains(thisProcess))
+
+        // Whoever published first kept no record, so it may be a cmux built
+        // before them with this pane open. Closing here must not take the
+        // directory from it.
+        let removedByClose = TerminalSurfaceAgentCommandShimCleanup(rootDirectory: root)
+            .removeShimDirectory(surfaceId: restored)
+
+        #expect(!removedByClose)
+        #expect(exists(directory.appendingPathComponent("codex")))
     }
 
     @Test("Installing and sweeping take the same lock, so neither sees the other halfway")
