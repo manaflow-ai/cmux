@@ -446,15 +446,19 @@ fn a_full_seed_then_deltas_carry_the_working_state() {
     assert_eq!(files(&remote), expected);
     // No bundle is left beside the folder; only the folder's repository sync barrier stays
     // (`cmux_git::sync_barrier`: never unlinked, so a later seed and agent writes share its lock),
-    // with its head and owner locks (#38084), never unlinked either.
+    // with its head and owner locks (#38084) and its filled and want ledgers (#53320), never
+    // unlinked either.
     let mut left: Vec<_> = std::fs::read_dir(w.home.join("work"))
         .unwrap()
         .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
     left.sort();
     let barrier = format!(".cmux-sync-{:x}", sha2::Sha256::digest(b"widget"));
-    let (head, owner) = (format!("{barrier}.head"), format!("{barrier}.owner"));
-    assert_eq!(left, [barrier.as_str(), head.as_str(), owner.as_str(), "widget"], "{left:?}");
+    let sidecars = ["filled", "head", "owner", "want"].map(|kind| format!("{barrier}.{kind}"));
+    let mut kept = vec![barrier.as_str()];
+    kept.extend(sidecars.iter().map(String::as_str));
+    kept.push("widget");
+    assert_eq!(left, kept, "{left:?}");
 
     // A change since: only it goes.
     write(&w.work.join("notes/todo.md"), "untracked, edited\n");
@@ -516,6 +520,31 @@ fn a_stash_only_delta_moves_both_creation_and_deletion_without_touching_work() {
     assert_eq!(std::fs::read(remote.join("README.md")).unwrap(), b"widget\n");
     let (ok, stable, _) = w.push(&w.work, &remote, true);
     assert!(ok && stable["unchanged"] == true && stable["bundle_bytes"] == 0, "{stable}");
+}
+
+#[test]
+fn a_big_untracked_file_reaches_the_machine_and_one_past_the_cap_is_named() {
+    // RFD 0066 piece 4: an untracked file over 5 MiB used to stay on the Mac unsaid.
+    let w = World::new(Serves::Seed);
+    let model = noise(7, 6 * 1024 * 1024);
+    std::fs::create_dir_all(w.work.join("assets")).unwrap();
+    std::fs::write(w.work.join("assets/model.bin"), &model).unwrap();
+    // Past the one-file cap (100 MB); sparse, so the test writes nothing.
+    std::fs::File::create(w.work.join("assets/huge.bin")).unwrap().set_len(100_000_001).unwrap();
+    let remote = w.remote("widget");
+
+    let (ok, seeded, _) = w.push(&w.work, &remote, false);
+    assert!(ok, "{seeded}");
+    assert_eq!(seeded["mode"], json!("seed"), "{seeded}");
+    assert!(seeded["bundle_bytes"].as_u64().unwrap() > model.len() as u64, "{seeded}");
+    assert_eq!(std::fs::read(remote.join("assets/model.bin")).unwrap(), model);
+    assert!(!remote.join("assets/huge.bin").exists());
+    let skipped = seeded["skipped_files"].as_array().unwrap();
+    let huge = skipped.iter().find(|item| item["path"] == json!("assets/huge.bin"));
+    let huge = huge.unwrap_or_else(|| panic!("huge.bin not named: {seeded}"));
+    assert_eq!(huge["kind"], json!("big"), "{seeded}");
+    assert!(huge["why"].as_str().unwrap().contains("(100 MB)"), "{seeded}");
+    assert!(!skipped.iter().any(|item| item["path"] == json!("assets/model.bin")), "{seeded}");
 }
 
 #[test]
@@ -811,19 +840,18 @@ fn a_held_head_link_through_other_links_lands_whole() {
 }
 
 #[test]
-fn a_held_head_that_would_start_mcp_servers_is_copied_whole_before_the_answer() {
+fn a_held_head_with_project_mcp_servers_still_opens_at_its_head() {
+    // A project `.mcp.json` no longer holds the head back (#43929): `cmux repo mcp-lazy`
+    // starts its servers once the whole folder is in, so the chat opens at the head.
     let w = World::new(Serves::Hold);
     let plain = plain_project(&w.root);
     write(&plain.join(".mcp.json"), "{}\n");
     let remote = w.remote("plain");
     let (ok, copied) = w.push_head_first(&plain, &remote, "");
     assert!(ok, "{copied}");
-    assert!(copied.get("filling").is_none(), "{copied}");
-    // The head went first, so the whole copy after it finds those four unchanged.
-    assert_eq!(copied["copy"]["written"], json!(4), "{copied}");
-    assert_eq!(copied["copy"]["unchanged"], json!(4), "{copied}");
-    // Ready already; a wait only rides out another test's fork holding a copy of a lock.
-    cmux_git::sync_barrier::wait_ready(&remote, std::time::Duration::from_secs(10)).unwrap();
+    assert_eq!(copied["filling"], json!(true), "{copied}");
+    cmux_git::sync_barrier::wait_ready(&remote, std::time::Duration::from_secs(60)).unwrap();
+    assert_eq!(std::fs::read_to_string(remote.join(".mcp.json")).unwrap(), "{}\n");
 }
 
 #[test]
@@ -991,4 +1019,128 @@ fn only_lfs_that_can_reach_the_head_keeps_a_start_from_its_head() {
             "{attributes}: {start}"
         );
     }
+}
+
+impl World {
+    /// One request to the machine, as the Mac's link sends it: its whole answer line.
+    fn machine(&self, cmd: &str, params: Value) -> Value {
+        let mut request = params;
+        request["id"] = json!(1);
+        request["cmd"] = json!(cmd);
+        let mut stream = std::os::unix::net::UnixStream::connect(&self.socket).unwrap();
+        stream.write_all(format!("{request}\n").as_bytes()).unwrap();
+        let mut line = String::new();
+        BufReader::new(stream).read_line(&mut line).unwrap();
+        serde_json::from_str(&line).unwrap()
+    }
+}
+
+/// Leo, 2026-11-25 (#17): "what if the user deletes the folders that were on their source of
+/// truth machines?" A seed carries the person's diff in its bundle and clones the rest, so a
+/// source deleted while the machine still fills past the chat's head costs nothing: the fill
+/// finishes from what it was sent, and the Mac's next push says the folder is gone instead of
+/// sending its absence.
+#[test]
+fn a_seed_whose_source_is_deleted_while_it_fills_finishes_from_what_it_was_sent() {
+    let w = World::new(Serves::Seed);
+    write(&w.work.join("notes/todo.md"), "untracked\n");
+    write(&w.work.join("src/lib.rs"), "pub fn one() {}\npub fn edited() {}\n");
+    let expected = files(&w.work);
+    let remote = w.remote("widget");
+    let (ok, seeded) = w.push_head_first(&w.work, &remote, "");
+    assert!(ok, "{seeded}");
+    std::fs::remove_dir_all(&w.work).unwrap();
+    cmux_git::sync_barrier::wait_ready(&remote, std::time::Duration::from_secs(60)).unwrap();
+    assert_eq!(files(&remote), expected);
+    assert_eq!(cmux_git::sync_barrier::partial(&remote), None);
+    let (ok, again, _) = w.push(&w.work, &remote, true);
+    assert!(!ok, "{again}");
+    assert_eq!(files(&remote), expected, "a push from a deleted folder changed the machine's");
+}
+
+/// The held copy (a folder outside git) of a chat that opened at its head, whose source is
+/// deleted before the rest goes: the folder keeps what landed and reads ready with a note of
+/// why, so the chat's tools run instead of failing for good (before: "repository
+/// synchronization failed; retry the sync", and no retry could, with the source gone). Once
+/// the source is back, the next start's copy resumes it, as a game resumes a download.
+#[test]
+fn a_held_copy_whose_source_is_deleted_mid_fill_keeps_what_landed_and_resumes() {
+    let w = World::new(Serves::Hold);
+    let plain = plain_project(&w.root);
+    let remote = w.remote("plain");
+    // The start's hold and its head, as `held::copy` takes and sends them.
+    let held = w.machine(
+        "git.seed.hold",
+        json!({"folder": remote, "subpath": "app", "key": "deleted-source", "lease_ms": 60_000}),
+    );
+    let job = held["data"]["job"].as_str().unwrap_or_else(|| panic!("{held}")).to_owned();
+    for head in ["README.md", "CLAUDE.md", ".claude/skills/s/SKILL.md", "app/notes.md"] {
+        write(&remote.join(head), &std::fs::read_to_string(plain.join(head)).unwrap());
+    }
+    let marked = w.machine("git.seed.hold.head", json!({"job": job}));
+    assert_eq!(marked["data"]["head_ready"], json!(true), "{marked}");
+
+    // The source goes before the rest is sent.
+    std::fs::remove_dir_all(&plain).unwrap();
+    let rest = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        .env("CMUX_TUI_STATE_DIR", w.root.join("state"))
+        .args(["link", "seed", "copy-rest", "--socket"])
+        .arg(&w.socket)
+        .args(["--job", &job])
+        .arg(&plain)
+        .arg(&remote)
+        .output()
+        .unwrap();
+    assert!(!rest.status.success(), "the copy is not whole");
+
+    // Playable: ready, with what landed and why the rest did not.
+    cmux_git::sync_barrier::wait_ready(&remote, std::time::Duration::from_secs(10)).unwrap();
+    assert_eq!(cmux_git::sync_barrier::partial(&remote).as_deref(), Some("source_missing"));
+    assert_eq!(std::fs::read_to_string(remote.join("app/notes.md")).unwrap(), "notes\n");
+    assert!(!remote.join("src/a.rs").exists());
+    let status = w.machine("git.seed.status", json!({"job": job}));
+    assert!(status.to_string().contains("seed.partial"), "{status}");
+
+    // The source is back: the next start's copy holds the folder again and fills what it lacks.
+    let plain = plain_project(&w.root);
+    let (ok, copied) = w.push_head_first(&plain, &remote, "app");
+    assert!(ok, "{copied}");
+    cmux_git::sync_barrier::wait_ready(&remote, std::time::Duration::from_secs(60)).unwrap();
+    assert_eq!(cmux_git::sync_barrier::partial(&remote), None);
+    assert_eq!(std::fs::read_to_string(remote.join("app/src/c.rs")).unwrap(), "fn c() {}\n");
+    let landed = files(&remote);
+    assert_eq!(landed.len(), 8, "{:?}", landed.keys());
+}
+
+/// A copy-rest that fails while its source is still there leaves the folder failed, as
+/// before: only a source that is gone makes a partial folder.
+#[test]
+fn a_held_copy_that_fails_with_its_source_still_there_is_never_partial() {
+    let w = World::new(Serves::Hold);
+    let plain = plain_project(&w.root);
+    let remote = w.remote("plain");
+    let held = w.machine(
+        "git.seed.hold",
+        json!({"folder": remote, "key": "failed-not-gone", "lease_ms": 60_000}),
+    );
+    let job = held["data"]["job"].as_str().unwrap_or_else(|| panic!("{held}")).to_owned();
+    write(&remote.join("README.md"), "read me\n");
+    let marked = w.machine("git.seed.hold.head", json!({"job": job}));
+    assert_eq!(marked["data"]["head_ready"], json!(true), "{marked}");
+    let ended = w.machine("git.seed.hold.end", json!({"job": job, "ok": false}));
+    assert!(ended.to_string().contains("seed.copy_failed"), "{ended}");
+    assert!(
+        cmux_git::sync_barrier::wait_ready(&remote, std::time::Duration::from_secs(1)).is_err()
+    );
+    assert_eq!(cmux_git::sync_barrier::partial(&remote), None);
+    // An unknown reason is refused, not taken as partial.
+    let other = w.machine(
+        "git.seed.hold",
+        json!({"folder": w.remote("other"), "key": "unknown-reason", "lease_ms": 60_000}),
+    );
+    let job = other["data"]["job"].as_str().unwrap_or_else(|| panic!("{other}")).to_owned();
+    let refused =
+        w.machine("git.seed.hold.end", json!({"job": job, "ok": false, "partial": "bored"}));
+    assert_eq!(refused["error_code"], json!("seed.bad_request"), "{refused}");
+    let _ = plain;
 }
