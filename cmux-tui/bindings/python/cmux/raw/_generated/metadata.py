@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'aa192daae536d663c91ea8331205c56654c34135d54d451c1576ae15a2d2cbf9'
+IR_SHA256 = 'f28171520eaafd3e7d9d42abfe4514e640828512469fe273412204f4c2a10572'
 
 
 @dataclass(frozen=True)
@@ -1081,6 +1081,7 @@ COMMANDS = {
         {
             'conversation': CommandFieldMetadata(None, None),
             'op': CommandFieldMetadata(None, None),
+            'op_id': CommandFieldMetadata(None, None),
         },
     ),
     'conversation-link-resolve': CommandMetadata(

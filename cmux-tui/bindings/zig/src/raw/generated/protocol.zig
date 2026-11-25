@@ -7,11 +7,14 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "aa192daae536d663c91ea8331205c56654c34135d54d451c1576ae15a2d2cbf9";
+pub const ir_sha256 = "f28171520eaafd3e7d9d42abfe4514e640828512469fe273412204f4c2a10572";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
+    echo_at_ms: wire.Field(u64) = .absent,
+    echo_input_at_ms: wire.Field(u64) = .absent,
     last_agent_action_at_ms: wire.Nullable(u64),
+    last_person_attach_at_ms: wire.Field(u64) = .absent,
     last_user_input_at_ms: wire.Nullable(u64),
     live_agents: u32,
 };
@@ -5640,6 +5643,7 @@ pub fn conversationImport(client: anytype, request: ConversationImportRequest) !
 pub const ConversationInboxOpRequest = struct {
     conversation: []const u8,
     op: wire.Nullable(JsonValue),
+    op_id: wire.Field([]const u8) = .absent,
 };
 
 pub const ConversationInboxOpResult = struct {

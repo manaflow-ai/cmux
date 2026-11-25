@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "aa192daae536d663c91ea8331205c56654c34135d54d451c1576ae15a2d2cbf9";
+inline constexpr std::string_view kProtocolIrSha256 = "f28171520eaafd3e7d9d42abfe4514e640828512469fe273412204f4c2a10572";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -791,7 +791,10 @@ struct AckTabNotificationsRequest {
 
 struct ActivitySnapshot {
     std::uint32_t attached_clients{};
+    Field<std::uint64_t> echo_at_ms{};
+    Field<std::uint64_t> echo_input_at_ms{};
     std::optional<std::uint64_t> last_agent_action_at_ms{};
+    Field<std::uint64_t> last_person_attach_at_ms{};
     std::optional<std::uint64_t> last_user_input_at_ms{};
     std::uint32_t live_agents{};
     friend bool operator==(const ActivitySnapshot&, const ActivitySnapshot&) = default;
@@ -2492,6 +2495,7 @@ struct ConversationInboxChangedEvent {
 struct ConversationInboxOpRequest {
     std::string conversation{};
     std::optional<JsonValue> op{};
+    Field<std::string> op_id{};
     friend bool operator==(const ConversationInboxOpRequest&, const ConversationInboxOpRequest&) = default;
 };
 

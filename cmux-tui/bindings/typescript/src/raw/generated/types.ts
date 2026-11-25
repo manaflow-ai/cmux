@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR aa192daae536d663c91ea8331205c56654c34135d54d451c1576ae15a2d2cbf9. */
+/* cmux-tui mux protocol 12, IR f28171520eaafd3e7d9d42abfe4514e640828512469fe273412204f4c2a10572. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -8,7 +8,10 @@ export type JsonObject = { [key: string]: JsonValue };
 
 export type ActivitySnapshot = {
   "attached_clients": number;
+  "echo_at_ms"?: (bigint) | null;
+  "echo_input_at_ms"?: (bigint) | null;
   "last_agent_action_at_ms": (bigint) | null;
+  "last_person_attach_at_ms"?: (bigint) | null;
   "last_user_input_at_ms": (bigint) | null;
   "live_agents": number;
 };

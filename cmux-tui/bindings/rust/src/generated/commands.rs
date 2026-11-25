@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR aa192daae536d663c91ea8331205c56654c34135d54d451c1576ae15a2d2cbf9.
+// cmux-tui mux protocol 12, IR f28171520eaafd3e7d9d42abfe4514e640828512469fe273412204f4c2a10572.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1210,6 +1210,8 @@ pub struct ConversationImportResult {
 pub struct ConversationInboxOpRequest {
     pub conversation: String,
     pub op: Nullable<T::JsonValue>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub op_id: Optional<String>,
 }
 
 #[rustfmt::skip]
