@@ -16,7 +16,7 @@ import { categories, categoryOf, defaultCategory, isCategory } from "./categorie
 import { MockTeams } from "./mockTeams";
 import { mockThemeColors } from "./mockThemes";
 import { schema } from "./schema";
-import { mockDevicesState } from "./mockProvider";
+import { mockDevicesState, mockDomains } from "./mockProvider";
 import { ACCOUNT_LISTS } from "../shared/signIn/galleryFixtures";
 import MARTIN_PANDEMONIUM from "../../gallery/fixtures/art/martin-pandemonium.jpg?inline";
 import FRIEDRICH_FOREST_MOONLIGHT from "../../gallery/fixtures/art/friedrich-forest-moonlight.jpg?inline";
@@ -340,6 +340,25 @@ const variants: Record<string, SettingsPageVariant> = {
     host: { ...host, harness_placement: "left" },
     options: { values: { "agentPane.display.harnessPlacement": "symbols" } },
     note: "An explicit top symbols choice wins over the old left rail and offers Reset.",
+  }),
+  // Taste Board #15: Beta chips on experimental rows (appearance.settingsBetaChips, off by default).
+  "beta-chips-off": variant("experimental", {
+    focus: "appearance.settingsBetaChips",
+    note: "Beta chips off (the default): the Experimental page and its sidebar entry exactly as today.",
+  }),
+  "beta-chips-on": variant("experimental", {
+    focus: "appearance.settingsBetaChips",
+    options: { values: { "appearance.settingsBetaChips": true } },
+    note: "Beta chips on: each experimental row's title and the Experimental sidebar entry carry a small Beta chip.",
+  }),
+  "beta-chips-on-labs": variant("experimental", {
+    focus: "labs.previewFeatures",
+    options: { values: { "appearance.settingsBetaChips": true } },
+    note: "Beta chips on, scrolled to the Labs rows (Preview Features, Voice Room, Live Code).",
+  }),
+  "beta-chips-on-general": variant("general", {
+    options: { values: { "appearance.settingsBetaChips": true } },
+    note: "Beta chips on, on an everyday page: no row gets a chip; only the Experimental sidebar entry does.",
   }),
   "agent-tools": variant("agents", {
     focus: "agents.cmuxMcp",
@@ -1088,6 +1107,16 @@ Object.assign(variants, {
     options: { values: { "notifications.attention.mark": "glow" } },
     note: "Settings > Notifications with Needs You Look set to Glow: a waiting tab or sidebar row glows in place of its badge.",
   }),
+  // What's New custom-notification-sound (https://github.com/manaflow-ai/cmux/issues/55219): a sound
+  // of the person's own picked with Custom Sound… (the menu's last item) and a Sound Duration.
+  "custom-notification-sound": variant("notifications", {
+    focus: "notifications.sounds.maxSeconds",
+    options: {
+      values: { "notifications.sound": "My Chime", "notifications.sounds.maxSeconds": 3 },
+      domains: { ...mockDomains, sounds: [...mockDomains.sounds, "My Chime"] },
+    },
+    note: "Sound set to a custom file (My Chime) and Sound Duration at 3 s.",
+  }),
   // What's New agent-blocked-notification: Agent Blocked delivery set to Banner (default Off).
   "agent-blocked-banner": variant("notifications", {
     focus: "notifications.delivery.blocked",
@@ -1148,7 +1177,7 @@ Object.assign(variants, {
   "theme-app-separate": variant("theme", {
     allThemes: true,
     options: { values: { "appearance.theme": "Gruvbox Dark", "appearance.appTheme": "Rose Pine" } },
-    note: "An app theme apart from the terminal theme (appearance.appTheme); the one Match System Appearance switch sets both.",
+    note: "An app theme apart from the terminal theme (appearance.appTheme).",
   }),
   "theme-app-light-dark": variant("theme", {
     allThemes: true,
@@ -1159,7 +1188,7 @@ Object.assign(variants, {
         "appearance.accent": "magenta",
       },
     },
-    note: "One Theme card: one Match System Appearance for the terminal and the app theme together, then the accent.",
+    note: "One Theme card: the terminal and the app theme each with Match System Appearance, then the accent.",
   }),
   "theme-long-name": variant("theme", {
     allThemes: true,
@@ -2038,6 +2067,7 @@ export default settingsPageEntry({
     "pages/settings/components/SearchField.tsx",
     "pages/settings/components/SearchResults.tsx",
     "pages/settings/components/SectionActions.tsx",
+    "pages/settings/components/BetaChip.tsx",
     "pages/settings/components/SectionList.tsx",
     "pages/settings/components/SectionRoute.tsx",
     "pages/settings/components/SectionView.tsx",

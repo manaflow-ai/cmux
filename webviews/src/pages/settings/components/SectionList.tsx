@@ -17,6 +17,9 @@ import type { SettingsState } from "../store";
 import { managedOf } from "../store";
 import { t, text } from "../strings";
 import { harnessesNeedAttention } from "../harnesses";
+import { isExperimentalCategory, useBetaChips } from "../betaChips";
+import { useSettingsPages } from "../settingsPages";
+import { BetaChip } from "./BetaChip";
 import { followScrollEdges } from "../../../ui/scrollEdges";
 import { followStripWheel, revealInStrip } from "./sectionStrip";
 
@@ -107,10 +110,15 @@ const SectionLink = createLink(function SectionAnchor({
  * agent CLI that is outdated or signed out (update). Each entry is a router link: hover or keyboard
  * focus preloads its section (the router's `defaultPreload: "intent"`), a click navigates.
  * `current` marks the shown category (null while searching); the link's own active match is exact,
- * so it never marks a section the page is not showing. The top level is seven pages (one settings area,
- * David Beyer 2026-11-20: Settings felt overwhelming), each opening its categories while shown. */
+ * so it never marks a section the page is not showing. The last section, More, starts closed (one
+ * settings area, David Beyer 2026-11-20: Settings felt overwhelming), so the top level stays short;
+ * it opens on a click, and while one of its categories is shown. With Seven Settings Pages on
+ * (`appearance.settingsPages`, Settings > Customize, off by default) the top level is seven pages
+ * instead, each opening its categories while shown. */
 export function SectionList({ current, onSelect }: { current: string | null; onSelect: (section: string) => void }) {
   const state = useSettingsState();
+  const betaChips = useBetaChips();
+  const sevenPages = useSettingsPages();
   // A narrow pane's strip (sectionStrip.ts): its edges fade where categories are past them, a wheel
   // scrolls it sideways, and the shown category scrolls into view.
   const strip = useRef<HTMLElement | null>(null);
@@ -161,6 +169,7 @@ export function SectionList({ current, onSelect }: { current: string | null; onS
         <span className="section-name">
           {pageLink && page.section.title ? text(page.section.title) : text(category.title)}
         </span>
+        {betaChips && isExperimentalCategory(category.id) && <BetaChip />}
         {mark && (
           <span className={`badge badge-${mark}`} data-badge={mark}>
             <Icon name={mark} />
@@ -172,22 +181,50 @@ export function SectionList({ current, onSelect }: { current: string | null; onS
       </SectionLink>
     );
   };
-  // Six pages (one settings area, findings G6; Leo 2026-11-22: "ay, fuck it we ball"): each section of
-  // the Swift `SettingsPageLayout.sidebarSections` export is one page link, its first category under
-  // the page's title; the shown page's other categories open under it, indented, the way a card's
-  // More Options does. A page of one category is just its link. A section the layout draws closed
-  // (collapsed) keeps its header button, and an untitled run its bare links.
-  return (
-    <nav ref={stripRef} className="section-list" aria-label={t("settingsPage.sections")}>
-      {shownSidebarSections(state.host?.dev_build === true).map(({ section, categories }) => {
-        const holdsCurrent = categories.some((category) => category.id === current);
-        if (section.collapsed) {
-          return (
-            <CollapsedSection key={section.id} section={section} holdsCurrent={holdsCurrent}>
+  const devBuild = state.host?.dev_build === true;
+  if (!sevenPages) {
+    // Each run of categories sits under its small header (Look and Feel, AI, ...), the layout the
+    // Swift `SettingsPageLayout.sidebarSections` exports; the lead run (General, Updates) has none.
+    return (
+      <nav ref={stripRef} className="section-list" aria-label={t("settingsPage.sections")}>
+        {shownSidebarSections(devBuild).map(({ section, categories }) =>
+          section.collapsed ? (
+            <CollapsedSection
+              key={section.id}
+              section={section}
+              holdsCurrent={categories.some((category) => category.id === current)}
+            >
               {categories.map((category) => link(category))}
             </CollapsedSection>
-          );
-        }
+          ) : (
+            <div
+              key={section.id}
+              className="sidebar-section"
+              data-sidebar-section={section.id}
+              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a labelled group of sidebar links; a fieldset would bring its own box and form semantics
+              role="group"
+              aria-labelledby={section.title ? `sidebar-section-${section.id}` : undefined}
+            >
+              {section.title && (
+                <h3 className="sidebar-section-title" id={`sidebar-section-${section.id}`}>
+                  {text(section.title)}
+                </h3>
+              )}
+              {categories.map((category) => link(category))}
+            </div>
+          ),
+        )}
+      </nav>
+    );
+  }
+  // Seven pages (opt-in; one settings area, findings G6; Leo 2026-11-22: "ay, fuck it we ball"):
+  // each page (`settingsPageSections`) is one link, its first category under the page's title; the
+  // shown page's other categories open under it, indented, the way a card's More Options does. A
+  // page of one category is just its link.
+  return (
+    <nav ref={stripRef} className="section-list" aria-label={t("settingsPage.sections")}>
+      {shownSidebarSections(devBuild, true).map(({ section, categories }) => {
+        const holdsCurrent = categories.some((category) => category.id === current);
         if (section.title && categories.length > 1) {
           return (
             <SidebarPage
@@ -200,14 +237,10 @@ export function SectionList({ current, onSelect }: { current: string | null; onS
             </SidebarPage>
           );
         }
-        // A page of one category (Keyboard), or an untitled run: just its links.
+        // A page of one category (Keyboard): just its link.
         return (
-          <div
-            key={section.id}
-            className={section.title ? "sidebar-section sidebar-page" : "sidebar-section"}
-            data-sidebar-section={section.id}
-          >
-            {categories.map((category) => (section.title ? link(category, { section, open: false }) : link(category)))}
+          <div key={section.id} className="sidebar-section sidebar-page" data-sidebar-section={section.id}>
+            {categories.map((category) => link(category, { section, open: false }))}
           </div>
         );
       })}

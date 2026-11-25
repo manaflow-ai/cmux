@@ -60,7 +60,18 @@ const isStepAt = (rows: readonly AcpmuxRow[], index: number) => {
   return isStepRow(row) || (row?.below === true && isLiveStep(row, prevDrawnRow(rows, index)));
 };
 
+/// The rows array is immutable. Keep the control list by that array and start index so a divider
+/// drag does not rescan every settled row under an open Worked-for disclosure on every frame.
+const disclosureControlsByRows = new WeakMap<readonly AcpmuxRow[], Map<number, string | undefined>>();
+
 const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string | undefined => {
+  let byStart = disclosureControlsByRows.get(rows);
+  if (!byStart) {
+    byStart = new Map();
+    disclosureControlsByRows.set(rows, byStart);
+  }
+  if (byStart.has(after)) return byStart.get(after);
+
   const ids: string[] = [];
   for (let index = after; index < rows.length; index += 1) {
     const row = rows[index]!;
@@ -70,7 +81,9 @@ const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string |
     if (!row.settled) break;
     ids.push(rowDomId(row.id));
   }
-  return ids.length > 0 ? ids.join(" ") : undefined;
+  const controls = ids.length > 0 ? ids.join(" ") : undefined;
+  byStart.set(after, controls);
+  return controls;
 };
 
 /// The transcript's own sets of rows that enter, fade in as the chat loads, or fade in from a late
@@ -112,6 +125,7 @@ type RowFramesView = {
   onFocus: (id: string) => void;
   onRowKeyDown: (index: number, event: React.KeyboardEvent<HTMLElement>) => void;
   onToggleActivity: (id: string) => void;
+  onLoadFold?: (fold: number) => Promise<void>;
   onOpenDiff: OpenDiff | undefined;
   streams: boolean | undefined;
   sessionId: string | undefined;
@@ -172,6 +186,7 @@ export function drawRowFrames(
     view.onFocus,
     view.onRowKeyDown,
     view.onToggleActivity,
+    view.onLoadFold,
     view.onOpenDiff,
     view.streams,
     view.sessionId,
@@ -197,7 +212,7 @@ export function drawRowFrames(
       inputs.older = older?.has(row.id) ? older : undefined;
       inputs.repository = view.githubRepository ?? view.rowRepositories?.(absoluteIndex);
       inputs.scope = view.scopeAt(absoluteIndex);
-      // An open Worked-for row names every row under it (`disclosureControls`): drawn each time.
+      // An open Worked-for row names every row under it (`disclosureControls`), cached by rows.
       const opensDisclosure = row.kind === WORKED && isExpanded;
       // Kept by frame id: the session's `frameKey` is in what every frame shares (`begin`).
       const keptFrame = opensDisclosure ? undefined : cache.take(frameId, rows);
@@ -271,6 +286,7 @@ export function drawRowFrames(
             replyActions={hasReplyActions(row, next)}
             sessionId={view.sessionId}
             onToggleActivity={view.onToggleActivity}
+            onLoadFold={view.onLoadFold}
             onOpenDiff={view.onOpenDiff}
             expanded={isExpanded}
             controls={controls}

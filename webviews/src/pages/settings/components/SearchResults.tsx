@@ -1,5 +1,6 @@
 import { lazy, Suspense, useMemo, useState, memo } from "react";
-import { shownCategories, sidebarSections } from "../categories";
+import { settingsPageSections, shownCategories, sidebarSections } from "../categories";
+import { useSettingsPages } from "../settingsPages";
 import { useStore, useSettingsRouter, shallowEqual, useSettingsSelector } from "../context";
 import type { SettingsState } from "../store";
 import { Icon } from "../icons";
@@ -11,9 +12,9 @@ import { CHIEF_PET_ROWS } from "../cardRows";
 import { AskCmuxRow } from "./AskCmuxRow";
 import { GroupList } from "./GroupList";
 
-/** Each category's page title (the sidebar section that holds it), for a result's crumb. */
+/** Each category's page title (the seven-page section that holds it), for a result's crumb. */
 const pageTitles = new Map(
-  sidebarSections.flatMap((section) =>
+  settingsPageSections.flatMap((section) =>
     section.title ? section.categories.map((id) => [id, section.title!] as const) : [],
   ),
 );
@@ -28,9 +29,10 @@ const searchInputs = (state: SettingsState) => ({
 const ChiefPetCard = lazy(() => import("./ChiefPetCard").then(({ ChiefPetCard }) => ({ default: ChiefPetCard })));
 
 /**
- * Matching rows from every category, editable in place, grouped by category under a crumb, its
- * page then the category ("AI › Agents"; a page's own category is just its name), so a result says
- * where it lives among the seven pages (findings G6, the search-first layout's results). Every
+ * Matching rows from every category, editable in place, grouped by category. With Seven Settings
+ * Pages on (settingsPages.ts) a category's title has a crumb, its page then the category ("AI ›
+ * Agents"; a page's own category is just its name), so a result says where it lives among the seven
+ * pages (findings G6). Every
  * row stays mounted while the filter is on: a row that stops matching collapses (height and
  * opacity) and one that starts matching opens, so the list never jumps between keystrokes.
  */
@@ -64,8 +66,9 @@ export const SearchResults = memo(function SearchResults({ query }: { query: str
   const pages = useMemo(() => filterPages({ query, devBuild }), [devBuild, query]);
   const router = useSettingsRouter();
   const empty = shown.size === 0 && pages.length === 0;
+  const sevenPages = useSettingsPages();
   const crumb = (category: { id: string; title: Parameters<typeof text>[0] }) => {
-    const page = pageTitles.get(category.id);
+    const page = sevenPages ? pageTitles.get(category.id) : undefined;
     const name = page ? text(page) : null;
     return name && name !== text(category.title) ? name : null;
   };
