@@ -71,10 +71,11 @@ import { cmuxCommandRefusal, type CmuxCommand, type CmuxCommandResult } from "..
 import { heldSendNotice } from "../sendFailure";
 import { lostPrompt, resentAfterLoss, keepLostPrompt } from "../lostPrompt";
 import { guestMention } from "../mentionItems";
-import { clearHeldFork, heldFork, sendHeldFork } from "../forkHold";
+import { clearHeldFork, sendHeldFork, heldFork } from "../forkHold";
 import { CloudChatHint } from "../CloudChatHint";
-import { AutoArrival } from "../AutoWhere";
+import { AutoAddingMachineLine, AutoArrival } from "../AutoWhere";
 import { AUTO_LOOK, type AutoLanding } from "../autoWhereModel";
+import type { StringKey } from "../i18n";
 import { callNative } from "../callNative";
 import { editQueued, openSenderChat } from "../rows/rowActions";
 import { HatQuestions, type HatQuestionActions } from "../question/HatQuestions";
@@ -153,6 +154,7 @@ export type PaneComposerDeps = {
   };
   /// Where Auto put this page's chat (AutoArrival), or `deciding` while the daemon answers.
   autoArrival: AutoLanding | "deciding" | undefined;
+  autoAddingMachine: StringKey | undefined;
   /// The arrival line's move is offered now (the chat's own move menu offers it).
   autoArrivalMove: boolean;
   onAutoArrivalDismiss: () => void;
@@ -235,6 +237,8 @@ export type PaneComposerDeps = {
   approvedPlanNode?: React.JSX.Element | null;
   /** The approved plan sits at the hat's foot, over the composer (approvedPlan.experiment.ts). */
   approvedPlanAtFoot?: boolean;
+  /** A live customization's bar (customizeBar/CustomizeBar.tsx), right over the composer; null with none. */
+  customizeBarNode?: React.JSX.Element | null;
   hatQuestionList: readonly HatQuestion[];
   NO_HAT_QUESTIONS: readonly HatQuestion[];
   hatQuestionActions: HatQuestionActions;
@@ -425,6 +429,7 @@ export function drawPaneComposer({
   showNewTab,
   composerModeRows,
   autoArrival,
+  autoAddingMachine,
   autoArrivalMove,
   onAutoArrivalDismiss,
   autoSendGate,
@@ -490,6 +495,7 @@ export function drawPaneComposer({
   goalNode,
   approvedPlanNode = null,
   approvedPlanAtFoot = false,
+  customizeBarNode = null,
   hatQuestionList,
   NO_HAT_QUESTIONS,
   hatQuestionActions,
@@ -678,6 +684,9 @@ export function drawPaneComposer({
                   onDismiss={onAutoArrivalDismiss}
                 />
               )}
+            </Notice>
+            <Notice id="auto-adding-machine" tier="hint" when={autoAddingMachine !== undefined}>
+              {autoAddingMachine !== undefined && <AutoAddingMachineLine text={autoAddingMachine} look={AUTO_LOOK} />}
             </Notice>
             <Notice id="computer-use-setup" tier="error" when={shownComputerUseAsk}>
               {shownComputerUseAsk && (
@@ -953,6 +962,7 @@ export function drawPaneComposer({
           ))}
         {goalAtFoot && goalNode}
         {approvedPlanAtFoot && approvedPlanNode}
+        {customizeBarNode}
         {statusCardOpen && <HarnessStatusCard summary={snapshot.summary} onDismiss={() => setStatusCardOpen(false)} />}
         {/* "1 file changed +2 -2" (session-info/EnvironmentCard.tsx), off by default: a look turns it on. */}
         {changesPillNode}
@@ -978,6 +988,7 @@ export function drawPaneComposer({
               (trayPlacement === "tray" && trayNode !== null) ||
               goalNode !== null ||
               approvedPlanNode !== null ||
+              customizeBarNode !== null ||
               statusCardOpen ||
               hatShows(hatQuestionList)
             }
