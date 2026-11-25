@@ -28,6 +28,14 @@ use serde::{Deserialize, Serialize};
 /// [`crate::link::LIVENESS_LANE`]: they share its datagram port).
 pub const CLASSES_LANE: &str = "classes";
 
+/// The lane both sides list, beside [`CLASSES_LANE`], for screen datagrams
+/// (kind 4, [`Delivery::Screen`]): a screen channel's messages go out in the
+/// tunnel's screen class, ahead of every other datagram, each carrying the
+/// base the peer last acknowledged, and the receiver acknowledges what it
+/// delivers (kind 5). A peer that does not list it (an older build) gets
+/// today's frames: `classes` datagrams only, or the stream alone.
+pub const SCREEN_LANE: &str = "classes-screen-v1";
+
 /// How a channel's messages are delivered when they also travel as datagrams.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -36,10 +44,34 @@ pub enum Delivery {
     Ordered,
     /// Class 1: the newest message only (terminal screen state).
     Latest,
+    /// Class 1 as screen datagrams (`SCREEN_LANE`): latest-wins like
+    /// [`Delivery::Latest`], but each message names the base the sender knew
+    /// the receiver held (see [`screen_message`]), is sent in the screen
+    /// class, and is acknowledged. Delivered messages carry a header:
+    /// [`ScreenMessage`].
+    Screen,
 }
 
 /// The datagram kind of a class message fragment (liveness pings are 1, pongs 2).
 pub(crate) const DATAGRAM_CLASS: u8 = 3;
+/// The datagram kind of a class-1 (screen) message fragment, for
+/// [`Delivery::Latest`] and [`Delivery::Screen`] channels alike: the same
+/// header as [`DATAGRAM_CLASS`]. The tunnel sends it as
+/// `cmux_wg::Priority::Screen`, repaired only above 1 % loss. A screen
+/// channel's payload starts with its base (see [`screen_wire`]).
+pub(crate) const DATAGRAM_SCREEN: u8 = 4;
+/// A screen acknowledgement: kind, channel (4), the newest message number
+/// delivered (8).
+pub(crate) const DATAGRAM_SCREEN_ACK: u8 = 5;
+pub(crate) const SCREEN_ACK_LEN: usize = 13;
+/// A screen message's base when the sender holds none the peer acknowledged:
+/// the message is a whole state (a keyframe).
+pub const NO_BASE: u64 = u64::MAX;
+/// What a screen message carries before its payload: its base (8 bytes).
+const SCREEN_BASE: usize = 8;
+/// What a delivered screen message carries before its payload: its number
+/// and its base (8 bytes each).
+pub const SCREEN_HEADER: usize = 16;
 /// Kind, channel (4), message number (8), fragment index (2), fragment count (2).
 pub(crate) const DATAGRAM_HEADER: usize = 17;
 /// Payload bytes per fragment: under the 1232-byte datagram limit of the
@@ -56,7 +88,20 @@ const HELD: usize = 1024;
 const ASSEMBLIES: usize = 64;
 
 /// Fragment `message` (number `seq` of `channel`) into class datagrams.
-pub(crate) fn datagrams(channel: u32, seq: u64, message: &[u8]) -> Vec<Vec<u8>> {
+pub(crate) fn datagrams(channel: u32, seq: u64, message: &[u8], delivery: Delivery) -> Vec<Vec<u8>> {
+    let kind = match delivery {
+        Delivery::Ordered => DATAGRAM_CLASS,
+        Delivery::Latest | Delivery::Screen => DATAGRAM_SCREEN,
+    };
+    fragments_of(kind, channel, seq, message)
+}
+
+/// Fragment screen `message` into kind-4 datagrams.
+pub(crate) fn screen_datagrams(channel: u32, seq: u64, message: &[u8]) -> Vec<Vec<u8>> {
+    fragments_of(DATAGRAM_SCREEN, channel, seq, message)
+}
+
+fn fragments_of(kind: u8, channel: u32, seq: u64, message: &[u8]) -> Vec<Vec<u8>> {
     let count = message.len().div_ceil(FRAGMENT).max(1);
     let Ok(count16) = u16::try_from(count) else { return Vec::new() };
     (0..count)
@@ -64,7 +109,7 @@ pub(crate) fn datagrams(channel: u32, seq: u64, message: &[u8]) -> Vec<Vec<u8>> 
             let start = index * FRAGMENT;
             let part = &message[start.min(message.len())..(start + FRAGMENT).min(message.len())];
             let mut datagram = Vec::with_capacity(DATAGRAM_HEADER + part.len());
-            datagram.push(DATAGRAM_CLASS);
+            datagram.push(kind);
             datagram.extend_from_slice(&channel.to_be_bytes());
             datagram.extend_from_slice(&seq.to_be_bytes());
             datagram.extend_from_slice(&(index as u16).to_be_bytes());
@@ -78,6 +123,8 @@ pub(crate) fn datagrams(channel: u32, seq: u64, message: &[u8]) -> Vec<Vec<u8>> 
 /// One class datagram: channel, message number, fragment index and count, payload.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Fragment {
+    /// [`DATAGRAM_CLASS`] or [`DATAGRAM_SCREEN`].
+    pub kind: u8,
     pub channel: u32,
     pub seq: u64,
     pub index: u16,
@@ -86,7 +133,7 @@ pub(crate) struct Fragment {
 }
 
 pub(crate) fn parse_datagram(datagram: &[u8]) -> Option<Fragment> {
-    if datagram.len() < DATAGRAM_HEADER || datagram[0] != DATAGRAM_CLASS {
+    if datagram.len() < DATAGRAM_HEADER || !matches!(datagram[0], DATAGRAM_CLASS | DATAGRAM_SCREEN) {
         return None;
     }
     let channel = u32::from_be_bytes(datagram[1..5].try_into().ok()?);
@@ -97,11 +144,97 @@ pub(crate) fn parse_datagram(datagram: &[u8]) -> Option<Fragment> {
         return None;
     }
     Some(Fragment {
+        kind: datagram[0],
         channel,
         seq,
         index,
         count,
         payload: Bytes::copy_from_slice(&datagram[DATAGRAM_HEADER..]),
+    })
+}
+
+/// A [`Delivery::Screen`] channel's state shared by its sender and its
+/// route: the newest message the peer acknowledged, and how many copies of
+/// each datagram to send.
+#[derive(Debug)]
+pub(crate) struct ScreenState {
+    /// Newest acknowledged message number plus one (0: none).
+    acked: std::sync::atomic::AtomicU64,
+    copies: std::sync::atomic::AtomicUsize,
+}
+
+impl ScreenState {
+    pub(crate) fn new() -> Self {
+        Self { acked: 0.into(), copies: COPIES.into() }
+    }
+
+    pub(crate) fn acknowledge(&self, seq: u64) {
+        self.acked.fetch_max(seq.saturating_add(1), std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub(crate) fn base(&self) -> Option<u64> {
+        self.acked.load(std::sync::atomic::Ordering::Relaxed).checked_sub(1)
+    }
+
+    pub(crate) fn copies(&self) -> usize {
+        self.copies.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub(crate) fn set_surface(&self, visible: bool, attending: bool) {
+        let copies = if attending { COPIES } else { usize::from(visible) };
+        self.copies.store(copies, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// A screen acknowledgement datagram for message `seq` of `channel`.
+pub(crate) fn screen_ack(channel: u32, seq: u64) -> Vec<u8> {
+    let mut datagram = Vec::with_capacity(SCREEN_ACK_LEN);
+    datagram.push(DATAGRAM_SCREEN_ACK);
+    datagram.extend_from_slice(&channel.to_be_bytes());
+    datagram.extend_from_slice(&seq.to_be_bytes());
+    datagram
+}
+
+pub(crate) fn parse_screen_ack(datagram: &[u8]) -> Option<(u32, u64)> {
+    if datagram.len() != SCREEN_ACK_LEN || datagram[0] != DATAGRAM_SCREEN_ACK {
+        return None;
+    }
+    Some((
+        u32::from_be_bytes(datagram[1..5].try_into().ok()?),
+        u64::from_be_bytes(datagram[5..13].try_into().ok()?),
+    ))
+}
+
+/// What a sender puts on the wire for a screen message: `base` (or
+/// [`NO_BASE`]) and the payload.
+pub(crate) fn screen_wire(base: u64, payload: &[u8]) -> Bytes {
+    let mut message = BytesMut::with_capacity(SCREEN_BASE + payload.len());
+    message.extend_from_slice(&base.to_be_bytes());
+    message.extend_from_slice(payload);
+    message.freeze()
+}
+
+/// A delivered screen message: its number, the base the sender built it
+/// against (`None`: a whole state), and the payload. The receiver applies a
+/// payload built on a base only if it still holds that state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScreenMessage {
+    pub seq: u64,
+    pub base: Option<u64>,
+    pub payload: Bytes,
+}
+
+/// Read a message delivered on a [`Delivery::Screen`] channel.
+pub fn screen_message(delivered: &Bytes) -> Option<ScreenMessage> {
+    if delivered.len() < SCREEN_HEADER {
+        return None;
+    }
+    let seq = u64::from_be_bytes(delivered[..8].try_into().ok()?);
+    let base = u64::from_be_bytes(delivered[8..16].try_into().ok()?);
+    Some(ScreenMessage {
+        seq,
+        base: (base != NO_BASE).then_some(base),
+        payload: delivered.slice(SCREEN_HEADER..),
     })
 }
 
@@ -231,6 +364,18 @@ impl Sequencer {
                 self.next = seq + 1;
                 vec![message]
             }
+            Delivery::Screen => {
+                self.next = seq + 1;
+                // A message too short to hold its base is not a screen message.
+                if message.len() < SCREEN_BASE {
+                    Vec::new()
+                } else {
+                    let mut numbered = BytesMut::with_capacity(8 + message.len());
+                    numbered.extend_from_slice(&seq.to_be_bytes());
+                    numbered.extend_from_slice(&message);
+                    vec![numbered.freeze()]
+                }
+            }
             Delivery::Ordered if seq == self.next => {
                 let mut out = vec![message];
                 self.next += 1;
@@ -259,13 +404,18 @@ mod tests {
     use super::*;
 
     fn fragments(channel: u32, seq: u64, message: &[u8]) -> Vec<Fragment> {
-        datagrams(channel, seq, message).iter().map(|d| parse_datagram(d).unwrap()).collect()
+        datagrams(channel, seq, message, Delivery::Latest)
+            .iter()
+            .map(|d| parse_datagram(d).unwrap())
+            .collect()
     }
 
     #[test]
     fn datagrams_round_trip_and_fragment() {
         let message: Vec<u8> = (0..3500u32).map(|i| i as u8).collect();
-        let parts = datagrams(7, 9, &message);
+        let parts = datagrams(7, 9, &message, Delivery::Latest);
+        assert!(parts.iter().all(|d| d[0] == DATAGRAM_SCREEN));
+        assert!(datagrams(7, 9, &message, Delivery::Ordered).iter().all(|d| d[0] == DATAGRAM_CLASS));
         assert_eq!(parts.len(), 3);
         assert!(parts.iter().all(|d| d.len() <= DATAGRAM_HEADER + FRAGMENT));
         let mut sequencer = Sequencer::new(Delivery::Latest);

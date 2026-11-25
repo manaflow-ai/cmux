@@ -127,7 +127,6 @@
   "cmux-next-guards.yml": {
    "pinned-asset-store": "reads secrets; reads pull request metadata or the base (github.event.before), not only the tree",
    "nightly-guards": "calls a reusable workflow: no step here can record its pass; publish, release, deploy, live or cloud work (by its name)",
-   "signing-runner-variables": "below break-even: 82 runs, 4 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves",
    "ci-guard-group": "reads pull request metadata or the base (github.event.before), not only the tree; checks out ${{ steps.changes.outputs.base }}, not the run's commit",
    "static-checks": "needed by pr-red-checks: a skip would skip them or read as no verdict; publish, release, deploy, live or cloud work (by its name)",
    "rust-notices-tree": "reads pull request metadata or the base (github.event.before, github.event.pull_request.base.sha), not only the tree",

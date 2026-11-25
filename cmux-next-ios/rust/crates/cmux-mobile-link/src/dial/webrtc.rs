@@ -436,10 +436,12 @@ async fn finish(
         }
     });
     Ok(Dialed {
+        tunnel_keys: None,
         stream: Box::new(DataChannelStream { inner: stream }),
         // A data channel cannot be held: ICE consent ends it after 30 s of
         // silence whatever the link does.
         hold: None,
+        on_link: None,
         path: path_rx,
         peer: peer_rx,
         guard: Box::new(Guard {
@@ -453,6 +455,8 @@ async fn finish(
         liveness: None,
         media,
         webrtc_media: false,
+        overlay: None,
+        reliable: false,
     })
 }
 
@@ -494,6 +498,7 @@ impl Dialer for WebRtcDialer {
                 lane = Some(lane_rx);
             }
             let mut agreed = false;
+            let mut reliable = false;
             let timeline = &options.timeline;
             trickle(&pc, signaling, mac, session_id, timeline);
             let offer = pc.create_offer(None).await.map_err(transport_error)?;
@@ -539,6 +544,7 @@ impl Dialer for WebRtcDialer {
                         SessionEvent::Signal(envelope) => match envelope.payload {
                             SignalPayload::WebrtcAnswer { sdp, lanes } => {
                                 agreed = super::input_lane_agreed(options, &lanes);
+                                reliable = super::reliable_agreed(options, &lanes);
                                 video_agreed = super::video_lane_listed(&lanes);
                                 answered = true;
                                 timeline.mark("answer_received");
@@ -564,7 +570,10 @@ impl Dialer for WebRtcDialer {
                 timeline.mark("video_lane");
                 media = Some(super::PendingMedia::Receive(receiver));
             }
-            finish(pc, opened, lane, media, events, remote, signaling, session_id, timeline).await
+            let mut dialed =
+                finish(pc, opened, lane, media, events, remote, signaling, session_id, timeline).await?;
+            dialed.reliable = reliable;
+            Ok(dialed)
         })
     }
 
@@ -580,6 +589,7 @@ impl Dialer for WebRtcDialer {
                 return Err(DialError::Unexpected("expected webrtc-offer".into()));
             };
             let agreed = super::input_lane_agreed(options, &lanes);
+            let reliable = super::reliable_agreed(options, &lanes);
             // The media lane: the phone offered it and its SDP has the video
             // m-line. The sending track must exist before the offer applies.
             let video = options.video_lane && super::video_lane_listed(&lanes) && sdp.contains("m=video");
@@ -659,7 +669,11 @@ impl Dialer for WebRtcDialer {
                 let carrier = crate::media::track::SendCarrier::new(track, sender).await;
                 media = Some(super::PendingMedia::Send(carrier));
             }
-            finish(pc, opened, lane, media, events, remote, signaling, &first.session_id, timeline).await
+            let mut dialed =
+                finish(pc, opened, lane, media, events, remote, signaling, &first.session_id, timeline)
+                    .await?;
+            dialed.reliable = reliable;
+            Ok(dialed)
         })
     }
 }

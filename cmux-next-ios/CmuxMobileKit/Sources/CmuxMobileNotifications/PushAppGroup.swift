@@ -69,7 +69,14 @@ public final class PushAppGroupResolver: @unchecked Sendable { // crash-allow: l
             return Environment(
                 configuredIdentifier: { identifier },
                 entitledGroups: { SignedEntitlements.applicationGroups(executable: executable) },
-                containerURL: { FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: $0) }
+                containerURL: {
+                    #if canImport(Darwin)
+                    return FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: $0)
+                    #else
+                    _ = $0
+                    return nil
+                    #endif
+                }
             )
         }
     }

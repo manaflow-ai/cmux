@@ -37,6 +37,10 @@ pub(super) const STALE_AFTER: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 struct Entry {
     route: String,
     at: u64,
+    /// How long the route's last connect took, in ms (the race's stagger follows it). Absent
+    /// in files written before it.
+    #[serde(default, rename = "connectMs", skip_serializing_if = "Option::is_none")]
+    connect_ms: Option<u64>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -81,15 +85,33 @@ impl LastGoodRoute {
         })
     }
 
+    /// How long the remembered route's last connect took, when known.
+    pub(super) fn connect_time(&self) -> Option<Duration> {
+        let remembered = self.remembered.lock().unwrap_or_else(|e| e.into_inner());
+        remembered.as_ref()?.connect_ms.map(Duration::from_millis)
+    }
+
     /// `endpoint` connected: remember it.
+    #[cfg(test)]
     pub(super) fn connected(&self, endpoint: &Url) {
-        let entry = Entry { route: route_hash(endpoint), at: now_ms() };
+        self.remember(endpoint, None);
+    }
+
+    /// `endpoint` connected in `took`: remember it and how long it took.
+    pub(super) fn connected_in(&self, endpoint: &Url, took: Duration) {
+        self.remember(endpoint, Some(took.as_millis().min(u128::from(u64::MAX)) as u64));
+    }
+
+    fn remember(&self, endpoint: &Url, connect_ms: Option<u64>) {
+        let entry = Entry { route: route_hash(endpoint), at: now_ms(), connect_ms };
         {
             let mut remembered = self.remembered.lock().unwrap_or_else(|e| e.into_inner());
             if remembered.as_ref().is_some_and(|old| old.route == entry.route) {
-                // The same route again: the stamp alone is not worth a write until it ages.
+                // The same route again: the stamp alone is not worth a write until it ages,
+                // nor a connect time within a quarter of the one kept.
                 let fresh = remembered.as_ref().is_some_and(|old| {
                     entry.at.saturating_sub(old.at) < STALE_AFTER.as_millis() as u64 / 2
+                        && close_enough(old.connect_ms, entry.connect_ms)
                 });
                 if fresh {
                     return;
@@ -122,6 +144,16 @@ impl LastGoodRoute {
         };
         // A memory that cannot be saved only costs the next launch the candidates' own order.
         let _ = write_json(path, &File { version: VERSION, daemons });
+    }
+}
+
+/// Whether a new connect time `new` is within a quarter of the kept one `old` (no new one
+/// keeps the old).
+fn close_enough(old: Option<u64>, new: Option<u64>) -> bool {
+    match (old, new) {
+        (_, None) => true,
+        (None, Some(_)) => false,
+        (Some(old), Some(new)) => old.abs_diff(new) <= old / 4,
     }
 }
 
