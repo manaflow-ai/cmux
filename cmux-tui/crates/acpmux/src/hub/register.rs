@@ -709,7 +709,7 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn registered_name_is_released_only_after_its_process_exits() {
+    async fn wedge_registered_name_is_released_only_after_its_process_exits() {
         use crate::hub::former_names::tests::{chat, hub};
         let hub = hub();
         let home = tempfile::tempdir().unwrap();
