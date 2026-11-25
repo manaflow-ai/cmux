@@ -76,6 +76,10 @@ public final class FindPillView: NSView {
     public var onCommand: ((FindPillCommand) -> Void)?
     /// Called with the new value when the user flips the match-case toggle.
     public var onMatchCaseChange: ((Bool) -> Void)?
+    /// Called with the new value when the user flips the whole-word toggle.
+    public var onWholeWordChange: ((Bool) -> Void)?
+    /// Called with the new value when the user flips the regular-expression toggle.
+    public var onRegexChange: ((Bool) -> Void)?
 
     /// The capsule's material view (Liquid Glass, frosted, or solid).
     public let surface: OverlaySurfaceView
@@ -89,6 +93,11 @@ public final class FindPillView: NSView {
     private let closeButton: FindPillButton
     /// The match-case toggle; nil where the surface cannot match case.
     let matchCaseButton: FindPillButton?
+    /// The whole-word ("ab") and regular-expression (".*") toggles; nil where the surface has none.
+    let wholeWordButton: FindPillButton?
+    let regexButton: FindPillButton?
+    /// The toggles that exist, in the order they draw.
+    private var toggleButtons: [FindPillButton] { [matchCaseButton, wholeWordButton, regexButton].compactMap { $0 } }
     private let separators: [NSView]
     /// The count says nothing matches: drawn in the danger ink.
     private(set) var showsNoMatches = false
@@ -110,7 +119,14 @@ public final class FindPillView: NSView {
         matchCaseButton = labels.matchCase.map { _ in
             FindPillButton(image: nil, title: "Aa", toggle: true, target: nil, action: #selector(matchCaseClicked))
         }
-        separators = (labels.matchCase == nil ? [0] : [0, 1]).map { _ in NSView() }
+        wholeWordButton = labels.wholeWord.map { _ in
+            FindPillButton(image: nil, title: "ab", toggle: true, target: nil, action: #selector(wholeWordClicked))
+        }
+        regexButton = labels.regex.map { _ in
+            FindPillButton(image: nil, title: ".*", toggle: true, target: nil, action: #selector(regexClicked))
+        }
+        let hasToggles = labels.matchCase != nil || labels.wholeWord != nil || labels.regex != nil
+        separators = (hasToggles ? [0, 1] : [0]).map { _ in NSView() }
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         // Starts hidden: ``setPresented(_:)`` shows it.
@@ -124,11 +140,13 @@ public final class FindPillView: NSView {
             button.setAccessibilityLabel(label)
             button.setAccessibilityIdentifier("\(accessibilityPrefix).\(id)")
         }
-        if let toggle = matchCaseButton, let label = labels.matchCase {
+        for (toggle, label, id) in [(matchCaseButton, labels.matchCase, "matchCase"), (wholeWordButton, labels.wholeWord, "wholeWord"),
+                                    (regexButton, labels.regex, "regex")] {
+            guard let toggle, let label else { continue }
             toggle.target = self
             toggle.themedToolTip = label
             toggle.setAccessibilityLabel(label)
-            toggle.setAccessibilityIdentifier("\(accessibilityPrefix).matchCase")
+            toggle.setAccessibilityIdentifier("\(accessibilityPrefix).\(id)")
         }
 
         field.placeholderString = labels.placeholder
@@ -160,7 +178,7 @@ public final class FindPillView: NSView {
         }
 
         var views: [NSView] = [icon, field, countLabel, separators[0]]
-        if let toggle = matchCaseButton { views += [toggle, separators[1]] }
+        if hasToggles { views += toggleButtons + [separators[1]] }
         views += stepButtons + [closeButton]
         let stack = NSStackView(views: views)
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -225,6 +243,24 @@ public final class FindPillView: NSView {
         set { matchCaseButton?.state = newValue ? .on : .off }
     }
 
+    /// Whether the whole-word toggle is on (always false without one).
+    public var wholeWord: Bool {
+        get { wholeWordButton?.state == .on }
+        set { wholeWordButton?.state = newValue ? .on : .off }
+    }
+
+    /// Whether the regular-expression toggle is on (always false without one).
+    public var regex: Bool {
+        get { regexButton?.state == .on }
+        set { regexButton?.state = newValue ? .on : .off }
+    }
+
+    /// Shows or hides the toggles (the terminal offers them only while the daemon searches).
+    public func setTogglesVisible(_ visible: Bool) {
+        for toggle in toggleButtons where toggle.isHidden == visible { toggle.isHidden = !visible }
+        if separators.count > 1 { separators[1].isHidden = !visible }
+    }
+
     /// The count label's text.
     public var countText: String { countLabel.stringValue }
 
@@ -247,6 +283,12 @@ public final class FindPillView: NSView {
         let enabled = canStep ?? (!text.isEmpty && !noMatches)
         for button in stepButtons where button.isEnabled != enabled { button.isEnabled = enabled }
         applyColors()
+    }
+
+    /// Explains the count (the regex's compile error); nil clears it.
+    public func setCountDetail(_ detail: String?) {
+        countLabel.toolTip = detail
+        countLabel.setAccessibilityHelp(detail)
     }
 
     /// Gives the field the keyboard with its text selected, so a recovered query is typed over.
@@ -298,7 +340,7 @@ public final class FindPillView: NSView {
             surface.applyTheme()
         }
         for button in stepButtons + [closeButton] { button.applyColors() }
-        matchCaseButton?.applyColors()
+        for toggle in toggleButtons { toggle.applyColors() }
     }
 
     // MARK: Input
@@ -307,6 +349,8 @@ public final class FindPillView: NSView {
     @objc private func nextClicked() { perform(.next) }
     @objc private func closeClicked() { perform(.close) }
     @objc private func matchCaseClicked() { onMatchCaseChange?(matchCase) }
+    @objc private func wholeWordClicked() { onWholeWordChange?(wholeWord) }
+    @objc private func regexClicked() { onRegexChange?(regex) }
 
     /// The field's Return, Shift-Return and Escape; false for any other editing command.
     func handleFieldCommand(_ selector: Selector, shift: Bool) -> Bool {
