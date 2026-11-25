@@ -24,6 +24,10 @@ struct State {
     cursor_mode: Option<u32>,
     connector: Option<String>,
     input: Vec<String>,
+    /// Start succeeds but announces no PipeWire node (a stalled mutter).
+    silent: bool,
+    /// CreateSession is refused, as mutter does while remote access is inhibited.
+    inhibited: bool,
 }
 
 type Shared = Arc<Mutex<State>>;
@@ -53,7 +57,18 @@ fn call(state: &Shared, what: &str) {
     state.lock().unwrap().calls.push(what.into());
 }
 
-async fn announce_node(conn: &zbus::Connection) -> zbus::fdo::Result<()> {
+/// mutter's refusal while remote access is inhibited (a lock screen policy, a kiosk).
+fn refuse_if_inhibited(state: &Shared) -> zbus::fdo::Result<()> {
+    if state.lock().unwrap().inhibited {
+        return Err(fdo("Session creation inhibited"));
+    }
+    Ok(())
+}
+
+async fn announce_node(state: &Shared, conn: &zbus::Connection) -> zbus::fdo::Result<()> {
+    if state.lock().unwrap().silent {
+        return Ok(());
+    }
     conn.emit_signal(
         None::<&str>,
         STREAM,
@@ -82,6 +97,7 @@ impl ScreenCast {
         #[zbus(header)] hdr: zbus::message::Header<'_>,
         #[zbus(object_server)] server: &zbus::ObjectServer,
     ) -> zbus::fdo::Result<OwnedObjectPath> {
+        refuse_if_inhibited(&self.state)?;
         {
             let mut st = self.state.lock().unwrap();
             st.calls.push("ScreenCast.CreateSession".into());
@@ -133,7 +149,7 @@ impl ScreenCastSession {
             return Err(fdo("Must be started from remote desktop session"));
         }
         call(&self.state, "ScreenCast.Session.Start");
-        announce_node(conn).await
+        announce_node(&self.state, conn).await
     }
 
     fn stop(&self, #[zbus(header)] hdr: zbus::message::Header<'_>) -> zbus::fdo::Result<()> {
@@ -173,6 +189,7 @@ impl RemoteDesktop {
         #[zbus(header)] hdr: zbus::message::Header<'_>,
         #[zbus(object_server)] server: &zbus::ObjectServer,
     ) -> zbus::fdo::Result<OwnedObjectPath> {
+        refuse_if_inhibited(&self.state)?;
         {
             let mut st = self.state.lock().unwrap();
             st.calls.push("RemoteDesktop.CreateSession".into());
@@ -204,7 +221,7 @@ impl RemoteDesktopSession {
     ) -> zbus::fdo::Result<()> {
         same_peer(&self.state, &hdr)?;
         call(&self.state, "RemoteDesktop.Session.Start");
-        announce_node(conn).await
+        announce_node(&self.state, conn).await
     }
 
     fn stop(&self, #[zbus(header)] hdr: zbus::message::Header<'_>) -> zbus::fdo::Result<()> {
@@ -468,4 +485,41 @@ fn another_connection_cannot_drive_the_session() {
     );
     assert!(refused.is_err());
     assert!(mock.state.lock().unwrap().input.is_empty());
+}
+
+#[test]
+fn a_mutter_that_names_no_node_fails_within_the_timeout_and_stops_the_session() {
+    let mock = MockMutter::start("silent", true);
+    mock.state.lock().unwrap().silent = true;
+    let conn = mock.client();
+    let presence = MutterPresence::on(&conn);
+    let began = Instant::now();
+    let err = MutterSession::start(conn, presence, Duration::from_millis(300)).err().unwrap();
+    assert!(began.elapsed() < Duration::from_secs(3), "the node wait is bounded");
+    assert!(err.to_string().contains("named no PipeWire node within 300 ms"), "{err}");
+    assert_eq!(mock.calls().last().map(String::as_str), Some("RemoteDesktop.Session.Stop"));
+    // The next share, with mutter answering again, starts as usual.
+    mock.state.lock().unwrap().silent = false;
+    assert_eq!(mock.share().node_id, 7);
+}
+
+#[test]
+fn an_inhibited_mutter_is_unavailable_so_the_portal_is_asked() {
+    for rd in [true, false] {
+        let mock = MockMutter::start(if rd { "inhibited" } else { "inhibited-view" }, rd);
+        mock.state.lock().unwrap().inhibited = true;
+        let conn = mock.client();
+        let presence = MutterPresence::on(&conn);
+        let err = MutterSession::start(conn, presence, Duration::from_secs(5)).err().unwrap();
+        assert!(matches!(err, PortalError::Unavailable(_)), "{err:?}");
+        assert!(mock.calls().is_empty(), "nothing was created: {:?}", mock.calls());
+        let tried = crate::capture_backend::mutter_else_portal(
+            Some(|| {
+                MutterSession::start(mock.client(), presence, Duration::from_secs(5))
+                    .map(|_| "mutter")
+            }),
+            || Ok::<_, PortalError>("portal"),
+        );
+        assert_eq!(tried.unwrap(), "portal");
+    }
 }

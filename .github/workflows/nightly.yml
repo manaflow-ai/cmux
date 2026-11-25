@@ -6809,7 +6809,7 @@ jobs:
       # a second build waited 10.5 min behind the first. Optional: the pick falls back to github.token without it.
       - name: Mint a spare read token for the pick
         id: pick-spare-token
-        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        if: vars.GLAEDA_ROUTE_APP_ID != '' && github.ref == 'refs/heads/nightly-next'
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -6885,6 +6885,11 @@ jobs:
           s=scripts/ci/nightly-steps/next-pkg.sh
           [ -f "$s" ] || { echo "next-pkg: the build ref predates $s; no package"; exit 0; }
           bash "$s" "nightly-pkg/input/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg" nightly-pkg/output
+
+      - name: Cleanup keychain
+        if: always()
+        run: ./scripts/ci/signing-keychain.sh delete --keychain build.keychain \
+          || security delete-keychain build.keychain >/dev/null 2>&1 || true
 
   # nightly-next on one Mac, end to end. Why: docs/ci/nightly-workflow-notes.md#note-18
   nightly-next-one:
