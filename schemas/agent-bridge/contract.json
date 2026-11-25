@@ -3,7 +3,6 @@
   "ops": {
     "account.add": "account.add",
     "acpmux.restart": "acpmux.restart",
-    "acpmux.restartStuck": "acpmux.restartStuck",
     "action.run": "action.run",
     "agent.avatar": "agent.avatar",
     "agent.avatar.remove": "agent.avatar.remove",
@@ -179,6 +178,7 @@
     "pane.finishSound": "pane.finishSound",
     "pane.framePacing": "pane.framePacing",
     "pane.glass": "pane.glass",
+    "pane.inputEchoed": "pane.inputEchoed",
     "pane.launchSettle": "pane.launchSettle",
     "pane.moveToMachine": "pane.moveToMachine",
     "pane.noticeAction": "pane.noticeAction",

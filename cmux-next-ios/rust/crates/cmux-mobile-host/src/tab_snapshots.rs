@@ -136,6 +136,8 @@ struct State {
     pictures: HashMap<String, Pictures>,
     /// A feeder reached the daemon at least once.
     fed: bool,
+    /// The daemon run the feeder last reached, as its `identify` named it.
+    run: Option<String>,
 }
 
 struct Life {
@@ -185,6 +187,7 @@ impl Tabs {
                 tabs: HashMap::new(),
                 pictures: HashMap::new(),
                 fed: false,
+                run: None,
             }),
             changed: watch::channel(0).0,
             life: Mutex::new(Life { phones: 0, feeder: false, feeds: 0 }),
@@ -372,15 +375,20 @@ impl Tabs {
         )
     }
 
-    /// The feeder reached the daemon. The first time, the daemon is the one
-    /// this host's epoch began with. Every later time it may be a new run of
-    /// the daemon, whose surface ids are not the old run's: every row, the
-    /// order and every picture held go, and `epoch` replaces the epoch, so a
-    /// phone, open or resuming, gets a manifest of the tabs listed from now
-    /// on. Returns true when it started over.
-    pub fn daemon_run(&self, epoch: impl Into<String>) -> bool {
+    /// The feeder reached the daemon, whose run `run` names (its pid,
+    /// registry and generation; None when it did not say). The first time,
+    /// the daemon is the one this host's epoch began with. A later time on
+    /// the run it last reached keeps everything: the feeder only stopped
+    /// with the last phone. Any other later time may be a new run of the
+    /// daemon, whose surface ids are not the old run's: every row, the order
+    /// and every picture held go, and `epoch` replaces the epoch, so a phone,
+    /// open or resuming, gets a manifest of the tabs listed from now on.
+    /// Returns true when it started over.
+    pub fn daemon_run(&self, epoch: impl Into<String>, run: Option<String>) -> bool {
         let mut state = self.lock();
-        if !std::mem::replace(&mut state.fed, true) {
+        let same = run.is_some() && state.run == run;
+        state.run = run;
+        if !std::mem::replace(&mut state.fed, true) || same {
             return false;
         }
         state.producer.new_epoch(epoch);
@@ -697,6 +705,15 @@ fn tree_event(name: &str) -> bool {
         || ["tab-", "workspace-", "pane-", "screen-"].iter().any(|p| name.starts_with(p))
 }
 
+/// The run an `identify` reply names: its pid, registry and generation, or
+/// None when it names none of them.
+fn daemon_run_key(reply: &Value) -> Option<String> {
+    let data = reply.get("data").unwrap_or(reply);
+    let part = |key: &str| data.get(key).filter(|v| !v.is_null()).map(Value::to_string);
+    let parts = ["pid", "registry_id", "generation"].map(part);
+    parts.iter().any(Option::is_some).then(|| parts.map(Option::unwrap_or_default).join("/"))
+}
+
 /// One pass: connects, follows the daemon's events, and returns on error.
 async fn feed_once(tabs: &Tabs, socket: &Path) -> Result<(), String> {
     let events = UnixStream::connect(socket).await.map_err(|e| e.to_string())?;
@@ -710,7 +727,14 @@ async fn feed_once(tabs: &Tabs, socket: &Path) -> Result<(), String> {
     let (query_read, mut query_write) = queries.into_split();
     let mut query_read = BufReader::new(query_read);
     query(&mut query_read, &mut query_write, &hello("tabs-query-hello"), "tabs-query-hello").await?;
-    if tabs.daemon_run(uuid::Uuid::new_v4().to_string()) {
+    let identify = query(
+        &mut query_read,
+        &mut query_write,
+        &json!({"cmd": "identify", "id": "tabs-identify"}),
+        "tabs-identify",
+    )
+    .await;
+    if tabs.daemon_run(uuid::Uuid::new_v4().to_string(), identify.ok().as_ref().and_then(daemon_run_key)) {
         tracing::debug!("tabs feeder reconnected: a new epoch");
     }
 
