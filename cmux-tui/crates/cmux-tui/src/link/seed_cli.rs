@@ -1446,6 +1446,7 @@ mod tests {
             bundle_bytes: 10,
             unchanged: false,
             lfs_attributes: Vec::new(),
+            lfs_files: Vec::new(),
         }
     }
 
