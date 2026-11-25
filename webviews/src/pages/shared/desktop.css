@@ -310,7 +310,7 @@ body {
     calc(var(--tooltip-pad-inline) - var(--tooltip-rim-layout-width));
   border: var(--tooltip-rim-width) solid
     var(--cmux-separator, color-mix(in srgb, var(--cmux-text, CanvasText) 12%, transparent));
-  border-radius: calc(var(--role-tooltip-radius) * var(--cmux-interface-scale, 1)); /* concentric-allow: a tooltip holds text and a keycap, no buttons; the keycap nests in it */
+  border-radius: var(--cmux-tooltip-radius, calc(var(--role-tooltip-radius) * var(--cmux-interface-scale, 1))); /* concentric-allow: a tooltip holds text and a keycap, no buttons; the keycap nests in it */
   background: var(--tooltip-tint);
   -webkit-backdrop-filter: var(--tooltip-blur);
   backdrop-filter: var(--tooltip-blur);
@@ -771,8 +771,10 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --tooltip-edge: var(--grid-base);
   --tooltip-font-size: var(--text-detail);
   --tooltip-line-height: var(--text-detail--line-height);
-  --tooltip-pad-block: var(--grid-base);
-  --tooltip-pad-inline: calc(var(--grid-base) * 2);
+  /* A look re-skins the tooltip's padding and corner with the component tokens (ui/README.md
+     "Component tokens"); unset, the native numbers. */
+  --tooltip-pad-block: var(--cmux-tooltip-padding-block, var(--grid-base));
+  --tooltip-pad-inline: var(--cmux-tooltip-padding-inline, calc(var(--grid-base) * 2));
   --tooltip-keycap-height: calc(var(--grid-base) * 4);
   --tooltip-keycap-inset: var(--grid-base);
   --tooltip-keycap-pad: var(--grid-base);
