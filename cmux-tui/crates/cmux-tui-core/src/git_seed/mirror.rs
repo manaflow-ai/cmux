@@ -33,6 +33,7 @@ use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use cmux_file_lock::{FileLock, Kind};
 use sha2::{Digest as _, Sha256};
 
 use super::{Failure, Seed, clean_folder};
@@ -354,17 +355,8 @@ impl Seed {
 /// The mirror's lock for this add, waited for at most [`LOCK_WAIT`]: adds of one remote take
 /// turns at it (the second add's fetch is a few KB once the first made it). An advisory lock
 /// on its own open file, so threads of this daemon take turns too.
-fn lock(path: &Path) -> Option<std::fs::File> {
+fn lock(path: &Path) -> Option<FileLock> {
     let file =
         OpenOptions::new().read(true).write(true).create(true).truncate(false).open(path).ok()?;
-    let deadline = Instant::now() + LOCK_WAIT;
-    loop {
-        match fs4::FileExt::try_lock(&file) {
-            Ok(()) => return Some(file),
-            Err(fs4::TryLockError::WouldBlock) if Instant::now() < deadline => {
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            Err(_) => return None,
-        }
-    }
+    FileLock::take_within(file, Kind::Exclusive, LOCK_WAIT, Duration::from_millis(50)).ok()
 }
