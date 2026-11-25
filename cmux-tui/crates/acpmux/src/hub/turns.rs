@@ -208,14 +208,19 @@ async fn first_acceptance(
     let mut seq = session.accepted_seq.subscribe();
     loop {
         seq.borrow_and_update();
-        let kept = session
-            .accepted_prompts
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .iter()
-            .rev()
-            .find(|(id, _)| id == prompt_id)
-            .map(|(_, v)| v.clone());
+        // Synchronize with fresh outcome creation: it holds the prompt ledger and then clears
+        // this cache, so a resend cannot take the previous run's receipt for a new outcome.
+        let kept = {
+            let _ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
+            session
+                .accepted_prompts
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .iter()
+                .rev()
+                .find(|(id, _)| id == prompt_id)
+                .map(|(_, v)| v.clone())
+        };
         if kept.is_some() {
             return kept;
         }
@@ -383,11 +388,7 @@ impl Hub {
             let mut ledger = session.prompts.lock().unwrap();
             match ledger.iter().find(|(id, _)| *id == prompt_id) {
                 Some((_, outcome)) => Err(outcome.subscribe()),
-                None => {
-                    let outcome = Arc::new(tokio::sync::watch::channel(None).0);
-                    ledger.push_back((prompt_id.clone(), outcome.clone()));
-                    Ok(outcome)
-                }
+                None => Ok(prompt_ledger::fresh(session, &prompt_id, &mut ledger)),
             }
         };
         let outcome = match seen {

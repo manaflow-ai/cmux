@@ -21,8 +21,24 @@ pub(super) fn recover(session: &Session, prompt_id: &str) -> PromptOutcome {
     if let Some((_, outcome)) = ledger.iter().find(|(id, _)| id == prompt_id) {
         return outcome.clone();
     }
+    fresh(session, prompt_id, &mut ledger)
+}
+
+/// Create a prompt outcome while the prompt ledger is held. A prompt id may be reused after
+/// its completed outcome was pruned; its old acceptance receipt must not be mistaken for the
+/// new run's acceptance. `first_acceptance` takes these locks in the same order.
+pub(super) fn fresh(
+    session: &Session,
+    prompt_id: &str,
+    ledger: &mut VecDeque<(String, PromptOutcome)>,
+) -> PromptOutcome {
     let outcome = Arc::new(tokio::sync::watch::channel(None).0);
     ledger.push_back((prompt_id.to_owned(), outcome.clone()));
+    session
+        .accepted_prompts
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .retain(|(id, _)| id != prompt_id);
     outcome
 }
 

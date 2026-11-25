@@ -92,3 +92,40 @@ async fn wedge_a_resend_of_a_first_run_refused_unaccepted_hears_no_acceptance() 
     let kept = tokio::time::timeout(Duration::from_secs(2), waiting).await.unwrap().unwrap();
     assert!(kept.is_none());
 }
+
+#[tokio::test]
+async fn wedge_a_refused_new_attempt_does_not_hear_the_old_acceptance() {
+    let hub = hub();
+    let session = chat(&hub, "01-target3", "target3");
+    let old = ledger_entry(&session, "reused");
+    keep_acceptance(
+        &session,
+        "reused",
+        &json!({"promptId": "reused", "queued": false, "inbox": true, "attempt": 1}),
+    );
+    old.send_replace(Some(Err(RpcError::invalid_params("refused"))));
+    session.prompts.lock().unwrap().retain(|(id, _)| id != "reused");
+
+    let new = {
+        let mut ledger = session.prompts.lock().unwrap();
+        prompt_ledger::fresh(&session, "reused", &mut ledger)
+    };
+    let mut first = new.subscribe();
+    let waiting = tokio::spawn({
+        let session = session.clone();
+        async move { first_acceptance(&session, "reused", &mut first).await }
+    });
+    assert!(tokio::time::timeout(Duration::from_millis(50), &mut waiting).await.is_err());
+    keep_acceptance(
+        &session,
+        "reused",
+        &json!({"promptId": "reused", "queued": true, "attempt": 2}),
+    );
+    let kept = tokio::time::timeout(Duration::from_secs(2), waiting)
+        .await
+        .unwrap()
+        .unwrap()
+        .expect("the new attempt's acceptance");
+    assert_eq!(kept["attempt"], 2);
+    hub.shutdown_all().await;
+}
