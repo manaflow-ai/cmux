@@ -12,6 +12,7 @@ import type { NativePopupDescription, NativePopupEvent } from "../../ui/nativePo
 import { popupAction } from "../../ui/popupDescriptors";
 import { usePopupHost, usePortalContainer } from "../../ui/UiProvider";
 import { useEscapingPopup } from "../../ui/popupHost";
+import { usePopupSettle } from "../../ui/popupSettle";
 
 export interface PageMenuItem {
   id: string;
@@ -152,6 +153,8 @@ function LegacyPageMenu({ x, y, items, onClose, returnFocus }: PageMenuProps) {
   const anchor = useMemo(() => pointerAnchor(x, y), [x, y]);
   const host = usePopupHost();
   const [popup, setPopup] = useState<HTMLElement | null>(null);
+  // Opens at its final size and keeps it while data arrives (popupSettle.ts).
+  const settle = usePopupSettle<HTMLElement>(setPopup);
   const place = usePointerMenuPosition(popup, anchor);
   useEscapingPopup(host, popup, () => anchor, { side: "bottom", align: "start", gap: 0 });
   // The app's native menu, asked once per opening; a refusal (an older app) draws the page's.
@@ -206,7 +209,7 @@ function LegacyPageMenu({ x, y, items, onClose, returnFocus }: PageMenuProps) {
           sideOffset={0}
         >
           <BaseMenu.Popup
-            ref={setPopup}
+            ref={settle}
             data-pointer-menu=""
             className="page-menu ui-popup ui-glass"
             finalFocus={() => opener.current}

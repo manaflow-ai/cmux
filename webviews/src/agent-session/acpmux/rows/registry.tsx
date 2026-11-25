@@ -10,7 +10,6 @@ import { SubagentEmptyRow } from "../subagents/SubagentEmptyRow";
 import {
   SUBAGENT_DONE,
   SUBAGENT_EMPTY,
-  SUBAGENT_OF,
   SUBAGENT_ROW,
   SUBAGENT_STARTED,
   WORKFLOW_CARD,
@@ -62,7 +61,6 @@ import { SubagentRow } from "./SubagentRow";
 import { SubagentDoneRow } from "./SubagentDoneRow";
 import { SubagentStartedRow } from "./SubagentStartedRow";
 import { WorkflowCardRow } from "./WorkflowCardRow";
-import { SubagentOfPillRow } from "./SubagentOfPillRow";
 import { EditedFilesRow } from "./EditedFilesRow";
 import { PendingMessagesRow } from "./PendingMessagesRow";
 import { LaneNoticeBatchRow } from "./LaneNoticeBatchRow";
@@ -126,7 +124,6 @@ export const defaultRegistry: NativeRegistry = {
   [SUBAGENT_ROW]: SubagentRow,
   [SUBAGENT_DONE]: SubagentDoneRow,
   [SUBAGENT_STARTED]: SubagentStartedRow,
-  [SUBAGENT_OF]: SubagentOfPillRow,
   [SUBAGENT_EMPTY]: SubagentEmptyRow,
   [WORKFLOW_CARD]: WorkflowCardRow,
 };

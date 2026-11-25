@@ -66,10 +66,16 @@ function Reply({ text }: { text: string }) {
 /// The new turn's "Worked for" line, drawn with the transcript's own classes (conversation.css), the
 /// toggle's included: its divider sits a foot gap under its words, and the mark must light that
 /// divider, not draw its own over the words' bottom (manaflow-ai/cmux#51002).
-function Worked() {
+function Worked({ tokens = false }: { tokens?: boolean }) {
   return (
     <div className="cv-worked has-divider is-toggle" style={{ color: "var(--agent-muted)" }}>
-      Worked for 31s
+      <span className="cv-worked__label">{tokens ? "Worked for 4m 12s" : "Worked for 31s"}</span>
+      {tokens && (
+        <span className="cv-worked__count">
+          <span aria-hidden="true">·</span>
+          <span className="cv-worked__tokens">679.9K tokens</span>
+        </span>
+      )}
     </div>
   );
 }
@@ -90,6 +96,8 @@ type Props = {
   /// The next row is a "Background task finished" line, no Worked for divider: the mark draws its own
   /// rule, centred in the gap (manaflow-ai/cmux#51747).
   task?: boolean;
+  /// The Worked for line carries its time and tokens, the widest it gets: the tag must keep off it.
+  tokens?: boolean;
 };
 
 /// A "Background task finished" line (BackgroundTurnLine.tsx), the turn's tail: 8 px under the row
@@ -119,6 +127,7 @@ function UnreadLooks({
   working = false,
   count = 157,
   task = false,
+  tokens = false,
 }: Props) {
   const gap = task ? TAIL_GAP : TURN_GAP;
   return (
@@ -157,7 +166,7 @@ function UnreadLooks({
           from the model (the line's row is 0 px, model.ts), so the row's own min-height and bottom
           padding (.acpmux-row) never move the next one; here they would, so they are off. */}
       <div
-        className="acpmux-row"
+        className="acpmux-row acpmux-sinceDivider"
         style={
           {
             position: "relative",
@@ -205,7 +214,7 @@ function UnreadLooks({
           ...(task && { minHeight: 0 }),
         }}
       >
-        {task ? <TaskLine /> : <Worked />}
+        {task ? <TaskLine /> : <Worked tokens={tokens} />}
       </div>
       <Reply text="Missing fields now default instead of failing; I added a test for each one." />
       <Reply text="The fuzz corpus ran clean for 10 minutes. The PR is ready for review." />
@@ -227,6 +236,10 @@ export default componentEntry<Props>({
     "line-worked": {
       note: 'B (shipped): folded into the next turn\'s Worked for line: "157 new messages" at its end and its rule lit in the accent; no height, it fades back to the plain rule.',
       props: { part: "line", theme: "dark", look: "worked" },
+    },
+    "line-worked-tokens": {
+      note: 'B over the widest Worked for line (time and tokens): the tag keeps to its row at every width, "157 new messages" where there is room, "New" where it is tight, and at ultra tight "New" shrinks toward the line\'s end and fades (Leo, 2026-11-22: "at ultra tightness the new can shrink well and fade").',
+      props: { part: "line", theme: "dark", look: "worked", tokens: true },
     },
     "line-worked-uncounted": {
       note: 'B before the rows are counted (or past the count\'s reach): "New" at its end, as before.',

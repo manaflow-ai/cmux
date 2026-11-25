@@ -120,8 +120,12 @@ export default componentEntry<Props>({
   height: 380,
   anchors: [{ selector: ".auto-where-board" }],
   variants: {
+    split: {
+      note: 'Ships. Split: half a computer, half a cloud, cut by an angled slash (Leo 2026-11-24: "the auto icon i assume necessarily has to be the half and half computer/cloud icon with the angled slash").',
+      props: { look: "split" },
+    },
     orbit: {
-      note: "Ships. Orbit: your chat as a still centre and three machine-coloured dots going round it at every spinner's one period while Auto is picked, on hover and while deciding.",
+      note: "Orbit: your chat as a still centre and three machine-coloured dots going round it at every spinner's one period while Auto is picked, on hover and while deciding.",
       props: { look: "orbit" },
     },
     constellation: {
