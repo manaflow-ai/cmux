@@ -78,4 +78,26 @@ struct AcpmuxPaneMethodContractsTests {
             #expect(AcpmuxPaneMethods.breaksParamsRule(refused, modeFields: nil), "\(method) takes an unlisted key")
         }
     }
+
+    /// A request's W3C trace context (cmux#55505, one trace id per user action) rides a prompt or a
+    /// new chat through the relay; a malformed one is refused; a ticket frame still carries nothing
+    /// but its ticket. Mirrors cmux-agent-pane-policy tests/unknown_params.rs.
+    @Test func aTraceparentRidesAPromptAndMustBeW3CShaped() {
+        let tp = "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"
+        let prompt: [String: Any] = ["jsonrpc": "2.0", "id": 1, "method": "session/prompt", "params": [
+            "sessionId": "s", "prompt": [Any](), "_meta": ["acpmux": ["promptId": "p"], "traceparent": tp],
+        ]]
+        #expect(AcpmuxPaneMethods.paramsRuleViolation(prompt, modeFields: nil) == nil)
+        #expect(AcpmuxPaneMethods.strippingUnknownParams(prompt, modeFields: nil) == nil)
+        for bad: Any in ["00-xyz-0123456789abcdef-01", 7, tp.uppercased()] {
+            let frame: [String: Any] = ["jsonrpc": "2.0", "id": 1, "method": "session/new", "params": [
+                "cwd": "/", "_meta": ["traceparent": bad],
+            ]]
+            #expect(AcpmuxPaneMethods.breaksParamsRule(frame, modeFields: nil), "\(bad)")
+        }
+        let answer: [String: Any] = ["jsonrpc": "2.0", "id": 1, "method": "_acpmux/permission_respond", "params": [
+            "sessionId": "s", "_meta": ["cmuxGesture": "t", "traceparent": tp],
+        ]]
+        #expect(AcpmuxPaneMethods.breaksParamsRule(answer, modeFields: nil))
+    }
 }
