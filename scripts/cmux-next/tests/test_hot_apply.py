@@ -608,6 +608,9 @@ class HotKeys(unittest.TestCase):
         keys = {"schema": 2, "commit": sha, "tree_key": "1" * 40, "web": "0" * 64, "web_key": "2" * 64, "web_abi": 3,
                 "shell": "3" * 64, "ffi": "4" * 64, "helpers": "5" * 64, **changed}
         (self.tmp / "keys" / f"{sha}.json").write_text(json.dumps(keys))
+        # hot-apply keeps a fetched record under state/keys/hot: a republish replaces that copy too.
+        for kept in (self.tmp / "state" / "keys" / "hot").glob(f"{sha}.*"):
+            kept.unlink()
 
     def plan(self, *extra):
         # --repo is an empty folder: nothing here can diff or key either commit.
@@ -2297,4 +2300,10 @@ class RefusedOverlayRollback(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    # `--shard I/N`: the checks job runs this file as four pool commands (tests/unittest_shard.py); whole it
+    # ran 260 s on Linux and past the pool's 600 s deadline beside 15 other commands.
+    _shard_spec = importlib.util.spec_from_file_location(
+        "unittest_shard", Path(__file__).resolve().parents[3] / "tests" / "unittest_shard.py")
+    unittest_shard = importlib.util.module_from_spec(_shard_spec)
+    _shard_spec.loader.exec_module(unittest_shard)
+    unittest_shard.main()
