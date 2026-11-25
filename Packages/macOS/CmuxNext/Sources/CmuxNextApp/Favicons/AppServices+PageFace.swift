@@ -28,7 +28,7 @@ extension AppServices {
         let names = WorkspaceAutoNameWiring(services: self, workspace: workspace).reader
         let audio = tab.kind != .browser ? nil : BrowserTabAudio.rowAudio(cache.existingBrowser(tab.id)?.tab.state), icon = tab.kind != .browser ? nil : BrowserTabIconState.pageIcon(tab.url.flatMap { URL(string: $0) })
         return .init(title: names.label(workspace, front: tab, work: work), favicon: sidebarPageFavicon(workspace, tab: tab), audio: audio,
-                     startsInCloud: icon == .remoteDisplay || cloudStartTitles.startsInCloud(tab) || cloudStartTitles.startsInCloud(workspace: workspace.id) || [tab, work].contains { $0.flatMap { t in agentTabs.daemonListing(t).flatMap { agentTabs.frontedChats.front(of: AgentTabKey(machine: $0.machineID, key: t.id)) } } != nil }, icon: icon) // a Cloud chat in place, by its persisted front as its tab mark (cmux#55668)
+                     icon: icon) // no cloud on a sidebar row: only a Cloud chat's tab wears it (cmux#55668)
     }
 
     /// The favicon `tab` shows in `workspace`'s sidebar row and band item; nil for a tab that is not a page, and while

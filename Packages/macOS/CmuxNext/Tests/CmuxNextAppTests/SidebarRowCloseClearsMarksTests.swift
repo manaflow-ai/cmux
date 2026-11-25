@@ -63,7 +63,7 @@ struct SidebarRowCloseClearsMarksTests {
     static func drawn(in row: WorkspaceRowView, meeting rect: NSRect) -> [String] {
         let marks: [(String, NSView?)] = [
             ("pullRequests", row.pullRequests), ("prText", row.prBadge), ("unread", row.badge), ("rowBadge", row.rowBadge),
-            ("activity", row.activity), ("agentMark", row.agentMark), ("muted", row.mutedMark), ("cloud", row.cloudMark),
+            ("activity", row.activity), ("agentMark", row.agentMark), ("muted", row.mutedMark),
             ("usageWarning", row.usageWarningMark), ("tabCount", row.tabCount), ("keycap", row.keycap), ("rollUp", row.rollUp),
             ("time", row.timeLabel), ("presence", row.presenceDots), ("drive", row.driveIndicator),
             ("treeFold", row.treeFoldSlot.made), ("audio", row.audioSlot.made),

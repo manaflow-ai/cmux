@@ -247,10 +247,6 @@ extension SidebarMapping {
         row.iconFromShownTab = ownIcon == nil && row.icon != nil
         row.activityFromProgram = indicator.primary?.source == .program
         row.presence = presence(tabs)
-        // Any Cloud chat of the workspace marks its row, not only the face tab: the cloud went whenever a terminal or a
-        // page beside the chat became the face (cmux#55668, "it like disappears").
-        row.startsInCloud = page?.startsInCloud == true
-            || tabs.contains { $0.agentSession != nil && $0.id != face?.id && options.pageFace(workspace, $0, nil)?.startsInCloud == true }
         row.audio = SidebarWorkspaceAudio.merge(tabs.lazy.map { browserFaces[$0.id]?.audio })
         row.lastMessage = at(facts.chat)?.agentSession.flatMap(AgentTurnStateStore.shared.lastMessage(for:))
         // The chat the face picked: when it last changed what it does, its row's age (`SidebarWorkspace.rowAge`).
