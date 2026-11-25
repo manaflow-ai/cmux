@@ -1,5 +1,6 @@
 #if os(iOS)
 import SwiftUI
+import UIKit
 
 private let theme = CmuxMobileTheme.standard
 
@@ -90,6 +91,16 @@ public struct MacPresenceDots: View {
             }
         }
         .frame(height: 16)
+    }
+}
+
+/// One Mac's presence as a menu image: green online, red offline. A Menu draws its item
+/// images as templates, so the color is baked into the image (`.alwaysOriginal`).
+public enum MacPresenceDot {
+    public static func image(online: Bool) -> UIImage {
+        let config = UIImage.SymbolConfiguration(pointSize: 9, weight: .regular)
+        let dot = UIImage(systemName: "circle.fill", withConfiguration: config) ?? UIImage()
+        return dot.withTintColor(online ? .systemGreen : .systemRed, renderingMode: .alwaysOriginal)
     }
 }
 #endif
