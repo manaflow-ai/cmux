@@ -285,6 +285,8 @@ async function main(): Promise<number> {
       snapshot = link.snapshotId;
       meta.via = "link";
       meta.disclosure = link.disclosure;
+      // "cloud" (a vm_ through CloudDO, platform#2105) or the team-machine path.
+      meta.link_source = link.source ?? "team";
     } else {
       meta.via = "snapshot";
       // The code tells a flag that is off (link.not_found before auth) from a refusal of this machine.
