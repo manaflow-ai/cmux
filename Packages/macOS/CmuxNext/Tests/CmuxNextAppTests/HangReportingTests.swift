@@ -142,6 +142,41 @@ import Testing
         #expect(event.extra?["stalls_100-250ms"] as? Int == 0)
     }
 
+    /// hq#18814: `record` read Sentry's `isEnabled` (its hub lock) on the main thread at every stall's end,
+    /// a 3.0 s hang at load 214. With a check that blocks 500 ms, record took over 500 ms; now it never calls
+    /// the check on the calling thread, and a closed window is still sent only while reporting is on.
+    @Test func recordNeverWaitsOnTheEnabledCheck() async {
+        let checks = Box<Int>(0)
+        let sent = Box<Int>(0)
+        let clock = Box<UInt64>(0)
+        let summary = StallSummaryRecorder(summary: StallSummary(), isEnabled: {
+            checks.value.withLock { $0 += 1 }
+            Thread.sleep(forTimeInterval: 0.5)
+            return true
+        }, sink: { _, _ in sent.value.withLock { $0 += 1 } }, uptime: { clock.value.withLock { $0 } })
+        let start = ContinuousClock.now
+        for _ in 0..<100 { summary.record(.stall(nanos: 300 * Self.ms)) }
+        clock.value.withLock { $0 = 2 * 60 * Self.minute }
+        summary.record(.stall(nanos: 300 * Self.ms))  // closes the window: its send is checked off this thread
+        let elapsed = ContinuousClock.now - start
+        #expect(elapsed < .milliseconds(100), "101 records took \(elapsed)")
+        for _ in 0..<200 where sent.value.withLock({ $0 }) == 0 { try? await Task.sleep(for: .milliseconds(10)) }
+        #expect(sent.value.withLock { $0 } == 1)
+        #expect(checks.value.withLock { $0 } == 1, "checked once, by the send")
+    }
+
+    @Test func aClosedWindowIsNotSentWhileReportingIsOff() async {
+        let sent = Box<Int>(0)
+        let clock = Box<UInt64>(0)
+        let summary = StallSummaryRecorder(summary: StallSummary(), isEnabled: { false },
+                                           sink: { _, _ in sent.value.withLock { $0 += 1 } }, uptime: { clock.value.withLock { $0 } })
+        summary.record(.stall(nanos: 300 * Self.ms))
+        clock.value.withLock { $0 = 2 * 60 * Self.minute }
+        summary.record(.stall(nanos: 300 * Self.ms))
+        try? await Task.sleep(for: .milliseconds(200))
+        #expect(sent.value.withLock { $0 } == 0)
+    }
+
     @Test func lagSpikesFeedTheSummary() {
         let reports = Box<[StallSummaryReport]>([])
         let summary = StallSummaryRecorder(summary: StallSummary(), isEnabled: { true },

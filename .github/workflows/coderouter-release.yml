@@ -160,7 +160,7 @@ jobs:
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: coderouter
-          key: ${{ matrix.rust_target }}
+          key: ${{ matrix.rust_target }}-${{ hashFiles('coderouter/Cargo.lock', '.cargo/config.toml') }}
       - run: cargo test --locked --release --target ${{ matrix.rust_target }}
       - run: cargo build --locked --release --target ${{ matrix.rust_target }} --bins
       - name: Build PyPI wheel
@@ -497,7 +497,7 @@ jobs:
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: coderouter
-          key: x86_64-unknown-linux-gnu
+          key: x86_64-unknown-linux-gnu-${{ hashFiles('coderouter/Cargo.lock', '.cargo/config.toml') }}
       - run: cargo test --locked --release --target x86_64-unknown-linux-gnu
       - run: cargo build --locked --release --target x86_64-unknown-linux-gnu --bins
       - name: Build PyPI wheel
