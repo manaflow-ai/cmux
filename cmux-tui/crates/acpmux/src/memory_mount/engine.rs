@@ -80,6 +80,7 @@ pub struct Engine {
     state_dir: PathBuf,
     host: String,
     pub state: State,
+    pub hashed_reads: u64,
     _lock: cmux_file_lock::FileLock,
 }
 
@@ -110,7 +111,7 @@ impl Engine {
                 }
             };
         let state = State::load(&state_dir);
-        Ok(Engine { client, scope, dir, state_dir, host, state, _lock: lock })
+        Ok(Engine { client, scope, dir, state_dir, host, state, hashed_reads: 0, _lock: lock })
     }
 
     pub fn dir(&self) -> &Path {
