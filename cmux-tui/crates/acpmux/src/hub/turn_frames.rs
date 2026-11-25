@@ -44,6 +44,8 @@ pub(crate) const LOOK_EDGE: u32 = 512;
 const REPL_SESSION: &str = "acpmux-turn-frames";
 const LOOK_REPL_SESSION: &str = "acpmux-turn-frames-look";
 const INDEX: &str = "frames.json";
+/// One app-window capture, run to answer.
+const WINDOW_LIMIT: Duration = Duration::from_secs(20);
 
 /// Every frame's place in the daemon's order: the preview window asks for what is newer than the
 /// last it drew.
@@ -81,6 +83,9 @@ struct Turn {
     debounce: u64,
     /// The tool kind of each call this turn, by id (`tool_call_update` records often omit it).
     kinds: HashMap<String, String>,
+    /// The turn customizes the app itself ([`customizes_app`]): with no agent-driven page, frames
+    /// are of the app's window (`cmux window screenshot`, masked by the app).
+    chrome: bool,
 }
 
 static TURNS: LazyLock<Mutex<HashMap<String, Turn>>> = LazyLock::new(Default::default);
@@ -272,6 +277,23 @@ pub(crate) fn trigger_of(kind: Option<&str>, update: &Value) -> Option<&'static 
     (kind == Some("execute")).then_some("build")
 }
 
+/// A tool call that changes the app's own look: an edit of its settings file, or a `cmux customize`,
+/// `cmux live`, `cmux app try` or `cmux settings` run.
+pub(crate) fn customizes_app(update: &Value) -> bool {
+    let settings = named_paths(update).iter().any(|p| {
+        let p = p.to_ascii_lowercase();
+        p.ends_with("cmux-next.json") || p.ends_with("cmux.json") || p.contains("/.config/cmux/")
+    });
+    let command = update
+        .pointer("/rawInput/command")
+        .and_then(|c| c.as_str().map(str::to_owned).or_else(|| Some(c.to_string())))
+        .unwrap_or_default();
+    settings
+        || ["cmux customize", "cmux live", "cmux app try", "cmux settings", "cmux theme"]
+            .iter()
+            .any(|verb| command.contains(verb))
+}
+
 /// The turn began: a new frame list, and its first frame. Nothing for a chat with no workspace.
 pub(super) fn turn_began(session: &Session, turn: &str) {
     let workspace =
@@ -291,6 +313,7 @@ pub(super) fn turn_began(session: &Session, turn: &str) {
             again: None,
             debounce: 0,
             kinds: HashMap::new(),
+            chrome: false,
         },
     );
     ask(&session.id, "turn-start");
@@ -315,6 +338,9 @@ pub(super) fn record(session: &str, kind: &str, msg: &Value) {
         }
         let tool =
             update.get("kind").and_then(Value::as_str).or(turn.kinds.get(id).map(String::as_str));
+        if customizes_app(update) {
+            turn.chrome = true;
+        }
         let Some(trigger) = trigger_of(tool, update) else { return };
         turn.debounce += 1;
         (turn.id.clone(), turn.debounce, trigger)
@@ -409,20 +435,52 @@ fn ask(session: &str, trigger: &'static str) {
 /// Takes one frame of `session`'s current turn and keeps it unless it is the same picture as the
 /// last kept. The kept frame, or none. Blocking.
 fn take(session: &str, trigger: &'static str, repl: &str) -> Option<Frame> {
-    let (turn_id, workspace) = {
+    let (turn_id, _, dir, picture) = shoot(session, repl)?;
+    keep(session, &turn_id, &dir, &picture, trigger, None)
+}
+
+/// A picture of `session`'s page now: the agent-driven page of its workspace, else, in a turn that
+/// customizes the app, the app's window. The turn, what was shot (a tab id or `window`), the turn's
+/// folder and the picture. Blocking.
+fn shoot(session: &str, repl: &str) -> Option<(String, String, PathBuf, Rgb)> {
+    let (turn_id, workspace, chrome) = {
         let all = turns();
         let turn = all.get(session)?;
-        (turn.id.clone(), turn.workspace.clone())
+        (turn.id.clone(), turn.workspace.clone(), turn.chrome)
     };
     let base = root();
     let dir = turn_dir(&base, session, &turn_id)?;
     crate::home_fs::create_dirs(&dir).ok()?;
     let raw = dir.join(format!("{repl}.capture.png"));
-    let tab = capture_page(&base, &workspace, &raw, repl, "Turn frames");
-    let bytes = tab.as_ref().and_then(|_| std::fs::read(&raw).ok());
+    let mut shown = capture_page(&base, &workspace, &raw, repl, "Turn frames");
+    if shown.is_none() && chrome && window_shot(&raw) {
+        shown = Some("window".to_owned());
+    }
+    let bytes = shown.as_ref().and_then(|_| std::fs::read(&raw).ok());
     let _ = crate::home_fs::remove_file(&raw);
     let picture = decode(&bytes?)?;
-    keep(session, &turn_id, &dir, &picture, trigger, None)
+    Some((turn_id, shown?, dir, picture))
+}
+
+/// `cmux window screenshot --out OUT`: the app's window, its private areas masked by the app
+/// (`ScreenshotHandlers.swift`). Bounded by [`WINDOW_LIMIT`]; false when no app answered.
+fn window_shot(out: &Path) -> bool {
+    let Ok(runtime) = tokio::runtime::Handle::try_current() else { return false };
+    let binary =
+        std::env::var_os("CMUX_BIN").filter(|v| !v.is_empty()).unwrap_or_else(|| "cmux".into());
+    let mut command = tokio::process::Command::new(binary);
+    command
+        .args(["window", "screenshot", "--out"])
+        .arg(out)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true);
+    let ran = runtime.block_on(async {
+        tokio::time::timeout(WINDOW_LIMIT, command.status()).await.ok().and_then(Result::ok)
+    });
+    ran.is_some_and(|status| status.success())
+        && std::fs::metadata(out).is_ok_and(|m| m.len() > 0 && m.len() <= 8 << 20)
 }
 
 /// Keeps `picture` as the turn's next frame unless it matches the last kept one (a `turn-end`
@@ -567,24 +625,15 @@ pub(crate) async fn look(session: &str) -> Value {
 }
 
 fn look_now(session: &str) -> Value {
-    let Some((turn_id, workspace)) =
-        turns().get(session).map(|t| (t.id.clone(), t.workspace.clone()))
-    else {
+    if !turns().contains_key(session) {
         return json!({"error": "this chat has no workspace page to look at: open the page with the browser or `open` tools first"});
-    };
-    let base = root();
-    let Some(dir) = turn_dir(&base, session, &turn_id) else {
-        return json!({"error": "this chat's id cannot hold frames"});
-    };
-    if crate::home_fs::create_dirs(&dir).is_err() {
-        return json!({"error": "frames folder could not be made"});
     }
-    let raw = dir.join(format!("{LOOK_REPL_SESSION}.capture.png"));
-    let tab = capture_page(&base, &workspace, &raw, LOOK_REPL_SESSION, "Turn frames (look)");
-    let bytes = tab.as_ref().and_then(|_| std::fs::read(&raw).ok());
-    let _ = crate::home_fs::remove_file(&raw);
-    let Some(picture) = bytes.as_deref().and_then(decode) else {
-        return json!({"error": "no agent-driven page is showing in this chat's workspace: open one with the browser or `open` tools, then look again"});
+    // A look may always see the app's own window: the agent asked.
+    if let Some(turn) = turns().get_mut(session) {
+        turn.chrome = true;
+    }
+    let Some((turn_id, tab, dir, picture)) = shoot(session, LOOK_REPL_SESSION) else {
+        return json!({"error": "no agent-driven page is showing in this chat's workspace and the app's window could not be captured: open a page with the browser or `open` tools, then look again"});
     };
     let kept = keep(session, &turn_id, &dir, &picture, "look", None);
     let hash = dhash(&picture);

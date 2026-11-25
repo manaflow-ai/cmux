@@ -112,3 +112,13 @@ fn a_chat_with_no_turn_reads_no_frames() {
     assert_eq!(reply["seq"], json!(4));
     assert_eq!(reply["live"], json!(false));
 }
+
+#[test]
+fn customizing_the_app_is_told_from_paths_and_commands() {
+    let settings = json!({"rawInput": {"file_path": "/Users/x/.config/cmux/cmux-next.json"}});
+    assert!(customizes_app(&settings));
+    let run = json!({"rawInput": {"command": "cmux customize use dir:/w --watch"}});
+    assert!(customizes_app(&run));
+    let other = json!({"rawInput": {"command": "cargo test"}, "locations": [{"path": "/w/a.rs"}]});
+    assert!(!customizes_app(&other));
+}
