@@ -634,14 +634,16 @@ pub(crate) fn answer(home: &std::path::Path, session: &str, input: Value) -> Opt
     };
     // A heavy build or test on a Cloud machine with AutoCloud on runs on a fork (RFD 0144
     // piece 3): the class is read from the text first, so no other call reads the settings.
+    // With `CMUX_WORK_PLACER=1` the work placer decides instead, from this host's samples
+    // (`placement/work_wire.rs`); off, nothing changes.
     let run_vm = crate::placement::run_vm::heavy_class(command)
         .and_then(|_| {
             let machine = crate::placement::sub_fork::this_machine();
-            crate::placement::run_vm::goes(
-                crate::placement::run_vm::run_vms_on(),
-                machine.as_deref(),
-                command,
-            )
+            let on = crate::placement::run_vm::run_vms_on();
+            if crate::placement::work_place::enabled() {
+                return crate::placement::work_wire::hook_goes(on, machine.as_deref(), command);
+            }
+            crate::placement::run_vm::goes(on, machine.as_deref(), command)
         })
         .map(|_| crate::placement::run_vm::wrap(&self_words(), command));
     let background =

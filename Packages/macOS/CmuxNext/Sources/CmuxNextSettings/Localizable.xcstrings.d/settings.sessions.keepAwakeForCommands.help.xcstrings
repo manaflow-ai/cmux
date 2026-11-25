@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sessions.keepAwakeForCommands.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A build or test running over a minute keeps the Mac awake."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يُبقي البناء أو الاختبار الذي يعمل أكثر من دقيقة جهاز Mac مستيقظًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Build ili test koji radi duže od minute drži Mac budnim."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Et build eller en test, der kører over et minut, holder Mac'en vågen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ein Build oder Test, der länger als eine Minute läuft, hält den Mac wach."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una compilación o prueba de más de un minuto mantiene el Mac activo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Une compilation ou un test de plus d’une minute garde le Mac éveillé."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una build o un test in esecuzione da più di un minuto mantiene il Mac attivo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "1 分以上実行中のビルドやテストは Mac をスリープさせません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការបង្កើត ឬការធ្វើតេស្តដែលដំណើរការលើសមួយនាទី រក្សា Mac ឱ្យភ្ញាក់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "1분 이상 실행되는 빌드나 테스트가 Mac을 깨어 있게 유지합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Et bygg eller en test som kjører over ett minutt, holder Macen våken."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kompilacja lub test działający ponad minutę nie pozwala Macowi zasnąć."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Um build ou teste em execução há mais de um minuto mantém o Mac ativo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сборка или тест, работающие дольше минуты, не дают Mac уснуть."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "บิลด์หรือการทดสอบที่ทำงานเกินหนึ่งนาทีจะทำให้ Mac ไม่หลับ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir dakikadan uzun süren bir derleme veya test Mac’i uyanık tutar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Збірка або тест, що працюють понад хвилину, не дають Mac заснути."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bản build hoặc bài test chạy quá một phút sẽ giữ Mac thức."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "运行超过一分钟的构建或测试会让 Mac 保持唤醒。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "執行超過一分鐘的建置或測試會讓 Mac 保持喚醒。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
