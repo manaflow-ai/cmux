@@ -70,8 +70,10 @@ impl Hub {
         if !self.outbox.on_failed(tx) {
             return;
         }
+        static SCOPE: std::sync::OnceLock<cmux_scope::Scope> = std::sync::OnceLock::new();
+        let scope = SCOPE.get_or_init(|| cmux_scope::Scope::new("outbox bounces"));
         let hub = Arc::downgrade(self);
-        tokio::spawn(async move {
+        let _task = scope.spawn_named("outbox bounces", async move {
             while let Some(d) = rx.recv().await {
                 let Some(hub) = hub.upgrade() else { return };
                 hub.bounce(&d).await;
@@ -82,7 +84,9 @@ impl Hub {
     /// `d` failed: its dead letter, and the notice to the session that sent it.
     pub(crate) async fn bounce(self: &Arc<Self>, d: &Delivery) {
         let entry = line(d);
-        if let Some(path) = self.outbox.dead_letters_path() {
+        let kept = self.outbox.dead_letters_path();
+        let kept_in = kept.as_ref().map_or_else(|| FILE.to_owned(), |p| p.display().to_string());
+        if let Some(path) = kept {
             let entry = entry.clone();
             let wrote = tokio::task::spawn_blocking(move || append(&path, &entry)).await;
             if let Ok(Err(e)) | Err(e) = wrote.map_err(std::io::Error::other) {
@@ -97,7 +101,7 @@ impl Hub {
             "title": format!("your message to {} was not delivered", d.target),
         });
         let body = format!(
-            "[bounce] to {} failed: {}\ndelivery {} (in ~/.acpmux/{FILE}). Find who holds it now \
+            "[bounce] to {} failed: {}\ndelivery {} (in {kept_in}). Find who holds it now \
              (`acpmux ls`, `acpmux role ls`) and send it again.\n---\n{}",
             d.target,
             entry["reason"].as_str().unwrap_or("failed"),
