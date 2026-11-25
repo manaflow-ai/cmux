@@ -23,6 +23,7 @@ public actor FileStackTokenStore: StackAuthTokenStoreProtocol {
     private let log = AuthDebugLog()
     private let fileURL: URL
     private var cache: Snapshot?
+    private var cacheReadFailed = false
 
     /// Creates a file store persisting to `credentials.json` inside `directory`.
     /// - Parameter directory: The directory to create (0700) and write into;
@@ -30,6 +31,20 @@ public actor FileStackTokenStore: StackAuthTokenStoreProtocol {
     ///   itself and tests can use a temp directory.
     public init(directory: URL) {
         self.fileURL = directory.appendingPathComponent("credentials.json", isDirectory: false)
+    }
+
+    /// Reports whether the credential document can currently be read.
+    public func isStorageAvailable() async -> Bool {
+        if cache != nil { return !cacheReadFailed }
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return true }
+        do {
+            let data = try Data(contentsOf: fileURL)
+            _ = try JSONDecoder().decode(Snapshot.self, from: data)
+            return true
+        } catch {
+            log.log("credentials availability read failed: \(error)")
+            return false
+        }
     }
 
     public func getStoredAccessToken() async -> String? {
@@ -98,12 +113,17 @@ public actor FileStackTokenStore: StackAuthTokenStoreProtocol {
 
     private func readFromDisk() -> Snapshot {
         let fm = FileManager.default
-        guard fm.fileExists(atPath: fileURL.path) else { return Snapshot() }
+        guard fm.fileExists(atPath: fileURL.path) else {
+            cacheReadFailed = false
+            return Snapshot()
+        }
         do {
             let data = try Data(contentsOf: fileURL)
             let snapshot = try JSONDecoder().decode(Snapshot.self, from: data)
+            cacheReadFailed = false
             return snapshot
         } catch {
+            cacheReadFailed = true
             log.log("credentials read failed: \(error)")
             return Snapshot()
         }
@@ -111,6 +131,7 @@ public actor FileStackTokenStore: StackAuthTokenStoreProtocol {
 
     private func write(_ snapshot: Snapshot) {
         cache = snapshot
+        cacheReadFailed = false
         let fm = FileManager.default
         let dir = fileURL.deletingLastPathComponent()
         do {
