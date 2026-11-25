@@ -178,6 +178,7 @@ final class TerminalDemoDriver {
         if selected.contains("projection") { await projection() }
         if selected.contains("scrollbench") { await scrollBench() }
         if selected.contains("historyfling") { await historyFling() }
+        if selected.contains("wide") { await wide() }
         for variant in ["primary", "mouse", "keys", "primary-load", "mouse-load", "keys-load", "primary-slow", "mouse-slow"]
         where selected.contains("tuipan-\(variant)") { await tuiPan(variant) }
         for variant in ["keys", "keys-load"] where selected.contains("tuiheld-\(variant)") { await tuiHeld(variant) }
@@ -186,6 +187,27 @@ final class TerminalDemoDriver {
         if let log = model.controller?.presentLog, !log.isEmpty,
            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
             try? log.joined(separator: "\n").write(to: documents.appendingPathComponent("present-log.txt"), atomically: true, encoding: .utf8)
+        }
+    }
+
+    /// `wide` (TerminalWideOutputUITests): a table 180 columns wide on a
+    /// phone that fits about 50, then the page's sideways state every 250 ms
+    /// for the UI test to read while it turns on Wide and pans: the mirror's
+    /// columns, the phone's, the pan and the last column on screen.
+    private func wide() async {
+        model.composerText = "widetable 180 12"
+        model.send()
+        await wait(2)
+        // `-CmuxMobileTerminalDemoWideView`: the page menu's Wide View, for the gallery.
+        if CommandLine.arguments.contains("-CmuxMobileTerminalDemoWideView") {
+            model.openWideView()
+            await wait(1)
+        }
+        mark("wide ready " + (model.controller?.wideProbe ?? "-"))
+        let deadline = Date().addingTimeInterval(120)
+        while Date() < deadline {
+            model.demoNote = "wide ready " + (model.controller?.wideProbe ?? "-")
+            await wait(0.25)
         }
     }
 

@@ -805,8 +805,13 @@ export function streamedOnly(drawn: AcpmuxSnapshot, next: AcpmuxSnapshot): numbe
 
 /// Answers a secret card in the page (`chat.secret`): the value goes to acpmux only.
 /// A provided value's failure reaches the card (it keeps the typed secret); a decline stays quiet.
-const answerSecret = (ask: AcpmuxSecretAsk) => (value?: string) => {
-  const sent = callNative("chat.secret", { secretId: ask.secretId, ...(value ? { value } : {}) });
+/// `keep` is the card's "keep as key NAME": acpmux stores the value as key `ask.name` too.
+const answerSecret = (ask: AcpmuxSecretAsk) => (value?: string, keep?: boolean) => {
+  const sent = callNative("chat.secret", {
+    secretId: ask.secretId,
+    ...(value ? { value } : {}),
+    ...(value && keep ? { keepAs: ask.name } : {}),
+  });
   return value ? sent : sent.catch(() => undefined);
 };
 

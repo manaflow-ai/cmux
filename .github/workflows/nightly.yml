@@ -7897,8 +7897,12 @@ jobs:
     permissions:
       actions: write
     steps:
+      # Off the publish path: a rate-limited dispatch fails now instead of waiting, and never reds the nightly
+      # (tests/test_gh_budget_wait.py DISPATCH_NEVER_WAITS).
       - name: Dispatch fixit-handoff on feat-cmux-next
+        continue-on-error: true
         env:
+          GH_BUDGET_WAIT_MAX_SECONDS: "0"
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           ORIGIN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
