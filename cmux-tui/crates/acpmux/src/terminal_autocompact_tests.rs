@@ -107,7 +107,7 @@ fn a_terminal_takes_the_chats_autocompact_over_a_launchers_draw() {
         "--resume",
         "6e0bad7d",
     ]);
-    // Kumquat: sr2's draw becomes the chat profile's value.
+    // sr2's draw becomes the chat profile's value.
     assert_eq!(
         terminal_autocompact(&sr2, cwd, &env, Some("157125")),
         AutocompactEdit::Replace(1, "157125".into())
