@@ -240,6 +240,16 @@ import Testing
         #expect(throws: CloudAppOpFailure(code: "cmux.cloud.upstream_error", message: "timeout")) { try CloudPersonCreate.answer(Data(unreachable.utf8)) }
         #expect(throws: CloudAppOpFailure.self) { try CloudPersonCreate.answer(Data("<html>".utf8)) }
     }
+
+    /// The `created machine` line's note: why the create skipped the spare, from the answer's own spare fields (cmux-platform
+    /// `withSpareAnswer`), reason codes and counts only: no spare's machine id.
+    @Test func theCreatedMachineLineSaysWhyTheCreateSkippedASpare() throws {
+        let reply = #"{"ok":true,"op":"cloud.machine.create","value":{"machine":{"id":"vm_new1"},"spare_skips":{"image":1},"spare_fallback":"all_skipped","spare_skipped":[{"id":"vm_spare9","reason":"image"}]}}"#
+        let note = CloudStartCore().spareNote(answer: try CloudPersonCreate.answer(Data(reply.utf8)))
+        #expect(note == #"spare_fallback=all_skipped spare_skips={"image":1} spare_skipped=1"#)
+        #expect(!note.contains("vm_spare9"))
+        #expect(CloudStartCore().spareNote(answer: .object(["machine": .object([:])])) == "spare=none")
+    }
 }
 
 private actor Seen {

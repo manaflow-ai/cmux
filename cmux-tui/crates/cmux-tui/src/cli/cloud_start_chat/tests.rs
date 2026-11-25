@@ -19,6 +19,8 @@ fn request(words: &[&str]) -> Request {
 
 #[path = "clone_wait_tests.rs"]
 mod clone_wait;
+#[path = "direct_tests.rs"]
+mod direct_route;
 #[path = "drill_start_tests.rs"]
 mod drill_start;
 #[path = "folder_tests.rs"]
@@ -1288,7 +1290,10 @@ fn a_failed_turn_read_through_exec_answers_its_error_not_the_last_reply() {
     };
     assert_eq!(exit, 1);
     assert_eq!(error["code"], "chat.turn_failed");
-    assert_eq!(error["message"], "You've hit your weekly limit");
+    // The turn's own error, explained (account_limit.rs, cmux#55066), never the turn before's reply.
+    let message = error["message"].as_str().unwrap();
+    assert!(message.contains("weekly usage limit"), "{message}");
+    assert!(!message.contains("PONG-2350"), "{message}");
     assert_eq!(error["details"]["turn"]["status"], "failed");
     assert!(error["details"].get("reply").is_none(), "{error}");
 }
@@ -3702,6 +3707,43 @@ fn an_unread_list_names_the_apps_last_cloud_error() {
             assert_eq!(fake.called[0].0, "cloud.machines", "{path}");
             assert!(only_lists(&fake), "{path}: nothing started or made: {:?}", fake.ran);
         }
+    }
+}
+
+/// An app that is not connected (the relay's `unavailable`: closed, or a locked or asleep Mac) never loads its
+/// list however long one waits, so the refusal names it and says to open or unlock the app, not to run it again
+/// in a moment, and is not retryable; a connected app still loading is retryable, as its message says
+/// (ask-259986a6c4: interim-coord's 3 NIGHTLY readbacks read `cloud.list_unread` from an app not connected).
+#[test]
+fn an_app_not_connected_says_so_and_a_loading_one_is_retryable() {
+    let unread =
+        json!({"account": {"signed_in": true}, "loaded": false, "machines": [], "creating": []});
+    let paths: [(&str, &[&str]); 2] = [
+        ("a fresh name", &["--prompt", "x"]),
+        ("--environment's name", &["--prompt", "x", "--environment", "env_1", "--name", "py-1"]),
+    ];
+    for (path, words) in paths {
+        let gone = json!({"code": "unavailable", "message": "needs the cmux Mac app connected"});
+        let mut fake = Fake::new(unloaded_lists(unread.clone()));
+        fake.stream = Some(Err(gone));
+        let Outcome::Failed { error, exit } = run(&mut fake, &request(words)) else {
+            panic!("{path}: {:?}", fake.ran)
+        };
+        assert_eq!((error["code"].as_str(), exit), (Some("cloud.app_not_connected"), 75), "{path}");
+        assert_eq!(error["retryable"], false, "{path}");
+        assert_eq!(error["details"]["app"], "not_connected", "{path}");
+        let message = error["message"].as_str().unwrap();
+        assert!(message.contains("open or unlock the app"), "{path}: {message}");
+        assert!(!message.contains("in a moment"), "{path}: {message}");
+        assert!(only_lists(&fake), "{path}: nothing started or made: {:?}", fake.ran);
+
+        let mut fake = Fake::new(unloaded_lists(unread.clone()));
+        fake.stream = Some(Ok(json!({"loaded": false, "last_error": null})));
+        let Outcome::Failed { error, .. } = run(&mut fake, &request(words)) else {
+            panic!("{path}: {:?}", fake.ran)
+        };
+        assert_eq!(error["code"], "cloud.list_unread", "{path}");
+        assert_eq!(error["retryable"], true, "{path}");
     }
 }
 

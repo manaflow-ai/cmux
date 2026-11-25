@@ -76,12 +76,18 @@ export function SessionInfoCloudRows({
         </li>
       )}
       {(look === "where" || !setLit) && (
-        <li className="acpmux-session-info-row acpmux-hybrid-row" data-testid="session-info-runs-on">
-          <Icon name="cloud" size={ROW_ICON} row fit />
-          <span className="acpmux-session-info-row__name">{t("hybrid.pin")}</span>
+        // The row itself opens the menu, as the Environment list's other action rows (the folder,
+        // Share Screen) are whole-row buttons; the choice is its muted end value, as the machine
+        // row's kind (cmux#56150: a ghost pill here drew WebKit's bezel, the pane has no ui.css).
+        <li data-testid="session-info-runs-on">
           <Menu>
-            <MenuButton className="acpmux-hybrid-where ui-ghost ui-ghost-sm" data-menu="RunsOn">
-              {t(PIN_KEYS[view.pin])}
+            <MenuButton
+              className="acpmux-session-info-row acpmux-session-info-row--button acpmux-hybrid-row"
+              data-menu="RunsOn"
+            >
+              <Icon name="cloud" size={ROW_ICON} row fit />
+              <span className="acpmux-session-info-row__name">{t("hybrid.pin")}</span>
+              <span className="acpmux-session-info-row__end acpmux-hybrid-where">{t(PIN_KEYS[view.pin])}</span>
             </MenuButton>
             <MenuPopup align="end" label={t("hybrid.pin")} className="acpmux-menu">
               <MenuRadioGroup value={view.pin} onValueChange={(next) => control.setPin(next as HybridPin)}>

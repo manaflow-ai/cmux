@@ -9,6 +9,11 @@
 //   latest     the newest message ("Answer N:") painted;
 //   settled    nothing moved for 400 ms after that: no long task or layout shift, and the scroller's
 //              position and height unchanged.
+//   first_contentful_paint  the browser's first-contentful-paint entry: the web app's first paint of anything
+//              (Leo, 2026-11-22: "we also need startup times of the app to keep hill climbing"). Its row's p50 is
+//              the rounds' median and its p95 their nearest-rank 95th percentile; each round also prints the HTML's
+//              responseEnd and DOMContentLoaded beside it, so the cost before the first paint splits into fetch and
+//              script.
 // The stages that follow `attach` are the page's own: parse, first render and layout passes.
 // Long tasks (count, total) and the layout-shift sum cover the whole load; the transcript's scroll drift
 // after `latest` says how much the page still moved after the newest messages appeared.
@@ -327,6 +332,8 @@ try {
     initialize: number;
     watch: number;
     dcl: number;
+    fcp: number;
+    responseEnd: number;
     scriptKiB: number;
     scripts: string[];
     forced: {
@@ -748,6 +755,8 @@ try {
         origin: performance.timeOrigin,
         forced,
         dcl: nav.domContentLoadedEventEnd,
+        fcp: performance.getEntriesByName("first-contentful-paint")[0]?.startTime ?? 0,
+        responseEnd: nav.responseEnd,
         composer: (window as unknown as { __composer?: { ready: number; interactive: number } }).__composer ?? {
           ready: 0,
           interactive: 0,
@@ -864,6 +873,8 @@ try {
       initialize: at(arrivals.get("initialize")),
       watch: at(arrivals.get("_acpmux/watch")),
       dcl: got.dcl,
+      fcp: got.fcp,
+      responseEnd: got.responseEnd,
       scriptKiB: got.scriptKiB,
       scripts: got.scripts as unknown as string[],
       forced: got.forced as Round["forced"],
@@ -1251,6 +1262,19 @@ try {
           version: NEXT_FRAME_STAGES.has(stage) ? 3 : 2,
           ...(COMPOSER && SAMPLED_STAGES.has(stage) ? { samples: rounds.map(pick) } : {}),
         });
+      // The web app's first paint from navigation start, a real p95 across rounds (the stage rows above give one median).
+      const fcps = rounds.map((r) => r.fcp).sort((a, b) => a - b);
+      console.log(
+        `first paint per round (ms from navigation): fcp ${rounds.map((r) => r.fcp.toFixed(0)).join(" ")}; html responseEnd ${rounds.map((r) => r.responseEnd.toFixed(0)).join(" ")}; DOMContentLoaded ${rounds.map((r) => r.dcl.toFixed(0)).join(" ")}`,
+      );
+      if (fcps.every((fcp) => fcp > 0))
+        perfRow({
+          name: `chat_open.${arm}.first_contentful_paint`,
+          p50: median((r) => r.fcp),
+          p95: fcps[Math.max(0, Math.ceil(fcps.length * 0.95) - 1)]!,
+          target: TARGET_MS.load,
+        });
+      else console.log(`chat-open [rail ${arm}]: a round had no first-contentful-paint entry; no first paint row`);
       // The page's own work in units of this runner's speed: each round's attach_to_latest over that round's calibration
       // (runnerCalibration.ts), the median of them. It holds across runners where the ms row above tracks the runner.
       console.log(

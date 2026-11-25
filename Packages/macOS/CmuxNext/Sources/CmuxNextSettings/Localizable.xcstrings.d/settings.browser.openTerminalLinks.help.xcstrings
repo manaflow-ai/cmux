@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.browser.openTerminalLinks.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When off, links clicked in terminal output open in your default browser."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "オフの場合、ターミナル出力のリンクはデフォルトブラウザで開きます。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "عند التعطيل، تفتح الروابط المنقورة في مخرجات الطرفية في متصفحك الافتراضي."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kada je isključeno, linkovi kliknuti u izlazu terminala se otvaraju u podrazumijevanom pregledniku."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Når deaktiveret, åbnes links, der klikkes i terminaloutput, i din standardbrowser."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wenn deaktiviert, werden im Terminal angeklickte Links in Ihrem Standardbrowser geöffnet."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cuando está desactivado, los enlaces en la salida del terminal se abren en tu navegador predeterminado."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lorsque désactivé, les liens cliqués dans la sortie du terminal s'ouvrent dans votre navigateur par défaut."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Quando disattivato, i link cliccati nell'output del terminale si aprono nel browser predefinito."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពេល​បិទ តំណ​ដែល​ចុច​ក្នុង​លទ្ធផល​ស្ថានីយ​បើក​ក្នុង​កម្មវិធី​រុករក​លំនាំដើម​របស់​អ្នក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "비활성화하면 터미널 출력에서 클릭한 링크가 기본 브라우저에서 열립니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Når av, åpnes lenker som klikkes i terminalutdata i standard nettleser."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Po wyłączeniu linki kliknięte w terminalu otwierają się w domyślnej przeglądarce."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Quando desativado, links clicados na saída do terminal abrem no seu navegador padrão."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "При отключении ссылки из терминала открываются в браузере по умолчанию."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เมื่อปิด ลิงก์ที่คลิกในเอาต์พุตเทอร์มินัลจะเปิดในเบราว์เซอร์เริ่มต้นของคุณ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kapalıyken, terminal çıktısında tıklanan bağlantılar varsayılan tarayıcınızda açılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Якщо вимкнено, посилання у виводі терміналу відкриваються у стандартному браузері."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Khi tắt, liên kết bấm trong đầu ra terminal sẽ mở trong trình duyệt mặc định của bạn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "关闭后，终端输出中点击的链接在默认浏览器中打开。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "關閉時，終端機輸出中點擊的連結會在您的預設瀏覽器中開啟。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -256,6 +256,90 @@ class ClassifyTests(unittest.TestCase):
         ci = "scripts/ci/clean.sh"
         self.assertEqual(self.tier(ci, patches={ci: "+ rm -rf build; python -c 'shutil.rmtree(x)'"}), "normal")
 
+    def test_audit_false_highs_grade_below_high(self):
+        # The 2026-11-25 audit of open risk:high pull requests: named like a high path, but not one.
+        for path in (
+            ".github/workflows/nightly-speed.yml", ".github/workflows/billing-nightly.yml",
+            ".github/workflows/webviews-sampled-nightly.yml", "scripts/measure/nightly-fresh-launch.sh",
+            ".github/workflows/docs-deploy-reusable.yml", "scripts/repo-archive/publish.sh",
+            NEXT + "CmuxNextUpdater/GitHubStar/GitHubStarPrompt.swift", NEXT + "CmuxNextUpdater/UpdaterStrings.swift",
+            "cmux-next-ios/AppStoreReview/screenshots/en-US/iphone/06-sign-in.png",
+            ".github/workflows/auth-refresh-tests.yml", ".github/workflows/vercel-auth-health.yml",
+            "cmux-tui/crates/cmux-tui-core/src/login_shell.rs",
+            "cmux-tui/crates/cmux-tui/src/localization/auth_token.rs",
+            "cmux-tui/relays/cloudflare-do/Cargo.toml", "cmux-tui/crates/cmux-auth-coordinator/Cargo.toml",
+            "Native/OptChat/optchat-chief/src/migrate_cloud.rs", "cmux-tui/crates/cmux-migrate/src/plan.rs",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self.tier(path), "normal")
+        self.assertEqual(self.tier("plans/cmux-next/arch-exceptions/relay-chat-harness-login.json"), "low")
+
+    def test_audit_true_highs_stay_high(self):
+        for path in (
+            ".github/workflows/nightly.yml", ".github/workflows/nightly-next-tick.yml",
+            ".github/workflows/ios-internal-nightly.yml", ".github/workflows/sdk-publish-crates.yml",
+            ".github/workflows/mobile-worker-prod-deploy.yml", "scripts/sign-cmux-bundle-helpers.sh",
+            NEXT + "CmuxNextUpdater/UpdaterService.swift",
+            "cmux-tui/crates/acpmux/src/login.rs", "cmux-tui/crates/cmux-git-cache/src/auth.rs",
+            "cmux-tui/relays/cloudflare-do/src/index.ts", "cmux-tui/relays/cloudflare-do/wrangler.toml",
+            NEXT + "CmuxNextApp/AppOnboardingServices+ClassicMigration.swift",
+            "cmux-tui/crates/acpmux/src/hub/place_migrate.rs", "web/drizzle/0001_x.sql",
+            NEXT + "CmuxNextDaemon/Conversations/ChiefSecureStore.swift",
+            # The measure and repo-archive exemptions name files: a new release script there stays high.
+            "scripts/measure/sign-release.sh", "scripts/measure/nightly-notarize.sh",
+            "scripts/measure/publish-nightly.sh", "scripts/repo-archive/sign.sh", "scripts/repo-archive/deploy.sh",
+            # Each branch of the auth word: at the path start, a file-name word, a directory.
+            "auth/x.ts", "cmux-tui/crates/x/src/oauth_callback.rs", "web/app/sign-in/page.tsx",
+            "cmux-tui/crates/x/src/login/mod.rs",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self.tier(path), "high")
+        # Only an image is spared the auth word; the word inside a longer word is not the auth word.
+        self.assertNotEqual(self.tier("web/auth.png"), "high")
+        self.assertNotEqual(self.tier("cmux-tui/crates/x/src/author.rs"), "high")
+
+    def test_harness_code_and_own_temp_file_cleanup_are_not_new_deletes(self):
+        cases = {
+            "webviews/bench/send-pop-frames.bench.ts": "+  rmSync(outDir, { recursive: true, force: true });",
+            "cmux-tui/crates/cmux-machine-provider/examples/machine_provider_bench.rs":
+                "+    let _ = std::fs::remove_dir_all(&dir);",
+            "cmux-tui/frontends/web/e2e/ghostty-terminal.e2e.mjs": "+  fs.rmSync(dir, { recursive: true });",
+            "cmux-tui/crates/coord-sim/src/fanin/ramp.rs": "+    std::fs::remove_dir_all(&out)?;",
+            "cmux-tui/crates/acpmux/src/settings/write.rs": "+        let _ = std::fs::remove_file(&temp);",
+            "cmux-tui/crates/acpmux/src/settings/store.rs": "+        let _ = fs::remove_file(&self.staged);",
+            NEXT + "CmuxLiveCode/LiveEngine.swift": "+        defer { try? FileManager.default.removeItem(at: copy) }",
+        }
+        for path, line in cases.items():
+            with self.subTest(path=path):
+                self.assertNotEqual(self.tier(path, patches={path: line}), "high")
+        rs = "cmux-tui/crates/acpmux/src/settings/write.rs"
+        for line in ("+    std::fs::remove_file(&path)?;", "+    std::fs::remove_dir_all(&temp_root_of_user)?;"):
+            with self.subTest(line=line):
+                self.assertEqual(self.tier(rs, patches={rs: line}), "high")
+        swift = NEXT + "CmuxNextHistory/HistoryStore.swift"
+        self.assertEqual(self.tier(swift, patches={swift: "+ try FileManager.default.removeItem(at: storeURL)"}), "high")
+        mixed = "+    let _ = std::fs::remove_file(&temp); std::fs::remove_dir_all(&user_dir)?;"
+        self.assertEqual(self.tier(rs, patches={rs: mixed}), "high")
+        self.assertEqual(self.tier(swift, patches={swift: "+ try FileManager.default.removeItem(at: temp)"}), "high")
+        self.assertEqual(self.tier(swift, patches={swift: "+ defer { try? FileManager.default.removeItem(at: userDataDir) }"}), "high")
+        self.assertEqual(self.tier(rs, patches={rs: "+    std::fs::remove_file(&copy)?;"}), "high")
+        self.assertEqual(self.tier("webviews/src/store.ts", patches={"webviews/src/store.ts": "+  await db.delete(chats)"}), "high")
+
+    def test_unlink_bare_remove_and_keychain_deletes_count(self):
+        rs = "cmux-tui/crates/cmux-sign-clone-sweep/src/at.rs"
+        for line in ("+    let rc = unsafe { libc::unlinkat(dirfd, name.as_ptr(), libc::AT_REMOVEDIR) };",
+                     "+    unsafe { libc::unlink(path.as_ptr()) };", "+    remove_file(&path)?;", "+    remove_dir(&dir)?;"):
+            with self.subTest(line=line):
+                self.assertEqual(self.tier(rs, patches={rs: line}), "high")
+        ts = "webviews/src/agent-pane/files.ts"
+        self.assertEqual(self.tier(ts, patches={ts: "+  await fs.promises.unlink(file);"}), "high")
+        swift = NEXT + "CmuxNextApp/CredentialCache.swift"
+        self.assertEqual(self.tier(swift, patches={swift: "+    let status = SecItemDelete(query as CFDictionary)"}), "high")
+        # A method or a function named remove_file is not a delete.
+        for line in ("+    self.remove_file(id);", "+fn remove_file(&mut self, id: Id) {"):
+            with self.subTest(line=line):
+                self.assertEqual(self.tier(rs, patches={rs: line}), "normal")
+
     def test_a_new_privileged_workflow_trigger_is_high(self):
         # 16c570b576 put a cargo cache on pull_request_target: a fork could poison it.
         wf = ".github/workflows/cmux-tui-windows.yml"
@@ -373,7 +457,7 @@ class ClassifyTests(unittest.TestCase):
     def test_an_update_channel_setting_is_normal_and_the_update_path_stays_high(self):
         # Leo, 2026-10-21: a settings-only channel toggle that reuses the signed feeds is normal;
         # updater install, signing and feed-verification code stays high.
-        setting = ("Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateRing.swift",
+        setting = ("Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/UpdateRing.swift",
                    NEXT + "CmuxNextUpdater/UpdatePreferences.swift",
                    NEXT + "CmuxNextSettings/UpdatesSettings.swift",
                    NEXT + "CmuxNextSettings/Schema/SettingsSchema+Updates.generated.swift",
@@ -391,21 +475,21 @@ class ClassifyTests(unittest.TestCase):
         # Signature verification, the feed resolver, the Sparkle driver and the install code must never
         # grade normal; only the ring above is a setting. Its tests stay low.
         updater = "Packages/macOS/CmuxUpdater/"
-        for path in ("Sources/CmuxUpdater/ChannelSwitch/AppSignatureVerification.swift",
+        for path in ("Sources/CmuxUpdaterCore/ChannelSwitch/AppSignatureVerification.swift",
                      "Sources/CmuxUpdater/ChannelSwitch/SecurityAppSignatureInspector.swift",
-                     "Sources/CmuxUpdater/ChannelSwitch/AppChannelSwitcher.swift",
-                     "Sources/CmuxUpdater/UpdateFeedResolver.swift",
+                     "Sources/CmuxUpdaterCore/ChannelSwitch/AppChannelSwitcher.swift",
+                     "Sources/CmuxUpdaterCore/UpdateFeedResolver.swift",
                      "Sources/CmuxUpdater/UpdateDriver.swift",
                      "Sources/CmuxUpdater/UpdateDriver+SPUUpdaterDelegate.swift",
                      "Sources/CmuxUpdater/UpdateDriver+BackgroundInstall.swift",
                      "Sources/CmuxUpdater/UpdateController+InstallAttempt.swift",
                      "Sources/CmuxUpdater/UpdateController+BackgroundInstall.swift",
-                     "Sources/CmuxUpdater/InstallWatchdog.swift",
+                     "Sources/CmuxUpdaterCore/InstallWatchdog.swift",
                      "Package.swift"):
             with self.subTest(path=path):
                 self.assertEqual(self.tier(updater + path), "high")
-        self.assertEqual(self.tier(updater + "Sources/CmuxUpdater/UpdateRing.swift"), "normal")
-        self.assertEqual(self.tier(updater + "Tests/CmuxUpdaterTests/UpdateFeedResolverTests.swift"), "low")
+        self.assertEqual(self.tier(updater + "Sources/CmuxUpdaterCore/UpdateRing.swift"), "normal")
+        self.assertEqual(self.tier(updater + "Tests/CmuxUpdaterCoreTests/UpdateFeedResolverTests.swift"), "low")
 
     def test_highest_path_wins(self):
         self.assertEqual(self.tier("docs/x.md", NEXT + "CmuxNextSidebar/A.swift",
@@ -696,6 +780,62 @@ class RecentRevertTests(unittest.TestCase):
         widened = "@@ -1,2 +1,2 @@\n-    foo(a);\n+    foo(a, b);\n ctx"
         self.assertTrue(risk.undoes("@@ -1,2 +1,2 @@\n-    foo(a, b);\n+    foo(a);\n ctx", widened))
 
+    def test_a_reworded_line_is_an_edit_not_a_takeback(self):
+        # PR #54943 (2026-11-25) reworded the skills index row #53846 had added; the row stays, in new words.
+        commit = ("@@ -57,6 +57,7 @@\n | Edit cmux's own web UI while it runs | [cmux-live](cmux-live/SKILL.md) |\n"
+                  "+| Doing UI work: frames show in the chat on their own, `look` to check, Try it on at turn end"
+                  " | [cmux-ui-preview](cmux-ui-preview/SKILL.md) |\n ")
+        pr = ("@@ -57,3 +57,3 @@\n | Edit cmux's own web UI while it runs | [cmux-live](cmux-live/SKILL.md) |\n"
+              "-| Doing UI work: frames show in the chat on their own, `look` to check, Try it on at turn end"
+              " | [cmux-ui-preview](cmux-ui-preview/SKILL.md) |\n"
+              "+| Doing UI work: live mode, a preview tab cmux pictures before and after each turn, how to try it at"
+              " turn end | [cmux-ui-preview](cmux-ui-preview/SKILL.md) |\n ")
+        self.assertFalse(risk.undoes(pr, commit))
+        # Deleting the row with nothing in its place still takes it back.
+        self.assertTrue(risk.undoes("@@ -57,3 +57,2 @@\n | Edit cmux's own web UI while it runs |\n"
+                                    "-| Doing UI work: frames show in the chat on their own, `look` to check, Try it on"
+                                    " at turn end | [cmux-ui-preview](cmux-ui-preview/SKILL.md) |\n ", commit))
+        # So does replacing it with an unrelated line of the pull request's own.
+        self.assertTrue(risk.undoes("@@ -57,3 +57,3 @@\n ctx\n"
+                                    "-| Doing UI work: frames show in the chat on their own, `look` to check, Try it on"
+                                    " at turn end | [cmux-ui-preview](cmux-ui-preview/SKILL.md) |\n"
+                                    "+| Forum posts: read and reply | [cmux-forum](cmux-forum/SKILL.md) |\n ", commit))
+        # Putting back the wording the commit replaced is still a revert.
+        replaced = ("@@ -1,2 +1,2 @@\n-| Doing UI work: open the preview pane by hand |\n"
+                    "+| Doing UI work: frames show in the chat on their own |\n ctx")
+        self.assertTrue(risk.undoes("@@ -1,2 +1,2 @@\n-| Doing UI work: frames show in the chat on their own |\n"
+                                    "+| Doing UI work: open the preview pane by hand |\n ctx", replaced))
+
+    def test_a_duplicate_dropped_beside_the_entry_that_stays_is_not_a_takeback(self):
+        # PR #50003 (2026-11-25) dropped #54487's `cmux-deadline.workspace = true`, a second key for the
+        # dependency already declared with features, and folded its comment into that entry.
+        commit = ("@@ -136,6 +136,8 @@\n cmux-tag-cache.workspace = true\n"
+                  "+# One deadline per wait (daemon/watchdog.rs: a hello waits until systemd's own limit).\n"
+                  "+cmux-deadline.workspace = true\n cmux-supervise-core.workspace = true")
+        pr = ("@@ -99,4 +99,5 @@\n cmux-json.workspace = true\n"
+              "-# Deadlines on silence since the last progress, not a wall clock (peer frame writes, mesh reads).\n"
+              "+# Deadlines on silence since the last progress, not a wall clock (peer frame writes, mesh reads),\n"
+              "+# and one deadline per wait (daemon/watchdog.rs: a hello waits until systemd's own limit).\n"
+              " cmux-deadline = { workspace = true, features = [\"tokio\"] }\n"
+              "@@ -136,8 +137,6 @@\n cmux-tag-cache.workspace = true\n"
+              "-# One deadline per wait (daemon/watchdog.rs: a hello waits until systemd's own limit).\n"
+              "-cmux-deadline.workspace = true\n cmux-supervise-core.workspace = true")
+        self.assertFalse(risk.undoes(pr, commit))
+        # With no other entry left, dropping them is a takeback.
+        self.assertTrue(risk.undoes("@@ -136,8 +136,6 @@\n cmux-tag-cache.workspace = true\n"
+                                    "-# One deadline per wait (daemon/watchdog.rs: a hello waits until systemd's own limit).\n"
+                                    "-cmux-deadline.workspace = true\n cmux-supervise-core.workspace = true", commit))
+
+    def test_a_short_line_is_not_still_said_by_a_long_unrelated_one(self):
+        # Review F1 on #55358: `let x = 1;` taken back beside `let x = compute(a, b, 1);` is still a takeback.
+        commit = "@@ -1,2 +1,3 @@\n ctx\n+    let x = 1;\n ctx"
+        pr = "@@ -1,4 +1,3 @@\n ctx\n-    let x = 1;\n     let x = compute(a, b, 1);\n ctx"
+        self.assertTrue(risk.undoes(pr, commit))
+        # A line replaced by a much longer one that merely shares half its words is not a reword of it.
+        summed = "@@ -1,2 +1,3 @@\n ctx\n+    let total = sum(a);\n ctx"
+        reword = "@@ -1,3 +1,3 @@\n ctx\n-    let total = sum(a);\n+    let total_count = sum(x, y, z, w, v, u);\n ctx"
+        self.assertTrue(risk.undoes(reword, summed))
+
     def test_a_revert_of_last_weeks_change_names_its_pull_request(self):
         now = time.time()
         with tempfile.TemporaryDirectory() as repo:
@@ -718,6 +858,30 @@ class RecentRevertTests(unittest.TestCase):
             unread = []
             self.assertEqual(risk.recent_reverts([stale], repo, base, own=21194, now=now, unread=unread, budget=0), {})
             self.assertEqual(unread, ["App.tsx"])
+
+
+    def test_a_registry_split_into_one_file_per_entry_takes_nothing_back(self):
+        # cmux#56291 (2026-11-25) moved agent-policy.json into agent-policy/<key>.json: its deleted lines live on in
+        # the new files, and the check named 56 pull requests as taken back.
+        now = time.time()
+        with tempfile.TemporaryDirectory() as repo:
+            self.git(repo, "init", "-q")
+            path = os.path.join(repo, "policy.json")
+            open(path, "w").write('"a": 1\n')
+            self.git(repo, "add", ".")
+            self.git(repo, "commit", "-qm", "feat: old (#100)", when=now - 30 * 86400)
+            open(path, "w").write('"a": 1\n"b": 2\n')
+            self.git(repo, "commit", "-qam", "feat: add b (#200)", when=now - 86400)
+            base = self.git(repo, "rev-parse", "HEAD").strip()
+            removed = {"filename": "policy.json", "status": "removed",
+                       "patch": '@@ -1,2 +0,0 @@\n-"a": 1\n-"b": 2'}
+            split = [removed, {"filename": "policy/a.json", "status": "added", "patch": "@@ -0,0 +1 @@\n+{}"},
+                     {"filename": "policy/b.json", "status": "added", "patch": "@@ -0,0 +1 @@\n+{}"}]
+            self.assertEqual(risk.recent_reverts(split, repo, base, own=300, now=now), {})
+            catalog = [dict(removed, filename="policy.json"), {"filename": "policy.json.d/b.json", "status": "added"}]
+            self.assertEqual(risk.recent_reverts(catalog, repo, base, own=300, now=now), {})
+            # Deleting it with no directory in its place still takes #200's line back.
+            self.assertEqual(risk.recent_reverts([removed], repo, base, own=300, now=now), {200: ["policy.json"]})
 
 
 class MergeBaseTests(unittest.TestCase):

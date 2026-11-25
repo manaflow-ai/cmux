@@ -193,6 +193,9 @@ pub(crate) struct PromptId {
     /// `--gather`: the message waits for the receiver's cold batch (`_meta.acpmux.gather`,
     /// `hub/cold_wake.rs`).
     pub gather: bool,
+    /// `--within`: the sender's own delivery deadline in ms (`_meta.acpmux.within`,
+    /// `prompt_class::due_at`), which can only tighten the class's.
+    pub within: Option<u64>,
 }
 
 impl PromptId {
@@ -216,6 +219,7 @@ impl PromptId {
                 sender_token: None,
                 wake_or_fail: false,
                 gather: false,
+                within: None,
             },
             None => Self {
                 id: uuid::Uuid::now_v7().to_string(),
@@ -235,6 +239,7 @@ impl PromptId {
                 sender_token: None,
                 wake_or_fail: false,
                 gather: false,
+                within: None,
             },
         }
     }
@@ -296,6 +301,9 @@ impl PromptId {
         }
         if self.gather {
             mux.set(crate::hub::cold_wake::GATHER_META, json!(true));
+        }
+        if let Some(within) = self.within {
+            mux.set(crate::prompt_class::WITHIN_META, json!(within));
         }
         if let Some(token) = &self.sender_token {
             mux.set(crate::sender_token::META_KEY, token.to_value());
@@ -397,6 +405,17 @@ async fn queue_prompt_once(
     }
 }
 
+/// A held message's deadline (`hub/inbox.rs` "Deadlines") as `send` and `send --status` print
+/// it: "due in 14m" (the receiver is woken for it by then), or "due 3m ago" past it.
+pub(crate) fn due_words(due_ms: u64, now_ms: u64) -> String {
+    let mins = |ms: u64| ms.div_ceil(60_000);
+    if due_ms > now_ms {
+        format!("due in {}m", mins(due_ms - now_ms))
+    } else {
+        format!("due {}m ago", mins(now_ms - due_ms))
+    }
+}
+
 /// What `acpmux send --no-wait` prints for its acceptance.
 /// With `--supersede`, a second line says how many of the sender's queued prompts it replaced.
 pub(crate) fn sent_lines(accepted: &Value, supersede: bool) -> Vec<String> {
@@ -409,6 +428,11 @@ pub(crate) fn sent_lines(accepted: &Value, supersede: bool) -> Vec<String> {
         "queued"
     };
     let mut lines = vec![first.to_owned()];
+    if first == HELD_LINE
+        && let Some(due) = accepted.get("dueAt").and_then(Value::as_u64)
+    {
+        lines.push(due_words(due, crate::store::now_ms()));
+    }
     if supersede {
         // An older daemon (or a peer running one) ignores the key and says nothing.
         lines.push(match accepted.get("replaced").and_then(Value::as_u64) {
