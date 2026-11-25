@@ -149,10 +149,14 @@ pub unsafe extern "C" fn cmux_palette_ranker_rank(
     // SAFETY: a live handle, used by one caller at a time.
     let handle = unsafe { &mut *ranker };
     let result = catch_unwind(AssertUnwindSafe(|| {
+        let bytes = request;
         let request: RankRequest = match serde_json::from_slice(request) {
             Ok(request) => request,
             Err(error) => return (ERR_INVALID, error.to_string().into_bytes()),
         };
+        if let Some(answer) = crate::ops::answer(&request.operation, bytes) {
+            return answer;
+        }
         if request.operation == "filter" {
             // The query's filter tokens alone (`crate::filter`): for the host's own searches
             // beside the ranker (agent chats), so they keep and drop the same sections.
