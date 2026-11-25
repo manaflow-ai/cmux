@@ -6082,8 +6082,60 @@ jobs:
             "$GAP_REMOTE" "$SHA" || echo "::warning::no history for the cache distances"
           python3 -I scripts/ci/dev_landing_place.py >> "$GITHUB_OUTPUT"
 
+  # The cmux app scheme's Debug app, built by the build fleet's app recipe instead of xcodebuild on a Mac; the
+  # Mac job below takes it and only runs what needs a Mac (the crash gate), or compiles as the logged fallback.
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-scheme-fleet
+  cmux-scheme-compile-fleet:
+    needs: [path_route, push-head-preflight, dev-daily-tree-wait]
+    if: ${{ github.repository_owner == 'manaflow-ai' && inputs.dev_daily != true && vars.CI_SCHEME_COMPILE_FLEET != '0' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && contains(github.event.pull_request.labels.*.name, 'dev-build')) && (!cancelled() && ((inputs.same_tree_sha == '' && needs.path_route.outputs.scheme == 'true' && needs.push-head-preflight.outputs.current == 'true' && (needs.path_route.outputs.tree_state == 'ready' || needs.dev-daily-tree-wait.outputs.tree_state == 'ready')) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'scheme'))))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'full-ci') }}
+    name: cmux app scheme compile (build fleet)
+    concurrency:
+      group: ${{ github.event_name == 'push' && format('cmux-next-push-{0}-cmux-scheme-compile-fleet', github.ref) || format('cmux-next-run-{0}-cmux-scheme-compile-fleet', github.run_id) }}
+    runs-on: cmux-linux
+    permissions:
+      contents: read  # the sparse checkout of the fleet result reader
+    timeout-minutes: 50
+    outputs:
+      verdict: ${{ steps.read.outputs.verdict }}
+      job_id: ${{ steps.read.outputs.job_id }}
+    steps:
+      - name: Check out the fleet result reader
+        timeout-minutes: 2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+
+      # The controller builds this head's whole Debug app when it sees this job queued (or this
+      # read names the head) and serves the result; this job holds no Mac and never fails: a red or missing verdict
+      # sends the Mac job to compile, as before.
+      - name: Read the build fleet's app build
+        id: read
+        env:
+          REF: ${{ github.event.pull_request.head.sha || github.sha }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -uo pipefail
+          reader=scripts/ci/fleet_compile_result.py
+          word=none
+          if [[ -f "$reader" ]] && grep -q '"scheme-debug"' "$reader"; then
+            word="$(python3 -I "$reader" --sha "$REF" --repo "$GITHUB_REPOSITORY" --pr "${PR:-}" --phase scheme-debug \
+              --job-out "$RUNNER_TEMP/job" --wait 2400 --no-record 300 2>"$RUNNER_TEMP/read.err")" || word=none
+            cat "$RUNNER_TEMP/read.err" >&2
+          fi
+          job="$(head -n1 "$RUNNER_TEMP/job" 2>/dev/null || true)"
+          [[ "$word" == pass && -z "$job" ]] && word=none
+          echo "verdict=$word" >> "$GITHUB_OUTPUT"
+          echo "job_id=$job" >> "$GITHUB_OUTPUT"
+          case "$word" in
+            pass) echo "### Build fleet app build: pass"$'\n\n'"Job \`$job\` built the cmux DEV app at \`$REF\`; the Mac job takes it." >> "$GITHUB_STEP_SUMMARY" ;;
+            *) echo "::warning title=fleet fallback::no passing build fleet app build for $REF (reader: $word); the cmux app scheme compile runs on a Mac"
+               echo "### Build fleet app build: $word"$'\n\n'"The Mac compiles this head (logged fallback)." >> "$GITHUB_STEP_SUMMARY" ;;
+          esac
+
   cmux-scheme-compile:
-    needs: [path_route, macos-placement, push-head-preflight, dev-daily-tree-wait, dev-daily-place]
+    needs: [path_route, macos-placement, push-head-preflight, dev-daily-tree-wait, dev-daily-place, cmux-scheme-compile-fleet]
     # Why: docs/ci/cmux-next-workflow-notes.md#note-294
     if: ${{ ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && contains(github.event.pull_request.labels.*.name, 'dev-build')) && (!cancelled() && ((inputs.same_tree_sha == '' && needs.path_route.outputs.scheme == 'true' && needs.push-head-preflight.outputs.current == 'true' && (needs.path_route.outputs.tree_state == 'ready' || needs.dev-daily-tree-wait.outputs.tree_state == 'ready')) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'scheme'))))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'full-ci') }}
     name: ${{ inputs.dev_daily == true && 'cmux NEXT DEV Release compile' || 'cmux app scheme compile (Debug)' }}
@@ -6104,6 +6156,8 @@ jobs:
     outputs:
       crash_gate: ${{ steps.crash-gate.outcome }}
     env:
+      # The fleet's Debug app for this head (pass only); empty: this Mac compiles it (docs/ci/cmux-next-workflow-notes.md#note-scheme-fleet).
+      CMUX_SCHEME_FLEET_JOB: ${{ inputs.dev_daily != true && needs.cmux-scheme-compile-fleet.outputs.verdict == 'pass' && needs.cmux-scheme-compile-fleet.outputs.job_id || '' }}
       # Why: docs/ci/cmux-next-workflow-notes.md#note-297
       BASH_ENV: ""
       # Why: docs/ci/cmux-next-workflow-notes.md#note-298
@@ -6233,10 +6287,39 @@ jobs:
           python3 -I scripts/ci/dev_release_product_reuse.py lookup --key "$key" --skip "$SKIP_REASON" \
             --out "$RUNNER_TEMP/cmux-next-dev-product" --timeout 180 >> "$GITHUB_OUTPUT"
 
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-scheme-fleet
+      - name: Take the app the build fleet built
+        id: fleet-app
+        if: ${{ inputs.dev_daily != true && env.CMUX_SCHEME_FLEET_JOB != '' }}
+        timeout-minutes: 15
+        env:
+          CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+          PARITY: ${{ vars.CI_SCHEME_FLEET_PARITY == 'always' || endsWith(github.event.pull_request.head.sha || github.sha, '0') }}
+        run: |
+          set -uo pipefail
+          derived_data="$RUNNER_TEMP/cmux-scheme-fleet"
+          if [[ "$PARITY" == true ]]; then
+            # The parity sample: keep the fleet app aside and compile here too (Compare step below).
+            if scripts/cmux-next/fleet-scheme-app.sh "$CMUX_SCHEME_FLEET_JOB" "$RUNNER_TEMP/cmux-scheme-parity"; then
+              echo "parity_app=$(find "$RUNNER_TEMP/cmux-scheme-parity/Build/Products/Debug" -maxdepth 1 -type d -name 'cmux DEV*.app' -print -quit)" >> "$GITHUB_OUTPUT"
+            fi
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "parity sample: the fleet built this head (job $CMUX_SCHEME_FLEET_JOB); compiling here too to compare"
+            exit 0
+          fi
+          if scripts/cmux-next/fleet-scheme-app.sh "$CMUX_SCHEME_FLEET_JOB" "$derived_data" \
+            && scripts/cmux-next/check-app-personalities.sh "$(find "$derived_data/Build/Products/Debug" -maxdepth 1 -name 'cmux DEV*.app' -print -quit)"; then
+            echo "CMUX_NEXT_DERIVED_DATA=$derived_data" >> "$GITHUB_ENV"
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            echo "### cmux app scheme compile: build fleet"$'\n\n'"Built on the build fleet (job \`$CMUX_SCHEME_FLEET_JOB\`); this Mac compiled nothing." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=fleet fallback::the build fleet's app (job $CMUX_SCHEME_FLEET_JOB) could not be taken; compiling the cmux scheme on this Mac"
+          fi
       # The Bundle cmux-tui phase bundles this commit's same-tree cmux-tui
       # Why: docs/ci/cmux-next-workflow-notes.md#note-310
       - name: Fetch the same-tree cmux-tui
-        if: ${{ inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true' }}
+        if: ${{ (inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.fleet-app.outputs.ok != 'true' }}
         timeout-minutes: 50
         env:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-311
@@ -6247,19 +6330,19 @@ jobs:
         run: scripts/cmux-next/pin-cmux-tui.sh fetch
 
       - name: Install Rust (diff sidecar)
-        if: ${{ inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true' }}
+        if: ${{ (inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.fleet-app.outputs.ok != 'true' }}
         run: ./scripts/install-rust-ci.sh
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-313
       - name: Install Go for the embedded tailnet archive
-        if: ${{ inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true' }}
+        if: ${{ (inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.fleet-app.outputs.ok != 'true' }}
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: daemon/remote/go.mod
           cache: false
 
       - name: Build in-tree acpmux for the app bundle
-        if: ${{ inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true' }}
+        if: ${{ (inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.fleet-app.outputs.ok != 'true' }}
         env:
           CMUX_NEXT_ACPMUX_ARCHS: arm64
         run: |
@@ -6280,7 +6363,7 @@ jobs:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-75
       - name: Source key of the web bundles
         id: web-bundle-key
-        if: ${{ inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true' }}
+        if: ${{ (inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.fleet-app.outputs.ok != 'true' }}
         continue-on-error: true
         run: |
           rm -rf web-bundles-out
@@ -6319,7 +6402,7 @@ jobs:
         run: scripts/cmux-next/build-web-bundles.sh --from web-bundles-out
 
       - name: Setup Bun
-        if: ${{ (inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.web-bundles-from.outcome != 'success' }}
+        if: ${{ ((inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.web-bundles-from.outcome != 'success') && steps.fleet-app.outputs.ok != 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -6327,22 +6410,22 @@ jobs:
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-316
       - name: Give this job its own bun
-        if: ${{ (inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.web-bundles-from.outcome != 'success' }}
+        if: ${{ ((inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.web-bundles-from.outcome != 'success') && steps.fleet-app.outputs.ok != 'true' }}
         run: scripts/cmux-next/private-bun.sh
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-317
       - name: Setup Node
-        if: ${{ (inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.web-bundles-from.outcome != 'success' }}
+        if: ${{ ((inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.web-bundles-from.outcome != 'success') && steps.fleet-app.outputs.ok != 'true' }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
 
       - name: Build the web bundles
-        if: ${{ (inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.web-bundles-from.outcome != 'success' }}
+        if: ${{ ((inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.web-bundles-from.outcome != 'success') && steps.fleet-app.outputs.ok != 'true' }}
         run: scripts/cmux-next/build-web-bundles.sh
 
       - name: Compile the cmux scheme
-        if: inputs.dev_daily != true
+        if: inputs.dev_daily != true && steps.fleet-app.outputs.ok != 'true'
         env:
           CMUX_BUILD_METRICS_DIR: ${{ runner.temp }}/cmux-next-build-metrics/scheme
           CMUX_BUILD_METRICS_OUTPUT: ${{ runner.temp }}/cmux-next-build-metrics/scheme/metrics.json
@@ -6364,6 +6447,22 @@ jobs:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-500
           scripts/cmux-next/check-app-personalities.sh "$(find "$derived_data/Build/Products/Debug" -maxdepth 1 -name 'cmux DEV*.app' -print -quit)"
 
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-scheme-fleet
+      - name: Compare the fleet app with this compile
+        if: ${{ !cancelled() && steps.fleet-app.outputs.parity_app != '' && env.CMUX_NEXT_DERIVED_DATA != '' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          FLEET_APP: ${{ steps.fleet-app.outputs.parity_app }}
+        run: |
+          set -uo pipefail
+          mac_app="$(find "$CMUX_NEXT_DERIVED_DATA/Build/Products/Debug" -maxdepth 1 -type d -name 'cmux DEV*.app' -print -quit)"
+          rc=0
+          python3 -I scripts/ci/app_bundle_parity.py "$FLEET_APP" "$mac_app" > "$RUNNER_TEMP/parity.md" || rc=$?
+          cat "$RUNNER_TEMP/parity.md" | tee -a "$GITHUB_STEP_SUMMARY"
+          if (( rc == 1 )); then
+            echo "::warning title=fleet parity::the build fleet's app and this Mac's differ (step summary)"
+          fi
       - name: Upload Debug scheme timing
         if: ${{ always() && inputs.dev_daily != true }}
         continue-on-error: true

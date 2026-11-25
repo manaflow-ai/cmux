@@ -5122,3 +5122,30 @@ So placement reads the controller's `/v1/status` (`step_queue_wait_p90_seconds.l
 cmux-next-tab-switch.yml's admission. Past 1200 s it lists no fleet job: fast-tier-fleet is skipped and
 `cmux-next fast tier` keeps the route the cascade gave it, with the reason in placement's summary. The
 gateway job still runs nothing but the client. An unreadable status lists the job as before (fail open).
+
+## note-scheme-fleet
+
+Above the `cmux-scheme-compile-fleet` job, the `CMUX_SCHEME_FLEET_JOB` env, and the "Take the app the build fleet
+built" and "Compare the fleet app with this compile" steps of `cmux-scheme-compile` in `.github/workflows/cmux-next.yml`.
+
+Leo, 2026-11-25: "can't we nearly 100x reduce the amount we need to wait on mac fleet?" and "i need us to be defo
+making sure it runs on our scheduler ... having our mac fleet be able to like... exist as fallbacks if we fucked up
+logic ... is still fine. but if like... it works ... and is at least as fast if not faster, then we ought to just go
+ahead."
+
+The Debug scheme compile was the largest Mac job: 7 days to 2026-11-25, 1,138 runs, 48.2 Mac job-h/day, queue p50
+43.7 min and p95 246.6 min, compile p50 17.7 min. The build fleet's `cmux` app recipe builds the same Debug cmux DEV
+app; the controller starts it when it sees `cmux app scheme compile (build fleet)` queued and serves the verdict at
+compile-checks phase `scheme-debug` with the job id of the app zip.
+
+- `cmux-scheme-compile-fleet` (owned pool runner, no Mac) waits for that verdict. It never fails: anything but `pass`
+  with a job id leaves `CMUX_SCHEME_FLEET_JOB` empty.
+- `cmux-scheme-compile` with a job id fetches the verified zip (`scripts/cmux-next/fleet-scheme-app.sh`), runs the
+  app-personality check on it and skips the toolchain, web-bundle and xcodebuild steps; the crash gate (Mac-native)
+  and the dogfood artifact read the fleet app unchanged. A fetch or personality failure logs a `fleet fallback`
+  warning and the Mac compiles as before, as does an empty job id.
+- Parity: heads whose sha ends in `0` (1 in 16; `vars.CI_SCHEME_FLEET_PARITY=always` for every head) still compile on
+  the Mac and compare file lists, Info.plist and Mach-O link lists (`scripts/ci/app_bundle_parity.py`); a difference
+  is a `fleet parity` warning with the table in the step summary.
+- Off switch: `vars.CI_SCHEME_COMPILE_FLEET=0` skips the fleet job; the Mac compiles every head. DEV Release
+  (`dev_daily`) compiles are unchanged.
