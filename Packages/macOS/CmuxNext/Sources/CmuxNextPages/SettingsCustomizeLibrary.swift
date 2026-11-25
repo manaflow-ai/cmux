@@ -23,7 +23,7 @@ import CmuxNextWakeups
 /// (cmux-customize `checklist.rs`); `has` names the connections the page already holds. It only reads.
 ///
 /// The customize doctor (cmux-customize `library/doctor.rs`, Settings' doctor card) rides the same
-/// op: `doctor` reads `cmux --json customize doctor`; `doctor-fix` {id, fix: off|remove|restore|follow-default},
+/// op: `doctor` reads `cmux --json customize doctor`; `doctor-fix` {id, fix: off|remove|restore},
 /// `doctor-dismiss` {id} and `doctor-recover` run its `fix`, `dismiss` and `recover` verbs;
 /// `doctor-open` {id} reads the report
 /// and opens the finding's `path` (a folder revealed in Finder, a file in its default app), the
@@ -140,8 +140,8 @@ public final class SettingsCustomizeLibrary: PageProvider {
             return doctor
         case "doctor-fix":
             let id = try findingID()
-            guard let fix = params["fix"]?.stringValue, ["off", "remove", "restore", "follow-default"].contains(fix) else {
-                throw PageError.invalidParams("fix is off, remove, restore or follow-default")
+            guard let fix = params["fix"]?.stringValue, ["off", "remove", "restore"].contains(fix) else {
+                throw PageError.invalidParams("fix is off, remove or restore")
             }
             return doctor + ["fix", id, fix]
         case "doctor-dismiss":
