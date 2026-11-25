@@ -42,5 +42,19 @@ pub(in crate::link::start_chat_cli) fn answer(
 ) -> Value {
     let mut install = String::new();
     let _ = stdin.read_line(&mut install);
+    if !install_team_on(std::env::var(KILL_SWITCH).ok().as_deref()) {
+        install.clear(); // killed: the active team alone, as before this wire change
+    }
     json!({ "teams": wire_teams(asked.active.as_deref(), &install) })
+}
+
+/// The kill switch: `CMUX_CLOUD_WIRE_INSTALL_TEAM=0` (or `off`, `false`) keeps the wire on the active team alone.
+/// On by default (Leo 2026-11-25: "it doesnt work if it's not "on by default"").
+pub(in crate::link::start_chat_cli) const KILL_SWITCH: &str = "CMUX_CLOUD_WIRE_INSTALL_TEAM";
+
+pub(in crate::link::start_chat_cli) fn install_team_on(value: Option<&str>) -> bool {
+    !matches!(
+        value.map(|v| v.trim().to_ascii_lowercase()).as_deref(),
+        Some("0" | "off" | "false" | "no")
+    )
 }
