@@ -120,6 +120,17 @@ enum DebugLayers {
                     fields["headless_in_sync"] = headless.map { .bool(distance($0.frame, host) <= 1) } ?? .null
                 }
             }
+            if entry.tab.presentation == .presented, let census = (entry.tab as? CEFTab)?.presentedPageCensus {
+                // Presented: cmux's page view hosts the page's context and takes its input; the page window is headless.
+                fields["presented_view_frame_in_window"] = rect(census.frameInWindow)
+                fields["presented_context_id"] = .number(Double(census.contextID))
+                fields["presented_input"] = .bool(census.takesInput)
+                fields["presented_detached"] = .bool(census.detached)
+                fields["presented_first_responder"] = .bool(census.isFirstResponder)
+                fields["presented_page_focused"] = .bool(census.pageFocused)
+                fields["presented_cursor"] = census.cursor.map(JSONValue.string) ?? .null
+                fields["hosted_layer_hosts"] = .number(Double(layerHostCount(content.layer)))
+            }
             if entry.tab.presentation == .childWindow, content.window === window, !content.isHiddenOrHasHiddenAncestor {
                 // The page window must cover the host view exactly, in
                 // screen coordinates, whatever moved the window.
@@ -162,6 +173,7 @@ enum DebugLayers {
             // In-tree pages (InTreePages): the mode ("off", "pending", "on", "unsupported_fork: why"), the page views in
             // this window's tree, and how many of them still have a drawing headless widget (must be 0).
             "in_tree": .string(InTreePages.shared.status),
+            "page_presentation": .string(InTreePages.shared.presentationStatus),
             // A view with no pane is parked, never shown: `parking` says where (`pageParking`); "unplaced" is a page view
             // nothing accounts for, which a check fails on.
             "page_views": .array(pageViews.map { view in
@@ -338,6 +350,7 @@ enum DebugLayers {
         case .inView: "in_view"
         case .childWindow: "child_window"
         case .inTree: "in_tree"
+        case .presented: "presented"
         }
     }
 

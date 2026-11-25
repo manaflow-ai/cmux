@@ -250,11 +250,12 @@ enum DebugKey {
         return WindowOverlayLayer.contentChildWindows(of: window).first { devTools.devToolsContains(window: $0) }
     }
 
-    /// The content view of `pane`'s selected Chromium tab when its page is in tree (the page's view is in the cmux
-    /// window, so there is no page window to click).
+    /// The content view of `pane`'s selected Chromium tab when its page is in tree or presented (the page's view is in
+    /// the cmux window, so there is no page window to click).
     static func inTreePageView(of pane: String, in controller: WindowController) -> NSView? {
         guard let window = controller.window, let paneController = controller.content?.paneController(key: pane),
-              case .browser(let entry)? = paneController.currentContent, entry.tab.presentation == .inTree,
+              case .browser(let entry)? = paneController.currentContent,
+              entry.tab.presentation == .inTree || entry.tab.presentation == .presented,
               entry.tab.contentView.window === window else { return nil }
         return entry.tab.contentView
     }

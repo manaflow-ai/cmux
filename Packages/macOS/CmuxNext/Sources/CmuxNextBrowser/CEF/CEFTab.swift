@@ -15,10 +15,12 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public let id: BrowserTabID
     public let engineKind: BrowserEngineKind = .cef
     public let profileID: BrowserProfileID
-    /// `.inTree` while in-tree pages are on (decided at launch for the process), else `.childWindow`; a page the fork
-    /// refused twice went back to its own window (``CEFInTreeHosting/fellBack``) and is `.childWindow` too.
+    /// `.presented` while pages are presented (decided at launch for the process), `.inTree` while in-tree pages are on,
+    /// else `.childWindow`; an in-tree page the fork refused twice went back to its own window
+    /// (``CEFInTreeHosting/fellBack``) and is `.childWindow` too.
     public var presentation: BrowserPresentation {
-        InTreePages.shared.isActive && host.hostView.inTree.isAllowed && !host.hostView.inTree.fellBack ? .inTree : .childWindow
+        if InTreePages.shared.isPresented { return .presented }
+        return InTreePages.shared.isActive && host.hostView.inTree.isAllowed && !host.hostView.inTree.fellBack ? .inTree : .childWindow
     }
 
     public var state: BrowserTabState { machine.state }
@@ -670,7 +672,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         let canTake = shown && pageWindowHostHasArea && !appearedThisTurn
         pendingFocus = focused && (!canTake || browserID == nil)
         guard !focused || canTake, let browserID else { return }
-        if focused { grantFocus(browserID) } else { runtime.shim?.setFocus(browserID, 0) }
+        if focused { grantFocus(browserID) } else if presentation == .presented { blurPresentedPage() } else { runtime.shim?.setFocus(browserID, 0) }
     }
 
     /// Whether the page is on screen and may take focus: the pane shows it, the content lifecycle

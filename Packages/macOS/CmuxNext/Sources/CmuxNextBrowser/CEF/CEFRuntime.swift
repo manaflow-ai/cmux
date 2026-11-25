@@ -40,6 +40,8 @@ final class CEFRuntime {
 
     // Routing tables (main thread).
     var tabsByBrowser: [Int32: CEFTab] = [:]
+    /// The key downs presented pages forwarded recently (``CEFForwardedKeys``): Chromium's key hooks see these.
+    var forwardedKeys = CEFForwardedKeys()
     var hosts: [CEFPaneKey: CEFPaneHost] = [:]
     let extensionActionReads = CEFExtensionActionReads()
     /// Profiles Chromium opened in this process (their files stay open until shutdown, so a deleted one's directory waits for the next launch).
@@ -471,11 +473,16 @@ final class CEFRuntime {
             let started = clock.now
             try CEFStartSteps.shared.initialize { () throws(BootError) in try initialize(library, prep: prep, environment: environment) }
             state = .ready
-            // In-tree pages need fork API 36; an older engine keeps child-window pages, and says so in debug.cef.
-            InTreePages.shared.engineResolved(CEFInTreeCalls.support(shim: library.shim, apiVersion: library.shim.forkAPIVersion()))
-            // The fork cancels an in-tree page's alert, confirm or prompt that no handler takes: cmux asks them
-            // (`CEFTab+JSDialogs`). Child-window pages keep Chromium's own dialog.
-            library.shim.setJSDialogs(InTreePages.shared.isActive ? 1 : 0)
+            // In-tree pages need fork API 36, presented pages API 26 and 30; an older engine keeps child-window pages, and
+            // says so in debug.cef.
+            let api = library.shim.forkAPIVersion()
+            InTreePages.shared.engineResolved(InTreePages.shared.requested == .presented
+                ? CEFPresentedCalls.support(shim: library.shim, apiVersion: api)
+                : CEFInTreeCalls.support(shim: library.shim, apiVersion: api))
+            // The fork cancels an in-tree or presented page's alert, confirm or prompt that no handler takes: cmux asks
+            // them (`CEFTab+JSDialogs`). Child-window pages keep Chromium's own dialog.
+            library.shim.setJSDialogs(InTreePages.shared.hasNoPageWindows ? 1 : 0)
+            if InTreePages.shared.isPresented { installPresentedHandlers(library.shim) }
             if choosersGoToApp { library.shim.setFileDialogs(1); fileDialogTrace.routedToApp = true }
             CEFStartSteps.shared.timed("ready_hooks") {
                 startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install()

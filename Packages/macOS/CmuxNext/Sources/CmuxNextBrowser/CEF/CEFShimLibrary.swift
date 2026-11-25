@@ -63,6 +63,20 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
                                              UnsafeMutableRawPointer?) -> Int32)?
     /// Fork API 30: `cmux_shim_browser_set_detached_hosting` (1 when the fork took it); nil in an older shim.
     let browserSetDetachedHosting: (@convention(c) (Int32, Int32) -> Int32)?
+    /// Presented pages (``CEFPresentedCalls``, `shim_presented.mm`): nil in an older shim. Fork API 30:
+    /// `cmux_shim_browser_send_wheel(browser, x, y, dx, dy, precise, phase, momentum phase, cef flags)`.
+    let browserSendWheel: (@convention(c) (Int32, Double, Double, Double, Double, Int32, Int32, Int32, Int32) -> Int32)?
+    /// `cmux_shim_browser_send_mouse(browser, x, y, phase, button, click count, buttons, NSEvent flags)`.
+    let browserSendMouse: (@convention(c) (Int32, Int32, Int32, Int32, Int32, Int32, Int32, UInt64) -> Int32)?
+    /// `cmux_shim_browser_send_key(browser, phase, key code, character, unmodified character, NSEvent flags, repeat)`.
+    let browserSendKey: (@convention(c) (Int32, Int32, Int32, Int32, Int32, UInt64, Int32) -> Int32)?
+    /// `cmux_shim_browser_edit(browser, command)`.
+    let browserEdit: (@convention(c) (Int32, Int32) -> Int32)?
+    /// `cmux_shim_browser_set_page_focus(browser, focus)`: the page's focus with no window made key.
+    let browserSetPageFocus: (@convention(c) (Int32, Int32) -> Int32)?
+    /// `cmux_shim_cursor_fn`: ctx, browser, NSCursor (valid during the call), cef_cursor_type_t -> 1 when shown.
+    typealias CursorFn = @convention(c) (UnsafeMutableRawPointer?, Int32, UnsafeMutableRawPointer?, Int32) -> Int32
+    let setCursorHandler: (@convention(c) (CursorFn?) -> Void)?
     /// Fork API 36, in-tree pages (``CEFInTreeCalls``): nil in an older shim.
     let browserSetInTreeHosting: (@convention(c) (Int32, UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?)?
     let browserInTreeContentView: (@convention(c) (Int32) -> UnsafeMutableRawPointer?)?
@@ -379,6 +393,12 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         browserSetResizeSync = try r("cmux_shim_browser_set_resize_sync")
         browserResizeFence = r.optional("cmux_shim_browser_resize_fence")
         browserSetDetachedHosting = r.optional("cmux_shim_browser_set_detached_hosting")
+        browserSendWheel = r.optional(CEFPresentedCalls.Symbol.sendWheel)
+        browserSendMouse = r.optional(CEFPresentedCalls.Symbol.sendMouse)
+        browserSendKey = r.optional(CEFPresentedCalls.Symbol.sendKey)
+        browserEdit = r.optional(CEFPresentedCalls.Symbol.edit)
+        browserSetPageFocus = r.optional(CEFPresentedCalls.Symbol.setPageFocus)
+        setCursorHandler = r.optional(CEFPresentedCalls.Symbol.setCursorHandler)
         browserSetInTreeHosting = r.optional(CEFInTreeCalls.Symbol.setInTreeHosting)
         browserInTreeContentView = r.optional(CEFInTreeCalls.Symbol.contentView)
         browserInTreeWidgetDrawing = r.optional(CEFInTreeCalls.Symbol.widgetDrawing)

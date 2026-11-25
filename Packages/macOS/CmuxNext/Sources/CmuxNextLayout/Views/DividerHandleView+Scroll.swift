@@ -10,7 +10,7 @@ import CmuxNextDesign
 /// WebKit view under the pointer's side scrolls as if the pointer were on it. With the mode off nothing changes.
 extension DividerHandleView {
     override func scrollWheel(with event: NSEvent) {
-        guard InTreePages.shared.isActive, let window, let target = Self.paneTarget(of: self, for: event, in: window),
+        guard InTreePages.shared.hasNoPageWindows, let window, let target = Self.paneTarget(of: self, for: event, in: window),
               let forwarded = Self.event(event, relocatedTo: target.point, in: window) else {
             return super.scrollWheel(with: event)
         }

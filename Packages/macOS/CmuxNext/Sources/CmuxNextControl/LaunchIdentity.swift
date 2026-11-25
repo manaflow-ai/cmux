@@ -167,6 +167,9 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// The in-tree pages switch (`InTreePages.environmentKey`, `1` or `0`): a bench or harness launch names it. Kept
     /// through the strip like the switches above; before, the strip took it, so it never reached the launch latch.
     public static let inTreePagesKey = "CMUX_IN_TREE_PAGES"
+    /// The page presentation mode (`InTreePages.presentationEnvironmentKey`: `presented`, `inTree`, `childWindow`): a
+    /// bench or harness launch names it. Kept through the strip like ``inTreePagesKey``.
+    public static let pagePresentationKey = "CMUX_PAGE_PRESENTATION"
 
     /// The Chromium page resize fence's wait override in ms (`CEFLayerHosting.resizeFenceTimeoutOverrideMs`): a harness
     /// names it for a fence experiment. Kept through the strip like ``inTreePagesKey``; another cmux's goes.
@@ -199,7 +202,8 @@ public struct LaunchIdentity: Sendable, Equatable {
         return processEnvironment.keys.filter { key in
             guard inherited(key) else { return false }
             if key == captureShellHomeKey, isDebugBuild, !fromOtherCmux { return false }
-            if key == liveCodeDirKey || key == noCustomizationsKey || key == inTreePagesKey || key == resizeFenceOverrideKey,
+            if key == liveCodeDirKey || key == noCustomizationsKey || key == inTreePagesKey || key == pagePresentationKey
+                || key == resizeFenceOverrideKey,
                !fromOtherCmux { return false }
             if cloudSelectionKnobs.contains(key) { return fromOtherCmux && !namesThisApp }
             if key.hasPrefix("CMUX_NEXT_") { return fromOtherCmux && stateRootKnobs.contains(key) }

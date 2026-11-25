@@ -300,7 +300,7 @@ final class WindowOverlayLayer {
     /// the overlay panel for good (user, 34f21f2f). With the mode off every page is a window and the rule is as before.
     static func shownPageWindows(of window: NSWindow) -> [NSWindow] {
         let content = contentChildWindows(of: window)
-        guard InTreePages.shared.isActive else { return content }
+        guard InTreePages.shared.hasNoPageWindows else { return content }
         return content.filter { isShownPageWindow($0, over: window) }
     }
 
@@ -360,7 +360,7 @@ final class WindowOverlayLayer {
     /// (`InTreeRetiredGuards.dividerCatchers`) and described (`retiredPageWindowSightings`, `debug.layers`), so a check
     /// names the window instead of only seeing a count.
     private func notePageWindowsInTree(_ pageWindows: [NSWindow]) {
-        guard InTreePages.shared.isActive else {
+        guard InTreePages.shared.hasNoPageWindows else {
             seenPageWindows.removeAll()
             return
         }

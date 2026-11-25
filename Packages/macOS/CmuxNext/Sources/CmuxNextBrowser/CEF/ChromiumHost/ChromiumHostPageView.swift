@@ -142,11 +142,10 @@ public final class ChromiumHostPageView: NSView {
     }
 
     private func mouse(_ event: NSEvent, phase: Int32, button: Int32) { // perf-hot: 5us cef-host-input (every mouse event)
-        let point = pagePoint(event)
-        // Pressed buttons as bits: 1 left, 2 right, 4 middle (NSEvent's order, the wire's too).
-        let buttons = Int32(truncatingIfNeeded: NSEvent.pressedMouseButtons & 0x7)
-        sink?(ChromiumHostFrame(.mouse, v: .init(point.x, point.y, phase, button, Int32(phase == 0 || phase == 3 ? 0 : event.clickCount), buttons),
-                                flags: UInt64(event.modifierFlags.rawValue), t0: Self.nanoseconds(event.timestamp)))
+        // The same translation a presented page's view uses (ChromiumPageInput), written as a wire frame.
+        guard case .mouse(let mouse) = ChromiumPageInput.mouse(event, in: self, phase: .init(rawValue: phase) ?? .move,
+                                                               button: button) else { return }
+        sink?(ChromiumHostFrame(mouse: mouse))
     }
 
     /// The event's point in page coordinates: points from the top left.
@@ -162,13 +161,8 @@ public final class ChromiumHostPageView: NSView {
     public override func flagsChanged(with event: NSEvent) { key(event, phase: 2) }
 
     private func key(_ event: NSEvent, phase: Int32) { // perf-hot: 5us cef-host-input (every key event)
-        var frame = ChromiumHostFrame(.key, v: .init(phase, Int32(event.keyCode), event.type == .flagsChanged ? 0 : (event.isARepeat ? 1 : 0)),
-                                      flags: UInt64(event.modifierFlags.rawValue), t0: Self.nanoseconds(event.timestamp))
-        if event.type != .flagsChanged {
-            frame.ch = event.characters?.utf16.first ?? 0
-            frame.unmod = event.charactersIgnoringModifiers?.utf16.first ?? 0
-        }
-        sink?(frame)
+        guard case .key(let key) = ChromiumPageInput.key(event) else { return }
+        sink?(ChromiumHostFrame(key: key))
     }
 
     // MARK: Edit menu

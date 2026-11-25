@@ -13,7 +13,7 @@ extension WindowOverlayHost {
     /// Whether this host puts its overlays on the window itself (in-tree pages on, never the app host), unless a page
     /// window is on screen over the window (``servesPageWindows``): views on the window would draw and take the mouse
     /// under it, so the overlays go back to the panel above it.
-    public var usesWindowBackend: Bool { !isAppHost && InTreePages.shared.isActive && !servesPageWindows }
+    public var usesWindowBackend: Bool { !isAppHost && InTreePages.shared.hasNoPageWindows && !servesPageWindows }
 
     /// Whether the overlay root is on the window's content view now.
     public var isRootInWindow: Bool {

@@ -9,7 +9,7 @@ extension CrossWindowInputGuard {
         let keyGuard = CrossWindowInputGuard { [weak windows] in windows?.owner(of: $0)?.state.id }
         // In-tree pages retire only a key that involves a Chromium page window (none should exist; counted in `debug.focus`
         // `in_tree_guards`); a key crossing real cmux windows (several windows, a `window.open` popup) is judged as off.
-        if InTreePages.shared.isActive, eventWindow?.isChromiumPageWindow == true || keyWindow?.isChromiumPageWindow == true {
+        if InTreePages.shared.hasNoPageWindows, eventWindow?.isChromiumPageWindow == true || keyWindow?.isChromiumPageWindow == true {
             if keyGuard.dropsKey(eventWindow: eventWindow, keyWindow: keyWindow, heldRun: router.creationInputCoordinator.replaying?.run) {
                 InTreeRetiredGuards.shared.fired(.crossWindowInput)
             }

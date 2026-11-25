@@ -143,6 +143,8 @@ struct Host {
   cmux_shim_key_fn unhandled_key = nullptr;
   cmux_shim_window_request_fn window_request = nullptr;
   cmux_shim_focus_request_fn focus_request = nullptr;
+  // Presented pages' cursors (cmux_shim_set_cursor_handler).
+  cmux_shim_cursor_fn cursor = nullptr;
 };
 
 ForkApi& fork_api();

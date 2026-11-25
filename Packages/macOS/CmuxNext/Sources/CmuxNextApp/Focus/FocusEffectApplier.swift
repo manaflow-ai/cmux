@@ -199,9 +199,10 @@ final class FocusEffectApplier: FocusEffectApplying {
         case .inView:
             blurChildWindowPage()
             if !responder(of: window, isInside: page.contentView) { setPageFocus(page, true) }
-        case .inTree:
+        case .inTree, .presented:
             // In-tree pages (InTreePages): the page's view is in this window, which stays key. No page window, no key
-            // change: the grant makes the page view this window's first responder through its gate.
+            // change: the grant makes the page view this window's first responder through its gate. Presented pages
+            // the same: cmux's page view is the responder, and its focus is the page's (no Chromium window key).
             blurDevTools()
             if let previous = inTreePage, previous !== page { dropInTreeFocusAsk() }
             inTreePage = page

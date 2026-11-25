@@ -26,6 +26,12 @@ import CmuxNextWakeups
 /// `browser` must name a live browser of the page window: a show records the
 /// shown one, and ``windowBrowsersChanged(_:)`` moves it off a closed one.
 ///
+/// Presented pages (``InTreePages/Presentation/presented``, a page window created with ``CEFPresentedCalls``): the
+/// page window is detached (fork API 30) from the hosting's first context on and never attaches again, through every
+/// resize motion, window change, show and focus; its view (``page``) is the page's only input surface
+/// (``CEFPresentedInput``). Chromium keeps exactly one window for the page, its own, headless, never ordered in and
+/// never key.
+///
 /// Tests drive it through ``Fork`` and the `schedule` seam, without Chromium.
 final class CEFLayerHosting {
     /// The fork's layer hosting call: a seam, so tests run this state machine
@@ -221,10 +227,15 @@ final class CEFLayerHosting {
     /// A new page window over the view (a pane's Chromium window, or a docked
     /// DevTools): the old window's context went with it. Called inside
     /// Chromium's creation stack, so the request waits for the end of the turn.
-    func pageWindowCreated(browser: Int32, fork: Fork?) {
+    /// `presented`: the page window is presented (its calls; nil for a child-window page, or a fork without detached
+    /// hosting).
+    func pageWindowCreated(browser: Int32, fork: Fork?, presented: CEFPresentedCalls? = nil) {
         dropPage()
         self.browser = browser
         self.fork = fork
+        let presents = presented != nil && fork?.setDetachedHosting != nil
+        self.presented = presents ? presented : nil
+        presentedInput = self.presented.map { calls in CEFPresentedInput(calls: calls, browser: { [weak self] in self?.browser }) }
         // A new page window starts with the fork's default: it never holds the commit.
         appliedDeadlineMs = 0
         pending = .none
@@ -241,6 +252,7 @@ final class CEFLayerHosting {
         guard let fork else { return }
         self.browser = browser
         if attachOwed { attachIfOwed() }
+        if detachOwed { present() }
         let wanted = isEnabled()
         if wanted == (page != nil) {
             syncDeadline()
@@ -285,7 +297,10 @@ final class CEFLayerHosting {
     func windowDidChange() {
         let wasInMotion = inResizeMotion
         inLiveResize = view?.window?.inLiveResize ?? false
-        if isDetached {
+        if presents {
+            // A presented page stays detached in every window: the fork's detached tracker follows its new parent.
+            motionKeepsAttached = false
+        } else if isDetached {
             // The old window never ends a live resize or a drag for a view that left it, and a detached page takes no
             // input: it attaches at once, at its new place, and stays attached for the rest of the motion.
             attach()
@@ -305,6 +320,7 @@ final class CEFLayerHosting {
         guard let browser, !browsers.contains(browser) else { return }
         self.browser = browsers.first
         if attachOwed { attachIfOwed() }
+        if detachOwed { present() }
     }
 
     /// The window starts or ends a live resize (`CEFHostView.viewWillStartLiveResize`). Fork API 27 never lets a page
@@ -366,6 +382,7 @@ final class CEFLayerHosting {
     /// to the page window now, so a refused request may succeed.
     func trackerDidRead() { // perf-hot: 1us cef-geometry (each tracker read)
         if attachOwed { attachIfOwed() }
+        if detachOwed { present() }
         guard pending == .armed else { return }
         request(retry: true)
     }
@@ -412,12 +429,15 @@ final class CEFLayerHosting {
     /// - Returns: Whether the page window was detached and came back now (its grant then waits for the next commit).
     @discardableResult
     func pageTakesFocus() -> Bool {
-        guard inResizeMotion else { return false }
+        // A presented page never has a window to bring back: its focus is its view's.
+        guard !presents, inResizeMotion else { return false }
         motionKeepsAttached = true
         return isDetached && setDetached(false)
     }
 
     private func motionChanged() {
+        // A presented page is detached already, for good: a motion changes nothing for its window.
+        guard !presents else { return }
         if inResizeMotion {
             // A live resize nobody drives (a display change's frame adjustment) moves the page once: no detach.
             motionKeepsAttached = holdsFocus() || (motionHolders == 0 && !liveResizeByPerson)
@@ -441,7 +461,7 @@ final class CEFLayerHosting {
     /// which came 30 to 40 ms after the key in half the presses). `grant` runs once the fork ordered the window in.
     /// A page in a resize motion, already detached, or not hosted is left as it is.
     func pageAppeared(windowInWindow: Bool, then grant: @escaping @MainActor () -> Void) {
-        guard !windowInWindow, firstFrameHold == .none, !isDetached, !inResizeMotion, setDetached(true) else { return }
+        guard !presents, !windowInWindow, firstFrameHold == .none, !isDetached, !inResizeMotion, setDetached(true) else { return }
         firstFrameHold = .detached
         afterFirstFrame = grant
         runAfterFrameShown { [weak self] in self?.attachAfterFirstFrame() }
@@ -510,7 +530,7 @@ final class CEFLayerHosting {
 
     /// Retries an attach a landing could not make (``attachOwed``); a new motion owns the page window again instead.
     private func attachIfOwed() {
-        guard !inResizeMotion else { return attachOwed = false }
+        guard !presents, !inResizeMotion else { return attachOwed = false }
         attach()
     }
 
@@ -561,6 +581,8 @@ final class CEFLayerHosting {
         dropPage()
         syncDeadline()
         browser = nil
+        presented = nil
+        presentedInput = nil
     }
 
     private func request(retry: Bool) {
@@ -582,6 +604,7 @@ final class CEFLayerHosting {
             if page.host(contextID: id) {
                 // The page's frame at a new size commits with the pane's only while hosted.
                 syncDeadline()
+                if presents { present() }
                 return
             }
             // No CALayerHost to show the context: the page window would stay
@@ -631,15 +654,44 @@ final class CEFLayerHosting {
         // The fork ends detached hosting when hosting goes off or the page window goes.
         isDetached = false
         attachOwed = false
+        detachOwed = false
         firstFrameHold = .none
         afterFirstFrame = nil
         owedGrant = nil
         shownFrame?.deactivate()
         shownFrame = nil
         guard let page else { return }
+        page.input = nil
         page.removeFromSuperview()
         self.page = nil
     }
+
+    // MARK: Presented pages
+
+    /// The page window is presented (``InTreePages/Presentation/presented``): detached from its first hosted context on,
+    /// for good, and its view is the page's input surface.
+    var presents: Bool { presented != nil }
+    /// The shim's presented-page calls while ``presents``.
+    private(set) var presented: CEFPresentedCalls?
+    /// The page view's input while ``presents`` (the view holds it weakly).
+    private(set) var presentedInput: CEFPresentedInput?
+    /// The fork refused to detach the presented page (a busy fork, a browser that went with a renderer restart): the
+    /// next show, browser change and tracker read try again. Until then the page window is a transparent child window
+    /// over the view that takes the mouse itself.
+    private(set) var detachOwed = false
+
+    /// Detaches the presented page's window and makes its view the input surface.
+    private func present() {
+        guard presents, let page else { return }
+        let wasInput = page.input != nil
+        page.input = presentedInput
+        detachOwed = !setDetached(true)
+        if detachOwed { CEFHostView.trackerStats.presentedDetachRefused += 1 }
+        if !wasInput { onPresented?() }
+    }
+
+    /// The page view became the page's input surface: a focus ask kept while it had no context is granted now.
+    var onPresented: (() -> Void)?
 
     /// Runs `block` on the main run loop at the end of this turn, after the
     /// caller's stack (Chromium's creation stack) returned.

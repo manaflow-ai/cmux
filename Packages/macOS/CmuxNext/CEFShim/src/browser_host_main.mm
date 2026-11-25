@@ -42,6 +42,7 @@
 
 #include "chromium_host_wire.h"
 #include "command_line_apply.h"
+#include "page_input.h"
 #include "page_scheme_registration.h"
 
 @interface ChromiumHostApplication : NSApplication <CefAppProtocol> {
@@ -252,90 +253,28 @@ void CreateBrowserIfReady() {
   if (!g_creating) SendText(cmux_host::kError, "CreateBrowser refused");
 }
 
-// NSEventModifierFlags (and the pressed mouse buttons) as cef_event_flags_t.
-uint32_t CefFlags(uint64_t ns, int buttons) {
-  uint32_t flags = 0;
-  if (ns & NSEventModifierFlagCapsLock) flags |= EVENTFLAG_CAPS_LOCK_ON;
-  if (ns & NSEventModifierFlagShift) flags |= EVENTFLAG_SHIFT_DOWN;
-  if (ns & NSEventModifierFlagControl) flags |= EVENTFLAG_CONTROL_DOWN;
-  if (ns & NSEventModifierFlagOption) flags |= EVENTFLAG_ALT_DOWN;
-  if (ns & NSEventModifierFlagCommand) flags |= EVENTFLAG_COMMAND_DOWN;
-  if (ns & NSEventModifierFlagNumericPad) flags |= EVENTFLAG_IS_KEY_PAD;
-  if (buttons & 1) flags |= EVENTFLAG_LEFT_MOUSE_BUTTON;
-  if (buttons & 2) flags |= EVENTFLAG_RIGHT_MOUSE_BUTTON;
-  if (buttons & 4) flags |= EVENTFLAG_MIDDLE_MOUSE_BUTTON;
-  return flags;
-}
-
 void RecordHop(uint64_t event_time) {
   const uint64_t now = Now();
   if (event_time && now > event_time) g_hop_us.push_back(static_cast<uint32_t>((now - event_time) / 1000));
 }
 
-// The modifier key a flags-changed key code belongs to.
-uint64_t ModifierOfKey(int key_code) {
-  switch (key_code) {
-    case 56: case 60: return NSEventModifierFlagShift;
-    case 59: case 62: return NSEventModifierFlagControl;
-    case 58: case 61: return NSEventModifierFlagOption;
-    case 55: case 54: return NSEventModifierFlagCommand;
-    case 57: return NSEventModifierFlagCapsLock;
-    default: return 0;
-  }
-}
-
-void HandleKey(const cmux_host::Header& h) {
-  CefKeyEvent event;
-  event.native_key_code = h.v[1];
-  event.modifiers = CefFlags(h.flags, 0);
-  if (h.v[2]) event.modifiers |= EVENTFLAG_IS_REPEAT;
-  CefRefPtr<CefBrowserHost> host = g_browser->GetHost();
-  if (h.v[0] == 2) {
-    // Flags changed: no characters, so CEF builds a flags-changed event.
-    event.type = (h.flags & ModifierOfKey(h.v[1])) ? KEYEVENT_RAWKEYDOWN : KEYEVENT_KEYUP;
-    host->SendKeyEvent(event);
-    return;
-  }
-  event.character = h.ch;
-  event.unmodified_character = h.unmod;
-  if (h.v[0] == 1) {
-    event.type = KEYEVENT_KEYUP;
-    host->SendKeyEvent(event);
-    return;
-  }
-  event.type = KEYEVENT_RAWKEYDOWN;
-  host->SendKeyEvent(event);
-  // Text: a character that is not a function key (U+F700..U+F8FF) and no
-  // Command chord, as cefclient's off-screen view sends it.
-  const bool function_key = h.ch >= 0xF700 && h.ch <= 0xF8FF;
-  if (h.ch && !function_key && !(h.flags & NSEventModifierFlagCommand)) {
-    event.type = KEYEVENT_CHAR;
-    host->SendKeyEvent(event);
-  }
-}
-
+// Input goes through the same translation as cmux's in-process presented pages (page_input.h).
 void HandleInput(const cmux_host::Header& h) {
   CefRefPtr<CefBrowserHost> host = g_browser->GetHost();
-  CefMouseEvent mouse;
-  mouse.x = h.v[0];
-  mouse.y = h.v[1];
   switch (h.kind) {
-    case cmux_host::kMouse: {
-      mouse.modifiers = CefFlags(h.flags, h.v[5]);
-      const auto button = h.v[3] == 2 ? MBT_RIGHT : h.v[3] == 1 ? MBT_MIDDLE : MBT_LEFT;
-      if (h.v[2] == 0 || h.v[2] == 3) {
-        host->SendMouseMoveEvent(mouse, h.v[2] == 3);
-      } else {
-        host->SendMouseClickEvent(mouse, button, h.v[2] == 2, std::max(1, h.v[4]));
-      }
+    case cmux_host::kMouse:
+      cmux_page_input::SendMouse(host, h.v[0], h.v[1], h.v[2], h.v[3], h.v[4], h.v[5], h.flags);
       break;
-    }
-    case cmux_host::kWheel:
-      mouse.modifiers = CefFlags(h.flags, 0);
+    case cmux_host::kWheel: {
+      CefMouseEvent mouse;
+      mouse.x = h.v[0];
+      mouse.y = h.v[1];
+      mouse.modifiers = cmux_page_input::CefFlags(h.flags, 0);
       host->SendMouseWheelEvent(mouse, h.v[2], h.v[3]);
       break;
+    }
     case cmux_host::kKey:
-      HandleKey(h);
+      cmux_page_input::SendKey(host, h.v[0], h.v[1], h.ch, h.unmod, h.flags, h.v[2] != 0);
       break;
   }
   RecordHop(h.t0);
@@ -385,18 +324,7 @@ void HandleFrame(cmux_host::Header h, std::string payload) {
       if (g_browser) g_browser->GetHost()->SetFocus(h.v[0] != 0);
       break;
     case cmux_host::kEdit:
-      if (g_browser) {
-        CefRefPtr<CefFrame> frame = g_browser->GetFocusedFrame();
-        if (!frame) frame = g_browser->GetMainFrame();
-        switch (h.v[0]) {
-          case 0: frame->Copy(); break;
-          case 1: frame->Cut(); break;
-          case 2: frame->Paste(); break;
-          case 3: frame->SelectAll(); break;
-          case 4: frame->Undo(); break;
-          case 5: frame->Redo(); break;
-        }
-      }
+      if (g_browser) cmux_page_input::Edit(g_browser, h.v[0]);
       break;
     case cmux_host::kPing: {
       cmux_host::Header pong;

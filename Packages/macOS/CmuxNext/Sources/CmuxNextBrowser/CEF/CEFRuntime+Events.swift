@@ -36,7 +36,8 @@ let cefKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent in
     return MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread in the guard above
         guard let runtime = CEFRuntime.from(address),
               let pointer = UnsafeMutableRawPointer(bitPattern: eventAddress) else { return 0 }
-        let event = Unmanaged<NSEvent>.fromOpaque(pointer).takeUnretainedValue()
+        // A presented page's forwarded key: the event cmux's key router decided, not CEF's rebuilt one.
+        let event = runtime.originalKeyEvent(Unmanaged<NSEvent>.fromOpaque(pointer).takeUnretainedValue())
         return runtime.routeKey(event, browser: browser) ? 1 : 0
     }
 }
@@ -50,7 +51,8 @@ let cefUnhandledKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent 
     return MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread in the guard above
         guard let runtime = CEFRuntime.from(address),
               let pointer = UnsafeMutableRawPointer(bitPattern: eventAddress) else { return 0 }
-        let event = Unmanaged<NSEvent>.fromOpaque(pointer).takeUnretainedValue()
+        // A presented page's forwarded key: the event cmux's key router decided, not CEF's rebuilt one.
+        let event = runtime.originalKeyEvent(Unmanaged<NSEvent>.fromOpaque(pointer).takeUnretainedValue())
         return runtime.routeUnhandledKey(event, browser: browser) ? 1 : 0
     }
 }
@@ -69,7 +71,8 @@ let cefDevToolsKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent i
     return MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread above
         guard let runtime = CEFRuntime.from(address),
               let pointer = UnsafeMutableRawPointer(bitPattern: eventAddress) else { return 0 }
-        let event = Unmanaged<NSEvent>.fromOpaque(pointer).takeUnretainedValue()
+        // A presented page's forwarded key: the event cmux's key router decided, not CEF's rebuilt one.
+        let event = runtime.originalKeyEvent(Unmanaged<NSEvent>.fromOpaque(pointer).takeUnretainedValue())
         return runtime.routeDevToolsKey(event, inspected: browser) ? 1 : 0
     }
 }
@@ -222,10 +225,10 @@ extension CEFRuntime {
         guard event.type == .keyDown, !event.modifierFlags.isDisjoint(with: [.command, .control]),
               let tab = tabsByBrowser[browser], let router = tab.keyRouter else { return false }
         if router.browserTab(tab, unhandledKeyEquivalent: event) { return true }
-        // In-tree pages: Chromium does not hand an unhandled key equivalent back to the window (a page window's own
-        // redispatch did), so the main menu gets it here. Never the window's `performKeyEquivalent`: the page view is
-        // its first responder, so that would come straight back to Chromium.
-        guard tab.presentation == .inTree else { return false }
+        // In-tree and presented pages: Chromium does not hand an unhandled key equivalent back to the window (a page
+        // window's own redispatch did), so the main menu gets it here. Never the window's `performKeyEquivalent`: the
+        // page view is its first responder, so that would come straight back to Chromium.
+        guard tab.presentation == .inTree || tab.presentation == .presented else { return false }
         return NSApp.mainMenu?.performKeyEquivalent(with: event) == true
     }
 

@@ -16,6 +16,7 @@ enum DebugFocus {
         let gate = InTreePageFocus.shared
         return .object([
             "status": .string(InTreePages.shared.status),
+            "page_presentation": .string(InTreePages.shared.presentationStatus),
             "gate_allowed": .number(Double(gate.allowed)),
             "gate_refused": .number(Double(gate.refused)),
             "gate_last_refusal": gate.lastRefusal.map(JSONValue.string) ?? .null,

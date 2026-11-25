@@ -397,6 +397,30 @@ CMUX_SHIM_EXPORT int cmux_shim_browser_drag_source_ended(int browser_id, double 
 // page's data; continue with the DragTarget* calls.
 CMUX_SHIM_EXPORT int cmux_shim_browser_drag_target_enter_source(int browser_id, int x, int y,
                                                                 int allowed_operations, int modifiers);
+// Presented pages (shim_presented.mm; cmux's page view is the page's only input surface, the page window
+// detached from its attach on). UI thread only; each returns 0 for an unknown browser.
+// A mouse event at (x, y), the page view's points from its top left: phase 0 move, 1 down, 2 up, 3 exit;
+// button 0 left, 1 middle, 2 right; buttons the pressed ones (1 left, 2 right, 4 middle); modifier_flags
+// are NSEventModifierFlags.
+CMUX_SHIM_EXPORT int cmux_shim_browser_send_mouse(int browser_id, int x, int y, int phase, int button, int click_count,
+                                                  int buttons, uint64_t modifier_flags);
+// A key: phase 0 down, 1 up, 2 flags changed; key_code the NSEvent keyCode; character and unmodified_character
+// the first UTF-16 unit of characters and charactersIgnoringModifiers (0 for none). A key down sends a raw key
+// down and, for text, a char event (page_input.h).
+CMUX_SHIM_EXPORT int cmux_shim_browser_send_key(int browser_id, int phase, int key_code, int character,
+                                                int unmodified_character, uint64_t modifier_flags, int repeat);
+// An Edit menu command on the focused frame: 0 copy, 1 cut, 2 paste, 3 select all, 4 undo, 5 redo, 6 delete,
+// 7 paste and match style.
+CMUX_SHIM_EXPORT int cmux_shim_browser_edit(int browser_id, int command);
+// Page focus without a key window: the detached page's key state (cmux_browser_set_embedder_active) and, to
+// focus, the page's web view in its own headless window (CefBrowserView::RequestFocus, never
+// CefBrowserHost::SetFocus, which activates the page window).
+CMUX_SHIM_EXPORT int cmux_shim_browser_set_page_focus(int browser_id, int focus);
+// Chromium's cursor for browser_id changed (CefDisplayHandler::OnCursorChange): ns_cursor is the NSCursor
+// (valid during the call; retain it to keep it), type the cef_cursor_type_t. Return 1 when the host shows it
+// (a presented page), 0 for Chromium's own handling. Main thread.
+typedef int (*cmux_shim_cursor_fn)(void* ctx, int browser_id, void* ns_cursor, int type);
+CMUX_SHIM_EXPORT void cmux_shim_set_cursor_handler(cmux_shim_cursor_fn handler);
 // The page chrome://newtab shows when no extension overrides the New Tab
 // page (fork API 12); NULL or "" keeps Chromium's. Any time, also before
 // cmux_shim_initialize. The ADDRESS event reports "chrome://newtab/" for a

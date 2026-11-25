@@ -81,7 +81,7 @@ final class DebugSettingsService: InternalPageProvider {
     /// Registers the catalog and activates the store (dev tools only).
     func start() {
         guard isAvailable else {
-            // Release and RC: no file; only `CMUX_IN_TREE_PAGES` can turn in-tree pages on.
+            // Release and RC: no file; only `CMUX_PAGE_PRESENTATION` or `CMUX_IN_TREE_PAGES` can change how pages show.
             InTreePages.shared.latch(fileOverride: nil, tag: nil)
             return
         }
@@ -99,15 +99,16 @@ final class DebugSettingsService: InternalPageProvider {
         services.cloud.auth.signInWindow = { .init(rawValue: AccountTunables.signInWindow.value.rawValue) ?? .automatic }
         // The store loads the file off the main actor, after the first icons draw: the family is read here.
         IconPack.useOverlay(Self.launchIconFamily(url).overlay)
-        // In-tree pages are decided once, before the first window or page: the file's switch as it is now.
-        InTreePages.shared.latch(fileOverride: Self.launchInTreePages(url), tag: launch.tag)
+        // How Chromium pages show is decided once, before the first window or page: the file's choice as it is now.
+        InTreePages.shared.latch(fileOverride: Self.launchPagePresentation(url), tag: launch.tag)
     }
 
-    /// Debug Settings `browser.inTreePages` as the override file holds it at launch (nil without an override).
-    nonisolated static func launchInTreePages(_ url: URL?) -> Bool? {
+    /// Debug Settings `browser.pagePresentation` (or the older `browser.inTreePages` switch) as the override file holds
+    /// it at launch (nil without an override).
+    nonisolated static func launchPagePresentation(_ url: URL?) -> InTreePages.Presentation? {
         // concurrency-allow: one small Debug Settings file, read once at launch before the first window
         guard let url, let data = try? Data(contentsOf: url) else { return nil }
-        return TunableFile.decode(data)[InTreePages.key] as? Bool
+        return InTreePages.fileOverride(in: TunableFile.decode(data))
     }
 
     /// Debug Settings `icons.family` as the override file holds it at launch (`pack` without one).

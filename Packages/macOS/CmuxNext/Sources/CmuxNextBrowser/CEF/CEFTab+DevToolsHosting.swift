@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 
 /// `BrowserDevToolsHosting` and the page/DevTools occlusion. The DevTools
 /// placement itself lives in `CEFDevToolsController` (`devToolsController`).
@@ -8,6 +9,15 @@ extension CEFTab {
     }
 
     public func setDevToolsFocused(_ focused: Bool) {
+        // Presented, the tools' page view is the window's first responder: its focus is the tools' (no window key).
+        if let host = devToolsController.views?.host, host.presentsPage, let tools = host.layerHosting.page, tools.input != nil {
+            if focused, tools.window?.firstResponder !== tools {
+                FocusRoute(.person, "cmux gives docked DevTools the keyboard").moveKeyboard(in: tools.window, to: tools)
+            } else {
+                tools.input?.focusChanged(focused)
+            }
+            return
+        }
         // In tree the tools' view takes the keys as cmux's window's first responder, which only a grant lets through.
         if focused, let host = devToolsController.views?.host, host.inTree.isInTree {
             host.inTree.grantFocus { devToolsController.setFocused(true) }
@@ -17,7 +27,7 @@ extension CEFTab {
     }
 
     public func devToolsContains(view: NSView) -> Bool {
-        guard devTools.isOpen, let host = devToolsController.views?.host, host.inTree.isInTree else { return false }
+        guard devTools.isOpen, let host = devToolsController.views?.host, host.inTree.isInTree || host.presentsPage else { return false }
         return view.isDescendant(of: host)
     }
 

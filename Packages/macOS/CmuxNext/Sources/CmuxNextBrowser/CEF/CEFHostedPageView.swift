@@ -7,9 +7,17 @@ import QuartzCore
 /// output into a Core Animation context and gives its id; this view hosts
 /// that context with a `CALayerHost`, so the page moves, clips, hides and
 /// shows in the same Core Animation transaction as the panes around it,
-/// with no WindowServer round trip for its pixels. The page window stays
-/// over `CEFHostView` as a transparent input target (mouse, keyboard, IME,
-/// drag and drop, accessibility are unchanged).
+/// with no WindowServer round trip for its pixels.
+///
+/// Child-window pages: the page window stays over `CEFHostView` as a transparent input target (mouse, keyboard, IME,
+/// drag and drop, accessibility are Chromium's own), and this view never takes the mouse.
+///
+/// Presented pages (``InTreePages/Presentation/presented``, an ``input`` set): the page window is headless and never
+/// ordered in, so this view is the page's only input surface. It takes the mouse where the page shows pixels, takes
+/// the keyboard as its window's first responder (after cmux's key router, which runs first in
+/// `CmuxApplication.sendEvent`), and turns mouse, scroll, keys and Edit menu actions into ``ChromiumPageInput``; its
+/// focus is the page's focus (``ChromiumPageInputSink/focusChanged(_:)``), with no Chromium window ever key. Chromium's
+/// cursor shows over it (``pageCursor``).
 ///
 /// A context id is a WindowServer name, not a pointer: the same view hosts
 /// a page whose browser runs in another process.
@@ -27,6 +35,22 @@ enum CEFPageHole: Equatable {
 final class CEFHostedPageView: NSView {
     /// The hosted context, 0 while no page is hosted.
     private(set) var contextID: UInt32 = 0
+    /// Where a presented page's input goes (``CEFPresentedInput``); nil for a child-window page, whose window takes it.
+    weak var input: (any ChromiumPageInputSink)? {
+        didSet {
+            guard (input == nil) != (oldValue == nil) else { return }
+            updateTrackingAreas()
+            window?.invalidateCursorRects(for: self)
+        }
+    }
+    /// Chromium's cursor over a presented page (`CefDisplayHandler::OnCursorChange`), shown while the pointer is over
+    /// this view; nil: the arrow.
+    var pageCursor: NSCursor? {
+        didSet { if pageCursor !== oldValue { pageCursorChanged() } }
+    }
+    /// The pointer is over this view (its own tracking area or the pane's pointer area said so).
+    var pointerInside = false
+    var trackingArea: NSTrackingArea?
     private let root = CALayer()
     private var remote: CALayer?
     /// The hosted context's root layer when that context is in this process (``remoteRoot``), held by its top-left
@@ -117,8 +141,18 @@ final class CEFHostedPageView: NSView {
     /// Not flipped: the fork's root layer is unflipped, origin bottom left (its top-left corner is held: ``placeRemote()``).
     override var isFlipped: Bool { false }
 
-    /// Input goes to the page window above; this view never takes the mouse.
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    /// Input goes to the page window above (a child-window page): this view never takes the mouse. A presented page's
+    /// view takes it where the page shows pixels (not in its hole: the host view under it takes a press there).
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard input != nil, !isHidden else { return nil }
+        let local = convert(point, from: superview)
+        guard bounds.contains(local) else { return nil }
+        switch hole {
+        case .whole: return nil
+        case .rect(let rect) where rect.contains(local): return nil
+        default: return self
+        }
+    }
 
     override func isAccessibilityElement() -> Bool { false }
 

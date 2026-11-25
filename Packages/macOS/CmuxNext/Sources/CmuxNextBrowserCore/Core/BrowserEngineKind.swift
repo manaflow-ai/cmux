@@ -19,4 +19,8 @@ public nonisolated enum BrowserPresentation: Hashable, Sendable {
     /// The content is Chromium's own view inside `BrowserTab.contentView`, in the window's view tree, with no page
     /// window (in-tree pages, fork API 36). Overlays are plain views above it; the window stays key.
     case inTree
+    /// The content is Chromium's page shown by cmux's own view inside `BrowserTab.contentView` (a `CALayerHost` of the
+    /// page's headless window), which takes the page's input and forwards it (presented pages, fork API 26 and 30). No
+    /// Chromium view or window is in the cmux window; overlays are plain views above it; the window stays key.
+    case presented
 }

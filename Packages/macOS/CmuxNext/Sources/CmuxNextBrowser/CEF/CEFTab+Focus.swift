@@ -90,6 +90,9 @@ extension CEFTab {
         }
         isGrantingFocus = true
         defer { isGrantingFocus = false }
+        // Presented pages: the page view becomes this window's first responder, which gives the page its focus and key
+        // state with no window made key (`CEFHostedPageView.becomeFirstResponder`, `cmux_shim_browser_set_page_focus`).
+        if presentation == .presented { return grantPresentedFocus() }
         // In-tree pages: the cmux window stays key; the page view becomes its first responder inside cmux's grant,
         // which the window's gate lets through (InTreePageFocus). No page window is made key.
         if presentation == .inTree {
@@ -111,5 +114,36 @@ extension CEFTab {
         runtime.shim?.setFocus(browser, 1)
         guard let window = pageWindow, let key = keyWindows.keyWindow(), key !== window, window.parent === key else { return }
         keyWindows.makeKey(window)
+    }
+}
+
+extension CEFTab {
+    /// Gives a presented page the keyboard on cmux's behalf: its page view becomes its window's first responder (the
+    /// view's focus is the page's). No Chromium call can make a window key here. A page whose view has no context yet
+    /// (its page window is new) keeps the ask, granted when the context comes (``CEFPaneHost``'s hosting).
+    func grantPresentedFocus() {
+        let hostView = host.hostView
+        guard let page = hostView.layerHosting.page, page.input != nil, let window = page.window else {
+            host.lifecycleTrace.record(id, "grant kept: presented page not hosted yet")
+            pendingFocus = true
+            return
+        }
+        if window.firstResponder === page {
+            // Already its window's first responder: Chromium may have lost the page's focus meanwhile (a hide).
+            page.input?.focusChanged(true)
+            return
+        }
+        if !FocusRoute(.person, "cmux grants a presented page the keyboard").moveKeyboard(in: window, to: page) {
+            host.lifecycleTrace.record(id, "grant refused: presented page view")
+        }
+    }
+
+    /// cmux takes the keyboard from a presented page: its key state goes off. The page view's own resignation does the
+    /// same when the focus model moves the window's first responder.
+    func blurPresentedPage() {
+        guard let page = host.hostView.layerHosting.page, page.input != nil else { return }
+        if page.window?.firstResponder === page {
+            page.input?.focusChanged(false)
+        }
     }
 }

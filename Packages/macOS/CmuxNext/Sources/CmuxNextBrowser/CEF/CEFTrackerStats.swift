@@ -55,6 +55,11 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
     public var inTreeRefused = 0
     /// Window page-update fan-outs an in-tree page skipped (``CEFHostView/pagesNeedUpdate(force:geometryOnly:)``).
     public var inTreeGeometrySkips = 0
+    /// Presented pages (``CEFLayerHosting/presents``): detaches the fork refused (each retried), page focus changes
+    /// cmux gave (no window key), and Chromium cursor changes shown over a page view.
+    public var presentedDetachRefused = 0
+    public var presentedFocusChanges = 0
+    public var presentedCursorChanges = 0
 
     public init() {}
 
@@ -83,7 +88,10 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
          "fence_presented": Double(resizeFencePresented), "fence_missed": Double(resizeFenceMissed),
          "fences_expired": Double(resizeFencesExpired),
          "in_tree_attaches": Double(inTreeAttaches), "in_tree_refused": Double(inTreeRefused),
-         "in_tree_geometry_skips": Double(inTreeGeometrySkips)]
+         "in_tree_geometry_skips": Double(inTreeGeometrySkips),
+         "presented_detach_refused": Double(presentedDetachRefused),
+         "presented_focus_changes": Double(presentedFocusChanges),
+         "presented_cursor_changes": Double(presentedCursorChanges)]
     }
 
     /// Monotonic seconds for timing a read.

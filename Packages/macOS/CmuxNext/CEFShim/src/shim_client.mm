@@ -605,6 +605,15 @@ class Client : public CefClient,
     Emit(CMUX_SHIM_STATUS_MESSAGE, browser->GetIdentifier(), 0, 0, 0, value.ToString());
   }
 
+  // A presented page's window is headless: Chromium's own cursor change (cursor rects of its page view) shows
+  // nowhere, so the host shows it over its page view. Other pages keep Chromium's handling.
+  bool OnCursorChange(CefRefPtr<CefBrowser> browser, CefCursorHandle cursor, cef_cursor_type_t type,
+                      const CefCursorInfo&) override {
+    Host& h = host();
+    if (!h.cursor) return false;
+    return h.cursor(h.ctx, browser->GetIdentifier(), (__bridge void*)cursor, static_cast<int>(type)) != 0;
+  }
+
   void OnFullscreenModeChange(CefRefPtr<CefBrowser> browser, bool fullscreen) override {
     Emit(CMUX_SHIM_FULLSCREEN, browser->GetIdentifier(), 0, fullscreen ? 1 : 0);
   }

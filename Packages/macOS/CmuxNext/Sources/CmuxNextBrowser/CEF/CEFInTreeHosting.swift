@@ -377,6 +377,11 @@ extension CEFHostView {
     /// the window's layers as before. A page the fork refuses twice goes back to layer hosting.
     func pageWindowCreated(browser: Int32, shim: CEFShimLibrary?, apiVersion: Int32) {
         let fork = CEFLayerHosting.Fork(shim: shim, apiVersion: apiVersion)
+        // Presented pages: hosted in the window's layers, the page window detached for good, this view's page view the
+        // input surface (CEFPresentedPages). In-tree hosting never runs for them.
+        if InTreePages.shared.isPresented, let presented = CEFPresentedCalls(shim: shim, apiVersion: apiVersion) {
+            return layerHosting.pageWindowCreated(browser: browser, fork: fork, presented: presented)
+        }
         guard inTree.pageWindowCreated(browser: browser, calls: CEFInTreeCalls(shim: shim, apiVersion: apiVersion)) else {
             return layerHosting.pageWindowCreated(browser: browser, fork: fork)
         }
