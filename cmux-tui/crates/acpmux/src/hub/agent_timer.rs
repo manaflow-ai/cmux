@@ -49,7 +49,9 @@ fn timers(goal: &Value) -> Vec<(Option<u64>, bool)> {
         Some(list) => list.iter().map(read).collect(),
         // A loop from an agent that names no list: its own next run, recurring when it has a
         // schedule.
-        None => vec![(goal.get("nextRunAt").and_then(Value::as_u64), goal.get("schedule").is_some())],
+        None => {
+            vec![(goal.get("nextRunAt").and_then(Value::as_u64), goal.get("schedule").is_some())]
+        }
     }
 }
 
@@ -59,8 +61,7 @@ fn timers(goal: &Value) -> Vec<(Option<u64>, bool)> {
 /// set over an armed loop no longer hides the loop's timers.
 pub(super) fn note_agent_goal(session: &Session, goal: &Value) {
     let looping = goal.get("kind").and_then(Value::as_str) == Some("loop");
-    *session.loop_timers.lock().unwrap_or_else(|e| e.into_inner()) =
-        looping.then(|| timers(goal));
+    *session.loop_timers.lock().unwrap_or_else(|e| e.into_inner()) = looping.then(|| timers(goal));
 }
 
 impl Hub {

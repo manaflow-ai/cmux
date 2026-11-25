@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "b78fea3142c415dfd279b2371c233d5c3927cf9113fe109686884610a4fed8f2";
+pub const ir_sha256 = "06b04f371f590cf85e5a742859b460ba88ba4a337c754058e101b84d90e89315";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -6326,6 +6326,8 @@ pub const CreateWorkspaceRequest = struct {
     key: wire.Field([]const u8) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
     name: wire.Field([]const u8) = .absent,
+    /// user: name is exactly what the caller asked for (agents chat new --name), pinned like a rename at name_revision 1 so no automatic name or chat title replaces it. Absent or auto: a starting name the automatic namer may replace.
+    name_source: wire.Field(NameSource) = .absent,
     origin: wire.Field([]const u8) = .absent,
 };
 
@@ -6760,6 +6762,25 @@ pub fn floatPane(client: anytype, request: FloatPaneRequest) !wire.Decoded(Float
             .authority = "control",
             .since = 12,
             .capability = "floating-panes-v1",
+        },
+        request,
+    );
+}
+
+pub const FlushLaunchSnapshotRequest = struct {};
+
+pub const FlushLaunchSnapshotResult = struct {
+    flushed: bool,
+};
+
+pub fn flushLaunchSnapshot(client: anytype, request: FlushLaunchSnapshotRequest) !wire.Decoded(FlushLaunchSnapshotResult) {
+    return client.callTyped(
+        FlushLaunchSnapshotResult,
+        .{
+            .name = "flush-launch-snapshot",
+            .authority = "control",
+            .since = 12,
+            .capability = "launch-snapshot-flush-v1",
         },
         request,
     );
@@ -13004,7 +13025,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 313;
+pub const command_count: usize = 314;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -13128,6 +13149,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "feed-local-list", .authority = "control", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
     .{ .name = "feed-local-read", .authority = "control", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
     .{ .name = "float-pane", .authority = "control", .since = 12, .capability = "floating-panes-v1", .stream = null },
+    .{ .name = "flush-launch-snapshot", .authority = "control", .since = 12, .capability = "launch-snapshot-flush-v1", .stream = null },
     .{ .name = "focus-direction", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "focus-pane", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "forget-session", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
