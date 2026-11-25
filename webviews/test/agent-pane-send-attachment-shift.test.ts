@@ -190,7 +190,7 @@ await requireBrowserLane("agent-pane-send-attachment-shift.test.ts", async () =>
     );
     await prompt.click();
     await pasteImage(page, width, height);
-    await page.locator(".acpmux-attachment-image").waitFor();
+    await page.locator(".acpmux-attachment-image").first().waitFor();
     await page.keyboard.type("what is this");
     // fixed-wait: the chip's own load settles before the send is measured.
     await page.waitForTimeout(300);
