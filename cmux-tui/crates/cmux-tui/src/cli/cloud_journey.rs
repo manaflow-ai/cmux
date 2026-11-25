@@ -30,14 +30,19 @@ use cmux_cloud_client::machine::{Machine, Scope};
 use cmux_cloud_client::ops::{self, Answer};
 use cmux_cloud_wire::{
     CloudMachineCreateOp, CloudMachineCreateParams, CloudMachineDeleteOp, CloudMachineDeleteParams,
-    CloudMachineGetOp, CloudMachineGetParams, CloudMachineSize, CloudMachineStatus,
+    CloudMachineGetOp, CloudMachineGetParams, CloudMachineListOp, CloudMachineListParams,
+    CloudMachineSize, CloudMachineStatus,
 };
 use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode};
 
+#[path = "cloud_journey/capsule.rs"]
+pub(super) mod capsule;
 #[path = "cloud_journey/repo.rs"]
 mod repo;
+#[path = "cloud_journey/sweep.rs"]
+mod sweep;
 
 pub(super) const USAGE: &str = "\
 usage: cmux cloud journey [--backend staging|prod|dev|preview-N | --api URL] [--team TEAM_ID]
@@ -65,8 +70,26 @@ checkout. --keep leaves the machine running at the end (its id is in the
 delete step) instead of deleting it.
 ";
 
-/// The shipped app's chat start size (cloud-journey.ts `CHAT_START_SIZE`, the platform's CHAT_START_SHAPE).
-const CHAT_START_SIZE: (i64, i64, i64) = (4, 16_384, 65_536);
+/// The shipped app's chat start size (cloud-journey.ts `CHAT_START_SIZE`, the app's `Machine.named`, the platform's
+/// CHAT_START_SHAPE, cmux-platform#1756): 2 vCPU, 4 GiB, 20 GiB disk. The platform's Scaler hands out a warm spare
+/// only to a create of exactly this shape; any other size skips the spare and makes a fresh machine.
+pub(super) const CHAT_START_SIZE: (i64, i64, i64) = (2, 4_096, 20_480);
+/// The size before the spare shape: the kill switch `CMUX_CLOUD_SPARE_CLAIM=0` creates at it, never claiming a spare.
+const NO_SPARE_SIZE: (i64, i64, i64) = (4, 16_384, 65_536);
+
+/// The create size: the spare shape (on by default; with no spare left the platform makes a fresh machine of it),
+/// or [`NO_SPARE_SIZE`] when `CMUX_CLOUD_SPARE_CLAIM` is `0`, `false` or `off`.
+pub(super) fn start_size(kill: Option<&str>) -> (i64, i64, i64) {
+    match kill.map(|v| v.trim().to_ascii_lowercase()) {
+        Some(v) if matches!(v.as_str(), "0" | "false" | "off") => NO_SPARE_SIZE,
+        _ => CHAT_START_SIZE,
+    }
+}
+
+/// [`start_size`] read from `CMUX_CLOUD_SPARE_CLAIM` (the journey's and the headless direct start's create).
+pub(super) fn start_size_from_env() -> (i64, i64, i64) {
+    start_size(std::env::var("CMUX_CLOUD_SPARE_CLAIM").ok().as_deref())
+}
 const RUNNING_BUDGET: Duration = Duration::from_secs(300);
 const DEFAULT_CHAT_BUDGET: Duration = Duration::from_secs(300);
 const DEFAULT_PROMPT: &str = "Reply with one short sentence that names the planet you are on.";
@@ -94,6 +117,8 @@ pub(super) struct Args {
     pub machine_config: Option<PathBuf>,
     /// `--keep`: the machine is the migrated project's, so it stays.
     pub keep: bool,
+    /// `cmux repro run --cloud`: replay a repro capsule instead of the chat (capsule.rs).
+    pub capsule: Option<capsule::CapsuleJob>,
 }
 
 /// `Some(exit code)` when `args` is `cloud journey …`.
@@ -130,6 +155,7 @@ pub(super) fn parse(words: &[String]) -> Result<Args, String> {
         repo: None,
         machine_config: None,
         keep: false,
+        capsule: None,
     };
     let mut it = words.iter();
     while let Some(word) = it.next() {
@@ -331,6 +357,7 @@ pub(super) fn shq(text: &str) -> String {
 /// `acpmux.service` listens (cmux-host `cloud/role.rs` `acpmux_home`). Without the last the start
 /// answered "no acpmux socket" on staging machines the TypeScript journey started agents on
 /// (backend runs 45306859441, 45310842160, 45312889044).
+#[cfg(test)]
 pub(super) fn launch_credential_program(
     session: &str,
     harness: &str,
@@ -584,7 +611,10 @@ async fn journey(global: &GlobalArgs, args: &Args) -> Result<i32, String> {
         meta: vec![
             ("tag", tag.clone()),
             ("team", args.team.clone().unwrap_or_else(|| "(personal)".into())),
-            ("agent", "claude".into()),
+            (
+                "agent",
+                if args.capsule.is_some() { "none (repro capsule)" } else { "claude" }.into(),
+            ),
             (
                 "driver",
                 concat!("cmux cloud journey (Rust, cmux-tui ", env!("CARGO_PKG_VERSION"), ")")
@@ -672,16 +702,22 @@ async fn journey(global: &GlobalArgs, args: &Args) -> Result<i32, String> {
         .map_err(|e| e.to_string())?;
     let scope = Scope::new(&api, args.team.as_deref()).map_err(|e| e.to_string())?;
 
+    sweep_step(&mut j, &http, &base).await;
+
     // create machine
     let t0 = Instant::now();
-    let machine_name = format!("cloud journey auto {tag}");
+    let machine_name = match &args.capsule {
+        Some(job) => format!("repro capsule {} {tag}", job.capsule.id),
+        None => format!("cloud journey auto {tag}"),
+    };
     let create_key = cmux_cloud_client::client_key();
+    let size = start_size_from_env();
     let params = CloudMachineCreateParams {
         name: Some(machine_name.clone()),
         size: CloudMachineSize {
-            cpu: Some(CHAT_START_SIZE.0),
-            memory_mb: Some(CHAT_START_SIZE.1),
-            disk_mb: Some(CHAT_START_SIZE.2),
+            cpu: Some(size.0),
+            memory_mb: Some(size.1),
+            disk_mb: Some(size.2),
         },
         image: None,
         from_snapshot: None,
@@ -752,37 +788,99 @@ async fn journey(global: &GlobalArgs, args: &Args) -> Result<i32, String> {
         j.record("delete", Status::Skip, t0, &format!("kept: machine {machine_id} (--keep)"));
         return Ok(finish(&j, json_out));
     }
-    let delete_key = cmux_cloud_client::client_key();
-    let mut deleted = Err(String::new());
-    for attempt in 0..4 {
-        let params = CloudMachineDeleteParams { machine: machine_id.clone() };
-        match ops::call::<CloudMachineDeleteOp>(&http, &base, params, Some(&delete_key), None)
-            .await
-            .and_then(Answer::into_result)
-        {
-            Ok(_) => {
-                deleted = Ok(());
-                break;
-            }
-            Err(error) if error.code.as_deref() == Some("cloud.machine.not_found") => {
-                deleted = Ok(());
-                break;
-            }
-            Err(error) if error.retryable && attempt < 3 => {
-                deleted = Err(format!("{} {}", error.code.unwrap_or_default(), error.message));
-                tokio::time::sleep(Duration::from_secs(5)).await;
-            }
-            Err(error) => {
-                deleted = Err(format!("{} {}", error.code.unwrap_or_default(), error.message));
-                break;
-            }
-        }
-    }
+    let deleted = delete_machine(&http, &base, &machine_id).await;
     match deleted {
         Ok(()) => j.pass("delete", t0, &machine_id),
         Err(error) => j.fail("delete", t0, &format!("{machine_id}: {error}")),
     }
     Ok(finish(&j, json_out))
+}
+
+/// Deletes one machine under one key, retried while the answer is retryable; gone already counts.
+async fn delete_machine(
+    http: &reqwest::Client,
+    base: &str,
+    machine_id: &str,
+) -> Result<(), String> {
+    let delete_key = cmux_cloud_client::client_key();
+    let mut deleted = Err(String::new());
+    for attempt in 0..4 {
+        let params = CloudMachineDeleteParams { machine: machine_id.to_owned() };
+        match ops::call::<CloudMachineDeleteOp>(http, base, params, Some(&delete_key), None)
+            .await
+            .and_then(Answer::into_result)
+        {
+            Ok(_) => return Ok(()),
+            Err(error) if error.code.as_deref() == Some("cloud.machine.not_found") => return Ok(()),
+            Err(error) if error.retryable && attempt < 3 => {
+                deleted = Err(format!("{} {}", error.code.unwrap_or_default(), error.message));
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+            Err(error) => {
+                return Err(format!("{} {}", error.code.unwrap_or_default(), error.message));
+            }
+        }
+    }
+    deleted
+}
+
+/// `sweep leaked journey machines` (cloud_journey/sweep.rs): lists the account's machines and deletes
+/// the stale journey-owned ones. A list or delete error is recorded as a skip and the run goes on.
+async fn sweep_step(j: &mut Journey, http: &reqwest::Client, base: &str) {
+    const STEP: &str = "sweep leaked journey machines";
+    let t0 = Instant::now();
+    let mut machines = Vec::new();
+    let mut cursor = None;
+    for _ in 0..20 {
+        let params = CloudMachineListParams { cursor: cursor.take(), limit: Some(100) };
+        match ops::call::<CloudMachineListOp>(http, base, params, None, None)
+            .await
+            .and_then(Answer::into_result)
+        {
+            Ok(page) => {
+                machines.extend(page.machines);
+                match page.next_cursor {
+                    Some(next) if !next.is_empty() => cursor = Some(next),
+                    _ => break,
+                }
+            }
+            Err(error) => {
+                let why = format!("list: {} {}", error.code.unwrap_or_default(), error.message);
+                j.record(STEP, Status::Skip, t0, &why);
+                return;
+            }
+        }
+    }
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX));
+    let stale: Vec<(String, String)> = sweep::stale(&machines, now_ms)
+        .into_iter()
+        .map(|m| (m.id.clone(), m.name.clone().unwrap_or_default()))
+        .collect();
+    let (mut gone, mut failed) = (Vec::new(), Vec::new());
+    for (id, name) in &stale {
+        match delete_machine(http, base, id).await {
+            Ok(()) => gone.push(format!("{id} ({name})")),
+            Err(error) => failed.push(format!("{id}: {error}")),
+        }
+    }
+    let detail = format!(
+        "{} machines listed, {} stale journey machines deleted{}{}",
+        machines.len(),
+        gone.len(),
+        if gone.is_empty() { String::new() } else { format!(": {}", gone.join(", ")) },
+        if failed.is_empty() {
+            String::new()
+        } else {
+            format!("; not deleted: {}", failed.join(", "))
+        },
+    );
+    if failed.is_empty() {
+        j.pass(STEP, t0, &detail);
+    } else {
+        j.record(STEP, Status::Skip, t0, &detail);
+    }
 }
 
 /// running, first exec, the model stub, pass login, start agent, send chat, reply. Stops at the
@@ -875,6 +973,11 @@ async fn chat_steps(
             j.fail("first exec", t0, &error);
             return Err(());
         }
+    }
+
+    // A repro capsule's replays take the chat's place (capsule.rs).
+    if let Some(job) = &args.capsule {
+        return capsule::capsule_steps(j, &mut exec, job, machine_id).await;
     }
 
     // clone repo, machine config: a moved project's journey (repo.rs).

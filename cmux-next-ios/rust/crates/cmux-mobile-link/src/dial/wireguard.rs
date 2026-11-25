@@ -415,7 +415,7 @@ fn parse_key(text: &str) -> Result<[u8; 32], DialError> {
 const UDP_BUFFER: usize = 2 * 1024 * 1024;
 
 /// A UDP socket for the tunnel, on any port, with [`UDP_BUFFER`] buffers.
-pub(super) fn bind_udp() -> io::Result<UdpSocket> {
+pub(crate) fn bind_udp() -> io::Result<UdpSocket> {
     let socket =
         socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, Some(socket2::Protocol::UDP))?;
     let _ = socket.set_recv_buffer_size(UDP_BUFFER);
@@ -533,7 +533,7 @@ const MAX_HOST_IPS: usize = 8;
 
 /// The IPv4 addresses of this machine's interfaces (the tunnel's socket is
 /// IPv4), as WebRTC gathers its host candidates.
-fn interface_ips() -> Vec<IpAddr> {
+pub(crate) fn interface_ips() -> Vec<IpAddr> {
     webrtc::util::ifaces::ifaces()
         .unwrap_or_default()
         .into_iter()
@@ -999,6 +999,12 @@ struct HybridUnderlay {
     /// overflowed the peer's socket buffer and lost the very datagrams the
     /// replay is for.
     replay_pending: bool,
+    /// The route moved (or was lost) since the tunnel last asked
+    /// ([`Underlay::take_path_change`]): its TCP then resends what was in
+    /// flight at once instead of waiting out a retransmit timer that backed
+    /// off while the old route lost it (cmux#39121's resend, which this
+    /// underlay never reported, so a Wi-Fi to cell handoff waited ~1.2 s).
+    path_changed: bool,
     /// The tunnel's receive task, woken when a control message applied on
     /// the send side brings a new socket or TURN allocation: nothing would
     /// otherwise poll it until a timer fires (the old socket's readiness is
@@ -1129,6 +1135,7 @@ impl HybridUnderlay {
             recent: std::collections::VecDeque::new(),
             last_replay: None,
             replay_pending: false,
+            path_changed: false,
             recv_waker: None,
             handshake_repeat: None,
             paths: paths::Paths::new(),
@@ -1606,6 +1613,7 @@ impl HybridUnderlay {
     /// TCP inside the tunnel see duplicate ACKs and resend its window). Replays for a route change (not `forced`) happen at
     /// most every [`REPLAY_GAP`].
     fn replay_recent(&mut self, forced: bool) {
+        self.path_changed = true;
         if self.direct.is_none() {
             self.replay_pending = true;
             return;
@@ -2452,6 +2460,10 @@ impl Underlay for HybridUnderlay {
 
     fn peer_hint(&self) -> Option<SocketAddr> {
         self.direct.map(|route| route.addr)
+    }
+
+    fn take_path_change(&mut self) -> bool {
+        std::mem::take(&mut self.path_changed)
     }
 }
 

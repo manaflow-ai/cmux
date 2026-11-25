@@ -286,6 +286,7 @@ class FakeStore:
         self.posts: list[tuple[str, str, str, bool]] = []
         self.lookups: list[tuple[str, str, bool]] = []
         self.write = write
+        self.error = ""
 
     def lookup(self, key: str, step: str, audit: bool = False) -> dict | None:
         self.lookups.append((key, step, audit))
@@ -389,6 +390,53 @@ class StepResultsTest(unittest.TestCase):
                             "the changed inputs are part of the key (a step's own router reads them)")
         self.assertEqual(self.key("a", ["a/x.txt", "b.txt"]), self.key("a", ["a/x.txt"]))
 
+    def test_a_refusing_store_is_named_in_the_log_and_a_plain_miss_is_not(self) -> None:
+        # 2026-11-25: the pool runners' calls were refused and every one read as a miss, so the store stayed empty
+        # with nothing in any log saying why.
+        import http.server
+        import threading
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            status = 401
+
+            def do_GET(self) -> None:
+                self.send_response(Handler.status)
+                self.end_headers()
+                self.wfile.write(b'{"miss":true}' if Handler.status == 404 else b"tagged node carries no client tag")
+
+            do_POST = do_GET
+
+            def log_message(self, *args) -> None:
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        store = ci_steps.StepResults(f"http://127.0.0.1:{server.server_port}", True, {})
+        code, out, _ran = self.run_job(store)
+        self.assertEqual(code, 0, out)
+        self.assertIn("lookup HTTP 401", out)
+        self.assertIn("nothing reused or stored", out)
+        Handler.status = 404
+        store = ci_steps.StepResults(f"http://127.0.0.1:{server.server_port}", True, {})
+        code, out, _ran = self.run_job(store)
+        self.assertEqual(code, 0, out)
+        self.assertIn("write HTTP 404", out, "a 404 lookup is a miss; the refused write still shows")
+        self.assertNotIn("lookup HTTP", out)
+        server.shutdown()
+        server.server_close()
+        store = ci_steps.StepResults(f"http://127.0.0.1:{server.server_port}", True, {})
+        calls = []
+        real = ci_steps.urllib.request.urlopen
+
+        def counted(*args, **kwargs):
+            calls.append(args)
+            return real(*args, **kwargs)
+        with mock.patch.object(ci_steps.urllib.request, "urlopen", counted):
+            code, out, _ran = self.run_job(store)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(len(calls), 1, "an unreachable store is called once, then left alone")
+        self.assertIn("lookup failed", out)
+
     def test_a_pass_is_stored_then_reused_and_the_setup_skipped(self) -> None:
         store = FakeStore()
         code, out, ran = self.run_job(store)
@@ -455,6 +503,62 @@ class StepResultsTest(unittest.TestCase):
         event.write_text(json.dumps({"pull_request": {"head": {"repo": {"full_name": "o/r"}}}}))
         same = ci_steps.StepResults.from_env({**on, "GITHUB_EVENT_NAME": "pull_request", "GITHUB_EVENT_PATH": str(event)})
         self.assertTrue(same.write)
+
+    def test_with_an_oidc_request_url_the_store_is_the_public_route_with_a_fresh_token(self) -> None:
+        # The Linux pool is off the tailnet: its jobs reach the controller's public route with an Actions OIDC token.
+        import http.server
+        import threading
+        seen: list[tuple[str, str, str]] = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            minted = 0
+
+            def answer(self, code: int, body: bytes) -> None:
+                self.send_response(code)
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_GET(self) -> None:
+                auth = self.headers.get("Authorization", "")
+                seen.append((self.command, self.path, auth))
+                if self.path.startswith("/github/") and self.headers.get("User-Agent", "").startswith("Python-urllib"):
+                    # Cloudflare in front of gh-events.cmux.com: 403, error code 1010, for Python's default agent.
+                    return self.answer(403, b"error code: 1010")
+                if self.path.startswith("/token"):
+                    Handler.minted += 1
+                    ok = auth == "bearer req-secret" and "audience=cmux-ci-step-results" in self.path
+                    return self.answer(200 if ok else 403, json.dumps({"value": f"tok{Handler.minted}"}).encode())
+                if not self.path.startswith("/github/step-results") or not auth.startswith("Bearer tok"):
+                    return self.answer(401, b"token refused")
+                self.answer(404 if self.command == "GET" else 204, b"")
+
+            do_POST = do_GET
+
+            def log_message(self, *args) -> None:
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{server.server_port}"
+        env = {"GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY": "o/r", "GITHUB_EVENT_NAME": "push",
+               "ACTIONS_ID_TOKEN_REQUEST_URL": f"{base}/token?api-version=2.0",
+               "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "req-secret", "CI_STEP_RESULTS_PUBLIC_URL": base}
+        store = ci_steps.StepResults.from_env(env)
+        self.assertEqual(store.url, f"{base}/github/step-results")
+        self.assertEqual(ci_steps.StepResults.from_env({**env, "CI_STEP_RESULTS_PUBLIC_URL": ""}).url,
+                         "https://gh-events.cmux.com/github/step-results")
+        no_oidc = {k: v for k, v in env.items() if not k.startswith("ACTIONS_ID_TOKEN")}
+        self.assertEqual(ci_steps.StepResults.from_env(no_oidc).url, ci_steps.CONTROLLER + "/v1/ci/step-results")
+        self.assertIsNone(store.lookup("0" * 64, "a"))
+        store.post("0" * 64, "a", "pass", 1.0)
+        server.shutdown()
+        server.server_close()
+        self.assertEqual(store.error, "", seen)
+        self.assertEqual([(m, a) for m, p, a in seen if p.startswith("/github")],
+                         [("GET", "Bearer tok1"), ("POST", "Bearer tok2")], "one fresh token per call")
+        code, out, _ran = self.run_job(store)
+        self.assertNotIn("req-secret", out)
+        self.assertNotIn("tok", out.replace("token", ""), "the token never reaches the log")
 
     def test_an_unreachable_controller_is_a_miss(self) -> None:
         s = ci_steps.StepResults("http://127.0.0.1:9", True, {}, timeout=1)
@@ -679,16 +783,22 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(set(wf.get("on", wf.get(True))), {"workflow_call"})
         self.assertEqual(wf["permissions"], {})
         job = wf["jobs"]["linux"]
-        self.assertEqual(job["permissions"], {"contents": "read"})
+        self.assertEqual(job["permissions"], {"contents": "read", "id-token": "write"},
+                         "id-token mints the step-result store's OIDC token, nothing else")
         checkout = job["steps"][0]
         self.assertEqual(checkout["with"]["fetch-depth"], 2)
         self.assertIs(checkout["with"]["persist-credentials"], False)
         runs = [i for i, s in enumerate(job["steps"]) if "ci/run run --job linux" in s.get("run", "")]
         self.assertEqual(len(runs), 1)
-        # After it only the failure-only upload of a fixit-compile patch (the web-typecheck step's), for the
-        # cmuxterm-hq reconciler, which reads a run's `fixit-compile-*` artifacts.
+        # After it only failure-only uploads: a fixit-compile patch (the web-typecheck step's), for the cmuxterm-hq
+        # reconciler, which reads a run's `fixit-compile-*` artifacts, and a failed web test shard's JUnit report.
         after = job["steps"][runs[0] + 1:]
-        self.assertEqual([s["name"] for s in after], ["Upload the fixit-compile patch"])
+        self.assertEqual([s["name"] for s in after], ["Upload the fixit-compile patch"] + [
+            f"Upload the web test JUnit report (shard {n})" for n in range(1, 5)])
+        for upload in after:
+            self.assertEqual(upload["if"], "${{ failure() && !cancelled() }}")
+            self.assertTrue(upload["uses"].startswith("actions/upload-artifact@"))
+            self.assertEqual(upload["with"]["if-no-files-found"], "ignore")
         self.assertEqual(after[0]["if"], "${{ failure() && !cancelled() }}")
         self.assertTrue(after[0]["uses"].startswith("actions/upload-artifact@"))
         self.assertTrue(after[0]["with"]["name"].startswith("fixit-compile-"))
@@ -924,6 +1034,73 @@ class PipelineTest(unittest.TestCase):
         # One failed command does not stop the others, as the job's `!cancelled()` steps did.
         self.assertEqual(holes.run.count("|| status=1"), 4)
         self.assertIn('exit "$status"', holes.run)
+        # ci-web.yml's diff-sidecar-check keeps its route and runs as the table step on feat-cmux-next pull requests,
+        # while docs-only fallback still runs the reusable job directly.
+        diff_wf = yaml.safe_load((ROOT / ".github/workflows/ci-web.yml").read_text())
+        self.assertTrue(diff_wf["jobs"]["diff-sidecar-check"]["if"].endswith(
+            "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback') }}"))
+        diff_step = steps["diff-sidecar-check"]
+        self.assertEqual(diff_step.job, "linux")
+        self.assertEqual(diff_step.timeout, 300)
+        self.assertEqual(diff_step.needs, ("bun", "rust"))
+        for path in ("Native/DiffSidecar/src/server.rs", "cmux-tui/crates/cmux-git/src/lib.rs",
+                     "webviews/src/diff/view.ts", "webviews/package.json", ".github/workflows/ci-web.yml",
+                     "scripts/ci/web_subareas.py"):
+            with self.subTest(path=path):
+                self.assertTrue(ci_steps.routed(diff_step, [path]))
+        self.assertFalse(ci_steps.routed(diff_step, ["web/app/page.tsx"]))
+        for command in ("bun install --frozen-lockfile", "rustup toolchain install 1.98.1",
+                        "run-diff-sidecar-cargo.sh fmt", "run-diff-sidecar-cargo.sh clippy",
+                        "run-diff-sidecar-cargo.sh test", "generate-diff-sidecar-types.sh --check"):
+            self.assertIn(command, diff_step.run)
+        self.assertGreaterEqual(diff_step.run.count("|| status=1"), 3)
+        self.assertIn("lint_status=1", diff_step.run)
+        # ci-web.yml's web-tests matrix and web-production-build run as table steps on feat-cmux-next pull requests
+        # only; the jobs still run on a push, a dispatch and a pull request into any other base.
+        web_jobs = diff_wf["jobs"]
+        for job in ("web-tests", "web-production-build"):
+            with self.subTest(job=job):
+                self.assertTrue(web_jobs[job]["if"].endswith(
+                    "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}"))
+        self.assertEqual(web_jobs["web-tests"]["strategy"]["matrix"]["shard"], ["1/4", "2/4", "3/4", "4/4"])
+        pipeline = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
+        uploads = {s.get("with", {}).get("name"): s for s in pipeline["jobs"]["linux"]["steps"] if "uses" in s}
+        for shard in range(1, 5):
+            step = steps[f"web-tests-{shard}"]
+            with self.subTest(step=step.name):
+                self.assertEqual(step.job, "linux")
+                self.assertEqual(step.timeout, 360)
+                self.assertTrue(step.alone)
+                self.assertEqual(step.needs, ("bun",))
+                self.assertEqual(step.title, f"Web tests ({shard}/4)")
+                self.assertTrue(step.run.lstrip().startswith(
+                    "python3 -I scripts/ci/web_subareas.py has unit_tests || exit 0"))
+                self.assertIn('flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile', step.run)
+                self.assertIn(f"./scripts/run-tests.sh --shard {shard}/4 --reporter=junit", step.run)
+                self.assertIn(f'report_dir="$RUNNER_TEMP/web-test-junit/shard{shard}"', step.run)
+                self.assertIn('exit "$status"', step.run)
+                upload = uploads[f"web-test-junit-shard{shard}-attempt${{{{ github.run_attempt }}}}"]
+                self.assertEqual(upload["if"], "${{ failure() && !cancelled() }}")
+                self.assertEqual(upload["with"]["path"], f"${{{{ runner.temp }}}}/web-test-junit/shard{shard}/junit.xml")
+                for path in ("web/app/page.tsx", "web/tests/foo.test.ts", "CHANGELOG.md",
+                             "config/iroh/managed-relay-catalog.json", "scripts/ci/web_subareas.py"):
+                    self.assertTrue(ci_steps.routed(step, [path]), path)
+                self.assertFalse(ci_steps.routed(step, ["webviews/src/main.ts"]))
+        build = steps["web-production-build"]
+        self.assertEqual(build.job, "linux")
+        self.assertEqual(build.timeout, 360)
+        # next build writes web/.next/types and web/next-env.d.ts, which the web-typecheck step reads.
+        self.assertTrue(build.alone)
+        self.assertEqual(build.needs, ("bun",))
+        self.assertTrue(build.run.lstrip().startswith(
+            "python3 -I scripts/ci/web_subareas.py has production_build || exit 0"))
+        self.assertIn('flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile', build.run)
+        self.assertIn("bun run vercel-build", build.run)
+        build_env = next(s["env"] for s in web_jobs["web-production-build"]["steps"] if s.get("run") == "bun run vercel-build")
+        for key, value in build_env.items():
+            self.assertIn(f"export {key}={value}", build.run)
+        for path in ("web/app/page.tsx", "bun.lock", "vercel.json", "package.json"):
+            self.assertTrue(ci_steps.routed(build, [path]), path)
         # These workflows keep the pull_request trigger for a macOS job; the moved Linux job skips it, and
         # a pull request runs it as a step of the table with the same command.
         jobs = {("agent-brands.yml", "drift"): "agent-brands-drift",
@@ -940,9 +1117,10 @@ class PipelineTest(unittest.TestCase):
         # The tools come from [tools], only for a routed step that lists them; nothing else puts bun or node
         # on the linux job's PATH, and the runner image is not assumed to hold either.
         table = ci_steps.load()
-        self.assertEqual(sorted(table.tools), ["bun", "go", "node", "rust", "zig", "zlib"])
+        self.assertEqual(sorted(table.tools), ["bun", "go", "node", "rust", "valgrind", "zig", "zlib"])
         wants_bun = {"app-platform", "mux", "automation-bench", "cloud-vm-image-lock", "cmux-vm-sdk", "web-complexity",
-                     "web-typecheck", "webviews-typecheck"}
+                     "web-typecheck", "webviews-typecheck", "diff-sidecar-check", "web-tests-1", "web-tests-2", "web-tests-3",
+                     "web-tests-4", "web-production-build"}
         wants_node = {"ci-artifact-worker", "coderouter", "web-complexity", "webviews-typecheck"}
         self.assertEqual(table.steps["coderouter"].needs, ("rust", "node"))
         self.assertEqual(table.steps["remote-daemon-packaging"].needs, ("go",))
@@ -1459,7 +1637,8 @@ class WebBrowserStepsTest(unittest.TestCase):
                 self.assertTrue(wf["jobs"][name]["if"].endswith(
                     "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}"))
         status = wf["jobs"]["web-status"]["steps"][0]["run"]
-        self.assertIn('may_skip.update({"web-typecheck", "web-instant-navigation", "agent-pane-real-acpmux"})', status)
+        self.assertIn('may_skip.update({"web-typecheck", "web-tests", "web-production-build", "web-instant-navigation", '
+                      '"agent-pane-real-acpmux"})', status)
 
 
 class IosJobTest(unittest.TestCase):
