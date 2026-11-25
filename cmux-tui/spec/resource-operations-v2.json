@@ -16036,6 +16036,78 @@
       },
       "extra": false
     },
+    "ThemeSlotsResolveResult": {
+      "kind": "object",
+      "fields": {
+        "slots": {
+          "required": true,
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Each `slots` key to its variant id, for each entry of the file's `slots` that schemas/theme/slots.json ships; the app passes it to its web views as the theme's `slots`."
+        },
+        "diagnostics": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ThemeSlotsDiagnostic"
+            }
+          },
+          "description": "Each refused `slots` entry, or the file itself when it does not parse."
+        }
+      },
+      "extra": false
+    },
+    "ThemeSlotsDiagnostic": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "unreadable_file",
+              "invalid_value",
+              "corrected_value"
+            ]
+          }
+        },
+        "path": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The dotted key (`slots.<id>`, or `slots`); empty for the file itself."
+        },
+        "message": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "One line, as a compiler prints it: `themes/NAME.json:LINE: key = value: message`."
+        },
+        "line": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "uint32"
+            }
+          },
+          "description": "The 1-based line of the entry, when it was found in the text."
+        }
+      },
+      "extra": false
+    },
     "ThemeSchemeSwatch": {
       "kind": "object",
       "fields": {
@@ -43271,6 +43343,61 @@
       "result": {
         "kind": "ref",
         "name": "ThemeSchemeFromImageResult"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "theme.slots.resolve": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "text": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 262144
+            },
+            "description": "A theme file's or theme pack's text, JSONC (at most 256 KiB)."
+          },
+          "name": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 200
+              }
+            },
+            "description": "The theme file's name, for the diagnostics' `themes/NAME.json` (default theme)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Stateless: nothing is written or kept between calls.",
+          "Each `slots` entry is checked against schemas/theme/slots.json: an unknown key or variant is left out with a diagnostic and the others are kept."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "ThemeSlotsResolveResult"
       },
       "errors": [
         "operation.failed",
