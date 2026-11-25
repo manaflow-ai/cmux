@@ -306,6 +306,9 @@ export function MakeItYoursStep({
   opened?: WalkValues | null;
 }) {
   const { strings, store } = useOnboarding();
+  // The walk's Tune asks density as three levels, the outer two behind More (hq RFD 0057, S6); it opens
+  // on all of them when the setting is already an outer one.
+  const [outerShown, setOuterShown] = useState(() => !DENSITY_THREE.includes(choices?.density ?? "cozy"));
   if (choices == null) return null;
   const current = walkValues(choices);
   if (screen === "look" || screen === "trust") {
@@ -401,14 +404,17 @@ export function MakeItYoursStep({
         </p>
       </Group>
     );
+  const three = choices.densities.filter((item) => DENSITY_THREE.includes(item.id));
+  const folds = screen === "tune" && three.length === DENSITY_THREE.length && three.length < choices.densities.length;
+  const densities = folds && !outerShown && DENSITY_THREE.includes(choices.density) ? three : choices.densities;
   const density = (
     <Group look={look} className="onb-make-density" label={strings.t("onboarding.makeItYours.density.label")}>
       <div
         className="onb-make-segments ui-slide-host"
-        style={{ "--onb-make-count": choices.densities.length } as CSSProperties}
+        style={{ "--onb-make-count": densities.length } as CSSProperties}
       >
         <SlidingIndicator selected={choices.density} selector="[data-checked]" className="onb-make-thumb" />
-        {choices.densities.map((item) => (
+        {densities.map((item) => (
           <label
             key={item.id}
             className="onb-make-segment ui-slide-item"
@@ -430,6 +436,19 @@ export function MakeItYoursStep({
           </label>
         ))}
       </div>
+      {folds && densities.length < choices.densities.length && (
+        <button
+          type="button"
+          className="ui-button ui-btn onb-walk-more-button"
+          data-variant="ghost"
+          data-size="sm"
+          data-density-more=""
+          aria-expanded={false}
+          onClick={() => setOuterShown(true)}
+        >
+          {strings.t("onboarding.makeItYours.density.more")}
+        </button>
+      )}
     </Group>
   );
   const background = (
@@ -540,6 +559,9 @@ export function MakeItYoursStep({
     </div>
   );
 }
+
+/** The walk's three density levels; the outer two (the tightest and the roomiest) wait behind More. */
+const DENSITY_THREE = ["compact", "cozy", "comfortable"];
 
 /** One choice: a fieldset with its question. The form look sets the question beside the control. */
 function Group({
