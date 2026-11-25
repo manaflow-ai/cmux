@@ -22,7 +22,7 @@ import { INSTALL_COMMANDS } from "../harnesses/harnessRows";
 import { heldPick } from "../newtab/draftFolder";
 import { startThenSend } from "./firstSend";
 import { cloudSendAgent, cloudStartModePick } from "../cloudModePick";
-import { rememberStartedProject } from "../newtab/startedProject";
+import { rememberStartedProject, rememberCloudPick } from "../newtab/startedProject";
 import { writePersistedDraft } from "../composerDraft";
 import { Composer, type ComposerHandle, type ComposerWake, type ComposerRelay } from "../Composer";
 import type { BrowseRequest } from "../browseProject";
@@ -1147,6 +1147,11 @@ export function drawPaneComposer({
                   directClient.current?.notice(started);
                   return false;
                 }
+                // The folder the person picked (here or by an earlier Cloud start) is Cloud's next default, kept
+                // apart from This Mac's (newtab/startedProject.ts, cmux#53226); the tab folder's GitHub origin no
+                // one picked never is.
+                if (started === true && "cwd" in folder && folder.cwd === pickedProject.current)
+                  rememberCloudPick(folder.cwd, callNative);
                 return started;
               }
               if (sandboxPickedNotOffered) {
