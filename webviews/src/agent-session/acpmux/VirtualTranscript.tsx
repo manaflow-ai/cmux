@@ -79,6 +79,7 @@ import {
   type FollowChase,
   ARRIVAL_EASE,
   arrivalStepMs,
+  popRiseMs,
   sendMotionMs,
   sendRiseMs,
 } from "./conversation/followChase";
@@ -4958,8 +4959,8 @@ function TranscriptView({
             if (recapCame && turnEndRecap(node) !== "place") recapCame = false;
             // With the send pop on, the send's own rows rise on the pop's clock instead of at once, in
             // either arm (SEND-RISE, Leo, 2026-11-22: "the chat transcript above doesn't quite smoothly
-            // account for things").
-            const rising = sentRows && now < sendClockUntil.current && sendRiseMs(node) > 0;
+            // account for things"). The pop's own rise only: off, a page's own send clock still lands at once.
+            const rising = sentRows && now < sendClockUntil.current && popRiseMs(node) > 0;
             const atOnce =
               dockMoved ||
               !live ||

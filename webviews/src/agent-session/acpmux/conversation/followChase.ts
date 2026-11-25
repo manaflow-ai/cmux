@@ -266,6 +266,14 @@ export function sendRiseMs(node: HTMLElement): number {
   return cssTimeMs(style?.getPropertyValue("--agent-motion-send-rise") ?? "") ?? sendMsOf(node, 1);
 }
 
+/// The pop's own rise (`--agent-motion-send-rise` set, which only the send pop does): 0 when the pop
+/// is off, even on a page with its own send clock. A path that only the pop changes reads this, so the
+/// pop off leaves it exactly as before (review of #55252, F1: SEND-SLIM's `data-send-entrance` clock).
+export function popRiseMs(node: HTMLElement): number {
+  const style = node.ownerDocument.defaultView?.getComputedStyle(node);
+  return cssTimeMs(style?.getPropertyValue("--agent-motion-send-rise") ?? "") ?? 0;
+}
+
 function sendRiseMsOf(node: HTMLElement, scale: number): number {
   const style = node.ownerDocument.defaultView?.getComputedStyle(node);
   return cssTimeMs(style?.getPropertyValue("--agent-motion-send-rise") ?? "") ?? sendMsOf(node, scale);
@@ -767,9 +775,9 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       // a move that raises the rows while the rise plays (the thinking row measured a pass after the
       // send's rows) joins the rise too: dropped to the drift, it ended the rise early and the rows
       // rested 175 ms before the bubble (SEND-RISE, agent-pane.send-rise pop-3-lines). Off, the
-      // send step's 0 rise lands at once, so the drift keeps it as before.
-      const joinsRise =
-        arm === "steady" && !sent && arrival?.sent === true && moved < 0 && sendRiseMsOf(node, scale) > 0;
+      // send step's 0 rise lands at once, so the drift keeps it as before; so does a page with its own
+      // send clock (`popRiseMs`: the pop's rise only).
+      const joinsRise = arm === "steady" && !sent && arrival?.sent === true && moved < 0 && popRiseMs(node) > 0;
       const timed =
         !held && (arm === "blocks" || arm === "spring" || (arm === "steady" && (sent || joinsRise))) && x !== 0;
       // A send's rows, or any move that raises the rows while a send's step plays, rise on the send
