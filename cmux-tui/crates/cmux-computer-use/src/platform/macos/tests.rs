@@ -3280,13 +3280,42 @@ fn background_web_keys_go_only_where_the_page_has_the_keyboard() {
 
 #[test]
 fn chromium_shows_its_pages_once_asked_like_a_screen_reader() {
-    use roles::{web_accessibility_attribute, web_engine};
+    use roles::web_accessibility_attribute;
     assert_eq!(
-        web_accessibility_attribute(web_engine(Some("com.google.Chrome"))),
+        web_accessibility_attribute(Some("com.google.Chrome")),
         Some("AXEnhancedUserInterface")
     );
-    assert_eq!(web_accessibility_attribute(web_engine(Some("com.apple.Safari"))), None);
-    assert_eq!(web_accessibility_attribute(web_engine(None)), None);
+    assert_eq!(web_accessibility_attribute(Some("com.apple.Safari")), None);
+    assert_eq!(web_accessibility_attribute(None), None);
+}
+
+/// Snag 3: cmux's agent chat is a Chromium (CEF) page that builds its
+/// accessibility tree only once a client sets `AXManualAccessibility` or
+/// `AXEnhancedUserInterface` on the app. cmux's bundle read as WebKit, so
+/// get_ui_tree never asked and the chat (messages, composer) was missing.
+#[test]
+fn cmux_is_asked_for_its_chromium_chat_pages_before_a_tree_walk() {
+    use roles::{WebEngine, embeds_chromium, web_accessibility_attribute, web_engine};
+    for id in [
+        "com.cmuxterm.app",
+        "com.cmuxterm.app.next",
+        "com.cmuxterm.app.nightly",
+        "com.cmuxterm.app.nightly.cmux-next",
+        "com.cmuxterm.app.debug.my-tag",
+        "COM.CMUXTERM.APP.Debug",
+    ] {
+        assert!(embeds_chromium(Some(id)), "{id}");
+        assert_eq!(web_accessibility_attribute(Some(id)), Some("AXManualAccessibility"), "{id}");
+        // Focus and caret rules stay WebKit's: cmux's internal pages are WKWebViews.
+        assert_eq!(web_engine(Some(id)), WebEngine::Other, "{id}");
+    }
+    for id in
+        ["com.cmuxterm.appx", "com.cmuxterm.remote", "com.cmuxterm.remote.dev", "com.apple.Safari"]
+    {
+        assert!(!embeds_chromium(Some(id)), "{id}");
+        assert_eq!(web_accessibility_attribute(Some(id)), None, "{id}");
+    }
+    assert!(!embeds_chromium(None));
 }
 
 #[test]
