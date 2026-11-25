@@ -58,9 +58,18 @@ fn kept_on_machine(name: &str, path: &Path) -> bool {
     if KEPT_ON_MACHINE.contains(&name) {
         return true;
     }
+    // The agent wrote the tag: a link or a named pipe there is not one, and never blocks the read.
     let mut head = [0u8; 43];
-    fs::File::open(path.join("CACHEDIR.TAG"))
-        .and_then(|mut file| file.read_exact(&mut head))
+    fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path.join("CACHEDIR.TAG"))
+        .and_then(|mut file| {
+            if !file.metadata()?.is_file() {
+                return Err(std::io::ErrorKind::InvalidInput.into());
+            }
+            file.read_exact(&mut head)
+        })
         .is_ok_and(|()| head == *b"Signature: 8a477f597d28d172789f06886806bc55")
 }
 

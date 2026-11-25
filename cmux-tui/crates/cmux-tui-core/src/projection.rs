@@ -33,11 +33,12 @@
 //! - `{"id", "cmd": "projection.drop", "name"}`: the same with no mark (a Mac from before
 //!   `projection.brought_back`); `{"id", "ok": true, "data": {"dropped"}}`.
 //!
-//! - `{"id", "cmd": "projection.unsynced", "name"}`: one metadata walk of the upper layer, no
-//!   bytes, for a "N files to bring back" line: `{"files", "bytes", "deleted", "kept_on_machine":
-//!   {"folders", "files", "bytes"}}`. `files` and `bytes` are what Bring Back would list (files
-//!   and links), `deleted` its whiteouts, `kept_on_machine` the dependency, cache and build
-//!   folders `"prune": true` leaves on the machine.
+//! - `{"id", "cmd": "projection.unsynced", "name", "prune"?}`: one metadata walk of the upper
+//!   layer, no bytes, for a "N files to bring back" line: `{"files", "bytes", "deleted"}`, what
+//!   Bring Back would list (files and links) and its whiteouts. With `prune`, as
+//!   `projection.layer` prunes, plus `"kept_on_machine": {"folders", "files", "bytes", "paths"}`
+//!   (the first 256 folders): a caller whose manifest holds one of `paths` asks again without
+//!   `prune`, as Bring Back does, so a committed `node_modules`'s edits are counted.
 //!
 //! Pinned folders (`cmux_projection::overlay::pin`, "available offline"), by projection `name`,
 //! mounted here, each one request and its answer:
@@ -715,7 +716,7 @@ fn way_back_answer(
             if !state.is_dir() {
                 return Err(("projection.unknown", format!("no projection {} here", line.name)));
             }
-            Ok((unsynced(&state).map_err(|error| io(&error))?, WayBackBody::None))
+            Ok((unsynced(&state, line.prune).map_err(|error| io(&error))?, WayBackBody::None))
         }
         FILES => {
             if line.paths_bytes > MAX_PATHS_BYTES {
@@ -749,24 +750,31 @@ fn way_back_answer(
     }
 }
 
+/// The most pruned folders [`UNSYNCED`]'s answer names.
+const UNSYNCED_FOLDERS: usize = 256;
+
 /// [`UNSYNCED`]'s answer for the projection whose state folder is `state` (module docs).
-fn unsynced(state: &Path) -> anyhow::Result<Value> {
-    let (layer, pruned) = cmux_projection::layer::Layer::collect_pruned(state)?;
+fn unsynced(state: &Path, prune: bool) -> anyhow::Result<Value> {
+    let (layer, pruned) = if prune {
+        cmux_projection::layer::Layer::collect_pruned(state)?
+    } else {
+        (cmux_projection::layer::Layer::collect(state)?, Vec::new())
+    };
     let (files, bytes) = layer
         .upper
         .iter()
         .filter(|entry| entry.kind != cmux_projection::manifest::Kind::Dir)
         .fold((0u64, 0u64), |(files, bytes), entry| (files + 1, bytes + entry.size));
-    Ok(json!({
-        "files": files,
-        "bytes": bytes,
-        "deleted": layer.whiteouts.len(),
-        "kept_on_machine": {
+    let mut data = json!({"files": files, "bytes": bytes, "deleted": layer.whiteouts.len()});
+    if prune {
+        data["kept_on_machine"] = json!({
             "folders": pruned.len(),
             "files": pruned.iter().map(|folder| folder.files).sum::<u64>(),
             "bytes": pruned.iter().map(|folder| folder.bytes).sum::<u64>(),
-        },
-    }))
+            "paths": pruned.iter().take(UNSYNCED_FOLDERS).map(|f| &f.path).collect::<Vec<_>>(),
+        });
+    }
+    Ok(data)
 }
 
 /// [`PIN`], [`UNPIN`] or [`PINS`] of projection `line.name`, mounted here (module docs).
