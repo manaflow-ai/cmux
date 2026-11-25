@@ -773,6 +773,7 @@ export function Thinking({
         data-find-skip
         data-lead-slot
         data-retrying=""
+        title={parts.detail}
       >
         <output className={`cv-thinking ${SHIMMER_CLASS} cv-retrying`}>
           <span className="cv-shimmer__row">

@@ -546,6 +546,7 @@ import {
   RunElsewhereStore,
 } from "./conversation/runElsewhereModel";
 import { NewestSteerContext, SteerChatContext } from "./conversation/pendingSteerModel";
+import { CapacityWaitContext } from "./capacityWait";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
 import { useTranscriptView, type TranscriptView } from "./conversation/transcriptView";
 import { isWorkedFold, NO_FOLD_TOGGLES, viewFolds, type Folds } from "./conversation/viewFolds";
@@ -9390,7 +9391,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const transcript = (
     <PresentationContext.Provider value={chatPresentation}>
       <ThinkingVerbsContext.Provider value={thinkingVerbs}>
-        <SteerChatContext.Provider value={snapshot.sessionId ?? ""}>{transcriptContent}</SteerChatContext.Provider>
+        <SteerChatContext.Provider value={snapshot.sessionId ?? ""}>
+          <CapacityWaitContext.Provider value={snapshot.capacityWait}>{transcriptContent}</CapacityWaitContext.Provider>
+        </SteerChatContext.Provider>
       </ThinkingVerbsContext.Provider>
     </PresentationContext.Provider>
   );

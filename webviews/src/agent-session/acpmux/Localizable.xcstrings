@@ -1,6 +1,10 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "capacity.live": {"comment":"Agent pane: the live line while the agent's harness retries a model that is full or rate limited; the retry count and countdown follow it. Never an error.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"بانتظار توفر السعة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Čeka se kapacitet"}},"da":{"stringUnit":{"state":"needs_review","value":"Venter på kapacitet"}},"de":{"stringUnit":{"state":"needs_review","value":"Warten auf Kapazität"}},"en":{"stringUnit":{"state":"translated","value":"Waiting for capacity"}},"es":{"stringUnit":{"state":"needs_review","value":"Esperando capacidad"}},"fr":{"stringUnit":{"state":"needs_review","value":"En attente de capacité"}},"it":{"stringUnit":{"state":"needs_review","value":"In attesa di capacità"}},"ja":{"stringUnit":{"state":"needs_review","value":"空きを待っています"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងរង់ចាំសមត្ថភាព"}},"ko":{"stringUnit":{"state":"needs_review","value":"용량 대기 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Venter på kapasitet"}},"pl":{"stringUnit":{"state":"needs_review","value":"Czekanie na dostępność"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Aguardando capacidade"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ожидание мощностей"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังรอความจุ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kapasite bekleniyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Очікування потужностей"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang chờ dung lượng"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在等待容量"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在等待容量"}}}},
+    "capacity.wait.about": {"comment":"Agent pane: where a turn's answer would be while the model it uses is full or its limit is spent and cmux goes on by itself; {time} is a short live countdown such as 40s or 3m 15s. Never an error.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"بانتظار توفر السعة، حوالي {time}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Čeka se kapacitet, oko {time}"}},"da":{"stringUnit":{"state":"needs_review","value":"Venter på kapacitet, cirka {time}"}},"de":{"stringUnit":{"state":"needs_review","value":"Warten auf Kapazität, etwa {time}"}},"en":{"stringUnit":{"state":"translated","value":"Waiting for capacity, about {time}"}},"es":{"stringUnit":{"state":"needs_review","value":"Esperando capacidad, unos {time}"}},"fr":{"stringUnit":{"state":"needs_review","value":"En attente de capacité, environ {time}"}},"it":{"stringUnit":{"state":"needs_review","value":"In attesa di capacità, circa {time}"}},"ja":{"stringUnit":{"state":"needs_review","value":"空きを待っています（約 {time}）"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងរង់ចាំសមត្ថភាព ប្រហែល {time}"}},"ko":{"stringUnit":{"state":"needs_review","value":"용량 대기 중, 약 {time}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Venter på kapasitet, omtrent {time}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Czekanie na dostępność, około {time}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Aguardando capacidade, cerca de {time}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ожидание мощностей, около {time}"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังรอความจุ ประมาณ {time}"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kapasite bekleniyor, yaklaşık {time}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Очікування потужностей, близько {time}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang chờ dung lượng, khoảng {time}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在等待容量，约 {time}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在等待容量，約 {time}"}}}},
+    "capacity.wait.soon": {"comment":"Agent pane: the capacity wait's line once its resume time has come or while it is not known yet; cmux goes on by itself any moment.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"بانتظار توفر السعة، في أي لحظة الآن"}},"bs":{"stringUnit":{"state":"needs_review","value":"Čeka se kapacitet, svakog trenutka"}},"da":{"stringUnit":{"state":"needs_review","value":"Venter på kapacitet, når som helst nu"}},"de":{"stringUnit":{"state":"needs_review","value":"Warten auf Kapazität, jeden Moment"}},"en":{"stringUnit":{"state":"translated","value":"Waiting for capacity, any moment now"}},"es":{"stringUnit":{"state":"needs_review","value":"Esperando capacidad, en cualquier momento"}},"fr":{"stringUnit":{"state":"needs_review","value":"En attente de capacité, d'un instant à l'autre"}},"it":{"stringUnit":{"state":"needs_review","value":"In attesa di capacità, a momenti"}},"ja":{"stringUnit":{"state":"needs_review","value":"空きを待っています（まもなく）"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងរង់ចាំសមត្ថភាព នៅពេលឆាប់ៗនេះ"}},"ko":{"stringUnit":{"state":"needs_review","value":"용량 대기 중, 곧 재개"}},"nb":{"stringUnit":{"state":"needs_review","value":"Venter på kapasitet, når som helst nå"}},"pl":{"stringUnit":{"state":"needs_review","value":"Czekanie na dostępność, za chwilę"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Aguardando capacidade, a qualquer momento"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ожидание мощностей, вот-вот"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังรอความจุ อีกไม่นาน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kapasite bekleniyor, her an"}},"uk":{"stringUnit":{"state":"needs_review","value":"Очікування потужностей, ось-ось"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang chờ dung lượng, sắp xong"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在等待容量，马上就好"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在等待容量，馬上就好"}}}},
+    "capacity.wait.goesOn": {"comment":"Agent pane: a quiet note under the capacity wait's line in its card look: nothing to do, the chat continues by itself.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"ستتابع المحادثة من تلقاء نفسها."}},"bs":{"stringUnit":{"state":"needs_review","value":"Razgovor će se sam nastaviti."}},"da":{"stringUnit":{"state":"needs_review","value":"Chatten fortsætter af sig selv."}},"de":{"stringUnit":{"state":"needs_review","value":"Der Chat geht von selbst weiter."}},"en":{"stringUnit":{"state":"translated","value":"The chat goes on by itself."}},"es":{"stringUnit":{"state":"needs_review","value":"El chat continuará solo."}},"fr":{"stringUnit":{"state":"needs_review","value":"La conversation reprendra d'elle-même."}},"it":{"stringUnit":{"state":"needs_review","value":"La chat riprende da sola."}},"ja":{"stringUnit":{"state":"needs_review","value":"チャットは自動で再開します。"}},"km":{"stringUnit":{"state":"needs_review","value":"ការជជែកនឹងបន្តដោយខ្លួនឯង។"}},"ko":{"stringUnit":{"state":"needs_review","value":"채팅은 자동으로 이어집니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Chatten fortsetter av seg selv."}},"pl":{"stringUnit":{"state":"needs_review","value":"Czat wznowi się sam."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O chat continua sozinho."}},"ru":{"stringUnit":{"state":"needs_review","value":"Чат продолжится сам."}},"th":{"stringUnit":{"state":"needs_review","value":"แชทจะดำเนินต่อเอง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sohbet kendiliğinden devam edecek."}},"uk":{"stringUnit":{"state":"needs_review","value":"Чат продовжиться сам."}},"vi":{"stringUnit":{"state":"needs_review","value":"Cuộc trò chuyện sẽ tự tiếp tục."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"聊天会自动继续。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"聊天會自動繼續。"}}}},
     "composer.auto": {"comment":"Environment picker: the Auto row and chip. Auto lets this machine's daemon choose where a new chat runs (this Mac or Cloud) from measured headroom.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"تلقائي"}},"bs":{"stringUnit":{"state":"translated","value":"Auto"}},"da":{"stringUnit":{"state":"translated","value":"Auto"}},"de":{"stringUnit":{"state":"translated","value":"Auto"}},"en":{"stringUnit":{"state":"translated","value":"Auto"}},"es":{"stringUnit":{"state":"translated","value":"Auto"}},"fr":{"stringUnit":{"state":"translated","value":"Auto"}},"it":{"stringUnit":{"state":"translated","value":"Auto"}},"ja":{"stringUnit":{"state":"translated","value":"自動"}},"km":{"stringUnit":{"state":"translated","value":"ស្វ័យប្រវត្តិ"}},"ko":{"stringUnit":{"state":"translated","value":"자동"}},"nb":{"stringUnit":{"state":"translated","value":"Auto"}},"pl":{"stringUnit":{"state":"translated","value":"Auto"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Auto"}},"ru":{"stringUnit":{"state":"translated","value":"Авто"}},"th":{"stringUnit":{"state":"translated","value":"อัตโนมัติ"}},"tr":{"stringUnit":{"state":"translated","value":"Otomatik"}},"uk":{"stringUnit":{"state":"translated","value":"Авто"}},"vi":{"stringUnit":{"state":"translated","value":"Tự động"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"自动"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"自動"}}}},
     "composer.autoRunDetail": {"comment":"Environment picker: the hover card of the Auto row.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"يعمل على جهاز Mac هذا، أو على Cloud عندما يكون Mac مشغولًا. أعده في أي وقت."}},"bs":{"stringUnit":{"state":"translated","value":"Radi na ovom Macu ili na Cloudu kada je ovaj Mac zauzet. Vratite ga bilo kada."}},"da":{"stringUnit":{"state":"translated","value":"Kører på denne Mac, eller i Cloud når denne Mac er optaget. Hent den tilbage når som helst."}},"de":{"stringUnit":{"state":"translated","value":"Läuft auf diesem Mac oder in der Cloud, wenn dieser Mac ausgelastet ist. Jederzeit zurückholbar."}},"en":{"stringUnit":{"state":"translated","value":"Runs on this Mac, or on Cloud when this Mac is busy. Bring it back any time."}},"es":{"stringUnit":{"state":"translated","value":"Se ejecuta en este Mac, o en Cloud cuando este Mac está ocupado. Tráelo de vuelta cuando quieras."}},"fr":{"stringUnit":{"state":"translated","value":"S’exécute sur ce Mac, ou dans le Cloud quand ce Mac est occupé. Ramenez-la à tout moment."}},"it":{"stringUnit":{"state":"translated","value":"Viene eseguita su questo Mac, o nel Cloud quando questo Mac è occupato. Riportala indietro quando vuoi."}},"ja":{"stringUnit":{"state":"translated","value":"この Mac で実行し、この Mac が混んでいるときは Cloud で実行します。いつでも戻せます。"}},"km":{"stringUnit":{"state":"translated","value":"ដំណើរការលើ Mac នេះ ឬលើ Cloud ពេល Mac នេះរវល់។ នាំវាត្រឡប់មកវិញបានគ្រប់ពេល។"}},"ko":{"stringUnit":{"state":"translated","value":"이 Mac에서 실행하고, 이 Mac이 바쁘면 Cloud에서 실행합니다. 언제든 다시 가져올 수 있습니다."}},"nb":{"stringUnit":{"state":"translated","value":"Kjører på denne Macen, eller i Cloud når denne Macen er opptatt. Hent den tilbake når som helst."}},"pl":{"stringUnit":{"state":"translated","value":"Działa na tym Macu albo w Cloud, gdy ten Mac jest zajęty. Możesz go w każdej chwili przywrócić."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Roda neste Mac, ou no Cloud quando este Mac está ocupado. Traga de volta quando quiser."}},"ru":{"stringUnit":{"state":"translated","value":"Работает на этом Mac или в Cloud, когда этот Mac занят. Верните его в любой момент."}},"th":{"stringUnit":{"state":"translated","value":"ทำงานบน Mac เครื่องนี้ หรือบน Cloud เมื่อ Mac เครื่องนี้ไม่ว่าง นำกลับมาได้ทุกเมื่อ"}},"tr":{"stringUnit":{"state":"translated","value":"Bu Mac’te, bu Mac meşgulken Cloud’da çalışır. İstediğiniz zaman geri getirin."}},"uk":{"stringUnit":{"state":"translated","value":"Працює на цьому Mac або в Cloud, коли цей Mac зайнятий. Поверніть його будь-коли."}},"vi":{"stringUnit":{"state":"translated","value":"Chạy trên máy Mac này, hoặc trên Cloud khi máy Mac này bận. Mang về bất cứ lúc nào."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"在这台 Mac 上运行，这台 Mac 繁忙时在 Cloud 上运行。随时可以带回来。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"在這台 Mac 上執行，這台 Mac 忙碌時在 Cloud 上執行。隨時可以帶回來。"}}}},
     "auto.deciding": {"comment":"Agent chat: the line under a new Auto chat's first message while this machine's daemon chooses where it runs.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"يختار الوضع التلقائي مكان تشغيل هذه الدردشة…"}},"bs":{"stringUnit":{"state":"translated","value":"Auto bira gdje će se ovaj chat pokrenuti…"}},"da":{"stringUnit":{"state":"translated","value":"Auto vælger, hvor denne chat kører …"}},"de":{"stringUnit":{"state":"translated","value":"Auto wählt aus, wo dieser Chat läuft …"}},"en":{"stringUnit":{"state":"translated","value":"Auto is choosing where this chat runs…"}},"es":{"stringUnit":{"state":"translated","value":"Auto está eligiendo dónde se ejecuta este chat…"}},"fr":{"stringUnit":{"state":"translated","value":"Auto choisit où cette discussion s’exécute…"}},"it":{"stringUnit":{"state":"translated","value":"Auto sta scegliendo dove eseguire questa chat…"}},"ja":{"stringUnit":{"state":"translated","value":"自動でこのチャットの実行場所を選んでいます…"}},"km":{"stringUnit":{"state":"translated","value":"ស្វ័យប្រវត្តិកំពុងជ្រើសកន្លែងដំណើរការជជែកនេះ…"}},"ko":{"stringUnit":{"state":"translated","value":"자동으로 이 채팅을 실행할 곳을 고르는 중…"}},"nb":{"stringUnit":{"state":"translated","value":"Auto velger hvor denne chatten kjører …"}},"pl":{"stringUnit":{"state":"translated","value":"Auto wybiera, gdzie uruchomić ten czat…"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Auto está escolhendo onde este chat roda…"}},"ru":{"stringUnit":{"state":"translated","value":"Авто выбирает, где запустить этот чат…"}},"th":{"stringUnit":{"state":"translated","value":"อัตโนมัติกำลังเลือกที่สำหรับแชตนี้…"}},"tr":{"stringUnit":{"state":"translated","value":"Otomatik, bu sohbetin nerede çalışacağını seçiyor…"}},"uk":{"stringUnit":{"state":"translated","value":"Авто вибирає, де запустити цей чат…"}},"vi":{"stringUnit":{"state":"translated","value":"Tự động đang chọn nơi chạy cuộc trò chuyện này…"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"自动正在选择此对话的运行位置…"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"自動正在選擇此對話的執行位置…"}}}},
@@ -64906,138 +64910,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "無法連線至模型"
-          }
-        }
-      }
-    },
-    "turn.live.retry.busy": {
-      "comment": "Agent pane: the running turn's live line while its harness retries a model request the provider refused as busy or rate limited (The model is busy · retrying (2 of 10) · 529 overloaded)",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "النموذج مشغول"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Model je zauzet"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Modellen er optaget"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Modell ist ausgelastet"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The model is busy"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "El modelo está ocupado"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le modèle est occupé"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Il modello è occupato"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "モデルが混雑しています"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ម៉ូដែលកំពុងរវល់"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "모델이 사용 중임"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Modellen er opptatt"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Model jest zajęty"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O modelo está ocupado"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Модель занята"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "โมเดลไม่ว่าง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Model meşgul"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Модель зайнята"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mô hình đang bận"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "模型繁忙"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "模型忙碌中"
           }
         }
       }

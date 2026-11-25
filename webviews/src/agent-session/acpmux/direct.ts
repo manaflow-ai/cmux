@@ -19,6 +19,7 @@ import { chatTaskListOf, type ChatTaskList } from "./chatTaskList";
 import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
 import { sameJson } from "./sameJson";
 import { autoResumeAttempt, autoResumeStatus } from "./autoResumeStatus";
+import { readCapacityWait } from "./capacityWait";
 import { extraFoldersParam, summaryExtraFolders, type ExtraFolderDraft } from "./extraFolders";
 import { parseJsonObjectFrame } from "../../protocol/jsonFrame";
 import { isRetryContinuation, subagentRetryNotice } from "./subagents/retryState";
@@ -11411,7 +11412,10 @@ export class AcpmuxDirectClient {
       type: "snapshot",
       protocolVersion: 1,
       ...(this.replayThrough === undefined
-        ? { autoResume: autoResumeStatus(summary?.retry, this.autoResumedAttempt) }
+        ? {
+            autoResume: autoResumeStatus(summary?.retry, this.autoResumedAttempt),
+            capacityWait: readCapacityWait(summary?.capacityWait),
+          }
         : {}),
       rows: publishedRows,
       ...(this.supersededRowIds.size > 0

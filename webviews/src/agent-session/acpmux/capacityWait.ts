@@ -52,7 +52,8 @@ export function waitsFor(wait: CapacityWaitState | undefined, turnId: string | u
 
 /// "40s", "3m 5s", "about 2 h": rounded as the wait grows, so a long one does not tick every second.
 export function aboutTime(seconds: number): string {
-  if (seconds < 60) return `${Math.max(1, Math.ceil(seconds / 5) * 5)}s`;
+  if (seconds < 10) return `${Math.max(1, Math.ceil(seconds))}s`;
+  if (seconds < 60) return `${Math.ceil(seconds / 5) * 5}s`;
   if (seconds < 600) {
     const m = Math.floor(seconds / 60);
     const s = Math.round((seconds % 60) / 15) * 15;
@@ -67,7 +68,8 @@ export function resumesClock(at: number): string {
   return intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(at));
 }
 
-/// The ETA's words: "about 40s", "any moment now" once its time passed or none is known yet.
+/// The wait's line: "Waiting for capacity, about 40s", or "…, any moment now" once its time passed
+/// or while none is known yet.
 export function capacityEta(t: Translate, wait: CapacityWaitState, now: number): string {
   const left = wait.resumesAt === undefined ? undefined : (wait.resumesAt - now) / 1000;
   return left === undefined || left <= 1
@@ -79,11 +81,4 @@ export function capacityEta(t: Translate, wait: CapacityWaitState, now: number):
 export function capacityProgress(wait: CapacityWaitState, now: number): number | undefined {
   if (wait.since === undefined || wait.resumesAt === undefined || wait.resumesAt <= wait.since) return undefined;
   return Math.min(1, Math.max(0, (now - wait.since) / (wait.resumesAt - wait.since)));
-}
-
-/// A list row's line: "Paused for capacity, resumes ~22:41", or "Paused for capacity".
-export function pausedLine(t: Translate, wait: CapacityWaitState): string {
-  return wait.resumesAt === undefined
-    ? t("capacity.paused")
-    : t("capacity.pausedUntil", { time: resumesClock(wait.resumesAt) });
 }
