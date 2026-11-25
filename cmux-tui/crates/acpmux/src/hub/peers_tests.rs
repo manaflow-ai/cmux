@@ -387,7 +387,7 @@ async fn an_old_grace_timer_cannot_mark_replacement_rows_unreachable() {
         vm_boundary: false,
         github_broker: false,
     };
-    let (_generation, _settled) = hub.spawn_peer("builder", &pc, false);
+    let (_generation, _settled) = hub.spawn_peer("builder", &pc, false, false);
 
     hub.mark_peer_unreachable_at_fence(&old, "builder", old.generation, fence);
     let rows = hub.remote_sessions();

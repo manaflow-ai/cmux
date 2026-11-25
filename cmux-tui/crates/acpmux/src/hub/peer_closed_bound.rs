@@ -194,6 +194,91 @@ mod tests {
         (hub, peer)
     }
 
+    #[test]
+    fn wedge_fuzzy_host_resolution_does_not_wait_for_the_registry_writer() {
+        let (hub, _peer) = hub_with_peer("wedge-routing-peer");
+        let writer = hub.peers.lock().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let reader = {
+            let hub = hub.clone();
+            std::thread::spawn(move || {
+                tx.send(hub.host_route("WEDGE-ROUTING-PEER")).unwrap();
+            })
+        };
+        let result = rx.recv_timeout(std::time::Duration::from_secs(2));
+        drop(writer);
+        reader.join().unwrap();
+        assert_eq!(
+            result.expect("fuzzy host resolution waited on the registry writer").unwrap(),
+            Some("wedge-routing-peer".to_owned())
+        );
+    }
+
+    #[test]
+    fn wedge_connected_peers_and_remote_listing_do_not_wait_for_the_registry_writer() {
+        let (hub, peer) = hub_with_peer("vm");
+        peer.connected.store(true, std::sync::atomic::Ordering::SeqCst);
+        hub.apply_peer_notice(
+            "vm",
+            peer.generation,
+            crate::peer::PeerNotice::sessions_from_values(vec![
+                json!({"sessionId": "s1", "status": "idle", "updatedAt": 1}),
+            ]),
+        );
+        let writer = hub.peers.lock().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let reader = {
+            let hub = hub.clone();
+            std::thread::spawn(move || {
+                let peers: Vec<_> = hub.connected_peers().iter().map(|p| p.name.clone()).collect();
+                tx.send((peers, listed_ids(&hub))).unwrap();
+            })
+        };
+        let result = rx.recv_timeout(std::time::Duration::from_secs(2));
+        drop(writer);
+        reader.join().unwrap();
+        let (peers, rows) =
+            result.expect("peer or remote-session listing waited on the registry writer");
+        assert_eq!(peers, ["vm"]);
+        assert_eq!(rows, ["s1"]);
+    }
+
+    #[test]
+    fn wedge_peer_listing_does_not_wait_for_a_lease_waiting_on_the_registry_writer() {
+        let (hub, _) = hub_with_peer("vm");
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let peer =
+            crate::peer::Peer::new_with_lease("vm", "ws://127.0.0.1:9", None, None, tx, true);
+        hub.peers.lock().unwrap().insert("vm".into(), peer.clone());
+        hub.peer_leases.lock().unwrap().insert("vm".into(), peer.generation);
+        let writer = hub.peers.lock().unwrap();
+        let (held_tx, held_rx) = std::sync::mpsc::channel();
+        let mutation = {
+            let hub = hub.clone();
+            std::thread::spawn(move || {
+                // Lease changes hold this fence while awaiting the registry, as lease_peer
+                // and end_peer_lease do. Publish only after acquiring both in that order.
+                let mut leases = hub.peer_leases.lock().unwrap();
+                held_tx.send(()).unwrap();
+                let _registry = hub.peers.lock().unwrap();
+                leases.insert("vm".into(), peer.generation);
+            })
+        };
+        held_rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let reader = {
+            let hub = hub.clone();
+            std::thread::spawn(move || tx.send(hub.peers()).unwrap())
+        };
+        let result = rx.recv_timeout(std::time::Duration::from_secs(2));
+        drop(writer);
+        mutation.join().unwrap();
+        reader.join().unwrap();
+        let rows = result.expect("peer listing waited on the lease-to-registry lock chain");
+        let row = rows.iter().find(|row| row["name"] == "vm").expect("the registered peer");
+        assert_eq!(row["leased"], true, "the published lease annotation remains visible");
+    }
+
     /// Leo's daemon, 2026-11-25: every tokio worker parked on the peer registry's mutex, because
     /// a peer's list notice took it and, still holding it, waited on the rows writer lock. A
     /// lookup of any peer by name (an outbox attempt, a key route) then waited for every row
