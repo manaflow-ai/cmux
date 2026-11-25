@@ -88,6 +88,16 @@ jobs:
             const { owner, repo } = context.repo;
             const source = 'feat-cmux-next';
             const workflow = 'cloud-composer-journey.yml';
+            // The journey itself lands on feat-cmux-next separately (cmux#40902). Until that branch
+            // has its copy, GitHub answers a dispatch with 422 "does not have 'workflow_dispatch'
+            // trigger", which turned every six-hour tick red. Say so and start nothing instead.
+            try {
+              await github.rest.repos.getContent({ owner, repo, path: `.github/workflows/${workflow}`, ref: `refs/heads/${source}` });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              core.notice(`${source} has no ${workflow} yet (cmux#40902); no composer journey to start`);
+              return;
+            }
             for (const status of ['queued', 'in_progress', 'waiting', 'pending', 'requested']) {
               const { data } = await github.rest.actions.listWorkflowRuns({
                 owner, repo, workflow_id: workflow, branch: source, status, per_page: 5,

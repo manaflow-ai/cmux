@@ -152,7 +152,7 @@ jobs:
     # CI_PR_POOL_OWNED=1; later attempts take it too while the switch is off (that bot escape aside), then
     # vars.MACOS_RUNNER_26, then Blacksmith macOS 26. Never a GitHub-hosted Mac
     # (tests/test_ci_no_github_hosted_macos.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || github.event_name == 'schedule' && startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || github.event_name == 'schedule' && (vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26') || vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || github.event_name == 'schedule' && startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
     timeout-minutes: 40
     permissions:
       contents: read
@@ -212,8 +212,16 @@ jobs:
           hdiutil attach "$RUNNER_TEMP/canary.dmg" -nobrowse -readonly -mountpoint "$mount"
           app="$(find "$mount" -maxdepth 1 -name '*.app' -type d -print -quit)"
           [ -n "$app" ] || { echo "no app in the DMG" >&2; exit 1; }
-          xcrun stapler validate "$app"
-          spctl -a -vv --type execute "$app"
+          # The app carries its own ticket (two notary rounds), or only the DMG does (one round,
+          # CMUX_STAPLE_APP_IN_DMG=false on feat-cmux-next): then Gatekeeper must still call the app
+          # notarized, which for an app with no stapled ticket is Apple's online answer.
+          assessment="$(spctl -a -vv --type execute "$app" 2>&1)" || { printf '%s\n' "$assessment"; exit 1; }
+          printf '%s\n' "$assessment"
+          if ! xcrun stapler validate "$app"; then
+            grep -Fq 'source=Notarized Developer ID' <<<"$assessment" \
+              || { echo "the app has no ticket of its own and Gatekeeper does not call it notarized" >&2; exit 1; }
+            echo "the app has no ticket of its own; Gatekeeper calls it notarized (the DMG's ticket, online)"
+          fi
           version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")"
           [ "$version" = "$BUILD" ] || { echo "the DMG holds build $version, the feed says $BUILD" >&2; exit 1; }
           # Run what a person runs: the app copied out of the DMG. Launched from the read-only,

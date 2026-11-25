@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The queue janitor watchdog follows the sweep's route.
 
-ci-queue-janitor.yml's sweep runs on GitHub-hosted ubuntu-24.04, and on cmux-fleet-linux-x64 when the
+ci-queue-janitor.yml's sweep runs on the one-job repair VM cmux-gcp-repair-jit-x64, and on cmux-fleet-linux-x64 when the
 repository variable CI_QUEUE_JANITOR_ON_FLEET is 1 (cmux#47877). The watchdog
 (ci-queue-janitor-watchdog.yml) alerts when no sweep has published a snapshot: it must name the label
 the sweep actually waits on, run off that label (a watchdog on the label it watches waits with the
@@ -61,7 +61,7 @@ class WatchdogFollowsTheSweep(unittest.TestCase):
             with self.subTest(variables=variables):
                 self.assertEqual(evaluate(watch_job()["env"]["LABEL"], variables), evaluate(sweep_runs_on(), variables))
         # Not vacuous: the variable moves the sweep between two labels.
-        self.assertEqual(evaluate(sweep_runs_on(), {}), "ubuntu-24.04")
+        self.assertEqual(evaluate(sweep_runs_on(), {}), "cmux-gcp-repair-jit-x64")
         self.assertEqual(evaluate(sweep_runs_on(), {VARIABLE: "1"}), "cmux-fleet-linux-x64")
 
     def test_it_runs_off_the_label_it_watches_and_off_blacksmith(self) -> None:
