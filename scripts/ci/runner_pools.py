@@ -205,11 +205,13 @@ def owned_gcp(label: object) -> bool:
 
 
 # The Freestyle Linux rung's label (pr_runner_pool.OWNED_FREESTYLE_LINUX): an 8 vCPU Freestyle VM per queued
-# same-repository job. Blacksmith's runners never take it. It sits right after the owned GCP lead (or leads) in an x64
-# pool whose jobs need no fresh machine, with a Blacksmith x64 member after it (spec_problems()): a full GCP pool moves
-# to Freestyle, and a full Freestyle rung moves to Blacksmith (label_evidence()'s full mark, as for the GCP lead).
-# Leo, 2026-11-19: "We still keep Blacksmith sometimes, but stop fucking relying on it. We can't rely on it. [...] We
-# could use Freestyle."
+# same-repository job. Blacksmith's runners never take it. It leads an x64 pool whose jobs need no fresh machine and
+# fit 8 vCPU, with the owned GCP label after it and a Blacksmith x64 member after both (spec_problems()): a full
+# Freestyle rung moves to GCP, and a full GCP pool moves to Blacksmith (label_evidence()'s full mark). GCP and
+# Freestyle form the pool's owned prefix in either order, each at most once. Leo, 2026-11-19: "We still keep
+# Blacksmith sometimes, but stop fucking relying on it. We can't rely on it. [...] I don't know why you guys are
+# fixated on GCP when we literally have the partnership with Freestyle. We could use Freestyle. [...] So we should
+# just be able to size them accordingly."
 OWNED_FREESTYLE_LINUX = frozenset(pr_runner_pool.OWNED_FREESTYLE_LINUX)
 
 
@@ -219,8 +221,8 @@ def owned_freestyle(label: object) -> bool:
 
 
 def owned_lead(label: object) -> bool:
-    """An owned Linux label a pool may lead with: the Mac fleet's VMs (owned_ephemeral()), the GCP pool (owned_gcp())
-    or the Freestyle rung after it (owned_freestyle()). None has a size or is probed; a full one overflows."""
+    """An owned Linux label a pool may lead with: the Mac fleet's VMs (owned_ephemeral()), the Freestyle rung
+    (owned_freestyle()) or the GCP pool (owned_gcp()), the last two in either order. None has a size or is probed; a full one overflows."""
     return owned_ephemeral(label) or owned_gcp(label) or owned_freestyle(label)
 
 
@@ -322,9 +324,12 @@ def spec_problems(pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
                     found.append(f"{where}: {member} is an owned Linux VM label; it may only lead a pool, with a "
                                  "Blacksmith member after it to overflow to (OWNED_EPHEMERAL_LINUX)")
             elif owned_gcp(member):
-                if member != listed[0] or not any(X64_SIZE.match(other) for other in listed[1:]):
-                    found.append(f"{where}: {member} is the owned GCP Linux label; it may only lead an x64 pool, with "
-                                 "a Blacksmith x64 member after it to overflow to (OWNED_GCP_LINUX)")
+                at = listed.index(member)
+                if not all(owned_freestyle(other) for other in listed[:at]) \
+                        or not any(X64_SIZE.match(other) for other in listed[at + 1:]):
+                    found.append(f"{where}: {member} is the owned GCP Linux label; it may only lead an x64 pool or "
+                                 "follow its Freestyle lead, with a Blacksmith x64 member after it to overflow to "
+                                 "(OWNED_GCP_LINUX)")
                 if spec.get("ephemeral_only"):
                     found.append(f"{where}: {member} is the owned GCP Linux label, whose persistent runners take it "
                                  "too; an ephemeral_only pool's jobs need a fresh machine (OWNED_GCP_LINUX)")
