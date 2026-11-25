@@ -1,3 +1,4 @@
+#if canImport(SwiftUI)
 public import SwiftUI
 
 /// The spinner in SwiftUI, in place of an indeterminate `ProgressView()`: ``CmuxSpinnerView`` at a
@@ -107,4 +108,5 @@ extension CmuxSpinner {
         }
     }
 }
+#endif
 #endif
