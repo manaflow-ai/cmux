@@ -79,6 +79,9 @@ pub(crate) async fn harness_command_ready(
 }
 
 /// The env changes `cmd` makes: a name it sets, or removes (`None`).
+/// A tool call's bound (`CMUX_DEADLINE` and the tool that set it): never an agent's.
+pub(crate) const CALL_BOUND_ENV: [&str; 2] = ["CMUX_DEADLINE", "CMUX_DEADLINE_OWNER"];
+
 pub(crate) fn explicit_env(cmd: &std::process::Command) -> Vec<(String, Option<String>)> {
     cmd.get_envs()
         .map(|(k, v)| {
@@ -148,9 +151,16 @@ fn build_harness_command(
             "{name} is a terminal harness without ACP; open it with `cmux harness run {name}`"
         ));
     }
+    let mut plugin_hooks = false;
     let owned = if let (true, Some((session_id, session_name))) = (claude_session, session) {
-        let (extra, prompt) =
-            crate::agent_tools::claude_args_for(false, &profile.env, &owned.1, session_id, cwd);
+        let (extra, prompt, hooks) = crate::agent_tools::claude_args_and_hooks_for(
+            false,
+            &profile.env,
+            &owned.1,
+            session_id,
+            cwd,
+        );
+        plugin_hooks = hooks;
         let named = claude_name_args(&profile.env, &owned.1, session_name);
         let mut args = owned.1;
         // acpmux's own servers' instructions, which they then leave out: in the system prompt
@@ -279,6 +289,13 @@ fn build_harness_command(
     // The app the daemon follows is not the agent's: a daemon its commands start must not
     // follow it too (`daemon/owner_exit.rs`).
     cmd.env_remove(crate::owner_exit::OWNER_APP_PID_ENV);
+    // A tool call's bound in the daemon's env (a bounded command started the daemon) is not
+    // the agent's: the fleet's orphan reaper ends a process past its CMUX_DEADLINE, so an agent
+    // that inherited it was SIGTERMed (`subrouter: exit status 143`) mid-turn, also after a
+    // relaunch handed it to the next daemon.
+    for key in CALL_BOUND_ENV {
+        cmd.env_remove(key);
+    }
     cmd.env_remove(crate::agent_tools::UPSTREAMS_ENV);
     for k in route_unset.iter().flat_map(|list| list.split(',')) {
         cmd.env_remove(k);
@@ -449,9 +466,22 @@ fn build_harness_command(
         (false, Some((id, _))) => crate::claude_auth::forget(id),
         _ => {}
     }
+    // The compiler cache on a Cloud VM (`sccache_env.rs`): last, so a value the profile, the
+    // login shell or this daemon's env gives wins, and a RUSTC_WRAPPER of theirs turns it off.
+    #[cfg(unix)]
+    {
+        let env = command_env_with(&cmd, !remote_environment);
+        crate::sccache_env::apply(&mut cmd, &env);
+    }
     #[cfg(target_os = "linux")]
     if remote_environment {
         crate::linux_sandbox::scrub_loader_env(&mut cmd);
+    }
+    // The hosted and direct translators take the hook home from this launch. Only the
+    // selected local plugin enables its callbacks, regardless of inherited or profile env.
+    cmd.env_remove(crate::bg_hook::HOME_ENV);
+    if plugin_hooks && !remote_environment {
+        cmd.env(crate::bg_hook::HOME_ENV, crate::config::home());
     }
     Ok((cmd, codex))
 }
@@ -662,6 +692,24 @@ mod tests {
     use super::*;
 
     /// A Claude session is launched under its acpmux name (`--name`), so Claude
+    /// A daemon started by a bounded command holds its `CMUX_DEADLINE`: an agent it starts
+    /// must not, or the fleet's orphan reaper ends the agent once the bound passes.
+    #[test]
+    fn an_agent_never_inherits_a_tool_calls_deadline() {
+        let profile: HarnessProfile =
+            serde_json::from_value(serde_json::json!({ "argv": ["claude"] })).unwrap();
+        let cmd = harness_command("local", &profile, &std::env::temp_dir(), None, None).unwrap();
+        let removed: Vec<String> = cmd
+            .as_std()
+            .get_envs()
+            .filter(|(_, value)| value.is_none())
+            .map(|(key, _)| key.to_string_lossy().into_owned())
+            .collect();
+        for key in CALL_BOUND_ENV {
+            assert!(removed.iter().any(|k| k == key), "{key} must be removed: {removed:?}");
+        }
+    }
+
     /// Code's peer list says what `acpmux ls` says; with cmux's tools off too.
     #[test]
     fn a_claude_session_is_launched_under_its_acpmux_name() {

@@ -71,15 +71,20 @@ fn fields_the_catalog_lacks_reach_the_app() {
                 "observed_at": 1_700_000_000_000i64
             },
             "idlePause": idle,
+            "origin": { "kind": "person", "label": "Surge" },
         }),
     );
     let machine = decode(source.clone());
     assert!(machine.has_capability("agent_session"));
     assert!(!machine.has_capability("provider_secret"));
     let encoded = encode(&machine);
-    for key in ["platform", "capabilities", "provider_operations", "disk_health", "idlePause"] {
+    for key in
+        ["platform", "capabilities", "provider_operations", "disk_health", "idlePause", "origin"]
+    {
         assert_eq!(encoded[key], source[key], "{key}");
     }
+    // `origin` is a catalog field now (CloudMachine.origin): it rides the record.
+    assert_eq!(machine.record.origin.as_ref().map(|o| o.label.as_str()), Some("Surge"));
 
     // The older names read as the ones the app reads (cmux-cloud-machine `from_next`).
     let older = decode(with(
@@ -97,6 +102,7 @@ fn fields_the_catalog_lacks_reach_the_app() {
     assert!(plain.get("provider_operations").is_none());
     assert!(plain.get("disk_health").is_none());
     assert!(plain.get("idlePause").is_none());
+    assert!(plain.get("origin").is_none());
 }
 
 #[test]

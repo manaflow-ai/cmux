@@ -62,12 +62,15 @@ import Testing
     /// development note (loopback or a single-tenant overlay) stays on the consent card.
     @Test @MainActor func aConnectingCardSaysNothingButItsTitle() {
         let cloud = RemoteStateCard.spec(for: .connecting, host: "graceful-amber-owl", viaCloudTunnel: true)
-        #expect(cloud.note == nil)
+        #expect(cloud.info == nil)
         #expect(cloud.title.contains("graceful-amber-owl"))
         #expect(cloud.detail == nil)
         let other = RemoteStateCard.spec(for: .connecting, host: "local")
-        #expect(other.note == nil && other.detail == nil)
-        #expect(RemoteStateCard.spec(for: .waitingForConsent, host: "local").note == RemoteViewStrings.developmentOnly)
+        #expect(other.info == nil && other.detail == nil)
+        // The consent card's caveats show on hover over its info circle, never as lines under its title.
+        let consent = RemoteStateCard.spec(for: .waitingForConsent, host: "local")
+        #expect(consent.detail == nil)
+        #expect(consent.info?.contains(RemoteViewStrings.developmentOnly) == true)
     }
 
     /// A Cloud desktop that streamed and lost its path says "Reconnecting" while it connects
