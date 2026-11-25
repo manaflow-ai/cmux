@@ -27,13 +27,20 @@ const opening = [
 ];
 const next = user("Thanks, what's next on the list?", 2, { id: "lone-next" });
 
+/// A quiet background turn that did something past itself (commented on the PR), so it keeps its line
+/// in the transcript; one that only looked goes to the composer hat (silentTurns.ts).
 const quiet = (id: string, minutes: number, trigger = "system"): AcpmuxRow[] => [
   row(BACKGROUND_TURN, minutes, {
     id: backgroundTurnRowId(id),
     background: { id, trigger, running: false, quiet: true, hasRows: true },
   }),
   activity(
-    [tool("tail -n 3 out.log", "execute", "completed", { command: "tail -n 3 out.log", output: "14 passed" })],
+    [
+      tool("gh pr comment 412 --body '14 passed'", "execute", "completed", {
+        command: "gh pr comment 412 --body '14 passed'",
+        output: "https://github.com/acme/app/pull/412#issuecomment-1",
+      }),
+    ],
     minutes - 0.03,
     { id: `${id}-work`, inBackground: id },
   ),

@@ -186,6 +186,10 @@ impl Link {
                 tapped.down(&frame);
                 let item = match frame {
                     Message::Text(t) => serde_json::from_str::<Value>(&t).ok(),
+                    // A compressed message (frame_compress.rs), for a client that offered it.
+                    Message::Binary(b) => acpmux::frame_compress::inflate(&b, 64 << 20)
+                        .ok()
+                        .and_then(|t| serde_json::from_str::<Value>(&t).ok()),
                     Message::Close(_) => break,
                     _ => None,
                 };
@@ -1181,8 +1185,18 @@ impl Tap {
 
     fn down(&self, frame: &Message) {
         let mut t = self.inner.lock().unwrap();
-        let (key, len, link) = match frame {
-            Message::Text(text) => {
+        // A compressed message counts as its type, at the bytes it took on the wire.
+        let inflated = match frame {
+            Message::Binary(b) => acpmux::frame_compress::inflate(b, 64 << 20).ok(),
+            _ => None,
+        };
+        let text = match (frame, &inflated) {
+            (Message::Text(text), _) => Some(text.as_str()),
+            (Message::Binary(_), Some(text)) => Some(text.as_str()),
+            _ => None,
+        };
+        let (key, len, link) = match (frame, text) {
+            (Message::Text(_) | Message::Binary(_), Some(text)) => {
                 let v: Value = serde_json::from_str(text).unwrap_or(Value::Null);
                 let key = match v.get("method").and_then(Value::as_str) {
                     Some(m) if m == method::MUX_EVENT => {
@@ -1205,22 +1219,25 @@ impl Tap {
                         None => "?".to_owned(),
                     },
                 };
-                let len = text.len();
+                let len = match frame {
+                    Message::Binary(b) => b.len(),
+                    _ => text.len(),
+                };
                 // The host's deflate envelope: 0x00, two u32 lengths, the raw deflate (the zlib
                 // stream less its 2-byte header and 4-byte checksum).
-                let link = if len >= LINK_DEFLATE_FROM {
+                let link = if text.len() >= LINK_DEFLATE_FROM {
                     let raw = acpmux::frame_compress::deflate(text.as_bytes()).len() as u64 - 6;
                     link_frames(9 + raw)
                 } else {
-                    link_frames(len as u64)
+                    link_frames(text.len() as u64)
                 };
                 (key, len as u64, link)
             }
-            Message::Binary(b) => {
+            (Message::Binary(b), None) => {
                 ("binary".to_owned(), b.len() as u64, link_frames(b.len() as u64))
             }
-            Message::Ping(b) => ("ws:ping".to_owned(), b.len() as u64, 0),
-            Message::Pong(b) => ("ws:pong".to_owned(), b.len() as u64, 0),
+            (Message::Ping(b), _) => ("ws:ping".to_owned(), b.len() as u64, 0),
+            (Message::Pong(b), _) => ("ws:pong".to_owned(), b.len() as u64, 0),
             _ => return,
         };
         if t.first_chunk.is_none()
@@ -1256,6 +1273,9 @@ enum App {
     /// The macOS agent pane (webviews `direct.ts` `initializeParams`, `sessionPages.ts`
     /// `SESSION_PAGE`, `attachParams.ts` `plainAttach` local with `settled`), a WebSocket.
     Macos,
+    /// The same pane on its own socket to an acpmux across a network (the `/app/` browser shell,
+    /// `direct.ts` `frameCompression`): the macOS requests, and `initialize` asks for zlib frames.
+    Browser,
 }
 
 impl App {
@@ -1264,6 +1284,7 @@ impl App {
             App::Ios => "ios",
             App::IosCompact => "ios-compact",
             App::Macos => "macos",
+            App::Browser => "browser",
         }
     }
 }
@@ -1286,15 +1307,14 @@ impl Link {
         let mut link = tokio::time::timeout_at(deadline, Self::dial(addr))
             .await
             .map_err(|_| "connect timed out".to_owned())??;
-        let init = link
-            .post(
-                "initialize",
-                json!({"protocolVersion": 1,
-                       "clientInfo": {"name": "cmux-react-agent-pane", "version": "1"},
-                       "clientCapabilities": {},
-                       "_meta": {"acpmux": meta}}),
-            )
-            .await?;
+        let mut params = json!({"protocolVersion": 1,
+               "clientInfo": {"name": "cmux-react-agent-pane", "version": "1"},
+               "clientCapabilities": {},
+               "_meta": {"acpmux": meta}});
+        if app == App::Browser {
+            params["_meta"]["acpmux"]["compression"] = acpmux::frame_compress::offer();
+        }
+        let init = link.post("initialize", params).await?;
         let (_, init) = link.answer(init, deadline).await?;
         link.capabilities = init
             .pointer("/_meta/acpmux/capabilities")
@@ -1360,6 +1380,46 @@ fn emit_rates(k: &Key, t: &TapInner, wire: (u64, u64), secs: f64, app: App, per_
     }
 }
 
+/// What compressing the open's attach reply costs: the server's zlib (frame_compress.rs `deflate`,
+/// level 1) and the client's inflate of it, the median of 21 runs each, per open and per MB of
+/// JSON text. `codec_*` lines under `bw_open`; the same text for every app.
+fn emit_codec_cpu(k: &Key, reply: &Value) {
+    let text = json!({"jsonrpc": "2.0", "id": 3, "result": reply}).to_string();
+    let zlib = acpmux::frame_compress::deflate(text.as_bytes());
+    let median = |mut runs: Vec<f64>| {
+        runs.sort_by(f64::total_cmp);
+        runs[runs.len() / 2]
+    };
+    let time = |f: &dyn Fn()| {
+        median(
+            (0..21)
+                .map(|_| {
+                    let t = Instant::now();
+                    f();
+                    t.elapsed().as_secs_f64() * 1e3
+                })
+                .collect(),
+        )
+    };
+    let deflate_ms = time(&|| {
+        std::hint::black_box(acpmux::frame_compress::deflate(std::hint::black_box(
+            text.as_bytes(),
+        )));
+    });
+    let inflate_ms = time(&|| {
+        std::hint::black_box(
+            acpmux::frame_compress::inflate(std::hint::black_box(&zlib), 64 << 20).ok(),
+        );
+    });
+    let mb = text.len() as f64 / 1e6;
+    emit(k, "codec_text_bytes", Some(text.len() as f64));
+    emit(k, "codec_zlib_bytes", Some(zlib.len() as f64));
+    emit(k, "codec_deflate_us_per_open", Some((deflate_ms * 1000.0).round()));
+    emit(k, "codec_inflate_us_per_open", Some((inflate_ms * 1000.0).round()));
+    emit(k, "codec_deflate_ms_per_mb", Some((deflate_ms / mb * 100.0).round() / 100.0));
+    emit(k, "codec_inflate_ms_per_mb", Some((inflate_ms / mb * 100.0).round() / 100.0));
+}
+
 /// What the shaper and the tap saw since the last call.
 fn window(shaper: &Shaper, link: &Link) -> (TapInner, (u64, u64)) {
     let c = shaper.counters();
@@ -1371,7 +1431,7 @@ fn window(shaper: &Shaper, link: &Link) -> (TapInner, (u64, u64)) {
 /// idle, a streaming turn and a tool-calling turn, each a fixed window. One `NETCOND` line per
 /// value, `phase` `bw_open|bw_idle|bw_stream|bw_tools`, `scale` the app. Env:
 /// `NETCOND_BW_PROFILE` (lte), `NETCOND_BW_TURNS` (10000 seeded turns), `NETCOND_BW_SECS` (60),
-/// `NETCOND_BW_APPS` (ios, ios-compact, macos). The compact phone asks for text chunks.
+/// `NETCOND_BW_APPS` (ios, ios-compact, macos, browser). The compact phone asks for text chunks.
 /// Append `+delta` to any app to request row changes as `_acpmux/session_patch`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "the bandwidth bench: run with --ignored --nocapture"]
@@ -1406,7 +1466,7 @@ async fn chat_bytes_per_minute() {
     eprintln!("netcond-bw: {turns} turns seeded in {:?}", seeded.elapsed());
 
     let trace = Trace::new();
-    for app_name in env_list("NETCOND_BW_APPS", &["ios", "macos"]) {
+    for app_name in env_list("NETCOND_BW_APPS", &["ios", "macos", "browser"]) {
         let (base, delta) = match app_name.strip_suffix("+delta") {
             Some(base) => (base, true),
             None => (app_name.as_str(), false),
@@ -1414,6 +1474,7 @@ async fn chat_bytes_per_minute() {
         let app = match base {
             "macos" => App::Macos,
             "ios-compact" => App::IosCompact,
+            "browser" => App::Browser,
             _ => App::Ios,
         };
         let scale = if delta { app_name.as_str() } else { app.name() };
@@ -1430,6 +1491,7 @@ async fn chat_bytes_per_minute() {
         let k = key("bw_open");
         emit(&k, "first_content_ms", Some(ms(at - start)));
         emit(&k, "open_rows", Some(rows(&reply).len() as f64));
+        emit_codec_cpu(&k, &reply);
         // What the open sends after its reply (a settled view's follow-up, the stream's start).
         link.drain(Instant::now() + Duration::from_secs(2)).await;
         let (t, wire) = window(&shaper, &link);

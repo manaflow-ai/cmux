@@ -8,11 +8,12 @@ The harness is scripts/measure/persona-walk.sh (mode=p0: download the newest NIG
 own HOME, launch it, type a first message with Computer Use, read what the app answered). It needs a display worker
 whose CuaDriver holds the Screen Recording and Accessibility grants (--arg worker=HOST, default cmux22).
 
-Rows (better = lower): install, first_window, first_command (ms); footprint (MB, the app's physical footprint at
+Rows (better = lower): install, first_window, first_command (ms), and each task the casual and hardcore modes
+finished (shell_in_new_tab, split, million_lines, reopen_window, ...; ms); tasks_done (count, better = higher); footprint (MB, the app's physical footprint at
 first-window, after-5s and after-walk, labelled stage=); stuck_points (count of STUCK and FAIL lines the walk wrote:
 a person hit a wall); first_reply_failed (1 when the Chief's answer to the first message was a failed turn).
 
-  cmux-bench persona-walk --host fleet [--arg mode=p0] [--arg worker=HOST]
+  cmux-bench persona-walk --host fleet [--arg mode=p0|p0-casual|p0-hardcore] [--arg worker=HOST]
   cmux-bench persona-walk --import report.tgz   (a walk's artifact, or the directory it unpacks to)
 """
 from __future__ import annotations
@@ -91,10 +92,13 @@ class PersonaWalk(Bench):
         if not timings and not log:
             raise BenchError(f"{path}: no timings.jsonl or log.txt (not a persona-walk report)")
         for step in STEPS:
-            if timings.get(step) is not None:
-                ctx.row(step, float(timings[step]), "ms")
-            else:
+            if timings.get(step) is None:
                 ctx.notes.append(f"persona-walk: {step} not reached")
+        # Every step the walk timed is a row: p0's three, and each task the casual and hardcore modes finished.
+        for step, ms in timings.items():
+            if isinstance(step, str) and isinstance(ms, (int, float)):
+                ctx.row(step, float(ms), "ms")
+        ctx.row("tasks_done", float(len([s for s in timings if s != "install"])), "count", better="higher")
         for m in jsonl(root / "memory.jsonl"):
             fp = FOOTPRINT.search(str(m.get("footprint") or ""))
             if fp:
