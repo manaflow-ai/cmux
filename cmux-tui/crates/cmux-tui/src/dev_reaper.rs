@@ -12,11 +12,11 @@
 //! waits for the app's process to exit, however it exits (Cmd-Q, the end-sessions quit, the
 //! SIGTERM `reload.sh` sends, a crash, SIGKILL), then ends the build's tree:
 //!
-//! - **Which processes.** Every process whose command line names the app bundle (its
-//!   executables, and the shared `cmux-files-host host -- <bundle>/…` copies), every terminal
-//!   holder or host that names the build as its owner (`--owner <bundle id>:…`: they run from a
-//!   copy outside the bundle and outlive a restarted daemon), and every descendant of one
-//!   (shells, agents). The reaper itself is spared.
+//! - **Which processes.** Every process whose executable is in the bundle, every shared
+//!   `cmux-files-host host -- <bundle>/…` copy, every cmux terminal holder or host that names the
+//!   build as its owner (`--owner <bundle id>:…`: they run from a copy outside the bundle and
+//!   outlive a restarted daemon), and every descendant of one (shells, agents). A shell or agent
+//!   that only names the bundle in an argument is not one. The reaper itself is spared.
 //! - **Never a newer instance.** When another process runs the bundle's own app executable
 //!   (`<bundle>/Contents/MacOS/…`), the tree belongs to it (a second launch shares the
 //!   daemons), and nothing is ended. Only processes seen in the snapshot taken at exit are
@@ -84,7 +84,8 @@ fn parse(args: &[String]) -> Result<Options, String> {
                 bundle_id = Some(id);
             }
             "--grace-ms" => {
-                let ms: u64 = value()?.parse().map_err(|_| "--grace-ms takes milliseconds".to_owned())?;
+                let ms: u64 =
+                    value()?.parse().map_err(|_| "--grace-ms takes milliseconds".to_owned())?;
                 grace = Duration::from_millis(ms);
             }
             other => return Err(format!("unknown argument {other}")),
@@ -176,11 +177,8 @@ pub(crate) fn targets(build: &Build, own: i32, processes: &[Process]) -> Vec<Pro
     // Another reaper (a newer instance's, or a second start) ends on its own.
     let reaper = format!(" {MODE}");
     let spared = |p: &Process| p.pid == own || p.pid <= 1 || p.command.contains(&reaper);
-    let mut chosen: BTreeSet<i32> = processes
-        .iter()
-        .filter(|p| !spared(p) && build.names(p))
-        .map(|p| p.pid)
-        .collect();
+    let mut chosen: BTreeSet<i32> =
+        processes.iter().filter(|p| !spared(p) && build.names(p)).map(|p| p.pid).collect();
     let mut children: BTreeMap<i32, Vec<i32>> = BTreeMap::new();
     for process in processes {
         children.entry(process.ppid).or_default().push(process.pid);
@@ -220,7 +218,8 @@ impl Build {
         let base = p.exe.rsplit('/').next().unwrap_or(&p.exe);
         p.exe.contains(&self.marker)
             || (base == "cmux-files-host" && p.command.contains(&self.marker))
-            || (base.starts_with("cmux") && self.owner.as_ref().is_some_and(|owner| p.command.contains(owner)))
+            || (base.starts_with("cmux")
+                && self.owner.as_ref().is_some_and(|owner| p.command.contains(owner)))
     }
 }
 
@@ -230,7 +229,8 @@ impl Build {
 fn runs_app(exe: &str, marker: &str) -> bool {
     const CONTENTS: &str = ".app/Contents/";
     let Some(first) = exe.find(CONTENTS) else { return false };
-    exe[..first + ".app/".len()].ends_with(marker) && exe[first + CONTENTS.len()..].starts_with("MacOS/")
+    exe[..first + ".app/".len()].ends_with(marker)
+        && exe[first + CONTENTS.len()..].starts_with("MacOS/")
 }
 
 /// Joins `ps -axww -o pid=,ppid=,command=` (`commands`) with `ps -axww -o pid=,comm=`
@@ -311,19 +311,23 @@ fn wait_for_exit(pid: i32) {
         udata: std::ptr::null_mut(),
     };
     // SAFETY: one valid change, no events out.
-    let registered =
-        unsafe { libc::kevent(queue, &raw const change, 1, std::ptr::null_mut(), 0, std::ptr::null()) } == 0;
+    let registered = unsafe {
+        libc::kevent(queue, &raw const change, 1, std::ptr::null_mut(), 0, std::ptr::null())
+    } == 0;
     if registered {
         loop {
             // SAFETY: a zeroed kevent is a valid out buffer.
             let mut out: libc::kevent = unsafe { std::mem::zeroed() };
             // SAFETY: one out event, no changes, no timeout.
-            let count =
-                unsafe { libc::kevent(queue, std::ptr::null(), 0, &raw mut out, 1, std::ptr::null()) };
+            let count = unsafe {
+                libc::kevent(queue, std::ptr::null(), 0, &raw mut out, 1, std::ptr::null())
+            };
             if count > 0 {
                 break;
             }
-            if count < 0 && std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+            if count < 0
+                && std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
+            {
                 // SAFETY: closes the queue opened above.
                 unsafe { libc::close(queue) };
                 return poll_for_exit(pid);

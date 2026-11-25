@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import Foundation
 
 /// A tagged DEV build's reaper (https://github.com/manaflow-ai/cmux/issues/55842): the bundled
