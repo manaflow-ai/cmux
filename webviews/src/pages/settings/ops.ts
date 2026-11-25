@@ -1142,6 +1142,30 @@ export type LibraryEntry = {
   overridden: string[];
   /** Code not merged into this build (a PR, a branch, a commit, a folder, a fork); absent otherwise. */
   code?: { kind?: string; pr?: number; repo: string; title?: string; source?: string; note?: string };
+  /** The unmerged pull request a `pr-N` entry is (`cmux customize use pr:N`; cmux-customize
+   * `library/code.rs` `CodeLayer`). Absent on every other entry. */
+  code?: LibraryCode;
+};
+
+/** A pull request's code as a library entry: its web part is served on this app while it is on and
+ * the highest such entry; what it cannot carry needs a build. */
+export type LibraryCode = {
+  /** `owner/name`. */
+  repo: string;
+  pr: number;
+  title: string;
+  /** The PR head the layer was built from. */
+  head: string;
+  /** The commit CI merged the head onto. */
+  base: string;
+  /** The published web bundle key; absent when the PR changes no web bundle (nothing applies to a
+   * running app, so the CLI refuses to turn it on). */
+  web?: string;
+  abi?: number;
+  /** What the layer cannot carry, one line each: "needs a build: ...". */
+  needs_build?: string[];
+  /** The last refresh's word on it: `in your build`, `no longer applies: ...`, `newer head ...`. */
+  note?: string;
 };
 
 /** One entry at standup (`cmux customize library standup`): what it is, on or off, the last word
