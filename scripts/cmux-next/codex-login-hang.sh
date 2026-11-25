@@ -2,7 +2,7 @@
 # First-time Codex (ChatGPT) sign-in of the newest cmux NEXT NIGHTLY on a fleet Mac with a console session, watched
 # for main-thread hangs (scripts/cmux-next/codex-login-hang.py drives it; measurement only, no account is signed in).
 #   cmux-ci run --class exclusive --measurement --label measure --display \
-#     --script scripts/measure/codex-login-hang.sh --ref <sha> [--arg=rounds=2] [--arg=flows=settings,onboarding] \
+#     --script scripts/cmux-next/codex-login-hang.sh --ref <sha> [--arg=rounds=2] [--arg=flows=settings,onboarding] \
 #     --artifact .build/codex-login-hang/report.tgz --timeout 1800
 # Each round is a fresh install and a fresh home (a cold launch, the first browser tab of the launch).
 # Prints STEP, PING, SAMPLE and SUMMARY lines and each sample's heaviest main-thread frames; report.tgz keeps it all.
