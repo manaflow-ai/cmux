@@ -48,6 +48,8 @@ pub struct Admission {
     stage: StdMutex<&'static str>,
     committed: AtomicBool,
     acquired: AtomicBool,
+    queue_owned: AtomicBool,
+    defer_requested: AtomicBool,
     came: Instant,
     /// Someone waits on its acceptance or refusal.
     listened: AtomicBool,
@@ -68,6 +70,8 @@ impl Admission {
             stage: StdMutex::new("admission"),
             committed: AtomicBool::new(false),
             acquired: AtomicBool::new(false),
+            queue_owned: AtomicBool::new(false),
+            defer_requested: AtomicBool::new(false),
             came: Instant::now(),
             listened: AtomicBool::new(false),
             session: session.id.clone(),
@@ -78,6 +82,7 @@ impl Admission {
     pub(super) fn none(session: &Session) -> Arc<Self> {
         let admission = Self::new(session);
         admission.acquired.store(true, Ordering::SeqCst);
+        admission.queue_owned.store(true, Ordering::SeqCst);
         admission
     }
 
@@ -133,6 +138,25 @@ impl Admission {
 
     pub(super) fn committed(&self) -> bool {
         self.committed.load(Ordering::SeqCst)
+    }
+
+    /// A bounded setup probe found a lock that did not return in time. The caller can durably
+    /// queue this prompt instead of returning a late "started" answer.
+    pub(super) fn request_defer(&self) {
+        self.defer_requested.store(true, Ordering::SeqCst);
+    }
+
+    pub(super) fn defer_requested(&self) -> bool {
+        self.defer_requested.load(Ordering::SeqCst)
+    }
+
+    /// A prompt already owned by the durable queue: it may wait for the child outside admission.
+    pub(super) fn queue_owned(&self) -> bool {
+        self.queue_owned.load(Ordering::SeqCst)
+    }
+
+    pub(super) fn listened(&self) -> bool {
+        self.listened.load(Ordering::SeqCst)
     }
 
     /// When an unanswered prompt is queued instead.
@@ -296,30 +320,31 @@ impl Hub {
             Err(_) => QueueLimits::defaults(),
         };
         let turn_id = uuid::Uuid::now_v7().to_string();
-        // A restore must not start between our check and the queued journal entry.
-        // Its writer can still be finishing the last page after releasing its lease.
-        let admit = session.admit.lock().unwrap_or_else(|e| e.into_inner());
-        if session.restoring.load(Ordering::SeqCst)
-            || session.restore_token.load(Ordering::SeqCst) != 0
-        {
-            return Err(restore_deadline());
-        }
-        // Counted as `queue_slot` counts a prompt that queues, before it goes in.
-        session.queued.fetch_add(1, Ordering::SeqCst);
+        let (outcome, position) = {
+            // A restore must not start between our check and the queued journal entry.
+            // Its writer can still be finishing the last page after releasing its lease.
+            let _admit = session.admit.lock().unwrap_or_else(|e| e.into_inner());
+            if session.restoring.load(Ordering::SeqCst)
+                || session.restore_token.load(Ordering::SeqCst) != 0
+            {
+                return Err(restore_deadline());
+            }
+            session.queued.fetch_add(1, Ordering::SeqCst);
+            self.enqueue(session, &slot, &turn_id, limits, |row, _| {
+                let outcome = super::prompt_ledger::recover(session, &row.prompt_id);
+                row.restored = true;
+                row.resume = true;
+                session
+                    .restored
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push((row.prompt_id.clone(), row.turn_id.clone()));
+                outcome
+            })
+            .map_err(|refused| refused)?
+        };
         // The queue's own from now on, as `restore_queues` makes a prompt it read back: the
         // queue runs it, and a resend of its id waits on its ledger entry.
-        let (outcome, position) = self.enqueue(session, &slot, &turn_id, limits, |row, _| {
-            let outcome = super::prompt_ledger::recover(session, &row.prompt_id);
-            row.restored = true;
-            row.resume = true;
-            session
-                .restored
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .push((row.prompt_id.clone(), row.turn_id.clone()));
-            outcome
-        })?;
-        drop(admit);
         let mut answer = outcome.subscribe();
         tracing::warn!(session = %session.id, prompt = %d.prompt_id, stage, position, "prompt unanswered in time: queued");
         let accepted = json!({"sessionId": session.id, "promptId": d.prompt_id, "turnId": turn_id, "queued": true, "state": "queued", "position": position, "deferred": true});
