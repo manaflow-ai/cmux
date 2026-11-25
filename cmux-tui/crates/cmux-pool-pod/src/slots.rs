@@ -451,11 +451,15 @@ mod tests {
                     ok(format!("{block}\n{block}"))
                 }
                 ["systemctl", "--user", "freeze", unit] => {
-                    self.slices.borrow_mut().get_mut(*unit).map(|f| *f = true);
+                    if let Some(f) = self.slices.borrow_mut().get_mut(*unit) {
+                        *f = true;
+                    }
                     ok(String::new())
                 }
                 ["systemctl", "--user", "thaw", unit] => {
-                    self.slices.borrow_mut().get_mut(*unit).map(|f| *f = false);
+                    if let Some(f) = self.slices.borrow_mut().get_mut(*unit) {
+                        *f = false;
+                    }
                     ok(String::new())
                 }
                 ["systemctl", "--user", "stop", unit] => {

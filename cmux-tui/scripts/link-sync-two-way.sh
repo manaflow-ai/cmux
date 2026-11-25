@@ -59,7 +59,7 @@ echo
 echo "## 5. push the merge back, Mac -> machine"
 mac push || FAILED=1
 show "$REMOTE" machine notes.txt
-check "both folders identical" "diff -r '$LOCAL' '$REMOTE'"
+check "both folders identical" "diff -r -x .cmux-sync.json '$LOCAL' '$REMOTE'"
 echo
 echo "## 6. the kept base: a head naming a content-addressed revision"
 HEAD_FILE=$(ls "$P/mac/state/link-sync/"*.head)

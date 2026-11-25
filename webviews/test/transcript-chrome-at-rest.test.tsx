@@ -8,7 +8,8 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { readCatalog } from "../scripts/pages/catalog.mjs";
 import { SubagentDoneLine } from "../src/agent-session/acpmux/subagents/SubagentDoneLine";
 import {
   RetryAffordanceContext,
@@ -141,8 +142,9 @@ test("a refused subagent's row is its name and one short status, nothing else", 
     expect(row.querySelector(".cv-tool__chevron")).toBeNull();
     expect(row.textContent).not.toContain("13ms");
     expect(row.textContent).not.toContain("retry");
-    // The whole reason stays in the tooltip.
-    expect(row.querySelector(".cv-subagent-failed__text")?.getAttribute("title")).toContain(REFUSAL);
+    // The whole reason is in the line's name, never a tooltip over the next row (cmux#52916).
+    expect(row.querySelector(".cv-subagent-done")?.getAttribute("aria-label")).toContain(REFUSAL);
+    expect(row.querySelector("[title]")).toBeNull();
     act(() => root?.unmount());
     root = undefined;
   }
@@ -165,7 +167,7 @@ test("a line's controls and its menu's items are disjoint, and Retry and Restart
 test("a failed run offers Retry once: on the line with no menu, or only in the menu", () => {
   let host = render([ranAndFailed()], "button");
   let row = host.querySelector<HTMLElement>(".cv-subagent-done-row")!;
-  expect(row.querySelector(":scope > .cv-subagent-retry")?.textContent).toBe("Retry");
+  expect(row.querySelector(".cv-subagent-done__controls > .cv-subagent-retry")?.textContent).toBe("Retry");
   expect(row.querySelector('[data-menu="subagent-done"]')).toBeNull();
   // Its prompt would allow Restart, but Retry already runs it again.
   expect(row.querySelector(".cv-subagent-restart")).toBeNull();
@@ -176,7 +178,9 @@ test("a failed run offers Retry once: on the line with no menu, or only in the m
 
   host = render([ranAndFailed({ toolUses: 2 })], "menu");
   row = host.querySelector<HTMLElement>(".cv-subagent-done-row")!;
-  expect(row.querySelector(":scope > :is(.cv-subagent-retry, .cv-subagent-retry-link)")).toBeNull();
+  expect(
+    row.querySelector(".cv-subagent-done__controls > :is(.cv-subagent-retry, .cv-subagent-retry-link)"),
+  ).toBeNull();
   expect(row.querySelector('[data-menu="subagent-done"]')).not.toBeNull();
   act(() => root?.unmount());
   root = undefined;
@@ -214,19 +218,25 @@ test.each(
   expect(button.disabled).toBe(false);
 });
 
-test("a failed line's Retry waits for the pointer or keyboard focus", () => {
-  const css = readFileSync(new URL("../src/agent-session/acpmux/subagents/subagents.css", import.meta.url), "utf8");
-  expect(css).toMatch(
-    /\.cv-subagent-done-row > :is\(\.cv-subagent-retry, \.cv-subagent-retry-link\):not\(:focus-visible\) \{\s*opacity: 0;/,
-  );
-  expect(css).toMatch(
-    /\.cv-subagent-done-row:hover > :is\(\.cv-subagent-retry, \.cv-subagent-retry-link\),[^{]*\{\s*opacity: 1;/,
-  );
+test("a failed line's Retry waits for the pointer or keyboard focus, over the words' end", () => {
+  // The row is the reveal's host and its controls the shared reveal (ui/motion/motion.css), which
+  // shows them under the pointer, with focus inside the row or while their menu is open.
+  let host = render([ranAndFailed()], "button");
+  const row = host.querySelector<HTMLElement>(".cv-subagent-done-row")!;
+  expect(row.classList.contains("ui-reveal-host")).toBe(true);
+  expect(row.hasAttribute("data-reveal-overlap")).toBe(true);
+  const controls = row.querySelector<HTMLElement>(".cv-subagent-done__controls")!;
+  expect(controls.classList.contains("ui-reveal")).toBe(true);
+  expect(controls.parentElement?.classList.contains("cv-subagent-done__trail")).toBe(true);
+  act(() => root?.unmount());
+  root = undefined;
+  host = render([ranAndFailed({ toolUses: 2 })], "menu");
+  expect(host.querySelector('.cv-subagent-done__controls [data-menu="subagent-done"]')).not.toBeNull();
 });
 
 test('the catalog has no "Ask parent to retry"', () => {
-  const catalog = JSON.parse(
-    readFileSync(new URL("../src/agent-session/acpmux/Localizable.xcstrings", import.meta.url), "utf8"),
+  const catalog = readCatalog(
+    fileURLToPath(new URL("../src/agent-session/acpmux/Localizable.xcstrings.d", import.meta.url)),
   ) as { strings: Record<string, unknown> };
   expect(catalog.strings["retry.askParent"]).toBeUndefined();
 });
