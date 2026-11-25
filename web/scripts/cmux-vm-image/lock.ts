@@ -318,7 +318,7 @@ function checkNotices(where: string, raw: unknown, problems: string[]): void {
   for (const notice of raw) if (typeof notice !== "string" || !RELATIVE_PATH.test(notice)) problems.push(`${where}.notices: ${JSON.stringify(notice)} must be a relative path inside the store entry`);
 }
 
-function checkCompanions(where: string, name: string | undefined, bin: unknown, raw: unknown, problems: string[]): void {
+function checkCompanions(where: string, name: string | null | undefined, bin: unknown, raw: unknown, problems: string[]): void {
   if (raw !== undefined && (!Array.isArray(raw) || raw.length === 0 || raw.some((c) => typeof c !== "string" || !RELATIVE_PATH.test(c)))) {
     problems.push(`${where}.companions: must be a non-empty array of relative paths inside the store entry`);
     return;
