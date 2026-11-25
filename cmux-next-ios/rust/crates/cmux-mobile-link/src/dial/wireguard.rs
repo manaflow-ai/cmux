@@ -7,9 +7,10 @@
 //! so does a Mac whose network answers no STUN. Until the peer confirms a
 //! route, every datagram is sent on every route that might work: the route
 //! the peer's datagrams arrive on, the TURN allocation, and the peer's
-//! endpoints (the hole punch). There is no backend relay (PROTOCOL.md: the
-//! relay frames are retired). The link is one TCP stream to
-//! `overlayIP:7420`.
+//! endpoints (the hole punch). When none of that reaches the peer, both
+//! sides join cmux's WebSocket relay (`relay.rs`, PROTOCOL.md "WebSocket
+//! relay"), one more carrier of the same tunnel. The link is one TCP stream
+//! to `overlayIP:7420`.
 //!
 //! Roaming (`roam.rs`): after a network change a side moves the session onto
 //! a fresh UDP socket and TURN allocation, re-learns its reflexive address,
@@ -36,13 +37,16 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
 use zeroize::Zeroizing;
 
+use super::relay::{RELAY_PEER, RelayCarrier};
 use super::turn::{TurnCarrier, TurnTransport};
 use super::{
     DialError, DialFuture, DialOptions, Dialed, Dialer, LinkPath, SessionEvents, TransportKind, UltraSetting,
 };
 use crate::api::stun_servers;
 use crate::class_queue::{SendClass, send_class};
-use crate::signaling::{SessionEvent, SignalEnvelope, SignalPayload, SignalingClient, WG_VERSION};
+use crate::signaling::{
+    RELAY_NOW, RELAY_READY, SessionEvent, SignalEnvelope, SignalPayload, SignalingClient, WG_VERSION,
+};
 use crate::timing::Timeline;
 
 pub use super::turn::missing_turn;
@@ -56,7 +60,8 @@ pub use paths::{app_backgrounded, set_app_backgrounded};
 pub use roam::{network_changed, rehome, resume_session, roam_timeline, route_destinations};
 #[doc(hidden)]
 pub use roam::{
-    roam_session, session_endpoints, simulate_blackout, simulate_network_loss, simulate_turn_loss,
+    relay_held, roam_session, session_endpoints, simulate_blackout, simulate_network_loss,
+    simulate_relay_loss, simulate_turn_loss,
 };
 
 /// The link's TCP port inside the tunnel (PROTOCOL.md).
@@ -66,17 +71,28 @@ pub const LINK_PORT: u16 = 7420;
 /// 7421 and the media lane's 7422. 7424 is taken by the terminal viewport
 /// diffs (lane ios-terminal-projection-parity, settled 2026-11-22).
 pub const LIVENESS_PORT: u16 = 7423;
-/// Liveness datagrams queued to the tunnel before new ones drop.
-const LIVENESS_QUEUE: usize = 64;
+/// Liveness and class datagrams queued to the tunnel before new ones drop:
+/// a 3.5 KB screen state is three datagrams, sent twice.
+const LIVENESS_QUEUE: usize = 512;
+
+/// Whether this side lists [`crate::classes::CLASSES_LANE`]: on unless
+/// `CMUX_LINK_CLASSES=off` (benches measure the stream-only baseline with it).
+fn classes_offered() -> bool {
+    std::env::var("CMUX_LINK_CLASSES").map_or(true, |value| value != "off")
+}
 
 /// Bind the liveness port and carry its datagrams to and from the link:
 /// to `peer_ip` only, in the tunnel's interactive class (ahead of the
 /// link's TCP), and only datagrams from `peer_ip` back. `None` when the
-/// port cannot be bound: the link's pings stay in its stream.
+/// port cannot be bound: the link's pings stay in its stream. With
+/// `classes` (both sides listed [`crate::classes::CLASSES_LANE`]) the port
+/// carries class datagrams too, queued in the interactive class like any
+/// datagram (Ultra Mode's repair applies to them; pings skip it).
 async fn open_liveness(
     net: &WgNet,
     peer_ip: Ipv4Addr,
     peer_listening: bool,
+    classes: bool,
 ) -> Option<crate::link::LivenessDatagrams> {
     let mut socket = match net.bind_datagram(LIVENESS_PORT).await {
         Ok(socket) => socket,
@@ -94,10 +110,18 @@ async fn open_liveness(
                 datagram = out.recv() => {
                     // The link closed.
                     let Some(datagram) = datagram else { return };
-                    let answer = crate::link::is_liveness_answer(&datagram);
-                    if let Err(cmux_wg::WgError::Shutdown) =
+                    let class = match datagram.first() {
+                        Some(&crate::classes::DATAGRAM_CLASS) => Some(cmux_wg::Priority::Interactive),
+                        Some(&crate::classes::DATAGRAM_SCREEN) => Some(cmux_wg::Priority::Screen),
+                        _ => None,
+                    };
+                    let sent = if let Some(class) = class {
+                        socket.send_to(&datagram, peer, class).await
+                    } else {
+                        let answer = crate::link::is_liveness_answer(&datagram);
                         socket.send_liveness(&datagram, peer, answer).await
-                    {
+                    };
+                    if let Err(cmux_wg::WgError::Shutdown) = sent {
                         return;
                     }
                 }
@@ -112,7 +136,7 @@ async fn open_liveness(
             }
         }
     });
-    Some(crate::link::LivenessDatagrams { outgoing, incoming, peer_listening })
+    Some(crate::link::LivenessDatagrams { outgoing, incoming, peer_listening, classes })
 }
 
 /// How long the input lane's second connection may take before input stays
@@ -296,7 +320,8 @@ impl EarlyTurn {
     /// it is in hand).
     pub(crate) fn start(options: &DialOptions) -> Self {
         let (stun, turn_side) = stun_turn_link();
-        let options = options.clone();
+        // Debug "relay via cmux only" takes no TURN allocation, early or not.
+        let options = effective_options(options).into_owned();
         let task = tokio::spawn(async move {
             let turn = turn_beside(&options, true, turn_side).await;
             if turn.is_some() {
@@ -380,7 +405,78 @@ pub fn primary_local_ip() -> Option<IpAddr> {
 
 /// Whether this side uses no plain UDP at all (relay only, or UDP blocked).
 fn no_plain_udp(options: &DialOptions) -> bool {
-    options.relay_only || options.block_udp
+    options.relay_only || options.block_udp || options.force_relay
+}
+
+/// The options a dial or answer runs with: debug "relay via cmux only"
+/// (`force_relay`) takes no TURN allocation either, so it lists no TURN
+/// server.
+fn effective_options(options: &DialOptions) -> std::borrow::Cow<'_, DialOptions> {
+    if !options.force_relay {
+        return std::borrow::Cow::Borrowed(options);
+    }
+    let mut forced = options.clone();
+    for server in &mut forced.ice_servers {
+        server.urls.retain(|url| !url.starts_with("turn:") && !url.starts_with("turns:"));
+    }
+    forced.ice_servers.retain(|server| !server.urls.is_empty());
+    std::borrow::Cow::Owned(forced)
+}
+
+/// The host of the first TURN server `options` list (for the diagnosis).
+fn turn_host(options: &DialOptions) -> Option<String> {
+    let url = options
+        .ice_servers
+        .iter()
+        .flat_map(|server| &server.urls)
+        .find(|url| url.starts_with("turn:") || url.starts_with("turns:"))?;
+    let rest = url.split_once(':')?.1;
+    let rest = rest.split('?').next()?;
+    let host = match rest.strip_prefix('[') {
+        Some(v6) => v6.split(']').next()?,
+        None => rest.split(':').next()?,
+    };
+    Some(host.to_owned())
+}
+
+/// Record what plain UDP and TURN did for a side that has no path yet.
+fn diagnose_gather(options: &DialOptions, udp_blocked: bool, turn: Option<&TurnCarrier>, wanted_turn: bool) {
+    let diagnosis = &options.diagnosis;
+    if no_plain_udp(options) {
+        diagnosis.udp("off");
+    } else if udp_blocked {
+        diagnosis.udp("blocked");
+    }
+    if options.force_relay {
+        diagnosis.turn("off", None);
+    } else if super::turn::turn_servers(&options.ice_servers) == (None, None) {
+        diagnosis.turn("none_offered", None);
+    } else if wanted_turn && turn.is_none() {
+        diagnosis.turn("no_allocation", turn_host(options));
+    }
+}
+
+/// This session's relay, when this side has one and the peer offered it
+/// (`relay` in its `wg-init` / `wg-resp`); else the diagnosis says the peer
+/// cannot relay.
+fn relay_plan(
+    options: &DialOptions,
+    own_now: bool,
+    peer: Option<&str>,
+    ticket: Option<String>,
+) -> Option<roam::RelayPlan> {
+    let endpoint = options.relay.clone()?;
+    let Some(peer) = peer else {
+        options.diagnosis.relay("peer_cannot", Some(endpoint.host()));
+        return None;
+    };
+    Some(roam::RelayPlan { endpoint, now: own_now || peer == RELAY_NOW, ticket })
+}
+
+/// Whether a side with this gather has no way to the peer but the relay:
+/// no plain UDP (off, or no STUN answer) and no TURN allocation.
+fn only_the_relay(options: &DialOptions, udp_blocked: bool, turn: Option<&TurnCarrier>) -> bool {
+    options.relay.is_some() && turn.is_none() && (no_plain_udp(options) || udp_blocked)
 }
 
 /// The answer's gather before `wg-resp` (an older peer, or no plain UDP):
@@ -599,7 +695,7 @@ fn send_class_of(datagram: &[u8], priority: cmux_wg::Priority) -> SendClass {
     match send_class(datagram) {
         SendClass::Control if !cmux_wg::is_ultra_parity(datagram) => SendClass::Control,
         _ => match priority {
-            cmux_wg::Priority::Interactive => SendClass::Input,
+            cmux_wg::Priority::Interactive | cmux_wg::Priority::Screen => SendClass::Input,
             cmux_wg::Priority::Bulk => SendClass::Bulk,
             cmux_wg::Priority::Media => SendClass::Media,
         },
@@ -653,6 +749,9 @@ pub(super) enum Carrier {
     Udp,
     /// Through this side's TURN allocation.
     Turn,
+    /// Through cmux's WebSocket relay (`relay.rs`); its route's address is
+    /// always [`RELAY_PEER`].
+    Relay,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -686,6 +785,7 @@ fn path_of(route: Option<Route>, labels: &Labels, own: Option<TurnTransport>) ->
             LinkPath::TurnTls
         }
         Some(Route { carrier: Carrier::Turn, .. }) => LinkPath::Turn,
+        Some(Route { carrier: Carrier::Relay, .. }) => LinkPath::HttpsRelay,
         None => LinkPath::NoPath,
     }
 }
@@ -722,6 +822,11 @@ const REPLAY_GAP: Duration = Duration::from_secs(1);
 /// While the confirmed route is TURN, plain UDP candidates are tried this
 /// often, so the session goes back to a direct path once one works again.
 const UPGRADE_SPRAY_GAP: Duration = Duration::from_secs(5);
+/// A side on another confirmed route that heard nothing through cmux's
+/// relay this long leaves it (so does a side whose peer never joined): both
+/// directions travel elsewhere, and a relay socket that carries nothing is
+/// only one more connection to keep. A side that needs it again rejoins.
+const RELAY_LEAVE_AFTER: Duration = Duration::from_secs(60);
 /// A handshake initiation of ours that nothing from the peer has answered
 /// yet is sent again after each of these waits (3.75 s in all), on the TURN
 /// routes only (through our allocation, and to the peer's relayed
@@ -773,7 +878,6 @@ struct HandshakeRepeat {
 /// The roaming side of the tunnel (`roam.rs`) changes the carriers through
 /// [`Control`] messages, which the underlay applies before its next send or
 /// receive.
-
 struct HybridUnderlay {
     socket: UdpSocket,
     options: DialOptions,
@@ -784,6 +888,16 @@ struct HybridUnderlay {
     turn: Option<TurnCarrier>,
     /// Peer endpoints this side reaches through its TURN allocation.
     turn_targets: Vec<SocketAddr>,
+    /// cmux's WebSocket relay, once this side joined it (`relay.rs`).
+    relay: Option<RelayCarrier>,
+    /// Since when another route than the relay has been the confirmed one
+    /// while the relay is held ([`RELAY_LEAVE_AFTER`]).
+    relay_elsewhere_since: Option<Instant>,
+    /// What the session's relay watch reads (whether a relay socket is
+    /// held, when the peer was last heard) and sets.
+    relay_shared: Arc<roam::RelayShared>,
+    /// Something authenticated: the dial's diagnosis was told once.
+    reached: bool,
     labels: Labels,
     /// The peer speaks protocol version 2: it sends `reach` messages.
     peer_reaches: bool,
@@ -893,6 +1007,8 @@ struct HybridUnderlay {
 const MAX_LEARNED: usize = 4;
 const UDP_PATH: PathId = PathId(0);
 const TURN_PATH: PathId = PathId(2);
+/// Datagrams that came through cmux's relay.
+const RELAY_PATH: PathId = PathId(3);
 
 /// What a side's underlay starts with.
 struct UnderlaySpec<'a> {
@@ -906,6 +1022,7 @@ struct UnderlaySpec<'a> {
     path: watch::Sender<LinkPath>,
     route_to: Arc<watch::Sender<Option<SocketAddr>>>,
     control: mpsc::UnboundedReceiver<Control>,
+    relay_shared: Arc<roam::RelayShared>,
 }
 
 fn addresses(texts: &[String]) -> HashSet<SocketAddr> {
@@ -921,6 +1038,10 @@ impl HybridUnderlay {
             candidates: Vec::new(),
             turn: spec.turn,
             turn_targets: Vec::new(),
+            relay: None,
+            relay_elsewhere_since: None,
+            relay_shared: spec.relay_shared,
+            reached: false,
             labels: Labels {
                 peer_relayed: addresses(spec.peer_relayed),
                 peer_relayed_tls: addresses(spec.peer_relayed_tls),
@@ -984,6 +1105,13 @@ impl HybridUnderlay {
     fn retarget_turn(&mut self) {
         self.turn_targets =
             if self.turn.is_some() { turn_targets(&self.peer_endpoints, &self.options) } else { Vec::new() };
+        // The peer's relayed addresses go first: they are the ones its
+        // answer to us comes from, and the first to need a permission.
+        let relayed = &self.labels.peer_relayed;
+        self.turn_targets.sort_by_key(|addr| !relayed.contains(addr));
+        if let Some(turn) = &self.turn {
+            turn.permit(&self.turn_targets);
+        }
     }
 
     /// Apply the roaming side's changes, then bring the selector's paths in
@@ -997,6 +1125,7 @@ impl HybridUnderlay {
                 self.paths.on_network_change();
             }
             Control::Turn(_) | Control::Blackhole => self.paths.forget_carrier(Carrier::Turn),
+            Control::Relay(_) => self.paths.forget_carrier(Carrier::Relay),
             _ => {}
         }
         self.apply_one(control);
@@ -1024,6 +1153,12 @@ impl HybridUnderlay {
             for addr in self.turn_targets.iter().copied() {
                 wanted.push(paths::Wanted { route: Route { carrier: Carrier::Turn, addr }, relayed: true });
             }
+        }
+        if self.relay_alive() {
+            wanted.push(paths::Wanted {
+                route: Route { carrier: Carrier::Relay, addr: RELAY_PEER },
+                relayed: true,
+            });
         }
         self.paths.sync(&wanted);
     }
@@ -1160,6 +1295,7 @@ impl HybridUnderlay {
                     if !relayed.is_empty() {
                         self.labels.peer_relayed = addresses(&relayed);
                         self.labels.peer_relayed_tls = addresses(&relayed_tls);
+                        self.retarget_turn();
                     }
                     self.publish_path();
                 }
@@ -1181,6 +1317,91 @@ impl HybridUnderlay {
                     turn.kill();
                 }
             }
+            Control::Relay(relay) => {
+                tracing::info!("WireGuard joins cmux's relay");
+                self.relay = Some(relay);
+                self.relay_elsewhere_since = None;
+                self.relay_shared.set_held(true);
+                self.wake_receiver();
+                self.publish_path();
+                // What went nowhere while nothing reached the peer goes again.
+                if self.direct.is_none_or(|route| route.carrier != Carrier::Udp) {
+                    self.replay_recent(true);
+                }
+            }
+            Control::KillRelay => {
+                if let Some(relay) = &self.relay {
+                    relay.kill();
+                }
+            }
+        }
+    }
+
+    /// The relay socket is joined and alive.
+    fn relay_alive(&self) -> bool {
+        self.relay.as_ref().is_some_and(|relay| !relay.is_dead())
+    }
+
+    /// Let go of the relay socket: `voluntary` when another route carries
+    /// the session, else because it died. The session joins again if
+    /// nothing else works. A socket that died while the session rode it (or
+    /// had no other confirmed route, or the relay is forced) is joined again
+    /// at once, unless the peer is heard on another path first.
+    fn drop_relay(&mut self, why: &str, voluntary: bool) {
+        let Some(relay) = self.relay.take() else { return };
+        tracing::info!(why, "WireGuard leaves cmux's relay");
+        let rode = self.direct.is_none_or(|route| route.carrier == Carrier::Relay) || !self.confirmed;
+        if voluntary {
+            self.relay_shared.left();
+        } else if relay.is_dead() && (rode || self.options.force_relay) {
+            self.relay_shared.lost();
+        } else {
+            self.relay_shared.set_held(false);
+        }
+        self.paths.forget_carrier(Carrier::Relay);
+        self.sync_paths();
+        if self.direct.is_some_and(|route| route.carrier == Carrier::Relay) {
+            self.direct = None;
+            self.demote("the relay socket is gone");
+        }
+    }
+
+    /// Leave the relay once another route has been the confirmed one for
+    /// [`RELAY_LEAVE_AFTER`]: a direct path or TURN carries what this side
+    /// sends again (the roam to a network that allows them). The selector's
+    /// probes keep crossing an alive relay path, so arrivals there say
+    /// nothing; a peer that still needs the relay to reach this side asks it
+    /// back (`wg-relay`, the relay watch), and the rejoin then sticks. Debug "relay via
+    /// cmux only", and a session that needed the relay again soon after
+    /// leaving it ([`roam::RelayShared::sticky`]), stay on it.
+    fn maybe_leave_relay(&mut self) {
+        let Some(relay) = &self.relay else { return };
+        if relay.is_dead() {
+            self.drop_relay("the relay socket died", false);
+            return;
+        }
+        if self.options.force_relay || self.relay_shared.sticky() {
+            return;
+        }
+        let now = Instant::now();
+        let elsewhere = self.confirmed && self.direct.is_some_and(|route| route.carrier != Carrier::Relay);
+        if !elsewhere {
+            self.relay_elsewhere_since = None;
+            return;
+        }
+        let since = *self.relay_elsewhere_since.get_or_insert(now);
+        if now.duration_since(since) > self.options.relay_leave_after.unwrap_or(RELAY_LEAVE_AFTER) {
+            self.drop_relay("another route carries what this side sends", true);
+        }
+    }
+
+    /// Through the relay, when this side has joined it.
+    fn send_relay(&self, datagram: &[u8], class: SendClass) {
+        if self.dark {
+            return;
+        }
+        if let Some(relay) = &self.relay {
+            relay.send(datagram, class);
         }
     }
 
@@ -1203,13 +1424,16 @@ impl HybridUnderlay {
             // Sent before this side's TURN allocation was replaced.
             return;
         }
-        let carrier = if self.turn.as_ref().is_some_and(|turn| turn.relayed == from) {
+        let carrier = if from == RELAY_PEER {
+            Carrier::Relay
+        } else if self.turn.as_ref().is_some_and(|turn| turn.relayed == from) {
             Carrier::Turn
         } else {
             Carrier::Udp
         };
         let fits = |route: &Route, labels: &Labels| {
-            route.carrier == carrier && labels.peer_relayed.contains(&route.addr) == via_turn
+            route.carrier == carrier
+                && (carrier == Carrier::Relay || labels.peer_relayed.contains(&route.addr) == via_turn)
         };
         if self.direct.is_some_and(|route| fits(&route, &self.labels)) {
             if !self.confirmed {
@@ -1264,6 +1488,9 @@ impl HybridUnderlay {
     /// A route on `carrier` to the peer's relayed address (`via_turn`) or to
     /// one of its plain addresses.
     fn route_for(&self, carrier: Carrier, via_turn: bool) -> Option<Route> {
+        if carrier == Carrier::Relay {
+            return self.relay_alive().then_some(Route { carrier, addr: RELAY_PEER });
+        }
         if carrier == Carrier::Udp && no_plain_udp(&self.options) {
             // Plain UDP is off here: whatever arrived, it was not ours.
             return None;
@@ -1363,7 +1590,8 @@ impl HybridUnderlay {
         } else {
             self.labels.peer_relayed.iter().copied().filter(|addr| !self.refused.contains(addr)).collect()
         };
-        if relayed.is_empty() && (self.turn.is_none() || self.turn_targets.is_empty()) {
+        if relayed.is_empty() && (self.turn.is_none() || self.turn_targets.is_empty()) && self.relay.is_none()
+        {
             return;
         }
         self.last_replay = Some(now);
@@ -1374,6 +1602,7 @@ impl HybridUnderlay {
                 let _ = self.send_udp(&datagram, *addr);
             }
             self.send_turn_targets(&datagram, class);
+            self.send_relay(&datagram, class);
         }
     }
 
@@ -1415,6 +1644,7 @@ impl HybridUnderlay {
     /// addresses (its TURN allocation).
     fn send_on_relays(&mut self, datagram: &[u8], class: SendClass) {
         self.send_turn_targets(datagram, class);
+        self.send_relay(datagram, class);
         if no_plain_udp(&self.options) {
             return;
         }
@@ -1447,6 +1677,7 @@ impl HybridUnderlay {
         }
         if self.options.drop_outbound_udp
             || self.options.block_udp
+            || self.options.force_relay
             || self.blackhole
             || self.dark
             || self.options.drop_udp_to.is_some_and(|drop| drop(&target))
@@ -1505,6 +1736,13 @@ impl HybridUnderlay {
                 }
                 _ => false,
             },
+            Carrier::Relay => {
+                if !self.relay_alive() {
+                    return false;
+                }
+                self.send_relay(datagram, class);
+                true
+            }
         }
     }
 
@@ -1568,6 +1806,10 @@ impl HybridUnderlay {
             roam.mark(if path == LinkPath::Direct { "roam_direct" } else { "roam_turn" });
         }
         self.path.send_if_modified(|current| std::mem::replace(current, path) != path);
+        self.relay_shared.set_on_relay(path == LinkPath::HttpsRelay || path == LinkPath::NoPath);
+        self.relay_shared.set_confirmed_elsewhere(
+            self.confirmed && self.direct.is_some_and(|route| route.carrier != Carrier::Relay),
+        );
         let peer = self.direct.filter(|_| path == LinkPath::Direct).map(|route| route.addr.ip());
         self.peer.send_if_modified(|current| std::mem::replace(current, peer) != peer);
     }
@@ -1601,7 +1843,7 @@ impl HybridUnderlay {
     fn impaired(&mut self, datagram: &[u8], origin: Origin) -> bool {
         let Some(impair) = self.options.impair_inbound else { return false };
         let Some(from) = origin.addr else { return false };
-        match impair(origin.path == TURN_PATH, &from, datagram.len()) {
+        match impair(origin.path != UDP_PATH, &from, datagram.len()) {
             None => true,
             Some(delay) if delay.is_zero() => false,
             Some(delay) => {
@@ -1625,6 +1867,7 @@ impl HybridUnderlay {
         buffer[..len].copy_from_slice(&datagram[..len]);
         match origin.path {
             TURN_PATH => self.last_turn_source = origin.addr,
+            RELAY_PATH => {}
             _ => self.last_udp_source = origin.addr,
         }
         Some(Received { len, origin })
@@ -1690,12 +1933,14 @@ impl HybridUnderlay {
             }
             self.spray(datagram, None);
             self.send_turn_targets(datagram, class);
+            self.send_relay(datagram, class);
             return true;
         }
         false
     }
 
     fn transmit(&mut self, datagram: &[u8], class: SendClass) {
+        self.maybe_leave_relay();
         if self.transmit_selected(datagram, class) {
             return;
         }
@@ -1737,11 +1982,15 @@ impl HybridUnderlay {
                 if route.carrier == Carrier::Udp {
                     self.send_turn_targets(datagram, class);
                 }
+                if route.carrier != Carrier::Relay {
+                    self.send_relay(datagram, class);
+                }
                 self.maybe_spray(datagram, route);
             }
             None => {
                 self.spray(datagram, None);
                 self.send_turn_targets(datagram, class);
+                self.send_relay(datagram, class);
             }
         }
     }
@@ -1789,10 +2038,11 @@ impl Underlay for HybridUnderlay {
         let reverse = match path {
             UDP_PATH => self.last_udp_source.map(|addr| Route { carrier: Carrier::Udp, addr }),
             TURN_PATH => self.last_turn_source.map(|addr| Route { carrier: Carrier::Turn, addr }),
+            RELAY_PATH => Some(Route { carrier: Carrier::Relay, addr: RELAY_PEER }),
             _ => None,
         };
         match reverse {
-            Some(route) if route.carrier == Carrier::Turn || !no_plain_udp(&self.options) => {
+            Some(route) if route.carrier != Carrier::Udp || !no_plain_udp(&self.options) => {
                 let _ = self.send_route(route, datagram, class);
             }
             _ => self.transmit(datagram, class),
@@ -1827,6 +2077,7 @@ impl Underlay for HybridUnderlay {
                     if self.blackhole
                         || self.dark
                         || self.options.block_udp
+                        || self.options.force_relay
                         || (self.options.restrict_inbound_udp && !self.sent_to.contains(&source))
                         || self.stun_answer(&buffer[..len], source)
                     {
@@ -1867,6 +2118,28 @@ impl Underlay for HybridUnderlay {
             self.last_turn_source = Some(from);
             return Poll::Ready(Ok(Received { len, origin }));
         }
+        while let Some(relay) = &mut self.relay {
+            match relay.inbound.poll_recv(cx) {
+                Poll::Ready(Some(datagram)) => {
+                    if self.dark {
+                        continue;
+                    }
+                    let origin = Origin { path: RELAY_PATH, addr: Some(RELAY_PEER) };
+                    if self.impaired(&datagram, origin) {
+                        continue;
+                    }
+                    let len = datagram.len().min(buffer.len());
+                    buffer[..len].copy_from_slice(&datagram[..len]);
+                    return Poll::Ready(Ok(Received { len, origin }));
+                }
+                // The socket is gone: its route with it.
+                Poll::Ready(None) => {
+                    self.drop_relay("the relay socket closed", false);
+                    break;
+                }
+                Poll::Pending => break,
+            }
+        }
         if let Some(&(at, ..)) = self.delayed.front() {
             let timer = self.delay_timer.get_or_insert_with(|| Box::pin(tokio::time::sleep_until(at)));
             if timer.deadline() != at {
@@ -1886,11 +2159,18 @@ impl Underlay for HybridUnderlay {
         let carrier = match origin.path {
             UDP_PATH => Carrier::Udp,
             TURN_PATH => Carrier::Turn,
+            RELAY_PATH => Carrier::Relay,
             _ => return,
         };
         let Some(addr) = origin.addr else { return };
         // The peer answered (or sent anything authenticated): the path works.
         self.handshake_repeat = None;
+        if !self.reached {
+            self.reached = true;
+            self.options.diagnosis.reached();
+        }
+        self.relay_shared.heard(now);
+
         let route = Route { carrier, addr };
         self.learn(route);
         self.paths.heard(route, now);
@@ -1907,9 +2187,14 @@ impl Underlay for HybridUnderlay {
         // refuses to send to is never the route, and a route the peer's
         // `reach` chose stays while it is confirmed.
         let udp_fresh = self.last_udp.is_some_and(|last| now.duration_since(last) <= DIRECT_STALE);
-        let keep_udp = carrier == Carrier::Turn
+        let keep_udp = carrier != Carrier::Udp
             && udp_fresh
             && self.direct.is_some_and(|current| current.carrier == Carrier::Udp);
+        // Nor does a copy through cmux's relay displace a TURN route that
+        // still delivers: TURN is the nearer relay.
+        let keep_turn = carrier == Carrier::Relay
+            && self.direct.is_some_and(|current| current.carrier != Carrier::Relay)
+            && self.last_on_route.is_some_and(|at| now.duration_since(at) <= RELAYED_RECENT);
         let refused = carrier == Carrier::Udp && self.refused.contains(&addr);
         let pinned = self.pinned_until.is_some_and(|until| now < until);
         let arrival_direct = self.is_direct(route);
@@ -1936,7 +2221,14 @@ impl Underlay for HybridUnderlay {
             && self.last_on_route.is_some_and(|at| now.duration_since(at) <= RELAYED_RECENT);
         // Once a path answered a probe the selector picks the route.
         let selected = self.paths.drives();
-        if !keep_udp && !refused && !pinned && !downgrade && !selected && self.direct != Some(route) {
+        if !keep_udp
+            && !keep_turn
+            && !refused
+            && !pinned
+            && !downgrade
+            && !selected
+            && self.direct != Some(route)
+        {
             if self.direct.is_some() {
                 // The peer confirmed the old route, not this one (our UDP may
                 // be dropped silently): send on every route until it confirms
@@ -2058,6 +2350,9 @@ struct TunnelSpec<'a> {
     keeps_turn: bool,
     dialer: bool,
     stun: Vec<SocketAddr>,
+    /// cmux's relay for this session: this side's endpoint when both sides
+    /// can join it, and whether to join at once.
+    relay: Option<roam::RelayPlan>,
 }
 
 /// Whether the device's network is cellular now, as the app last said
@@ -2101,6 +2396,7 @@ fn start_tunnel(
     let (reach_tx, reach_rx) = mpsc::unbounded_channel();
     let (relayed, relayed_tls) = relayed_of(spec.turn.as_ref());
     let turn_dead = spec.turn.as_ref().map(TurnCarrier::dead);
+    let relay_shared = Arc::new(roam::RelayShared::default());
     let underlay = HybridUnderlay::new(
         UnderlaySpec {
             socket: spec.socket,
@@ -2113,6 +2409,7 @@ fn start_tunnel(
             path: path_tx,
             route_to: Arc::clone(&route_to),
             control: control_rx,
+            relay_shared: Arc::clone(&relay_shared),
         },
         options,
     );
@@ -2150,6 +2447,8 @@ fn start_tunnel(
         keeps_turn: spec.keeps_turn,
         turn_dead,
         route_to,
+        relay: spec.relay,
+        relay_shared,
     });
     Ok(Tunnel { session, path: path_rx, peer })
 }
@@ -2174,6 +2473,9 @@ pub(super) fn dial_wireguard<'a>(
     early: Option<EarlyTurn>,
 ) -> DialFuture<'a> {
     Box::pin(async move {
+        // Debug "relay via cmux only": no TURN server, no plain UDP.
+        let effective = effective_options(options);
+        let options: &DialOptions = &effective;
         let socket = bind_udp().map_err(transport_error)?;
         let (gathered, turn) = match early {
             Some(mut early) => {
@@ -2188,9 +2490,14 @@ pub(super) fn dial_wireguard<'a>(
                 )
             }
         };
-        if no_plain_udp(options) && turn.is_none() {
+        if no_plain_udp(options) && turn.is_none() && options.relay.is_none() {
             return Err(DialError::Transport("no TURN allocation, and plain UDP is off".into()));
         }
+        let udp_blocked = gathered.udp_looks_blocked();
+        diagnose_gather(options, udp_blocked, turn.as_ref(), true);
+        let own_relay_now = only_the_relay(options, udp_blocked, turn.as_ref());
+        let relay_offer =
+            options.relay.as_ref().map(|_| (if own_relay_now { RELAY_NOW } else { RELAY_READY }).to_owned());
         let turn_missed = missed_turn(true, turn.as_ref(), options);
         let Gathered { mut endpoints, stun, .. } = gathered;
         let (relayed, relayed_tls) = relayed_of(turn.as_ref());
@@ -2217,11 +2524,15 @@ pub(super) fn dial_wireguard<'a>(
                         let mut lanes =
                             super::offered_lanes(options, options.video_lane, options.webrtc_media);
                         lanes.push(crate::link::LIVENESS_LANE.to_owned());
+                        if classes_offered() {
+                            lanes.push(crate::classes::CLASSES_LANE.to_owned());
+                        }
                         lanes
                     },
                     relayed,
                     relayed_tls,
                     version: WG_VERSION,
+                    relay: relay_offer,
                 },
             )
             .map_err(|e| DialError::Signaling(e.to_string()))?;
@@ -2230,7 +2541,10 @@ pub(super) fn dial_wireguard<'a>(
         let video_agreed;
         let webrtc_media_agreed;
         let liveness_agreed;
-        let (peer_key, peer_endpoints, peer_ip, peer_relayed, peer_relayed_tls, peer_version) = loop {
+        // This side's relay ticket comes stamped on the Mac's answer (`relayTicket`).
+        let relay_ticket;
+        let classes_agreed;
+        let (peer_key, peer_endpoints, peer_ip, peer_relayed, peer_relayed_tls, peer_version, peer_relay) = loop {
             match events.next().await? {
                 SessionEvent::Signal(envelope) => match envelope.payload {
                     SignalPayload::WgResp {
@@ -2241,6 +2555,7 @@ pub(super) fn dial_wireguard<'a>(
                         relayed,
                         relayed_tls,
                         version,
+                        relay,
                     } => {
                         options.timeline.mark("wg_resp_received");
                         let ip: Ipv4Addr = overlay_ip
@@ -2248,15 +2563,20 @@ pub(super) fn dial_wireguard<'a>(
                             .map_err(|_| DialError::Unexpected("wg-resp overlayIP is not IPv4".into()))?;
                         agreed = super::input_lane_agreed(options, &lanes);
                         liveness_agreed = lanes.iter().any(|lane| lane == crate::link::LIVENESS_LANE);
+                        classes_agreed = classes_offered()
+                            && lanes.iter().any(|lane| lane == crate::classes::CLASSES_LANE);
                         video_agreed = options.video_lane && super::video_lane_listed(&lanes);
                         webrtc_media_agreed =
                             video_agreed && options.webrtc_media && super::webrtc_media_listed(&lanes);
-                        break (parse_key(&public_key)?, endpoints, ip, relayed, relayed_tls, version);
+                        relay_ticket = envelope.relay_ticket;
+                        break (parse_key(&public_key)?, endpoints, ip, relayed, relayed_tls, version, relay);
                     }
                     SignalPayload::Bye { reason } => return Err(DialError::Bye(reason)),
                     // A Mac that roamed before this side saw its answer:
                     // the tunnel learns its endpoints from inside.
                     SignalPayload::WgEndpoints { .. } => {}
+                    // The Mac already joined the relay; so will this side.
+                    SignalPayload::WgRelay {} => {}
                     other => return Err(DialError::Unexpected(format!("{other:?}"))),
                 },
                 SessionEvent::Disconnected => return Err(DialError::Signaling("disconnected".into())),
@@ -2265,6 +2585,12 @@ pub(super) fn dial_wireguard<'a>(
         if peer_ip == DIALER_OVERLAY {
             return Err(DialError::Unexpected("peer overlay address collides".into()));
         }
+        let relay = relay_plan(options, own_relay_now, peer_relay.as_deref(), relay_ticket);
+        if relay.is_none() && no_plain_udp(options) && turn.is_none() {
+            // The relay was this side's only way, and the Mac has none.
+            return Err(options.diagnosis.blocked());
+        }
+        let tunnel_keys = super::TunnelKeys { dialer: b64(&public_key), answerer: b64(&peer_key) };
         let spec = TunnelSpec {
             session_id,
             peer_device: mac,
@@ -2282,6 +2608,7 @@ pub(super) fn dial_wireguard<'a>(
             keeps_turn: true,
             dialer: true,
             stun,
+            relay,
         };
         let tunnel = start_tunnel(signaling, spec, options)?;
         tunnel.session.follow(events.session);
@@ -2318,7 +2645,8 @@ pub(super) fn dial_wireguard<'a>(
             None
         };
         // The Mac listed the lane once its port was bound: it listens.
-        let liveness = if liveness_agreed { open_liveness(&net, peer_ip, true).await } else { None };
+        let liveness =
+            if liveness_agreed { open_liveness(&net, peer_ip, true, classes_agreed).await } else { None };
         let link_addr = SocketAddr::new(IpAddr::V4(peer_ip), LINK_PORT);
         let stream = net.connect(link_addr).await.map_err(transport_error)?;
         // The input lane: a second TCP stream to the same port, opened
@@ -2341,6 +2669,7 @@ pub(super) fn dial_wireguard<'a>(
         // A media session needs the tunnel's lane as its floor.
         let webrtc_media = webrtc_media_agreed && media.is_some();
         Ok(Dialed {
+            tunnel_keys: Some(tunnel_keys),
             stream: Box::new(stream),
             hold: Some(hold_hook(&tunnel.session)),
             path: tunnel.path,
@@ -2378,6 +2707,10 @@ impl Dialer for WireGuardDialer {
         options: &'a DialOptions,
     ) -> DialFuture<'a> {
         Box::pin(async move {
+            let effective = effective_options(options);
+            let options: &DialOptions = &effective;
+            // This side's relay ticket comes stamped on the phone's `wg-init` (`relayTicket`).
+            let relay_ticket = first.relay_ticket.clone();
             let SignalPayload::WgInit {
                 public_key,
                 endpoints: peer_endpoints,
@@ -2386,6 +2719,7 @@ impl Dialer for WireGuardDialer {
                 relayed: peer_relayed,
                 relayed_tls: peer_relayed_tls,
                 version: peer_version,
+                relay: peer_relay,
             } = first.payload
             else {
                 return Err(DialError::Unexpected("expected wg-init".into()));
@@ -2414,14 +2748,24 @@ impl Dialer for WireGuardDialer {
             // A STUN answer came after all: the early allocation is dropped
             // (released) unused.
             let turn = if wants_turn { turn } else { None };
-            if no_plain_udp(options) && turn.is_none() {
+            let relay_possible = options.relay.is_some() && peer_relay.is_some();
+            if no_plain_udp(options) && turn.is_none() && !relay_possible {
                 return Err(DialError::Transport("no TURN allocation, and plain UDP is off".into()));
             }
+            let udp_blocked = !trickle && gathered.udp_looks_blocked();
+            diagnose_gather(options, udp_blocked, turn.as_ref(), wants_turn);
+            let own_relay_now = only_the_relay(options, udp_blocked, turn.as_ref());
+            let relay_offer = options
+                .relay
+                .as_ref()
+                .map(|_| (if own_relay_now { RELAY_NOW } else { RELAY_READY }).to_owned());
+            let relay = relay_plan(options, own_relay_now, peer_relay.as_deref(), relay_ticket);
             let turn_missed = missed_turn(wants_turn, turn.as_ref(), options);
             let Gathered { mut endpoints, stun, .. } = gathered;
             let (own_relayed, own_relayed_tls) = relayed_of(turn.as_ref());
             endpoints.extend(own_relayed.iter().cloned());
             let (private_key, own_public) = keypair();
+            let tunnel_keys = super::TunnelKeys { dialer: b64(&peer_key), answerer: b64(&own_public) };
             let spec = TunnelSpec {
                 session_id: &first.session_id,
                 peer_device: &first.from,
@@ -2439,6 +2783,7 @@ impl Dialer for WireGuardDialer {
                 turn,
                 dialer: false,
                 stun,
+                relay,
             };
             let tunnel = start_tunnel(signaling, spec, options)?;
             tunnel.session.follow(events.session);
@@ -2451,8 +2796,10 @@ impl Dialer for WireGuardDialer {
             let mut listener = net.listen(LINK_PORT).await.map_err(transport_error)?;
             // Listed back only once bound. The phone binds its end after this
             // answer, so this side's pings switch over on its first datagram.
+            let classes_wanted =
+                classes_offered() && lanes.iter().any(|lane| lane == crate::classes::CLASSES_LANE);
             let liveness = if lanes.iter().any(|lane| lane == crate::link::LIVENESS_LANE) {
-                open_liveness(&net, peer_ip, false).await
+                open_liveness(&net, peer_ip, false, classes_wanted).await
             } else {
                 None
             };
@@ -2497,12 +2844,16 @@ impl Dialer for WireGuardDialer {
                                 super::offered_lanes(options, media.is_some(), webrtc_media_wanted);
                             if liveness.is_some() {
                                 lanes.push(crate::link::LIVENESS_LANE.to_owned());
+                                if classes_wanted {
+                                    lanes.push(crate::classes::CLASSES_LANE.to_owned());
+                                }
                             }
                             lanes
                         },
                         relayed: own_relayed,
                         relayed_tls: own_relayed_tls,
                         version: WG_VERSION,
+                        relay: relay_offer,
                     },
                 )
                 .map_err(|e| DialError::Signaling(e.to_string()))?;
@@ -2526,6 +2877,7 @@ impl Dialer for WireGuardDialer {
             });
             let webrtc_media = webrtc_media_wanted && media.is_some();
             Ok(Dialed {
+                tunnel_keys: Some(tunnel_keys),
                 stream: Box::new(stream),
                 hold: Some(hold_hook(&tunnel.session)),
                 path: tunnel.path,
@@ -2646,6 +2998,7 @@ mod tests {
                 path: watch::channel(LinkPath::NoPath).0,
                 route_to: Arc::new(watch::channel(None).0),
                 control,
+                relay_shared: Default::default(),
             },
             &DialOptions::default(),
         );
@@ -2683,6 +3036,7 @@ mod tests {
                 path: watch::channel(LinkPath::NoPath).0,
                 route_to: Arc::new(watch::channel(None).0),
                 control,
+                relay_shared: Default::default(),
             },
             &DialOptions::default(),
         );
@@ -2722,6 +3076,7 @@ mod tests {
                 path: watch::channel(LinkPath::NoPath).0,
                 route_to: Arc::new(watch::channel(None).0),
                 control,
+                relay_shared: Default::default(),
             },
             &DialOptions::default(),
         );
@@ -2771,6 +3126,7 @@ mod tests {
                 path: watch::channel(LinkPath::NoPath).0,
                 route_to: Arc::new(watch::channel(None).0),
                 control,
+                relay_shared: Default::default(),
             },
             &DialOptions::default(),
         );
@@ -2859,6 +3215,7 @@ mod tests {
                 path: watch::channel(LinkPath::NoPath).0,
                 route_to: Arc::new(watch::channel(None).0),
                 control,
+                relay_shared: Default::default(),
             },
             &DialOptions::default(),
         );
@@ -2917,6 +3274,7 @@ mod tests {
                 path: watch::channel(LinkPath::NoPath).0,
                 route_to: Arc::new(watch::channel(None).0),
                 control,
+                relay_shared: Default::default(),
             },
             &DialOptions::default(),
         );
@@ -2999,6 +3357,7 @@ mod tests {
                 path: watch::channel(LinkPath::NoPath).0,
                 route_to: Arc::new(watch::channel(None).0),
                 control,
+                relay_shared: Default::default(),
             },
             &options,
         );
