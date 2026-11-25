@@ -3691,7 +3691,8 @@ function codexLiveTurn(
       line.doingAt = sentTime(user, clockOffset) + clockOffset;
     }
     return [...rows, line];
-  }  const compactingRow = named ? undefined : liveCompaction(drawn);
+  }
+  const compactingRow = named ? undefined : liveCompaction(drawn);
   if (named) {
     const call = named.tool;
     // A command reads its working step, whole: the line's CSS ellipsis cuts it at its edge, not a fixed
