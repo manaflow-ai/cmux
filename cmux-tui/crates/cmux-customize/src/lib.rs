@@ -20,6 +20,7 @@
 mod brief;
 pub mod checklist;
 pub mod community;
+pub mod kit;
 mod diff;
 mod engine;
 mod file_refs;
