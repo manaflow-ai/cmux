@@ -12,6 +12,10 @@ import XCTest
 /// - `RestOffTop`: the apply-with-anchor at rest (the control: it held before the fix too).
 /// - `RestJustBelowTop`: the old 60 pt "at top" band, where no anchor was kept.
 /// - `HeaderOffTop`: a header re-measure off the top with no anchor (a refresh error comes and goes).
+/// - `FingerResting`: a finger on the glass, not moving (tracking, offset still) while rows arrive
+///   (Aziz's recording, 109.59 s: every row moved down one row with the list still).
+/// - `SettleFrame`: rows arriving as a deceleration ends, or just after (the settle frame): what
+///   waited applies with its restore in one pass, never a frame with the rows shown before it.
 ///
 /// Two loads: `feed-live` (the rig's 3 changes a second, one row in four) and `pressure84` (12 a
 /// second: three rows a second, the rate of 84 workspaces with a row each about every 30 s).
@@ -28,6 +32,8 @@ final class FeedArrivalShiftUITests: XCTestCase {
     @MainActor func testRestOffTopPressure84() { run(.restOffTop, liveHz: 12) }
     @MainActor func testRestJustBelowTopPressure84() { run(.restJustBelowTop, liveHz: 12) }
     @MainActor func testHeaderOffTopFeedLive() { run(.headerOffTop, liveHz: 3) }
+    @MainActor func testFingerRestingPressure84() { run(.fingerResting, liveHz: 12) }
+    @MainActor func testSettleFramePressure84() { run(.settleFrame, liveHz: 12) }
 
     enum Case: String {
         case drag = "Drag (rows applied while the finger moves the list)"
@@ -35,6 +41,8 @@ final class FeedArrivalShiftUITests: XCTestCase {
         case restOffTop = "RestOffTop (apply with anchor at rest)"
         case restJustBelowTop = "RestJustBelowTop (the 60 pt at-top band, no anchor)"
         case headerOffTop = "HeaderOffTop (header re-measure off the top, no anchor)"
+        case fingerResting = "FingerResting (a finger on the glass, not moving, while rows arrive)"
+        case settleFrame = "SettleFrame (rows arriving as a deceleration ends)"
     }
 
     /// The rig's load starts this long after launch: the list is placed before rows arrive.
@@ -85,6 +93,16 @@ final class FeedArrivalShiftUITests: XCTestCase {
             for _ in 0..<4 {
                 app.swipeUp(velocity: .fast)
                 Thread.sleep(forTimeInterval: 1.2)
+            }
+        case .fingerResting:
+            // Down and still for 8 s: the touch is held, the offset does not move.
+            list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 8)
+        case .settleFrame:
+            // Short slow flings that come to rest every 0.7 s, under three rows a second: arrivals
+            // land in and just after the frame each deceleration ends.
+            for _ in 0..<10 {
+                app.swipeUp(velocity: .slow)
+                Thread.sleep(forTimeInterval: 0.7)
             }
         case .restOffTop, .restJustBelowTop, .headerOffTop:
             Thread.sleep(forTimeInterval: 10)
