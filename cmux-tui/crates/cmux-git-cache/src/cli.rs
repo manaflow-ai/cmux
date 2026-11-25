@@ -1,8 +1,8 @@
 //! `cmux host git-cache serve|credential` (and the tests' entry).
 //!
 //! `serve [--listen ADDR] [--upstream URL] [--edge URL] [--tenant T] [--cache DIR] [--peer URL]...
-//!        [--include PATH --helper CMD] [--stats PATH]`: listens, then writes the include (when given) and
-//! removes it on SIGTERM or SIGINT.
+//!        [--include PATH --helper CMD] [--stats PATH]`: listens, then writes the include (when given)
+//! and the base file beside it (`gitconfig::base_path`), and removes both on SIGTERM or SIGINT.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -64,6 +64,9 @@ pub async fn serve(opts: Serve) -> Result<(), String> {
     if let (Some(path), Some(helper)) = (&opts.include, &opts.helper) {
         gitconfig::write_include(path, &gitconfig::include_text(port, helper))
             .map_err(|e| format!("write {}: {e}", path.display()))?;
+        let base = gitconfig::base_path(path);
+        gitconfig::write_include(&base, &gitconfig::base_text(port))
+            .map_err(|e| format!("write {}: {e}", base.display()))?;
     }
     eprintln!(
         "git-cache: listening on 127.0.0.1:{port} upstream={} tenant={} peers={}",
