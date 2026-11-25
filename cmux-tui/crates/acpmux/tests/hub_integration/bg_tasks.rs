@@ -833,3 +833,71 @@ async fn a_task_end_is_sent_once_across_a_restart() {
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A chat runs as many tasks as it starts: no count cap refuses one (Leo, 2026-11-22, on
+/// "acpmux background task cap of 32": "shouldn't have these arbitrary caps yo"). Twice the old
+/// cap of 32 run at once, half of them with `notify`, whose watch threads (a small stack each)
+/// still bring every end to the chat once.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_chat_runs_past_the_old_cap_of_32_tasks_and_every_end_is_sent() {
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(crate::daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "many").await;
+    let go = acpmux::config::home().join("many-may-end");
+    let command = format!("until [ -e '{}' ]; do sleep 0.05; done; echo done", go.display());
+    const TASKS: usize = 64;
+    let mut ids = Vec::new();
+    for i in 0..TASKS {
+        let params = json!({"sessionId": id, "command": command, "notify": i % 2 == 0});
+        let task = r.c.request(method::MUX_BG_START, params).await;
+        let task = task.unwrap_or_else(|e| panic!("start {i} of {TASKS} was refused: {e:?}"));
+        assert_eq!(task["state"], "running", "start {i}: {task}");
+        ids.push(task["id"].as_str().unwrap().to_owned());
+    }
+    let list = r.hub.bg_list(&r.hub.resolve(&id).unwrap());
+    let running = list["tasks"].as_array().unwrap().iter().filter(|t| t["state"] == "running");
+    assert_eq!(running.count(), TASKS, "{list}");
+    std::fs::write(&go, "").unwrap();
+    r.until("not every task ended", || ids.iter().all(|t| state(&r, &id, t) == "exited")).await;
+    // 32 ends at once outrun the chat's reply period, so the receiver's surge rate holds most
+    // of them in its inbox (`hub/inbox_surge.rs`) instead of running a turn each: an end has
+    // reached its chat when a turn or a held inbox message names its task.
+    let notified: Vec<&String> = ids.iter().step_by(2).collect();
+    r.until("not every notify task's end reached its chat", || {
+        let seen = reached(&r.hub, &id);
+        notified.iter().all(|t| seen.iter().any(|text| text.contains(t.as_str())))
+    })
+    .await;
+    let seen = reached(&r.hub, &id);
+    for quiet in ids.iter().skip(1).step_by(2) {
+        assert!(
+            !seen.iter().any(|t| t.contains(quiet.as_str())),
+            "{quiet} had no notify: {seen:?}"
+        );
+    }
+    let bg = acpmux::config::home().join("bg").join(&id);
+    for (i, task) in ids.iter().enumerate() {
+        let marked = acpmux::bg_run::notified_path(&bg, task).exists();
+        assert_eq!(
+            marked,
+            i % 2 == 0,
+            "{task}: a notify task's end is marked sent, a quiet one's is not"
+        );
+    }
+}
+
+/// The task ends chat `id` took: as a turn's message, or held by the surge rate in its inbox.
+fn reached(hub: &Hub, id: &str) -> Vec<String> {
+    let events = hub.events(id, 0, 10_000).unwrap();
+    let held = |e: &&acpmux::store::EventRecord| {
+        e.kind == "inbox" && e.msg["surgeHeld"].as_bool() == Some(true)
+    };
+    events
+        .iter()
+        .filter(|e| e.kind == "user_message" || held(e))
+        .filter_map(|e| e.msg["text"].as_str())
+        .filter(|t| t.contains("Background command"))
+        .map(str::to_owned)
+        .collect()
+}

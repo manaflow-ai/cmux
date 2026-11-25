@@ -59,6 +59,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `layout.centerFocusedColumn` | string | `"never"` | `never`, `always`, `on-overflow` | Center Focused Column |
 | `layout.stripScrollbar` | string | `"system"` | `system`, `auto`, `always`, `off` | Column Scroll Bar. A thin bar under the columns that shows and moves the visible range. |
 | `layout.closeFocus` | string | `"mostRecent"` | `previousNeighbor`, `mostRecent` | Focus After Closing a Pane. Which pane gets focus when the focused pane closes. |
+| `app.keyStyle` | string | `"standard"` | `standard`, `vim`, `emacs` | Key Style. Vim moves through lists with j, k, gg, G and /. Emacs uses Control-N, P, F, B, A and E. |
+| `app.shortcutLayout` | string | `"followLayout"` | `followLayout`, `qwertyPositions` | Keyboard Layout. Keep QWERTY Positions puts shortcuts on the US keys, for Dvorak, Colemak, AZERTY and QWERTZ. |
 | `shortcuts.showModifierHoldHints` | boolean | `true` |  | Show Shortcuts When Holding a Modifier. Hold Command or Control for 0.30 seconds to show shortcut hints. |
 | `updates.channel` | string | `"nightly"` | `stable`, `nightly`, `canary`, `dev` | Update Channel. Stable gets builds that ran a week without problems; Canary and Dev get them first. |
 | `updates.checkAutomatically` | boolean | `true` |  | Check for Updates Automatically |
@@ -408,6 +410,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `editor.cursorSmoothCaretAnimation` | string | `"off"` | `off`, `explicit`, `on` | Animate Cursor Movement |
 | `editor.cursorSurroundingLines` | real | `0` | 0 to 50 | Lines Kept Around the Cursor |
 | `editor.multiCursorModifier` | string | `"alt"` | `alt`, `ctrlCmd` | Add a Cursor With. The key you hold while you click to add a cursor. |
+| `editor.vimMode` | boolean | `false` |  | Vim Keys in the Editor. Normal, Insert and Visual modes in the code editor, with the mode shown in its status bar. |
 | `editor.autoClosingBrackets` | boolean | `true` |  | Close Brackets |
 | `editor.autoClosingQuotes` | boolean | `true` |  | Close Quotes |
 | `editor.linkedEditing` | boolean | `false` |  | Rename Matching Tags Together |
