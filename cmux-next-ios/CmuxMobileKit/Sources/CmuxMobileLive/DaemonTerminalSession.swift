@@ -143,6 +143,13 @@ public final class DaemonTerminalSession: TerminalSession {
     /// `paste` (``sendPasteAndSubmit(_:notSent:maybeSent:)``). An older daemon ignores `submit`
     /// and would paste the draft with no Return: it gets the mirror's paste.
     private var pasteSubmit = false
+    /// The daemon lists `send-typed-submit-v1`: `send {text, submit:true}`
+    /// with no `paste` writes Return a paste-burst window after the typed
+    /// text, in the same request (``sendTypedAndSubmit(_:notSent:maybeSent:)``).
+    private var typedSubmit = false
+    /// Composer sends (by their id in `input`, `paste`) that go as typed text,
+    /// not a paste, where the request is built here (no Rust outbox).
+    private var typedSends: Set<Int> = []
     /// The `agent-cli-frame` stream and the newest frame this mirror drew
     /// (`agent-cli-hybrid-v1`): a reattach names them, so the Mac sends what changed
     /// since that frame instead of the whole screen.
@@ -292,8 +299,15 @@ public final class DaemonTerminalSession: TerminalSession {
     /// a lost reply does not stop input (later sends keep both directions
     /// moving, and the loss is repaired by duplicate ACKs).
     static let maxInputInFlight = 64
-    /// A missing input reply frees its slot and reports uncertain delivery.
+    /// A send that made no progress for this long (no bytes taken by the link, no answer to an
+    /// earlier send) frees its slot and reports uncertain delivery. A send that keeps moving
+    /// goes on, up to ``DaemonClient/progressCeiling`` (Leo, 2026-11-24: "a 10s timeout that
+    /// kills messages while they're making progress is a shame. make it progress-based, not a
+    /// wall clock").
     var inputRequestDeadline: Duration = .seconds(10)
+    /// Sends answered later than ``inputRequestDeadline`` after they went out: each one the old
+    /// fixed 10 s cut would have dropped while it was still moving.
+    private(set) var sendsPastFixedDeadline = 0
     /// How long a `send` may go unanswered before ``armTailProbe()`` writes
     /// `ping`s behind it: many round trips, well under the 1 s RTO.
     var tailProbeDelay: Duration = .milliseconds(150)
@@ -484,6 +498,30 @@ public final class DaemonTerminalSession: TerminalSession {
         return true
     }
 
+    /// The composer's Send of a one-line draft to a full-screen program, as
+    /// one keyed `send {surface, text, submit:true}`: typed (vim takes a
+    /// bracketed paste as text even in normal mode), with Return in the same
+    /// request, so a link blip can never deliver the text without its Return
+    /// (Leo, 2026-11-21: "the text goes through. But then the send doesn't go
+    /// through"). Held through a blip and sent once, like a pasted Send. False
+    /// against a daemon that does not list `send-typed-submit-v1` (one that
+    /// would write Return right behind the text, inside an agent's paste-burst
+    /// window): the screen keeps the mirror's path there.
+    public func sendTypedAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool {
+        #if canImport(CmuxMobileLinkFFI)
+        guard !text.isEmpty, (pasteSubmit && typedSubmit) || !identified else { return false }
+        let id = Int(composerOutbox.pushTyped(text: text, nowMs: Self.milliseconds(now())))
+        #else
+        guard pasteSubmit, typedSubmit, !text.isEmpty else { return false }
+        let id = nextPaste
+        nextPaste += 1
+        typedSends.insert(id)
+        #endif
+        pasteNotSent[id] = (notSent, maybeSent)
+        enqueueTyped(Data(text.utf8), paste: id)
+        return true
+    }
+
     /// Gives a composer paste up and tells the screen (once): "may have been sent" when an
     /// attempt went out (``composerOutbox``), else "not sent".
     private func pasteWasNotSent(_ id: Int?) {
@@ -493,6 +531,7 @@ public final class DaemonTerminalSession: TerminalSession {
         guard let done = composerOutbox.giveUpSend(seq: UInt64(id)) else { return }
         composerSendEnded(done)
         #else
+        typedSends.remove(id)
         pasteNotSent.removeValue(forKey: id)?.notSent()
         #endif
     }
@@ -752,6 +791,7 @@ public final class DaemonTerminalSession: TerminalSession {
         outbox.removeAll()
         input.removeAll()
         pasteNotSent.removeAll()
+        typedSends.removeAll()
         echoDue = nil
         echoDueAckMs = nil
         tailProbe?.cancel()
@@ -1178,6 +1218,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 && (identify.map { Self.lists(Self.replayHistoryWindowCapability, $0) } ?? false)
             if !windowReplay { historyWindowStart = nil }
             pasteSubmit = identify.map { Self.lists(Self.pasteSubmitCapability, $0) } ?? false
+            typedSubmit = identify.map { Self.lists(Self.typedSubmitCapability, $0) } ?? false
             // Attached: this daemon's answer (or its silence: an older one) settles the composer's
             // waiting Sends. One that takes no keys gives them up; they never went out.
             identified = true
@@ -1907,6 +1948,7 @@ public final class DaemonTerminalSession: TerminalSession {
         let typedBytes = taken.reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) }
         let key = composerRequest.flatMap(Self.requestKey) ?? resendKey ?? (sendKeys ? UUID().uuidString : nil)
         let resent = resendKey != nil
+        let typedSend = paste.map { typedSends.contains($0) } ?? false
         // Typed keys (no paste, no resend, no terminal replies): this batch's echo is timed.
         let timesEcho = typedBytes > 0 && paste == nil && !resent
         if timesEcho, echoDue == nil {
@@ -1919,6 +1961,7 @@ public final class DaemonTerminalSession: TerminalSession {
         Task { [weak self] in
             guard let self else { return }
             var written = false
+            let started = ContinuousClock.now
             do {
                 let submit: @Sendable () async throws -> String = {
                     var params: [String: Any]
@@ -1927,18 +1970,20 @@ public final class DaemonTerminalSession: TerminalSession {
                         params = request
                     } else {
                         params = paste != nil
-                            ? ["text": String(decoding: batch, as: UTF8.self), "paste": true, "submit": true]
+                            ? ["text": String(decoding: batch, as: UTF8.self), "paste": !typedSend, "submit": true]
                             : ["bytes": batch.base64EncodedString()]
                         if let key { params["key"] = key }
                     }
                     params["surface"] = surface
                     return try await target.submit("send", params: params, deadline: deadline)
                 }
-                // A lane request gets written and answered within seconds or
-                // the lane is given up.
+                // A lane request that stops making progress is given up (its `submit` and
+                // `reply` fail after `deadline` without progress); this cap is only past
+                // the client's own ceiling.
                 let id: String
+                let cap = DaemonClient.progressCeiling + .seconds(5)
                 if onLane {
-                    guard let submitted = try await Self.within(.seconds(10), submit) else {
+                    guard let submitted = try await Self.within(cap, submit) else {
                         abandonInputLane(target, number: number, batch: batch, typed: typedBytes, key: key, resent: resent, paste: paste, wasWriting: true)
                         return
                     }
@@ -1954,13 +1999,18 @@ public final class DaemonTerminalSession: TerminalSession {
                 drainInput()
                 let reply: Data
                 if onLane {
-                    guard let answer = try await Self.within(.seconds(10), { try await target.reply(to: id) }) else {
+                    guard let answer = try await Self.within(cap, { try await target.reply(to: id) }) else {
                         abandonInputLane(target, number: number, batch: batch, typed: typedBytes, key: key, resent: resent, paste: paste, wasWriting: false)
                         return
                     }
                     reply = answer
                 } else {
                     reply = try await target.reply(to: id)
+                }
+                let took = ContinuousClock.now - started
+                if took >= deadline {
+                    sendsPastFixedDeadline += 1
+                    log.notice("send \(number, privacy: .public) answered after \(took, privacy: .public) while it kept moving: a fixed \(deadline, privacy: .public) cut would have dropped it (\(self.sendsPastFixedDeadline, privacy: .public) so far)")
                 }
                 if timesEcho, Self.error(in: reply) == nil {
                     keyAnswered(number: number, typedAt: typedAt)
@@ -1982,9 +2032,15 @@ public final class DaemonTerminalSession: TerminalSession {
                     composerAnswered(paste, .applied)
                     #else
                     pasteNotSent[paste] = nil
+                    typedSends.remove(paste)
                     #endif
                 }
             } catch {
+                if onLane, Self.madeNoProgress(error) {
+                    // Stalled for `deadline`: the lane is given up, as when it was a wall clock.
+                    abandonInputLane(target, number: number, batch: batch, typed: typedBytes, key: key, resent: resent, paste: paste, wasWriting: !written)
+                    return
+                }
                 if !written { inputWriting = false }
                 lastError = Self.diagnostic(error)
                 inputRecovering = true
@@ -2019,6 +2075,12 @@ public final class DaemonTerminalSession: TerminalSession {
     /// Treat it like a lost reply: the Mac may have applied the keystrokes.
     static func inputDeliveryUncertain(_ error: any Error) -> Bool {
         error is CancellationError || (error as? LinkError)?.code == "write_timeout"
+    }
+
+    /// A send's client gave it up after ``inputRequestDeadline`` without progress.
+    static func madeNoProgress(_ error: any Error) -> Bool {
+        let code = (error as? LinkError)?.code
+        return code == DaemonClient.replyTimeout || code == "write_timeout"
     }
 
     /// The input lane gave no answer in time (`wasWriting`: the batch's
@@ -2355,6 +2417,8 @@ public final class DaemonTerminalSession: TerminalSession {
     static let sendKeyCapability = "send-key-v1"
     /// `send` takes `submit` (with `paste`): Return in the same request as the paste.
     static let pasteSubmitCapability = "send-expect-agent-v1"
+    /// `send` with `submit` and typed text waits past a paste-burst window before Return.
+    static let typedSubmitCapability = "send-typed-submit-v1"
     /// What the attach channel lists in `set-client-info`.
     static let clientCapabilities = [shortSizeLeaseCapability, sizeLeaseCapability, sharedSizingCapability, hostGridViewCapability, replayHistoryWindowCapability]
 
@@ -2378,13 +2442,19 @@ public final class DaemonTerminalSession: TerminalSession {
     /// `attach-output-coalesce-v1`, #43373): fewer events, the first bytes after idle at once.
     nonisolated static let outputCoalesceCapability = "attach-output-coalesce-v1"
 
-    /// What `set-client-info` declares: the lean stream (agent CLIs, shells, coalesced PTY
-    /// bytes for everything else) only with the setting on.
+    /// What `set-client-info` declares: the lean stream (agent CLIs, shells, full-screen
+    /// programs, coalesced PTY bytes for everything else) only with the setting on.
     static func capabilities(agentCLIHybrid: Bool) -> [String] {
-        agentCLIHybrid
-            ? clientCapabilities + [agentCLIHybridCapability, agentCLIHybridLeanCapability, shellLinesCapability, outputCoalesceCapability]
-            : clientCapabilities
+        agentCLIHybrid ? clientCapabilities + leanStreamCapabilities : clientCapabilities
     }
+
+    /// The lean stream's names: cmux-mobile-link `names::TERMINAL_LEAN_STREAM` on the phone
+    /// (with `terminal-full-screen-frames-v1`), today's four where the link library is absent.
+    #if canImport(CmuxMobileLinkFFI)
+    nonisolated static let leanStreamCapabilities = terminalLeanStreamCapabilities()
+    #else
+    nonisolated static let leanStreamCapabilities = [agentCLIHybridCapability, agentCLIHybridLeanCapability, shellLinesCapability, outputCoalesceCapability]
+    #endif
 
     /// While the size is claimed and the daemon leases it: the same size
     /// again every `sizeLeaseRefresh` (a same-size `resize-surface` renews
