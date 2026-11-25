@@ -119,11 +119,24 @@ jobs:
           fetch-depth: 0
           filter: tree:0
 
+      # The release-run and check reads go out on a CI pool token first (each its own installation hour), then
+      # github.token (scripts/ci/ci_pool_tokens.py; publish-app-ffi-repin.sh gh_retry moves a refused read to the next
+      # spare at once). On github.token alone a spent hour waited up to REPIN_RATE_LIMIT_WAIT_S or failed the re-pin.
+      - name: Mint the CI pool's tokens
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
+          CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+        run: python3 scripts/ci/ci_pool_tokens.py
+
       - name: Pin the newest published release and open or update the pull request
         env:
           GH_TOKEN: ${{ steps.pr-token.outputs.token }}
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
-          READ_TOKEN: ${{ github.token }}
+          READ_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
+          READ_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}
           BASE_TOKEN: ${{ steps.base-token.outputs.token }}
           BASE_PIN_ENABLED: ${{ vars.CMUX_NEXT_BASE_AUTOFIX == '1' }}
           # A stalled git transfer (a lazy tree fetch of this treeless clone, or `git fetch origin $previous`) aborts
