@@ -22,7 +22,7 @@ public struct CmuxNextApp {
         if StagedUpdatePrewarm.isChromiumPrewarm(CommandLine.arguments) { _ = cmux_early_malloc_zone_registration(); _exit(CEFStagedPrewarm().run(application: CmuxApplication.shared).rawValue) }; MacScreenStreamChild(arguments: CommandLine.arguments)?.run() // _exit: no static destructors under Chromium's threads; the Screen Sharing helper's child (the iPhone viewer's screen host) runs and exits, no app starts
         if case let epoch = cmux_next_first_initializer_epoch(), epoch > 0 { DebugTimings.markLaunch("premain.first_initializer", at: Date(timeIntervalSince1970: epoch)) } // process start to here: exec and dyld; to main_start: static initializers
         announceBenchHooksBuild()
-        ClassicFolderItemsMove.moveConfigItems(paths: .current); ScrollerStylePin().apply(to: .standard); FontSmoothingSetting.applyBeforeLaunch() // concurrency-allow: a few lstats, and once the renames of NEXT's files out of classic's ~/.config/cmux, before anything reads the settings file; defaults AppKit reads once as it starts: overlay scrollers, any mouse or setting; appearance.fontSmoothing
+        ClassicFolderItemsMove.moveConfigItems(paths: .current); ScrollerStylePin().apply(to: .standard); FontSmoothingSetting.applyBeforeLaunch() // concurrency-allow: a few lstats, and once the renames of NEXT's files out of classic's config folder, before anything reads the settings file; defaults AppKit reads once as it starts: overlay scrollers, any mouse or setting; appearance.fontSmoothing
         // First, while the process has one thread: install the delegating
         // default malloc zone Chromium expects (Chromium's
         // EarlyMallocZoneRegistration). The Chromium framework is mapped

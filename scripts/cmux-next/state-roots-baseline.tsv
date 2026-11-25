@@ -27,7 +27,7 @@ cmux-tui/crates/cmux-agent-pane-policy/src/build_identity.rs	2	keep	resolver: bu
 cmux-tui/crates/cmux-agent-pane-policy/src/environment.rs	2	keep	resolver: acpmux home
 cmux-tui/crates/cmux-chat-index/src/scan.rs	1	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/cmux-host/src/cloud/role.rs	1	keep	the Cloud VM's acpmux home (the default ~/.acpmux of the session host's user, as the image runs it); the trajectory mirror reads and restores it (#25584)
-cmux-tui/crates/cmux-server-core/src/layout.rs	2	move	unreviewed at S7 (cx-is1kf.8)
+cmux-tui/crates/cmux-server-core/src/layout.rs	1	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/cmux-tui-core/src/state/projects_store.rs	1	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/cmux-tui/src/acp.rs	1	keep	resolver: acpmux home of the CLI (S2)
 cmux-tui/crates/cmux-tui/src/cli/chief/home.rs	1	keep	resolver: Chief home (CLI)
