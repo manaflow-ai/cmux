@@ -392,7 +392,7 @@ def files(root, document):
     """{repo path: text} of the five docs/mdm exports."""
     constants = Constants(root)
     items = entries(document, constants)
-    # Keyed by file name under docs/mdm: scripts/cmux-next/settings-exports.txt is the one list of the
+    # Keyed by file name under docs/mdm: the settings export list (scripts/cmux-next/) is the one list of the
     # exports' paths (tests/test_settings_stamp_not_committed.py), and export.py checks against it.
     names = {
         "com.manaflow.cmux.plist": profile_manifest(items, constants),

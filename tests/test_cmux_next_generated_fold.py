@@ -216,8 +216,11 @@ class GeneratedFoldTest(unittest.TestCase):
                              "${{ needs.path_route.outputs.generated_host == '%s' }}" % job_id)
             self.assertIn("steps.generated-files-verdict.outputs.verdict", self.jobs[job_id]["outputs"]["generated_files"])
         self.assertIn("needs.path_route.outputs.generated_host == 'generated-files'", self.generated["if"])
-        self.assertEqual(self.daemon["needs"], self.generated["needs"])
-        self.assertEqual(self.swift["needs"], self.generated["needs"])
+        # The Mac job alone also waits on its own deciders (the base-red excuse and the Linux run it falls back from).
+        own = {"generated-files-base-red", "generated-files-linux"}
+        shared = [job for job in self.generated["needs"] if job not in own]
+        self.assertEqual(self.daemon["needs"], shared)
+        self.assertEqual(self.swift["needs"], shared)
 
     def test_every_routed_run_builds_once_for_its_generated_files(self):
         """Evaluates path_route's generated_host and the four jobs' conditions over events, routes,
@@ -361,7 +364,10 @@ class GeneratedFoldTest(unittest.TestCase):
             self.assertIn(FOLD, give["if"])
             self.assertNotIn("exit 1", give["run"])
             self.assertNotIn("Fail on stale generated files", names)
-        self.assertIn(STALE, self.step(self.generated, "Fail on stale generated files")["run"])
+        # The Mac fallback's step runs the fleet job's verdict script (scripts/ci/cmux-next-steps/generated-files-linux.sh).
+        fail = self.step(self.generated, "Fail on stale generated files")["run"]
+        self.assertEqual(fail, "bash scripts/ci/cmux-next-steps/generated-files-linux.sh verdict")
+        self.assertIn(STALE, (ROOT / "scripts/ci/cmux-next-steps/generated-files-linux.sh").read_text())
 
     def test_the_verdict_job_fails_a_stale_file_or_a_missing_verdict(self):
         self.assertEqual(self.verdict["needs"], ["path_route", "swift-test", "daemon-test"])
@@ -379,7 +385,7 @@ class GeneratedFoldTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             summary, output = Path(temp) / "summary", Path(temp) / "output"
             summary.write_text(""); output.write_text("")
-            result = subprocess.run(["bash", "-e", "-c", script], capture_output=True, text=True,
+            result = subprocess.run(["bash", "-e", "-c", script], capture_output=True, text=True, cwd=ROOT,
                                     env={**os.environ, "GITHUB_STEP_SUMMARY": str(summary), "GITHUB_OUTPUT": str(output),
                                          **env})
             return result, summary.read_text(), output.read_text()

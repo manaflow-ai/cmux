@@ -1,12 +1,25 @@
 #!/usr/bin/env bash
-# cmux-next.yml generated-files-linux ("cmux-next generated files" on the fleet's Linux pool): the bodies of its
-# longer steps, one subcommand per step. Moved out of the workflow to keep cmux-next.yml under GitHub's workflow
-# file size limit (tests/test_ci_workflow_file_size.py); each step's env: still sets its inputs.
+# cmux-next.yml generated-files-linux ("cmux-next generated files" on the fleet's Linux pool) and its Mac fallback
+# generated-files: the bodies of their longer steps, one subcommand per step. Moved out of the workflow to keep
+# cmux-next.yml under GitHub's workflow file size limit (tests/test_ci_workflow_file_size.py).
 # Why: docs/ci/cmux-next-workflow-notes/2026-11-25-generated-files-linux.md
 set -uo pipefail
-step="${1:?usage: generated-files-linux.sh preflight|base-pack|pr-pack|regenerate|verdict}"
+step="${1:?usage: generated-files-linux.sh fallback|preflight|parity|actions|base-pack|pr-pack|regenerate|verdict}"
+# The Linux exporters the judges and packs run off a Mac (each input still wins when a step sets it).
+linux="$PWD/scripts/cmux-next"
+export CMUX_BASE_EXPORTS_REGENERATE_ACTIONS="${CMUX_BASE_EXPORTS_REGENERATE_ACTIONS:-$linux/regenerate-action-exports-linux.sh}"
+export CMUX_BASE_EXPORTS_REGENERATE_SETTINGS="${CMUX_BASE_EXPORTS_REGENERATE_SETTINGS:-$linux/regenerate-settings-exports-linux.sh}"
 
 case "$step" in
+  # The Mac job's first step: why the fleet job gave no verdict, as a warning.
+  fallback)
+    why="the fleet job ended $LINUX_RESULT with no verdict"
+    [[ "$LINUX_RESULT" != skipped ]] || why="the fleet job is off (vars.CI_GENERATED_FILES_LINUX) or skipped"
+    [[ "$PARITY" != mismatch ]] || why="the fleet export differs from the Swift export (parity)"
+    echo "::warning title=cmux-next generated files: Mac fallback::$why"
+    echo "Mac fallback: $why." >> "$GITHUB_STEP_SUMMARY"
+    ;;
+
   # Exit 0 fresh, 1 stale, anything else: this pool cannot export, so the Mac job decides.
   preflight)
     ok=true
@@ -17,6 +30,22 @@ case "$step" in
     git checkout -q HEAD -- plans/cmux-next
     echo "ok=$ok" >> "$GITHUB_OUTPUT"
     ;;
+
+  # parity=match|mismatch|unknown, and go=true unless the Linux export differs from the Swift one kept for
+  # these inputs (then the Mac job decides).
+  parity)
+    out="$(scripts/cmux-next/generated-parity-linux.sh)" || exit
+    echo "$out" | tee -a "$GITHUB_OUTPUT"
+    [[ "$out" == *parity=mismatch* ]] || echo "go=true" >> "$GITHUB_OUTPUT"
+    ;;
+
+  actions)
+    export CMUX_ACTION_EXPORTS_CHECK=scripts/cmux-next/check-generated-linux.sh
+    export CMUX_ACTION_EXPORTS_REGEN="scripts/cmux-next/regenerate-action-exports-linux.sh $RUNNER_TEMP/action-exports-regen"
+    export CMUX_ACTION_EXPORTS_BUILD=true
+    exec scripts/cmux-next/judge-action-exports.sh "$PWD/Packages/macOS/CmuxNext"
+    ;;
+
 
   base-pack)
     set -e
@@ -47,7 +76,9 @@ case "$step" in
   # Why: docs/ci/cmux-next-workflow-notes.md#note-277
   regenerate)
     set -e
-    if [[ "${ACTIONS:-}" == failure ]]; then
+    if [[ "${ACTIONS:-}" == failure && "$(uname)" == Darwin ]]; then
+      scripts/cmux-next/regenerate-action-contracts.sh
+    elif [[ "${ACTIONS:-}" == failure ]]; then
       scripts/cmux-next/regenerate-action-exports-linux.sh "$RUNNER_TEMP/action-exports-stale"
     fi
     # Why: docs/ci/cmux-next-workflow-notes.md#note-454
@@ -69,10 +100,11 @@ case "$step" in
     fi
     ;;
 
-  # The Mac job's "Fail on stale generated files", as a verdict the Mac job reads: empty when this pool decided
-  # nothing (the Mac job runs instead).
+  # verdict=fresh|catalog|autofixed|stale, which the Mac job reads (empty: this pool decided nothing, the Mac job
+  # runs instead). The Mac job's "Fail on stale generated files" runs it too, and reads autofixed=true.
   # Why: docs/ci/cmux-next-workflow-notes.md#note-481
   verdict)
+    ACTIONS="${ACTIONS:-}" CATALOG="${CATALOG:-}" SETTINGS="${SETTINGS:-}" AUTOFIXED_OK="${AUTOFIXED_OK:-}"
     if [[ "$ACTIONS" != failure && "$SETTINGS" != failure ]]; then
       echo "verdict=fresh" >> "$GITHUB_OUTPUT"
       echo "Generated cmux-next files are fresh (checked on the fleet's Linux pool)." | tee -a "$GITHUB_STEP_SUMMARY"
@@ -90,7 +122,7 @@ case "$step" in
       exit 1
     fi
     if [[ "$AUTOFIXED_OK" == true ]] && why="$(scripts/cmux-next/generated-autofixable.sh)"; then
-      echo "verdict=autofixed" >> "$GITHUB_OUTPUT"
+      printf 'verdict=autofixed\nautofixed=true\n' >> "$GITHUB_OUTPUT"
       echo "### Generated cmux-next files are stale: autofixed ($why)" | tee -a "$GITHUB_STEP_SUMMARY"
       echo "::notice title=cmux-next generated files (autofixed)::Generated cmux-next files are stale only from this pull request's own changes: $why"
       exit 0

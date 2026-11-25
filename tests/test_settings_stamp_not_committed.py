@@ -105,6 +105,9 @@ class OneListOfTheExports(unittest.TestCase):
         "scripts/cmux-next/base_autofix_pushed_exports.py",   # takes that pack's files, digest-checked
         "scripts/cmux-next/regenerate-settings-exports-linux.sh",  # exports them off a Mac
         "scripts/cmux-next/linux-exports/export.py",          # checks the Linux export writes exactly them
+        "scripts/cmux-next/export-settings-linux.sh",         # the Linux export's entry point
+        "scripts/cmux-next/tests/export-settings-linux.test.sh",     # its fixture copies the list
+        "scripts/cmux-next/tests/regenerate-exports-linux.test.sh",  # its fixture writes a short list
     )
 
     # A test's own fixture may name the exports it drives: a short copy there weakens that test,
