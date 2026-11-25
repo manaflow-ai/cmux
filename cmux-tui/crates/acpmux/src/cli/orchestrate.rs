@@ -60,6 +60,10 @@ pub(crate) fn terminal_notify(title: &str, body: &str) {
     let _ = out.flush();
 }
 
+/// `acpmux wait`'s default bound (Leo, 2026-11-25 ~04:15Z: "can't ci sometimes go indefinitely? or is
+/// there a timeout where it can always check again at some point"): an hour, as `pr-wait`'s.
+pub(crate) const WAIT_BOUND_S: u64 = 3600;
+
 pub(crate) struct WaitOpts {
     pub sessions: Vec<String>,
     pub until: Vec<String>,
@@ -269,7 +273,10 @@ async fn wait_inner(client: Arc<Client>, opts: WaitOpts, json_out: bool) -> Resu
 /// `wait` reports instead of a reply.
 fn failed_turn(s: &Value) -> Option<String> {
     let last = &s["lastTurn"];
-    if last["status"] != "failed" || s.get("turn").is_some_and(|t| !t.is_null()) {
+    // A turn held for capacity (`capacity`) failed too, and its retry waits.
+    if !(last["status"] == "failed" || last["status"] == "capacity")
+        || s.get("turn").is_some_and(|t| !t.is_null())
+    {
         return None;
     }
     let text = ["errorText", "error", "detail"]
@@ -331,6 +338,9 @@ fn wait_state(r: &Value) -> String {
             format!("asks a question: {prompt}")
         }
         (Some("question"), _) => "asks a question".to_owned(),
+        (Some("secret"), _) => "asks for a secret".to_owned(),
+        (Some("elevation"), _) => "asks to run a command as root".to_owned(),
+        (Some("mcp_connect"), _) => "asks to connect an MCP server".to_owned(),
         _ if pending > 0 => format!("waiting for permission ({pending})"),
         _ if r["error"].is_string() => {
             let status = r.get("status").and_then(Value::as_str).unwrap_or("");
@@ -343,8 +353,15 @@ fn wait_state(r: &Value) -> String {
 
 /// The `--notify` line for a waited-on session's row.
 fn wait_notice(name: &str, r: &Value) -> String {
-    if r.get("waitingOn").and_then(Value::as_str) == Some("question") {
+    let on = r.get("waitingOn").and_then(Value::as_str);
+    if on == Some("question") {
         format!("{name} asks a question")
+    } else if on == Some("secret") {
+        format!("{name} asks for a secret")
+    } else if on == Some("elevation") {
+        format!("{name} asks to run a command as root")
+    } else if on == Some("mcp_connect") {
+        format!("{name} asks to connect an MCP server")
     } else if r.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0 {
         format!("{name} needs a permission")
     } else if r["error"].is_string() {
@@ -510,12 +527,39 @@ async fn wait_match_once(
 /// `acpmux ensure NAME`: the session if it exists, else create it.
 /// `HARNESS[/MODEL]` → (harness, model). The first slash splits; the model
 /// keeps its own slashes (`opencode/zai/glm-5.1` → `opencode`, `zai/glm-5.1`).
+///
+/// A Claude Code or Codex model is read as the bundled catalog names it, and the rewrite is said
+/// on stderr (`model fable-5.2 -> claude-fable-5-2`, `model_catalog.rs`); the daemon reads it
+/// again against its own catalog, so a name only the fresher catalog knows still folds there.
 pub(crate) fn split_target(spec: &str) -> (String, Option<String>) {
+    let (harness, model) = split_target_raw(spec);
+    let model = model.map(|m| match canonical_cli_model(&harness, &m) {
+        Some(canonical) => {
+            eprintln!("{}", canonical.line());
+            canonical.model
+        }
+        None => m,
+    });
+    (harness, model)
+}
+
+/// `HARNESS[/MODEL]` as written.
+fn split_target_raw(spec: &str) -> (String, Option<String>) {
     match spec.split_once('/') {
         Some((h, m)) if !m.is_empty() => (h.to_owned(), Some(m.to_owned())),
         Some((h, _)) => (h.to_owned(), None),
         None => (spec.to_owned(), None),
     }
+}
+
+/// `model` for the harness `harness` as the bundled catalog names it, when that is a rewrite.
+/// An ambiguous name is left for the daemon to refuse with its choices.
+pub(crate) fn canonical_cli_model(
+    harness: &str,
+    model: &str,
+) -> Option<crate::model_catalog::Canonical> {
+    let entry = crate::model_catalog::bundled_harness(harness)?;
+    crate::model_catalog::canonical_model(&entry, model).ok().filter(|c| c.changed())
 }
 
 /// Parse repeatable creation tags once, before a session is made.

@@ -16,6 +16,7 @@ import { CURRENT_SELECTION_OP, type HomeSelection } from "./hostSelection";
 import { ana, MockHomeProvider, sam, type MockDraft, type MockRuns } from "./mockProvider";
 import type { Pane } from "./panes";
 import type { HomeRoute } from "./routes";
+import type { SendLaterStyle } from "./SendLater";
 import { HomeChannelsStore } from "./store";
 import { CHIEF_HARNESSES, DEFAULT_CHIEF_TOOLS } from "./types";
 
@@ -62,6 +63,10 @@ type Props = {
   cloudEntry?: CloudEntryLook;
   /** The app does not run the action (turned off): its `cmux.app.action.run` answers `ran: false`. */
   cloudNotRun?: boolean;
+  /** Where the composer puts Send Later. */
+  sendLater?: SendLaterStyle;
+  /** The Chief DM has two scheduled messages of mine, one the owner could not send. */
+  scheduled?: boolean;
 };
 
 /** The app's side of the page bridge, in the gallery frame. The page's own calls and subscribes
@@ -138,6 +143,8 @@ function HomeChannelsGallery({
   cloudEntry,
   cloudNotRun = false,
   cloudError,
+  sendLater,
+  scheduled = false,
 }: Props) {
   const [store] = useState(() => {
     const provider = offline ? null : new MockHomeProvider(draft, longThread, runs, refuseInbox, media, teammates);
@@ -145,6 +152,13 @@ function HomeChannelsGallery({
     if (provider && video) provider.videoUrl = `data:video/mp4;base64,${LOGIN_TESTS_MP4}`;
     if (provider && extraChief) provider.addChief("Release Chief");
     if (provider && cloudError) provider.cloudError = cloudError;
+    if (provider && scheduled) {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(9, 0, 0, 0);
+      provider.schedule("c-chief", "Morning: summarize what the agents shipped overnight.", tomorrow.getTime());
+      provider.schedule("c-chief", "Check the release build.", Date.now() - 600_000, "agent_rate");
+    }
     let host: BridgePageClient | MockHomeProvider | null = hostGrants ? provider : null;
     if (hostBridge) {
       const bridge = new GalleryBridgeHost();
@@ -176,7 +190,13 @@ function HomeChannelsGallery({
     >
       {root ? (
         <UiProvider container={root}>
-          <HomeChannelsPage store={store} strings={strings} pane={width ? pane : undefined} cloudEntry={cloudEntry} />
+          <HomeChannelsPage
+            store={store}
+            strings={strings}
+            pane={width ? pane : undefined}
+            cloudEntry={cloudEntry}
+            sendLaterStyle={sendLater}
+          />
         </UiProvider>
       ) : null}
     </div>
@@ -259,6 +279,8 @@ export default componentEntry<Props>({
     "pages/home-channels/GoalStrip.tsx#GoalStrip",
     "pages/home-channels/LiveTyping.tsx#LiveTyping",
     "pages/home-channels/AttachmentViews.tsx",
+    "pages/home-channels/SendLater.tsx#SendLaterPicker",
+    "pages/home-channels/ScheduledStrip.tsx#ScheduledStrip",
   ],
   load: async () => HomeChannelsGallery,
   styles: async () => {
@@ -636,6 +658,51 @@ export default componentEntry<Props>({
         await ctx.click({ role: "button", name: "Bold" });
         await ctx.type("Ship the fix today", field);
         await ctx.waitFor(() => ctx.document.querySelector(".lg-main .hc-composer strong"));
+      },
+    },
+    "send-later-clock": {
+      note: "Send Later, variant A: a clock among the composer's tools opens the time picker (presets with their times, a date and time field).",
+      props: { select: "c-chief", sendLater: "clock" },
+      play: async (ctx) => {
+        const field = { selector: ".lg-main .hc-composer [contenteditable]" };
+        await ctx.waitFor(() => ctx.document.querySelector(field.selector));
+        await ctx.click(field);
+        await ctx.type("Standup notes for the team", field);
+        await ctx.click({ role: "button", name: "Send Later…" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-later .hc-later-row"));
+      },
+    },
+    "send-later-split": {
+      note: "Send Later, variant B: a segment on the Send button opens the same time picker.",
+      props: { select: "c-chief", sendLater: "split" },
+      play: async (ctx) => {
+        const field = { selector: ".lg-main .hc-composer [contenteditable]" };
+        await ctx.waitFor(() => ctx.document.querySelector(field.selector));
+        await ctx.click(field);
+        await ctx.type("Standup notes for the team", field);
+        await ctx.click({ selector: ".lg-main .hc-send-later" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-later .hc-later-row"));
+      },
+    },
+    scheduled: {
+      note: "My scheduled messages above the composer: one waits for tomorrow morning, one the owner could not send (Not sent). Each has Edit, Change Time, Send Now and Cancel.",
+      props: { select: "c-chief", scheduled: true },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-main .hc-scheduled-row").length === 2);
+      },
+    },
+    "scheduled-send-now": {
+      note: "Send Now on a scheduled message: it leaves the list and shows in the conversation at once.",
+      props: { select: "c-chief", scheduled: true },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-main .hc-scheduled-row").length === 2);
+        await ctx.click({ selector: ".lg-main .hc-scheduled-row:last-child button:nth-last-of-type(2)" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-main .hc-scheduled-row").length === 1);
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll(".lg-main .hc-md")].some((node) =>
+            node.textContent?.includes("Check the release build."),
+          ),
+        );
       },
     },
     emoji: {

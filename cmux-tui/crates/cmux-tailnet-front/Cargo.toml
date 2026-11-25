@@ -1,0 +1,31 @@
+[package]
+name = "cmux-tailnet-front"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The stable per-user tailnet node's proxy front: a placement table (workspace -> where it runs now) and a TCP front that forwards each new connection to the current placement"
+
+[lints]
+workspace = true
+
+[features]
+# The front on a real embedded tailnet node (cmux-tailnet, which builds libtailscale with Go).
+# Off by default: the placement table, the messages and the TCP front need none of it.
+tsnet = ["dep:cmux-tailnet", "dep:libc"]
+
+[dependencies]
+cmux-tailnet = { workspace = true, optional = true }
+libc = { version = "0.2", optional = true }
+cmux-scope.workspace = true
+serde.workspace = true
+tokio = { workspace = true, features = ["net", "io-util", "sync", "rt", "macros", "time"] }
+
+[dev-dependencies]
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "io-util", "time"] }
+
+[[example]]
+name = "stable_node"
+required-features = ["tsnet"]

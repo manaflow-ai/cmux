@@ -27,11 +27,8 @@ public import Foundation
 public nonisolated final class AgentPaneTailDisk: Sendable {
     public let directory: URL
     private let queue: DispatchQueue
-    /// The newest save's number per file name: a queued save with an older one does nothing.
-    private let newest = Mutex<[String: UInt64]>([:])
-    private let counter = Mutex<UInt64>(0)
-    /// Saves queued and not yet run (or skipped), for ``isSaving``.
-    private let pending = Mutex<Int>(0)
+    /// Keeps the newest save per file for one coalescing window, then writes on ``queue``.
+    private let writer: CoalescingFileWriter
     private let limitFiles: Int
     private let limitBytes: Int
     private let limitTotal: Int
@@ -60,7 +57,9 @@ public nonisolated final class AgentPaneTailDisk: Sendable {
         limitTotal = totalBytes
         self.accepts = accepts ?? { AgentPaneTailCache.holds($0) }
         self.readQueued = readQueued
-        queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.tail-disk", qos: qos)
+        let queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.tail-disk", qos: qos)
+        self.queue = queue
+        writer = CoalescingFileWriter(queue: queue, window: qos == .utility ? CoalescingFileWriter.defaultWindow : 0.02)
     }
 
     /// The file chat `sessionId`'s tail is kept in.
@@ -72,28 +71,18 @@ public nonisolated final class AgentPaneTailDisk: Sendable {
     /// Saves `tail` for `sessionId` off the main thread; nil removes its file.
     public func write(_ tail: JSONValue?, for sessionId: String) {
         let file = url(for: sessionId)
-        let name = file.lastPathComponent
-        let number = counter.withLock { $0 += 1; return $0 }
-        newest.withLock { $0[name] = number }
-        pending.withLock { $0 += 1 }
-        queue.async { [self] in
-            defer { pending.withLock { $0 -= 1 } }
-            guard newest.withLock({ $0[name] == number }) else { return }
-            newest.withLock { if $0[name] == number { $0[name] = nil } }
-            guard let tail else {
-                try? FileManager.checked.removeItem(at: file)
-                return
-            }
+        guard let tail else {
+            writer.save(to: file) { nil }
+            return
+        }
+        let limitBytes = limitBytes, directory = directory
+        writer.save(to: file, then: { [self] in trim() }) {
             var text = ""
             tail.appendCompactText(to: &text)
             let data = Data(text.utf8)
-            guard data.count <= limitBytes else {
-                try? FileManager.checked.removeItem(at: file)
-                return
-            }
+            guard data.count <= limitBytes else { return nil }
             try? FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true)
-            try? data.blockingWrite(to: file, options: .atomic)
-            trim()
+            return data
         }
     }
 
@@ -103,6 +92,7 @@ public nonisolated final class AgentPaneTailDisk: Sendable {
         let file = url(for: sessionId)
         let limit = limitBytes
         let accepts = accepts
+        writer.flushNow()
         return await withCheckedContinuation { (done: CheckedContinuation<JSONValue?, Never>) in
             queue.async {
                 done.resume(returning: Self.load(file, limit: limit, accepts: accepts))
@@ -113,16 +103,16 @@ public nonisolated final class AgentPaneTailDisk: Sendable {
 
     /// Removes every kept tail, after the saves queued before this call.
     public func clear() {
-        newest.withLock { $0.removeAll() }
+        writer.discardPending()
         queue.async { [directory] in try? FileManager.checked.removeItem(at: directory) }
     }
 
     /// Whether a save is queued and has not run yet (the quit deadline's record names the folder).
-    public var isSaving: Bool { pending.withLock { $0 > 0 } }
+    public var isSaving: Bool { writer.isBusy }
 
     /// Returns, holding no thread, once the work queued before this call has run.
     public func settled() async {
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in queue.async { done.resume() } }
+        await writer.settled()
     }
 
     /// Runs `work` on the queue after the work queued before it (a test holds the queue with it).

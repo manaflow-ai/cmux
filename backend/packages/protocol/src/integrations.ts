@@ -248,7 +248,12 @@ export const IntegrationComplete = def({
     state: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4000)),
     code: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(2000))),
     installation_id: Schema.optionalKey(Schema.String.check(isPattern(/^[0-9]{1,20}$/))),
-    setup_action: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(40)))
+    setup_action: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(40))),
+    /**
+     * GitHub, staging and development only: a GitHub Actions OIDC token from an allowed workflow run, in place of
+     * `code` (cmux-api integrations/github-actions-connect.ts). Production refuses it.
+     */
+    actions_oidc: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(8000)))
   }),
   /**
    * From the verified state, never the redirect's query: `return_to`, the connect's return link; `configure_url`,
@@ -441,8 +446,16 @@ export const GitHubMachineTokenRequest = Schema.Struct({
   label: Schema.optionalKey(Label),
   ttlSec: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(60), Schema.isLessThanOrEqualTo(3600))),
 })
-/** `install` defaults to the caller's own (a session: its session tokens); another install needs a team admin. */
-export const GitHubTokenRevokeRequest = Schema.Struct({ team: Schema.optionalKey(TeamId), install: Schema.optionalKey(InstallId) })
+/** A machine joined with `acpmux machine join` (cmux-platform's join registry). */
+export const JoinedMachineId = Schema.String.check(isPattern(/^machine_[A-Za-z0-9_-]{1,120}$/)).annotate({
+  identifier: "JoinedMachineId",
+  description: "A machine joined to a team with acpmux machine join."
+})
+/**
+ * `install` defaults to the caller's own (a session: its session tokens); another install needs a team admin. `machine`
+ * (a team admin only, never with `install`): every token issued to that joined machine.
+ */
+export const GitHubTokenRevokeRequest = Schema.Struct({ team: Schema.optionalKey(TeamId), install: Schema.optionalKey(InstallId), machine: Schema.optionalKey(JoinedMachineId) })
 
 /** One mint as the team's audit records it (never the token); principal_kind is session or the install kind. */
 export const GitHubTokenMintedParams = Schema.Struct({

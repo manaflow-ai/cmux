@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# tooling-steps runs: scripts/git-hooks/* (its other variable commands are the chosen python3 and git)
 # Point this clone's git at scripts/git-hooks/ for tracked, reviewed hooks.
 # Installs tracked pre-commit checks and the post-merge merge-driver refresh
 # without hiding custom hooks.

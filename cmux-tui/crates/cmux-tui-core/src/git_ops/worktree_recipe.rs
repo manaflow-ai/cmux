@@ -20,6 +20,13 @@
 //! repository's, so a `!` line takes one back. Both are read from the main
 //! checkout, as it is now.
 //!
+//! A command the repository's files give runs only once the person has
+//! seen it and said yes ([`Resolved::consent`], kept by
+//! `worktree_setup::approvals`): a clone can carry any script. The user's
+//! own saved commands need no such answer, and nor do the include lines
+//! alone (they copy files of this machine's main checkout into this
+//! machine's worktree, and run nothing).
+//!
 //! The two files are the repository's own: each is read through the real
 //! folders of the main checkout ([`super::work_tree_entry`]). A file that is
 //! a link, or that is below a link in the main checkout, is not read, and the
@@ -74,6 +81,39 @@ pub(crate) struct Resolved {
 }
 
 impl Resolved {
+    /// The fingerprint of what the repository's own files make this recipe
+    /// run (a setup or teardown that no saved command replaces) and copy,
+    /// when they make it run anything: the answer a person gives after
+    /// reading the recipe is kept by it, so a changed script asks again.
+    /// `None`: nothing of the repository's runs, so nothing waits for one.
+    pub(crate) fn consent(&self) -> Option<String> {
+        use sha2::{Digest as _, Sha256};
+        let saved = self.saved.clone().unwrap_or_default();
+        let from_repository = |saved: &Option<String>, repository: &Option<String>| {
+            if saved.is_some() {
+                return None;
+            }
+            repository.clone().filter(|text| !text.trim().is_empty())
+        };
+        let setup = from_repository(&saved.setup, &self.repository.setup);
+        let teardown = from_repository(&saved.teardown, &self.repository.teardown);
+        if setup.is_none() && teardown.is_none() {
+            return None;
+        }
+        let mut hash = Sha256::new();
+        for part in [setup.as_deref(), teardown.as_deref()] {
+            hash.update(part.map_or(0_u8, |_| 1_u8).to_le_bytes());
+            hash.update((part.unwrap_or_default().len() as u64).to_le_bytes());
+            hash.update(part.unwrap_or_default().as_bytes());
+        }
+        for line in &self.repository.include {
+            hash.update((line.len() as u64).to_le_bytes());
+            hash.update(line.as_bytes());
+        }
+        let digest = hash.finalize();
+        Some(digest.iter().take(16).map(|byte| format!("{byte:02x}")).collect())
+    }
+
     pub(crate) fn value(&self) -> Value {
         let mut value = json!({
             "setup": self.recipe.setup,

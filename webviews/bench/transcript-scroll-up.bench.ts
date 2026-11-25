@@ -91,7 +91,17 @@ const prompts = FLAT ? chatTurns : log.events.filter((event) => event.kind === "
 const FIRST_PROMPT = FLAT ? "user-1" : `user-${log.events.find((event) => event.kind === "user_message")!.seq}`;
 
 /// `mounted`: rows (`.acpmux-row`) that came into the DOM since the frame before (a full mount each).
-type Frame = { scrollTop: number; scrollHeight: number; clientHeight: number; paint: number; mounted: number };
+/// `shifted`: mounted rows whose `aria-posinset` changed since the frame before: rows came in above them, an
+/// older page drawn. A full held window sheds as many rows below as a page brings above, and in the flat
+/// fixture every turn is as tall as the next, so the content height alone does not say a page landed.
+type Frame = {
+  scrollTop: number;
+  scrollHeight: number;
+  clientHeight: number;
+  paint: number;
+  mounted: number;
+  shifted: number;
+};
 
 const percentile = (values: number[], p: number) => {
   if (!values.length) return 0;
@@ -107,6 +117,7 @@ async function run(name: string, engine: BrowserType) {
     turns: chatTurns,
     running: false,
     lead,
+    ready: FLAT ? ".acpmux-row" : undefined,
     attachPage: 160,
     session: { turnCount: prompts },
     eventsLatencyMs: LATENCY,
@@ -118,17 +129,39 @@ async function run(name: string, engine: BrowserType) {
   try {
     // Each older page on the wire (its `_acpmux/events` ask with `beforeSeq`, the reply's arrival and size)
     // and each ask the transcript makes and its settling (`__cmuxOlderTrace`), on the page's clock.
+    // SPLIT=1: direct.ts's reply, fold and published phases kept by time, every phase stamped into the trace
+    // (the page's clock there), and each React commit through the DevTools hook React calls in production too.
+    // One init script, so the split's phases and the asks go through one `__cmuxOlderTrace` whatever order
+    // init scripts run in.
     const page = await pane.open({ width: 1100, height: 800 }, async (page) => {
-      await page.addInitScript(() => {
+      await page.addInitScript((splitting: boolean) => {
         const wire = {
           sent: new Map<number, { before: number; limit: number; sentAt: number }>(),
           pages: [] as { before: number; limit: number; sentAt: number; recvAt: number; bytes: number }[],
           asks: new Map<number, { askAt: number; settledAt?: number }>(),
         };
-        (window as unknown as { __olderWire: typeof wire }).__olderWire = wire;
-        (
-          window as unknown as { __cmuxOlderTrace: (phase: "ask" | "settled", at: number, ask: number) => void }
-        ).__cmuxOlderTrace = (phase, at, ask) => {
+        const split = splitting
+          ? { reply: [] as number[], fold: [] as number[], published: [] as number[], commits: [] as number[] }
+          : undefined;
+        const holder = window as unknown as {
+          __olderWire: typeof wire;
+          __olderSplit?: NonNullable<typeof split>;
+          __cmuxOlderTrace: (
+            phase: "ask" | "settled" | "reply" | "fold" | "published",
+            at: number,
+            ask: number,
+          ) => void;
+          __REACT_DEVTOOLS_GLOBAL_HOOK__?: unknown;
+        };
+        holder.__olderWire = wire;
+        holder.__cmuxOlderTrace = (phase, at, ask) => {
+          if (split) {
+            console.timeStamp(`cmux-older ${phase} ${ask} ${at}`);
+            if (phase === "reply" || phase === "fold" || phase === "published") {
+              split[phase].push(at);
+              return;
+            }
+          }
           if (phase === "ask") wire.asks.set(ask, { askAt: at });
           else {
             const entry = wire.asks.get(ask);
@@ -165,40 +198,19 @@ async function run(name: string, engine: BrowserType) {
             super.send(data);
           }
         };
-      });
-      // SPLIT=1: direct.ts's reply, fold and published phases kept by time, every phase stamped into the trace
-      // (the page's clock there), and each React commit through the DevTools hook React calls in production too.
-      if (SPLIT)
-        await page.addInitScript(() => {
-          const holder = window as unknown as {
-            __cmuxOlderTrace: (phase: string, at: number, ask: number) => void;
-            __olderSplit: Record<"reply" | "fold" | "published" | "commits", number[]>;
-            __REACT_DEVTOOLS_GLOBAL_HOOK__: unknown;
-          };
-          const split = {
-            reply: [] as number[],
-            fold: [] as number[],
-            published: [] as number[],
-            commits: [] as number[],
-          };
-          holder.__olderSplit = split;
-          const inner = holder.__cmuxOlderTrace;
-          holder.__cmuxOlderTrace = (phase, at, ask) => {
-            console.timeStamp(`cmux-older ${phase} ${ask} ${at}`);
-            if (phase === "reply" || phase === "fold" || phase === "published") split[phase].push(at);
-            else inner(phase, at, ask);
-          };
-          let renderers = 0;
-          holder.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
-            supportsFiber: true,
-            renderers: new Map(),
-            inject: () => ++renderers,
-            checkDCE: () => {},
-            onCommitFiberRoot: () => void split.commits.push(performance.now()),
-            onCommitFiberUnmount: () => {},
-            onPostCommitFiberRoot: () => {},
-          };
-        });
+        if (!split) return;
+        holder.__olderSplit = split;
+        let renderers = 0;
+        holder.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
+          supportsFiber: true,
+          renderers: new Map(),
+          inject: () => ++renderers,
+          checkDCE: () => {},
+          onCommitFiberRoot: () => void split.commits.push(performance.now()),
+          onCommitFiberUnmount: () => {},
+          onPostCommitFiberRoot: () => {},
+        };
+      }, SPLIT);
     });
     await page.emulateMedia({ reducedMotion: "no-preference" });
     // PLAIN=1: no shadows, filters or blends, to tell an engine's raster cost from the page's work.
@@ -253,12 +265,29 @@ async function run(name: string, engine: BrowserType) {
       }
       // Rows mounted since the last painted frame: each `.acpmux-row` added under the scroller.
       let mounted = 0;
+      let shifted = 0;
       const rowsIn = new MutationObserver((records) => {
-        for (const record of records)
+        for (const record of records) {
+          if (record.type === "attributes") {
+            const node = record.target as HTMLElement;
+            if (
+              node.classList.contains("acpmux-row") &&
+              Number(node.getAttribute("aria-posinset")) > Number(record.oldValue ?? Infinity)
+            )
+              shifted += 1;
+            continue;
+          }
           for (const node of record.addedNodes)
             if (node instanceof HTMLElement && node.classList.contains("acpmux-row")) mounted += 1;
+        }
       });
-      rowsIn.observe(scroller, { childList: true, subtree: true });
+      rowsIn.observe(scroller, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["aria-posinset"],
+        attributeOldValue: true,
+      });
       const stopPaint = window.cmuxAfterPaint((paint) => {
         frames.push({
           paint,
@@ -266,8 +295,10 @@ async function run(name: string, engine: BrowserType) {
           scrollHeight: scroller.scrollHeight,
           clientHeight: scroller.clientHeight,
           mounted,
+          shifted,
         });
         mounted = 0;
+        shifted = 0;
       });
       const stop = () => {
         stopPaint();
@@ -417,6 +448,18 @@ async function run(name: string, engine: BrowserType) {
         );
         drawnAsks.push({ askAt: ask.askAt, settledAt: ask.settledAt, drawnAt: drawn.paint });
       } else undrawnAsks += 1;
+    }
+    // Each ask to the first painted frame after it whose rows moved down in the list (`shifted`): an older
+    // page drawn above them, whatever the content height did (the window sheds below what a page adds above).
+    const askToShifted: number[] = [];
+    let unshiftedAsks = 0;
+    const askAts = wire.asks.map((ask) => ask.askAt).sort((a, b) => a - b);
+    for (const [at, askAt] of askAts.entries()) {
+      const next = askAts[at + 1] ?? Infinity;
+      const drawn = watched.frames.find((frame) => frame.paint > askAt && frame.shifted > 0);
+      // A shift past the next ask may be that ask's page: this one drew nothing of its own before it.
+      if (drawn && drawn.paint <= next + 1000) askToShifted.push(drawn.paint - askAt);
+      else unshiftedAsks += 1;
     }
     const wireMs = wire.pages.map((each) => each.recvAt - each.sentAt);
     // A frame the reader asked to go up and the view moved less (held at the loaded rows' top, or a wheel
@@ -645,6 +688,7 @@ async function run(name: string, engine: BrowserType) {
       frameP50: round2(percentile(intervals, 50)),
       frameP95: round2(percentile(intervals, 95)),
       frameMax: round2(Math.max(0, ...intervals)),
+      lateFrames: intervals.filter((interval) => interval > 1000 / 120).length,
       longTasks: watched.longtasks ? watched.long.length : null,
       longTaskMs: watched.longtasks ? Math.round(watched.long.reduce((sum, ms) => sum + ms, 0)) : null,
       thumbSizeStartPct: round2(first * 100),
@@ -659,6 +703,11 @@ async function run(name: string, engine: BrowserType) {
       askToDrawnP95: round2(percentile(askToDrawn, 95)),
       askToDrawnMax: round2(Math.max(0, ...askToDrawn)),
       undrawnAsks,
+      askToShiftedP50: round2(percentile(askToShifted, 50)),
+      askToShiftedP95: round2(percentile(askToShifted, 95)),
+      askToShiftedMax: round2(Math.max(0, ...askToShifted)),
+      unshiftedAsks,
+      shiftedFrames: watched.frames.filter((frame) => frame.shifted > 0).length,
       loadingFrames,
       wirePages: wire.pages.length,
       wireMsP50: round2(percentile(wireMs, 50)),

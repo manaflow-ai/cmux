@@ -123,7 +123,7 @@ func envMaxWidth(_ view: NSView, _ maxWidth: CGFloat) -> NSView {
 
 /// A vertical scroll view over `content`, which takes the scroll view's width and starts at the top.
 func envScroll(_ content: NSView) -> NSScrollView {
-    let scroll = NSScrollView()
+    let scroll = OverlayScrollView()
     scroll.drawsBackground = false
     scroll.hasVerticalScroller = true
     scroll.autohidesScrollers = true
@@ -146,7 +146,7 @@ func envScroll(_ content: NSView) -> NSScrollView {
 /// A sideways scroll view over `content`: as tall as the content and at least as wide as itself; content
 /// wider than the scroll view scrolls sideways instead of wrapping or being cut off (a terminal's lines).
 func envHScroll(_ content: NSView) -> NSScrollView {
-    let scroll = NSScrollView()
+    let scroll = OverlayScrollView()
     scroll.drawsBackground = false
     scroll.hasHorizontalScroller = true
     scroll.hasVerticalScroller = false

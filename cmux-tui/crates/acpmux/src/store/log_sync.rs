@@ -229,7 +229,7 @@ impl LocalStore {
         let open = {
             let writers = self.writers.lock_or_recover();
             match writers.open.get(id) {
-                Some(writer) => Some(writer.file.try_clone()?),
+                Some(writer) => Some(writer.file().try_clone()?),
                 None => None,
             }
         };

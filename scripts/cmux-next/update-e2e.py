@@ -610,7 +610,10 @@ def main():
         try:
             with open(config, "w") as f:
                 json.dump({"app": {"quitBehavior": "end-everything"}}, f)
-            time.sleep(1)  # the app reloads cmux.json from its file watcher
+            # The app reloads cmux.json from its file watcher: wait until it reports the new quit behavior.
+            # Best effort (the quit below asks for End Everything outright too).
+            if not wait(lambda: (app.rpc("settings.get", {"path": "app.quitBehavior"}) or {}).get("value") not in (None, "keep"), 10, 0.1):
+                print("final quit: the app never reported the new app.quitBehavior in 10 s; quitting anyway")
             app.quit(end_everything=True)
         except Exception as error:  # noqa: BLE001 - cleanup continues
             print(f"final quit: {error}")

@@ -13,5 +13,9 @@ workspace = true
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+libc.workspace = true
 # The install key's hello proof and install id rule (the daemon checks the same bytes).
 cmux-local-auth = { path = "../cmux-local-auth" }
+# The launch's Cloud environment read (the `cloud_environment_launch_read` op), with no fetch:
+# the macOS app links no HTTP client for it.
+cmux-cloud-environment = { path = "../cmux-cloud-environment", default-features = false }

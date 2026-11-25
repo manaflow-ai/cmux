@@ -45,8 +45,16 @@ public final class BillingModel {
     /// The current restore attempt.
     public private(set) var restore: BillingRestorePhase = .idle
 
+    /// Whether the plans screen offers purchases in this app
+    /// (``BillingPurchaseAvailability``). When false it shows the current
+    /// plan read-only.
+    public var offersPurchases: Bool {
+        BillingPurchaseAvailability.offersPurchases(bundleIdentifier: bundleIdentifier, account: account, offers: offers)
+    }
+
     private let api: any BillingAPI
     private let store: any StoreKitClient
+    private let bundleIdentifier: String?
     private let deliverer: BillingTransactionDeliverer
     private let analytics: (any AnalyticsEmitting)?
     private var listenerTask: Task<Void, Never>?
@@ -74,9 +82,17 @@ public final class BillingModel {
     ///   - api: The billing routes.
     ///   - store: The StoreKit seam.
     ///   - analytics: The product analytics emitter; nil sends nothing.
-    public init(api: any BillingAPI, store: any StoreKitClient, analytics: (any AnalyticsEmitting)?) {
+    ///   - bundleIdentifier: The app's bundle id, for ``offersPurchases``;
+    ///     nil keeps purchases offered.
+    public init(
+        api: any BillingAPI,
+        store: any StoreKitClient,
+        analytics: (any AnalyticsEmitting)?,
+        bundleIdentifier: String? = nil
+    ) {
         self.api = api
         self.store = store
+        self.bundleIdentifier = bundleIdentifier
         self.deliverer = BillingTransactionDeliverer(api: api, store: store)
         self.analytics = analytics
     }

@@ -62,7 +62,11 @@ struct OmnibarFocusClickSelectionTests {
             .fieldChanged(.init(text: focused.fieldText, selection: NSRange(location: 5, length: 8)), nil),
             .fieldMouseUp,
         ])
-        #expect(dragged.edit.selection == NSRange(location: 5, length: 8))
+        // The resting field shows the compact address; the release shows the whole address with the same characters selected.
+        let picked = (focused.fieldText as NSString).substring(with: NSRange(location: 5, length: 8))
+        #expect(dragged.edit.selection.length == 8)
+        #expect((dragged.fieldText as NSString).substring(with: dragged.edit.selection) == picked,
+                "the drag picked \(picked.debugDescription) in \(focused.fieldText.debugDescription), the release keeps \(dragged.edit.selection) of \(dragged.fieldText.debugDescription)")
     }
 
     private func mouse(_ type: NSEvent.EventType, x: CGFloat, window: Int = 7) throws -> NSEvent {

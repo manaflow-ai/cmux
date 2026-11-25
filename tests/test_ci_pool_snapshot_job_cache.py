@@ -4,8 +4,8 @@
 While the runner census (CI_RUNNER_STATE) is stale, GitHub.snapshot() lists the macos-pool-load artifacts and
 downloads the newest: two calls from the job's GITHUB_TOKEN, the repository's REST hour every workflow shares
 (the production promote gates 403'd on it; their failed read and these artifact reads had the same reset,
-backend.yml run 44878749398). cmux-tui-artifacts.yml's tree-preflight job runs four placement steps, each a new
-process, so each push spent eight calls on one snapshot (about 236 runs an hour on 2026-11-21 07Z).
+backend.yml run 44878749398). On 2026-11-21, four steps of one tree-preflight job each fetched the same snapshot,
+spending eight calls per push.
 
 snapshot() now keeps what it read in the job's RUNNER_TEMP (the runner empties it for each job), and a later
 step of the same job reuses it while it is fresh enough to use (snapshot_problem); a stale or unreadable file is

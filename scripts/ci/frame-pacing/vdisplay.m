@@ -11,7 +11,7 @@
 // it, keeping its place relative to the others) for this process only (kCGConfigureForAppOnly):
 // the old arrangement comes back when it exits. Without it, a host with any other display keeps
 // that one as main, and apps open there.
-// Prints "ready DISPLAY_ID p50_ms main=MAIN_ID" once CVDisplayLink ticks on it, so callers can
+// Prints "ready DISPLAY_ID p50_ms main=MAIN_ID ... drawn=MS maxfps=N" once CVDisplayLink ticks on it, so callers can
 // check the rate and the main display before measuring anything. Uses the private
 // CGVirtualDisplay API (as BetterDisplay and DeskPad do); the display goes away when this
 // process exits.
@@ -20,6 +20,7 @@
 // label is $CMUX_SCREEN_NAME, else "vdisplay"; $CMUX_ACPMUX names the acpmux to ask. No line when none answers.
 #import <AppKit/AppKit.h>
 #import <CoreVideo/CoreVideo.h>
+#import <QuartzCore/QuartzCore.h>  // CADisplayLink: messages and a struct only, so no QuartzCore link flag
 #include <mach/mach_time.h>
 
 @interface CGVirtualDisplayDescriptor : NSObject
@@ -113,6 +114,54 @@ static double medianInterval(CGDirectDisplayID display) {
   for (int i = 0; i < count; i++) intervals[i] = (double)(stamps[i + 1] - stamps[i]) * base.numer / base.denom / 1e6;
   qsort(intervals, count, sizeof(double), compare);
   return intervals[count / 2];
+}
+
+/// A view that repaints on every CADisplayLink callback and keeps the callbacks' timestamps.
+@interface DrawnProbeView : NSView
+@property (nonatomic) NSMutableArray<NSNumber *> *times;
+@end
+@implementation DrawnProbeView
+- (void)step:(CADisplayLink *)link {
+  [self.times addObject:@(link.timestamp)];
+  self.layer.backgroundColor = (self.times.count & 1) ? NSColor.darkGrayColor.CGColor : NSColor.grayColor.CGColor;
+}
+@end
+
+/// The median interval (ms) at which a window on SCREEN is drawn, over one second: a CADisplayLink of a view that
+/// repaints every frame, asking for up to 240 fps. Unlike the CVDisplayLink interval (the mode's nominal rate, a
+/// timer), this is the cadence WindowServer gives views on that display, which WebKit's and Chromium's frames
+/// follow: on aws-m4pro-7 the CVDisplayLink of a "120 Hz" virtual display ticked at 8.33 ms while both engines'
+/// pages drew at 16.7 ms (step 1f3cd183). 0 when it cannot be measured (before macOS 14 or no callbacks).
+static double drawnInterval(NSScreen *screen) {
+  if (!screen) return 0;
+  if (@available(macOS 14.0, *)) {
+    NSRect frame = NSMakeRect(NSMaxX(screen.frame) - 48, NSMinY(screen.frame), 48, 48);
+    NSWindow *window = [[NSWindow alloc] initWithContentRect:frame styleMask:NSWindowStyleMaskBorderless
+                                                     backing:NSBackingStoreBuffered defer:NO screen:screen];
+    window.releasedWhenClosed = NO;
+    window.level = NSStatusWindowLevel;
+    DrawnProbeView *view = [[DrawnProbeView alloc] initWithFrame:NSMakeRect(0, 0, 48, 48)];
+    view.wantsLayer = YES;
+    view.times = [NSMutableArray array];
+    window.contentView = view;
+    [window setFrame:frame display:YES];
+    [window orderFrontRegardless];
+    CADisplayLink *link = [view displayLinkWithTarget:view selector:@selector(step:)];
+    link.preferredFrameRateRange = (CAFrameRateRange){30, 240, 240};
+    [link addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+    [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:1.2]];
+    [link invalidate];
+    [window orderOut:nil];
+    [window close];
+    NSArray<NSNumber *> *times = view.times;
+    int count = (int)MIN(times.count, (NSUInteger)1001) - 1;
+    if (count < 2) return 0;
+    double intervals[1000];
+    for (int i = 0; i < count; i++) intervals[i] = ([times[i + 1] doubleValue] - [times[i] doubleValue]) * 1000;
+    qsort(intervals, count, sizeof(double), compare);
+    return intervals[count / 2];
+  }
+  return 0;
 }
 
 // The acpmux to ask for a screen link: $CMUX_ACPMUX, else the one on PATH, else an installed cmux's.
@@ -240,8 +289,13 @@ int main(int argc, char **argv) {
     // The visible frame (points, under the menu bar and the Dock) of the virtual display: what a window may fill.
     NSScreen *screen = screenFor(display.displayID);
     NSRect visible = screen ? screen.visibleFrame : NSZeroRect;
-    printf("ready %u %.2f main=%u size=%ux%u visible=%.0fx%.0f scale=%.0f\n", display.displayID, medianInterval(display.displayID),
-           CGMainDisplayID(), width, height, visible.size.width, visible.size.height, screen ? screen.backingScaleFactor : 0);
+    // drawn= is the cadence a view on the display really gets and maxfps= what AppKit says the display does (the
+    // pages' own frame pacing reads maximumFramesPerSecond); both after the fields split-spring.sh parses.
+    double ticked = medianInterval(display.displayID);
+    printf("ready %u %.2f main=%u size=%ux%u visible=%.0fx%.0f scale=%.0f drawn=%.2f maxfps=%ld\n", display.displayID, ticked,
+           CGMainDisplayID(), width, height, visible.size.width, visible.size.height,
+           screen ? screen.backingScaleFactor : 0, drawnInterval(screen),
+           (long)(screen ? screen.maximumFramesPerSecond : 0));
     printScreenLink(display.displayID);
     [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:hold]];
   }

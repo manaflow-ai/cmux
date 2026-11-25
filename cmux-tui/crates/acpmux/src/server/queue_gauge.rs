@@ -60,6 +60,7 @@ pub(crate) fn status() -> Value {
         "totalBound": outbound::TOTAL_BYTE_BOUND,
         "overruns": outbound::OVERRUNS.load(Ordering::Relaxed),
         "totalOverruns": outbound::TOTAL_OVERRUNS.load(Ordering::Relaxed),
+        "listSheds": outbound::LIST_SHEDS.load(Ordering::Relaxed),
         "controlsResyncs": super::controls::RESYNCS.load(Ordering::Relaxed),
         "largest": top,
     })

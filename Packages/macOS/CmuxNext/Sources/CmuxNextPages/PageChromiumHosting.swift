@@ -115,6 +115,11 @@ public protocol PageChromiumPage: AnyObject {
     /// - Returns: The method's JSON result.
     /// - Throws: When the page is gone or the method fails.
     func devTools(_ method: String, params: [String: any Sendable]) async throws -> String
+    /// Sends a DevTools protocol method now, after every call sent before it, and returns what awaits its JSON
+    /// result (throwing as ``devTools(_:params:)`` does). Calls started one after another in one turn reach the
+    /// page in that order, and their answers come in about one round trip instead of one each
+    /// (``ChromiumPageHostBridge/startSetUp(documentScripts:)``).
+    func startDevTools(_ method: String, params: [String: any Sendable]) -> @MainActor () async throws -> String
     /// Runs a bounded long-lived evaluation (a DEBUG DOM waiter) beyond the ordinary short-call deadline.
     func devTools(_ method: String, params: [String: any Sendable], timeout: Duration) async throws -> String
     #if DEBUG || CMUX_BENCH_HOOKS
