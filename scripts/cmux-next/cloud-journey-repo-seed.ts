@@ -3,8 +3,8 @@
  * no mirror and no carry), measured on the chat machine. One run times both ways git_seed (cmux-tui-core git_seed)
  * readies the folder:
  *   clone:  `git clone --filter=blob:none --no-checkout` from GitHub, then the checkout (run.rs clone_or_fetch), and
- *   borrow: a folder whose objects/info/alternates names a warm mirror on the machine, its forge a promisor, the base
- *           checked for missing objects, then the checkout (borrow.rs borrow_in), with the clone just made as the mirror.
+ *   borrow: a folder whose objects/info/alternates names a warm mirror on the machine, its forge a promisor, a fetch
+ *           of what the mirror lacks, then the checkout (borrow.rs borrow_clone), with the clone just made as the mirror.
  * Each reports ms, the folder's .git bytes and the bytes the machine received (/proc/net/dev, every interface but lo).
  * It also reads what the guest daemon would borrow today: CMUX_SEED_MIRRORS in cmux-host's environment, whether the
  * mirror git_seed finds by default is there, and whether the image has a baked dev tree (/home/cmux/cmux).
@@ -44,15 +44,16 @@ export function repoSeedScript(url = REPO_SEED_URL, mirrors = REPO_SEED_DEFAULT_
     "t2=$(now); r2=$(rx)",
     'echo "@@seed clone code=$c checkout_code=$k clone_ms=$((t1-t0)) checkout_ms=$((t2-t1)) ms=$((t2-t0)) rx=$((r2-r0)) git_bytes=$(du -sb "$w/clone/.git" | cut -f1) err=$(tail -c 200 "$w/err" | tr -s "\\n " "  ")"',
     '[ "$c" = 0 ] && [ "$k" = 0 ] || exit 0',
-    // borrow, as borrow.rs borrow(): init, alternates, origin a promisor, missing-object check, then the checkout
+    // borrow, as borrow.rs borrow_clone(): init, alternates, origin a promisor, fetch what the mirror lacks, then the checkout
     "r0=$(rx); t0=$(now)",
     'git init -q -- "$w/borrow" && printf "%s\\n" "$w/clone/.git/objects" > "$w/borrow/.git/objects/info/alternates"',
     'g() { git -C "$w/borrow" "$@"; }',
     'g remote add -- origin "$url" && g config remote.origin.promisor true && g config remote.origin.partialclonefilter blob:none',
     "g config core.repositoryformatversion 1 && g config extensions.partialClone origin",
+    'g fetch -q --tags origin 2>"$w/err" && g remote set-head origin --auto >/dev/null 2>>"$w/err"; f=$?',
     'miss=$(g rev-list --objects --no-walk --missing=print "$base" | grep -c "^?")',
     "t1=$(now)",
-    'g checkout -q --detach "$base" 2>"$w/err"; k=$?',
+    '[ "$f" = 0 ] && g checkout -q --detach "$base" 2>>"$w/err"; k=$?',
     "t2=$(now); r2=$(rx)",
     'echo "@@seed borrow code=$k missing=$miss setup_ms=$((t1-t0)) checkout_ms=$((t2-t1)) ms=$((t2-t0)) rx=$((r2-r0)) git_bytes=$(du -sb "$w/borrow/.git" | cut -f1) err=$(tail -c 200 "$w/err" | tr -s "\\n " "  ")"',
   ].join("\n");
