@@ -13,15 +13,22 @@ import Testing
     actor FakeMac {
         var started: [String] = []
         var gate: CheckedContinuation<Void, Never>?
+        var startWaiter: CheckedContinuation<Void, Never>?
         var open = true
         func upload(_ name: String) async throws -> String {
             started.append(name)
+            startWaiter?.resume()
+            startWaiter = nil
             if !open { await withCheckedContinuation { gate = $0 } }
             try Task.checkCancellation()
             return "/w/.cmux/attachments/\(name)"
         }
         func hold() { open = false }
         func release() { open = true; gate?.resume(); gate = nil }
+        func waitForUploadStart() async {
+            if !started.isEmpty { return }
+            await withCheckedContinuation { startWaiter = $0 }
+        }
     }
 
     func file(_ id: String, _ name: String) -> AgentAttachment {
@@ -92,6 +99,7 @@ import Testing
         let upload: AttachmentPrestager.Upload = { _, name in try await mac.upload(name) }
         let original = AgentAttachment(id: "image", kind: .image, name: "photo.heic", data: Data("heic".utf8))
         prestager.sync([original], upload: upload)
+        await mac.waitForUploadStart()
         let task = try #require(prestager.entries[original.id]?.task)
 
         let optimizedData = Data([0x89, 0x50, 0x4E, 0x47, 0, 0, 0, 0, 0, 0, 0, 0])
