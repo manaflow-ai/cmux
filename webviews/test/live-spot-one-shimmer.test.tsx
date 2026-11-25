@@ -175,7 +175,7 @@ const asked: AcpmuxRow = { id: "u1", version: 1, at: 1_000, kind: "user", text: 
 
 test("after a call returns, the line waits on the model after that call", () => {
   const ran = tool("completed", { endedAt: 3_000 });
-  expect(liveWait([asked, ran], ran)).toEqual({ kind: "step", step: "Ran bun test" });
+  expect(liveWait([asked, ran], ran)).toEqual({ kind: "step", step: "Ran tests with bun" });
 });
 
 test("after a thought or a reply, the line waits on the model's next step", () => {
@@ -212,7 +212,7 @@ test("a silent live turn's line carries what it waits on, and a subagent wait ca
   const view = turnView([asked, ran], new Set(), { now: 60_000, working: true });
   const line = view.at(-1)!;
   expect(line.kind).toBe(THINKING);
-  expect(line.liveWait).toEqual({ kind: "step", step: "Ran bun test" });
+  expect(line.liveWait).toEqual({ kind: "step", step: "Ran tests with bun" });
 });
 
 for (const [name, node, label] of statuses)
