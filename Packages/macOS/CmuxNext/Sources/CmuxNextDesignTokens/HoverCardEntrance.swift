@@ -1,6 +1,7 @@
-/// How a hover card's first show plays (a retarget always slides and morphs the one card). A tab's
-/// card reads it from `TabTunables.hoverCardEntrance` (Debug Settings); the tab bar playground's
-/// Hover Card page shows the three side by side.
+/// How a hover card's first show plays (a tab card's move to the next tab is `HoverCardRetarget`). A tab's
+/// card reads it from `TabTunables.hoverCardEntrance` (Debug Settings), `.fade` by default: it opens at its
+/// final size and only fades in (Lawrence 2026-11-23: "we animate width/height which is bad, should just fade
+/// in"). The tab bar playground's Hover Card page shows the three side by side.
 public nonisolated enum HoverCardEntrance: String, Sendable, CaseIterable, Codable, TunableChoice {
     /// Fades in where it rests.
     case fade
