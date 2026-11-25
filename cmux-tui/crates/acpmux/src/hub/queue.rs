@@ -329,25 +329,11 @@ impl Hub {
             // Queued already, unless `remove_queued` withdrew it meanwhile: then it never runs.
             Some((turn_id, Some(waits))) => (turn_id, Some(waits)),
             Some((turn_id, None)) => return Err(Ok(withdrawn_reply(p.prompt_id, &turn_id))),
-            // A chat being moved takes no prompt: its new daemon does (`transfer_out.rs`).
-            None if session.moving().is_some() => return Err(Err(moving_error(session))),
-            // A watched chat takes no prompt until it is taken over (`watch.rs`).
-            None if session.meta().watching.is_some() => {
-                return Err(Err(super::watch::read_only()));
-            }
-            // A chat handing its conversation to a terminal takes no new prompt: the terminal
-            // does, once the turn ends (`release_to_watch.rs`).
-            None if session.releasing.load(Ordering::SeqCst) => {
-                return Err(Err(super::release_to_watch::releasing_error()));
-            }
-            // A lane's report to a parent whose close has begun: refused, never reopening it
-            // (`lane_reports.rs`). Nothing is awaited from this check to the commit below.
-            None if refuses_closing(&p) && closing(session) => return Err(Err(closing_error())),
-            // Nor once a shutdown began: no agent may start from then on (`shutdown.rs`).
-            None if refuses_closing(&p) && self.shutting_down() => {
-                return Err(Err(super::shutdown::shutting_down_error()));
-            }
+            // Nothing is awaited from this check to the commit below.
             None => {
+                if let Some(refused) = self.takes_no_prompt(session, &p) {
+                    return Err(Err(refused));
+                }
                 // A Cloud turn is prepared and captured before the prompt arrives. Reuse its
                 // immutable id so the platform fence covers exactly the turn that runs.
                 let turn_id = session
@@ -768,7 +754,7 @@ impl Hub {
     /// not the count, which a prompt about to start its turn is still in. A prompt the queue has
     /// no room for is counted back out of the session's queued total, and its refusal is what
     /// `session/prompt` answers.
-    fn enqueue_or_refuse(
+    pub(super) fn enqueue_or_refuse(
         &self,
         session: &Arc<Session>,
         p: &Slot<'_>,
@@ -779,6 +765,34 @@ impl Hub {
             session.queued.fetch_sub(1, Ordering::SeqCst);
             Err(e)
         })
+    }
+
+    /// Why the chat takes no new prompt now, if it takes none: [`Self::queue_slot`] and a
+    /// deferred prompt (`prompt_admission.rs`) refuse it alike.
+    pub(super) fn takes_no_prompt(&self, session: &Session, p: &Slot<'_>) -> Option<RpcError> {
+        // A chat being moved takes no prompt: its new daemon does (`transfer_out.rs`).
+        if session.moving().is_some() {
+            return Some(moving_error(session));
+        }
+        // A watched chat takes no prompt until it is taken over (`watch.rs`).
+        if session.meta().watching.is_some() {
+            return Some(super::watch::read_only());
+        }
+        // A chat handing its conversation to a terminal takes no new prompt: the terminal
+        // does, once the turn ends (`release_to_watch.rs`).
+        if session.releasing.load(Ordering::SeqCst) {
+            return Some(super::release_to_watch::releasing_error());
+        }
+        // A lane's report to a parent whose close has begun: refused, never reopening it
+        // (`lane_reports.rs`).
+        if refuses_closing(p) && closing(session) {
+            return Some(closing_error());
+        }
+        // Nor once a shutdown began: no agent may start from then on (`shutdown.rs`).
+        if refuses_closing(p) && self.shutting_down() {
+            return Some(super::shutdown::shutting_down_error());
+        }
+        None
     }
 
     /// [`Self::enqueue_or_refuse`]'s step: puts `p` in the queue, unless it has no room for it
