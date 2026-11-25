@@ -5,6 +5,7 @@ import { type HostRestoring, hostRecoveryLine } from "./hostRetry";
 import { useNow } from "./subagents/subagentGroupModel";
 import { useT } from "./i18n";
 import { waitedText } from "./hostErrorModel";
+import { useDotSaysRecovery } from "./composerStatusStore";
 import { Icon } from "./icons/Icon";
 import "./conversation/cardFit.css";
 
@@ -221,10 +222,13 @@ export function HostRecoveringLine({
   now?: number;
 }) {
   const t = useT();
+  // The composer's status dot, once mounted, says this recovery instead (ComposerStatusDot.tsx), so
+  // the words never draw over the transcript (Leo, 2026-11-22); the line still yields to `otherwise`.
+  const dotSays = useDotSaysRecovery();
   // Only the restore's m:ss needs the clock; "Reconnecting…" is state, not time.
-  const ticking = useNow(fixedNow === undefined && linkDown === true && restoring !== undefined);
+  const ticking = useNow(fixedNow === undefined && !dotSays && linkDown === true && restoring !== undefined);
   const line = hostRecoveryLine({ linkDown, restoring, failureShown, now: fixedNow ?? ticking });
-  if (!line) return otherwise;
+  if (!line || dotSays) return otherwise;
   return line.kind === "restoring" ? (
     <ConnectionChip
       kind="restoring"

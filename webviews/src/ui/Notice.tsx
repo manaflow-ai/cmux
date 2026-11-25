@@ -82,6 +82,10 @@ export interface NoticeProps {
   state?: NoticeState;
   /** The toasts-v2 experiment's arm (toastsV2.experiment.ts); `off` draws today's card. */
   look?: ToastLook;
+  /** A stack toast's glass is the App's own toast glass under the page (glass/hostGlass.ts), as its
+   * native toasts are drawn; false (the default) keeps the page's floating material. NoticeStack
+   * passes the toast-glass experiment's arm (`experiments.toastGlass`, off by default). */
+  hostGlass?: boolean;
 }
 
 /** The buttons in their order: an error's Retry first, then the actions; which one is filled. */
@@ -131,6 +135,7 @@ export function Notice({
   count = 1,
   state,
   look = "off",
+  hostGlass = false,
 }: NoticeProps) {
   const titleId = useId();
   const messageId = useId();
@@ -156,6 +161,7 @@ export function Notice({
     ) : kind === "toast" ? null : (
       <NoticeMark kind={kind} />
     ));
+  const floats = hostGlass && placement === "stack";
   const card = useRef<HTMLElement>(null);
   // v2: a change of state or text moves the card's box from the old size to the new (noticeMorph.ts).
   const plain = (value: ReactNode) => (typeof value === "string" ? value : "");
@@ -167,6 +173,12 @@ export function Notice({
       id={id}
       className={cx("ui-notice ui-glass", className)}
       data-surface-role={kind === "toast" ? "toast" : "card"}
+      // A toast over its surface is a `floating` surface (design-system-decisions B1): the App's toast glass
+      // under the page where the App draws it (glass-raycast-parity.md "Web popups"), else the page's
+      // floating material. Inline and banner notices sit on their surface and take no host glass.
+      data-host-glass={floats ? "popover" : undefined}
+      data-host-glass-role={floats ? "toast" : undefined}
+      data-host-glass-cover={floats ? "" : undefined}
       data-kind={kind}
       data-placement={placement}
       data-state={state}
