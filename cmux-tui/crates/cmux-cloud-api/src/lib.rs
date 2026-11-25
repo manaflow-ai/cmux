@@ -35,6 +35,9 @@
 //! `owner.fork_run` is cmux-platform's fork runs (`args.verb`: `start`, `get` or `select`;
 //! [`fork_runs`]): one machine captured once, one copy-on-write child per harness, one kept.
 //!
+//! [`auto_sessions`] is not a call of [`perform`]: it is Auto mode's store as the owner, a typed
+//! client (`cmux_auto_session::AutoCloud`) the acpmux daemon holds while a chat has Auto on.
+//!
 //! `owner.turn_checkpoint`, `owner.turn_rewind` and `owner.turns` are a Cloud chat's "back to
 //! before this turn": whole-machine turn checkpoints on cmux-platform (`turns.rs`).
 //!
@@ -55,16 +58,19 @@
 
 #![cfg(unix)]
 
+pub mod auto_sessions;
 pub mod background;
 mod chat;
 pub mod chief_machine;
 pub mod chief_resize;
+pub mod chief_turn;
 mod fork_runs;
 mod http;
 mod machine;
 pub mod machine_destroy;
 pub mod machine_fork;
 pub mod machine_io;
+pub mod machine_resume;
 mod network;
 mod owner;
 mod previews;
@@ -140,7 +146,7 @@ pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Valu
     match request.call.as_str() {
         "machine.io" if request.auth == Auth::Stack => Err(not_on_this_cloud("machine.io")),
         "machine.io" => machine::worker(request).await,
-        "machine.chief_start" => chief_machine::perform(request, &http).await,
+        "machine.chief_start" => chief_machine::perform(request, &http, &tail).await,
         "machine.chief_resize" => chief_resize::perform(request, &http).await,
         "machine.fork" if request.auth == Auth::Stack => Err(not_on_this_cloud("machine.fork")),
         "machine.fork" => machine_fork::fork_machine(request, args).await,

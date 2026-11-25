@@ -15,6 +15,11 @@
 //!    target imports on top of the stage. A `transfer.unstaged` refusal is for the client to
 //!    redo in full.
 //!
+//! A prefix whose manifest is past one hub message goes as version 2 with
+//! `stage: {manifestPull}` in place of `stage: {manifest}`, the manifest written into the
+//! prepare's folder for the target to read over the circuit, as a move's
+//! (`transfer_pull.rs`, [`super::transfer_pull::pull_manifest`]).
+//!
 //! A target that is too old to stage refuses the body (it has no `manifest`): no pre-copy, and
 //! the move is whole. A hub move is guarded (`peer` control, this daemon's roots), so the staged
 //! prefix goes through the guard's per-record rewrite as it is staged (`control` file of the
@@ -25,7 +30,10 @@
 use super::transfer_guard::Guard;
 use super::transfer_out::transfer_precopy::PREFIX_SCHEMA;
 use super::transfer_out::{inside, transfers_dir};
-use super::transfer_pull::{plain_daemon, pull_error};
+use super::transfer_pull::{
+    MANIFEST_PULL_WIRE_VERSION, MAX_BODY, plain_daemon, pull_error, pull_manifest,
+    write_pulled_manifest,
+};
 use super::*;
 
 /// How long the source waits for the target to stage a prefix.
@@ -75,12 +83,18 @@ impl Hub {
         session_id: &str,
         prepared: &Value,
     ) -> Result<String, RpcError> {
-        let body = json!({"version": 1, "sessionId": session_id, "stage": {"manifest": prepared}});
-        if body.to_string().len() > 64 * 1024 {
-            return Err(pull_error("size", "the prefix's manifest does not fit one hub message"));
+        let prepare_id = prepared["prepareId"].as_str().unwrap_or_default();
+        let mut body =
+            json!({"version": 1, "sessionId": session_id, "stage": {"manifest": prepared}});
+        if body.to_string().len() > MAX_BODY {
+            // Past one hub message: the target pulls the manifest from the prepare's folder.
+            let dir = inside(&transfers_dir(), prepare_id)?;
+            let reference = write_pulled_manifest(&dir, prepare_id, prepared)?;
+            body = json!({"version": MANIFEST_PULL_WIRE_VERSION, "sessionId": session_id,
+                          "stage": {"manifestPull": reference}});
         }
         let op = crate::mesh_relay_config::MOVE_OP;
-        let key = format!("stage-{}", prepared["prepareId"].as_str().unwrap_or_default());
+        let key = format!("stage-{prepare_id}");
         match self.hub_control(daemon, op, body, key, STAGE_WAIT).await? {
             Ok(result) => result
                 .and_then(|r| serde_json::from_str::<Value>(&r).ok())
@@ -110,17 +124,24 @@ impl Hub {
         source: &str,
         body: &Value,
     ) -> Result<Value, RpcError> {
-        let manifest = field(field(body, "stage"), "manifest").clone();
-        let prepare_id = field(&manifest, "prepareId").as_str().unwrap_or("");
-        let session_id = field(&manifest, "sessionId").as_str().unwrap_or("");
-        if *field(&manifest, "schema") != PREFIX_SCHEMA
-            || !prepare_id.starts_with("pre-")
-            || !super::transfer::is_plain_id(prepare_id)
-            || !super::transfer::is_plain_id(session_id)
-            || session_id != body["sessionId"].as_str().unwrap_or("")
-            || manifest.get("base").is_some_and(|b| !b.is_null())
+        let stage = field(body, "stage");
+        let pull = stage.get("manifestPull").filter(|p| p.is_object());
+        let plain_prefix = |manifest: &Value| {
+            let prepare_id = field(manifest, "prepareId").as_str().unwrap_or("");
+            let session_id = field(manifest, "sessionId").as_str().unwrap_or("");
+            *field(manifest, "schema") == PREFIX_SCHEMA
+                && prepare_id.starts_with("pre-")
+                && super::transfer::is_plain_id(prepare_id)
+                && super::transfer::is_plain_id(session_id)
+                && session_id == body["sessionId"].as_str().unwrap_or("")
+                && !manifest.get("base").is_some_and(|b| !b.is_null())
+        };
+        let unplain = || RpcError::invalid_params("move: the stage names no plain prefix");
+        let pulled_id = pull.map(|p| field(p, "transferId").as_str().unwrap_or(""));
+        if pulled_id.is_some_and(|id| !id.starts_with("pre-"))
+            || (pull.is_none() && !plain_prefix(field(stage, "manifest")))
         {
-            return Err(RpcError::invalid_params("move: the stage names no plain prefix"));
+            return Err(unplain());
         }
         if !plain_daemon(source) {
             return Err(pull_error("source", "the message names no source daemon"));
@@ -137,6 +158,14 @@ impl Hub {
             pull_error("no_route", "this daemon has no hub carrier to the source")
         })?;
         let mut pages = dial.open(source).await.map_err(|e| pull_error("unreachable", e))?;
+        let manifest = match pull {
+            Some(pull) => pull_manifest(&mut *pages, pull).await?,
+            None => field(stage, "manifest").clone(),
+        };
+        let prepare_id = field(&manifest, "prepareId").as_str().unwrap_or("");
+        if !plain_prefix(&manifest) || pulled_id.is_some_and(|id| id != prepare_id) {
+            return Err(unplain());
+        }
         let staged = self.transfer_stage(&json!({"manifest": manifest}))?;
         let stage_id = field(&staged, "stageId").as_str().unwrap_or_default().to_owned();
         let dir = inside(&transfers_dir(), &format!("in-{stage_id}"))?;

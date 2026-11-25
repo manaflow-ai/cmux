@@ -35,6 +35,9 @@ pub const CHAT_PRESENCE: &str = "chat-presence-v1";
 /// `_acpmux/connections.changed`, pushed to a local watcher when a model connection changes
 /// (`server/connections.rs`).
 pub const CONNECTIONS_EVENTS: &str = "connections-events-v1";
+/// The machine's fill on an attached chat (`_acpmux/fill`, `server/fill.rs`): only to a client
+/// that listed it, so nothing changes for any other.
+pub const AUTOCLOUD_FILL: &str = "autocloud-fill-v1";
 
 /// `_acpmux/info` with `sessionIds` answers the list's rows by key, and `_acpmux/status` says
 /// `closedListed` (`server/requests/info.rs` `rows`).
@@ -211,6 +214,10 @@ pub const CAPABILITIES: &[Capability] = &[
     // `_acpmux/sessions {pendingOnly: true}`: only the chats with a pending ask, without the
     // list's pace (the app's dialog list). Older daemons would answer the whole list.
     Capability { id: "session-list-pending-v1", wire: &[method::MUX_SESSIONS] },
+    // `_acpmux/sessions {topLevelOnly: true}`: no side chat and no session another chat's agent
+    // started, filtered before the page is cut (the phone's chat lists). Older daemons ignore it
+    // and list every chat.
+    Capability { id: "session-list-top-level-v1", wire: &[method::MUX_SESSIONS] },
     // `_acpmux/usage`: every listed chat's `usageStats` and nothing else, `unchanged` while the
     // digest the client holds is current (Session Info's Usage). Older daemons: the client reads
     // the list's pages with `usage: true`.
@@ -227,6 +234,13 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: INFO_ROWS, wire: &[method::MUX_INFO, method::MUX_STATUS] },
     // `_acpmux/markRead`: mark a chat read without showing it (cmux's `chat.mark_read`).
     Capability { id: "mark-read-v1", wire: &[method::MUX_MARK_READ] },
+    // `_acpmux/archive` and `_acpmux/rename` take an optional `opId` and run once per id
+    // (`hub/op_once.rs`): a resend after a lost reply answers the first result. An older
+    // daemon ignores `opId` and runs each resend, as before.
+    Capability {
+        id: crate::hub::op_once::CAPABILITY,
+        wire: &[method::MUX_ARCHIVE, method::MUX_RENAME],
+    },
     // The session list as a row log (`hub/row_log.rs`): `session_changed` and a watch's list
     // carry `listSeq`/`listEpoch`, and `_acpmux/watch {afterSeq, listEpoch}` answers the rows
     // changed since, not the list. Older daemons ignore `afterSeq` and send the list.
@@ -253,6 +267,12 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability {
         id: crate::server::session_patch::CAPABILITY,
         wire: &[method::INITIALIZE, method::MUX_SESSION_CHANGED, method::MUX_SESSION_PATCH],
+    },
+    // `sessionChangedDelta: 2`: patches to a masked connection (a peer's link) too, and
+    // `_acpmux/session_resync` for a client that missed a row.
+    Capability {
+        id: crate::server::session_patch::CAPABILITY_V2,
+        wire: &[method::INITIALIZE, method::MUX_SESSION_PATCH, method::MUX_SESSION_RESYNC],
     },
     Capability {
         id: MACHINE_ROUTES,
@@ -290,6 +310,22 @@ pub const CAPABILITIES: &[Capability] = &[
     // (`server/sign_in_follow.rs`). A literal id, which the app's reference check reads.
     Capability { id: "machine-signed-in-v1", wire: &[method::MUX_MACHINE_SIGNED_IN] },
     Capability { id: SESSION_MESSAGES, wire: &[method::MUX_MESSAGE] },
+    // Agent byte channels (`server/channels.rs`): a peer daemon opens one only on a peer that
+    // lists this id, so an older peer is never sent a `connect` it would drop.
+    Capability {
+        id: crate::server::channels::CAPABILITY,
+        wire: &[
+            method::MUX_CHANNEL_LISTEN,
+            method::MUX_CHANNEL_UNLISTEN,
+            method::MUX_CHANNEL_OPEN,
+            method::MUX_CHANNEL_SEND,
+            method::MUX_CHANNEL_CLOSE,
+            method::MUX_CHANNEL_CONNECT,
+            method::MUX_CHANNEL_OPENED,
+            method::MUX_CHANNEL_DATA,
+            method::MUX_CHANNEL_CLOSED,
+        ],
+    },
     Capability { id: SETTLED_ATTACH, wire: &[method::MUX_ATTACH] },
     Capability { id: HOLD_ATTACH, wire: &[method::MUX_ATTACH] },
     Capability {
@@ -328,6 +364,13 @@ pub const CAPABILITIES: &[Capability] = &[
     // Who has a shared chat open and who types in it (`hub/presence.rs`); the attach reply's
     // `presence` comes with it.
     Capability { id: CHAT_PRESENCE, wire: &[method::MUX_TYPING, method::MUX_PRESENCE] },
+    // Who is on this machine now, people across devices and agents in a turn (`hub/here.rs`).
+    Capability { id: "here-v1", wire: &[method::MUX_HERE_BEAT, method::MUX_HERE] },
+    // Chat titles and read marks through the sync engine, pulled and pushed by version vector
+    // (`hub/synced.rs`).
+    Capability { id: "state-sync-v1", wire: &[method::MUX_SYNC_PULL, method::MUX_SYNC_PUSH] },
+    // A chat pinned or unpinned, kept in its record and synced as `pin/<id>` (`hub/synced.rs`).
+    Capability { id: "chat-pin-v1", wire: &[method::MUX_PIN] },
     // Edit or remove a queued prompt, and send a steer now (`hub/queue_edit.rs`).
     Capability { id: "queue-edit-v1", wire: &[method::MUX_QUEUE_EDIT, method::MUX_QUEUE_REMOVE] },
     // A person's prompt waits for the owner, who approves or declines it (`hub/queue_approve.rs`).
@@ -388,6 +431,8 @@ pub const CAPABILITIES: &[Capability] = &[
     },
     // A model connection's change, pushed to a local watcher (`server/connections.rs`).
     Capability { id: CONNECTIONS_EVENTS, wire: &[method::MUX_CONNECTIONS_CHANGED] },
+    // How full a Cloud seed's checkout is, pushed on an attached chat (`server/fill.rs`).
+    Capability { id: AUTOCLOUD_FILL, wire: &[method::MUX_FILL] },
     // A peer link's state, pushed on each change (`protocol/peer_state.rs`).
     Capability { id: "peer-state-events-v1", wire: &[method::MUX_PEER_STATE_CHANGED] },
     // Folder trust (`trust.rs`).
@@ -466,6 +511,9 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_TEAM_ACK,
         ],
     },
+    // A listen on another member's agent address: open, list, close, and read what it receives
+    // (`server/team.rs` `listen`), under the same team-messaging gate.
+    Capability { id: "team-listen-v1", wire: &[method::MUX_TEAM_LISTEN] },
     // A chat's sign-in before a send, by session or target (`hub/session_auth.rs`).
     Capability { id: "session-auth-v1", wire: &[method::MUX_SESSION_AUTH] },
     // Owner-captured Cloud turns: prepare reserves a stable id before the native bridge mints
@@ -568,6 +616,11 @@ pub const CAPABILITIES: &[Capability] = &[
     // A turn's before and after picture of the chat's page, for its edited-files card
     // (`hub/turn_shots.rs`).
     Capability { id: "turn-shots-v1", wire: &[method::MUX_TURN_SHOTS] },
+    // A turn's frames of the chat's page as it formed, for the frames strip and the live preview
+    // window (`hub/turn_frames.rs`, RFD 0151).
+    Capability { id: "turn-frames-v1", wire: &[method::MUX_TURN_FRAMES] },
+    // A wrap-up card's Try it on, Keep and Revert (`customize_run.rs`).
+    Capability { id: "customize-run-v1", wire: &[method::MUX_CUSTOMIZE_RUN] },
     // `acp.session.fork` with `subagentId` (a subagent's own conversation as a chat of its own),
     // `mode`, and `model` without `harness` (`hub/fork_subagent.rs`).
     Capability { id: crate::hub::fork_subagent::CAPABILITY, wire: &[method::ACP_SESSION_FORK] },
@@ -578,10 +631,19 @@ pub fn ids() -> Vec<&'static str> {
     ids_for_connection(true)
 }
 
-/// `initialize` lists only the surfaces available over its transport.
+/// `initialize` lists only the surfaces available over its transport. Debug builds only:
+/// `ACPMUX_TEST_HIDE_CAPABILITIES=ID,ID` leaves those ids out, so a test daemon lists what a
+/// daemon one version older lists (`tests/transfer_cli/session_move_history.rs`). Release builds
+/// have no seam.
 pub(crate) fn ids_for_connection(local_stream: bool) -> Vec<&'static str> {
+    #[cfg(debug_assertions)]
+    let hidden = std::env::var("ACPMUX_TEST_HIDE_CAPABILITIES").unwrap_or_default();
+    #[cfg(not(debug_assertions))]
+    let hidden = String::new();
+    let hidden: Vec<&str> = hidden.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
     CAPABILITIES
         .iter()
+        .filter(|capability| !hidden.contains(&capability.id))
         .filter(|capability| match capability.id {
             MACHINE_ROUTES => cfg!(feature = "hub-carrier"),
             REMOTE_PIPE => local_stream && cfg!(feature = "hub-carrier"),

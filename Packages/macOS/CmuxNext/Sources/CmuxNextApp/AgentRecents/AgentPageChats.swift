@@ -38,11 +38,11 @@ final class AgentPageChats {
     var cloudEnvironment: (@MainActor (AgentPaneCloudEnvironmentRequest) async -> [String: Any])?
     var cloudReservation: (@MainActor (AgentPaneCloudReservationRequest) async -> [String: Any])?
     /// A new chat's first send in Cloud (``CloudStartChat``), one runner for every page, given the pane that sent.
-    var cloudStart: (@MainActor (AgentPaneView?, AgentPaneCloudStart) async -> [String: Any])?
+    var cloudStart: (@MainActor (AgentPaneView?, AgentPaneCloudStart) async -> [String: Any])?, cloudSendGesture: (@MainActor (AgentPaneView?) -> Void)?
     /// The app's Cloud account sign-in, awaited by an inline first-send recovery card, and whether it is signed in now.
     var cloudSignIn: (@MainActor () async -> Bool)?
     var cloudSignedIn: (@MainActor () -> Bool)?
-    var cloudSetUp: (@MainActor (CloudSetup.Action, String) async -> Bool)?
+    var cloudSetup: CloudSetup? // Set up Cloud's ways in and the picker's read (``AgentPaneModel/useCloudSetup(_:)``)
     var gitHub: AgentPaneGitHub? // the new chat folder picker's GitHub section (``AgentPaneGitHub``)
     /// Another machine picked for a Cloud chat whose first send has not run (``CloudStartChat``'s repick), given the pane.
     var cloudRepick: (@MainActor (AgentPaneView?, AgentPaneCloudRepick) async -> [String: Any])?
@@ -111,7 +111,7 @@ final class AgentPageChats {
         view.model.onSandboxRun = sandboxRun
         view.model.sendIsIncognito = { [weak self, weak view] in view.flatMap { self?.runNotices?.sendIsIncognito($0) } ?? true }
         view.model.onCloudEnvironment = cloudEnvironment
-        view.model.onCloudReservation = cloudReservation
+        view.model.onCloudReservation = cloudReservation; let sendGesture = cloudSendGesture; view.model.onCloudSendGesture = { @MainActor [weak view] () -> Void in sendGesture?(view) } // typed out: Xcode 26.6 could not type the `map` form
         if let run = handoffTurn {
             view.model.onCloudHandoffTurn = { @MainActor [weak view] (session: String) async -> [String: Any] in
                 await run(view, session)
@@ -129,7 +129,7 @@ final class AgentPageChats {
         }
         view.model.onCloudSignIn = cloudSignIn
         view.model.onCloudSignedIn = cloudSignedIn
-        view.model.onCloudSetUp = cloudSetUp
+        view.model.useCloudSetup(cloudSetup)
         view.useGitHub(gitHub)
         if let run = cloudRepick {
             view.model.onCloudRepickChat = { @MainActor [weak view] (repick: AgentPaneCloudRepick) async -> [String: Any] in
@@ -148,11 +148,11 @@ final class AgentPageChats {
     static func wireSandbox(_ tabs: AgentTabStore, services: AppServices) {
         let notices = SandboxRunNotices(services: services)
         tabs.pageChats.runNotices = notices
-        tabs.pageChats.cloudStart = CloudStartChat.runner(tabs, services: services)
+        (tabs.pageChats.cloudStart, tabs.pageChats.cloudSendGesture) = (CloudStartChat.runner(tabs, services: services), CloudStartChat.sendGesture(tabs, services: services))
         tabs.pageChats.cloudSignIn = { [weak services] in await services?.cloud.auth.signInEndedOnCancel() ?? false }
         tabs.pageChats.cloudSignedIn = { [weak services] in services?.cloud.auth.isSignedIn ?? false }
         CloudStartChat.wireSetup(services)
-        tabs.pageChats.cloudSetUp = { [weak services] action, family in await services?.cloud.setup.setUp(action, family: family) ?? false }
+        tabs.pageChats.cloudSetup = services.cloud.setup
         tabs.pageChats.cloudRepick = CloudStartChat.repickRunner(tabs, services: services)
         tabs.pageChats.gitHub = .live(CloudGitHubPicker(auth: services.cloud.auth, identity: services.cloud.installIdentity)) { LinkRouter.shared.open($0) }
         tabs.pageChats.cloudReservation = { [weak services] request in
