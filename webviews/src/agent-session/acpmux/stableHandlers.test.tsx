@@ -48,3 +48,22 @@ test("a parent's new handler draws a memoized child no more, and calls the lates
   expect(renders).toBe(5);
   act(() => root.unmount());
 });
+
+test("a named call-time function prop holds its identity and calls the latest one", () => {
+  renders = 0;
+  let seen: Props["render"];
+  const Spy = memo(function Spy(props: Props) {
+    renders++;
+    seen = props.render;
+    return null;
+  });
+  function Holder(props: Props) {
+    return <Spy {...useStableHandlers(props, ["render"])} />;
+  }
+  const root = createRoot(document.getElementById("root")!);
+  act(() => root.render(<Holder label="a" render={() => "x"} />));
+  act(() => root.render(<Holder label="a" render={() => "y"} />));
+  expect(renders).toBe(1);
+  expect(seen?.()).toBe("y");
+  act(() => root.unmount());
+});
