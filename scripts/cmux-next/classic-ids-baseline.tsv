@@ -133,6 +133,8 @@ cmux-tui/crates/cmux-customize/src/paths.rs	.local/state/cmux/	1	move	lane A: Cl
 cmux-tui/crates/cmux-host-budget/src/lib.rs	.config/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-host/src/cloud/daemon_noise_key.rs	.local/state/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-host/src/cloud/gateway_token.rs	.config/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
+cmux-tui/crates/cmux-host/src/cloud/vault.rs	.config/cmux/	1	keep	a Cloud machine's file (cmux host writes the session user's machine-secrets.env there; acpmux, the applier and cmux-remote read the same name), not this Mac's state
+cmux-tui/crates/cmux-host/src/cloud/vault_file.rs	.config/cmux/	1	keep	a Cloud machine's file (cmux host writes the session user's machine-secrets.env there; acpmux, the applier and cmux-remote read the same name), not this Mac's state
 cmux-tui/crates/cmux-host/src/daemon_spec.rs	/tmp/cmux-tui-{uid}/{SESSION}.sock	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-host/src/gitlab_cli.rs	.config/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-hub-host/src/identity.rs	join("cmux")	3	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)

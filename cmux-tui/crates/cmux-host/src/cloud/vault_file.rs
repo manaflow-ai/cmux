@@ -31,7 +31,9 @@ const PROFILE_HEADER: &str = "# cmux vault (cmux host, managed, do not edit)";
 /// The hook's text: the same guard the applier's machine.env uses (a regular file, not a link; never inside
 /// a machine setup run, whose output is logged).
 pub const PROFILE_TEXT: &str = "# cmux vault (cmux host, managed, do not edit): the names devices sealed to this machine, for login shells\n\
-if [ -z \"${CMUX_MACHINE_SETUP:-}\" ] && [ -n \"${HOME:-}\" ] && [ -f \"$HOME/.config/cmux/machine-secrets.env\" ] && [ ! -L \"$HOME/.config/cmux/machine-secrets.env\" ]; then . \"$HOME/.config/cmux/machine-secrets.env\"; fi\n";
+cmux_vault_env=\"${HOME:-}/.config/cmux/machine-secrets.env\"\n\
+if [ -z \"${CMUX_MACHINE_SETUP:-}\" ] && [ -n \"${HOME:-}\" ] && [ -f \"$cmux_vault_env\" ] && [ ! -L \"$cmux_vault_env\" ]; then . \"$cmux_vault_env\"; fi\n\
+unset cmux_vault_env\n";
 
 const FILE_NAME: &str = "machine-secrets.env";
 
