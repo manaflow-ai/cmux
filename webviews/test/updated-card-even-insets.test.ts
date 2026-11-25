@@ -83,7 +83,13 @@ await requireBrowserLane("updated-card-even-insets.test.ts", async () => {
        flushSync(() => root.render(createElement(UpdatedCard, { data, strings: createStrings(table), actions, closeButton: false, glass: false } as any)));
      };`,
   );
-  const built = await Bun.build({ entrypoints: [entry], target: "browser", format: "iife" });
+  const built = await Bun.build({
+    entrypoints: [entry],
+    target: "browser",
+    format: "iife",
+    // A classic script has no import.meta: modules the card reaches (toolMentions.ts, #53425) read import.meta.url.
+    define: { "import.meta.url": JSON.stringify("http://127.0.0.1/") },
+  });
   fs.rmSync(dir, { recursive: true, force: true });
   if (!built.success) throw new Error(built.logs.join("\n"));
   const output = built.outputs.find((artifact) => artifact.kind === "entry-point" && artifact.path.endsWith(".js"));

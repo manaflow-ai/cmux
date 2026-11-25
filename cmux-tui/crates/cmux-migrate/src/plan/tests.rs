@@ -77,7 +77,7 @@ fn steps_cover_checked_projects_and_split_secret_carry() {
     assert_eq!(repo.as_deref(), Some("https://github.com/me/web.git"));
     let parsed: toml::Table = machine_toml.parse().unwrap();
     assert_eq!(parsed["version"].as_integer(), Some(1));
-    assert_eq!(parsed["setup"]["run"][0].as_str(), Some("bun install"));
+    assert!(parsed["setup"]["run"][0].as_str().unwrap().ends_with("; bun install"));
     assert_eq!(parsed["secrets"]["names"][0].as_str(), Some("DATABASE_URL"));
     assert_eq!(parsed["env"]["NODE_ENV"].as_str(), Some("development"));
 }

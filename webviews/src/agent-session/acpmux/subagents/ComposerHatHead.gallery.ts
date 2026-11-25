@@ -5,12 +5,12 @@
 // instead of expanding it is, like, ooh"); its step hands over as a status line does, the old sliding
 // up and out as the new slides in ("That animation, I like that"); a joining subagent or command
 // slides its name in and rolls the count; a finished one ends in a check and its time ("the done
-// whatever minutes type thing ... just doesn't look that... Great"). Two entries: where the expand
-// chevron sits, and how a finished line ends (hatParts.experiment.ts; view Compare arms).
+// whatever minutes type thing ... just doesn't look that... Great"). The expand chevron sits at the
+// row's end, in the lines' chevron column (SubagentTray.tsx); how a finished line ends is compared in
+// `agent-pane.composer-hat-done`.
 import { componentEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import type { ComposerHatHeadState } from "../../../gallery/fixtures/ComposerHatHeadStage";
-import { hatChevronLook } from "./hatParts.experiment";
 
 type Props = { start?: ComposerHatHeadState; stepLook?: "default" };
 
@@ -97,6 +97,5 @@ export default componentEntry<Props>({
   load: () => import("../../../gallery/fixtures/ComposerHatHeadStage").then((module) => module.ComposerHatHeadStage),
   pane: true,
   height: 240,
-  experiment: { definition: hatChevronLook, script: composerHatHeadScript },
   variants,
 });

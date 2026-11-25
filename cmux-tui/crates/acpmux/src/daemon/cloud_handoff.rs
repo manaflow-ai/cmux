@@ -67,9 +67,12 @@ const QUEUE_SOFT_CAP: usize = 4096;
 const QUEUE_CAP: usize = 16_384;
 /// The prompt id of a hand-off turn's prompt starts with this, then the turn and `-`.
 pub(super) const PROMPT_PREFIX: &str = "handoff-";
-/// Sessions followed at most; past it a session with no turn being reported is forgotten, and a
-/// new session is not followed while every followed one is reporting a turn.
-const MAX_TRACKS: usize = 4096;
+/// Followed sessions past which the ones with no turn being reported are forgotten (a quarter
+/// of them at a time, so each new session costs a constant on average). A session reporting a
+/// turn is always followed: a track is a few dozen bytes, and it goes when its session closes.
+const QUIET_TRACKS_KEPT: usize = 4096;
+/// Turn ids remembered for attention lines past which they are all forgotten at once.
+const ACTIVE_TURNS_KEPT: usize = 4096;
 /// Closed sessions, and sessions whose hand-off closed, remembered at most (the oldest is
 /// forgotten first).
 const MAX_CLOSED: usize = 4096;
@@ -99,8 +102,6 @@ const LATER: [Duration; 4] = [
     Duration::from_secs(600),
     Duration::from_secs(1800),
 ];
-/// Turn ends waiting to be sent again, at most.
-const MAX_LATER: usize = 4096;
 /// A finished turn's summary: the start of its last reply.
 const DONE_CHARS: usize = 600;
 /// A failed turn's summary, and what a permission or question asks.
@@ -650,10 +651,6 @@ impl<I: Io> Reporter<I> {
         // session's state; `report` sends nothing then, and a turn's end waits in `later`.
         if !self.tracks.contains_key(session) {
             self.make_room();
-            if self.tracks.len() >= MAX_TRACKS {
-                tracing::warn!(session, "hand-off reports: too many sessions, one not followed");
-                return;
-            }
         }
         let track = self.tracks.entry(session.to_owned()).or_default();
         let mut now = track.now.clone();
@@ -780,10 +777,6 @@ impl<I: Io> Reporter<I> {
             tracing::warn!(session, turn = later.turn, "hand-off report given up");
             return;
         };
-        if self.later.len() >= MAX_LATER && !self.later.contains_key(session) {
-            tracing::warn!(session, "hand-off reports: too many waiting, a turn's end dropped");
-            return;
-        }
         later.at = tokio::time::Instant::now() + *wait;
         self.later.insert(session.to_owned(), later);
     }
@@ -887,9 +880,10 @@ impl<I: Io> Reporter<I> {
         }
     }
 
-    /// Keeps the tracks under [`MAX_TRACKS`]: sessions with no turn being reported go first.
+    /// Past [`QUIET_TRACKS_KEPT`] tracks, forgets a quarter of the sessions with no turn being
+    /// reported. Sessions reporting a turn are never forgotten here.
     fn make_room(&mut self) {
-        if self.tracks.len() < MAX_TRACKS {
+        if self.tracks.len() < QUIET_TRACKS_KEPT {
             return;
         }
         let quiet: Vec<String> = self
@@ -1179,7 +1173,7 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
             continue;
         }
         if ev.record.kind == "turn_started" {
-            if active_turns.len() >= MAX_TRACKS {
+            if active_turns.len() >= ACTIVE_TURNS_KEPT {
                 active_turns.clear();
             }
             active_turns.insert(
