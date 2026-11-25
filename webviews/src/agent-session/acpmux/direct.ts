@@ -667,8 +667,11 @@ type SentAttach = {
 /// them against the handshake (`guessHeld`) and asks again when they differ.
 type HandshakeGuess = { capabilities: ReadonlySet<string>; local: boolean };
 /// The capabilities the attach asked with `initialize` assumes (acpmux capabilities.rs): the settled
-/// view, whose refusal the attach asks again without (`settledAttachFailed`), and the hold.
-const GUESSED_CAPABILITIES: ReadonlySet<string> = new Set([SETTLED_ATTACH_CAPABILITY, HOLD_ATTACH_CAPABILITY]);
+/// view, whose refusal the attach asks again without (`settledAttachFailed`), and the hold once a
+/// host on this page said the switch is on; before that the switch is not asked on a guess, so a
+/// daemon without the hold never has a chat opened on the store for it.
+const GUESSED_SETTLED: ReadonlySet<string> = new Set([SETTLED_ATTACH_CAPABILITY]);
+const GUESSED_HELD: ReadonlySet<string> = new Set([SETTLED_ATTACH_CAPABILITY, HOLD_ATTACH_CAPABILITY]);
 /// The attach of the chat a page opens, asked with the chat list instead of after it (`askEarly`),
 /// so the chat's first frame waits on one daemon reply after the handshake. `live` holds the chat's
 /// records that came before the open took the attach, applied in order once it does: as if the
@@ -2610,7 +2613,7 @@ export class AcpmuxDirectClient {
       // wait for that answer. A browser device proves itself first, so it asks after.
       const guess: HandshakeGuess | undefined = this.browserIdentity
         ? undefined
-        : { capabilities: GUESSED_CAPABILITIES, local: this.guessLocalOrigin() };
+        : { capabilities: this.chatRows.hostSaidOn() ? GUESSED_HELD : GUESSED_SETTLED, local: this.guessLocalOrigin() };
       if (guess) early = this.askEarly(guess);
       const initialized = await initializing;
       this.canFork = servesOperation(initialized, FORK_OP);
