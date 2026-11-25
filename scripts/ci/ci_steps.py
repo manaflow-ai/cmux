@@ -462,7 +462,7 @@ def reuse_passes(table: Table, steps: list[Step], paths: list[str] | None, store
 
 def run_job(table: Table, job: str, paths: list[str] | None, label: str | None = None, out=sys.stdout,
             workers: int | None = None, only: list[str] | None = None, store: StepResults | None = None,
-            root: Path = ROOT) -> int:
+            root: Path = ROOT, tools_only: bool = False) -> int:
     names = route(table, paths, label).get(job, [])
     if only:
         for name in only:
@@ -518,7 +518,11 @@ def run_job(table: Table, job: str, paths: list[str] | None, label: str | None =
                 made = list(pool.map(make_tool, needed))
             results += made
             ready = all(r.ok for r in made)
-        if ready:
+        if ready and tools_only:
+            # A warm only (a pool image bake): the tools are where a later job finds them (RUNNER_TOOL_CACHE,
+            # CARGO_HOME, ZIG_TARBALL_CACHE_DIR); no step runs.
+            pass
+        elif ready:
             # Advisory steps wait on the network, not a CPU: they all start at once, as before.
             limit = len(steps) if job == ADVISORY_JOB else min(len(steps), workers or max(2, os.cpu_count() or 1))
             with ThreadPoolExecutor(max_workers=limit) as pool:
@@ -575,6 +579,8 @@ def main(argv: list[str] | None = None) -> int:
     x.add_argument("--label", default="", help="the label of a labeled or unlabeled event; empty for other events")
     x.add_argument("--workers", type=int, default=0, help="steps at once (default: the machine's CPUs)")
     x.add_argument("--only", default="", help="run only these routed steps (comma or space separated); empty: all")
+    x.add_argument("--tools-only", action="store_true",
+                   help="run the job's setup and the tools its routed steps need, then no step (a cache warm)")
     args = parser.parse_args(argv)
     table = load(Path(args.table))
     paths = read_paths(args.paths_file)
@@ -584,9 +590,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.job not in table.jobs:
         parser.error(f"--job {args.job!r} is not one of {sorted(table.jobs)}")
     # A label event runs only the steps that name the label: those read the event, so none is reused.
-    store = None if args.label else StepResults.from_env(dict(os.environ))
+    store = None if args.label or args.tools_only else StepResults.from_env(dict(os.environ))
     return run_job(table, args.job, paths, args.label or None, workers=args.workers or None,
-                   only=parse_only(args.only), store=store, root=Path.cwd())
+                   only=parse_only(args.only), store=store, root=Path.cwd(), tools_only=args.tools_only)
 
 
 if __name__ == "__main__":

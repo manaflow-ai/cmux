@@ -599,6 +599,31 @@ class SetupTest(unittest.TestCase):
         code, out = self.run_job(t, "linux", ["docs/x.md"])
         self.assertNotIn("made-", out)
 
+    def test_tools_only_makes_every_routed_steps_tools_and_runs_no_step(self) -> None:
+        # A pool image bake warms the caches the tools keep (RUNNER_TOOL_CACHE, CARGO_HOME) without a step.
+        t = table('''
+            [setup]
+            linux = "echo setup-ran"
+            [tools]
+            bun = "echo made-bun"
+            node = "echo made-node"
+            [step.a]
+            job = "linux"
+            needs = ["bun"]
+            run = "echo step-a-ran"
+            [step.b]
+            job = "linux"
+            needs = ["node"]
+            run = "echo step-b-ran"
+        ''')
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": ""}):
+            code = ci_steps.run_job(t, "linux", None, None, out, tools_only=True)
+        self.assertEqual(code, 0, out.getvalue())
+        for want in ("setup-ran", "made-bun", "made-node"):
+            self.assertIn(want, out.getvalue())
+        self.assertNotIn("-ran\n", out.getvalue().replace("setup-ran\n", ""), "no step ran")
+
     def test_a_failed_tool_fails_the_job_and_runs_no_step(self) -> None:
         t = table('''
             [tools]
