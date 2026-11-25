@@ -30,8 +30,9 @@ export interface LeavingHost {
 export const hostsLeavingOwner = (op: string, frames: ReadonlyArray<OwnerFrame>): Array<LeavingHost> => {
   const result = frames.find((f) => f.t === "result") as { value?: unknown; replayed?: boolean } | undefined
   if (!result || result.replayed || frames.some((f) => f.t === "reject")) return []
-  // Both results name the host that left: host.remove {host}, server.revoke {host, install, owner_user}.
-  if (op === "host.remove" || op === "server.revoke") {
+  // Each result names the host that left: host.remove {host}, server.revoke and server.signed_out
+  // {host, install, owner_user} (a signed_out that found no host answers host: null and drops nothing).
+  if (op === "host.remove" || op === "server.revoke" || op === "server.signed_out") {
     const host = (result.value as { host?: unknown } | undefined)?.host
     return typeof host === "string" ? [{ host, tombstone: true, reason: "the host was removed" }] : []
   }

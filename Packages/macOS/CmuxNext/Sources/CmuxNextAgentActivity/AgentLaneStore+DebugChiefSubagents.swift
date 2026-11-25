@@ -29,6 +29,7 @@ extension AgentLaneStore {
     /// - Throws: a `DecodingError` when `json` has no `subagents` list.
     @discardableResult
     public func applyDebugChiefSubagents(json: Data) throws -> Int {
+        // main-actor-ok: a DEBUG fixture command's params, a few fixture rows a capture asks for.
         let entries = try JSONDecoder().decode(DebugChiefSubagents.self, from: json).subagents
         var next = lanes.filter { !$0.key.hasPrefix(Self.debugChiefSubagentPrefix) }
         for (index, entry) in entries.enumerated() {

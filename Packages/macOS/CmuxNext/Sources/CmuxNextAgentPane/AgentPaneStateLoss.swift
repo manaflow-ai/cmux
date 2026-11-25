@@ -114,7 +114,7 @@ public nonisolated final class AgentPaneStateLoss: Sendable {
         var notices: [String] = []
         if names.contains(AgentUnsentDrafts.fileName) {
             notices.append(String(localized: "agentPane.stateLoss.unsentDraft",
-                                  defaultValue: "A new chat's draft was lost when cmux quit.", bundle: .module))
+                                  defaultValue: "A new chat's draft was lost when cmux quit.", bundle: .localizedModule))
         }
         if names.contains(pairedPhonesFileName) {
             logger.error("the last quit cut off a paired-phones save (seal cleared at launch: \(pairedSealCleared, privacy: .public))")
@@ -122,7 +122,7 @@ public nonisolated final class AgentPaneStateLoss: Sendable {
         if pairedSealCleared {
             notices.append(String(localized: "agentPane.stateLoss.pairedPhones",
                                   defaultValue: "iPhone pairing changes were lost when cmux quit. Pair again.",
-                                  bundle: .module))
+                                  bundle: .localizedModule))
         }
         return notices
     }

@@ -12,9 +12,11 @@
 
 /* A ticking duration: tabular figures, in a box as wide as the widest text of its shape. The hidden
    `data-clock-size` is a zero-height line under the text: it widens the box and adds no height, and
-   a range over the element still measures the time's own text alone. */
+   a range over the element still measures the time's own text alone. An inline grid, not an
+   inline block: a block's baseline is its last line's, the empty sizer's, which lifted the time
+   above the words beside it ("Working for ¹ᵐ ¹⁶ˢ"); a grid's is its first row's, the text's. */
 .ui-clock {
-  display: inline-block;
+  display: inline-grid;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }

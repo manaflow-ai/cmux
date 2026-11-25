@@ -5,12 +5,21 @@ import AppKit
 /// size (``CEFCommitLayoutWait/laidOut``) or at ``readyFrames`` display frames, and asks for `release` at
 /// ``releaseFrames`` frames when the page still holds that size then (a commit that never showed).
 ///
-/// The commit waits for the report at most 3 frames (`ScreenContentView.commitBound`) and shows the pane's ground for a
-/// surface that is late. The bound here is one frame under it, so the page is never late: a page that has not laid out
+/// The page asks its commit to wait up to ``commitTicks`` frames for it (``PaneCommitSurface/commitWaitTicks``; the
+/// commit's own bound, `ScreenContentView.commitBound`, is 3), and the commit shows the pane's ground for a surface
+/// that is late. The bound here is one frame under the page's, so the page is never late: a page that has not laid out
 /// by then shows its old frame at its top-left corner beside its backdrop, as before this wait.
+///
+/// ``commitTicks`` stays at the commit's own 3: a page frame at a new size shows about two refreshes after the page's
+/// own layout, so a page that lays out in 30 ms shows its frame some 5 to 6 refreshes after the change at 120 Hz, but
+/// bench arms of 6 and 8 (pane-perf --film --light-pass, cmux20-bench, 2026-11-22) left gap frames in 4 to 5 of 24
+/// films and made each zoom and close of a slow page show 2 to 3 refreshes later. The seam stays for a bound that
+/// passes those arms.
 final class CEFCommitPageWait {
-    /// Display frames until the page is ready whatever it answered: one under the commit's bound of 3.
-    static let readyFrames = 2
+    /// Frame ticks the page's commit may wait for it.
+    static let commitTicks = 3
+    /// Display frames until the page is ready whatever it answered: one under ``commitTicks``.
+    static let readyFrames = commitTicks - 1
     /// Display frames until a size taken ahead for a commit that has not shown goes (the commit shows at most 4 frames
     /// after its change).
     static let releaseFrames = 8
@@ -37,9 +46,16 @@ final class CEFCommitPageWait {
         self.release = release
         stopFrames = wait.frames(view) { [weak self] last in self?.frame(last: last) ?? false }
         let laidOut = wait.laidOut
+        let asked = CEFTrackerStats.now()
         answer = Task { [weak self, weak tab] in
-            guard let tab, await laidOut(tab, pixels) else { return }
-            self?.report()
+            guard let tab, await laidOut(tab, pixels), let self, !Task.isCancelled else { return }
+            guard self.owesReport else {
+                // The wait reported at its bound before the page answered: late, not lost.
+                CEFHostView.trackerStats.commitAnswersLate += 1
+                return
+            }
+            CEFHostView.trackerStats.commitAnswerSeconds += CEFTrackerStats.now() - asked
+            self.report(.answered)
         }
     }
 
@@ -53,12 +69,25 @@ final class CEFCommitPageWait {
         if ready == nil, !inFrame { stop() }
     }
 
-    /// Reports now, if not yet (the page hides or leaves its pane: it draws nothing more for this commit).
-    func report() {
+    /// Why a wait reported (`debug.cef` `tracker`: `commit_answered`, `commit_at_bound`, `commit_left`).
+    enum Ending {
+        /// The page laid out at the size: the wait ended at once.
+        case answered
+        /// The page had not laid out by ``readyFrames``.
+        case atBound
+        /// The page hid, left its pane or its window stopped giving frames.
+        case left
+    }
+
+    /// Reports now, if not yet: by default the page hides or leaves its pane (it draws nothing more for this commit).
+    func report(_ ending: Ending = .left) {
         guard let ready else { return }
         self.ready = nil
-        answer?.cancel()
-        answer = nil
+        switch ending {
+        case .answered: CEFHostView.trackerStats.commitWaitsAnswered += 1
+        case .atBound: CEFHostView.trackerStats.commitWaitsAtBound += 1
+        case .left: CEFHostView.trackerStats.commitWaitsLeft += 1
+        }
         if release == nil, !inFrame { stop() }
         ready()
     }
@@ -76,7 +105,7 @@ final class CEFCommitPageWait {
         inFrame = true
         defer { inFrame = false }
         frames += 1
-        if last || frames >= Self.readyFrames { report() }
+        if last { report(.left) } else if frames >= Self.readyFrames { report(.atBound) }
         if last || frames >= Self.releaseFrames, let release {
             self.release = nil
             release()

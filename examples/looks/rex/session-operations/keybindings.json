@@ -1,0 +1,27 @@
+[
+  {
+    "key": "ctrl+opt+cmd+j n",
+    "command": "nextSidebarTabInGroup",
+    "when": "terminalFocused && !paletteOpen"
+  },
+  {
+    "key": "ctrl+opt+cmd+j p",
+    "command": "prevSidebarTabInGroup",
+    "when": "terminalFocused && !paletteOpen"
+  },
+  {
+    "key": "ctrl+opt+cmd+j l",
+    "command": "workspace.selectLastUsed",
+    "when": "terminalFocused && !paletteOpen"
+  },
+  {
+    "key": "ctrl+opt+cmd+j r",
+    "command": "renameWorkspace",
+    "when": "terminalFocused && !paletteOpen"
+  },
+  {
+    "key": "ctrl+opt+cmd+j w",
+    "command": "closeWorkspace",
+    "when": "terminalFocused && !paletteOpen"
+  }
+]

@@ -1,3 +1,4 @@
+import CmuxEgress
 public import Foundation
 import Network
 import CmuxNextCompat
@@ -10,7 +11,7 @@ public nonisolated final class RemoteRdLoopbackCarrier: RemoteRdByteCarrier {
 
     public init(endpoint: RemoteRdLoopbackEndpoint) {
         let port = NWEndpoint.Port(rawValue: endpoint.port) ?? .any
-        connection = NWConnection(host: NWEndpoint.Host.ipv4(.loopback), port: port, using: .tcp)
+        connection = CmuxEgress.connection(host: NWEndpoint.Host.ipv4(.loopback), port: port, using: .tcp, site: "CmuxNextRemoteView.RemoteRdLoopbackCarrier")
     }
 
     public func start(queue: DispatchQueue, events: @escaping @Sendable (RemoteRdCarrierEvent) -> Void) {

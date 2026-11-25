@@ -24,7 +24,7 @@ public final class AgentChatsModel {
     public private(set) var nextCursor: String?
     public private(set) var loadingMore = false
     /// The first page is being read again over the rows shown (the ones this run kept): the
-    /// list shows that it is updating. A pull to refresh shows its own progress instead.
+    /// list says nothing while it does. A pull to refresh shows its own progress instead.
     public private(set) var refreshing = false
     public var scope: AgentChatScope = .chats
     public var query = ""
@@ -33,9 +33,10 @@ public final class AgentChatsModel {
     /// A refusal to show (an alert).
     public var failure: String?
     /// The connection to the Mac dropped or went quiet (``ConnectionInterrupted``): the list keeps
-    /// its rows (or its loading state), says it is reconnecting, and asks again on its own. Past
-    /// ``ConnectionPatience/giveUpAfter`` an empty list says what to do; a list with rows keeps
-    /// them, says they are from earlier (``stale``), and keeps asking.
+    /// its rows (or its loading state) and asks again on its own, saying nothing: no chip over
+    /// the rows (Leo, 2026-11-24: "let's just keep optimistically connecting and reinforcing the
+    /// connection"). Past ``ConnectionPatience/giveUpAfter`` an empty list says what to do; a list
+    /// with rows keeps them (``stale``) and keeps asking.
     public private(set) var reconnecting = false
     /// The rows shown are the last ones read: the Mac stayed unreachable past the bound.
     public private(set) var stale = false
@@ -244,6 +245,8 @@ struct AgentChatsScreen: View {
         @Bindable var model = model
         content
             .navigationTitle(model.scope == .archived ? "Archived Chats" : "Agent Chats")
+            // Like the Workspaces list: a reopen's refresh of the kept rows says nothing; they
+            // update in place (Leo, 2026-11-24: "they dont need to know that it's updating before they KNOW it's updating").
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.visible, for: .navigationBar)
             .searchable(text: $model.query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search chats")
@@ -292,9 +295,13 @@ struct AgentChatsScreen: View {
     private var content: some View {
         switch model.phase {
         case .loading:
-            CmuxSpinner(label: Text(model.reconnecting ? "Connecting to your Mac…" : "Loading chats…"))
+            // Never "Connecting to your Mac…" (Leo, 2026-11-23: "i dont wanna see connecting to
+            // cosmic-gray... with the spinner, i want it to just work"): the list's own load only.
+            // placeholder-ok: no cached chat page exists for this Mac yet.
+            CmuxSpinner(label: Text("Loading chats…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("agentChats.loading")
+                .placeholderBound("agentChats.loading", .milliseconds(2000))
         case .failed(let message):
             ContentUnavailableView {
                 Label("Couldn't load chats", systemImage: "exclamationmark.triangle")
@@ -311,14 +318,12 @@ struct AgentChatsScreen: View {
         }
     }
 
+
     private var list: some View {
         let rows = model.visible
         return List {
-            // The kept rows show while the Mac's newest page loads (a pull to refresh has its own).
-            if model.refreshing || model.reconnecting {
-                ListStatusRow(model.stale ? .stale : model.reconnecting ? .reconnecting : .updating)
-                    .accessibilityIdentifier(model.reconnecting ? "agentChats.reconnecting" : "agentChats.updating")
-            }
+            // The kept rows show while the Mac's newest page loads, with no word that they do;
+            // a dropped link draws nothing over them (it redials on its own), so nothing shifts.
             ForEach(rows) { chat in
                 row(chat)
             }
@@ -420,13 +425,6 @@ struct AgentChatRow: View {
                     .font(.body)
                     .foregroundStyle(theme.colors.label.color)
                     .lineLimit(1)
-                // Where the chat stands and its next action (the Mac's acpmux rolling summary).
-                if let line = chat.summaryLine {
-                    Text(line)
-                        .font(.footnote)
-                        .foregroundStyle(theme.colors.label.color.opacity(0.8))
-                        .lineLimit(2)
-                }
                 // No blank line under the title when there is nothing to say (no status, no folder).
                 if chat.isActive || !subtitle.isEmpty {
                     HStack(spacing: 6) {

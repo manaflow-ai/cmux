@@ -14,6 +14,7 @@ import { useStore } from "../context";
 import { Select } from "../editors/Select";
 import type { AgentMcpRun, AgentMcpServer, AgentMcpState } from "../ops";
 import { t } from "../strings";
+import { WithFacts } from "../../../agent-session/acpmux/chips/FactsHoverCard";
 
 type Agent = AgentMcpServer["agent"];
 type Gesture = Exclude<AgentMcpRun, { action: "refresh" | "pickFolder" | "add" }>["action"];
@@ -80,9 +81,13 @@ function Row({
             {row.name}
           </div>
           <div className="row-help selectable">{details.join(" · ")}</div>
-          <div className="row-help selectable font-mono" title={row.file}>
-            {runs(row)}
-          </div>
+          <WithFacts facts={[{ value: row.file, code: true }]}>
+            {(facts) => (
+              <div {...facts} className="row-help selectable font-mono">
+                {runs(row)}
+              </div>
+            )}
+          </WithFacts>
           {row.approval === "pending" && (
             <div className="row-help" data-agent-mcp-pending="">
               {t("settingsWindow.agentMcp.pending")}

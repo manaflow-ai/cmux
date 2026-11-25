@@ -1,0 +1,4 @@
+# workspace.toggleTop context-menu exemption dragGesture (#50440: drag replaces Remove from Top); the re-pin carries it
+/surfacePlan/contextMenuExemption
+/surfacePlan/contextMenus
+/surfaces

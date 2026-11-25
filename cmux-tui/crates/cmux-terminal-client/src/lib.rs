@@ -47,7 +47,13 @@ const CONNECTION_TIMEOUT_ERROR: &str = "terminal connection timed out";
 const INVALID_OPENED: &str = "terminal service returned an invalid Opened acknowledgement";
 /// Service rejection code a daemon returns for unknown open metadata.
 const INVALID_ARGUMENT: &str = "invalid-argument";
-const TERMINAL_RECONNECT_MAX_ATTEMPTS: u32 = 8;
+/// A dropped terminal stream is opened again on this back-off for as long as its connection may
+/// still carry it: a slow or dropped link is never a count of tries. It ends when the daemon no
+/// longer has the session, when the connection's reader failed for good, or when the daemon has
+/// refused the open this many times in a row (the terminal is gone; a daemon still restoring it
+/// gets the back-off's first ~20 s). Leo, 2026-11-24: "let's just keep optimistically connecting
+/// and reinforcing the connection".
+const TERMINAL_REOPEN_REFUSALS: u32 = 8;
 const TERMINAL_RECONNECT_INITIAL_DELAY: StdDuration = StdDuration::from_millis(250);
 const TERMINAL_RECONNECT_MAX_DELAY: StdDuration = StdDuration::from_secs(4);
 
@@ -758,24 +764,50 @@ async fn open_terminal_stream_with_timeout(
     options: &TerminalOpenOptions,
     timeout: Option<StdDuration>,
 ) -> Result<Arc<ServiceStream>, String> {
+    open_terminal_stream_typed_with_timeout(multiplexer, terminal_id, options, timeout)
+        .await
+        .map_err(TerminalOpenError::into_message)
+}
+
+/// [`open_terminal_stream`], keeping whether the daemon refused the open.
+async fn open_terminal_stream_typed(
+    multiplexer: &Arc<ServiceMultiplexer>,
+    terminal_id: &TerminalPublicId,
+    options: &TerminalOpenOptions,
+) -> Result<Arc<ServiceStream>, TerminalOpenError> {
+    open_terminal_stream_typed_with_timeout(multiplexer, terminal_id, options, None).await
+}
+
+async fn open_terminal_stream_typed_with_timeout(
+    multiplexer: &Arc<ServiceMultiplexer>,
+    terminal_id: &TerminalPublicId,
+    options: &TerminalOpenOptions,
+    timeout: Option<StdDuration>,
+) -> Result<Arc<ServiceStream>, TerminalOpenError> {
     let started = Instant::now();
     let remaining = || timeout.map(|limit| limit.saturating_sub(started.elapsed()));
     if options.requests_priority() {
         match open_terminal_stream_once(multiplexer, terminal_id, true, remaining()).await {
             Err(TerminalOpenError::Rejected { code, .. }) if code == INVALID_ARGUMENT => {}
-            result => return result.map_err(TerminalOpenError::into_message),
+            result => return result,
         }
         // A daemon that predates viewer-size priority rejects the key but
         // still serves the ordinary smallest-viewer stream.
-        let stream = open_terminal_stream_once(multiplexer, terminal_id, false, remaining())
-            .await
-            .map_err(TerminalOpenError::into_message)?;
+        let stream =
+            open_terminal_stream_once(multiplexer, terminal_id, false, remaining()).await?;
         options.priority_unsupported.store(true, Ordering::Release);
         return Ok(stream);
     }
-    open_terminal_stream_once(multiplexer, terminal_id, false, remaining())
-        .await
-        .map_err(TerminalOpenError::into_message)
+    open_terminal_stream_once(multiplexer, terminal_id, false, remaining()).await
+}
+
+/// Whether a dropped terminal stream's reopen should stop, after `refused` refusals in a row:
+/// see [`TERMINAL_REOPEN_REFUSALS`]. Anything else (a slow or dropped link) is tried again,
+/// however many times it takes.
+fn reconnect_is_over(multiplexer: &ServiceMultiplexer, refused: u32) -> bool {
+    refused >= TERMINAL_REOPEN_REFUSALS
+        || multiplexer.session_unavailable()
+        || multiplexer.subscribe_fatal().borrow().is_some()
 }
 
 async fn open_terminal_stream_once(
@@ -1071,11 +1103,12 @@ impl TerminalStreamSupervisor {
             }
             updates.notify();
             let mut attempt: u32 = 0;
+            let mut refused: u32 = 0;
             loop {
                 if closed.load(Ordering::Acquire) {
                     return;
                 }
-                match open_terminal_stream(&multiplexer, &terminal_id, &open_options).await {
+                match open_terminal_stream_typed(&multiplexer, &terminal_id, &open_options).await {
                     Ok(next) => {
                         stream = next;
                         streams.send_replace(Some(stream.clone()));
@@ -1083,11 +1116,15 @@ impl TerminalStreamSupervisor {
                     }
                     Err(error) => {
                         attempt = attempt.saturating_add(1);
-                        if attempt >= TERMINAL_RECONNECT_MAX_ATTEMPTS {
+                        refused = match error {
+                            TerminalOpenError::Rejected { .. } => refused.saturating_add(1),
+                            TerminalOpenError::Failed(_) => 0,
+                        };
+                        if reconnect_is_over(&multiplexer, refused) {
                             set_client_status(
                                 &state,
                                 &updates,
-                                format!("reconnect-failed: {error}"),
+                                format!("reconnect-failed: {}", error.into_message()),
                             );
                             closed.store(true, Ordering::Release);
                             close_notify.notify_waiters();
@@ -1096,9 +1133,7 @@ impl TerminalStreamSupervisor {
                         set_client_status(
                             &state,
                             &updates,
-                            format!(
-                                "reconnect {attempt}/{TERMINAL_RECONNECT_MAX_ATTEMPTS}: {error}"
-                            ),
+                            format!("reconnect {attempt}: {}", error.into_message()),
                         );
                         tokio::select! {
                             _ = tokio::time::sleep(terminal_reconnect_delay(&terminal_id, attempt)) => {}
@@ -1471,7 +1506,19 @@ async fn connect_with_timeout<T>(
     future: impl Future<Output = Result<T, String>>,
     timeout: StdDuration,
 ) -> Result<T, String> {
-    tokio::time::timeout(timeout, future).await.map_err(|_| CONNECTION_TIMEOUT_ERROR.to_string())?
+    tokio::time::timeout(timeout, future).await.map_err(|_| {
+        format!("{CONNECTION_TIMEOUT_ERROR}: no connection within {} ms", timeout.as_millis())
+    })?
+}
+
+/// The connect deadline when the caller names none (the untimed entry point, or a timeout of 0):
+/// one reconnect attempt for an enrolled or carrier connect, and the daemon's approval window on
+/// top of that for an invitation, whose welcome waits on a person. A connect had no deadline at
+/// all here before, so a carrier that accepted and never answered (a WireGuard tunnel whose first
+/// handshake never completes, a socket black-holed mid-open) held the embedding app's call forever.
+fn default_connect_timeout(invitation: bool) -> StdDuration {
+    let attempt = ReconnectPolicy::default().attempt_timeout;
+    if invitation { attempt + cmux_remote::identity::APPROVAL_TIMEOUT } else { attempt }
 }
 
 unsafe fn connect_terminal_client(
@@ -1512,13 +1559,10 @@ unsafe fn connect_terminal_client(
             return std::ptr::null_mut();
         }
     };
-    let connection = match timeout {
-        Some(timeout) => runtime.block_on(connect_with_timeout(
-            connect_client(invitation, terminal_id.clone()),
-            timeout,
-        )),
-        None => runtime.block_on(connect_client(invitation, terminal_id.clone())),
-    };
+    // This entry point always enrolls with an invitation.
+    let timeout = timeout.unwrap_or_else(|| default_connect_timeout(true));
+    let connection = runtime
+        .block_on(connect_with_timeout(connect_client(invitation, terminal_id.clone()), timeout));
     match connection {
         Ok((stream, connection, provider, multiplexer, state)) => {
             let updates = Arc::new(ClientUpdates::default());
@@ -1557,6 +1601,8 @@ unsafe fn connect_terminal_client(
 }
 
 /// Connects a terminal client and returns an owning handle, or null on failure.
+/// The connect ends with an error after the default deadline: one reconnect
+/// attempt plus the daemon's approval window, since this always enrolls.
 ///
 /// # Safety
 ///
@@ -2389,7 +2435,8 @@ unsafe fn required_str_from_ffi<'a>(value: *const c_char, what: &str) -> Result<
 /// `invitation_uri` enrolls on first contact and may be NULL afterwards, when
 /// the enrolled key is used. `wireguard` may be NULL; when set, addresses
 /// inside that tunnel's routes are dialed through it. `timeout_milliseconds`
-/// of zero means no deadline. No terminal is attached; call
+/// of zero means the default deadline: one reconnect attempt (15 s), plus the
+/// daemon's approval window (5 min) when enrolling with an invitation. No terminal is attached; call
 /// [`cmux_terminal_client_attach`] after installing an output callback.
 ///
 /// # Safety
@@ -2510,12 +2557,9 @@ unsafe fn connect_route_from_ffi(
         trusted_carrier,
         wireguard,
     });
-    let connected = if timeout_milliseconds == 0 {
-        runtime.block_on(connect)
-    } else {
-        runtime
-            .block_on(connect_with_timeout(connect, StdDuration::from_millis(timeout_milliseconds)))
-    };
+    let timeout = timeout_from_millis(timeout_milliseconds)
+        .unwrap_or_else(|| default_connect_timeout(invitation_uri.is_some()));
+    let connected = runtime.block_on(connect_with_timeout(connect, timeout));
     match connected {
         Ok(RouteConnection { transport, connection, multiplexer, state }) => {
             let updates = Arc::new(ClientUpdates::default());
@@ -3104,4 +3148,23 @@ pub unsafe extern "C" fn cmux_terminal_client_string_free(text: *mut c_char) {
     }
     // SAFETY: ownership transfers exactly once per the documented contract.
     drop(unsafe { CString::from_raw(text) });
+}
+
+#[cfg(test)]
+mod reconnect_tests {
+    use super::*;
+
+    /// A reopen that is tried again forever waits at most the back-off's top (plus its jitter)
+    /// between tries, however many tries it has taken: no overflow, no growing wait.
+    #[test]
+    fn the_reconnect_back_off_stays_bounded_however_long_it_retries() {
+        let id = TerminalPublicId::parse(format!("term_{:032x}", 7)).unwrap();
+        let top = TERMINAL_RECONNECT_MAX_DELAY + StdDuration::from_millis(100);
+        for attempt in [1, 2, 8, 9, 100, 10_000, u32::MAX] {
+            let delay = terminal_reconnect_delay(&id, attempt);
+            assert!(delay <= top, "attempt {attempt}: {delay:?}");
+            assert!(delay >= TERMINAL_RECONNECT_INITIAL_DELAY, "attempt {attempt}: {delay:?}");
+        }
+        assert!(terminal_reconnect_delay(&id, 1_000) >= TERMINAL_RECONNECT_MAX_DELAY);
+    }
 }

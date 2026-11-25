@@ -96,7 +96,6 @@ final class HomePictureViewer: NSView {
         scroll.hasHorizontalScroller = true
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
-        scroll.scrollerStyle = .overlay
         scroll.allowsMagnification = true
         scroll.minMagnification = 0.05
         scroll.maxMagnification = 8

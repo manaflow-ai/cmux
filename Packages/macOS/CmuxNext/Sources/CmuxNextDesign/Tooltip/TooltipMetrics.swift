@@ -26,7 +26,7 @@ nonisolated struct TooltipMetrics: Sendable {
     static let keycapGap: CGFloat = 8
     /// The keycap's corner: concentric with the tooltip's (its radius less the inset).
     static var keycapRadius: CGFloat { radius - keycapInset }
-    /// The widest tooltip; longer text wraps.
+    /// The widest tooltip; longer text ends in an ellipsis (a tooltip is one line).
     static let maxWidth: CGFloat = 320
     /// The gap between the tooltip and its control, and the room kept from the screen's edges.
     static let gap: CGFloat = 4

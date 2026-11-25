@@ -1,0 +1,136 @@
+# headers_claude_code: Claude Code's welcome box, input box and status row, laid out for 120 columns
+# Mac pane 120x24, phone 54x38
+
+## after the welcome screen
+### Mac
+grid 120x24
+s   0|leo@cosmic-gray ~/Projects/cmux % claude|
+s   1|╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮|
+       ^ 0-119 fg=174
+s   2|│ ✻ Welcome to Claude Code!                                                                                            │|
+       ^ 0-0 fg=174; 2-2 fg=174; 15-20 bold; 22-25 bold; 119-119 fg=174
+s   3|│                                                                                                                      │|
+       ^ 0-0 fg=174; 119-119 fg=174
+s   4|│   /help for help, /status for your current setup                                                                     │|
+       ^ 0-0 fg=174; 119-119 fg=174
+s   5|│                                                                                                                      │|
+       ^ 0-0 fg=174; 119-119 fg=174
+s   6|│   cwd: /Users/leo/Projects/cmux                                                                                      │|
+       ^ 0-0 fg=174; 119-119 fg=174
+s   7|╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯|
+       ^ 0-119 fg=174
+s   8||
+s   9| Tips for getting started:|
+s  10||
+s  11| 1. Ask Claude to create a new app or clear the screen and start over with a longer prompt that wraps|
+s  12||
+s  13|╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮|
+       ^ 0-119 fg=244
+s  14|│ >                                                                                                                    │|
+       ^ 0-0 fg=244; 119-119 fg=244
+s  15|╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯|
+       ^ 0-119 fg=244
+s  16|  ? for shortcuts                                                                                    ◯ IDE disconnected|
+       ^ 2-2 fg=244; 4-6 fg=244; 8-16 fg=244; 101-101 fg=244; 103-105 fg=244; 107-118 fg=244
+  (7 blank rows)
+cursor col 4 row 14
+### phone
+grid 54x38
+s   0|leo@cosmic-gray ~/Projects/cmux % claude|
+s   1|╭────────────────────────────────────────────────────╮|
+       ^ 0-53 fg=174
+s   2|│ ✻ Welcome to Claude Code!                          │|
+       ^ 0-0 fg=174; 2-2 fg=174; 15-20 bold; 22-25 bold; 53-53 fg=174
+s   3|│                                                    │|
+       ^ 0-0 fg=174; 53-53 fg=174
+s   4|│   /help for help, /status for your current setup   │|
+       ^ 0-0 fg=174; 53-53 fg=174
+s   5|│                                                    │|
+       ^ 0-0 fg=174; 53-53 fg=174
+s   6|│   cwd: /Users/leo/Projects/cmux                    │|
+       ^ 0-0 fg=174; 53-53 fg=174
+s   7|╰────────────────────────────────────────────────────╯|
+       ^ 0-53 fg=174
+s   8||
+s   9| Tips for getting started:|
+s  10||
+s  11| 1. Ask Claude to create a new app or clear the screen|↩
+s  12| and start over with a longer prompt that wraps|
+s  13||
+s  14|╭────────────────────────────────────────────────────╮|
+       ^ 0-53 fg=244
+s  15|│ >                                                  │|
+       ^ 0-0 fg=244; 53-53 fg=244
+s  16|╰────────────────────────────────────────────────────╯|
+       ^ 0-53 fg=244
+s  17|  ? for shortcuts                   ◯ IDE disconnected|
+       ^ 2-2 fg=244; 4-6 fg=244; 8-16 fg=244; 36-36 fg=244; 38-40 fg=244; 42-53 fg=244
+  (20 blank rows)
+cursor col 4 row 15
+
+## after typing "hello" in the input box
+### Mac
+grid 120x24
+s   0|leo@cosmic-gray ~/Projects/cmux % claude|
+s   1|╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮|
+       ^ 0-119 fg=174
+s   2|│ ✻ Welcome to Claude Code!                                                                                            │|
+       ^ 0-0 fg=174; 2-2 fg=174; 15-20 bold; 22-25 bold; 119-119 fg=174
+s   3|│                                                                                                                      │|
+       ^ 0-0 fg=174; 119-119 fg=174
+s   4|│   /help for help, /status for your current setup                                                                     │|
+       ^ 0-0 fg=174; 119-119 fg=174
+s   5|│                                                                                                                      │|
+       ^ 0-0 fg=174; 119-119 fg=174
+s   6|│   cwd: /Users/leo/Projects/cmux                                                                                      │|
+       ^ 0-0 fg=174; 119-119 fg=174
+s   7|╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯|
+       ^ 0-119 fg=174
+s   8||
+s   9| Tips for getting started:|
+s  10||
+s  11| 1. Ask Claude to create a new app or clear the screen and start over with a longer prompt that wraps|
+s  12||
+s  13|╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮|
+       ^ 0-119 fg=244
+s  14|│ > hello                                                                                                              │|
+       ^ 0-0 fg=244; 119-119 fg=244
+s  15|╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯|
+       ^ 0-119 fg=244
+s  16|  ? for shortcuts                                                                                    ◯ IDE disconnected|
+       ^ 2-2 fg=244; 4-6 fg=244; 8-16 fg=244; 101-101 fg=244; 103-105 fg=244; 107-118 fg=244
+  (7 blank rows)
+cursor col 9 row 14
+### phone
+grid 54x38
+s   0|leo@cosmic-gray ~/Projects/cmux % claude|
+s   1|╭────────────────────────────────────────────────────╮|
+       ^ 0-53 fg=174
+s   2|│ ✻ Welcome to Claude Code!                          │|
+       ^ 0-0 fg=174; 2-2 fg=174; 15-20 bold; 22-25 bold; 53-53 fg=174
+s   3|│                                                    │|
+       ^ 0-0 fg=174; 53-53 fg=174
+s   4|│   /help for help, /status for your current setup   │|
+       ^ 0-0 fg=174; 53-53 fg=174
+s   5|│                                                    │|
+       ^ 0-0 fg=174; 53-53 fg=174
+s   6|│   cwd: /Users/leo/Projects/cmux                    │|
+       ^ 0-0 fg=174; 53-53 fg=174
+s   7|╰────────────────────────────────────────────────────╯|
+       ^ 0-53 fg=174
+s   8||
+s   9| Tips for getting started:|
+s  10||
+s  11| 1. Ask Claude to create a new app or clear the screen|↩
+s  12| and start over with a longer prompt that wraps|
+s  13||
+s  14|╭────────────────────────────────────────────────────╮|
+       ^ 0-53 fg=244
+s  15|│ > hello                                            │|
+       ^ 0-0 fg=244; 53-53 fg=244
+s  16|╰────────────────────────────────────────────────────╯|
+       ^ 0-53 fg=244
+s  17|  ? for shortcuts                   ◯ IDE disconnected|
+       ^ 2-2 fg=244; 4-6 fg=244; 8-16 fg=244; 36-36 fg=244; 38-40 fg=244; 42-53 fg=244
+  (20 blank rows)
+cursor col 9 row 15

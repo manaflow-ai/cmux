@@ -660,7 +660,11 @@ final class ComposeTextView {
     var onEscape: () -> Void { get { view.onEscape } set { view.onEscape = newValue } }
     var text: String { view.string }
     private var scrolled: NSObjectProtocol?
-    init() {
+    /// cmux: tells assistive apps (VoiceOver's cursor) that the field moved or changed size: AppKit posts
+    /// no notice for a view's frame, so VoiceOver kept the field's first frame. Tests pass a recorder.
+    private let announce: (NSView, NSAccessibility.Notification) -> Void
+    init(announce: @escaping (NSView, NSAccessibility.Notification) -> Void = ComposeTextView.post) {
+        self.announce = announce
         // cmux: TextKit 1, not Catalyst's TextKit 2: TextKit 2 lays out and draws an edited paragraph
         // whole, so a key at the end of a long one cost the whole paragraph (NSTextView+TextKit1Lines.swift).
         view = FieldTextView(usingTextLayoutManager: false)
@@ -694,6 +698,13 @@ final class ComposeTextView {
     }
     deinit { scrolled.map(NotificationCenter.default.removeObserver) }
 
+    /// Posts `notification` for `view`. A layout change goes on the view's window and names the view: VoiceOver then
+    /// reads the frames again, its cursor's too, whichever element of the field it is on.
+    static func post(_ view: NSView, _ notification: NSAccessibility.Notification) {
+        guard notification == .layoutChanged else { return NSAccessibility.post(element: view, notification: notification) }
+        NSAccessibility.post(element: view.window ?? view, notification: notification, userInfo: [.uiElements: [view]])
+    }
+
     /// The field's frame whose width waits for the end of a live resize (nil: none waits).
     private(set) var widthWaiting: CGRect?
     /// Whether `place(frame)` may keep the field's width now (see `place`): it then moves the clip
@@ -725,7 +736,14 @@ final class ComposeTextView {
     /// The clip at FRAME (host coordinates): the document is at least the clip's height, as wide
     /// as it; a size change keeps the caret line in view (a live resize rewraps the lines).
     func place(_ frame: CGRect) {
-        guard clip.frame != frame else { return }
+        let old = clip.frame
+        guard old != frame else { return }
+        // VoiceOver's cursor follows the field only when it hears of each move and size change.
+        defer {
+            if clip.frame.size != old.size { announce(view, .resized) }
+            if clip.frame.origin != old.origin { announce(view, .moved) }
+            if clip.frame != old { announce(view, .layoutChanged) }
+        }
         // A live resize that changes only the field's width while the draft is empty: no pixel of
         // the empty field depends on its width (the caret stands at the left inset of an empty
         // left-to-right line; the placeholder is the compose bar's own layer), so the clip keeps its
@@ -957,9 +975,19 @@ final class ComposeView: UIView {
     /// The empty draft's one line at any text width from this (a space is about 4 pt wide).
     static let emptyLineMinWidth: CGFloat = 20
     private var emptyLinesMemo: (CGFloat, Int)?
-    /// The placeholders, localized once (each `Strings` read is a bundle table lookup; every
-    /// commit asked for one).
-    private static let placeholders = (field: Strings.placeholder, reply: Strings.replyPlaceholder)
+    /// The placeholders, localized once per strings bundle (each `Strings` read is a bundle table lookup;
+    /// every commit asked for one). cmux: per bundle, not once: the host switches
+    /// `MessagesLabLocalization.bundle` with the app's language (MessagesLabHomeView.useStrings).
+    private var placeholdersMemo: (strings: ObjectIdentifier, field: String, reply: String)?
+    private var placeholders: (field: String, reply: String) {
+        let strings = ObjectIdentifier(MessagesLabLocalization.bundle)
+        if let m = placeholdersMemo, m.strings == strings { return (m.field, m.reply) }
+        let made = (field: Strings.placeholder, reply: Strings.replyPlaceholder)
+        placeholdersMemo = (strings, made.field, made.reply)
+        return made
+    }
+    /// cmux: the placeholder shown is the reply one (a thread is open).
+    private var placeholderIsReply = false
     private var dx: CGFloat { bounds.width - Fixture.windowWidth }
     private var dy: CGFloat { bounds.height - Fixture.windowSize.height }
     var anchorBase: CGFloat { ComposeMetrics.anchorBase + dy }
@@ -1214,6 +1242,15 @@ final class ComposeView: UIView {
     /// The light or dark appearance changed (WindowView.setLightAppearance): the placeholder and the waveform
     /// are drawn again in its ink.
     func appearanceChanged() { renderPlaceholder() }
+    /// cmux: the strings bundle changed (MessagesLabHomeView.useStrings, the app's language): the placeholder
+    /// and the field's label in the new language.
+    func stringsChanged() {
+        let p = placeholderIsReply ? placeholders.reply : placeholders.field
+        guard p != placeholder else { return }
+        placeholder = p
+        renderPlaceholder()
+        textView.view.setAccessibilityLabel(p)
+    }
 
     private func renderPlaceholder() {
         placeholderScale = renderScale
@@ -1338,7 +1375,8 @@ final class ComposeView: UIView {
                 if !DeferredSpellChecker.useAppKit { tv.spell.textDidChange() }
             }
         }
-        let newPlaceholder = state.ui.openThread != nil ? ComposeView.placeholders.reply : ComposeView.placeholders.field
+        placeholderIsReply = state.ui.openThread != nil
+        let newPlaceholder = placeholderIsReply ? placeholders.reply : placeholders.field
         if newPlaceholder != placeholder { placeholder = newPlaceholder; renderPlaceholder(); tv.setAccessibilityLabel(placeholder) }
         // Messages changes the field's height at once for an attachment (no in-between frame at
         // 120 Hz, compose-attach-image paste take) and while typing (field-focus-type-take1 and

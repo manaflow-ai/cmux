@@ -31,3 +31,23 @@ Recaps went from 198 to 18 an hour.
 
 Costs: each chat that moves restarts once, which costs one cache re-read. A process that a
 person started keeps suggestions for its whole life, agent turns included.
+
+## 2026-11-22: a script's chat took the person's warm Claude Code
+
+After 0a4bf688 reached the lanes, fleet suggestions were about 102 an hour (03:23-04:23Z). The
+largest source was one team gateway (`cmux inference gateway` on gcp-agent-lane-13). It serves
+the Freestyle machines fs-agent-lane-1 and fs-agent-lane-2, which both ran 6b8c79ba6. In 90
+minutes it sent 30 suggestions in 430 calls. The gateway passes no `x-claude-code-session-id`
+(`cli/inference_gateway.rs` `PASS_HEADERS`), so sr2 shows these calls as `fallback:` ids.
+
+Cause: `session/new` took a pooled Claude Code for any chat with a plain shape, also for a chat
+that a script made. The pool starts each agent for the person, so its `initialize` asks for
+suggestions. Claude Code reads that once per process. On the two machines, 81 chats that
+scripts made had taken a pooled agent, and each one asked for suggestions. The idle move from
+0a4bf688 did not catch them: these chats nearly always have a background command running, so
+they never reach the idle point.
+
+Fix: a Claude Code chat takes a pooled agent only when the person made it
+(`host_level::made_for_a_person`, `lifecycle.rs` `shaped`). Other chats start cold and send
+`_meta.acpmux.noPromptSuggestions`. Other harnesses are unchanged. Cost: a script's Claude
+Code chat starts cold (about one agent start), and its shape gets no spare.

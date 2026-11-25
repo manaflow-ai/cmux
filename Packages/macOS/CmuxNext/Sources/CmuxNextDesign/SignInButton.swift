@@ -15,7 +15,7 @@ public import AppKit
 @MainActor
 public final class SignInButton: ClickableButton {
     /// The default title, "Sign In".
-    public nonisolated static var defaultTitle: String { String(localized: "signIn.button", defaultValue: "Sign In", bundle: .module) }
+    public nonisolated static var defaultTitle: String { String(localized: "signIn.button", defaultValue: "Sign In", bundle: .localizedModule) }
     /// The identifier every Sign In button carries, so automation and tests find it.
     public static let identifier = NSUserInterfaceItemIdentifier("cmux.signIn.button")
 

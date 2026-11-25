@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextPages
 import CmuxNextWakeups
 
 /// Display frames for ``AgentPaneFramePacer`` (the window's ``FrameScheduler``; a fake in tests).
@@ -50,6 +51,8 @@ import CmuxNextWakeups
     private let now: @MainActor () -> TimeInterval
     private let nextTurn: @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void
     private let isHidden: @MainActor () -> Bool
+    /// Whether the pane's page itself is hidden (``pageHidden(_:)``): its socket then leaves the chat's stream out.
+    private let streamHidden: @MainActor () -> Bool
     private var flush: (@MainActor @Sendable () -> AgentPaneFlush)?
     /// Frames arrived, or a capped flush left some, since the last call began.
     private var pending = false
@@ -75,6 +78,10 @@ import CmuxNextWakeups
     private var lastCall: TimeInterval = -.infinity
     /// Calls made (tests).
     private(set) var calls = 0
+    /// Told how much of the pane anyone can see, on each change its probe sees (``AgentPaneTransport/pageSight``).
+    public var onSightChange: (@MainActor (_ sight: AgentPaneSight) -> Void)?
+    /// What ``onSightChange`` was last told; nil before the first report.
+    private var reportedSight: AgentPaneSight?
 
     public init(frames: any AgentPaneFrameTicks, fallback: any AgentPaneFallbackDeadline,
                 now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
@@ -82,29 +89,61 @@ import CmuxNextWakeups
                     // task-owner: one next-turn delivery; the pacer runs it once, on the main actor
                     Task { @MainActor in work() }
                 },
-                isHidden: @escaping @MainActor () -> Bool = { false }) {
+                isHidden: @escaping @MainActor () -> Bool = { false },
+                streamHidden: (@MainActor () -> Bool)? = nil) {
         self.frames = frames
         self.fallback = fallback
         self.now = now
         self.nextTurn = nextTurn
         self.isHidden = isHidden
+        self.streamHidden = streamHidden ?? isHidden
         frames.onTick = { [weak self] in self?.ticked() }
     }
 
     /// The pacer of a pane: its window's display frames, a ``DemandTimer`` fallback.
     public convenience init(view: NSView) {
         self.init(frames: AgentPaneWindowFrames(view: view), fallback: AgentPaneDemandDeadline(),
-                  isHidden: { [weak view] in view.map(Self.nobodySees) ?? true })
+                  isHidden: { [weak view] in view.map(Self.nobodySees) ?? true },
+                  streamHidden: { [weak view] in view.map(Self.pageHidden) ?? true })
         let probe = AgentPaneVisibilityProbe(frame: .zero)
         probe.onChange = { [weak self] in self?.visibilityChanged() }
         view.addSubview(probe)
         self.probe = probe
     }
 
-    /// Whether nobody can see `view`: out of a window, hidden, or its window covered or minimized.
+    /// Whether `view`'s page is hidden to its own document: out of a window, hidden, or its window minimized, not
+    /// shown or on another Space, or parked off screen (``parkedAway(_:)``). A covered window's pages stay visible to
+    /// the document (``ChromiumPageWindowVisibility``), and such a page checks that its stream flows (direct.ts
+    /// `quietCheck`), so its stream must still come: only a page that knows it is hidden goes without it. A parked
+    /// page is told by the host instead: the first record left out comes as the `host_hidden` start marker, and the
+    /// page's stall checks stand down on it (direct.ts `hostHidden`).
+    static func pageHidden(_ view: NSView) -> Bool {
+        guard let window = view.window else { return true }
+        return view.isHiddenOrHasHiddenAncestor || window.isMiniaturized || !window.isVisible || !window.isOnActiveSpace
+            || parkedAway(view)
+    }
+
+    /// Whether nobody can see `view`: out of a window, hidden, its window covered or minimized, or parked off screen
+    /// (``parkedAway(_:)``).
     static func nobodySees(_ view: NSView) -> Bool {
         guard let window = view.window else { return true }
-        return view.isHiddenOrHasHiddenAncestor || !window.occlusionState.contains(.visible)
+        return view.isHiddenOrHasHiddenAncestor || !window.occlusionState.contains(.visible) || parkedAway(view)
+    }
+
+    /// Whether `view` waits off screen in its window, drawn but shown to nobody: a chat whose pane switched away
+    /// (``AgentPageDrawnParking``), a closed chat kept for Reopen (``AgentPageRetirer``), the New Tab spare. Such a
+    /// page is in a window, not hidden, and its window is in sight, so it read as seen and got its chat's whole
+    /// stream and every other chat's row on the renderer's one JavaScript thread (Leo: "Why should non visible thing
+    /// even affect the renderer thread anyways?"). A page drawing its first frame before it shows
+    /// (``AgentPaneView/paintParkingID``) is about to be seen and keeps its stream.
+    static func parkedAway(_ view: NSView) -> Bool {
+        if (view as? AgentPaneView)?.page?.isDrawnAway == true { return true }
+        var ancestor = view.superview
+        while let current = ancestor {
+            if current is PageOffscreenParking { return current.identifier != AgentPaneView.paintParkingID }
+            ancestor = current.superview
+        }
+        return false
     }
 
     public func schedule(_ flush: @escaping @MainActor @Sendable () -> AgentPaneFlush) {
@@ -192,8 +231,17 @@ import CmuxNextWakeups
         probe = nil
     }
 
+    /// Tells ``onSightChange`` how much of the pane anyone can see now, when that changed.
+    public func reportSight() {
+        let sight = AgentPaneSight(unseen: isHidden(), hidden: streamHidden())
+        guard sight != reportedSight else { return }
+        reportedSight = sight
+        onSightChange?(sight)
+    }
+
     /// The pane may have come into sight: frames held while it was hidden go now.
     func visibilityChanged() {
+        reportSight()
         guard held || waitingWhileHidden, !isHidden() else { return }
         held = false
         if waitingWhileHidden {

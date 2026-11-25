@@ -66,6 +66,23 @@ pub const BRAIN_PRESETS_FEATURE: &str = "chiefBrainPresets";
 
 /// The brain home env of a turn or subagent of `family` for the Chief at `chief`, when the
 /// family is an open-source brain ([`BRAINS`]).
+/// Env a brain's processes need beside its home, from the home's path. Hermes keeps one gateway
+/// daemon per OS user per host and serves every profile from it, found through
+/// `HERMES_GATEWAY_LOCK_DIR` (default `$XDG_STATE_HOME/hermes/gateway-locks`): without its own
+/// dir the Chief's Hermes attached to whatever Hermes gateway the user had (their own, with their
+/// config and keys, or one left from an earlier Chief whose home is gone: every session/new then
+/// answered storage_unavailable). optchat-chief `brain_gateway.rs` gives its gateway the same
+/// dir, `<HERMES_HOME>/gateway-locks`.
+pub fn brain_side_env(family: &str, home_dir: &str) -> Vec<(String, String)> {
+    match family {
+        "hermes" => vec![(
+            "HERMES_GATEWAY_LOCK_DIR".to_owned(),
+            Path::new(home_dir).join("gateway-locks").display().to_string(),
+        )],
+        _ => Vec::new(),
+    }
+}
+
 pub fn brain_home_env(family: &str, chief: &Path) -> Option<(String, String)> {
     BRAINS.iter().find(|(f, _)| *f == family).map(|(f, key)| {
         ((*key).to_owned(), chief.join("optchat").join("brains").join(f).display().to_string())
@@ -108,7 +125,9 @@ pub fn brain_check_env(
             "the Chief has not written its {family} home yet ({dir}); restart the Chief, then check again"
         )));
     }
-    let mut env = BTreeMap::from([(key, dir), ("MUX_HOME".to_owned(), home.display().to_string())]);
+    let mut env = BTreeMap::from([("MUX_HOME".to_owned(), home.display().to_string())]);
+    env.extend(brain_side_env(family, &dir));
+    env.insert(key, dir);
     for key in crate::login_env::PROVIDER_KEYS {
         env.insert(key.to_owned(), String::new());
     }
@@ -318,6 +337,7 @@ pub fn env(b: &Builtin, family: &str, ctx: &Context) -> Result<BTreeMap<String, 
     {
         env.insert("MUX_HOME".into(), home.display().to_string());
         if let Some((k, v)) = brain_home_env(family, home) {
+            env.extend(brain_side_env(family, &v));
             env.insert(k, v);
             // A brain's models go through the gateway its home names, never a key of the
             // person's: every provider key the daemon would hand a multi-provider harness is

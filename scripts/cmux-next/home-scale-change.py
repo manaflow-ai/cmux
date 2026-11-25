@@ -32,6 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from home_pixels import check_crisp, check_rows  # noqa: E402
 import home_classic  # noqa: E402
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_until, wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -103,6 +104,19 @@ def rows_report():
     return rpc("debug.home.drive", {"action": "rows"}) or {}
 
 
+def settled_rows(what):
+    """The rows as drawn once they stop changing (display frames after a move or a scale change; at least 0.4 s of the
+    same report). A miss is left to the checks that read them."""
+    return wait_stable(rows_report, what, timeout=10, interval=0.1, reads=5, raise_on_timeout=False) or rows_report()
+
+
+def nudged(what, scale):
+    """After a nudge: the transcript's host reports half a device pixel at `scale` (the move showed), then its rows settle."""
+    wait_until(lambda: all(abs(((rows_report().get(k, 0) * scale) % 1) - 0.5) < 0.02 for k in ("hostX", "hostY")),
+               what, timeout=10, interval=0.05, raise_on_timeout=False)
+    return settled_rows(what)
+
+
 def geometry():
     return (rpc("debug.home.drive", {"action": "geometry"}) or {}).get("geometry") or {}
 
@@ -112,7 +126,7 @@ def scale_state(name, want):
     window's scale and no visible row shows a bitmap of the old scale. On a failure, how long the old-scale bitmaps
     stayed (read every 20 ms, up to 2 s) is printed for the cause."""
     t0 = time.time()
-    time.sleep(1 / 60)  # test harness: one display frame after the change
+    time.sleep(1 / 60)  # sleep-ok: the check is the one-display-frame rule itself (state one frame after the change)
     g = geometry()
     print(f"     {name}: " + json.dumps({k: g.get(k) for k in ("windowScale", "renderScale", "rowBitmaps", "rowBitmapsOffScale",
                                                              "cellsOffScale", "composeScale", "headerScale", "bitmapPxPerPtMin",
@@ -178,14 +192,18 @@ try:
         safe_print("     home: " + json.dumps(rpc("debug.home"))[:800], flush=True)
     rpc("debug.home.drive", {"action": "focus"})
     rpc("debug.home.drive", {"action": "type", "text": "Scale change check"})
+    before = len(texts() or [])
     sent = rpc("debug.home.drive", {"action": "send"}) or {}
     check("the send goes", bool(sent.get("ok")), sent)
-    time.sleep(4.0)  # test harness: the mock Chief's typing and answer end (1.5 s + 1.5 s after the send)
+    # The mock Chief's typing and answer end: the send and the answer are in the transcript and no typing row shows.
+    if not wait_until(lambda: len(texts() or []) >= before + 2
+                      and not (rpc("debug.home.drive", {"action": "typing"}) or {}).get("ok"),
+                      "the mock Chief's answer", timeout=20, interval=0.1, raise_on_timeout=False):
+        safe_print("     the mock Chief's answer did not land in 20 s", flush=True)
 
     # 2x, the transcript on half a device pixel.
     rpc("debug.home.drive", {"action": "nudge", "dx": 0.25, "dy": 0.25})
-    time.sleep(0.2)  # test harness: one display frame for the move to show
-    r2 = rows_report()
+    r2 = nudged("the transcript on half a device pixel at 2x", 2)
     check("the window starts at 2x", r2.get("scale") == 2, {k: r2.get(k) for k in ("scale", "error")})
     if r2.get("scale") == 2:
         rows_on_grid("2x, half a pixel", r2, 2)
@@ -216,15 +234,13 @@ try:
         scale_state("1x, one frame after the change", 1)
     # Before any move of the transcript: only setRenderScale re-snaps the rows here (the transcript sits 0.25 pt off
     # the grid, a quarter pixel at 1x; rows still on the 2x snap would sit half a point off).
-    time.sleep(0.3)  # test harness: display frames after the move
-    r1 = rows_report()
+    r1 = settled_rows("the rows after the move to 1x")
     if r1.get("scale") == 1:
         rows_on_grid("1x right after the scale change (no other move)", r1, 1)
         snapshot_checks("1x right after the scale change", "scale-1x-change.png", r1, full=False)
     # Half a point is half a device pixel at 1x (the 0.25 pt move made it a quarter).
     rpc("debug.home.drive", {"action": "nudge", "dx": 0.25, "dy": 0.25})
-    time.sleep(0.3)  # test harness: display frames for the move to show
-    r1 = rows_report()
+    r1 = nudged("the transcript on half a device pixel at 1x", 1)
     check("1x: the transcript sits on half a device pixel", all(abs((r1.get(k, 0) % 1) - 0.5) < 0.01 for k in ("hostX", "hostY")),
           {k: r1.get(k) for k in ("hostX", "hostY")})
     if r1.get("scale") == 1:
@@ -243,8 +259,7 @@ try:
           {k: rb.get(k) for k in ("scale", "error")})
     if rb.get("scale") == 2:
         scale_state("2x, one frame after the return", 2)
-        time.sleep(0.3)  # test harness: display frames after the move
-        rb = rows_report()
+        rb = settled_rows("the rows after the return to 2x")
         rows_on_grid("2x right after the scale change back (no other move)", rb, 2)
         # The transcript sits 0.5 pt off whole points: rows still on the 1x snap sit on whole points (whole pixels at
         # 2x too, so the grid check above cannot tell); rows on the 2x snap keep the half point.
@@ -257,8 +272,7 @@ try:
         snapshot_checks("2x right after the return", "scale-back.png", rb, full=True)
         # The transcript sits 0.5 pt off (one device pixel at 2x): 0.25 pt more is half a device pixel at 2x.
         rpc("debug.home.drive", {"action": "nudge", "dx": 0.25, "dy": 0.25})
-        time.sleep(0.3)  # test harness: display frames for the move to show
-        rb = rows_report()
+        rb = nudged("the transcript on half a device pixel at 2x after the return", 2)
         check("2x after the return: the transcript sits on half a device pixel",
               all(abs(((rb.get(k, 0) * 2) % 1) - 0.5) < 0.02 for k in ("hostX", "hostY")), {k: rb.get(k) for k in ("hostX", "hostY")})
         rows_on_grid("2x after the return, half a pixel", rb, 2)

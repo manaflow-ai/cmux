@@ -55,7 +55,7 @@ public struct SignedInMachineDial {
             return .unavailable("machine.unlisted")
         }
         guard await line.call("_acpmux/machine_route_probe", ["daemonId": daemonID]) != nil else {
-            return JoinedDialAnswer(refusal: line.lastErrorReason)
+            return JoinedDialAnswer(refusal: line.lastErrorReason, platform: machine.platform)
         }
         guard let socket = route["socket"] as? String,
               let reach = try? ServerReach.signedInMachine(daemonID: daemonID, socket: socket, name: machine.name),

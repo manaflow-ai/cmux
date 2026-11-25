@@ -17,6 +17,8 @@ strip's tracking path). DIR gets frame-NNN.png, strip.png, report.json and path.
 time from the recording's key). It quits the app with its own quit and signals nothing else.
 """
 import argparse, json, os, plistlib, socket, subprocess, sys, tempfile, threading, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -84,6 +86,40 @@ def strip_tabs():
     return sorted(best, key=lambda t: t["frame"][0])
 
 
+def card_showing(showing=True):
+    """`debug.hover_cards` says a card shows (or, with showing=False, none shows and the coordinator is idle)."""
+    try:
+        c = rpc("debug.hover_cards", timeout=5) or {}
+    except OSError:
+        return None
+    if "error" in c:
+        return None
+    if showing:
+        return c.get("card_showing") == "true" or c.get("visible") in (True, "true")
+    return c.get("card_showing") != "true" and c.get("phase", "idle") == "idle"
+
+
+def page_loaded():
+    """The pane's selected page (the tab just opened) answers document.readyState complete."""
+    try:
+        return (rpc("browser.page.eval", {"script": "document.readyState"}, timeout=5) or {}).get("value") == "complete"
+    except OSError:
+        return False
+
+
+def wait_stable(read, seconds, reads=3, step=0.2):
+    """`read()` once it gave the same value `reads` times in a row (the strip laid out), else None."""
+    deadline, last, same = time.monotonic() + seconds, object(), 0
+    while time.monotonic() < deadline:  # bounded wait on the app's state
+        value = read()
+        same = same + 1 if value == last else 1
+        last = value
+        if same >= reads:
+            return value
+        time.sleep(step)
+    return None
+
+
 try:
     wait(lambda: os.path.exists(SOCKET) and "error" not in (rpc("debug.focus") or {"error": 1}), 180)
     if not (rpc("debug.focus") or {}).get("windows"):
@@ -100,9 +136,13 @@ try:
         done = subprocess.run([CLI, "tab", "create", "browser", "--url", url, "--pane", pane], env=CLI_ENV,
                               capture_output=True, text=True, timeout=60)
         print(f"open {url}: {done.returncode}", flush=True)
-        time.sleep(1.5)
+        # The page opened in its tab and loaded (best effort: the hover pass below fetches each picture).
+        if not wait(page_loaded, 20):
+            safe_print(f"note: {url} not loaded in 20 s", flush=True)
     rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": workspace}, "origin": "script"})
-    time.sleep(2)
+    # The strip shows the workspace's tabs and stops moving.
+    if wait_stable(lambda: json.dumps(strip_tabs()), 15) is None:
+        safe_print("note: the tab strip did not settle in 15 s", flush=True)
     tabs = wait(lambda: (lambda t: t if len(t) >= 3 else None)(strip_tabs()), 30) or strip_tabs()
     print("tabs", [(t.get("label"), t["frame"]) for t in tabs], flush=True)
     if len(tabs) < 3:
@@ -114,7 +154,8 @@ try:
         rpc("debug.mouse", {"action": "move", "x": x, "y": y})
         time.sleep(2.2)
     rpc("debug.mouse", {"action": "move", "x": off[0], "y": off[1]})
-    time.sleep(1.0)
+    if not wait(lambda: card_showing(False), 10):
+        safe_print("note: a tab card still showed 10 s after the pointer left the strip", flush=True)
 
     # The pointer path, (seconds after the recording's first move, x, y): from tab 0, whose card shows, a
     # delay, a slow pass right, a fast pass back left, a turn back mid-glide, then off the strip.
@@ -123,7 +164,10 @@ try:
     # The card shows on tab 0 before the recording (the 1.3 s delay is not motion); the recording's own
     # first move starts the slow pass. The app answers within its 15 s deadline, frames written.
     rpc("debug.mouse", {"action": "move", "x": centers[0][0], "y": centers[0][1]})
-    time.sleep(1.8)
+    # Its card shows (past the delay) and stops changing (the open animation done).
+    if not wait(card_showing, 15):
+        safe_print("note: tab 0's card did not show in 15 s", flush=True)
+    wait_stable(lambda: json.dumps(rpc("debug.hover_cards", timeout=5) or {}, sort_keys=True), 5)
     first = ramp(0.0, centers[0], centers[1], 0.3, 18)
     path = first[:1]
     path += first[1:]; t = 0.3 + 0.5
@@ -142,6 +186,8 @@ try:
 
     thread = threading.Thread(target=run_strip)
     thread.start()
+    # sleep-ok: aligns the move timeline with the recorder's fixed 120 ms lead; the strip call blocks until the
+    # recording ends, so nothing says when it began.
     time.sleep(0.2)  # the recorder's lead (120 ms) and the first move, sent by the strip itself
     start = time.monotonic()
     sent = []

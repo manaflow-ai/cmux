@@ -1,0 +1,302 @@
+{
+ "batch": "widgets",
+ "icons": [
+  {
+   "name": "weather.cloud.rain",
+   "meaning": "Rain",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M8.1 13.8L16.1 13.8A3.2 3.2 0 0 0 16.58 7.44A4.4 4.4 0 0 0 8.02 6.56A3.6 3.6 0 0 0 8.1 13.8Z'/><path d='M8.75 16.5L7.75 19.75M12.5 16.5L11.5 19.75M16.25 16.5L15.25 19.75'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M8.1 13.8L16.1 13.8A3.2 3.2 0 0 0 16.58 7.44A4.4 4.4 0 0 0 8.02 6.56A3.6 3.6 0 0 0 8.1 13.8Z' fill='currentColor'/><path d='M8.75 16.5L7.75 19.75M12.5 16.5L11.5 19.75M16.25 16.5L15.25 19.75' stroke-width='1.75'/></svg>",
+   "cat": null,
+   "alts": [],
+   "note": "Web stand-in for SF Symbol cloud.rain in app scenes; native draws the system symbol.",
+   "replaces": [],
+   "sf": "cloud.rain"
+  },
+  {
+   "name": "weather.cloud.heavyrain",
+   "meaning": "Heavy rain",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M8.1 13.8L16.1 13.8A3.2 3.2 0 0 0 16.58 7.44A4.4 4.4 0 0 0 8.02 6.56A3.6 3.6 0 0 0 8.1 13.8Z'/><path d='M7.5 16.5L6.25 20.5M10.5 16.5L9.25 20.5M13.5 16.5L12.25 20.5M16.5 16.5L15.25 20.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M8.1 13.8L16.1 13.8A3.2 3.2 0 0 0 16.58 7.44A4.4 4.4 0 0 0 8.02 6.56A3.6 3.6 0 0 0 8.1 13.8Z' fill='currentColor'/><path d='M7.5 16.5L6.25 20.5M10.5 16.5L9.25 20.5M13.5 16.5L12.25 20.5M16.5 16.5L15.25 20.5' stroke-width='1.75'/></svg>",
+   "cat": null,
+   "alts": [],
+   "note": "Web stand-in for SF Symbol cloud.heavyrain in app scenes; native draws the system symbol.",
+   "replaces": [],
+   "sf": "cloud.heavyrain"
+  },
+  {
+   "name": "weather.cloud.drizzle",
+   "meaning": "Drizzle",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M8.1 13.8L16.1 13.8A3.2 3.2 0 0 0 16.58 7.44A4.4 4.4 0 0 0 8.02 6.56A3.6 3.6 0 0 0 8.1 13.8Z'/><path d='M8.75 16.5L8.4 17.5M12.5 16.5L12.15 17.5M16.25 16.5L15.9 17.5M7.1 19.5L6.75 20.5M10.85 19.5L10.5 20.5M14.6 19.5L14.25 20.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M8.1 13.8L16.1 13.8A3.2 3.2 0 0 0 16.58 7.44A4.4 4.4 0 0 0 8.02 6.56A3.6 3.6 0 0 0 8.1 13.8Z' fill='currentColor'/><path d='M8.75 16.5L8.4 17.5M12.5 16.5L12.15 17.5M16.25 16.5L15.9 17.5M7.1 19.5L6.75 20.5M10.85 19.5L10.5 20.5M14.6 19.5L14.25 20.5' stroke-width='1.75'/></svg>",
+   "cat": null,
+   "alts": [],
+   "note": "Web stand-in for SF Symbol cloud.drizzle in app scenes; native draws the system symbol.",
+   "replaces": [],
+   "sf": "cloud.drizzle"
+  },
+  {
+   "name": "weather.cloud.snow",
+   "meaning": "Snow",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M8.1 13.8L16.1 13.8A3.2 3.2 0 0 0 16.58 7.44A4.4 4.4 0 0 0 8.02 6.56A3.6 3.6 0 0 0 8.1 13.8Z'/><circle cx='8.5' cy='17' r='1' fill='currentColor' stroke='none'/><circle cx='12.25' cy='17' r='1' fill='currentColor' stroke='none'/><circle cx='16' cy='17' r='1' fill='currentColor' stroke='none'/><circle cx='6.75' cy='20' r='1' fill='currentColor' stroke='none'/><circle cx='10.5' cy='20' r='1' fill='currentColor' stroke='none'/><circle cx='14.25' cy='20' r='1' fill='currentColor' stroke='none'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M8.1 13.8L16.1 13.8A3.2 3.2 0 0 0 16.58 7.44A4.4 4.4 0 0 0 8.02 6.56A3.6 3.6 0 0 0 8.1 13.8Z' fill='currentColor'/><circle cx='8.5' cy='17' r='1' fill='currentColor' stroke='none'/><circle cx='12.25' cy='17' r='1' fill='currentColor' stroke='none'/><circle cx='16' cy='17' r='1' fill='currentColor' stroke='none'/><circle cx='6.75' cy='20' r='1' fill='currentColor' stroke='none'/><circle cx='10.5' cy='20' r='1' fill='currentColor' stroke='none'/><circle cx='14.25' cy='20' r='1' fill='currentColor' stroke='none'/></svg>",
+   "cat": null,
+   "alts": [],
+   "note": "Web stand-in for SF Symbol cloud.snow in app scenes; native draws the system symbol.",
+   "replaces": [],
+   "sf": "cloud.snow"
+  },
+  {
+   "name": "weather.cloud.sleet",
+   "meaning": "Sleet",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M8.1 13.8L16.1 13.8A3.2 3.2 0 0 0 16.58 7.44A4.4 4.4 0 0 0 8.02 6.56A3.6 3.6 0 0 0 8.1 13.8Z'/><path d='M8.75 16.25L8.25 17.75M16.25 16.25L15.75 17.75M10.85 19.25L10.35 20.75'/><circle cx='12.25' cy='17' r='1' fill='currentColor' stroke='none'/><circle cx='6.75' cy='20' r='1' fill='currentColor' stroke='none'/><circle cx='14.25' cy='20' r='1' fill='currentColor' stroke='none'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M8.1 13.8L16.1 13.8A3.2 3.2 0 0 0 16.58 7.44A4.4 4.4 0 0 0 8.02 6.56A3.6 3.6 0 0 0 8.1 13.8Z' fill='currentColor'/><path d='M8.75 16.25L8.25 17.75M16.25 16.25L15.75 17.75M10.85 19.25L10.35 20.75' stroke-width='1.75'/><circle cx='12.25' cy='17' r='1' fill='currentColor' stroke='none'/><circle cx='6.75' cy='20' r='1' fill='currentColor' stroke='none'/><circle cx='14.25' cy='20' r='1' fill='currentColor' stroke='none'/></svg>",
+   "cat": null,
+   "alts": [],
+   "note": "Web stand-in for SF Symbol cloud.sleet in app scenes; native draws the system symbol.",
+   "replaces": [],
+   "sf": "cloud.sleet"
+  },
+  {
+   "name": "weather.cloud.fog",
+   "meaning": "Fog",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M8.1 13.8L16.1 13.8A3.2 3.2 0 0 0 16.58 7.44A4.4 4.4 0 0 0 8.02 6.56A3.6 3.6 0 0 0 8.1 13.8Z'/><path d='M5.5 17h13M7.5 20.25h9'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M8.1 13.8L16.1 13.8A3.2 3.2 0 0 0 16.58 7.44A4.4 4.4 0 0 0 8.02 6.56A3.6 3.6 0 0 0 8.1 13.8Z' fill='currentColor'/><path d='M5.5 17h13M7.5 20.25h9' stroke-width='1.75'/></svg>",
+   "cat": null,
+   "alts": [],
+   "note": "Web stand-in for SF Symbol cloud.fog in app scenes; native draws the system symbol.",
+   "replaces": [],
+   "sf": "cloud.fog"
+  },
+  {
+   "name": "weather.cloud.bolt",
+   "meaning": "Thunderstorm",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M8.1 13.8L16.1 13.8A3.2 3.2 0 0 0 16.58 7.44A4.4 4.4 0 0 0 8.02 6.56A3.6 3.6 0 0 0 8.1 13.8Z'/><path d='M12.75 15.25L10.5 18.25H13.5L11.5 21'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M8.1 13.8L16.1 13.8A3.2 3.2 0 0 0 16.58 7.44A4.4 4.4 0 0 0 8.02 6.56A3.6 3.6 0 0 0 8.1 13.8Z' fill='currentColor'/><path d='M12.75 15.25L10.5 18.25H13.5L11.5 21' stroke-width='1.75'/></svg>",
+   "cat": null,
+   "alts": [],
+   "note": "Web stand-in for SF Symbol cloud.bolt in app scenes; native draws the system symbol.",
+   "replaces": [],
+   "sf": "cloud.bolt"
+  },
+  {
+   "name": "weather.cloud.bolt.rain",
+   "meaning": "Thunderstorm with rain",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M8.1 13.8L16.1 13.8A3.2 3.2 0 0 0 16.58 7.44A4.4 4.4 0 0 0 8.02 6.56A3.6 3.6 0 0 0 8.1 13.8Z'/><path d='M12.75 15.25L10.5 18.25H13.5L11.5 21'/><path d='M8 16.5L7 19.75M17.25 16.5L16.25 19.75'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M8.1 13.8L16.1 13.8A3.2 3.2 0 0 0 16.58 7.44A4.4 4.4 0 0 0 8.02 6.56A3.6 3.6 0 0 0 8.1 13.8Z' fill='currentColor'/><path d='M12.75 15.25L10.5 18.25H13.5L11.5 21M8 16.5L7 19.75M17.25 16.5L16.25 19.75' stroke-width='1.75'/></svg>",
+   "cat": null,
+   "alts": [],
+   "note": "Web stand-in for SF Symbol cloud.bolt.rain in app scenes; native draws the system symbol.",
+   "replaces": [],
+   "sf": "cloud.bolt.rain"
+  },
+  {
+   "name": "weather.cloud.sun",
+   "meaning": "Partly cloudy (day)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-weather-cloud-sun' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><path d='M9.31 20.25L17.31 20.25A3.2 3.2 0 0 0 17.79 13.89A4.4 4.4 0 0 0 9.23 13.01A3.6 3.6 0 0 0 9.31 20.25Z' fill='#000' stroke='#000' stroke-width='4.5'/></mask></defs><g mask='url(#cmxl-weather-cloud-sun)'><circle cx='9' cy='9.5' r='3'/><path d='M4.25 9.5L3 9.5M5.641 6.141L4.757 5.257M9 4.75L9 3.5M12.359 6.141L13.243 5.257'/></g><path d='M9.31 20.25L17.31 20.25A3.2 3.2 0 0 0 17.79 13.89A4.4 4.4 0 0 0 9.23 13.01A3.6 3.6 0 0 0 9.31 20.25Z'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxs-weather-cloud-sun' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><path d='M9.31 20.25L17.31 20.25A3.2 3.2 0 0 0 17.79 13.89A4.4 4.4 0 0 0 9.23 13.01A3.6 3.6 0 0 0 9.31 20.25Z' fill='#000' stroke='#000' stroke-width='4.5'/></mask></defs><g mask='url(#cmxs-weather-cloud-sun)'><circle cx='9' cy='9.5' r='3' fill='currentColor'/><path d='M4.25 9.5L3 9.5M5.641 6.141L4.757 5.257M9 4.75L9 3.5M12.359 6.141L13.243 5.257' stroke-width='1.75'/></g><path d='M9.31 20.25L17.31 20.25A3.2 3.2 0 0 0 17.79 13.89A4.4 4.4 0 0 0 9.23 13.01A3.6 3.6 0 0 0 9.31 20.25Z' fill='currentColor'/></svg>",
+   "cat": null,
+   "alts": [],
+   "note": "Web stand-in for SF Symbol cloud.sun in app scenes; native draws the system symbol.",
+   "replaces": [],
+   "sf": "cloud.sun"
+  },
+  {
+   "name": "weather.cloud.moon",
+   "meaning": "Partly cloudy (night)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-weather-cloud-moon' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><path d='M6.89 20.4L14.89 20.4A3.2 3.2 0 0 0 15.37 14.04A4.4 4.4 0 0 0 6.81 13.16A3.6 3.6 0 0 0 6.89 20.4Z' fill='#000' stroke='#000' stroke-width='4.5'/></mask></defs><g mask='url(#cmxl-weather-cloud-moon)'><path d='M16 3.6A4.4 4.4 0 1 0 20.361 8.748A3.41 3.41 0 0 1 16 3.6Z'/></g><path d='M6.89 20.4L14.89 20.4A3.2 3.2 0 0 0 15.37 14.04A4.4 4.4 0 0 0 6.81 13.16A3.6 3.6 0 0 0 6.89 20.4Z'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxs-weather-cloud-moon' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><path d='M6.89 20.4L14.89 20.4A3.2 3.2 0 0 0 15.37 14.04A4.4 4.4 0 0 0 6.81 13.16A3.6 3.6 0 0 0 6.89 20.4Z' fill='#000' stroke='#000' stroke-width='4.5'/></mask></defs><g mask='url(#cmxs-weather-cloud-moon)'><path d='M16 3.6A4.4 4.4 0 1 0 20.361 8.748A3.41 3.41 0 0 1 16 3.6Z' fill='currentColor'/></g><path d='M6.89 20.4L14.89 20.4A3.2 3.2 0 0 0 15.37 14.04A4.4 4.4 0 0 0 6.81 13.16A3.6 3.6 0 0 0 6.89 20.4Z' fill='currentColor'/></svg>",
+   "cat": null,
+   "alts": [],
+   "note": "Web stand-in for SF Symbol cloud.moon in app scenes; native draws the system symbol.",
+   "replaces": [],
+   "sf": "cloud.moon"
+  },
+  {
+   "name": "weather.moon.stars",
+   "meaning": "Clear night",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M9.75 7.45A6.4 6.4 0 1 0 16.094 14.938A4.96 4.96 0 0 1 9.75 7.45Z'/><path d='M17.25 3.75C17.25 5.62 18.13 6.5 20 6.5C18.13 6.5 17.25 7.38 17.25 9.25C17.25 7.38 16.37 6.5 14.5 6.5C16.37 6.5 17.25 5.62 17.25 3.75ZM19.25 10.5C19.25 11.52 19.73 12 20.75 12C19.73 12 19.25 12.48 19.25 13.5C19.25 12.48 18.77 12 17.75 12C18.77 12 19.25 11.52 19.25 10.5Z'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M9.75 7.45A6.4 6.4 0 1 0 16.094 14.938A4.96 4.96 0 0 1 9.75 7.45Z' fill='currentColor'/><path d='M17.25 3.75C17.25 5.62 18.13 6.5 20 6.5C18.13 6.5 17.25 7.38 17.25 9.25C17.25 7.38 16.37 6.5 14.5 6.5C16.37 6.5 17.25 5.62 17.25 3.75ZM19.25 10.5C19.25 11.52 19.73 12 20.75 12C19.73 12 19.25 12.48 19.25 13.5C19.25 12.48 18.77 12 17.75 12C18.77 12 19.25 11.52 19.25 10.5Z' fill='currentColor'/></svg>",
+   "cat": null,
+   "alts": [],
+   "note": "Web stand-in for SF Symbol moon.stars in app scenes; native draws the system symbol.",
+   "replaces": [],
+   "sf": "moon.stars"
+  },
+  {
+   "name": "weather.wind",
+   "meaning": "Wind",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 10.25H13.25A2.25 2.25 0 1 0 11 8M3.5 13.75H18A2.25 2.25 0 1 1 15.75 16M3.5 17.25H10'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 10.25H13.25A2.25 2.25 0 1 0 11 8M3.5 13.75H18A2.25 2.25 0 1 1 15.75 16M3.5 17.25H10' stroke-width='2'/></svg>",
+   "cat": null,
+   "alts": [],
+   "note": "Web stand-in for SF Symbol wind in app scenes; native draws the system symbol.",
+   "replaces": [],
+   "sf": "wind"
+  },
+  {
+   "name": "weather.snowflake",
+   "meaning": "Snow, freezing",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 20.5L12 3.5M4.639 16.25L19.361 7.75M4.639 7.75L19.361 16.25M10.008 5.329L12 7L13.992 5.329M16.782 6.939L16.33 9.5L18.773 10.389M18.773 13.611L16.33 14.5L16.782 17.061M13.992 18.671L12 17L10.008 18.671M7.218 17.061L7.67 14.5L5.227 13.611M5.227 10.389L7.67 9.5L7.218 6.939'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 20.5L12 3.5M4.639 16.25L19.361 7.75M4.639 7.75L19.361 16.25M10.008 5.329L12 7L13.992 5.329M16.782 6.939L16.33 9.5L18.773 10.389M18.773 13.611L16.33 14.5L16.782 17.061M13.992 18.671L12 17L10.008 18.671M7.218 17.061L7.67 14.5L5.227 13.611M5.227 10.389L7.67 9.5L7.218 6.939' stroke-width='2'/></svg>",
+   "cat": null,
+   "alts": [],
+   "note": "Web stand-in for SF Symbol snowflake in app scenes; native draws the system symbol.",
+   "replaces": [],
+   "sf": "snowflake"
+  },
+  {
+   "name": "weather.thermometer",
+   "meaning": "Temperature",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M10 13.75V5.5A2 2 0 0 1 14 5.5V13.75A3.75 3.75 0 1 1 10 13.75Z'/><path d='M12 17V9.5'/><circle cx='12' cy='17' r='1.5' fill='currentColor' stroke='none'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxs-weather-thermometer' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='none' stroke='#000' stroke-width='1.75'><path d='M12 17V9.5'/></g></mask></defs><g mask='url(#cmxs-weather-thermometer)'><path d='M10 13.75V5.5A2 2 0 0 1 14 5.5V13.75A3.75 3.75 0 1 1 10 13.75Z' fill='currentColor'/></g></svg>",
+   "cat": null,
+   "alts": [],
+   "note": "Web stand-in for SF Symbol thermometer.medium in app scenes; native draws the system symbol.",
+   "replaces": [],
+   "sf": "thermometer.medium"
+  },
+  {
+   "name": "weather.humidity",
+   "meaning": "Humidity",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.5C12 3.5 5.75 10.25 5.75 14.25A6.25 6.25 0 0 0 18.25 14.25C18.25 10.25 12 3.5 12 3.5Z'/><path d='M8.75 14.75C9.833 14 10.917 14 12 14.75C13.083 15.5 14.167 15.5 15.25 14.75'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxs-weather-humidity' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='none' stroke='#000' stroke-width='1.75'><path d='M8.75 14.75C9.833 14 10.917 14 12 14.75C13.083 15.5 14.167 15.5 15.25 14.75'/></g></mask></defs><g mask='url(#cmxs-weather-humidity)'><path d='M12 3.5C12 3.5 5.75 10.25 5.75 14.25A6.25 6.25 0 0 0 18.25 14.25C18.25 10.25 12 3.5 12 3.5Z' fill='currentColor'/></g></svg>",
+   "cat": null,
+   "alts": [],
+   "note": "Web stand-in for SF Symbol humidity in app scenes; native draws the system symbol.",
+   "replaces": [],
+   "sf": "humidity"
+  },
+  {
+   "name": "weather.umbrella",
+   "meaning": "Chance of rain",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 12A8.5 8.5 0 0 1 20.5 12A2.833 2.833 0 0 0 14.833 12A2.833 2.833 0 0 0 9.167 12A2.833 2.833 0 0 0 3.5 12Z'/><path d='M12 12V18.75A1.75 1.75 0 0 1 8.5 18.75'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 12A8.5 8.5 0 0 1 20.5 12A2.833 2.833 0 0 0 14.833 12A2.833 2.833 0 0 0 9.167 12A2.833 2.833 0 0 0 3.5 12Z' fill='currentColor'/><path d='M12 12V18.75A1.75 1.75 0 0 1 8.5 18.75'/></svg>",
+   "cat": null,
+   "alts": [],
+   "note": "Web stand-in for SF Symbol umbrella in app scenes; native draws the system symbol.",
+   "replaces": [],
+   "sf": "umbrella"
+  },
+  {
+   "name": "weather.sunrise",
+   "meaning": "Sunrise",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M7.5 19.25A4.5 4.5 0 0 1 16.5 19.25'/><path d='M7.757 15.007L6.697 13.947M16.243 15.007L17.303 13.947M3.5 19.25H20.5M12 10.75V4.75M9.75 7L12 4.75L14.25 7'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M7.5 19.25A4.5 4.5 0 0 1 16.5 19.25Z' fill='currentColor'/><path d='M7.757 15.007L6.697 13.947M16.243 15.007L17.303 13.947M3.5 19.25H20.5M12 10.75V4.75M9.75 7L12 4.75L14.25 7' stroke-width='1.75'/></svg>",
+   "cat": null,
+   "alts": [],
+   "note": "Web stand-in for SF Symbol sunrise in app scenes; native draws the system symbol.",
+   "replaces": [],
+   "sf": "sunrise"
+  },
+  {
+   "name": "weather.sunset",
+   "meaning": "Sunset",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M7.5 19.25A4.5 4.5 0 0 1 16.5 19.25'/><path d='M7.757 15.007L6.697 13.947M16.243 15.007L17.303 13.947M3.5 19.25H20.5M12 4.75V10.75M9.75 8.5L12 10.75L14.25 8.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M7.5 19.25A4.5 4.5 0 0 1 16.5 19.25Z' fill='currentColor'/><path d='M7.757 15.007L6.697 13.947M16.243 15.007L17.303 13.947M3.5 19.25H20.5M12 4.75V10.75M9.75 8.5L12 10.75L14.25 8.5' stroke-width='1.75'/></svg>",
+   "cat": null,
+   "alts": [],
+   "note": "Web stand-in for SF Symbol sunset in app scenes; native draws the system symbol.",
+   "replaces": [],
+   "sf": "sunset"
+  },
+  {
+   "name": "calendar",
+   "meaning": "Calendar, date",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M7 5.5H17A2.5 2.5 0 0 1 19.5 8V17.5A2.5 2.5 0 0 1 17 20H7A2.5 2.5 0 0 1 4.5 17.5V8A2.5 2.5 0 0 1 7 5.5Z'/><path d='M4.5 9.75H19.5M8.25 3.75V7M15.75 3.75V7'/><circle cx='8.5' cy='13.25' r='0.9' fill='currentColor' stroke='none'/><circle cx='12' cy='13.25' r='0.9' fill='currentColor' stroke='none'/><circle cx='15.5' cy='13.25' r='0.9' fill='currentColor' stroke='none'/><circle cx='8.5' cy='16.5' r='0.9' fill='currentColor' stroke='none'/><circle cx='12' cy='16.5' r='0.9' fill='currentColor' stroke='none'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxs-calendar' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='none' stroke='#000' stroke-width='1.75'><path d='M4.5 9.75H19.5'/><circle cx='8.5' cy='13.25' r='0.9' fill='#000' stroke='none'/><circle cx='12' cy='13.25' r='0.9' fill='#000' stroke='none'/><circle cx='15.5' cy='13.25' r='0.9' fill='#000' stroke='none'/><circle cx='8.5' cy='16.5' r='0.9' fill='#000' stroke='none'/><circle cx='12' cy='16.5' r='0.9' fill='#000' stroke='none'/></g></mask></defs><g mask='url(#cmxs-calendar)'><path d='M7 5.5H17A2.5 2.5 0 0 1 19.5 8V17.5A2.5 2.5 0 0 1 17 20H7A2.5 2.5 0 0 1 4.5 17.5V8A2.5 2.5 0 0 1 7 5.5Z' fill='currentColor'/></g><path d='M8.25 3.75V7M15.75 3.75V7' stroke-width='1.75'/></svg>",
+   "cat": null,
+   "alts": [],
+   "note": "Web stand-in for SF Symbol calendar in app scenes; native draws the system symbol.",
+   "replaces": [],
+   "sf": "calendar"
+  },
+  {
+   "name": "calendar.clock",
+   "meaning": "Calendar event time",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-calendar-clock' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><circle cx='16.25' cy='16.5' r='5.25' fill='#000' stroke='none'/></mask></defs><g mask='url(#cmxl-calendar-clock)'><path d='M7 5.5H17A2.5 2.5 0 0 1 19.5 8V17.5A2.5 2.5 0 0 1 17 20H7A2.5 2.5 0 0 1 4.5 17.5V8A2.5 2.5 0 0 1 7 5.5Z'/><path d='M4.5 9.75H19.5M8.25 3.75V7M15.75 3.75V7'/><circle cx='8.5' cy='13.25' r='0.9' fill='currentColor' stroke='none'/><circle cx='12' cy='13.25' r='0.9' fill='currentColor' stroke='none'/><circle cx='8.5' cy='16.5' r='0.9' fill='currentColor' stroke='none'/></g><circle cx='16.25' cy='16.5' r='3.75'/><path d='M16.25 14.5V16.5L17.5 17.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxs-calendar-clock' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><circle cx='16.25' cy='16.5' r='5.25' fill='#000' stroke='none'/><path d='M4.5 9.75H19.5' stroke='#000' stroke-width='1.75'/><circle cx='8.5' cy='13.25' r='0.9' fill='#000' stroke='none'/><circle cx='12' cy='13.25' r='0.9' fill='#000' stroke='none'/><circle cx='8.5' cy='16.5' r='0.9' fill='#000' stroke='none'/></mask></defs><g mask='url(#cmxs-calendar-clock)'><path d='M7 5.5H17A2.5 2.5 0 0 1 19.5 8V17.5A2.5 2.5 0 0 1 17 20H7A2.5 2.5 0 0 1 4.5 17.5V8A2.5 2.5 0 0 1 7 5.5Z' fill='currentColor'/><path d='M8.25 3.75V7M15.75 3.75V7' stroke-width='1.75'/></g><circle cx='16.25' cy='16.5' r='3.75'/><path d='M16.25 14.5V16.5L17.5 17.5'/></svg>",
+   "cat": null,
+   "alts": [],
+   "note": "Web stand-in for SF Symbol calendar.badge.clock in app scenes; native draws the system symbol.",
+   "replaces": [],
+   "sf": "calendar.badge.clock"
+  },
+  {
+   "name": "alarm",
+   "meaning": "Alarm",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='13' r='6.75'/><path d='M12 9.5V13L14 14.5M3.75 7.5A3.75 3.75 0 0 1 7.5 3.75M20.25 7.5A3.75 3.75 0 0 0 16.5 3.75M7.5 18.25L6 20M16.5 18.25L18 20'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxs-alarm' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='none' stroke='#000' stroke-width='1.75'><path d='M12 9.5V13L14 14.5'/></g></mask></defs><g mask='url(#cmxs-alarm)'><circle cx='12' cy='13' r='6.75' fill='currentColor'/></g><path d='M3.75 7.5A3.75 3.75 0 0 1 7.5 3.75M20.25 7.5A3.75 3.75 0 0 0 16.5 3.75M7.5 18.25L6 20M16.5 18.25L18 20' stroke-width='1.75'/></svg>",
+   "cat": null,
+   "alts": [],
+   "note": "Web stand-in for SF Symbol alarm in app scenes; native draws the system symbol.",
+   "replaces": [],
+   "sf": "alarm"
+  },
+  {
+   "name": "heart",
+   "meaning": "Favorite, health",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 19.5C12 19.5 3.75 14.75 3.75 9.25A4.25 4.25 0 0 1 12 7.5A4.25 4.25 0 0 1 20.25 9.25C20.25 14.75 12 19.5 12 19.5Z'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 19.5C12 19.5 3.75 14.75 3.75 9.25A4.25 4.25 0 0 1 12 7.5A4.25 4.25 0 0 1 20.25 9.25C20.25 14.75 12 19.5 12 19.5Z' fill='currentColor'/></svg>",
+   "cat": null,
+   "alts": [],
+   "note": "Web stand-in for SF Symbol heart in app scenes; native draws the system symbol.",
+   "replaces": [],
+   "sf": "heart"
+  },
+  {
+   "name": "flag",
+   "meaning": "Flag, important",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6 4.5C9.333 3.167 11.667 6.167 15 5C16.333 4.5 17.5 4.25 18.5 4.5V13C17.5 12.75 16.333 13 15 13.5C11.667 14.667 9.333 11.667 6 13M6 4.5V20'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6 4.5C9.333 3.167 11.667 6.167 15 5C16.333 4.5 17.5 4.25 18.5 4.5V13C17.5 12.75 16.333 13 15 13.5C11.667 14.667 9.333 11.667 6 13Z' fill='currentColor'/><path d='M6 4.5V20'/></svg>",
+   "cat": null,
+   "alts": [],
+   "note": "Web stand-in for SF Symbol flag in app scenes; native draws the system symbol.",
+   "replaces": [],
+   "sf": "flag"
+  },
+  {
+   "name": "action.add.circle",
+   "meaning": "Add (in a circle)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5'/><path d='M12 8V16M8 12H16'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxs-action-add-circle' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='none' stroke='#000' stroke-width='1.75'><path d='M12 8V16M8 12H16'/></g></mask></defs><g mask='url(#cmxs-action-add-circle)'><circle cx='12' cy='12' r='8.5' fill='currentColor'/></g></svg>",
+   "cat": null,
+   "alts": [],
+   "note": "Web stand-in for SF Symbol plus.circle in app scenes; native draws the system symbol.",
+   "replaces": [],
+   "sf": "plus.circle"
+  },
+  {
+   "name": "action.remove.line",
+   "meaning": "Remove, decrease (a bare minus)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5 12H19'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5 12H19' stroke-width='2'/></svg>",
+   "cat": null,
+   "alts": [],
+   "note": "Web stand-in for SF Symbol minus in app scenes; native draws the system symbol.",
+   "replaces": [],
+   "sf": "minus"
+  },
+  {
+   "name": "radio.off",
+   "meaning": "Option not chosen, todo not done (an empty ring)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5' stroke-width='2'/></svg>",
+   "cat": null,
+   "alts": [],
+   "note": "Web stand-in for SF Symbol circle in app scenes; native draws the system symbol.",
+   "replaces": [],
+   "sf": "circle"
+  },
+  {
+   "name": "radio.on",
+   "meaning": "Chosen option (filled dot in a ring)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5'/><circle cx='12' cy='12' r='4.25' fill='currentColor' stroke='none'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5' stroke-width='2'/><circle cx='12' cy='12' r='4.75' fill='currentColor' stroke='none'/></svg>",
+   "cat": null,
+   "alts": [],
+   "note": "Web stand-in for SF Symbol largecircle.fill.circle in app scenes; native draws the system symbol.",
+   "replaces": [],
+   "sf": "largecircle.fill.circle"
+  }
+ ]
+}

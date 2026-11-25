@@ -41,6 +41,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+use super::agent_failure_code::{FailureCode, FailureFolds, Fold, failure_code};
 use super::agent_notification_delivery::{AgentEvent, Delivery};
 use super::{Mux, NotificationLevel, NotificationSource};
 use crate::resource::ContentPublicId;
@@ -241,6 +242,7 @@ fn cache_ttl_scheduler(mux: &Weak<Mux>, receiver: mpsc::Receiver<CacheTtlCommand
                         ),
                         level: NotificationLevel::Info,
                         restated: false,
+                        failure: None,
                     };
                     live.post_agent_chat_notice(&entry.target.session, &notice);
                 }
@@ -356,6 +358,10 @@ impl Mux {
         }) {
             return;
         }
+        // Chats that fail the same way within a minute are one notice.
+        let folded =
+            fold_failure(&mut self.agent_chat_notices.lock().failures, notice, Instant::now());
+        let Some(notice) = &folded else { return };
         // Hashed: an adopted session's id is the agent's own, of any length.
         let digest = Sha256::digest(format!("{session}\n{}\n{content}", notice.key));
         let key = format!("acpmux-{digest:x}");
@@ -446,6 +452,8 @@ pub(super) struct NoticesWakes {
     hint: Option<mpsc::Sender<()>>,
     connection: Option<UnixStream>,
     timers: Option<mpsc::Sender<CacheTtlCommand>>,
+    /// The failed turns of the last minute, by class (`agent_failure_code.rs`).
+    failures: FailureFolds,
     stopped: bool,
 }
 
@@ -1236,6 +1244,8 @@ struct Notice {
     level: NotificationLevel,
     /// Seen first since a daemon start: it may restate one posted before.
     restated: bool,
+    /// The class of a failed turn, which folds it with the same class of other chats.
+    failure: Option<FailureCode>,
 }
 
 impl Chat {
@@ -1246,8 +1256,13 @@ impl Chat {
         }
         let session = summary["sessionId"].as_str()?.to_owned();
         let text = |key: &str| summary[key].as_str().filter(|text| !text.trim().is_empty());
-        let name =
-            text("title").or_else(|| text("name")).or_else(|| text("harness")).unwrap_or("Agent");
+        // The name it was given (`displayName`, its handle: "Mango") heads its notices, before
+        // the task title, so the person reads who it is (Leo, 2026-11-22: "I DONT SEE MANGO").
+        let name = text("displayName")
+            .or_else(|| text("title"))
+            .or_else(|| text("name"))
+            .or_else(|| text("harness"))
+            .unwrap_or("Agent");
         let name = short(name, MAX_NAME_CHARS);
         let kind =
             text("family").or_else(|| text("harness")).unwrap_or("agent").to_ascii_lowercase();
@@ -1333,6 +1348,7 @@ impl Chat {
             body: short(&self.last_message, MAX_BODY_CHARS),
             level: NotificationLevel::Warning,
             restated: false,
+            failure: None,
         })
     }
 
@@ -1372,19 +1388,22 @@ impl Chat {
                     body: short(&self.last_message, MAX_BODY_CHARS),
                     level: NotificationLevel::Info,
                     restated: false,
+                    failure: None,
                 }),
-                "failed" => notices.push(Notice {
-                    event: None,
-                    key: format!("failed-{turn}"),
-                    title: format!("{name} failed"),
-                    subtitle: None,
-                    body: short(
-                        self.last_error.as_ref().unwrap_or(&self.last_message),
-                        MAX_BODY_CHARS,
-                    ),
-                    level: NotificationLevel::Error,
-                    restated: false,
-                }),
+                "failed" => {
+                    let text = self.last_error.as_ref().unwrap_or(&self.last_message);
+                    let code = failure_code(text);
+                    notices.push(Notice {
+                        event: None,
+                        key: format!("failed-{turn}"),
+                        title: format!("{name} {}", code.headline()),
+                        subtitle: (code != FailureCode::Other).then(|| code.code().to_owned()),
+                        body: short(text, MAX_BODY_CHARS),
+                        level: NotificationLevel::Error,
+                        restated: false,
+                        failure: Some(code),
+                    });
+                }
                 _ => {}
             }
         }
@@ -1399,6 +1418,7 @@ impl Chat {
                 body: short(&self.last_message, MAX_BODY_CHARS),
                 level: NotificationLevel::Warning,
                 restated: before.is_none(),
+                failure: None,
             });
         }
         if self.indicator == "lost" && was != "lost" {
@@ -1410,9 +1430,37 @@ impl Chat {
                 body: short(&self.last_message, MAX_BODY_CHARS),
                 level: NotificationLevel::Error,
                 restated: false,
+                failure: None,
             });
         }
         notices
+    }
+}
+
+/// The notice a failed turn posts given the failures before it: its own, the group's
+/// ("2 chats hit a rate limit"), or none when the group's is up already.
+fn fold_failure(folds: &mut FailureFolds, notice: &Notice, now: Instant) -> Option<Notice> {
+    let own = || Notice {
+        event: notice.event,
+        key: notice.key.clone(),
+        title: notice.title.clone(),
+        subtitle: notice.subtitle.clone(),
+        body: notice.body.clone(),
+        level: notice.level,
+        restated: notice.restated,
+        failure: notice.failure,
+    };
+    let Some(code) = notice.failure else { return Some(own()) };
+    match folds.admit(code, now) {
+        Fold::Own => Some(own()),
+        Fold::Silent => None,
+        Fold::Group { window, count } => Some(Notice {
+            key: format!("failed-group-{}-{window}", code.code()),
+            title: format!("{count} chats {}", code.plural_headline()),
+            restated: false,
+            failure: None,
+            ..own()
+        }),
     }
 }
 

@@ -8,6 +8,8 @@ publish.workspace = true
 description = "Pure layout reducer and tab-conservation invariants for the cmux workspace store"
 
 [dependencies]
+# sidebar.nav validates its ids against the action catalog (sidebar_nav.rs).
+cmux-action-catalog = { path = "../cmux-action-catalog" }
 serde = { workspace = true, features = ["derive"] }
 # float_roundtrip: a split ratio or column width crosses the app FFI and comes back bit for bit
 # (the app compares the columns it gets to the ones it holds). unbounded_depth: the optimistic

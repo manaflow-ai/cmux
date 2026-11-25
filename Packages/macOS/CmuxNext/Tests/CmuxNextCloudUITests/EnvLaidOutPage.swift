@@ -51,6 +51,32 @@ struct EnvLaidOutPage {
         return needed.width <= bounds.width + 0.5
     }
 
+    /// A radio row: its circle, its title, and the two vertical centres in window points.
+    struct RadioRow {
+        let radio: NSImageView
+        let title: NSTextField
+        let radioMidY: CGFloat
+        let titleFirstLineMidY: CGFloat
+    }
+
+    /// Every radio row on the page: a clickable row with a title and a note (two labels or more) whose
+    /// leftmost view is a square symbol in the accent colour (picked) or the tertiary label colour (not
+    /// picked). The title is the row's topmost label; its first line is one line height down from its top.
+    func radioRows() -> [RadioRow] {
+        all(EnvClickArea.self).compactMap { area -> RadioRow? in
+            let labels = all(NSTextField.self, in: area).filter { !$0.isHidden && !$0.stringValue.isEmpty }
+            guard labels.count >= 2 else { return nil }
+            func rect(_ view: NSView) -> CGRect { view.convert(view.bounds, to: nil) }
+            guard let radio = all(NSImageView.self, in: area).min(by: { rect($0).minX < rect($1).minX }),
+                  radio.contentTintColor == .controlAccentColor || radio.contentTintColor == .tertiaryLabelColor,
+                  abs(rect(radio).width - rect(radio).height) < 2,
+                  let title = labels.max(by: { rect($0).maxY < rect($1).maxY }), let cell = title.cell else { return nil }
+            let lineHeight = cell.cellSize(forBounds: NSRect(x: 0, y: 0, width: CGFloat.greatestFiniteMagnitude,
+                                                             height: CGFloat.greatestFiniteMagnitude)).height
+            return RadioRow(radio: radio, title: title, radioMidY: rect(radio).midY, titleFirstLineMidY: rect(title).maxY - lineHeight / 2)
+        }
+    }
+
     /// Whether `label` takes exactly one visual line: its height is the height of its text set on one line.
     func isOneLine(_ label: NSTextField) -> Bool {
         guard let cell = label.cell else { return false }

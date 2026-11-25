@@ -21,6 +21,9 @@ every flag and ends with examples.
 
 | Task | Command |
 | --- | --- |
+| Every process and lock acpmux owns here: owner now, session, age, state (in-use, idle, orphaned, unknown) and why | `cmux agent ps --json` |
+| What acpmux proves orphaned (dry run), and what it refuses and why | `cmux agent gc` |
+| End only those proven orphans, each logged with its reason in `process-kills.jsonl` | `cmux agent gc --apply` |
 | Background processes agents left running | `cmux agent process list` |
 | Follow one's output (Claude Code sessions) | `cmux agent process show coord/b7x2k1q --follow` |
 | Stop a dev server an agent left running | `cmux agent process kill coord/b7x2k1q` |

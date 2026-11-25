@@ -74,10 +74,16 @@ install_client() {
     --require-acpmux \
     --require-companions
 }
-if [[ "$tree_used" == fallback ]] && ! install_client; then
-  # A fallback tree the installer refuses (an older tree without a required capability): the
-  # tip's own tree after all, with the bounded wait.
-  echo "::warning title=cmux-tui client::the fallback tree $client_key did not install; waiting for the build commit's tree $CMUX_TUI_CLIENT_KEY"
+static_capabilities() {
+  ./scripts/cmux-next/check-daemon-capabilities.sh --static-only --binary "$app/Contents/Resources/bin/cmux-tui"
+}
+# A fallback tree also has to serve every capability this app's tree needs: run 44975559258 bundled
+# a tree from before language-packs-v1 (#45928), and the static check below failed the nightly
+# instead of taking the tip's tree.
+if [[ "$tree_used" == fallback ]] && ! { install_client && static_capabilities; }; then
+  # A fallback tree the installer refuses (an older tree without a required capability), or one
+  # missing a capability this app needs: the tip's own tree after all, with the bounded wait.
+  echo "::warning title=cmux-tui client::the fallback tree $client_key did not install or lacks a needed capability; waiting for the build commit's tree $CMUX_TUI_CLIENT_KEY"
   cmux_tui_commit="$(scripts/cmux-next/await-tree-client.sh "$CMUX_TUI_CLIENT_KEY" "${c[@]}")"
   client_key="$CMUX_TUI_CLIENT_KEY" tree_used=exact
   [[ "$cmux_tui_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "await-tree-client.sh produced no commit" >&2; exit 1; }
@@ -90,7 +96,7 @@ fi
 # bin/acpmux are symlinks to bin/cmux.
 ./scripts/strip-release-bundle.sh "$app"
 ./scripts/cmux-next/write-cmux-tui-version.sh "$app" "$cmux_tui_commit" "$client_key"
-./scripts/cmux-next/check-daemon-capabilities.sh --static-only --binary "$app/Contents/Resources/bin/cmux-tui"
+static_capabilities
 # Which tree shipped: the marker gate (await-tree-marker.sh) reads key= to accept a fallback tree.
 echo "cmux-tui client: $tree_used tree $client_key from $cmux_tui_commit (build commit's tree: ${CMUX_TUI_CLIENT_KEY:-none})"
 {

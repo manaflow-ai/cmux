@@ -27,12 +27,22 @@ pub fn decode_luma_at(
     video_range: bool,
     origin: (usize, usize),
 ) -> Option<u16> {
+    decode_with(video_range, origin, |px, py| y.get(py * stride + px).copied())
+}
+
+/// Reads the marker through `luma_at(x, y)`, the luma at a stream pixel (a viewer that scales
+/// a smaller picture up to the stream reads it scaled, src/scaled.rs).
+#[cfg(feature = "bench")]
+pub fn decode_with(
+    video_range: bool,
+    origin: (usize, usize),
+    luma_at: impl Fn(usize, usize) -> Option<u8>,
+) -> Option<u16> {
     let threshold = if video_range { 125 } else { 128 };
     let center = (CELL / 2) as usize;
     let mut bits = [false; CELLS];
     for (i, b) in bits.iter_mut().enumerate() {
-        let idx = (origin.1 + center) * stride + origin.0 + center + CELL as usize * i;
-        *b = *y.get(idx)? > threshold;
+        *b = luma_at(origin.0 + center + CELL as usize * i, origin.1 + center)? > threshold;
     }
     if bits[16..] != GUARD {
         return None;
