@@ -25,6 +25,27 @@ struct PageClickRunsOpsTests {
     }
 }
 
+/// RFD 0132: each confirm a click still meets names why it stays; ``PageDescriptor/guardlessConfirms`` is the rest.
+struct PageConfirmGuardsTests {
+    @Test func everyCloudSheetAClickMeetsNamesItsGuard() {
+        let page = PageDescriptor.cloud
+        #expect(page.confirmGuards["cmux.cloud.machine.delete"] == .irreversible)
+        #expect(page.confirmGuards["cmux.cloud.snapshot.restore"] == .spends)
+        #expect(page.confirmGuards["cmux.cloud.publication.create"] == .exposes)
+        // The count itself is the cloud-ergonomics probe's to report (confirms_guarding_nothing), not a test's to hold.
+        #expect(Set(page.confirmGuards.keys).isSubset(of: Set(page.confirmedOps.keys).subtracting(page.clickRunsOps)))
+    }
+
+    @Test func aConfirmWithNoGuardIsGuardlessAndAGuardOnAClickRunOpIsDropped() {
+        let page = PageDescriptor(id: "cmux.test", resource: "test", namespaces: ["cmux.test."],
+                                  confirmedOps: ["cmux.test.a": .custom, "cmux.test.b": .delete, "cmux.test.c": .custom],
+                                  clickRunsOps: ["cmux.test.c"],
+                                  confirmGuards: ["cmux.test.b": .irreversible, "cmux.test.c": .spends, "cmux.test.z": .exposes])
+        #expect(page.confirmGuards == ["cmux.test.b": .irreversible])
+        #expect(page.guardlessConfirms == ["cmux.test.a"])
+    }
+}
+
 struct PageRunsOnClickTests {
     @Test func onlyTheHostsRecordOfAClickSkipsTheSheet() {
         let page = PageDescriptor.cloud
