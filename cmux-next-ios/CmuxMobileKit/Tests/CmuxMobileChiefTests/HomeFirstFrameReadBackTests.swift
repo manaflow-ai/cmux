@@ -56,7 +56,7 @@ import UIKit
             window.layoutIfNeeded()
             let list = window.firstHomeList()
             let items = list.map { list in (0 ..< list.numberOfSections).reduce(0) { $0 + list.numberOfItems(inSection: $1) } } ?? 0
-            let note = HomeListNote.make(rows: feed.rows, showingKept: feed.isShowingKeptRows, homeMacID: "mac-1",
+            let note = HomeListNote.make(rows: feed.rows, homeMacID: "mac-1",
                                          macsMayExist: true, searching: false, failing: false)
             log.append("\(name): feed.rows=\(feed.rows?.count ?? -1) kept=\(feed.isShowingKeptRows) note=\(String(describing: note)) list.items=\(items)")
             let format = UIGraphicsImageRendererFormat()
@@ -81,7 +81,7 @@ import UIKit
 
         #expect(firstRows != nil, "the first frame has the kept rows on the feed")
         #expect(feed.isShowingKeptRows)
-        #expect(HomeListNote.make(rows: feed.rows, showingKept: feed.isShowingKeptRows, homeMacID: "mac-1",
+        #expect(HomeListNote.make(rows: feed.rows, homeMacID: "mac-1",
                                   macsMayExist: true, searching: false, failing: false) != .connecting)
         // The Chief pin and a note are at most a few items; the kept rows are many more.
         #expect(firstItems >= 10, "the first frame lists the kept rows (\(log.joined(separator: "; ")))")

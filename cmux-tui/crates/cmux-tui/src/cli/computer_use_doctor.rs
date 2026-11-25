@@ -11,9 +11,10 @@ use serde_json::{Value, json};
 use super::{GlobalArgs, caller, legacy, with_machine};
 use crate::cli::OutputMode;
 
-/// The staging root's path segment (cmux-tui-core `computer_use_host/macos.rs`):
-/// `~/Library/Application Support/cmux-next/screen-sharing/<bundle id>/computer-use/`.
-const STAGED_SEGMENT: &str = "/cmux-next/screen-sharing/";
+/// The staging roots' path segments: `cmux_signed_bundle::helper_folder`'s
+/// `~/Library/Application Support/cmux-next/helper/<bundle id>/`, which every stager uses now, and
+/// the older `~/Library/Application Support/cmux-next/screen-sharing/<bundle id>/computer-use/`.
+const STAGED_SEGMENTS: [&str; 2] = ["/cmux-next/helper/", "/cmux-next/screen-sharing/"];
 /// The macOS helper's executable (the verified copy runs from the staging root).
 const MAC_HELPER_EXE: &str = "cmux-screen-sharing";
 
@@ -277,8 +278,9 @@ fn helper(body: &Value) -> Check {
     let Some(exe) = body.pointer("/worker/executable").and_then(Value::as_str) else {
         return pass("helper", "the worker does not name its executable (an older cmux)");
     };
-    let staged = exe
-        .split_once(STAGED_SEGMENT)
+    let staged = STAGED_SEGMENTS
+        .iter()
+        .find_map(|segment| exe.split_once(*segment))
         .map(|(_, rest)| rest.split('/').next().unwrap_or("").to_owned());
     let is_helper = exe.rsplit('/').next() == Some(MAC_HELPER_EXE);
     match (os, staged, is_helper) {

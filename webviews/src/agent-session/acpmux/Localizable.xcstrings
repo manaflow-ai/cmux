@@ -206597,6 +206597,138 @@
         }
       }
     },
+    "edited.openChanges": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فتح في التغييرات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvori u promjenama"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn i ændringer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In Änderungen öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in Changes"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir en Cambios"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrir dans Modifications"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri in Modifiche"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更で開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើកក្នុងការផ្លាស់ប្តូរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "변경 사항에서 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne i endringer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwórz w Zmianach"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir em Alterações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открыть в изменениях"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดในการเปลี่ยนแปลง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Değişikliklerde aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкрити у змінах"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở trong Thay đổi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在更改中打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在變更中開啟"
+          }
+        }
+      }
+    },
     "edited.viewDiff": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -359775,6 +359907,138 @@
         }
       }
     },
+    "composer.slashRename": {
+      "comment": "Composer slash menu: description of cmux's /rename command, which opens the chat tab's name editor as Cmd-R does (cmuxCommands.ts).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename this chat"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة تسمية هذه المحادثة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preimenuj ovaj razgovor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omdøb denne samtale"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diesen Chat umbenennen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiar el nombre de este chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renommer cette conversation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rinomina questa chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットの名前を変更"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្តូរឈ្មោះការជជែកនេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅 이름 변경"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gi nytt navn til denne chatten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zmień nazwę tego czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renomear este chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переименовать этот чат"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปลี่ยนชื่อแชทนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbeti yeniden adlandır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перейменувати цей чат"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đổi tên cuộc trò chuyện này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重命名此聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新命名此聊天"
+          }
+        }
+      }
+    },
     "composer.slashCd": {
       "comment": "Composer slash menu: description of cmux's /cd command, which moves the chat to another folder (a chat with turns opens a new chat there).",
       "extractionState": "manual",
@@ -452891,6 +453155,19 @@
         }
       }
     },
+    "subagents.fork.modelTip": {"comment":"Agent pane: hover on a subagent composer's read-only model chip when the subagent runs on its chat's model; {chat} is the chat","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Fixed when this subagent started: it runs on {chat}'s model. Fork it to run on another."}},"ar":{"stringUnit":{"state":"needs_review","value":"ثابت منذ بدء هذا الوكيل الفرعي: يعمل على نموذج {chat}. افرّعه لتشغيله على نموذج آخر."}},"bs":{"stringUnit":{"state":"needs_review","value":"Fiksirano kad je ovaj podagent pokrenut: radi na modelu razgovora {chat}. Granaj ga da radi na drugom."}},"da":{"stringUnit":{"state":"needs_review","value":"Fastlagt da denne underagent startede: den kører på {chat}s model. Forgren den for at køre på en anden."}},"de":{"stringUnit":{"state":"needs_review","value":"Beim Start dieses Subagenten festgelegt: Er läuft auf dem Modell von {chat}. Zweige ihn ab, um ein anderes zu nutzen."}},"es":{"stringUnit":{"state":"needs_review","value":"Fijado al iniciarse este subagente: usa el modelo de {chat}. Bifúrcalo para usar otro."}},"fr":{"stringUnit":{"state":"needs_review","value":"Fixé au démarrage de ce sous-agent : il utilise le modèle de {chat}. Dérivez-le pour en utiliser un autre."}},"it":{"stringUnit":{"state":"needs_review","value":"Fissato all'avvio di questo subagente: usa il modello di {chat}. Derivalo per usarne un altro."}},"ja":{"stringUnit":{"state":"needs_review","value":"このサブエージェントの開始時に固定：{chat} のモデルで動作します。別のモデルで動かすにはフォークしてください。"}},"km":{"stringUnit":{"state":"needs_review","value":"កំណត់ថេរនៅពេលភ្នាក់ងាររងនេះចាប់ផ្តើម៖ វាដំណើរការលើម៉ូដែលរបស់ {chat}។ បំបែកវាដើម្បីដំណើរការលើម៉ូដែលផ្សេង។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 하위 에이전트가 시작될 때 고정됨: {chat}의 모델로 실행됩니다. 다른 모델로 실행하려면 분기하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Låst da denne underagenten startet: den kjører på modellen til {chat}. Forgren den for å kjøre på en annen."}},"pl":{"stringUnit":{"state":"needs_review","value":"Ustalony przy starcie tego podagenta: działa na modelu czatu {chat}. Rozgałęź go, by użyć innego."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Fixado quando este subagente começou: ele usa o modelo de {chat}. Bifurque-o para usar outro."}},"ru":{"stringUnit":{"state":"needs_review","value":"Задано при запуске этого субагента: он работает на модели {chat}. Ответвите его, чтобы запустить на другой."}},"th":{"stringUnit":{"state":"needs_review","value":"กำหนดไว้ตอนที่ซับเอเจนต์นี้เริ่ม: ใช้โมเดลของ {chat} แยกออกเพื่อใช้โมเดลอื่น"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu alt ajan başladığında sabitlendi: {chat} sohbetinin modelinde çalışır. Başka bir modelde çalıştırmak için çatallayın."}},"uk":{"stringUnit":{"state":"needs_review","value":"Зафіксовано під час запуску цього субагента: він працює на моделі {chat}. Відгалузьте його, щоб запустити на іншій."}},"vi":{"stringUnit":{"state":"needs_review","value":"Cố định khi tác tử phụ này bắt đầu: nó chạy trên mô hình của {chat}. Tách nó ra để chạy trên mô hình khác."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"此子代理启动时已固定：它使用 {chat} 的模型。分叉后可改用其他模型。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"此子代理啟動時已固定：它使用 {chat} 的模型。分叉後可改用其他模型。"}}}},
+    "subagents.fork.modelTipOwn": {"comment":"Agent pane: hover on a subagent composer's read-only model chip when the subagent was started on a model of its own","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Fixed when this subagent started. Fork it to run on another model."}},"ar":{"stringUnit":{"state":"needs_review","value":"ثابت منذ بدء هذا الوكيل الفرعي. افرّعه لتشغيله على نموذج آخر."}},"bs":{"stringUnit":{"state":"needs_review","value":"Fiksirano kad je ovaj podagent pokrenut. Granaj ga da radi na drugom modelu."}},"da":{"stringUnit":{"state":"needs_review","value":"Fastlagt da denne underagent startede. Forgren den for at køre på en anden model."}},"de":{"stringUnit":{"state":"needs_review","value":"Beim Start dieses Subagenten festgelegt. Zweige ihn ab, um ein anderes Modell zu nutzen."}},"es":{"stringUnit":{"state":"needs_review","value":"Fijado al iniciarse este subagente. Bifúrcalo para usar otro modelo."}},"fr":{"stringUnit":{"state":"needs_review","value":"Fixé au démarrage de ce sous-agent. Dérivez-le pour utiliser un autre modèle."}},"it":{"stringUnit":{"state":"needs_review","value":"Fissato all'avvio di questo subagente. Derivalo per usare un altro modello."}},"ja":{"stringUnit":{"state":"needs_review","value":"このサブエージェントの開始時に固定。別のモデルで動かすにはフォークしてください。"}},"km":{"stringUnit":{"state":"needs_review","value":"កំណត់ថេរនៅពេលភ្នាក់ងាររងនេះចាប់ផ្តើម។ បំបែកវាដើម្បីដំណើរការលើម៉ូដែលផ្សេង។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 하위 에이전트가 시작될 때 고정됨. 다른 모델로 실행하려면 분기하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Låst da denne underagenten startet. Forgren den for å kjøre på en annen modell."}},"pl":{"stringUnit":{"state":"needs_review","value":"Ustalony przy starcie tego podagenta. Rozgałęź go, by użyć innego modelu."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Fixado quando este subagente começou. Bifurque-o para usar outro modelo."}},"ru":{"stringUnit":{"state":"needs_review","value":"Задано при запуске этого субагента. Ответвите его, чтобы запустить на другой модели."}},"th":{"stringUnit":{"state":"needs_review","value":"กำหนดไว้ตอนที่ซับเอเจนต์นี้เริ่ม แยกออกเพื่อใช้โมเดลอื่น"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu alt ajan başladığında sabitlendi. Başka bir modelde çalıştırmak için çatallayın."}},"uk":{"stringUnit":{"state":"needs_review","value":"Зафіксовано під час запуску цього субагента. Відгалузьте його, щоб запустити на іншій моделі."}},"vi":{"stringUnit":{"state":"needs_review","value":"Cố định khi tác tử phụ này bắt đầu. Tách nó ra để chạy trên mô hình khác."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"此子代理启动时已固定。分叉后可改用其他模型。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"此子代理啟動時已固定。分叉後可改用其他模型。"}}}},
+    "subagents.fork.modeFollowsTip": {"comment":"Agent pane: hover on a Claude subagent composer's read-only permission mode chip; the subagent's permissions follow its chat's live mode; {chat} is the chat","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Follows {chat}: this subagent asks for permission as the chat does. Fork it to run in another mode."}},"ar":{"stringUnit":{"state":"needs_review","value":"يتبع {chat}: يطلب هذا الوكيل الفرعي الإذن كما تفعل المحادثة. افرّعه لتشغيله بوضع آخر."}},"bs":{"stringUnit":{"state":"needs_review","value":"Prati {chat}: ovaj podagent traži dozvolu kao i razgovor. Granaj ga da radi u drugom načinu."}},"da":{"stringUnit":{"state":"needs_review","value":"Følger {chat}: denne underagent beder om tilladelse som chatten. Forgren den for at køre i en anden tilstand."}},"de":{"stringUnit":{"state":"needs_review","value":"Folgt {chat}: Dieser Subagent fragt wie der Chat nach Erlaubnis. Zweige ihn ab, um einen anderen Modus zu nutzen."}},"es":{"stringUnit":{"state":"needs_review","value":"Sigue a {chat}: este subagente pide permiso como el chat. Bifúrcalo para usar otro modo."}},"fr":{"stringUnit":{"state":"needs_review","value":"Suit {chat} : ce sous-agent demande l'autorisation comme le chat. Dérivez-le pour utiliser un autre mode."}},"it":{"stringUnit":{"state":"needs_review","value":"Segue {chat}: questo subagente chiede i permessi come la chat. Derivalo per usare un'altra modalità."}},"ja":{"stringUnit":{"state":"needs_review","value":"{chat} に従います：このサブエージェントはチャットと同じように許可を求めます。別のモードで動かすにはフォークしてください。"}},"km":{"stringUnit":{"state":"needs_review","value":"ធ្វើតាម {chat}៖ ភ្នាក់ងាររងនេះសុំការអនុញ្ញាតដូចការជជែក។ បំបែកវាដើម្បីដំណើរការក្នុងរបៀបផ្សេង។"}},"ko":{"stringUnit":{"state":"needs_review","value":"{chat}을(를) 따름: 이 하위 에이전트는 채팅과 같은 방식으로 권한을 요청합니다. 다른 모드로 실행하려면 분기하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Følger {chat}: denne underagenten ber om tillatelse slik chatten gjør. Forgren den for å kjøre i en annen modus."}},"pl":{"stringUnit":{"state":"needs_review","value":"Podąża za {chat}: ten podagent prosi o zgodę tak jak czat. Rozgałęź go, by użyć innego trybu."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Segue {chat}: este subagente pede permissão como o chat. Bifurque-o para usar outro modo."}},"ru":{"stringUnit":{"state":"needs_review","value":"Следует за {chat}: этот субагент спрашивает разрешения так же, как чат. Ответвите его, чтобы запустить в другом режиме."}},"th":{"stringUnit":{"state":"needs_review","value":"ตาม {chat}: ซับเอเจนต์นี้ขอสิทธิ์แบบเดียวกับแชต แยกออกเพื่อใช้โหมดอื่น"}},"tr":{"stringUnit":{"state":"needs_review","value":"{chat} sohbetini izler: bu alt ajan sohbet gibi izin ister. Başka bir modda çalıştırmak için çatallayın."}},"uk":{"stringUnit":{"state":"needs_review","value":"Слідує за {chat}: цей субагент питає дозволу так само, як чат. Відгалузьте його, щоб запустити в іншому режимі."}},"vi":{"stringUnit":{"state":"needs_review","value":"Theo {chat}: tác tử phụ này xin quyền giống như cuộc trò chuyện. Tách nó ra để chạy ở chế độ khác."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"跟随 {chat}：此子代理像对话一样请求权限。分叉后可使用其他模式。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"跟隨 {chat}：此子代理像對話一樣請求權限。分叉後可使用其他模式。"}}}},
+    "subagents.fork.modeFixedTip": {"comment":"Agent pane: hover on a Codex subagent composer's read-only permission mode chip; the mode was copied from its chat when it started; {chat} is the chat","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Set from {chat} when this subagent started. Fork it to run in another mode."}},"ar":{"stringUnit":{"state":"needs_review","value":"عُيّن من {chat} عند بدء هذا الوكيل الفرعي. افرّعه لتشغيله بوضع آخر."}},"bs":{"stringUnit":{"state":"needs_review","value":"Postavljeno iz {chat} kad je ovaj podagent pokrenut. Granaj ga da radi u drugom načinu."}},"da":{"stringUnit":{"state":"needs_review","value":"Sat fra {chat} da denne underagent startede. Forgren den for at køre i en anden tilstand."}},"de":{"stringUnit":{"state":"needs_review","value":"Beim Start dieses Subagenten von {chat} übernommen. Zweige ihn ab, um einen anderen Modus zu nutzen."}},"es":{"stringUnit":{"state":"needs_review","value":"Tomado de {chat} al iniciarse este subagente. Bifúrcalo para usar otro modo."}},"fr":{"stringUnit":{"state":"needs_review","value":"Repris de {chat} au démarrage de ce sous-agent. Dérivez-le pour utiliser un autre mode."}},"it":{"stringUnit":{"state":"needs_review","value":"Preso da {chat} all'avvio di questo subagente. Derivalo per usare un'altra modalità."}},"ja":{"stringUnit":{"state":"needs_review","value":"このサブエージェントの開始時に {chat} から設定。別のモードで動かすにはフォークしてください。"}},"km":{"stringUnit":{"state":"needs_review","value":"កំណត់ពី {chat} នៅពេលភ្នាក់ងាររងនេះចាប់ផ្តើម។ បំបែកវាដើម្បីដំណើរការក្នុងរបៀបផ្សេង។"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 하위 에이전트가 시작될 때 {chat}에서 설정됨. 다른 모드로 실행하려면 분기하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"Satt fra {chat} da denne underagenten startet. Forgren den for å kjøre i en annen modus."}},"pl":{"stringUnit":{"state":"needs_review","value":"Ustawiony z {chat} przy starcie tego podagenta. Rozgałęź go, by użyć innego trybu."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Definido a partir de {chat} quando este subagente começou. Bifurque-o para usar outro modo."}},"ru":{"stringUnit":{"state":"needs_review","value":"Взято из {chat} при запуске этого субагента. Ответвите его, чтобы запустить в другом режиме."}},"th":{"stringUnit":{"state":"needs_review","value":"ตั้งจาก {chat} ตอนที่ซับเอเจนต์นี้เริ่ม แยกออกเพื่อใช้โหมดอื่น"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu alt ajan başladığında {chat} sohbetinden alındı. Başka bir modda çalıştırmak için çatallayın."}},"uk":{"stringUnit":{"state":"needs_review","value":"Взято з {chat} під час запуску цього субагента. Відгалузьте його, щоб запустити в іншому режимі."}},"vi":{"stringUnit":{"state":"needs_review","value":"Được đặt từ {chat} khi tác tử phụ này bắt đầu. Tách nó ra để chạy ở chế độ khác."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"此子代理启动时从 {chat} 设定。分叉后可使用其他模式。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"此子代理啟動時從 {chat} 設定。分叉後可使用其他模式。"}}}},
+    "subagents.fork.modelLabel": {"comment":"Agent pane: accessible name of a subagent composer's read-only model chip; {value} is the model","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Model: {value}"}},"ar":{"stringUnit":{"state":"needs_review","value":"النموذج: {value}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Model: {value}"}},"da":{"stringUnit":{"state":"needs_review","value":"Model: {value}"}},"de":{"stringUnit":{"state":"needs_review","value":"Modell: {value}"}},"es":{"stringUnit":{"state":"needs_review","value":"Modelo: {value}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Modèle : {value}"}},"it":{"stringUnit":{"state":"needs_review","value":"Modello: {value}"}},"ja":{"stringUnit":{"state":"needs_review","value":"モデル：{value}"}},"km":{"stringUnit":{"state":"needs_review","value":"ម៉ូដែល៖ {value}"}},"ko":{"stringUnit":{"state":"needs_review","value":"모델: {value}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Modell: {value}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Model: {value}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Modelo: {value}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Модель: {value}"}},"th":{"stringUnit":{"state":"needs_review","value":"โมเดล: {value}"}},"tr":{"stringUnit":{"state":"needs_review","value":"Model: {value}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Модель: {value}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Mô hình: {value}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"模型：{value}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"模型：{value}"}}}},
+    "subagents.fork.modeLabel": {"comment":"Agent pane: accessible name of a subagent composer's read-only permission mode chip; {value} is the mode","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Permission mode: {value}"}},"ar":{"stringUnit":{"state":"needs_review","value":"وضع الأذونات: {value}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Način dozvola: {value}"}},"da":{"stringUnit":{"state":"needs_review","value":"Tilladelsestilstand: {value}"}},"de":{"stringUnit":{"state":"needs_review","value":"Berechtigungsmodus: {value}"}},"es":{"stringUnit":{"state":"needs_review","value":"Modo de permisos: {value}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Mode d'autorisation : {value}"}},"it":{"stringUnit":{"state":"needs_review","value":"Modalità permessi: {value}"}},"ja":{"stringUnit":{"state":"needs_review","value":"権限モード：{value}"}},"km":{"stringUnit":{"state":"needs_review","value":"របៀបការអនុញ្ញាត៖ {value}"}},"ko":{"stringUnit":{"state":"needs_review","value":"권한 모드: {value}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Tillatelsesmodus: {value}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Tryb uprawnień: {value}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Modo de permissão: {value}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Режим разрешений: {value}"}},"th":{"stringUnit":{"state":"needs_review","value":"โหมดสิทธิ์: {value}"}},"tr":{"stringUnit":{"state":"needs_review","value":"İzin modu: {value}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Режим дозволів: {value}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chế độ quyền: {value}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"权限模式：{value}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"權限模式：{value}"}}}},
+    "subagents.fork.withModel": {"comment":"Agent pane: a row of a subagent's model chip menu that forks the subagent's context into a new chat on {value}, a model","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Fork with {value}…"}},"ar":{"stringUnit":{"state":"needs_review","value":"افرّع باستخدام {value}…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Granaj s {value}…"}},"da":{"stringUnit":{"state":"needs_review","value":"Forgren med {value}…"}},"de":{"stringUnit":{"state":"needs_review","value":"Mit {value} abzweigen…"}},"es":{"stringUnit":{"state":"needs_review","value":"Bifurcar con {value}…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Dériver avec {value}…"}},"it":{"stringUnit":{"state":"needs_review","value":"Deriva con {value}…"}},"ja":{"stringUnit":{"state":"needs_review","value":"{value} でフォーク…"}},"km":{"stringUnit":{"state":"needs_review","value":"បំបែកជាមួយ {value}…"}},"ko":{"stringUnit":{"state":"needs_review","value":"{value}(으)로 분기…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Forgren med {value}…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Rozgałęź z {value}…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Bifurcar com {value}…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ответвить с {value}…"}},"th":{"stringUnit":{"state":"needs_review","value":"แยกด้วย {value}…"}},"tr":{"stringUnit":{"state":"needs_review","value":"{value} ile çatalla…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відгалузити з {value}…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tách với {value}…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"以 {value} 分叉…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"以 {value} 分叉…"}}}},
+    "subagents.fork.withMode": {"comment":"Agent pane: a row of a subagent's permission mode chip menu that forks the subagent's context into a new chat in {value}, a permission mode","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Fork with {value}…"}},"ar":{"stringUnit":{"state":"needs_review","value":"افرّع باستخدام {value}…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Granaj s {value}…"}},"da":{"stringUnit":{"state":"needs_review","value":"Forgren med {value}…"}},"de":{"stringUnit":{"state":"needs_review","value":"Mit {value} abzweigen…"}},"es":{"stringUnit":{"state":"needs_review","value":"Bifurcar con {value}…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Dériver avec {value}…"}},"it":{"stringUnit":{"state":"needs_review","value":"Deriva con {value}…"}},"ja":{"stringUnit":{"state":"needs_review","value":"{value} でフォーク…"}},"km":{"stringUnit":{"state":"needs_review","value":"បំបែកជាមួយ {value}…"}},"ko":{"stringUnit":{"state":"needs_review","value":"{value}(으)로 분기…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Forgren med {value}…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Rozgałęź z {value}…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Bifurcar com {value}…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ответвить с {value}…"}},"th":{"stringUnit":{"state":"needs_review","value":"แยกด้วย {value}…"}},"tr":{"stringUnit":{"state":"needs_review","value":"{value} ile çatalla…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відгалузити з {value}…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tách với {value}…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"以 {value} 分叉…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"以 {value} 分叉…"}}}},
+    "subagents.fork.takeOver": {"comment":"Agent pane: the one button on a subagent's composer (a compared look) that opens a model and mode picker and forks the subagent into a new chat","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Take over in new chat…"}},"ar":{"stringUnit":{"state":"needs_review","value":"تولَّ الأمر في محادثة جديدة…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Preuzmi u novom razgovoru…"}},"da":{"stringUnit":{"state":"needs_review","value":"Overtag i ny chat…"}},"de":{"stringUnit":{"state":"needs_review","value":"In neuem Chat übernehmen…"}},"es":{"stringUnit":{"state":"needs_review","value":"Tomar el control en un chat nuevo…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Reprendre dans un nouveau chat…"}},"it":{"stringUnit":{"state":"needs_review","value":"Prendi il controllo in una nuova chat…"}},"ja":{"stringUnit":{"state":"needs_review","value":"新しいチャットで引き継ぐ…"}},"km":{"stringUnit":{"state":"needs_review","value":"យកមកគ្រប់គ្រងក្នុងការជជែកថ្មី…"}},"ko":{"stringUnit":{"state":"needs_review","value":"새 채팅에서 이어받기…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Overta i ny chat…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Przejmij w nowym czacie…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Assumir em um novo chat…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Перехватить в новом чате…"}},"th":{"stringUnit":{"state":"needs_review","value":"รับช่วงต่อในแชตใหม่…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yeni sohbette devral…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Перехопити в новому чаті…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tiếp quản trong cuộc trò chuyện mới…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"在新对话中接管…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"在新對話中接管…"}}}},
+    "subagents.fork.modeHeading": {"comment":"Agent pane: heading of the permission modes in a subagent's take-over picker","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Permission mode"}},"ar":{"stringUnit":{"state":"needs_review","value":"وضع الأذونات"}},"bs":{"stringUnit":{"state":"needs_review","value":"Način dozvola"}},"da":{"stringUnit":{"state":"needs_review","value":"Tilladelsestilstand"}},"de":{"stringUnit":{"state":"needs_review","value":"Berechtigungsmodus"}},"es":{"stringUnit":{"state":"needs_review","value":"Modo de permisos"}},"fr":{"stringUnit":{"state":"needs_review","value":"Mode d'autorisation"}},"it":{"stringUnit":{"state":"needs_review","value":"Modalità permessi"}},"ja":{"stringUnit":{"state":"needs_review","value":"権限モード"}},"km":{"stringUnit":{"state":"needs_review","value":"របៀបការអនុញ្ញាត"}},"ko":{"stringUnit":{"state":"needs_review","value":"권한 모드"}},"nb":{"stringUnit":{"state":"needs_review","value":"Tillatelsesmodus"}},"pl":{"stringUnit":{"state":"needs_review","value":"Tryb uprawnień"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Modo de permissão"}},"ru":{"stringUnit":{"state":"needs_review","value":"Режим разрешений"}},"th":{"stringUnit":{"state":"needs_review","value":"โหมดสิทธิ์"}},"tr":{"stringUnit":{"state":"needs_review","value":"İzin modu"}},"uk":{"stringUnit":{"state":"needs_review","value":"Режим дозволів"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chế độ quyền"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"权限模式"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"權限模式"}}}},
+    "subagents.fork.start": {"comment":"Agent pane: the last row of a subagent's take-over picker, which forks the subagent into a new chat on the picked model and mode","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Fork into new chat"}},"ar":{"stringUnit":{"state":"needs_review","value":"افرّع إلى محادثة جديدة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Granaj u novi razgovor"}},"da":{"stringUnit":{"state":"needs_review","value":"Forgren til ny chat"}},"de":{"stringUnit":{"state":"needs_review","value":"In neuen Chat abzweigen"}},"es":{"stringUnit":{"state":"needs_review","value":"Bifurcar a un chat nuevo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Dériver dans un nouveau chat"}},"it":{"stringUnit":{"state":"needs_review","value":"Deriva in una nuova chat"}},"ja":{"stringUnit":{"state":"needs_review","value":"新しいチャットにフォーク"}},"km":{"stringUnit":{"state":"needs_review","value":"បំបែកទៅការជជែកថ្មី"}},"ko":{"stringUnit":{"state":"needs_review","value":"새 채팅으로 분기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Forgren til ny chat"}},"pl":{"stringUnit":{"state":"needs_review","value":"Rozgałęź do nowego czatu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Bifurcar para um novo chat"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ответвить в новый чат"}},"th":{"stringUnit":{"state":"needs_review","value":"แยกไปยังแชตใหม่"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yeni sohbete çatalla"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відгалузити в новий чат"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tách sang cuộc trò chuyện mới"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"分叉到新对话"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"分叉到新對話"}}}},
+    "notice.forkedFromSubagent": {"comment":"Agent pane: one line in a fork of a subagent where the subagent's history ends and the fork's own begins; {subagent} is the subagent, {chat} the chat it ran in","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Forked from {subagent} of {chat}. Everything above is from that subagent."}},"ar":{"stringUnit":{"state":"needs_review","value":"متفرّع من {subagent} في {chat}. ما فوق هذا من ذلك الوكيل الفرعي."}},"bs":{"stringUnit":{"state":"needs_review","value":"Granano iz {subagent} u {chat}. Iznad je iz tog podagenta."}},"da":{"stringUnit":{"state":"needs_review","value":"Forgrenet fra {subagent} i {chat}. Det ovenfor er fra den underagent."}},"de":{"stringUnit":{"state":"needs_review","value":"Abgezweigt von {subagent} in {chat}. Alles darüber stammt von diesem Subagenten."}},"es":{"stringUnit":{"state":"needs_review","value":"Bifurcado de {subagent} de {chat}. Todo lo de arriba es de ese subagente."}},"fr":{"stringUnit":{"state":"needs_review","value":"Dérivé de {subagent} de {chat}. Tout ce qui précède vient de ce sous-agent."}},"it":{"stringUnit":{"state":"needs_review","value":"Derivato da {subagent} di {chat}. Tutto ciò che è sopra viene da quel subagente."}},"ja":{"stringUnit":{"state":"needs_review","value":"{chat} の {subagent} から分岐。ここより上はそのサブエージェントの内容です。"}},"km":{"stringUnit":{"state":"needs_review","value":"បំបែកពី {subagent} នៃ {chat}។ អ្វីៗខាងលើមកពីភ្នាក់ងាររងនោះ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"{chat}의 {subagent}에서 분기됨. 위의 내용은 그 하위 에이전트입니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Forgrenet fra {subagent} i {chat}. Alt over er fra den underagenten."}},"pl":{"stringUnit":{"state":"needs_review","value":"Rozgałęziono z {subagent} w {chat}. Wszystko powyżej pochodzi od tego podagenta."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Bifurcado de {subagent} de {chat}. Tudo acima é desse subagente."}},"ru":{"stringUnit":{"state":"needs_review","value":"Ответвлено от {subagent} в {chat}. Всё выше — от того субагента."}},"th":{"stringUnit":{"state":"needs_review","value":"แยกมาจาก {subagent} ของ {chat} ด้านบนทั้งหมดมาจากซับเอเจนต์นั้น"}},"tr":{"stringUnit":{"state":"needs_review","value":"{chat} sohbetindeki {subagent} alt ajanından çatallandı. Yukarıdakilerin hepsi o alt ajandan."}},"uk":{"stringUnit":{"state":"needs_review","value":"Відгалужено від {subagent} у {chat}. Усе вище — від того субагента."}},"vi":{"stringUnit":{"state":"needs_review","value":"Tách từ {subagent} của {chat}. Mọi thứ phía trên là từ tác tử phụ đó."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"从 {chat} 的 {subagent} 分叉。以上内容均来自该子代理。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"從 {chat} 的 {subagent} 分叉。以上內容皆來自該子代理。"}}}},
+    "notice.forkedFromSubagentGone": {"comment":"Agent pane: notice.forkedFromSubagent when the chat the subagent ran in is no longer listed; {subagent} is the subagent","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Forked from {subagent}. Everything above is from that subagent."}},"ar":{"stringUnit":{"state":"needs_review","value":"متفرّع من {subagent}. ما فوق هذا من ذلك الوكيل الفرعي."}},"bs":{"stringUnit":{"state":"needs_review","value":"Granano iz {subagent}. Iznad je iz tog podagenta."}},"da":{"stringUnit":{"state":"needs_review","value":"Forgrenet fra {subagent}. Det ovenfor er fra den underagent."}},"de":{"stringUnit":{"state":"needs_review","value":"Abgezweigt von {subagent}. Alles darüber stammt von diesem Subagenten."}},"es":{"stringUnit":{"state":"needs_review","value":"Bifurcado de {subagent}. Todo lo de arriba es de ese subagente."}},"fr":{"stringUnit":{"state":"needs_review","value":"Dérivé de {subagent}. Tout ce qui précède vient de ce sous-agent."}},"it":{"stringUnit":{"state":"needs_review","value":"Derivato da {subagent}. Tutto ciò che è sopra viene da quel subagente."}},"ja":{"stringUnit":{"state":"needs_review","value":"{subagent} から分岐。ここより上はそのサブエージェントの内容です。"}},"km":{"stringUnit":{"state":"needs_review","value":"បំបែកពី {subagent}។ អ្វីៗខាងលើមកពីភ្នាក់ងាររងនោះ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"{subagent}에서 분기됨. 위의 내용은 그 하위 에이전트입니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Forgrenet fra {subagent}. Alt over er fra den underagenten."}},"pl":{"stringUnit":{"state":"needs_review","value":"Rozgałęziono z {subagent}. Wszystko powyżej pochodzi od tego podagenta."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Bifurcado de {subagent}. Tudo acima é desse subagente."}},"ru":{"stringUnit":{"state":"needs_review","value":"Ответвлено от {subagent}. Всё выше — от того субагента."}},"th":{"stringUnit":{"state":"needs_review","value":"แยกมาจาก {subagent} ด้านบนทั้งหมดมาจากซับเอเจนต์นั้น"}},"tr":{"stringUnit":{"state":"needs_review","value":"{subagent} alt ajanından çatallandı. Yukarıdakilerin hepsi o alt ajandan."}},"uk":{"stringUnit":{"state":"needs_review","value":"Відгалужено від {subagent}. Усе вище — від того субагента."}},"vi":{"stringUnit":{"state":"needs_review","value":"Tách từ {subagent}. Mọi thứ phía trên là từ tác tử phụ đó."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"从 {subagent} 分叉。以上内容均来自该子代理。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"從 {subagent} 分叉。以上內容皆來自該子代理。"}}}},
     "workedLine.commands.one": {
       "comment": "Agent pane: a finished turn's Worked for line, how many commands it ran (one)",
       "extractionState": "manual",
@@ -455795,6 +456072,15 @@
         }
       }
     },
+    "turnFrames.title": {"comment":"Agent pane: label of the strip of live frames the agent captured during a turn","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"Frames"}},"bs":{"stringUnit":{"state":"needs_review","value":"Frames"}},"da":{"stringUnit":{"state":"needs_review","value":"Frames"}},"de":{"stringUnit":{"state":"needs_review","value":"Frames"}},"en":{"stringUnit":{"state":"translated","value":"Frames"}},"es":{"stringUnit":{"state":"needs_review","value":"Frames"}},"fr":{"stringUnit":{"state":"needs_review","value":"Frames"}},"it":{"stringUnit":{"state":"needs_review","value":"Frames"}},"ja":{"stringUnit":{"state":"needs_review","value":"Frames"}},"km":{"stringUnit":{"state":"needs_review","value":"Frames"}},"ko":{"stringUnit":{"state":"needs_review","value":"Frames"}},"nb":{"stringUnit":{"state":"needs_review","value":"Frames"}},"pl":{"stringUnit":{"state":"needs_review","value":"Frames"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Frames"}},"ru":{"stringUnit":{"state":"needs_review","value":"Frames"}},"th":{"stringUnit":{"state":"needs_review","value":"Frames"}},"tr":{"stringUnit":{"state":"needs_review","value":"Frames"}},"uk":{"stringUnit":{"state":"needs_review","value":"Frames"}},"vi":{"stringUnit":{"state":"needs_review","value":"Frames"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Frames"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Frames"}}}},
+    "turnFrames.alt": {"comment":"Agent pane: alt text of one captured frame, n is its position","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"da":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"de":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"en":{"stringUnit":{"state":"translated","value":"Frame {n}"}},"es":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"it":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"ja":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"km":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"ko":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"th":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"tr":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Frame {n}"}}}},
+    "turnFrames.resize": {"comment":"Agent pane: label of the corner grip that resizes the floating preview window","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"Resize"}},"bs":{"stringUnit":{"state":"needs_review","value":"Resize"}},"da":{"stringUnit":{"state":"needs_review","value":"Resize"}},"de":{"stringUnit":{"state":"needs_review","value":"Resize"}},"en":{"stringUnit":{"state":"translated","value":"Resize"}},"es":{"stringUnit":{"state":"needs_review","value":"Resize"}},"fr":{"stringUnit":{"state":"needs_review","value":"Resize"}},"it":{"stringUnit":{"state":"needs_review","value":"Resize"}},"ja":{"stringUnit":{"state":"needs_review","value":"Resize"}},"km":{"stringUnit":{"state":"needs_review","value":"Resize"}},"ko":{"stringUnit":{"state":"needs_review","value":"Resize"}},"nb":{"stringUnit":{"state":"needs_review","value":"Resize"}},"pl":{"stringUnit":{"state":"needs_review","value":"Resize"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Resize"}},"ru":{"stringUnit":{"state":"needs_review","value":"Resize"}},"th":{"stringUnit":{"state":"needs_review","value":"Resize"}},"tr":{"stringUnit":{"state":"needs_review","value":"Resize"}},"uk":{"stringUnit":{"state":"needs_review","value":"Resize"}},"vi":{"stringUnit":{"state":"needs_review","value":"Resize"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Resize"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Resize"}}}},
+    "liveCustomize.keep": {"comment":"Agent pane: button that keeps the customization the person just tried on","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"Keep"}},"bs":{"stringUnit":{"state":"needs_review","value":"Keep"}},"da":{"stringUnit":{"state":"needs_review","value":"Keep"}},"de":{"stringUnit":{"state":"needs_review","value":"Keep"}},"en":{"stringUnit":{"state":"translated","value":"Keep"}},"es":{"stringUnit":{"state":"needs_review","value":"Keep"}},"fr":{"stringUnit":{"state":"needs_review","value":"Keep"}},"it":{"stringUnit":{"state":"needs_review","value":"Keep"}},"ja":{"stringUnit":{"state":"needs_review","value":"Keep"}},"km":{"stringUnit":{"state":"needs_review","value":"Keep"}},"ko":{"stringUnit":{"state":"needs_review","value":"Keep"}},"nb":{"stringUnit":{"state":"needs_review","value":"Keep"}},"pl":{"stringUnit":{"state":"needs_review","value":"Keep"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Keep"}},"ru":{"stringUnit":{"state":"needs_review","value":"Keep"}},"th":{"stringUnit":{"state":"needs_review","value":"Keep"}},"tr":{"stringUnit":{"state":"needs_review","value":"Keep"}},"uk":{"stringUnit":{"state":"needs_review","value":"Keep"}},"vi":{"stringUnit":{"state":"needs_review","value":"Keep"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Keep"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Keep"}}}},
+    "liveCustomize.revert": {"comment":"Agent pane: button that puts back the setup from before the try-on","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"Revert"}},"bs":{"stringUnit":{"state":"needs_review","value":"Revert"}},"da":{"stringUnit":{"state":"needs_review","value":"Revert"}},"de":{"stringUnit":{"state":"needs_review","value":"Revert"}},"en":{"stringUnit":{"state":"translated","value":"Revert"}},"es":{"stringUnit":{"state":"needs_review","value":"Revert"}},"fr":{"stringUnit":{"state":"needs_review","value":"Revert"}},"it":{"stringUnit":{"state":"needs_review","value":"Revert"}},"ja":{"stringUnit":{"state":"needs_review","value":"Revert"}},"km":{"stringUnit":{"state":"needs_review","value":"Revert"}},"ko":{"stringUnit":{"state":"needs_review","value":"Revert"}},"nb":{"stringUnit":{"state":"needs_review","value":"Revert"}},"pl":{"stringUnit":{"state":"needs_review","value":"Revert"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Revert"}},"ru":{"stringUnit":{"state":"needs_review","value":"Revert"}},"th":{"stringUnit":{"state":"needs_review","value":"Revert"}},"tr":{"stringUnit":{"state":"needs_review","value":"Revert"}},"uk":{"stringUnit":{"state":"needs_review","value":"Revert"}},"vi":{"stringUnit":{"state":"needs_review","value":"Revert"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Revert"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Revert"}}}},
+    "liveCustomize.running": {"comment":"Agent pane: status while a customization try-on is running","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"Trying it on..."}},"bs":{"stringUnit":{"state":"needs_review","value":"Trying it on..."}},"da":{"stringUnit":{"state":"needs_review","value":"Trying it on..."}},"de":{"stringUnit":{"state":"needs_review","value":"Trying it on..."}},"en":{"stringUnit":{"state":"translated","value":"Trying it on..."}},"es":{"stringUnit":{"state":"needs_review","value":"Trying it on..."}},"fr":{"stringUnit":{"state":"needs_review","value":"Trying it on..."}},"it":{"stringUnit":{"state":"needs_review","value":"Trying it on..."}},"ja":{"stringUnit":{"state":"needs_review","value":"Trying it on..."}},"km":{"stringUnit":{"state":"needs_review","value":"Trying it on..."}},"ko":{"stringUnit":{"state":"needs_review","value":"Trying it on..."}},"nb":{"stringUnit":{"state":"needs_review","value":"Trying it on..."}},"pl":{"stringUnit":{"state":"needs_review","value":"Trying it on..."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Trying it on..."}},"ru":{"stringUnit":{"state":"needs_review","value":"Trying it on..."}},"th":{"stringUnit":{"state":"needs_review","value":"Trying it on..."}},"tr":{"stringUnit":{"state":"needs_review","value":"Trying it on..."}},"uk":{"stringUnit":{"state":"needs_review","value":"Trying it on..."}},"vi":{"stringUnit":{"state":"needs_review","value":"Trying it on..."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Trying it on..."}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Trying it on..."}}}},
+    "liveCustomize.failed": {"comment":"Agent pane: status when a customization command failed","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"That did not work. Nothing was changed."}},"bs":{"stringUnit":{"state":"needs_review","value":"That did not work. Nothing was changed."}},"da":{"stringUnit":{"state":"needs_review","value":"That did not work. Nothing was changed."}},"de":{"stringUnit":{"state":"needs_review","value":"That did not work. Nothing was changed."}},"en":{"stringUnit":{"state":"translated","value":"That did not work. Nothing was changed."}},"es":{"stringUnit":{"state":"needs_review","value":"That did not work. Nothing was changed."}},"fr":{"stringUnit":{"state":"needs_review","value":"That did not work. Nothing was changed."}},"it":{"stringUnit":{"state":"needs_review","value":"That did not work. Nothing was changed."}},"ja":{"stringUnit":{"state":"needs_review","value":"That did not work. Nothing was changed."}},"km":{"stringUnit":{"state":"needs_review","value":"That did not work. Nothing was changed."}},"ko":{"stringUnit":{"state":"needs_review","value":"That did not work. Nothing was changed."}},"nb":{"stringUnit":{"state":"needs_review","value":"That did not work. Nothing was changed."}},"pl":{"stringUnit":{"state":"needs_review","value":"That did not work. Nothing was changed."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"That did not work. Nothing was changed."}},"ru":{"stringUnit":{"state":"needs_review","value":"That did not work. Nothing was changed."}},"th":{"stringUnit":{"state":"needs_review","value":"That did not work. Nothing was changed."}},"tr":{"stringUnit":{"state":"needs_review","value":"That did not work. Nothing was changed."}},"uk":{"stringUnit":{"state":"needs_review","value":"That did not work. Nothing was changed."}},"vi":{"stringUnit":{"state":"needs_review","value":"That did not work. Nothing was changed."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"That did not work. Nothing was changed."}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"That did not work. Nothing was changed."}}}},
+    "liveCustomize.kept": {"comment":"Agent pane: status after the person kept a customization","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"Kept."}},"bs":{"stringUnit":{"state":"needs_review","value":"Kept."}},"da":{"stringUnit":{"state":"needs_review","value":"Kept."}},"de":{"stringUnit":{"state":"needs_review","value":"Kept."}},"en":{"stringUnit":{"state":"translated","value":"Kept."}},"es":{"stringUnit":{"state":"needs_review","value":"Kept."}},"fr":{"stringUnit":{"state":"needs_review","value":"Kept."}},"it":{"stringUnit":{"state":"needs_review","value":"Kept."}},"ja":{"stringUnit":{"state":"needs_review","value":"Kept."}},"km":{"stringUnit":{"state":"needs_review","value":"Kept."}},"ko":{"stringUnit":{"state":"needs_review","value":"Kept."}},"nb":{"stringUnit":{"state":"needs_review","value":"Kept."}},"pl":{"stringUnit":{"state":"needs_review","value":"Kept."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Kept."}},"ru":{"stringUnit":{"state":"needs_review","value":"Kept."}},"th":{"stringUnit":{"state":"needs_review","value":"Kept."}},"tr":{"stringUnit":{"state":"needs_review","value":"Kept."}},"uk":{"stringUnit":{"state":"needs_review","value":"Kept."}},"vi":{"stringUnit":{"state":"needs_review","value":"Kept."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Kept."}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Kept."}}}},
+    "liveCustomize.reverted": {"comment":"Agent pane: status after the person reverted a customization","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"Reverted."}},"bs":{"stringUnit":{"state":"needs_review","value":"Reverted."}},"da":{"stringUnit":{"state":"needs_review","value":"Reverted."}},"de":{"stringUnit":{"state":"needs_review","value":"Reverted."}},"en":{"stringUnit":{"state":"translated","value":"Reverted."}},"es":{"stringUnit":{"state":"needs_review","value":"Reverted."}},"fr":{"stringUnit":{"state":"needs_review","value":"Reverted."}},"it":{"stringUnit":{"state":"needs_review","value":"Reverted."}},"ja":{"stringUnit":{"state":"needs_review","value":"Reverted."}},"km":{"stringUnit":{"state":"needs_review","value":"Reverted."}},"ko":{"stringUnit":{"state":"needs_review","value":"Reverted."}},"nb":{"stringUnit":{"state":"needs_review","value":"Reverted."}},"pl":{"stringUnit":{"state":"needs_review","value":"Reverted."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Reverted."}},"ru":{"stringUnit":{"state":"needs_review","value":"Reverted."}},"th":{"stringUnit":{"state":"needs_review","value":"Reverted."}},"tr":{"stringUnit":{"state":"needs_review","value":"Reverted."}},"uk":{"stringUnit":{"state":"needs_review","value":"Reverted."}},"vi":{"stringUnit":{"state":"needs_review","value":"Reverted."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Reverted."}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Reverted."}}}},
     "githubConnect.notConnected": {"comment":"Agent pane: the Connect GitHub card under a turn whose GitHub call found no GitHub connection for this chat (conversation/GitHubConnectCard.tsx): the card's line","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"bs":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"da":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"de":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"en":{"stringUnit":{"state":"translated","value":"GitHub isn't connected for this chat"}},"es":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"fr":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"it":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"ja":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"km":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"ko":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"nb":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"pl":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"ru":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"th":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"tr":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"uk":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"vi":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat"}}}},
     "githubConnect.notConnectedRepo": {"comment":"Agent pane: the Connect GitHub card under a turn whose GitHub call found no GitHub connection for this chat (conversation/GitHubConnectCard.tsx): the card's line; {repo} is the repository the call named, OWNER/REPO","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"bs":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"da":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"de":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"en":{"stringUnit":{"state":"translated","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"es":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"fr":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"it":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"ja":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"km":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"ko":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"nb":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"pl":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"ru":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"th":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"tr":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"uk":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"vi":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"GitHub isn't connected for this chat, so it can't reach {repo}"}}}},
     "githubConnect.needsReauth": {"comment":"Agent pane: the Connect GitHub card under a turn whose GitHub call found no GitHub connection for this chat (conversation/GitHubConnectCard.tsx): the card's line when the connection must be linked again","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"bs":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"da":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"de":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"en":{"stringUnit":{"state":"translated","value":"This chat's GitHub connection needs connecting again"}},"es":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"fr":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"it":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"ja":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"km":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"ko":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"nb":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"pl":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"ru":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"th":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"tr":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"uk":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"vi":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"This chat's GitHub connection needs connecting again"}}}},
