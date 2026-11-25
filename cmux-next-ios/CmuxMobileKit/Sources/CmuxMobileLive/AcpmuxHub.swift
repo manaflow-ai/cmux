@@ -2998,3 +2998,20 @@ struct AcpmuxEarlierPage: Sendable {
     /// A read failed: nothing shows, and the next ask reads the same page again.
     var failed = false
 }
+
+// MARK: - One-request catch-up (`catch-up` link service)
+
+extension AcpmuxHub {
+    /// The open chats and the last event each holds, for a `catch-up` request (each once).
+    func catchUpChats() -> [(sessionID: String, lastSeq: Int)] {
+        var seen = Set<String>()
+        return liveSources.compactMap { source in
+            seen.insert(source.sessionID).inserted ? (source.sessionID, source.heldSeq) : nil
+        }
+    }
+}
+
+extension AcpmuxSessionSource {
+    /// The last record applied (`lastSeq`).
+    var heldSeq: Int { lastSeq }
+}
