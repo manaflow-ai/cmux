@@ -451,10 +451,31 @@ def route() -> int:
     return 0
 
 
+def has(subarea: str, paths_file: str | None) -> int:
+    """Exit 0 when the change routes SUBAREA, 1 when it does not: a ci/steps.toml step's own finer router, over the
+    paths `ci/run` lists in $CI_PATHS_FILE. No list, an unreadable one or an empty one routes it (everything changed)."""
+    if subarea not in WebSubareas.__dataclass_fields__:
+        raise SystemExit(f"web_subareas.py has: no subarea {subarea!r} (one of {sorted(WebSubareas.__dataclass_fields__)})")
+    paths = None
+    if paths_file:
+        try:
+            paths = [p for p in Path(paths_file).read_text(encoding="utf-8").splitlines() if p]
+        except (OSError, UnicodeError):
+            paths = None
+    if not paths:
+        print(f"web subarea {subarea}: the change's paths are unknown; it runs")
+        return 0
+    routed = getattr(classify_paths(paths), subarea)
+    print(f"web subarea {subarea}: {'routed' if routed else 'not routed'} by {len(paths)} changed paths")
+    return 0 if routed else 1
+
+
 def main() -> int:
     if sys.argv[1:] == ["route"]:
         return route()
-    raise SystemExit("usage: web_subareas.py route")
+    if len(sys.argv) == 3 and sys.argv[1] == "has":
+        return has(sys.argv[2], os.environ.get("CI_PATHS_FILE"))
+    raise SystemExit("usage: web_subareas.py route | has SUBAREA (reads $CI_PATHS_FILE)")
 
 
 if __name__ == "__main__":
