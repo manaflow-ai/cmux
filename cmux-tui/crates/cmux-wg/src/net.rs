@@ -451,13 +451,21 @@ const INITIATION_PENDING: Duration = Duration::from_secs(5);
 const RESUME_GAP: Duration = Duration::from_secs(2);
 
 /// Authenticated data from the peer: the watchdog's answer, and the end of a
-/// silence long enough to call the route back. Fields, not `&mut Driver`: the
-/// packet still borrows the scratch buffer.
-fn note_inbound(watchdog: &mut Watchdog, last_inbound: &mut Option<Instant>, resumed: &mut bool) {
+/// silence long enough to call the route back. That end also drops the
+/// pacer's RTT samples in flight, before this packet's ACK reaches the pacer
+/// ([`Pacer::forget_samples`]). Fields, not `&mut Driver`: the packet still
+/// borrows the scratch buffer.
+fn note_inbound(
+    watchdog: &mut Watchdog,
+    pacer: &mut Pacer,
+    last_inbound: &mut Option<Instant>,
+    resumed: &mut bool,
+) {
     watchdog.on_inbound_data();
     let now = Instant::now();
     if last_inbound.is_some_and(|last| now.saturating_duration_since(last) >= RESUME_GAP) {
         *resumed = true;
+        pacer.forget_samples();
     }
     *last_inbound = Some(now);
 }
@@ -666,7 +674,12 @@ impl Driver {
                     // (Done for other messages, a cookie reply, proves less.)
                     if !input.is_empty() && classify(input) == DatagramClass::WireGuardData {
                         self.underlay.authenticated(origin);
-                        note_inbound(&mut self.watchdog, &mut self.last_inbound, &mut self.resumed);
+                        note_inbound(
+                            &mut self.watchdog,
+                            &mut self.pacer,
+                            &mut self.last_inbound,
+                            &mut self.resumed,
+                        );
                     }
                     break;
                 }
@@ -727,7 +740,12 @@ impl Driver {
                         self.underlay.set_metered(self.negotiation.metered());
                     }
                     self.underlay.authenticated(origin);
-                    note_inbound(&mut self.watchdog, &mut self.last_inbound, &mut self.resumed);
+                    note_inbound(
+                        &mut self.watchdog,
+                        &mut self.pacer,
+                        &mut self.last_inbound,
+                        &mut self.resumed,
+                    );
                     if local.is_some() {
                         tap(match (&hello, &off_path, probing::decode(packet).is_some()) {
                             (Some(_), _, _) => {
