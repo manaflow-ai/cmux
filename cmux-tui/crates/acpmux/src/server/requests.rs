@@ -1952,8 +1952,8 @@ async fn dispatch_request_with_identity(
             // (`remote_guard::owner_control`, cmux#50026): no remote start rule, no asking-mode
             // settle, the mode it asks as this machine's own start. A VM-boundary start stays one.
             let remote_start = conn.origin.web_class()
-                && !(super::remote_guard::owner_control(conn.origin, conn.auth, &params)
-                    && !crate::hub::vm_boundary::asked(
+                && (!super::remote_guard::owner_control(conn.origin, conn.auth, &params)
+                    || crate::hub::vm_boundary::asked(
                         conn.auth,
                         super::remote_guard::control_of(conn.origin, conn.auth, &params),
                         &params,
