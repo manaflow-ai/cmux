@@ -302,6 +302,7 @@
         "appearance.backgroundBlur",
         "appearance.inactiveWindowDim",
         "appearance.wallpaperTint",
+        "appearance.wallpaperLighting",
         "appearance.liveWallpaperFrameRate",
         "appearance.terminalCellBackgrounds",
         "appearance.background",
