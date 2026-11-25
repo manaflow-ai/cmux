@@ -53,6 +53,7 @@ import { pendingMessagesRow, searchablePendingRows, withWaitingRows } from "./co
 import { type QueuedMessageActionsValue } from "./conversation/QueuedMessageCard";
 import { AcpmuxDirectClient, type HarnessBlock, isTrustRefusal } from "./direct";
 import { watchRestoredTail } from "./restoredTail";
+import { drawsCopy } from "./conversation/turnEndFold";
 import {
   authBlocksSend,
   authText,
@@ -66,7 +67,7 @@ import { hasNativeHost, postNative } from "./native";
 import { reportToastAvoidance } from "./toastAvoidance";
 import { OpenAppCard, afterLatestFooter } from "./OpenAppCard";
 import { setCloudPreviewContext, useCloudPreviewPorts } from "./cloudPreviewPorts";
-import { useChatCloudEnvironment } from "./CloudEnvironmentChip";
+import { useChatCloudEnvironment } from "./chatCloudEnvironment";
 import { NativeError } from "./nativeError";
 import { errorMessage, isStartCancelled, knownRefusalText, startErrorMessage } from "./transportErrors";
 import { pageHostClient } from "./pageHost";
@@ -112,6 +113,7 @@ import { goalHatPlace } from "./goalHat.experiment";
 import { jumpLatestPlace } from "./jumpPlace.experiment";
 import { hatSide } from "./jumpPlace";
 import { hatPillPlace } from "./hatPillPlace.experiment";
+import { earlierPlanHat, earlierPlanShown } from "./subagents/earlierPlanHat.experiment";
 import { githubFolder, githubFolderRepo } from "./githubRepos";
 import { setFolderUseTimes } from "./addedRepos";
 import { useSendAfterCheckout } from "./sendAfterCheckout";
@@ -769,7 +771,7 @@ import { reply as questionReply, replyParams, selection } from "./question/model
 export { NewTabComposerChips, ChatComposerChips } from "./pane/ComposerChips";
 import { DefaultComposerChips } from "./pane/ComposerChips";
 import { drawPaneComposer } from "./pane/PaneComposer";
-import { useHostOverload } from "./OverloadNotice";
+import { usePaneHostOverload } from "./OverloadNotice";
 import { drawPaneBody } from "./pane/PaneBody";
 import { preloadNewTabWhenIdle } from "./newtab/lazyNewTab";
 
@@ -1292,7 +1294,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () => directClient.current?.hostOverload() ?? Promise.reject(new Error("no client")),
     [],
   );
-  const hostOverload = useHostOverload(readOverload);
+  // Off by default (developerTools.overloadNotice): no poll and no banner until Developer Tools turns it on.
+  const hostOverload = usePaneHostOverload(readOverload);
   /// The pane's toasts (paneToasts.ts): feedback on a click goes there, never into the transcript.
   const [paneToasts] = useState(createPaneToasts);
   /// Where the toasts' top anchors are drawn (ToastLayer.tsx).
@@ -2746,8 +2749,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       callRelease,
     ],
   );
-  // The questions the agent asked the person that still wait on them once another turn came after
-  // (turns.ts `waitingAsks`): pinned in the asks stack above the composer (PendingAsks.tsx) until
+  // The agent's newest question to the person, still waiting once another turn came after (turns.ts
+  // `waitingAsks`, at most one per chat): pinned in the asks stack above the composer (PendingAsks.tsx) until
   // answered, said anything after, or dismissed. Leo, 2026-11-06, on a question another agent's
   // message pushed out of reach: "perhaps persistent at the bottom".
   const waitingAskRows = useMemo(
@@ -2810,13 +2813,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Debug Settings agent.sessionStatus draws its activity line under the pinned list, so it pins it.
   const planInHat = !pinnedPlan && !sessionStatus && !quick && !childRows && hatWorking;
   const hatPlanRow = useMemo(() => (planInHat ? liveTurnPlan(turnRowsShown) : undefined), [planInHat, turnRowsShown]);
-  // A running turn with no list of its own yet keeps the agent's earlier list with steps left in
-  // sight, marked as from before the person's last message (turns.ts earlierTurnPlan). It stays folded in its own turn too; the copy goes once the agent writes a list.
-  const earlierPlanRow = useMemo(
-    () =>
-      hatWorking && !quick && !childRows && !liveTurnPlan(turnRowsShown) ? earlierTurnPlan(turnRowsShown) : undefined,
-    [hatWorking, quick, childRows, turnRowsShown],
-  );
+  // A running turn with no list of its own yet keeps the agent's earlier list in sight only while a
+  // step in it is still in progress (turns.ts earlierTurnPlan, earlierPlanHat.experiment.ts; Leo,
+  // 2026-11-25, on "Earlier plan · 0 of 1" over a deferred reminder: "do we want to render it like
+  // that tho in teh composer hat"). It stays folded in its own turn too; the copy goes once the agent
+  // writes a list or that step completes.
+  const [earlierPlanArm] = useState(() => experimentArm(earlierPlanHat));
+  const earlierPlanRow = useMemo(() => {
+    if (!hatWorking || quick || childRows || liveTurnPlan(turnRowsShown)) return undefined;
+    const row = earlierTurnPlan(turnRowsShown);
+    return row && earlierPlanShown(earlierPlanArm, row.plan) ? row : undefined;
+  }, [hatWorking, quick, childRows, turnRowsShown, earlierPlanArm]);
   // The chat's task list across its turns (acpmux `taskList`, chatTaskList.ts): between turns the hat
   // shows it while steps are left, and a running turn without a list of its own shows it when the
   // transcript no longer holds the earlier list (a long chat paged it out), or when the Chief keeps it.
@@ -2827,6 +2834,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         live: hatPlanRow?.plan,
         earlier: earlierPlanRow?.plan,
         list: snapshot.summary?.taskList,
+        earlierArm: earlierPlanArm,
       })
     : undefined;
   // The hat's plan header counts the running turn's current stretch, as the transcript's live line does.
@@ -9610,6 +9618,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                   heldWorkedClosing={
                                                                     quick || childRows ? undefined : heldWorkedClosing
                                                                   }
+                                                                  rowsAreCopy={!childRows && drawsCopy(snapshot)}
                                                                   // A prompt goes to the chat, not to the subagent shown in its place.
                                                                   sends={childRows ? undefined : sends}
                                                                   onFollowingChange={
@@ -10798,6 +10807,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     previewBeside,
     jumpPlaceArm,
     trayHandle,
+    hatPill: trayPlacement === "tray" && trayTucked && trayNode ? hatPillArm : undefined,
     chatMinimapBeside,
     hasBottomAsk,
     setPaneMain,
