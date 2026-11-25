@@ -23,9 +23,17 @@ public nonisolated struct SettingsBuildDefaults: Sendable, Equatable {
     /// pair with the person's iPhone by default, so a fresh one is reachable from the phone without a trip to
     /// Settings. Its own file starts empty, so this is the value in effect until someone sets the key there;
     /// NIGHTLY and stable keep the schema's off.
-    public static func channel(downloadsAutomatically: Bool, devBuild: Bool = false) -> SettingsBuildDefaults {
+    ///
+    /// `updates.automatic` is Install When Idle in cmux NEXT's NIGHTLY (`UpdateTrack.installsWhenIdleByDefault`;
+    /// Leo 2026-11-22: "cosmic-gray was supposed to auto-update when i was away from the keyboard. like, auto be
+    /// de facto able to click the restart button") and off (the schema's default) in release.
+    public static func channel(downloadsAutomatically: Bool, devBuild: Bool = false, installsWhenIdle: Bool = false) -> SettingsBuildDefaults {
         var values: [[String]: JSONValue] = [:]
-        if downloadsAutomatically { values[UpdatesSettings.automaticPath] = .string(UpdatesAutomaticSetting.download.rawValue) }
+        if installsWhenIdle {
+            values[UpdatesSettings.automaticPath] = .string(UpdatesAutomaticSetting.idle.rawValue)
+        } else if downloadsAutomatically {
+            values[UpdatesSettings.automaticPath] = .string(UpdatesAutomaticSetting.download.rawValue)
+        }
         if devBuild { values[MobileSettings.allowIPhoneConnectionsPath] = .bool(true) }
         return SettingsBuildDefaults(values: values)
     }
@@ -72,6 +80,8 @@ extension SettingsController {
         // A value kept over the active theme file is the person's even at the default: Reset returns
         // to the file's value (#44894).
         if ThemeFileExceptionsSetting.keys(in: fileRoot).contains(descriptor.id), setsInThemeFile(descriptor.id) { return true }
+        // Resetting an explicit group style returns ownership to the sidebar look.
+        if descriptor.path == SidebarSectionsSetting.groupHeaderBackgroundPath, layerBelowFileSets(descriptor.id) { return true }
         return stored != defaultValue(of: descriptor)
     }
 }

@@ -1131,9 +1131,36 @@ def pane_drag_rows(path: str | None) -> tuple[dict, list[str]]:
     return rows, lines
 
 
+def transcript_fling_rows(path: str | None) -> tuple[dict, list[str]]:
+    """Rows and BENCH.md lines from webviews/bench/transcript-fling.bench.ts's TRANSCRIPT_FLING_OUT (RFD 0121 item 2,
+    the native transcript's "before"): one JSON line per arm. Report only."""
+    if not path or not os.path.exists(path):
+        return {}, []
+    arms = [json.loads(line) for line in open(path) if line.strip()]
+    rows, lines = {}, []
+    lines += ["## Transcript fling (headless Chromium on this Mac)", "",
+              "Report only. webviews/bench/transcript-fling.bench.ts: transcript = the shipped React transcript "
+              "(test/browser/transcript-fling.html) flung bottom to top by its debug fling; web = plain DOM rows; "
+              "bare = one text block (the floor). Frame interval p50 / p95 / max ms; late = intervals over 8.33 ms "
+              "(one 120 Hz frame); blank = frames with no row under the viewport. Headless Chromium's frame clock "
+              "is not the display's: compare arms within one run.", "",
+              "| Arm | Rows | Frames | Interval p50 / p95 / max | Late (> 8.33 ms) | Blank |",
+              "|---|---|---|---|---|---|"]
+    for arm in arms:
+        lines.append(f"| {arm['arm']} | {arm['rows']} | {arm['frames']} | {arm['frame_p50_ms']:g} / "
+                     f"{arm['frame_p95_ms']:g} / {arm['frame_max_ms']:g} | {arm['late_frames']} | "
+                     f"{arm['blank_frames']} |")
+        slug = f"transcript-fling-{arm['arm']}-{arm['rows']}"
+        rows.setdefault(f"{slug}-frame-p95", {})["headless-chromium"] = {"median": arm["frame_p95_ms"]}
+        rows.setdefault(f"{slug}-late-frames", {})["headless-chromium"] = {"median": arm["late_frames"]}
+    if not arms:
+        lines.append("| – | | not run: no arm reported | | | |")
+    return rows, lines + [""]
+
+
 def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str | None = None,
            palette: str | None = None, budgets: str | None = None,
-           panedrag: str | None = None):
+           panedrag: str | None = None, transcriptfling: str | None = None):
     path = os.path.join(out, "samples.jsonl")
     samples = [json.loads(line) for line in open(path) if line.strip()] if os.path.exists(path) else []
     meta = json.load(open(os.path.join(out, "meta.json")))
@@ -1149,6 +1176,12 @@ def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str 
         drag_found, drag_lines = {}, ["## Pane and tab drag (cmux NEXT, tagged Debug build)", "",
                                       f"Not read: {error!r}", ""]
     rows.update(drag_found)
+    try:  # report only, as pane drag
+        fling_found, fling_lines = transcript_fling_rows(transcriptfling)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        fling_found, fling_lines = {}, ["## Transcript fling (headless Chromium on this Mac)", "",
+                                        f"Not read: {error!r}", ""]
+    rows.update(fling_found)
     errors = [s for s in samples if s["row"] == "session-error" or (s.get("value") is None and s.get("note"))]
     budget_errors = sum(1 for sample in samples if sample["browser"] == budget.NAME and sample["row"] == "session-error")
     # The run's budgets file decides, so samples are judged against the scenario that collected them.
@@ -1196,6 +1229,7 @@ def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str 
     lines += switch_lines
     lines += palette_lines
     lines += drag_lines
+    lines += fling_lines
     if errors:
         lines += ["## Rows that could not be measured", ""]
         seen = set()
@@ -1322,6 +1356,7 @@ def main():
     rep.add_argument("--tabswitch", help="tab-switch-matrix.py's --json report")
     rep.add_argument("--palette", help="palette-open-stages.py's --json report")
     rep.add_argument("--panedrag", help="scripts/ci/frame-pacing/pane_drag.py's --json report")
+    rep.add_argument("--transcriptfling", help="webviews/bench/transcript-fling.bench.ts's TRANSCRIPT_FLING_OUT")
     rep.add_argument("--budgets", help="budgets.json (default: the one the run used); an enforced budget "
                      "the cmux-budget session broke exits 1")
     gat = sub.add_parser("gate")
@@ -1334,7 +1369,8 @@ def main():
         random.seed(0)
         Run(args).main()
     elif args.command == "report":
-        result = report(args.out, args.md, args.json, args.tabswitch, args.palette, args.budgets, args.panedrag)
+        result = report(args.out, args.md, args.json, args.tabswitch, args.palette, args.budgets, args.panedrag,
+                        args.transcriptfling)
         sys.exit(1 if result["budgets"]["failed"] else 0)
     else:
         sys.exit(gate(args.results, args.baseline, args.tolerance))

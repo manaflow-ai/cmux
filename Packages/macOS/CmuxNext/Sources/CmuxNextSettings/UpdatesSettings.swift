@@ -16,8 +16,9 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
     public var checkAutomatically: Bool { automatic != .off }
     /// Found updates download by themselves (Download Automatically and Install When Idle).
     public var downloadAutomatically: Bool { automatic == .download || automatic == .idle }
-    /// A downloaded update installs by itself once cmux has been idle `installWhenIdleMinutes`, never while
-    /// an agent works or a message is unsent (Install When Idle).
+    /// A downloaded update installs by itself once the person is away (`installWhenIdleMinutes` with no
+    /// input, or the screen locked), never over an unsent message (Install When Idle); a running agent turn
+    /// does not hold it. NIGHTLY picks it by default (a build default).
     public var installWhenIdle: Bool { automatic == .idle }
     /// Seconds between automatic checks.
     public var checkIntervalSeconds = UpdatesSettings.checkIntervalDefault

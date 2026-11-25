@@ -231,9 +231,7 @@ impl Hub {
         if turn.turn_seq == 0 {
             return;
         }
-        let Some(s) =
-            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&session.id).cloned()
-        else {
+        let Some(s) = self.session_get(&session.id) else {
             return;
         };
         let Ok(rt) = tokio::runtime::Handle::try_current() else { return };

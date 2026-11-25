@@ -86,4 +86,25 @@ import Testing
         #expect(team.managedKeys["updates.automatic"] == .team("T"))
         #expect(CFManagedPreferenceReader.readKeys.contains("updates.checkAutomatically"))
     }
+
+    /// Install When Idle is the Automatic Updates default in cmux NEXT NIGHTLY and not in release (Leo, 2026-11-22:
+    /// "auto be de facto able to click the restart button"); an explicit pick in NIGHTLY wins and the default is
+    /// never written for him.
+    @Test func updateWhenIdleFollowsTheBuild() async throws {
+        let nightly = SettingsBuildDefaults.channel(downloadsAutomatically: true, installsWhenIdle: true)
+        do {
+            let (settings, home) = try await Self.settings("{}", nightly)
+            defer { try? FileManager.default.removeItem(at: home) }
+            #expect(settings.snapshot.updates.installWhenIdle, "NIGHTLY restarts when away by default")
+            #expect(try await settings.file.value(at: UpdatesSettings.automaticPath) == nil, "the build default was written")
+        }
+        do {
+            let (settings, home) = try await Self.settings(#"{"updates": {"automatic": "download"}}"#, nightly)
+            defer { try? FileManager.default.removeItem(at: home) }
+            #expect(!settings.snapshot.updates.installWhenIdle, "an explicit Download Automatically lost to the build default")
+        }
+        let (settings, home) = try await Self.settings("{}", .channel(downloadsAutomatically: false))
+        defer { try? FileManager.default.removeItem(at: home) }
+        #expect(!settings.snapshot.updates.installWhenIdle, "release stays off")
+    }
 }

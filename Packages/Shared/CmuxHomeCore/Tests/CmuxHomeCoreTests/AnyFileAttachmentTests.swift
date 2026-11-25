@@ -1,7 +1,9 @@
 import Foundation
 import Testing
 import CmuxHomeCoreTestSupport
+#if canImport(UniformTypeIdentifiers)
 import UniformTypeIdentifiers
+#endif
 @testable import CmuxHomeCore
 
 /// Any file attaches (Lawrence 2026-10-20: "“index.html” can’t be attached …

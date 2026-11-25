@@ -236,3 +236,47 @@ fn a_taken_chunk_stays_pending_until_the_parser_confirms_it() {
     assert!(pending.head.is_empty());
     assert_eq!(pending.all, b";5;196mRED");
 }
+
+#[test]
+fn a_parked_reader_resumes_on_output_and_on_the_end() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static RESUMED: AtomicUsize = AtomicUsize::new(0);
+    fn resume(tag: usize) {
+        RESUMED.fetch_add(tag, Ordering::SeqCst);
+    }
+    let sink = HolderSink::new(0);
+    // Quiet: the reader parks, and nothing runs it until output comes.
+    assert!(!sink.wait_readable_for(std::time::Duration::from_millis(1)));
+    assert!(sink.park(1, resume).is_ok());
+    assert_eq!(RESUMED.load(Ordering::SeqCst), 0);
+    sink.data(0, b"x");
+    assert_eq!(RESUMED.load(Ordering::SeqCst), 1);
+    // Output waiting: the reader is told to read on, not parked.
+    assert_eq!(sink.park(10, resume), Err(10));
+    let mut buf = [0u8; 4];
+    assert_eq!(SinkReader(sink.clone()).read(&mut buf).unwrap(), 1);
+    sink.confirm_parsed();
+    // Parked again, the end resumes it too (the reader then takes the end).
+    assert!(sink.park(100, resume).is_ok());
+    sink.exit(ExitStatus::Exited(0), 1);
+    assert_eq!(RESUMED.load(Ordering::SeqCst), 101);
+    assert!(sink.wait_readable_for(std::time::Duration::ZERO));
+    assert_eq!(sink.park(1000, resume), Err(1000));
+}
+
+#[test]
+fn a_detach_or_a_loss_resumes_a_parked_reader() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static RESUMED: AtomicUsize = AtomicUsize::new(0);
+    fn resume((): ()) {
+        RESUMED.fetch_add(1, Ordering::SeqCst);
+    }
+    let detached = HolderSink::new(0);
+    assert!(detached.park((), resume).is_ok());
+    detached.detach();
+    assert_eq!(RESUMED.load(Ordering::SeqCst), 1);
+    let lost = HolderSink::new(0);
+    assert!(lost.park((), resume).is_ok());
+    lost.lose();
+    assert_eq!(RESUMED.load(Ordering::SeqCst), 2);
+}

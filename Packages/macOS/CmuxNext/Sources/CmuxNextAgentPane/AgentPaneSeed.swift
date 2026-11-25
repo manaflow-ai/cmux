@@ -53,6 +53,8 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     /// `/cd --on cloud`; webviews commandPlace.ts), for the new page to find what it handed over.
     /// Handed out once, with ``picksCloud``.
     public var cloudStartHandoff: String?
+    /// The Auto Cloud start whose arrival line belongs to this seeded chat.
+    public var autoCloudStartKey: String?
     /// A Sandboxed send that already ended, shown by this new page as its own (a Run notification's
     /// click, ``AgentPaneSandboxRuns``).
     public var sandboxResult: SandboxResult?
@@ -125,6 +127,9 @@ public final class AgentPaneSeedSource {
     public var workspaceContext = false
     /// A Sandboxed send that already ended, shown by this new page (``AgentPaneSeed/sandboxResult``).
     public var sandboxResult: AgentPaneSeed.SandboxResult?
+    /// This new page is a Mac tab's own again after the Cloud chat it showed in place went: it says so
+    /// (``AgentPaneView/showCloudChatEnded(machine:promptBack:)``, cmux#55066), naming the machine.
+    public var cloudChatEnded: (machine: String?, promptBack: Bool)?
     /// Runs once, when ``take()`` hands the page the seed's draft (not when the source is made: a host
     /// that fails before its handshake never takes it).
     public var onDraftTaken: (() -> Void)?
@@ -219,6 +224,7 @@ public final class AgentPaneSeedSource {
         value?.showsHarnesses = false
         value?.picksCloud = false
         value?.cloudStartHandoff = nil
+        value?.autoCloudStartKey = nil
         // A missing folder is taken once; Choose Folder changes or clears it (cx-nn3e.1).
         if let needed = value?.folderNeeded {
             folderNeeded = needed

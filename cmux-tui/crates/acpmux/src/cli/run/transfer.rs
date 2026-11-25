@@ -8,7 +8,7 @@ use cmux_json::JsonSet as _;
 
 #[path = "transfer_live.rs"]
 pub(crate) mod live;
-pub(crate) use live::{Live, move_progress_line};
+pub(crate) use live::{Live, move_progress_line, move_undecided_line};
 use live::{Pager, page_files};
 
 /// Moves `session` to the daemon at `to`.
@@ -61,6 +61,13 @@ pub(super) struct Begun {
     pub(super) transfer_id: String,
     pub(super) epoch: u64,
     pub(super) stage_id: Option<String>,
+    /// `session move --as`: the target's harness the chat lands on (`hub/transfer_in.rs`).
+    pub(super) as_harness: Option<String>,
+    /// The last seq of the history that follows the chat (`history_follows`), when the staged
+    /// prefix left it behind.
+    pub(super) history_after: Option<u64>,
+    /// When the source answered the begin: the freeze runs from `frozenMs` before it.
+    pub(super) begun_at: std::time::Instant,
 }
 
 /// A prefix of the chat staged on the target before the freeze (`hub/transfer_precopy.rs`).
@@ -68,6 +75,15 @@ pub(super) struct Staged {
     pub(super) prepare_id: String,
     pub(super) after_seq: u64,
     pub(super) stage_id: String,
+    /// The prefix holds no history: it follows the chat (`hub/transfer_history.rs`).
+    pub(super) history_later: bool,
+}
+
+/// How many of a chat's last turns a move carries in its freeze when its history follows the
+/// chat (`hub/transfer_history.rs`): `ACPMUX_MOVE_HISTORY_LATER=<turns>`. Unset (or zero), every
+/// move pre-copies the whole history first, as before.
+fn history_later_turns() -> Option<u64> {
+    std::env::var("ACPMUX_MOVE_HISTORY_LATER").ok()?.trim().parse().ok().filter(|turns| *turns > 0)
 }
 
 /// Freezes the chat `id` on `src` and makes its bundle (`_acpmux/transfer_begin`). `watch` is
@@ -197,7 +213,8 @@ async fn begin_with(
         begin_params.set("afterSeq", json!(staged.after_seq));
     }
     if let Some(bound) = turn_bound.filter(|_| after_turn) {
-        begin_params.set("afterTurnTimeoutMs", json!(bound.as_millis() as u64));
+        begin_params
+            .set("afterTurnTimeoutMs", json!(u64::try_from(bound.as_millis()).unwrap_or(u64::MAX)));
     }
     let begin = src.call("_acpmux/transfer_begin", begin_params, Wait::Turn, true).await?;
     let transfer_id = field(&begin, "transferId").as_str().unwrap_or_default().to_owned();
@@ -207,8 +224,11 @@ async fn begin_with(
             .as_u64()
             .ok_or_else(|| anyhow!("transfer_begin: epoch must be an unsigned integer"))?,
     };
-    let stage_id = staged.filter(|_| begin.get("prefix").is_some()).map(|s| s.stage_id.clone());
-    Ok(Begun { begin, transfer_id, epoch, stage_id })
+    let begun_at = std::time::Instant::now();
+    let staged = staged.filter(|_| begin.get("prefix").is_some());
+    let stage_id = staged.map(|s| s.stage_id.clone());
+    let history_after = staged.filter(|s| s.history_later).map(|s| s.after_seq);
+    Ok(Begun { begin, transfer_id, epoch, stage_id, as_harness: None, history_after, begun_at })
 }
 
 /// Gives the chat back on the source: the move did not happen.
@@ -297,7 +317,7 @@ pub(super) async fn precopy(
     id: &str,
     live: &Live,
 ) -> Result<Option<Staged>> {
-    use crate::capabilities::{TRANSFER_LIVE, TRANSFER_PRECOPY};
+    use crate::capabilities::{TRANSFER_HISTORY_LATER, TRANSFER_LIVE, TRANSFER_PRECOPY};
     let target_caps = "/_meta/acpmux/capabilities";
     if !live::lists(dst_init, target_caps, TRANSFER_PRECOPY) {
         return Ok(None);
@@ -315,10 +335,19 @@ pub(super) async fn precopy(
     let base = base.map(|b| field(&b, "base").clone()).filter(|b| !b.is_null());
     let mut staged = None;
     if let Some(base) = base {
-        staged = stage_rounds(src, dst, id, Some(base), resume, &mut pager).await?;
+        staged = stage_rounds(src, dst, id, Some(base), resume, None, &mut pager).await?;
+    }
+    // Asked for, and both daemons can: only the chat's last turns are prepared, and its history
+    // follows the chat after the move (`history_follows`).
+    let later = history_later_turns().filter(|_| {
+        live::lists(dst_init, target_caps, TRANSFER_HISTORY_LATER)
+            && live::lists(&status, "/capabilities", TRANSFER_HISTORY_LATER)
+    });
+    if staged.is_none() && later.is_some() {
+        staged = stage_rounds(src, dst, id, None, resume, later, &mut pager).await?;
     }
     if staged.is_none() {
-        staged = stage_rounds(src, dst, id, None, resume, &mut pager).await?;
+        staged = stage_rounds(src, dst, id, None, resume, None, &mut pager).await?;
     }
     if staged.is_some() {
         pager.phase = "freeze";
@@ -339,11 +368,15 @@ async fn stage_rounds(
     id: &str,
     base: Option<Value>,
     resume: bool,
+    later: Option<u64>,
     pager: &mut Pager,
 ) -> Result<Option<Staged>> {
     let mut staged = None;
     for _ in 0..live::MAX_ROUNDS {
         let mut params = json!({"sessionId": id});
+        if let Some(keep) = later {
+            params.set("historyLater", json!({"keepTurns": keep}));
+        }
         if let Some(base) = &base {
             params.set("base", base.clone());
         }
@@ -382,7 +415,8 @@ async fn stage_rounds(
             Ok(()) => {}
         }
         let _ = pager.tick(src, true).await;
-        staged = Some(Staged { prepare_id, after_seq, stage_id });
+        let history_later = *field(&prepared, "historyLater") == true;
+        staged = Some(Staged { prepare_id, after_seq, stage_id, history_later });
         if !resume || pager.sent <= live::SMALL_ROUND {
             break;
         }
@@ -501,13 +535,26 @@ async fn finish_noted(
     name: Option<String>,
     to_meta: Value,
 ) -> Result<Value, Failed> {
-    let (begin, transfer_id) = (&begun.begin, &begun.transfer_id);
-    if let Err(e) = receiver_takes(begin, dst_init) {
+    let transfer_id = &begun.transfer_id;
+    if let Err(e) = receiver_takes(&begun.begin, dst_init) {
         return Err(abort_end(src, id, begun, e).await);
     }
+    // An optional bundle file the target does not list stays here: a target older than it would
+    // refuse the whole move for it (`capabilities::OPTIONAL_BUNDLE_FILES`).
+    let mut begin = begun.begin.clone();
+    let caps = "/_meta/acpmux/capabilities";
+    let left =
+        crate::capabilities::leave_out_untaken(&mut begin, |c| live::lists(dst_init, caps, c));
+    if let Some(line) = crate::capabilities::left_out_line(&left) {
+        eprintln!("acpmux: move {transfer_id}: {line}");
+    }
+    let begin = &begin;
     let mut receive_params = json!({"manifest": begin});
     if let Some(stage_id) = &begun.stage_id {
         receive_params.set("stageId", json!(stage_id));
+    }
+    if let Some(name) = &begun.as_harness {
+        receive_params.set("asHarness", json!(name));
     }
     let receive = dst.call("_acpmux/transfer_receive", receive_params, Wait::Page, false);
     let receive = match receive.await {
@@ -535,13 +582,89 @@ async fn finish_noted(
             }
         },
     };
+    // The freeze: from the chat marked moving on the source (`frozenMs` before its begin
+    // answered) to the target's finish, and the bytes the bundle carried in it (less what a
+    // stage already held). One line per move, and the source's `transferred` record keeps it.
+    let frozen = field(begin, "frozenMs").as_u64().unwrap_or(0);
+    let ms = frozen.saturating_add(begun.begun_at.elapsed().as_millis() as u64);
+    let bytes: u64 = field(begin, "files")
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|f| {
+            let held = field(f, "path").as_str().and_then(|p| from.get(p)).copied().unwrap_or(0);
+            field(f, "size").as_u64().unwrap_or(0).saturating_sub(held)
+        })
+        .sum();
+    let later = if begun.history_after.is_some() { ", history follows" } else { "" };
+    eprintln!("acpmux: move {transfer_id}: frozen {ms} ms, {bytes} bytes carried{later}");
     let mut to_meta = to_meta;
     to_meta.set("sessionId", moved.get("sessionId").cloned().unwrap_or(Value::Null));
     // A commit is answered again the same once it is on disk (`transfer_commit_with_epoch`).
-    let commit =
-        json!({"sessionId": id, "transferId": transfer_id, "to": to_meta, "epoch": begun.epoch});
+    let commit = json!({"sessionId": id, "transferId": transfer_id, "to": to_meta,
+                        "epoch": begun.epoch, "freeze": {"ms": ms, "bytes": bytes}});
     src.call("_acpmux/transfer_commit", commit, Wait::Page, true).await?;
+    // The chat runs on the target now. Its history follows; a failure leaves it on the source,
+    // whose copy keeps the log, and the chat on the target awaiting it.
+    if let Some(through) = begun.history_after {
+        match history_follows(src, dst, id, through).await {
+            Ok(line) => eprintln!("acpmux: move {transfer_id}: {line}"),
+            Err(e) => eprintln!(
+                "acpmux: the chat moved, but its history through seq {through} did not follow: \
+                 {e:#}; it is still on the source"
+            ),
+        }
+    }
     Ok(moved)
+}
+
+/// After a move that left the chat's history behind (`hub/transfer_history.rs`): the source
+/// packs its log through `through` and bundles the chunks the target lacks, the target stages
+/// and unpacks them, and the live chat there takes them as its history. Returns what it cost.
+async fn history_follows(
+    src: &mut MoveEnd<'_>,
+    dst: &mut MoveEnd<'_>,
+    id: &str,
+    through: u64,
+) -> Result<String> {
+    let started = std::time::Instant::now();
+    let have = dst.request("_acpmux/transfer_history_have", json!({"sessionId": id})).await?;
+    let ask = json!({"sessionId": id, "throughSeq": through, "have": field(&have, "have")});
+    let export = src.request("_acpmux/transfer_history_export", ask).await?;
+    let stage = dst.request("_acpmux/transfer_stage", json!({"manifest": export})).await?;
+    let stage_id = field(&stage, "stageId").clone();
+    let mut sent = 0u64;
+    for file in field(&export, "files").as_array().into_iter().flatten() {
+        let (path, mut offset) = (field(file, "path"), 0u64);
+        loop {
+            let read = json!({"transferId": field(&export, "prepareId"), "path": path,
+                              "offset": offset, "limit": live::PAGE});
+            let page = src.request("_acpmux/transfer_read", read).await?;
+            let next =
+                field(&page, "next").as_u64().ok_or_else(|| anyhow!("transfer_read: no next"))?;
+            let write = json!({"receiveId": stage_id, "path": path, "offset": offset,
+                               "data": field(&page, "data")});
+            dst.request("_acpmux/transfer_write", write).await?;
+            sent = sent.saturating_add(next.saturating_sub(offset));
+            offset = next;
+            if *field(&page, "eof") == true {
+                break;
+            }
+        }
+    }
+    dst.request("_acpmux/transfer_stage_finish", json!({"stageId": stage_id})).await?;
+    let ask = json!({"sessionId": id, "stageId": stage_id});
+    let arrived = dst.request("_acpmux/transfer_history", ask).await?;
+    let packed = field(&export, "packed");
+    Ok(format!(
+        "history arrived: {} records through seq {through}, {sent} bytes sent for {} of log \
+         ({} of {} chunks), {} ms",
+        field(&arrived, "records").as_u64().unwrap_or(0),
+        field(packed, "rawBytes").as_u64().unwrap_or(0),
+        field(packed, "chunks").as_u64().unwrap_or(0),
+        field(packed, "sessionChunks").as_u64().unwrap_or(0),
+        started.elapsed().as_millis(),
+    ))
 }
 
 /// Gives the chat back on the source through `src` (reconnected if its connection dropped):
