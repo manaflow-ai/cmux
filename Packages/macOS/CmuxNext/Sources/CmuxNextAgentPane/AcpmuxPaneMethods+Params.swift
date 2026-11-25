@@ -32,7 +32,10 @@ nonisolated extension AcpmuxPaneMethods {
         // validates them against those blocks and keeps them out of the agent's request.
         // `promptSuggestion: "taken"`: the person sent the suggested next prompt (direct.ts, #34496);
         // acpmux only counts it taken for the suggestion gate (suggestion_gate.rs marked_taken).
-        "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId", "steer", "interrupt", "context", "surface", "inlineParts", "promptSuggestion"]),
+        // `steerNow`: Return's steer into a working agent is read at once (direct.ts, cmux#56544):
+        // acpmux stops only the agent's current step, never the turn (hub/steer_end.rs). Stripped,
+        // the steer waited for the step to end and its bubble offered Send now.
+        "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId", "steer", "steerNow", "interrupt", "context", "surface", "inlineParts", "promptSuggestion"]),
         "session/set_model": (["sessionId", "modelId"], []),
         "session/cancel": (["sessionId"], []),
         // `limit`: the newest page of the session list, the rest by `_acpmux/sessions` `cursor` (cx-2lv1k).
