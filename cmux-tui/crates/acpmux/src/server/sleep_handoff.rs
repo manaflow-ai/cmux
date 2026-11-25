@@ -43,7 +43,7 @@ pub(super) fn start() -> Value {
             return json!({"started": false, "error": format!("starting the handoff: {e}")});
         }
     };
-    tokio::spawn(async move {
+    handoff_scope().spawn_named("sleep handoff run", async move {
         // Dropped at the deadline: `kill_on_drop` ends the run.
         match tokio::time::timeout(RUN_DEADLINE, child.wait_with_output()).await {
             Ok(Ok(out)) if !out.status.success() || !out.stderr.is_empty() => {
@@ -57,4 +57,10 @@ pub(super) fn start() -> Value {
         RUNNING.store(false, Ordering::SeqCst);
     });
     json!({"started": true})
+}
+
+/// The owner of the run [`start`] waits on; the daemon closes it, ending a run still going.
+fn handoff_scope() -> &'static cmux_scope::Scope {
+    static SCOPE: std::sync::OnceLock<cmux_scope::Scope> = std::sync::OnceLock::new();
+    SCOPE.get_or_init(|| cmux_scope::Scope::new("sleep handoff"))
 }
