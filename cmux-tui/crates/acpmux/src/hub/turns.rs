@@ -366,10 +366,14 @@ impl Hub {
         if let Some(text) = opts.coach.take() {
             self.coach_prompt(session, &prompt_id, &text);
         }
+        // A chat that moved here (a Mac-first turn handed to its Cloud machine) reads its log
+        // for every client prompt id, as a resend does: the turn the other host ran is answered
+        // from its record, never run again (`moved_prompt_fence.rs`).
+        let resend = opts.resend || super::moved_prompt_fence::reads_log(session);
         // A resent inbox message answers as its notice did, a failure as the same error.
         // A resend reads the chat's indexed records (a whole kind index, hashed): off the
         // workers, as Leo's daemon had two workers busy in it for a whole sample (2026-11-22).
-        if opts.resend
+        if resend
             && let Some(answer) =
                 crate::qos::off_worker(|| self.logged_inbox_answer(session, &prompt_id))
         {
@@ -381,7 +385,7 @@ impl Hub {
             prompt_ledger::prune(&mut ledger);
             return answer;
         }
-        if opts.resend
+        if resend
             && let Some(logged) =
                 crate::qos::off_worker(|| self.logged_prompt_past_inbox(session, &prompt_id))
         {
