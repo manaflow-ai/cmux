@@ -14,7 +14,7 @@ import { directExec, settleBackground, keyProbeCommand, keyProbeDetail, keyProbe
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
 import { sessionModelVerdict } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS, LONG_JOURNEY_MS, autoMachineName } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS, LONG_JOURNEY_MS, autoMachineName } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
 import { idleHeldBy, idlePauseDeadlineMs, machineIdleSeconds } from "./cloud-journey";
@@ -695,6 +695,18 @@ describe("cloud journey: leaked machine sweep", () => {
     expect(m).toEqual({ id: "vm_x", name: `cloud journey auto ${old}`, status: "paused", created: new Date(now - 48 * 3600_000).toISOString() });
   });
 
+  test("takes the Auto mode journey's leftovers (auto journey aj-<tag>), by the same age and name rules", () => {
+    const now = Date.UTC(2026, 10, 25, 9, 0, 0);
+    const aj = (ms: number) => `aj-${ms.toString(36)}`;
+    const ids = staleJourneyMachines([
+      { id: "vm_aj_old", name: `auto journey ${aj(now - STALE_JOURNEY_MS - 60_000)}`, status: "running" },
+      { id: "vm_aj_young", name: `auto journey ${aj(now - STALE_JOURNEY_MS + 60_000)}`, status: "running" },
+      { id: "vm_aj_suffix", name: `auto journey ${aj(now - STALE_JOURNEY_MS - 60_000)} kept`, status: "paused" },
+      { id: "vm_aj_person", name: "my auto journey", status: "paused" },
+    ], now).map((m) => m.id);
+    expect(ids).toEqual(["vm_aj_old"]);
+  });
+
   test("reads every page of the machine list", async () => {
     const pages: Record<string, any> = {
       "": { machines: [{ id: "a" }], next_cursor: "c1" },
@@ -729,6 +741,16 @@ describe("cloud journey: leaked install sweep", () => {
       inst("i_future", `cloud journey ${tagAt(now + 3_600_000)}`),
       inst("i_nottime", "cloud journey jr-zz"),
     ], now)).toEqual(["i_old"]);
+  });
+
+  test("takes the Auto mode journey's live cli install (auto journey aj-<tag>) once it is older than any run", () => {
+    const aj = (ms: number) => `aj-${ms.toString(36)}`;
+    expect(staleJourneyInstalls([
+      inst("i_aj_old", `auto journey ${aj(now - LONG_JOURNEY_MS - 60_000)}`),
+      inst("i_aj_young", `auto journey ${aj(now - LONG_JOURNEY_MS + 60_000)}`),
+      inst("i_aj_revoked", `auto journey ${aj(now - LONG_JOURNEY_MS - 60_000)}`, { revoked_at: now - 1000 }),
+      inst("i_aj_jr", `auto journey ${old}`),
+    ], now)).toEqual(["i_aj_old"]);
   });
 
   test("a malformed list row is skipped, never thrown on", () => {
@@ -956,6 +978,27 @@ describe("Api owner.unreachable retry (cmux-platform#1442)", () => {
       await expect(api().op("cloud.machine.start", { machine: "vm_1" }, "tag-start")).rejects.toThrow("owner.unreachable");
       expect(sent.length).toBe(2);
     });
+  });
+
+  test("op() asks a keyed op again under its key after the client timeout, and an unkeyed op not at all", async () => {
+    const real = globalThis.fetch;
+    const sent: any[] = [];
+    // The first request never answers in time (what AbortSignal.timeout throws); the next answers.
+    globalThis.fetch = (async (_url: string, init: RequestInit = {}) => {
+      sent.push(JSON.parse(String(init.body)));
+      if (sent.length === 1) throw new DOMException("The operation timed out.", "TimeoutError");
+      return new Response(JSON.stringify(ok.body), { status: 200 });
+    }) as typeof fetch;
+    try {
+      expect(await api().op("cloud.machine.create", { name: "n" }, "tag-parent-1")).toEqual({ id: "vm_1" });
+      expect(sent.length).toBe(2);
+      expect(sent[1]).toEqual(sent[0]);
+      sent.length = 0;
+      await expect(api().op("cloud.machine.create", { name: "n" })).rejects.toThrow("timed out");
+      expect(sent.length).toBe(1);
+    } finally {
+      globalThis.fetch = real;
+    }
   });
 
   test("no retry on other codes, on owner.unreachable not marked retryable, or on an op without a key", async () => {
@@ -3524,5 +3567,18 @@ describe("send trace after the first token", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("requestTimedOut", () => {
+  test("is a client timeout, so a keyed op is asked again under its key", () => {
+    expect(requestTimedOut(new DOMException("The operation timed out.", "TimeoutError"))).toBe(true);
+    expect(requestTimedOut(new Error("The operation timed out."))).toBe(true);
+    expect(requestTimedOut(new Error("wrapped", { cause: new DOMException("x", "TimeoutError") }))).toBe(true);
+  });
+  test("is not any other failure", () => {
+    expect(requestTimedOut(new DOMException("aborted", "AbortError"))).toBe(false);
+    expect(requestTimedOut(Object.assign(new Error("reset"), { code: "ECONNRESET" }))).toBe(false);
+    expect(requestTimedOut(undefined)).toBe(false);
   });
 });

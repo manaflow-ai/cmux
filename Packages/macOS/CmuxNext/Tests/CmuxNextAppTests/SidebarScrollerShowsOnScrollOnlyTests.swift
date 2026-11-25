@@ -45,4 +45,22 @@ import Testing
         f.scroller.notificationCenter.post(name: NSScrollView.didLiveScrollNotification, object: scrollView)
         #expect(f.scroller.isKnobShown)
     }
+
+    @Test func theGlobalPersistentThumbSettingDoesNotRevealTheSidebar() throws {
+        let previous = SystemScrollers.thinScrollersAutoHide
+        SystemScrollers.thinScrollersAutoHide = false
+        defer { SystemScrollers.thinScrollersAutoHide = previous }
+        let f = try HitMap.fixture(scrolled: false)
+        defer { f.window.close() }
+        let sidebar = f.root.sidebar.sidebarView
+        sidebar.setChromeRevealed(true)
+        for scroll: NSScrollView in [sidebar.scrollView, sidebar.aboveScroll, sidebar.belowScroll] {
+            #expect((scroll.verticalScroller as? ThinScroller)?.autoHides == true)
+            #expect((scroll.verticalScroller as? ThinScroller)?.isKnobShown != true,
+                    "the persistent-thumb setting revealed a sidebar thumb")
+        }
+        let scrollView = try #require(f.scroller.superview as? NSScrollView)
+        f.scroller.notificationCenter.post(name: NSScrollView.didLiveScrollNotification, object: scrollView)
+        #expect(f.scroller.isKnobShown, "a real sidebar scroll must still show the thumb")
+    }
 }

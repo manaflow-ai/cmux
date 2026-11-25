@@ -96,6 +96,107 @@ pub fn sideband_pack(body: &[u8], v2: bool) -> bool {
     done && sideband
 }
 
+/// Whether this fetch is a whole clone whose answer the mirror may keep: a pack follows on the
+/// sideband (`sideband_pack`), and nothing makes it less than the full closure of its wants (no
+/// `have`, `shallow`, `deepen*` or `filter` line). Only such a pack, written into the mirror,
+/// leaves it holding everything a later clone of the same wants needs.
+pub fn whole_clone(body: &[u8], v2: bool) -> bool {
+    let Some(pkts) = parse(body) else { return false };
+    let partial = pkts.iter().any(|p| match p {
+        Pkt::Data(d) => {
+            let l = line(d);
+            l.starts_with(b"have ")
+                || l.starts_with(b"shallow ")
+                || l.starts_with(b"deepen")
+                || l.starts_with(b"filter")
+        }
+        _ => false,
+    });
+    !partial && sideband_pack(body, v2)
+}
+
+/// Pulls the pack out of an upload-pack answer as it streams by: the pkt-lines before the
+/// pack (v0 `NAK`/`ACK`, v2 `acknowledgments`/`shallow-info` and the `packfile` header) are
+/// skipped, then band 1 is the pack, band 2 progress and band 3 an error.
+#[derive(Default)]
+pub struct PackDemux {
+    v2: bool,
+    pending: Vec<u8>,
+    in_pack: bool,
+    /// A flush came after pack bytes: the pack is whole on the wire.
+    ended: bool,
+    pack_bytes: u64,
+}
+
+impl PackDemux {
+    pub fn new(v2: bool) -> Self {
+        Self { v2, ..Self::default() }
+    }
+
+    /// The pack bytes in `chunk` (with what an earlier chunk left unfinished), or why this
+    /// answer is not a pack the mirror can keep.
+    pub fn feed(&mut self, chunk: &[u8]) -> Result<Vec<u8>, String> {
+        self.pending.extend_from_slice(chunk);
+        let mut out = Vec::new();
+        let mut at = 0;
+        while let Some(head) = self.pending.get(at..at + 4) {
+            let len = std::str::from_utf8(head)
+                .ok()
+                .filter(|h| h.bytes().all(|b| b.is_ascii_hexdigit()))
+                .and_then(|h| usize::from_str_radix(h, 16).ok())
+                .ok_or("not a pkt-line stream")?;
+            if len < 4 {
+                if len == 3 {
+                    return Err("bad pkt-line length".to_owned());
+                }
+                if self.in_pack && len == 0 {
+                    self.ended = true;
+                }
+                at += 4;
+                continue;
+            }
+            let Some(data) = self.pending.get(at + 4..at + len) else { break };
+            if !self.in_pack {
+                if self.v2 {
+                    self.in_pack = line(data) == b"packfile";
+                    at += len;
+                    continue;
+                }
+                // v0: the acknowledgments are text; the first band byte starts the pack.
+                self.in_pack = matches!(data.first(), Some(1..=3));
+            }
+            if self.in_pack {
+                match data.split_first() {
+                    Some((1, pack)) => {
+                        self.pack_bytes += pack.len() as u64;
+                        out.extend_from_slice(pack);
+                    }
+                    Some((2, _)) => {}
+                    Some((3, msg)) => {
+                        return Err(format!(
+                            "upstream error: {}",
+                            String::from_utf8_lossy(msg).trim()
+                        ));
+                    }
+                    _ => return Err("unknown sideband".to_owned()),
+                }
+            }
+            at += len;
+        }
+        self.pending.drain(..at);
+        Ok(out)
+    }
+
+    /// Whether the pack ended with its closing flush and no bytes trail it.
+    pub fn whole(&self) -> bool {
+        self.ended && self.pending.is_empty() && self.pack_bytes > 0
+    }
+
+    pub fn pack_bytes(&self) -> u64 {
+        self.pack_bytes
+    }
+}
+
 /// A sideband progress pkt-line (band 2): git prints it as `remote: <msg>`.
 pub fn progress(msg: &str) -> Vec<u8> {
     let mut out = format!("{:04x}", msg.len() + 5).into_bytes();
@@ -187,5 +288,67 @@ mod tests {
         assert!(sideband_pack(v0("side-band").as_bytes(), false));
         assert!(!sideband_pack(v0("multi_ack ofs-delta").as_bytes(), false));
         assert_eq!(progress("hi\n"), b"0008\x02hi\n");
+    }
+
+    #[test]
+    fn whole_clone_only_without_haves_filters_or_depth() {
+        let v2 = |extra: &str| {
+            format!(
+                "{}0001{}{}{}0000",
+                encode("command=fetch\n"),
+                encode(&format!("want {A}\n")),
+                extra,
+                encode("done\n")
+            )
+        };
+        assert!(whole_clone(v2("").as_bytes(), true));
+        for partial in [
+            format!("have {B}\n"),
+            "filter blob:none\n".to_owned(),
+            "deepen 1\n".to_owned(),
+            format!("shallow {B}\n"),
+        ] {
+            assert!(!whole_clone(v2(&encode(&partial)).as_bytes(), true), "{partial}");
+        }
+    }
+
+    fn band(n: u8, data: &[u8]) -> Vec<u8> {
+        let mut out = format!("{:04x}", data.len() + 5).into_bytes();
+        out.push(n);
+        out.extend_from_slice(data);
+        out
+    }
+
+    #[test]
+    fn demux_takes_band_one_across_chunk_edges() {
+        for v2 in [true, false] {
+            let mut wire = Vec::new();
+            if v2 {
+                wire.extend(encode("acknowledgments\n").bytes());
+                wire.extend(encode("ready\n").bytes());
+                wire.extend(b"0001");
+                wire.extend(encode("packfile\n").bytes());
+            } else {
+                wire.extend(encode("NAK\n").bytes());
+            }
+            wire.extend(band(2, b"Counting objects\n"));
+            wire.extend(band(1, b"PACK-part-one"));
+            wire.extend(band(1, b"-part-two"));
+            wire.extend(b"0000");
+            for step in [1, 3, 7, wire.len()] {
+                let mut d = PackDemux::new(v2);
+                let mut pack = Vec::new();
+                for chunk in wire.chunks(step) {
+                    pack.extend(d.feed(chunk).unwrap());
+                }
+                assert_eq!(pack, b"PACK-part-one-part-two", "v2={v2} step={step}");
+                assert!(d.whole());
+            }
+            let mut cut = PackDemux::new(v2);
+            cut.feed(&wire[..wire.len() - 6]).unwrap();
+            assert!(!cut.whole(), "a cut answer is not whole");
+        }
+        let mut err = PackDemux::new(false);
+        assert!(err.feed(&band(3, b"boom")).is_err());
     }
 }

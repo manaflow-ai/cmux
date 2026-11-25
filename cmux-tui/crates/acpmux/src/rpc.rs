@@ -488,6 +488,8 @@ pub mod method {
     /// The person saw a chat through a log seq (`hub/seen.rs` `read_through`): moves their seen
     /// cursor forward only.
     pub const MUX_SEEN: &str = "_acpmux/seen";
+    /// The person pins or unpins a chat (`hub/synced.rs`): one synced `pin/<id>` edit.
+    pub const MUX_PIN: &str = "_acpmux/pin";
     /// A person in an attached chat starts or stops typing (`hub/presence.rs`).
     pub const MUX_TYPING: &str = "_acpmux/typing";
     /// Who has a chat open and who types in it, to its attached connections.
@@ -496,9 +498,10 @@ pub mod method {
     pub const MUX_HERE_BEAT: &str = "_acpmux/here/beat";
     /// Every person and agent on this machine now, across devices (`hub/here.rs`).
     pub const MUX_HERE: &str = "_acpmux/here";
-    /// The chat titles and read marks a replica lacks since its version vector (`hub/synced.rs`).
+    /// The chat titles, read marks, pins and drafts a replica lacks since its version vector
+    /// (`hub/synced.rs`).
     pub const MUX_SYNC_PULL: &str = "_acpmux/sync/pull";
-    /// Another replica's title and read-mark edits, merged here (`hub/synced.rs`).
+    /// Another replica's title, read-mark, pin and draft edits, merged here (`hub/synced.rs`).
     pub const MUX_SYNC_PUSH: &str = "_acpmux/sync/push";
     pub const MUX_DETACH: &str = "_acpmux/detach";
     pub const MUX_WATCH: &str = "_acpmux/watch";
@@ -942,6 +945,11 @@ pub mod method {
     /// CI only: a Codex auth.json as a `chatgpt-plan` connection, local socket and an env switch.
     pub const MUX_CONNECTIONS_CHATGPT_IMPORT: &str = "_acpmux/connections/chatgpt.import";
     pub const MUX_CONNECTIONS_CLAUDE_TOKEN_ADD: &str = "_acpmux/connections/claude_token.add";
+    /// One-click Claude Code token: the daemon runs `claude setup-token` itself (`claude_token`).
+    pub const MUX_CONNECTIONS_CLAUDE_TOKEN_BEGIN: &str = "_acpmux/connections/claude_token.begin";
+    pub const MUX_CONNECTIONS_CLAUDE_TOKEN_WAIT: &str = "_acpmux/connections/claude_token.wait";
+    pub const MUX_CONNECTIONS_CLAUDE_TOKEN_CODE: &str = "_acpmux/connections/claude_token.code";
+    pub const MUX_CONNECTIONS_CLAUDE_TOKEN_CANCEL: &str = "_acpmux/connections/claude_token.cancel";
     /// A Cloud-serving connection's credential for one machine agent launch (Revision 2).
     pub const MUX_CONNECTIONS_CREDENTIAL: &str = "_acpmux/connections/credential";
     /// Sent to watching unix-socket and local-app connections with the `ConnectionsState`.
