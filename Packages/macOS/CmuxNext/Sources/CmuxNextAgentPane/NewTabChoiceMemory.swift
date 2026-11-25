@@ -76,3 +76,11 @@ public final class NewTabChoiceMemory {
         if let data = try? JSONEncoder().encode(picks) { defaults.set(data, forKey: Self.picksKey) }
     }
 }
+
+public extension AgentPaneNewTab {
+    /// The page starting where the person last started a chat, per mode: This Mac's project and Cloud's own last
+    /// pick (cmux#53226). nil (another machine's page) names neither.
+    @MainActor func startingIn(_ choices: NewTabChoiceMemory?) -> AgentPaneNewTab {
+        startingIn(choices?.startedProject, cloud: choices?.cloudStartedProject)
+    }
+}
