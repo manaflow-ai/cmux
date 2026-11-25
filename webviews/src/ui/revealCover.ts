@@ -41,7 +41,9 @@ function write(controls: Element) {
   const box = controls.getBoundingClientRect();
   let cover = box.width;
   if (host.hasAttribute("data-reveal-overlap")) {
-    const rtl = getComputedStyle(host).direction === "rtl";
+    // The host's own window: a test's DOM (or another frame) has no global getComputedStyle.
+    const view = host.ownerDocument.defaultView;
+    const rtl = view ? view.getComputedStyle(host).direction === "rtl" : host.closest("[dir=rtl]") !== null;
     const text = host.querySelector(".ui-reveal-text");
     cover = text ? overlap(box, text.getBoundingClientRect(), rtl) : 0;
     const crowded = [...host.querySelectorAll(".ui-reveal-under")].some(
