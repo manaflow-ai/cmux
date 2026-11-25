@@ -13,9 +13,10 @@ import { resetLinkStore } from "../chips/linkStore";
 import { activityText } from "./chatFind";
 import { TranscriptReadOnly } from "./readOnly";
 import { ToolRow } from "./ToolRow";
+import { CommandRow } from "./CommandRow";
 import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
+import { factsCardText, visibleLabelText } from "../../../../test/support/factsCard";
 import { settleReact } from "../../../../test/support/domTeardown";
-import { describedText, shownText } from "../../../../test/support/factsCard";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -104,15 +105,41 @@ test("a Read is one static row named by its file, its full path on hover, with n
   const row = container.querySelector("div.cv-tool");
   expect(row).not.toBeNull();
   expect(row!.getAttribute("aria-expanded")).toBeNull();
-  expect(shownText(container.querySelector(".cv-tool__text"))).toBe("Read foo.ts");
-  // The full path is the name's hover card and description (chips/FactsHoverCard.tsx), not a title.
-  const file = container.querySelector(".cv-tool__file")!;
-  expect(file.hasAttribute("title")).toBe(false);
-  expect(describedText(file)).toBe("/work/app/src/foo.ts");
+  expect(visibleLabelText(row!.querySelector(".cv-tool__text")!)).toBe("Read foo.ts");
+  expect(await factsCardText(row!.querySelector(".cv-tool__file")!)).toBe("/work/app/src/foo.ts");
   await act(async () => (row as HTMLElement).click());
   expect(container.querySelector(".cv-filepeek")).toBeNull();
   expect(container.querySelector(".cv-tool-detail")).toBeNull();
 });
+
+for (const [name, Row, kind, command] of [
+  ["Bash command row", CommandRow, "execute", "cat src/foo.ts"],
+  ["Bash tool row", ToolRow, "execute", "sed -n '12,18p' src/foo.ts"],
+  ["Codex parsed exec row", ToolRow, "read", "sed -n 1,80p src/foo.ts"],
+] as const) {
+  for (const status of ["in_progress", "completed"] as const) {
+    test(`${name} (${status}) names the file and discloses the exact shell command`, async () => {
+      const tool = {
+        ...HARNESS_CALLS.codex.read,
+        id: "shell-read",
+        title: kind === "execute" ? "Bash" : "Read foo.ts",
+        kind,
+        command,
+        status,
+      };
+      const container = await render(<Row item={item(tool, "file contents")} />);
+      const row = container.querySelector<HTMLButtonElement>("button.cv-tool");
+      expect(row?.getAttribute("aria-expanded")).toBe("false");
+      expect(row?.querySelector(".cv-tool__file")?.textContent).toBe("foo.ts");
+      expect(row?.textContent).toContain("Read foo.ts");
+      expect(row?.textContent).not.toContain(command);
+      expect(container.querySelector(".cv-shell")).toBeNull();
+      await open(container);
+      expect(container.querySelector(".cv-shell__command")?.textContent).toBe(`$ ${command}`);
+      expect(container.querySelector(".cv-shell__output")?.textContent).toBe("file contents");
+    });
+  }
+}
 
 test("an opened Grep lists matches by file with their line numbers, and a line opens its file", async () => {
   const calls: [string, Record<string, unknown>][] = [];

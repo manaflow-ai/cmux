@@ -158,7 +158,7 @@ pub(super) fn park(
     let hold = all.get_mut(session_id)?;
     let until = hold.until?;
     let key = format!("held-{}", uuid::Uuid::now_v7());
-    let claimed = deliveries().claim(key.clone(), session_id, prompt_id, text, wire);
+    let claimed = deliveries().claim(key.clone(), session_id, prompt_id, text, wire, false);
     let rx = match claimed {
         Ok(rx) => rx,
         Err(rx) => return Some(Err(rx)),
@@ -337,13 +337,20 @@ impl Hub {
                     all.by_uuid.insert(uuid.clone(), p);
                 }
                 None => {
-                    let _ = all.claim(uuid.clone(), &session.id, &prompt_id, CONTINUE_LINE, &wire);
+                    let _ = all.claim(
+                        uuid.clone(),
+                        &session.id,
+                        &prompt_id,
+                        CONTINUE_LINE,
+                        &wire,
+                        false,
+                    );
                 }
             }
             all.ride(&session.id, &prompt_id, riders);
         }
         let sender = held.first().map_or("acpmux", |p| p.sender.as_str());
-        if let Err(e) = target.deliver(&wire, &uuid, sender).await {
+        if let Err(e) = target.deliver(&wire, &[], &uuid, sender).await {
             if let Some(p) = deliveries().by_uuid.remove(&uuid) {
                 p.turn.send_replace(Some(Err(e.clone())));
             }

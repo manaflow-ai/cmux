@@ -281,6 +281,18 @@ fn each_verb_carries_its_arguments() {
         ]
     );
     assert_eq!(agent_move_flags(&[], false, None, None), ["--interrupt"]);
+    // The hybrid start's move never stops a turn; the app's answer without the field still does.
+    assert!(agent_move_flags_at_boundary(&[], false, None, None).is_empty());
+    let hybrid = call(json!({"verb": "agent-move", "from": "/a", "surface": 3, "to": "/b",
+        "cwd": "/w", "vmKind": "owner", "interrupt": false}));
+    assert_eq!(hybrid.args[11..], ["--vm-kind", "owner"]);
+    let today = call(json!({"verb": "agent-move", "from": "/a", "surface": 3, "to": "/b",
+        "cwd": "/w", "vmKind": "owner"}));
+    assert_eq!(today.args[11..], ["--interrupt", "--vm-kind", "owner"]);
+    // The owner's login: a flag that says it is on stdin, never the value in argv.
+    let login = call(json!({"verb": "agent-move", "from": "/a", "surface": 3, "to": "/b",
+        "cwd": "/w", "vmKind": "owner", "login": true}));
+    assert_eq!(login.args[11..], ["--interrupt", "--vm-kind", "owner", "--login-stdin"]);
     // Move to Another Machine: a pull from the old machine, then a seed of the new one, in that order.
     let relay =
         call(json!({"verb": "agent-move", "from": "/a", "surface": 3, "to": "/b", "cwd": "/w",
@@ -448,6 +460,27 @@ fn each_verb_carries_its_arguments() {
         ["link", "start-chat", "preflight", "--local", "/Users/me/Projects"]
     );
     assert_eq!(preflight.timeout_seconds, Some(START_CHAT_PREFLIGHT_TIMEOUT_SECONDS));
+    // `cloud new-machine --environment`: the workspace ensure in that environment, keyed by the create's own key.
+    let ensure = call(
+        json!({"verb": "start-chat-ensure", "key": "k", "environment": "env_0123456789abcdef01234567", "platform": "https://p"}),
+    );
+    assert_eq!(
+        ensure.args,
+        [
+            "link",
+            "start-chat",
+            "ensure",
+            "--workspace",
+            "k",
+            "--key",
+            "k",
+            "--environment",
+            "env_0123456789abcdef01234567",
+            "--platform",
+            "https://p"
+        ]
+    );
+    assert_eq!(ensure.timeout_seconds, Some(150));
     // A plan reaches the platform and a copy moves the folder: they keep the default.
     assert_eq!(call(json!({"verb": "start-chat-plan", "request": "{}"})).timeout_seconds, None);
     assert_eq!(

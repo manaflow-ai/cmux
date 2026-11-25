@@ -65,6 +65,8 @@ public enum CloudStrings {
     public static func linkFailed(_ detail: String) -> String {
         String(format: String(localized: "cloud.link.failed", defaultValue: "Could not connect to the Cloud machine (%@). Click Connect to try again.", table: "Cloud", bundle: .localizedModule), detail)
     }
+    /// ``linkFailed(_:)`` when the failure carried only a code: the sentence without a detail.
+    public static var linkFailedNoDetail: String { String(localized: "cloud.link.failedNoDetail", defaultValue: "Could not connect to the Cloud machine. Click Connect to try again.", table: "Cloud", bundle: .localizedModule) }
     public static var notConnected: String { String(localized: "cloud.failed.notConnected", defaultValue: "The Cloud machine is not connected yet. Wait for it to connect; if it is paused, run `cmux cloud resume-machine --target machine:<id>`.", table: "Cloud", bundle: .localizedModule) }
     public static var commandRequired: String { String(localized: "cloud.failed.commandRequired", defaultValue: "Pass the command to run on the Cloud machine with --command \"<command>\".", table: "Cloud", bundle: .localizedModule) }
     /// A creation's Retry when this Mac's install now bills another team than its first send (cmuxterm-hq#4709).
@@ -104,7 +106,7 @@ public enum CloudStrings {
     public static func upgradeDetail(_ reason: CloudUpgradeReason) -> String {
         switch reason {
         case .freePlan, .server:
-            String(localized: "cloud.upgrade.detail.free", defaultValue: "Your plan has no Cloud machines. The Go is $10 a month and includes machines; Pro is $50 a month.", table: "Cloud", bundle: .localizedModule)
+            String(localized: "cloud.upgrade.detail.free", defaultValue: "Your plan has no Cloud machines. Go is $10 a month and includes machines; Pro is $50 a month.", table: "Cloud", bundle: .localizedModule)
         case .atLimit, .pool:
             String(localized: "cloud.upgrade.detail.limit", defaultValue: "All the running Cloud machines your plan allows are in use. Upgrade (Pro is $50 a month) or delete one.", table: "Cloud", bundle: .localizedModule)
         }

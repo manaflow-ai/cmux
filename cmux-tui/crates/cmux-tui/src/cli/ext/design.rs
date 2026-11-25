@@ -4,7 +4,9 @@
 //!
 //! The checks read the scene, not the source, so they hold for any way the view was built:
 //! - `type-size`: a point size that is not one of the system's type roles.
-//! - `type-style`: an Apple text style name the web and macOS renderers draw at different sizes.
+//! - `type-style`: a `font` name that is no type role: an Apple text style name off the roles
+//!   (`largeTitle`), named as the role at its size, or a name no renderer knows (it draws as body).
+//!   Both renderers draw a name from one table (`scene_type.rs`), so this is a rename hint.
 //! - `type-roles`: (widgets) more text styles in one tile than the system allows (4 in cmux's).
 //!   A pane or a specimen page may show more; a glanceable tile reads with few.
 //! - `spacing`: a gap or padding that is not on the system's spacing scale.
@@ -23,6 +25,7 @@ use serde_json::{Value, json};
 
 use super::design_system::System;
 use super::scene::{self, Node};
+use super::scene_type;
 
 /// Findings printed at most; past it one line says how many more.
 const MAX_FINDINGS: usize = 20;
@@ -45,14 +48,6 @@ const COLOR_TOKENS: [&str; 12] = [
 
 /// Tokens that are accents: the rest are the text's own shades and the surface's.
 const ACCENT_TOKENS: [&str; 4] = ["accent", "success", "warning", "danger"];
-
-/// Apple text style names the two renderers draw at different sizes (web px, macOS pt).
-const DRIFTING_STYLES: [(&str, &str, &str); 4] = [
-    ("largeTitle", "15 px", "26 pt"),
-    ("title", "15 px", "22 pt"),
-    ("title2", "20 px", "17 pt"),
-    ("title3", "20 px", "15 pt"),
-];
 
 /// Props that hold a color.
 const COLOR_PROPS: [&str; 7] =
@@ -119,7 +114,7 @@ pub(super) fn check_in(batches: &[&Value], surface: Surface, system: &System) ->
     // Depth first with what each node sits on, as the outline walks it: cmux's two surfaces
     // until a hex background covers them (a translucent one is blended over what is behind).
     let surfaces: Behind =
-        SURFACES.iter().map(|(name, rgb)| (format!("cmux's {name} surface"), *rgb)).collect();
+        SURFACES.iter().map(|(name, rgb)| (format!("cmux's {name} background"), *rgb)).collect();
     let mut stack: Vec<(String, Behind)> = vec![(root, surfaces)];
     while let Some((id, behind)) = stack.pop() {
         let Some(node) = nodes.get(&id) else { continue };
@@ -277,6 +272,9 @@ pub(super) struct Listing {
     /// Why the folder cannot be checked (no recorded scenes, a file that does not ship), or
     /// `None` when its scenes were.
     pub missing: Option<String>,
+    /// What the check used that the author may not expect: a `cmux-design.json` the package
+    /// does not ship, so the scenes were checked against cmux's system, as review will.
+    pub note: Option<String>,
 }
 
 impl Listing {
@@ -297,13 +295,14 @@ impl Listing {
         }
         let count = self.scenes.len();
         let scenes = format!("{count} recorded scene{}", if count == 1 { "" } else { "s" });
+        let note = self.note.as_ref().map(|note| format!(" ({note})")).unwrap_or_default();
         if self.ok() {
-            return format!("{scenes} ({RECORDED}), no design warning");
+            return format!("{scenes} ({RECORDED}), no design warning{note}");
         }
         let warned = self.scenes.iter().filter(|(_, f)| !f.is_empty()).count();
         let total = self.warnings();
         format!(
-            "{total} design warning{} in {warned} of {scenes}; registry review refuses a listing with any. Fix each, then cmux ext shot --record again",
+            "{total} design warning{} in {warned} of {scenes}; registry review refuses a listing with any. Fix each, then cmux ext shot --record again{note}",
             if total == 1 { "" } else { "s" }
         )
     }
@@ -327,6 +326,7 @@ impl Listing {
         json!({
             "ok": self.ok(),
             "missing": self.missing,
+            "note": self.note,
             "warnings": self.warnings(),
             "scenes": self.scenes.iter().map(|(scene, findings)| json!({
                 "scene": scene,
@@ -362,15 +362,19 @@ fn surface_of(name: &str, drawn: Option<&str>) -> Surface {
 
 /// Registry review's design check of the folder `dir` with `manifest`: every scene in
 /// `preview/scenes.json`, against the folder's `cmux-design.json` over cmux's system (a file
-/// that does not read is a `system` warning on each scene). An extension that draws no view
-/// (a command) has nothing to check and passes.
+/// that does not read is a `system` warning on each scene). Only what the package ships is
+/// used, so the check here and on the unpacked release agree: an unshipped `cmux-design.json`
+/// is left out (and the listing says so). An extension that draws no view (a command, an
+/// opener) has nothing to check and passes.
 pub(super) fn listing(dir: &std::path::Path, manifest: &Value) -> Listing {
-    let drawn = super::dev::probe_interface(manifest);
-    let missing = |why: String| Listing { scenes: Vec::new(), missing: Some(why) };
+    let drawn = super::dev::view_interface(manifest);
+    let missing = |why: String| Listing { scenes: Vec::new(), missing: Some(why), note: None };
     let path = dir.join(RECORDED);
     let text = match std::fs::read_to_string(&path) {
         Ok(text) => text,
-        Err(_) if drawn.is_none() => return Listing { scenes: Vec::new(), missing: None },
+        Err(_) if drawn.is_none() => {
+            return Listing { scenes: Vec::new(), missing: None, note: None };
+        }
         Err(_) => {
             return missing(format!(
                 "no recorded scenes: run cmux ext shot --record (it writes {RECORDED}) for each size and state worth checking, so review can check its design"
@@ -396,7 +400,18 @@ pub(super) fn listing(dir: &std::path::Path, manifest: &Value) -> Listing {
             "{RECORDED} is not in the package, so review cannot read it: add \"preview/\" to the manifest's files"
         ));
     }
-    let (system, problem) = System::load(dir);
+    let design_file = super::design_system::FILE;
+    let (system, problem, note) = if shipped(manifest, design_file) {
+        let (system, problem) = System::load(dir);
+        (system, problem, None)
+    } else {
+        let note = dir.join(design_file).is_file().then(|| {
+            format!(
+                "{design_file} is not in the package, so these scenes were checked against cmux's system, as review checks the release; add \"{design_file}\" to the manifest's files to check against yours"
+            )
+        });
+        (System::cmux(), None, note)
+    };
     let scenes = scenes
         .into_iter()
         .map(|(name, ops)| {
@@ -416,7 +431,7 @@ pub(super) fn listing(dir: &std::path::Path, manifest: &Value) -> Listing {
             (name, findings)
         })
         .collect();
-    Listing { scenes, missing: None }
+    Listing { scenes, missing: None, note }
 }
 
 /// `ext design --listing DIR [--json]`: [`listing`] for a folder; exit 0 clean, 1 refused,
@@ -481,7 +496,7 @@ fn text(
     findings: &mut Findings,
     styles: &mut BTreeSet<String>,
 ) {
-    let weight = node.props.get("weight").and_then(Value::as_str).unwrap_or("");
+    let mut weight = node.props.get("weight").and_then(Value::as_str).unwrap_or("");
     let font = node.props.get("font");
     let mut size = 13.0;
     match font {
@@ -501,20 +516,53 @@ fn text(
                 None => format!("{points} {}", if weight.is_empty() { "regular" } else { weight }),
             });
         }
-        Some(Value::String(name)) => {
-            if let Some((_, web, mac)) = DRIFTING_STYLES.iter().find(|(n, _, _)| n == name) {
+        Some(Value::String(name)) => match scene_type::named(name) {
+            Some(style) => {
+                size = style.size;
+                if style.role.is_some() && scene_type::exact_role(style).is_none() {
+                    let role = style.role.as_deref().and_then(scene_type::named);
+                    let (fix_role, call) = match role {
+                        Some(role) => (
+                            role.name.as_str(),
+                            role.helper
+                                .as_deref()
+                                .map(|h| format!(" or {h}(...)"))
+                                .unwrap_or_default(),
+                        ),
+                        None => ("body", String::new()),
+                    };
+                    findings.add(
+                        "type-style",
+                        Some(node),
+                        format!(
+                            "font \"{name}\" is no type role: it draws {} pt {} (the role at that size is \"{fix_role}\")",
+                            style.size, style.weight
+                        ),
+                        format!("rename it: font \"{fix_role}\"{call}"),
+                    );
+                }
+                let drawn = if weight.is_empty() { style.weight.as_str() } else { weight };
+                styles.insert(match system.role_of(style.size, drawn) {
+                    Some(role) => role.name.clone(),
+                    None => format!("{name} {drawn}"),
+                });
+                weight = drawn;
+            }
+            None => {
+                let roles: Vec<&str> =
+                    scene_type::roles().iter().map(|r| r.name.as_str()).collect();
                 findings.add(
                     "type-style",
                     Some(node),
-                    format!("font \"{name}\" draws {web} on the web and {mac} on macOS"),
-                    "use a type role: BigNumber(...) (34 pt), Heading(...) (20 pt) or Headline(...) (15 pt)".into(),
+                    format!("font \"{name}\" is no type role or text style, so it draws as body"),
+                    format!("use a type role: {}", roles.join(", ")),
                 );
+                styles.insert(format!(
+                    "body{}",
+                    if weight.is_empty() { String::new() } else { format!(" {weight}") }
+                ));
             }
-            styles.insert(format!(
-                "{name}{}",
-                if weight.is_empty() { String::new() } else { format!(" {weight}") }
-            ));
-        }
+        },
         _ => {
             styles.insert(format!(
                 "body{}",

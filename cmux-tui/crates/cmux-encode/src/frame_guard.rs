@@ -22,6 +22,11 @@
 pub const MAX_QP: i32 = 51;
 /// Below this floor the guard sets none (0): the encoder's own choice is sharper.
 pub const MIN_FLOOR: i32 = 12;
+/// A floor at or under this stays when the next frame wants a lower one (or none): it is near
+/// lossless, and changing VideoToolbox's MinAllowedFrameQP costs the next encode about 3 ms
+/// (fleet M6, 4K, the same with or without an idle gap). A screen-share click flapped the floor
+/// between 0 and about 13 and put a quarter of the presses on the slow side.
+pub const HOLD_FLOOR_MAX: i32 = MIN_FLOOR + 6;
 /// The share of the budget a frame is aimed at, leaving room for the model's error.
 pub const FILL: f64 = 0.8;
 /// `k` for the session's first changed frame, before anything is learned: full-screen noise
@@ -60,17 +65,23 @@ impl Default for FrameGuard {
 
 impl FrameGuard {
     /// The QP floor for the next frame: `changed` pixels of damage, `budget` bytes. 0 is none.
-    /// A frame with no damage marks the screen still.
+    /// A frame with no damage marks the screen still. A floor rises at once; one at or under
+    /// [`HOLD_FLOOR_MAX`] holds rather than falling (a floor only makes a frame smaller).
     pub fn before(&mut self, changed: u64, budget: usize) -> i32 {
         if changed == 0 {
             self.still = true;
-            self.floor = 0;
-            return 0;
+            self.floor = self.held(0);
+            return self.floor;
         }
         let k = self.sizing_k();
         self.still = false;
-        self.floor = floor_for(k, changed, budget);
+        self.floor = self.held(floor_for(k, changed, budget));
         self.floor
+    }
+
+    /// `wanted`, or the current floor when that is lower and near lossless.
+    fn held(&self, wanted: i32) -> i32 {
+        if wanted < self.floor && self.floor <= HOLD_FLOOR_MAX { self.floor } else { wanted }
     }
 
     /// The screen went still (the encoder saw a gap in changed frames): the next changed frame
@@ -329,6 +340,26 @@ mod tests {
         assert!(predicted(high) <= 4_166.0, "{}", predicted(high));
         // A small change (a cursor line) at the same rate needs none.
         assert_eq!(guard.before(64 * 16, 4_166), 0);
+    }
+
+    #[test]
+    fn a_low_floor_holds_instead_of_flapping_and_a_high_one_still_falls() {
+        let mut guard = FrameGuard::default();
+        // Content that wants a near-lossless floor over the whole picture.
+        guard.after(PX, 1_900);
+        let low = guard.before(PX, BUDGET);
+        assert!((MIN_FLOOR..=HOLD_FLOOR_MAX).contains(&low), "{low}");
+        // A tiny change wants none, and a still screen none: the floor holds, so the encoder's
+        // MinQP is not changed again.
+        assert_eq!(guard.before(16 * 16, BUDGET), low);
+        assert_eq!(guard.before(0, BUDGET), low);
+        // It still rises at once for a frame that needs more.
+        guard.after(PX, 200_000);
+        let high = guard.before(PX, BUDGET);
+        assert!(high > HOLD_FLOOR_MAX, "{high}");
+        // And a high floor falls as before.
+        assert_eq!(guard.before(16 * 16, BUDGET), 0);
+        assert_eq!(guard.before(0, BUDGET), 0);
     }
 
     #[test]

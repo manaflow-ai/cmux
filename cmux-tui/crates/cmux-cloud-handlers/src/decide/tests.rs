@@ -341,3 +341,38 @@ fn palette_targets_keep_generic_machine_rows_actionable_and_offer_create_when_em
         }]
     );
 }
+
+fn prewarm_facts(value: Value) -> Prewarm {
+    prewarm(&serde_json::from_value(value).unwrap())
+}
+
+#[test]
+fn a_typing_prewarm_resumes_only_a_loaded_paused_machine() {
+    let paused = json!({"allowed": true, "loaded": true, "status": "paused"});
+    assert_eq!(prewarm_facts(paused), Prewarm::Resume);
+    for status in ["running", "pausing", "starting", "unknown"] {
+        let facts = json!({"allowed": true, "loaded": true, "status": status});
+        assert_eq!(prewarm_facts(facts), Prewarm::Skip("notPaused"), "{status}");
+    }
+    assert_eq!(prewarm_facts(json!({"allowed": true, "loaded": true})), Prewarm::Skip("notListed"));
+    assert_eq!(
+        prewarm_facts(json!({"allowed": true, "loaded": false, "status": "paused"})),
+        Prewarm::Skip("notLoaded")
+    );
+    assert_eq!(
+        prewarm_facts(json!({"allowed": false, "loaded": true, "status": "paused"})),
+        Prewarm::Skip("notAllowed")
+    );
+}
+
+#[test]
+fn a_failed_prewarm_resume_is_not_asked_again_on_every_keystroke() {
+    let after = |ms: u64| {
+        prewarm_facts(
+            json!({"allowed": true, "loaded": true, "status": "paused", "sinceFailureMs": ms}),
+        )
+    };
+    assert_eq!(after(0), Prewarm::Skip("coolingDown"));
+    assert_eq!(after(PREWARM_RETRY_AFTER_MS - 1), Prewarm::Skip("coolingDown"));
+    assert_eq!(after(PREWARM_RETRY_AFTER_MS), Prewarm::Resume);
+}

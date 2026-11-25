@@ -1,5 +1,8 @@
 public import CMUXMobileCore
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 
 private func cmxIsSafeClientNamespace(_ value: String) -> Bool {
     (1 ... 255).contains(value.utf8.count)

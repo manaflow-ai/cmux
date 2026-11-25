@@ -9,6 +9,12 @@
 //! ```
 //!
 //! `--write` refuses while a breaking change lacks a rule.
+//!
+//! `--acpmux` checks acpmux's protocol instead (`crates/acpmux/spec/`: the IR
+//! `acpmux-protocol.json`, the rules `acpmux-abi.compat.json`, the snapshot
+//! `acpmux-abi.surface.json`), from the committed IR, so it needs no acpmux
+//! build. acpmux's own `protocol::tests::protocol_abi_breaks_have_rules` runs
+//! the same check on the registry it was built from.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -26,20 +32,23 @@ on the message line, results sit under /data). Then run
 fn main() -> ExitCode {
     let mut root = PathBuf::from(".");
     let mut write = false;
+    let mut acpmux = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--write" => write = true,
+            "--acpmux" => acpmux = true,
             "--root" => root = args.next().map(PathBuf::from).unwrap_or(root),
             other => {
                 eprintln!(
-                    "unknown argument {other}; usage: api-compat-check [--root DIR] [--write]"
+                    "unknown argument {other}; usage: api-compat-check [--root DIR] [--write] [--acpmux]"
                 );
                 return ExitCode::from(2);
             }
         }
     }
-    match run(&root, write) {
+    let result = if acpmux { run_acpmux(&root, write) } else { run(&root, write) };
+    match result {
         Ok(code) => code,
         Err(error) => {
             eprintln!("api-compat-check: {error}");
@@ -107,5 +116,24 @@ fn run(root: &std::path::Path, write: bool) -> Result<ExitCode, Box<dyn std::err
                 Ok(ExitCode::FAILURE)
             }
         }
+    }
+}
+
+fn run_acpmux(root: &std::path::Path, write: bool) -> Result<ExitCode, Box<dyn std::error::Error>> {
+    let spec = root.join("crates/acpmux/spec");
+    let ir: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(spec.join("acpmux-protocol.json"))?)?;
+    let outcome = cmux_api_compat::json_schema::check_files(
+        &ir,
+        &spec.join("acpmux-abi.surface.json"),
+        &spec.join("acpmux-abi.compat.json"),
+        write,
+    )?;
+    if outcome.ok {
+        println!("api-compat-check --acpmux: {}", outcome.message);
+        Ok(ExitCode::SUCCESS)
+    } else {
+        eprintln!("api-compat-check --acpmux: {}", outcome.message);
+        Ok(ExitCode::FAILURE)
     }
 }

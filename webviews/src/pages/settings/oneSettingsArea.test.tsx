@@ -18,10 +18,11 @@ afterEach(() => {
   page = null;
 });
 
-/** The most category rows the sidebar shows before More is opened: 16, and Settings > Customize
+/** The most category rows the sidebar shows before More is opened: 16, Settings > Customize
  * (Leo, 2026-11-22, ask-931361017e: "it should just be as easy as a click toggle"), right after
- * General so it is found first. */
-const SHORT_TOP_LEVEL = 17;
+ * General so it is found first, and Devices under Accounts and Devices, where the join prompt's
+ * "Settings > Devices" points (Leo, 2026-11-22: "i also couldnt find settings devices control"). */
+const SHORT_TOP_LEVEL = 18;
 
 const shownSection = (container: ParentNode) => container.querySelector("[data-section]")?.getAttribute("data-section");
 
@@ -80,10 +81,22 @@ test("the sidebar's top level is short; the rest sits under More, closed until o
 });
 
 test("a page under More opens with More open, its row marked", async () => {
-  page = await renderPage({ path: "/settings/devices" });
+  page = await renderPage({ path: "/settings/keys" });
   const more = page.container.querySelector<HTMLElement>(".sidebar-more")!;
   expect(more.getAttribute("aria-expanded")).toBe("true");
   const current = page.container.querySelector('.section-list [aria-current="page"]');
-  expect(current?.getAttribute("data-section-link")).toBe("devices");
+  expect(current?.getAttribute("data-section-link")).toBe("keys");
   expect(current?.closest("[inert]")).toBeNull();
+});
+
+test("Devices sits under Accounts and Devices, shown without opening More", async () => {
+  page = await renderPage({ path: "/settings/general" });
+  const devices = visibleLinks(page.container).find((link) => link.getAttribute("data-section-link") === "devices");
+  expect(devices).toBeDefined();
+  const sections = categories.map((category) => category.id);
+  expect(sections.slice(sections.indexOf("accounts"), sections.indexOf("accounts") + 3)).toEqual([
+    "accounts",
+    "mobile",
+    "devices",
+  ]);
 });
