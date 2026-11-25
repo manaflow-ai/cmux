@@ -141,6 +141,12 @@ async fn probe_once_with_timeout(route: &Route, home: &Path, timeout: Duration) 
             "ms": started.elapsed().as_millis() as u64,
         })
     };
+    if matches!(route.file.kind, RouteKind::ChatgptPlan | RouteKind::ClaudeToken) {
+        return answer(
+            ProbeStatus::Unknown,
+            "a Cloud connection: its credential goes to a Cloud machine's agent".into(),
+        );
+    }
     if route.file.kind == RouteKind::DirectSubscription && route.file.health_url.is_none() {
         return answer(
             ProbeStatus::Unknown,
@@ -185,7 +191,7 @@ async fn probe_once_with_timeout(route: &Route, home: &Path, timeout: Duration) 
         (None, None) => return answer(ProbeStatus::Unknown, "the route names no endpoint".into()),
     };
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let client = match reqwest::Client::builder().timeout(timeout).build() {
+    let client = match crate::happy_dial::http_client().timeout(timeout).build() {
         Ok(c) => c,
         Err(e) => return answer(ProbeStatus::Unknown, e.to_string()),
     };

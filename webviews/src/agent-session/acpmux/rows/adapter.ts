@@ -5,7 +5,8 @@
 // `notYet.ts` and is left out here, never guessed: the view draws v1's empty state for it.
 // The started chats' cards (decision 241) are placed by the view over these rows from the chat list
 // (App.tsx `withStartedSessions`), as with v1.
-import { permissionFromMessage, mergeToolItem, textFromContent } from "../direct";
+import { permissionFromMessage } from "../permissionMessage";
+import { mergeToolItem, textFromContent } from "../toolActivity";
 import { harnessModeName } from "../harnessModes";
 import { translate } from "../i18n";
 import type { AcpmuxRow, QueuedPrompt } from "../model";
@@ -43,11 +44,20 @@ export function adaptChat(snapshot: ChatRowsSnapshot, context: ChatRowsContext):
 /// keeps its view rows' objects, so the view's turn shaping (`turnViewFrom`) keeps the turns before
 /// the first changed one. A new context is a new adapter.
 export class ChatAdapter {
-  readonly #made = new WeakMap<ChatRow, { group: ChatRow | undefined; rows: AcpmuxRow[] }>();
+  #made = new WeakMap<ChatRow, { group: ChatRow | undefined; rows: AcpmuxRow[] }>();
+  /// The harness the made rows were adapted under. The page's context reads it from the chat list
+  /// as each row is adapted, so a chat chosen before its list row is known learns it later: then
+  /// every made row goes, and a decided ask's mode is named by that harness.
+  #harness: string | undefined;
 
   constructor(readonly context: ChatRowsContext) {}
 
   adapt(snapshot: ChatRowsSnapshot): AdaptedChat {
+    const harness = this.context.harness;
+    if (harness !== this.#harness) {
+      this.#harness = harness;
+      this.#made = new WeakMap();
+    }
     const held = new Map<number, ChatRow>();
     for (const entry of snapshot.rows) if (entry.row) held.set(entry.id, entry.row);
     for (const entry of snapshot.apart) if (entry.row) held.set(entry.id, entry.row);
@@ -108,11 +118,26 @@ export function adaptRow(
       return [{ ...head, kind: "assistant", text: String(body.text ?? ""), streaming: row.open }];
     case "thinking":
       return [
-        { ...head, kind: "activity", items: [{ kind: "thought", text: String(body.text ?? "") }], streaming: row.open },
+        {
+          ...head,
+          kind: "activity",
+          ...(row.group !== undefined ? { foldId: row.group } : {}),
+          items: [{ kind: "thought", text: String(body.text ?? "") }],
+          streaming: row.open,
+        },
       ];
     case "tool": {
       const item = mergeToolItem(undefined, body, String(body.callId ?? ""), textFromContent(body.content));
-      return [{ ...head, kind: "activity", toolCount: 1, items: [item], streaming: row.open }];
+      return [
+        {
+          ...head,
+          kind: "activity",
+          ...(row.group !== undefined ? { foldId: row.group } : {}),
+          toolCount: 1,
+          items: [item],
+          streaming: row.open,
+        },
+      ];
     }
     case "notice":
       return body.notice === "turn_result"

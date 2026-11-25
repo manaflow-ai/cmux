@@ -9,11 +9,21 @@ public import Foundation
 /// window, about 80-160 ms each on a fast Mac; architecture.md 5a, the one allowed
 /// exception) do not land in the middle of user input.
 ///
-/// - A few seconds after launch, while Chromium is the default engine
-///   (`browser.defaultEngine`), Chromium starts at the next idle moment
-///   (`Reason.launch`); otherwise, for a user who opened a Chromium tab in the
-///   last 7 days (`ChromiumUseRecord`), the framework is mapped on a
-///   background thread (`CEFEngine.preload`, no Chromium code runs).
+/// - At the first frame (`start` runs from the App's first-frame hook), while
+///   Chromium is the default engine (`browser.defaultEngine`) or for a user
+///   who opened a Chromium tab in the last 7 days (`ChromiumUseRecord`), the
+///   framework is mapped on a background thread (`CEFEngine.preload`, no
+///   Chromium code runs, nothing on the main thread calls the loader).
+///   While Chromium is the default engine, Chromium also starts right then
+///   (`Reason.launch`, trigger `firstFrame`): `CefInitialize` runs on the main
+///   thread as soon as the map and the launch prep that the first frame
+///   released are done, after the frame and never before it. Every cmux page
+///   (Home, agent chats) is a Chromium page under that default, so the first
+///   one used to start Chromium itself when it asked, ~420 ms after the frame
+///   (cmux23, 120 workspaces: frame 592 ms, `cef.initialize_start` 1014 ms,
+///   always at `chromium_page.make_start`), and paid the whole start in its
+///   own load. #43942 kept `CefInitialize` off the first frame when Home's
+///   page was native and needed no Chromium; it now does.
 /// - When a Chromium tab is likely, `CefInitialize` runs at the next idle
 ///   moment: no key or mouse input to this app for `Policy.idleInput` and no
 ///   menu tracking, waited for with one-shot deadlines (a deadline re-arms
@@ -45,6 +55,9 @@ public final class ChromiumWarmup {
     }
 
     public struct Policy: Sendable {
+        /// From the first frame to a second look at the default engine: Chromium is the default by then
+        /// (not at the first frame) => the launch warm start at the next idle moment (`Reason.launch`). A
+        /// launch with Chromium the default at its first frame started it then (`startAtFirstFrame`).
         public var launchPreloadDelay: Duration = .seconds(3)
         public var idleInput: Duration = .milliseconds(750)
         /// Give up (stay lazy) when the app never goes idle this long.
@@ -56,7 +69,38 @@ public final class ChromiumWarmup {
         public init() {}
     }
 
+    /// The engine's load and start steps the warm-up drives: the App's are the engine's own
+    /// (`init(engine:)`); tests record which runs when.
+    struct Loading {
+        var isAvailable: @MainActor () -> Bool
+        /// Starts the framework map on a background thread (`CEFEngine.preload`).
+        var preload: @MainActor () -> Void
+        var usedRecently: @MainActor (TimeInterval) async -> Bool
+        var libraryLoadEnded: @MainActor () async -> Void
+        /// `CefInitialize` on the main thread (`CEFEngine.warmStart`).
+        var warmStart: @MainActor (String) async -> Void
+
+        init(isAvailable: @escaping @MainActor () -> Bool, preload: @escaping @MainActor () -> Void,
+             usedRecently: @escaping @MainActor (TimeInterval) async -> Bool,
+             libraryLoadEnded: @escaping @MainActor () async -> Void, warmStart: @escaping @MainActor (String) async -> Void) {
+            self.isAvailable = isAvailable
+            self.preload = preload
+            self.usedRecently = usedRecently
+            self.libraryLoadEnded = libraryLoadEnded
+            self.warmStart = warmStart
+        }
+
+        init(engine: CEFEngine) {
+            self.init(isAvailable: { [weak engine] in engine?.availability == .available },
+                      preload: { [weak engine] in engine?.preload() },
+                      usedRecently: { [weak engine] window in await engine?.usedRecently(within: window) ?? false },
+                      libraryLoadEnded: { [weak engine] in await engine?.libraryLoadEnded() },
+                      warmStart: { [weak engine] reason in await engine?.warmStart(reason: reason) })
+        }
+    }
+
     private let engine: CEFEngine
+    private let loading: Loading
     private let policy: Policy
     private let now: @MainActor () -> TimeInterval
     private let isTrackingMenu: @MainActor () -> Bool
@@ -92,8 +136,22 @@ public final class ChromiumWarmup {
     /// - Parameter memoryPressure: the app's memory pressure events (`AppServices.memoryPressure`): a
     ///   warning or critical level closes the spare Chromium page and makes none until normal again
     ///   (`CEFEngine.holdSparePages`). Nil (tests): no such hold.
-    public init(
+    public convenience init(
         engine: CEFEngine,
+        policy: Policy = Policy(),
+        clock: any Clock<Duration> = ContinuousClock(),
+        now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+        isTrackingMenu: @escaping @MainActor () -> Bool = { RunLoop.main.currentMode == .eventTracking },
+        memoryPressure: MemoryPressureEvents? = nil
+    ) {
+        self.init(engine: engine, loading: Loading(engine: engine), policy: policy, clock: clock, now: now,
+                  isTrackingMenu: isTrackingMenu, memoryPressure: memoryPressure)
+    }
+
+    /// `init(engine:...)` with the load and start steps of `loading` (tests).
+    init(
+        engine: CEFEngine,
+        loading: Loading,
         policy: Policy = Policy(),
         clock: any Clock<Duration> = ContinuousClock(),
         now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
@@ -106,6 +164,7 @@ public final class ChromiumWarmup {
         // The kernel never reports the level the app is already under; read it once now.
         memoryPressure?.refresh()
         self.engine = engine
+        self.loading = loading
         self.policy = policy
         launchTimer = DemandTimer(owner: "ChromiumWarmup.preload", clock: clock)
         idleTimer = DemandTimer(owner: "ChromiumWarmup.idle", clock: clock)
@@ -114,19 +173,17 @@ public final class ChromiumWarmup {
         self.isTrackingMenu = isTrackingMenu
     }
 
-    private var isAvailable: Bool { engine.availability == .available }
-
-    /// `launchPreloadDelay` after launch, for a user who opened a Chromium
-    /// tab within `Policy.recentUse`: maps the framework, and while new tabs
-    /// open in Chromium (`defaultIsChromium`) starts it (CefInitialize, then
-    /// the spare window, at idle moments). Anyone else pays nothing until a
-    /// signal (`chromiumLikely`).
+    /// Called at the first frame. For a user who opened a Chromium tab within `Policy.recentUse`, or
+    /// while new tabs open in Chromium (`defaultIsChromium`), maps the framework now, off the main
+    /// thread (`mapAtFirstFrame`); while new tabs open in Chromium, starts it now too
+    /// (`startAtFirstFrame`: CefInitialize once the map is done, then the spare window at an idle
+    /// moment). Anyone else pays nothing until a signal (`chromiumLikely`).
     public func start(
         defaultIsChromium: @escaping @MainActor () -> Bool,
         pagesPending: @escaping @MainActor () -> Bool = { false },
         webTabsOpen: @escaping @MainActor () -> Bool = { true }
     ) {
-        guard !launchTimer.isScheduled, isAvailable else { return }
+        guard !launchTimer.isScheduled, loading.isAvailable() else { return }
         self.defaultIsChromium = defaultIsChromium
         self.pagesPending = pagesPending
         self.webTabsOpen = webTabsOpen
@@ -139,12 +196,40 @@ public final class ChromiumWarmup {
             guard let self, !stopped else { return }
             // While new browser tabs open in Chromium, any browser tab is a Chromium tab: start it
             // at the first idle moment after launch, so no Cmd-Shift-L pays CefInitialize.
-            if self.defaultIsChromium() { return chromiumLikely(.launch) }
-            // task-owner: one launch check per process; reads one small file off the main thread
-            Task { [weak self] in
-                guard let self, await engine.usedRecently(within: policy.recentUse), !stopped else { return }
-                engine.preload()
-            }
+            if self.defaultIsChromium() { chromiumLikely(.launch) }
+        }
+        mapAtFirstFrame()
+        if defaultIsChromium() { startAtFirstFrame() }
+    }
+
+    /// While Chromium is the default engine, every cmux page is a Chromium page: start it at the first
+    /// frame instead of when the first page asks (~420 ms later at 120 workspaces) or after
+    /// `launchPreloadDelay` and an idle moment. Only `CefInitialize` runs on the main thread, in a task
+    /// of its own after the first-frame hooks; the map and the launch prep stay off it, and both start
+    /// only once the frame committed (`CEFRuntime.initializeAfter`), so the frame pays nothing. A page
+    /// that asks meanwhile shares this start (`CEFRuntime.start` is one start for all callers).
+    private func startAtFirstFrame() {
+        guard reason == nil, !engine.isRunning else { return }
+        reason = .launch
+        // task-owner: one warm start per process; CEFEngine owns its lifetime
+        Task { [weak self] in
+            guard let self, !stopped else { return }
+            await loading.warmStart("firstFrame")
+            warmStarted()
+        }
+    }
+
+    /// Starts the framework map now, at the first frame, for a person likely to open a Chromium page:
+    /// Chromium is the default engine, or they opened a Chromium tab within `Policy.recentUse`. The map
+    /// runs on a background thread (`CEFEngine.preload`); the main thread takes its result only when a
+    /// page first asks for Chromium (or the warm start's idle moment), so the first Chromium page of
+    /// the launch's first seconds no longer waits for a load that began 3 s after the frame.
+    private func mapAtFirstFrame() {
+        if defaultIsChromium() { return loading.preload() }
+        // task-owner: one launch check per process; reads one small file off the main thread
+        Task { [weak self] in
+            guard let self, await loading.usedRecently(policy.recentUse), !stopped else { return }
+            loading.preload()
         }
     }
 
@@ -159,19 +244,19 @@ public final class ChromiumWarmup {
     /// `CefInitialize` at the next idle moment. Once per process.
     public func chromiumLikely(_ reason: Reason) {
         if Self.signalsWebTab(reason) { webTabLikely() }
-        guard self.reason == nil, isAvailable, !engine.isRunning else { return }
+        guard self.reason == nil, loading.isAvailable(), !engine.isRunning else { return }
         self.reason = reason
-        engine.preload()
+        loading.preload()
         // The idle wait starts once the framework is mapped, so CefInitialize
         // never waits on a cold load and then lands in input.
         // task-owner: one warm start per process; CEFEngine owns its lifetime
         Task { [weak self] in
-            await self?.engine.libraryLoadEnded()
+            await self?.loading.libraryLoadEnded()
             guard let self, !stopped else { return }
             waitForIdle { [weak self] in
                 // task-owner: one warm start per process; CEFEngine owns its lifetime
                 Task { [weak self] in
-                    await self?.engine.warmStart(reason: reason.rawValue)
+                    await self?.loading.warmStart(reason.rawValue)
                     self?.warmStarted()
                 }
             }
@@ -183,14 +268,13 @@ public final class ChromiumWarmup {
     /// the first tab's open.
     private func warmStarted() {
         guard !stopped, engine.isRunning else { return }
-        // Chromium also runs for agent chats and cmux pages, which never use the spare: it is a web
-        // tab's window and page. With none open or likely, Home held both (a hidden window, an about:blank
-        // placeholder and a frozen spare page, each with its renderer) for nothing.
-        guard Self.makesSpare(webTabsOpen: webTabsOpen(), webTabIntent: webTabIntent) else {
-            spareDeferred = true
-            return
-        }
-        spareDeferred = false
+        // Chromium also runs for agent chats and cmux pages, which never use the web tabs' spare: it is a
+        // web tab's window and page. With none open or likely, Home held both (a hidden window, an
+        // about:blank placeholder and a frozen spare page, each with its renderer) for nothing. Once a
+        // cmux page opened, the pages' own store keeps a spare window for the next page (CEFSpareWindow).
+        let webSpare = Self.makesSpare(webTabsOpen: webTabsOpen(), webTabIntent: webTabIntent)
+        spareDeferred = !webSpare
+        guard webSpare || engine.wantsPageSpareWindow else { return }
         waitForIdle { [weak self] in
             guard let self else { return }
             // A page being made builds its own window: the spare waits until the pages settle
@@ -201,7 +285,10 @@ public final class ChromiumWarmup {
                 spareWaitsForPages = true
                 return
             }
-            engine.prepareSpareWindow()
+            // One window per idle moment: the pages' spare first (a cmux page opens more often than a
+            // web tab's pane); its window coming up asks for the next idle moment (`onSpareWindowNeeded`).
+            if engine.wantsPageSpareWindow, engine.preparePageSpareWindow() { return }
+            if webSpare { engine.prepareSpareWindow() }
         }
     }
 
@@ -209,6 +296,8 @@ public final class ChromiumWarmup {
     /// moment, so the tab after this one joins a live window.
     public func webTabLikely() {
         webTabIntent = true
+        // A web spare released while every web tab slept (`CEFSpareWindow.webPagesChanged`) is made again.
+        engine.webPageLikely()
         guard spareDeferred, !waiting else { return }
         warmStarted()
     }

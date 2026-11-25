@@ -4,6 +4,18 @@
 /// ends the stretch. One ``DemandTimer`` per stretch; nothing runs at idle.
 @MainActor
 public final class QuietHold {
+    /// The one quiet time of a connection state that usually heals on its own ("Connecting…", "Reconnecting…",
+    /// "Disconnected" over the last frame): the daemon's startup deadline and its drop grace. A phone blip, a
+    /// foreground reattach and a daemon handoff after an update (about 10 s) heal under it. Every connection
+    /// label waits this long, through this constant, instead of picking its own time.
+    nonisolated public static let connectionDelay: Duration = .seconds(10)
+    /// ``connectionDelay`` in seconds, for the waits that take a `TimeInterval`.
+    nonisolated public static let connectionDelaySeconds = Double(connectionDelay.components.seconds)
+    /// The quiet time of something coming up for the first time that has its own way out (a connecting card with
+    /// Cancel, a new pane's "Starting…"): most connects land under it, so a fast one draws no label at all. The same
+    /// second as the terminal's `TerminalStatusBanner.startingRevealDelay` and Screen Sharing's connect notice.
+    nonisolated public static let comingUpDelay: Duration = .seconds(1)
+
     /// The state is on and younger than `delay`: draw nothing for it yet.
     public private(set) var held = false
     private var shown = false

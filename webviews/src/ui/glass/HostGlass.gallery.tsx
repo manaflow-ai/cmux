@@ -12,6 +12,7 @@
 import { type CSSProperties, useEffect } from "react";
 import wallpaper from "../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?inline";
 import { componentEntry } from "../../gallery/format";
+import { MOTION_MS } from "../../motion/scale.generated";
 
 type Scheme = "dark" | "light";
 type Look = "before" | "clear" | "rim" | "veil";
@@ -31,7 +32,7 @@ type Order =
   | "close-instant";
 /** The surface: Session Info's panel, or the model menu with its own page veil (% of the theme
  * surface); or an open and close as frames. */
-type Props = { look: Look; scheme: Scheme; menuVeil?: number; order?: Order };
+type Props = { look: Look; scheme: Scheme; menuVeil?: number; order?: Order; stacked?: "two" | "one" };
 
 const ORDERS: Record<Order, Frame[]> = {
   wait: [
@@ -107,6 +108,8 @@ const LOOKS: Record<Exclude<Look, "before">, CSSProperties> = {
   veil: { "--host-glass-fill": "color-mix(in srgb, var(--cmux-surface-solid) 20%, transparent)" } as CSSProperties,
 };
 const BOX = { left: 360, top: 40, width: 300, height: 360, radius: 12 };
+/** A hover card open over Session Info (stackedHostGlass): its box lies inside the panel's. */
+const CARD = { left: 400, top: 150, width: 220, height: 120, radius: 12 };
 
 function useStage(scheme: Scheme, host: boolean): void {
   useEffect(() => {
@@ -223,15 +226,15 @@ function OpenFrames({ order, scheme }: { order: Order; scheme: Scheme }) {
   );
 }
 
-function HostGlassGallery({ look, scheme, menuVeil, order }: Props) {
+function HostGlassGallery({ look, scheme, menuVeil, order, stacked }: Props) {
   return order ? (
     <OpenFrames order={order} scheme={scheme} />
   ) : (
-    <HostGlassPanel look={look} scheme={scheme} menuVeil={menuVeil} />
+    <HostGlassPanel look={look} scheme={scheme} menuVeil={menuVeil} stacked={stacked} />
   );
 }
 
-function HostGlassPanel({ look, scheme, menuVeil }: Props) {
+function HostGlassPanel({ look, scheme, menuVeil, stacked }: Props) {
   const host = look !== "before";
   useStage(scheme, host);
   return (
@@ -263,6 +266,30 @@ function HostGlassPanel({ look, scheme, menuVeil }: Props) {
       >
         <Rows rows={ROWS} />
       </aside>
+      {/* A surface over another surface's App glass: a second App glass under it ("two", before), or
+          the page's own glass over the one the App drew ("one", ships). */}
+      {stacked === "two" ? <AppGlass box={CARD} scheme={scheme} at={CARD} /> : null}
+      {stacked ? (
+        <aside
+          className="ui-glass ui-glass-floats"
+          data-host-glass="popover"
+          data-host-glass-drawn={stacked === "two" ? "1" : undefined}
+          data-host-glass-own={stacked === "one" ? "" : undefined}
+          style={{
+            position: "absolute",
+            left: CARD.left,
+            top: CARD.top,
+            width: CARD.width,
+            height: CARD.height,
+            borderRadius: CARD.radius,
+            padding: "var(--ds-space-2) 0",
+            display: "grid",
+            alignContent: "start",
+          }}
+        >
+          <Rows rows={ROWS.slice(1, 3)} />
+        </aside>
+      ) : null}
     </div>
   );
 }
@@ -320,11 +347,11 @@ export default componentEntry<Props>({
       props: { look: "clear", scheme: "dark", order: "content-first" },
     },
     "close-trailing": {
-      note: "Before (Leo, 2026-11-09: 'What the heck is this?'): the menu's rows fade for 80 ms in the page while the App's glass, drawn in another process from the page's reports, trails them (a pick keeps the App busy as the menu closes), and the blur under the glass stays whole until the fade ends: an empty glass box where the menu was.",
+      note: `Before (Leo, 2026-11-09: 'What the heck is this?'): the menu's rows fade for ${MOTION_MS.quick} ms in the page while the App's glass, drawn in another process from the page's reports, trails them (a pick keeps the App busy as the menu closes), and the blur under the glass stays whole until the fade ends: an empty glass box where the menu was.`,
       props: { look: "clear", scheme: "dark", order: "close-trailing" },
     },
     "close-page-glass": {
-      note: "Ships: as the close starts, the App's glass and the blur leave in that task and the rows fade out on the page's own glass, drawn in the same layer, so glass and rows go in the same frames. The cost: the glass is the page's flatter one for the 80 ms fade.",
+      note: `Ships: as the close starts, the App's glass and the blur leave in that task and the rows fade out on the page's own glass, drawn in the same layer, so glass and rows go in the same frames. The cost: the glass is the page's flatter one for the ${MOTION_MS.quick} ms fade.`,
       props: { look: "clear", scheme: "dark", order: "close-page-glass" },
     },
     "close-instant": {
@@ -334,6 +361,18 @@ export default componentEntry<Props>({
     "open-content-first-light": {
       note: "Ships, light theme.",
       props: { look: "clear", scheme: "light", order: "content-first" },
+    },
+    "stacked-two": {
+      note: "Before (Leo, 2026-11-22: 'multi layer glass + web view'): a hover card over Session Info was reported too, so the App drew a second glass under the page inside the first: two tints, two rims and two shadows in one place.",
+      props: { look: "clear", scheme: "dark", stacked: "two" },
+    },
+    "stacked-one": {
+      note: "Ships: no report has two overlapping boxes. Session Info keeps the App's glass; the card over it keeps the page's own glass, one layer over the one the App drew.",
+      props: { look: "clear", scheme: "dark", stacked: "one" },
+    },
+    "stacked-one-light": {
+      note: "Ships, light theme.",
+      props: { look: "clear", scheme: "light", stacked: "one" },
     },
     veil: {
       note: "The App's glass plus a 20% theme veil from the page: the wallpaper is calmer under the text, and the glass is denser than every native popover's.",

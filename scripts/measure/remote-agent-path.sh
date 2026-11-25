@@ -2,7 +2,7 @@
 # What an agent on another machine feels through cmux Remote, against one enrolled daemon:
 #   scripts/measure/remote-agent-path.sh BIN ROUTE STATE_DIR [n=20] [mib=64]
 # REMOTE_ROUTE_FLAGS adds route options to every call, split on spaces, e.g.
-#   REMOTE_ROUTE_FLAGS="--via-machine cmux16" for a loopback route on another machine through
+#   REMOTE_ROUTE_FLAGS="--via-machine FLEET_HOST" for a loopback route on another machine through
 #   your own carrier (no inbound port), or "--wireguard-config wg.conf".
 # BIN is a cmux with `remote exec` and `remote cp`; ROUTE the daemon's route (ws://HOST:PORT/); STATE_DIR
 # the client state of a device the daemon already enrolled. Prints REMOTE-AGENT-PATH lines:
@@ -30,7 +30,7 @@ samples=()
 for _ in $(seq 1 "$n"); do
   s=$(now_ms); run -- true; e=$(now_ms); samples+=($((e - s)))
 done
-printf '%s\n' "${samples[@]}" > "$work/cold"
+printf '%s\n' ${samples[@]+"${samples[@]}"} > "$work/cold"
 echo "REMOTE-AGENT-PATH exec_cold_ms p50=$(pct 0.5 < "$work/cold") p95=$(pct 0.95 < "$work/cold") n=$n"
 
 s=$(now_ms); lines=$(run -- sh -c 'i=0; while [ $i -lt 10000 ]; do echo line$i; i=$((i+1)); done' | wc -l); e=$(now_ms)

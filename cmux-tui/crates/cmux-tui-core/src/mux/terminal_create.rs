@@ -29,6 +29,19 @@ impl Mux {
                 self.with_state(|state| run_placement_for_surface(state, surface))
             });
             match resolution.terminal.lifecycle {
+                // A never-started lazy tab (terminal_respawn/lazy.rs) is
+                // placed and starts on its first need: its creator gets its
+                // placement, as for a running one.
+                TerminalLifecycle::Exited
+                    if placement.is_some()
+                        && self.lazy_never_started(&resolution.terminal.terminal_id) =>
+                {
+                    return Ok(RunCommandResult {
+                        placement,
+                        terminal: resolution.terminal,
+                        terminal_revision: resolution.terminal_revision,
+                    });
+                }
                 TerminalLifecycle::Exited => {
                     anyhow::ensure!(
                         resolution.terminal.exit.is_some(),
@@ -302,7 +315,7 @@ impl Mux {
             drop(workspace_lifecycle);
             return Ok((placement, surface, created_path));
         }
-        let notifications = self.tree_decorations_placing(&surface);
+        let notifications = self.tab_decorations_placing(&surface);
         let active_at = self.next_active_at();
         let mut rollback_removed = Vec::new();
         let attached = {
@@ -366,20 +379,12 @@ impl Mux {
                     state.insert_pane(pane);
                     state.register_placed_tab_identity(surface.id);
                     stamp_pane_focus(self, &mut state, pane_id);
-                    state.workspaces[wi].screens.push(Screen {
-                        id: screen_id,
-                        public_id: screen_public_id,
-                        name: None,
-                        root: Node::Leaf(pane_id),
-                        active_pane: pane_id,
-                        zoomed_pane: None,
-                        creation_order_auto_layout: Some(vec![pane_id]),
-                        viewport_splits: Default::default(),
-                        viewport_base_width: None,
-                        layout_columns: Vec::new(),
-                        layout_revision: 0,
-                        layout_undo: Default::default(),
-                    });
+                    state.workspaces[wi].screens.push(Screen::with_one_pane(
+                        screen_id,
+                        screen_public_id,
+                        None,
+                        pane_id,
+                    ));
                     state.workspaces[wi].active_screen = 0;
                     let entity = crate::server::tree_entity_json(
                         &state,

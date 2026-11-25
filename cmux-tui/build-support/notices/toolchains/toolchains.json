@@ -34,6 +34,15 @@
         "Native/DiffSidecar/rust-toolchain.toml"
       ],
       "binaries": "bin/cmux-diff-sidecar (Native/DiffSidecar)"
+    },
+    {
+      "version": "1.97.1",
+      "rustc_commit": "8bab26f4f68e0e26f0bb7960be334d5b520ea452",
+      "file": "rust-1.97.1/COPYRIGHT-library.html",
+      "sha256": "0a65bb747c49c7bb816cbc7188319bd6e4e8d08091c1190b8a3c0971c47968ed",
+      "source": "rustc/share/doc/rust/COPYRIGHT-library.html in https://static.rust-lang.org/dist/2026-07-16/rustc-1.97.1-aarch64-apple-darwin.tar.xz (xz_hash 6076cad38ccabaa24325f26a74080a363a2633a9cd34c473a8977255d8a593cb in https://static.rust-lang.org/dist/channel-rust-1.97.1.toml)",
+      "toolchain_files": [],
+      "binaries": "Library/cmux Remote (dev).app/Contents/Frameworks/libcua_driver_sdk.dylib (the pinned upstream trycua/cua cua-driver-sdk of scripts/cmux-next/cua-driver-sdk.pin.json, built with rustc 1.97.1; no toolchain file in this repository pins it)"
     }
   ],
   "zig": [
@@ -55,7 +64,7 @@
       "ghostty_sources": [
         "ghostty-next"
       ],
-      "binaries": "Contents/MacOS/cmux (GhosttyNextKit), bin/cmux and bin/cmux-tui-ssh/* (libghostty-vt): Zig std and compiler_rt"
+      "binaries": "Contents/Frameworks/CmuxNextApp.framework (GhosttyNextKit), bin/cmux and bin/cmux-tui-ssh/* (libghostty-vt): Zig std and compiler_rt"
     }
   ]
 }

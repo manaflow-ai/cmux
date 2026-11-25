@@ -17,7 +17,9 @@
 
 pub mod client;
 pub mod codemode;
+mod device;
 pub mod oauth;
+pub mod serve;
 pub mod store;
 pub mod wire;
 
@@ -30,6 +32,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use client::{Client, ClientError, Era};
+pub use cmux_mcp_connect::shared::Viewer;
 use store::{Dir, Secrets, Server, State, Subscription, Task, Transport};
 use wire::{HttpWire, OnMessage, StdioWire, Wire, WireError};
 
@@ -69,6 +72,24 @@ pub type Notify = Arc<dyn Fn(String) + Send + Sync>;
 /// Reads one environment variable (tests pass their own).
 pub type EnvFn = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
+/// What an agent chat may do with the servers it sees (`integrations serve`):
+/// use them and finish a sign-in, never add, remove or subscribe (it has no
+/// way to be woken).
+pub const AGENT_ACTIONS: [&str; 12] = [
+    "list",
+    "signin",
+    "search",
+    "describe",
+    "call",
+    "run",
+    "tasks",
+    "task",
+    "resources",
+    "read",
+    "prompts",
+    "prompt",
+];
+
 /// The longest a tool call waits by default.
 pub const CALL_TIMEOUT: Duration = Duration::from_secs(120);
 /// A task's default lifetime (the `ttl` the hub asks for).
@@ -98,6 +119,10 @@ struct EventBuffer {
 
 struct Inner {
     dir: Dir,
+    /// Each shared server record as this hub last read or wrote it, so a
+    /// save writes only what this hub changed and a reload sees what
+    /// another process (another Chief, acpmux's card) changed.
+    written: Mutex<HashMap<String, Vec<u8>>>,
     /// The Chief's own skills folder (MCP prompts become skills there).
     skills: Option<PathBuf>,
     state: Mutex<State>,
@@ -107,6 +132,9 @@ struct Inner {
     signing_in: Mutex<HashSet<String>>,
     notify: Notify,
     env: EnvFn,
+    /// Whose servers these are: a Chief sees the ones its scope gives it, an
+    /// agent chat (`integrations serve`) its own, the person every one.
+    viewer: Viewer,
     stopped: AtomicBool,
 }
 
@@ -138,23 +166,9 @@ fn arg<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
         .filter(|s| !s.is_empty())
 }
 
-/// A server name: `[a-z0-9_]`, starting with a letter.
+/// A server name: `[a-z0-9_]`, starting with a letter (the shared store's rule).
 pub fn clean_name(raw: &str) -> String {
-    let mut s: String = raw
-        .trim()
-        .to_ascii_lowercase()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-        .collect();
-    while s.contains("__") {
-        s = s.replace("__", "_");
-    }
-    let s = s.trim_matches('_').to_owned();
-    if s.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) {
-        s
-    } else {
-        format!("s_{s}")
-    }
+    cmux_mcp_connect::shared::clean_name(raw)
 }
 
 /// The name a URL's server gets: the host's most telling label
@@ -232,18 +246,64 @@ impl McpHub {
     /// A hub keeping its servers in `dir` (`<optchat root>/mcp`), writing
     /// MCP prompts as skills into `skills` (the Chief's own skills folder),
     /// and waking the Chief through `notify`.
-    pub fn new(dir: PathBuf, skills: Option<PathBuf>, notify: Notify) -> Self {
+    pub fn new(dir: PathBuf, shared: PathBuf, skills: Option<PathBuf>, notify: Notify) -> Self {
         Self::with_env(
             dir,
+            shared,
             skills,
             notify,
             Arc::new(|k: &str| std::env::var(k).ok()),
         )
     }
 
-    pub fn with_env(dir: PathBuf, skills: Option<PathBuf>, notify: Notify, env: EnvFn) -> Self {
-        let dir = Dir(dir);
+    /// [`McpHub::new`] for one Chief home (`paths::home_id`): it sees the
+    /// servers the person's scope gives that Chief.
+    pub fn new_for(
+        dir: PathBuf,
+        shared: PathBuf,
+        skills: Option<PathBuf>,
+        notify: Notify,
+        viewer: Viewer,
+    ) -> Self {
+        Self::for_viewer(
+            dir,
+            shared,
+            skills,
+            notify,
+            Arc::new(|k: &str| std::env::var(k).ok()),
+            viewer,
+        )
+    }
+
+    pub fn with_env(
+        dir: PathBuf,
+        shared: PathBuf,
+        skills: Option<PathBuf>,
+        notify: Notify,
+        env: EnvFn,
+    ) -> Self {
+        Self::for_viewer(dir, shared, skills, notify, env, Viewer::Person)
+    }
+
+    /// A hub that shows `viewer` only the shared servers the person's scope
+    /// gives it (`cmux_mcp_connect::shared::visible`); the others stay in the
+    /// store untouched.
+    pub fn for_viewer(
+        dir: PathBuf,
+        shared: PathBuf,
+        skills: Option<PathBuf>,
+        notify: Notify,
+        env: EnvFn,
+        viewer: Viewer,
+    ) -> Self {
+        let dir = Dir::new(dir, shared);
         let mut state = dir.load();
+        state.servers.retain(|s| s.visible_to(&viewer));
+        let written = state
+            .servers
+            .iter()
+            .filter_map(|s| Some((s.name.clone(), serde_json::to_vec_pretty(s).ok()?)))
+            .collect();
         // A call the hub ran itself died with the last host.
         for t in state
             .tasks
@@ -257,6 +317,7 @@ impl McpHub {
         Self {
             inner: Arc::new(Inner {
                 dir,
+                written: Mutex::new(written),
                 skills,
                 state: Mutex::new(state),
                 live: Mutex::default(),
@@ -265,6 +326,7 @@ impl McpHub {
                 signing_in: Mutex::default(),
                 notify,
                 env,
+                viewer,
                 stopped: AtomicBool::new(false),
             }),
         }
@@ -335,9 +397,77 @@ impl McpHub {
         self.inner.state.lock().unwrap()
     }
 
+    /// Writes this Chief's subscriptions and tasks, and each shared server
+    /// record this hub changed since it last read or wrote it.
     fn save(&self) {
         let state = self.state().clone();
-        let _ = self.inner.dir.save(&state);
+        let _ = self.inner.dir.save_own(&state);
+        let mut written = self.inner.written.lock().unwrap();
+        for server in &state.servers {
+            let Ok(bytes) = serde_json::to_vec_pretty(server) else {
+                continue;
+            };
+            if written.get(&server.name) != Some(&bytes)
+                && self.inner.dir.save_server(server).is_ok()
+            {
+                written.insert(server.name.clone(), bytes);
+            }
+        }
+    }
+
+    /// Takes in what another process changed in the shared store since this
+    /// hub last looked: a server added, changed (a new sign-in, a fresh tool
+    /// list) or removed by another Chief or by the connect card.
+    pub fn reload_shared(&self) {
+        let disk = self.inner.dir.load_servers();
+        let mut dropped = Vec::new();
+        {
+            let mut state = self.state();
+            let mut written = self.inner.written.lock().unwrap();
+            for (name, server) in &disk {
+                let Ok(bytes) = serde_json::to_vec_pretty(server) else {
+                    continue;
+                };
+                if written.get(name) == Some(&bytes) {
+                    continue;
+                }
+                // Not this viewer's (any more): gone from its list, kept on disk.
+                if !server.visible_to(&self.inner.viewer) {
+                    if state.server(name).is_some() {
+                        state.servers.retain(|s| s.name != *name);
+                        state.subscriptions.retain(|s| s.server != *name);
+                        dropped.push(name.clone());
+                    }
+                    written.remove(name);
+                    continue;
+                }
+                match state.server_mut(name) {
+                    Some(mine) => {
+                        if mine.transport != server.transport {
+                            dropped.push(name.clone());
+                        }
+                        *mine = server.clone();
+                    }
+                    None => state.servers.push(server.clone()),
+                }
+                written.insert(name.clone(), bytes);
+            }
+            let gone: Vec<String> = state
+                .servers
+                .iter()
+                .filter(|s| !disk.contains_key(&s.name) && written.contains_key(&s.name))
+                .map(|s| s.name.clone())
+                .collect();
+            for name in gone {
+                state.servers.retain(|s| s.name != name);
+                state.subscriptions.retain(|s| s.server != name);
+                written.remove(&name);
+                dropped.push(name);
+            }
+        }
+        for name in dropped {
+            self.drop_live(&name);
+        }
     }
 
     fn note(&self, text: String) {
@@ -346,11 +476,21 @@ impl McpHub {
 
     /// One action of the `mcp` tool.
     pub fn handle(&self, args: &Value, caller: &Caller) -> Result<String, String> {
+        self.reload_shared();
         let action = arg(args, "action").unwrap_or("list");
-        let chief_only = matches!(action, "add" | "connect" | "remove" | "signin");
-        if chief_only && let Caller::Subagent(id) = caller {
+        if matches!(self.inner.viewer, Viewer::Agent { .. }) && !AGENT_ACTIONS.contains(&action) {
             return Err(format!(
-                "mcp {action}: only the Chief adds and removes servers; {id} can ask it (tell) to"
+                "mcp_servers {action}: an agent uses the servers the person connected ({}); the person adds and removes them (the connect card, or Settings > MCP Servers)",
+                AGENT_ACTIONS.join(", ")
+            ));
+        }
+        let chief_only = matches!(action, "add" | "connect" | "remove" | "signin");
+        if chief_only
+            && let Caller::Subagent(id) = caller
+            && !self.subagent_may(action, args)
+        {
+            return Err(format!(
+                "mcp {action}: a subagent adds and signs in only to known services (a registry name like linear or slack, with no headers or env); {id} can ask the Chief (tell) for this one"
             ));
         }
         match action {
@@ -394,6 +534,36 @@ impl McpHub {
             other => Err(format!(
                 "mcp: unknown action {other:?}; use add, list, remove, signin, search, describe, call, run, tasks, task, subscribe, unsubscribe, events, resources, read, prompts or prompt"
             )),
+        }
+    }
+
+    /// A subagent may add a known service by name (its exact registry URL,
+    /// so verified, with no secrets or commands of its own) and sign in to a
+    /// verified server: the person still approves at the service. Custom URLs,
+    /// local commands, keys and removal stay the Chief's.
+    fn subagent_may(&self, action: &str, args: &Value) -> bool {
+        match action {
+            "add" | "connect" => {
+                if ["headers", "env", "cwd", "replace", "name", "command"]
+                    .iter()
+                    .any(|k| args.get(*k).is_some())
+                {
+                    return false;
+                }
+                let Some(target) = arg(args, "target").or(arg(args, "url")) else {
+                    return false;
+                };
+                let registry = cmux_mcp_connect::registry::Registry::builtin();
+                cmux_mcp_connect::resolve::resolve(target, &registry).is_ok_and(|r| {
+                    matches!(r, cmux_mcp_connect::resolve::Resolved::Known { .. }) && r.verified()
+                })
+            }
+            "signin" => arg(args, "server").or(arg(args, "name")).is_some_and(|n| {
+                self.state()
+                    .server(&clean_name(n))
+                    .is_some_and(|s| s.verified)
+            }),
+            _ => false,
         }
     }
 
@@ -484,6 +654,18 @@ impl McpHub {
                 }
             }
         }
+        // A record another chat or Chief has (its scope hides it here) is never overwritten.
+        if self
+            .inner
+            .dir
+            .load_servers()
+            .get(&name)
+            .is_some_and(|s| !s.visible_to(&self.inner.viewer))
+        {
+            return Err(format!(
+                "mcp add: the name {name} is taken by a server the person connected for another chat or Chief; pass a different `name`"
+            ));
+        }
         {
             let mut state = self.state();
             if let Some(old) = state.server(&name)
@@ -525,6 +707,16 @@ impl McpHub {
         self.drop_live(&name);
         match self.connect(&name) {
             Ok(_) => Ok(format!("outcome: done. {}", self.summary(&name, true))),
+            // A key the caller gave that the server refuses is a bad key: say so
+            // instead of quietly asking the person for a sign-in.
+            Err(ConnectError::Auth(_)) if !secrets.headers.is_empty() => {
+                let keys: Vec<&str> = secrets.headers.keys().map(String::as_str).collect();
+                self.set_state(&name, "failed: the server refused the key");
+                Err(format!(
+                    "mcp add: {name} is saved but the server refused the key in `headers` ({}) with 401. Check the key and `add` again with `replace`: true; to use the server's own sign-in instead, `add` again with `replace`: true and no `headers`.",
+                    keys.join(", ")
+                ))
+            }
             Err(ConnectError::Auth(header)) => self.sign_in(&name, &header),
             Err(ConnectError::Other(why)) => {
                 self.set_state(&name, &format!("failed: {why}"));
@@ -596,9 +788,9 @@ impl McpHub {
                 }
             ));
             out.push_str(&format!(
-                "\nUse it in code mode: `mcp` action describe (server {0}) for the TypeScript API, then action run with code like `const r = await mcp.{0}.{1}({{...}}); console.log(r)`. Declarations are also in {2}.",
+                "\nUse it in code mode: `mcp` action describe (server {0}) for the TypeScript API, then action run with code like `const r = await mcp.{0}{1}({{...}}); console.log(r)`. Declarations are also in {2}.",
                 s.name,
-                names.first().copied().unwrap_or("tool"),
+                codemode::member(names.first().copied().unwrap_or("tool")),
                 self.inner.dir.api_path(&s.name).display()
             ));
         }
@@ -647,6 +839,7 @@ impl McpHub {
         }
         self.drop_live(&name);
         self.inner.dir.forget(&name);
+        self.inner.written.lock().unwrap().remove(&name);
         let skills = self.write_prompt_skills(&name, &[]);
         self.save();
         Ok(format!(
@@ -709,19 +902,32 @@ impl McpHub {
         let dir = self.inner.dir.clone();
         let name = name.to_owned();
         Arc::new(move || {
+            let expiring = |s: &Secrets| {
+                s.oauth.as_ref().is_some_and(|t| {
+                    t.expires_ms > 0
+                        && t.expires_ms < now_ms() + 60_000
+                        && t.refresh_token.is_some()
+                })
+            };
             let mut secrets = dir.secrets(&name);
+            if expiring(&secrets) {
+                // One refresh per machine: another Chief or process may hold
+                // the same tokens, and a refresh token is spent once.
+                secrets = dir.with_secret_lock(&name, || {
+                    let mut now = dir.secrets(&name);
+                    if expiring(&now)
+                        && let Some(tokens) = now.oauth.clone()
+                        && let Ok(fresh) = oauth::refresh(&tokens)
+                    {
+                        now.oauth = Some(fresh);
+                        let _ = dir.save_secrets(&name, &now);
+                    }
+                    now
+                });
+            }
             let mut out: Vec<(String, String)> = secrets.headers.clone().into_iter().collect();
             if let Some(tokens) = secrets.oauth.clone() {
-                let mut access = tokens.access_token.clone();
-                if tokens.expires_ms > 0
-                    && tokens.expires_ms < now_ms() + 60_000
-                    && tokens.refresh_token.is_some()
-                    && let Ok(fresh) = oauth::refresh(&tokens)
-                {
-                    access = fresh.access_token.clone();
-                    secrets.oauth = Some(fresh);
-                    let _ = dir.save_secrets(&name, &secrets);
-                }
+                let access = tokens.access_token.clone();
                 out.retain(|(k, _)| !k.eq_ignore_ascii_case("authorization"));
                 out.push(("Authorization".into(), format!("Bearer {access}")));
             }
@@ -730,8 +936,50 @@ impl McpHub {
     }
 
     /// The live connection to `name`, connecting (and listing its tools)
-    /// when there is none.
+    /// when there is none. A 401 with a refresh token in the store spends it
+    /// once (a token with no stated expiry, or revoked early) before the
+    /// server counts as needing a sign-in.
     fn connect(&self, name: &str) -> Result<Arc<Live>, ConnectError> {
+        match self.connect_once(name) {
+            Err(ConnectError::Auth(header)) => {
+                if self.force_refresh(name) {
+                    self.connect_once(name)
+                } else {
+                    Err(ConnectError::Auth(header))
+                }
+            }
+            other => other,
+        }
+    }
+
+    /// Refreshes `name`'s OAuth token now (under the machine-wide lock);
+    /// true when a fresh token was saved.
+    fn force_refresh(&self, name: &str) -> bool {
+        let dir = &self.inner.dir;
+        let before = dir.secrets(name).oauth.map(|t| t.access_token);
+        dir.with_secret_lock(name, || {
+            let mut now = dir.secrets(name);
+            let Some(tokens) = now.oauth.clone() else {
+                return false;
+            };
+            // Another process refreshed it while this one waited.
+            if before.as_deref() != Some(tokens.access_token.as_str()) {
+                return true;
+            }
+            if tokens.refresh_token.is_none() {
+                return false;
+            }
+            match oauth::refresh(&tokens) {
+                Ok(fresh) => {
+                    now.oauth = Some(fresh);
+                    dir.save_secrets(name, &now).is_ok()
+                }
+                Err(_) => false,
+            }
+        })
+    }
+
+    fn connect_once(&self, name: &str) -> Result<Arc<Live>, ConnectError> {
         let gate = self
             .inner
             .connecting
@@ -865,6 +1113,10 @@ impl McpHub {
     // ---- sign-in ----
 
     fn sign_in(&self, name: &str, header: &str) -> Result<String, String> {
+        // A registry server that signs in with a device code (RFC 8628).
+        if let Some(reply) = self.device_sign_in(name, header) {
+            return reply;
+        }
         let url = match self.state().server(name).and_then(|s| s.transport.clone()) {
             Some(Transport::Http { url }) => url,
             _ => {
@@ -873,12 +1125,19 @@ impl McpHub {
                 ));
             }
         };
+        let started = match oauth::start(&url, header, &oauth::Known::for_url(&url)) {
+            Ok(started) => started,
+            Err(why) => {
+                // Asking for `signin` again would fail the same way: this is a failure,
+                // and the way on is a key (an access token the person makes in the
+                // service's settings).
+                self.set_state(name, &format!("failed: its sign-in cannot start: {why}"));
+                return Err(format!(
+                    "{name} needs a sign-in, and its OAuth sign-in cannot start: {why}. If the service issues access tokens (in its settings, often \"personal access token\" or \"API key\"), ask the person for one and `add` {name} again with `headers`: {{\"Authorization\": \"Bearer <token>\"}} and `replace`: true."
+                ));
+            }
+        };
         self.set_state(name, "needs sign-in");
-        let started = oauth::start(&url, header).map_err(|why| {
-            format!(
-                "mcp add: {name} needs a sign-in, and its OAuth sign-in could not start: {why}. If the server takes a key, add it again with `headers`: {{\"Authorization\": \"Bearer <key>\"}} and `replace`: true."
-            )
-        })?;
         let authorize = started.authorize_url.clone();
         // Each sign-in has its own listener; the newest one the person finishes wins.
         self.inner
@@ -888,40 +1147,58 @@ impl McpHub {
             .insert(name.to_owned());
         let hub = self.clone();
         let name_owned = name.to_owned();
-        let _ = std::thread::Builder::new().name("mcp-signin".into()).spawn(move || {
-            let result = oauth::wait(started);
-            hub.inner.signing_in.lock().unwrap().remove(&name_owned);
-            match result {
-                Ok(tokens) => {
-                    let mut secrets = hub.inner.dir.secrets(&name_owned);
-                    secrets.oauth = Some(tokens);
-                    if let Err(e) = hub.inner.dir.save_secrets(&name_owned, &secrets) {
-                        hub.note(format!("[mcp {name_owned}] the sign-in worked but its token could not be saved: {e}"));
-                        return;
-                    }
-                    hub.drop_live(&name_owned);
-                    match hub.connect(&name_owned) {
-                        Ok(_) => hub.note(format!(
-                            "[mcp {name_owned}] signed in and connected. {}\nGo on with what the person asked.",
-                            hub.summary(&name_owned, true)
-                        )),
-                        Err(ConnectError::Auth(_)) => hub.note(format!(
-                            "[mcp {name_owned}] the sign-in finished but the server still refuses the token (401). Try `mcp signin` once more."
-                        )),
-                        Err(ConnectError::Other(why)) => {
-                            hub.note(format!("[mcp {name_owned}] signed in, but connecting failed: {why}"))
-                        }
-                    }
-                }
-                Err(why) => {
-                    hub.set_state(&name_owned, "needs sign-in");
-                    hub.note(format!("[mcp {name_owned}] the sign-in did not finish: {why}"))
-                }
-            }
-        });
+        let _ = std::thread::Builder::new()
+            .name("mcp-signin".into())
+            .spawn(move || {
+                let result = oauth::wait(started);
+                hub.inner.signing_in.lock().unwrap().remove(&name_owned);
+                hub.finish_sign_in(&name_owned, result);
+            });
+        if matches!(self.inner.viewer, Viewer::Agent { .. }) {
+            // `integrations serve` has no way to wake the agent, and the
+            // `cmux mcp serve` upstream it runs in stops after 10 quiet minutes.
+            return Ok(format!(
+                "outcome: waiting. {name} needs the person to sign in. Open this page for them in a cmux browser tab and tell them what it is for; only they sign in and approve, never do it for them:\n{authorize}\nThis sign-in waits 10 minutes. When they say it is done, call mcp_servers with action list: {name} then shows connected."
+            ));
+        }
         Ok(format!(
             "outcome: waiting. {name} needs the person to sign in. Open this page for them (your auth-escalation flow: a cmux browser tab where they are signed in; they only approve):\n{authorize}\nThe hub waits for the approval off your turn (20 minutes) and wakes you with a note when {name} is connected. Do not poll."
         ))
+    }
+
+    /// Saves a finished sign-in's tokens, connects and wakes the Chief (or
+    /// says why it did not finish). Both sign-ins end here: the loopback
+    /// redirect and the device code.
+    fn finish_sign_in(&self, name: &str, result: Result<store::OAuthTokens, String>) {
+        match result {
+            Ok(tokens) => {
+                let mut secrets = self.inner.dir.secrets(name);
+                secrets.oauth = Some(tokens);
+                if let Err(e) = self.inner.dir.save_secrets(name, &secrets) {
+                    self.note(format!(
+                        "[mcp {name}] the sign-in worked but its token could not be saved: {e}"
+                    ));
+                    return;
+                }
+                self.drop_live(name);
+                match self.connect(name) {
+                    Ok(_) => self.note(format!(
+                        "[mcp {name}] signed in and connected. {}\nGo on with what the person asked.",
+                        self.summary(name, true)
+                    )),
+                    Err(ConnectError::Auth(_)) => self.note(format!(
+                        "[mcp {name}] the sign-in finished but the server still refuses the token (401). Try `mcp signin` once more."
+                    )),
+                    Err(ConnectError::Other(why)) => {
+                        self.note(format!("[mcp {name}] signed in, but connecting failed: {why}"))
+                    }
+                }
+            }
+            Err(why) => {
+                self.set_state(name, "needs sign-in");
+                self.note(format!("[mcp {name}] the sign-in did not finish: {why}"))
+            }
+        }
     }
 
     fn reconnect_or_sign_in(&self, name: &str) -> Result<String, String> {
@@ -1038,7 +1315,7 @@ impl McpHub {
             return Err(format!("mcp describe: {name} has no tool {t}"));
         }
         Ok(format!(
-            "{}\n// Each call returns structuredContent, else the text (parsed when it is JSON); an error result throws.\n// Use: action run, code: `const r = await mcp.{name}.<tool>({{...}}); console.log(r);`",
+            "{}\n// Each call returns structuredContent, else the text (parsed when it is JSON); an error result throws.\n// Use: action run, code: `const r = await mcp.{name}.<tool>({{...}}); console.log(r);` (a tool name that is no identifier: `mcp.{name}[\"<tool>\"](...)`)",
             codemode::declarations(&name, &s.tools, &s.flagged, tool)
         ))
     }
@@ -1046,12 +1323,96 @@ impl McpHub {
     fn connect_error(&self, name: &str, e: ConnectError) -> String {
         match e {
             ConnectError::Auth(_) => {
+                let secrets = self.inner.dir.secrets(name);
+                if !secrets.headers.is_empty() && secrets.oauth.is_none() {
+                    self.set_state(name, "failed: the server refused the key");
+                    return format!(
+                        "{name} refused its key (401): the key in its `headers` is wrong or revoked. `add` {name} again with a new key and `replace`: true."
+                    );
+                }
+                let failed = self
+                    .state()
+                    .server(name)
+                    .map(|s| s.state.starts_with("failed: its sign-in cannot start"))
+                    .unwrap_or(false);
+                if failed {
+                    let why = self
+                        .state()
+                        .server(name)
+                        .map(|s| s.state.clone())
+                        .unwrap_or_default();
+                    return format!(
+                        "{name} needs a key: {}. `add` {name} again with `headers`: {{\"Authorization\": \"Bearer <token>\"}} and `replace`: true.",
+                        why.trim_start_matches("failed: ")
+                    );
+                }
                 self.set_state(name, "needs sign-in");
+                let again = if secrets.oauth.is_some() {
+                    " again"
+                } else {
+                    ""
+                };
                 format!(
-                    "{name} needs the person to sign in again: use mcp action signin, server {name}"
+                    "{name} needs the person to sign in{again}: use mcp action signin, server {name}"
                 )
             }
             ConnectError::Other(why) => format!("{name} did not connect: {why}"),
+        }
+    }
+
+    /// What a failed request on a connected server says: the server's own
+    /// JSON-RPC error is an answer, not a failed connection.
+    fn request_error(&self, name: &str, e: ClientError) -> String {
+        match e {
+            ClientError::Rpc { code, message } => {
+                format!("{name} answered error {code}: {}", redact(&message))
+            }
+            ClientError::Wire(WireError::Auth(h)) => {
+                self.connect_error(name, ConnectError::Auth(h))
+            }
+            ClientError::Wire(WireError::Timeout) => format!("{name} did not answer in time"),
+            e => format!("{name}: {}", redact(&e.to_string())),
+        }
+    }
+
+    /// Runs `op` on `name`'s live connection (connecting first) with the one
+    /// policy every request shares: a session the server ended, or a process
+    /// that died, connects again once; a 401 on a live connection (a token
+    /// revoked or expired early) spends the refresh token once and tries
+    /// again before the server counts as needing a sign-in.
+    fn on_live<T>(
+        &self,
+        name: &str,
+        mut op: impl FnMut(&Arc<Live>) -> Result<T, ClientError>,
+    ) -> Result<(Arc<Live>, T), String> {
+        let mut reconnected = false;
+        let mut refreshed = false;
+        loop {
+            let live = self
+                .connect(name)
+                .map_err(|e| self.connect_error(name, e))?;
+            live.last_used.store(now_ms(), Ordering::SeqCst);
+            match op(&live) {
+                Ok(v) => return Ok((live, v)),
+                Err(ClientError::Wire(WireError::Gone)) if !reconnected => {
+                    reconnected = true;
+                    self.drop_live(name);
+                }
+                Err(ClientError::Wire(WireError::Other(_)))
+                    if !reconnected && !live.client.wire.alive() =>
+                {
+                    reconnected = true;
+                    self.drop_live(name);
+                }
+                Err(ClientError::Wire(WireError::Auth(h))) => {
+                    self.drop_live(name);
+                    if refreshed || !self.force_refresh(name) {
+                        return Err(self.connect_error(name, ConnectError::Auth(h)));
+                    }
+                    refreshed = true;
+                }
+                Err(e) => return Err(self.request_error(name, e)),
+            }
         }
     }
 
@@ -1068,38 +1429,42 @@ impl McpHub {
     ) -> Result<Value, String> {
         let name = clean_name(server);
         let args = if args.is_null() { json!({}) } else { args };
-        let mut retried = false;
-        loop {
-            let live = self
-                .connect(&name)
-                .map_err(|e| self.connect_error(&name, e))?;
-            live.last_used.store(now_ms(), Ordering::SeqCst);
-            let required = self.task_support(&name, tool) == "required";
-            let mut params = json!({"name": tool, "arguments": args});
-            if required && live.client.era == Era::Session && live.client.does_tasks() {
-                params["task"] = json!({"ttl": TASK_TTL_MS});
-            }
-            match live.client.request("tools/call", params, timeout) {
-                Ok(result) => {
-                    if let Some(handle) = client::task_handle(&result) {
-                        return self.wait_task_inline(&live, &handle, timeout);
-                    }
-                    return Ok(result);
+        let required = self.task_support(&name, tool) == "required";
+        let (live, result) = self
+            .on_live(&name, |live| {
+                let mut params = json!({"name": tool, "arguments": args});
+                if required && live.client.era == Era::Session && live.client.does_tasks() {
+                    params["task"] = json!({"ttl": TASK_TTL_MS});
                 }
-                // The session ended or the process died: connect again, once.
-                Err(ClientError::Wire(WireError::Gone)) if !retried => {
-                    retried = true;
-                    self.drop_live(&name);
-                }
-                Err(ClientError::Wire(WireError::Other(_)))
-                    if !retried && !live.client.wire.alive() =>
-                {
-                    retried = true;
-                    self.drop_live(&name);
-                }
-                Err(e) => return Err(self.connect_error(&name, ConnectError::from(e))),
-            }
+                live.client.request("tools/call", params, timeout)
+            })
+            .map_err(|why| self.with_tool_names(&name, tool, why))?;
+        if let Some(handle) = client::task_handle(&result) {
+            return self.wait_task_inline(&live, &handle, timeout);
         }
+        Ok(result)
+    }
+
+    /// `why`, plus the server's tool names when `tool` is not one of them
+    /// (the server's "not found" names no alternative).
+    fn with_tool_names(&self, name: &str, tool: &str, why: String) -> String {
+        let names: Vec<String> = self
+            .state()
+            .server(name)
+            .map(|s| {
+                s.tools
+                    .iter()
+                    .filter_map(|t| t["name"].as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if names.is_empty() || names.iter().any(|n| n == tool) {
+            return why;
+        }
+        format!(
+            "{why}. {name} has no tool {tool:?}; its tools: {}",
+            names.join(", ")
+        )
     }
 
     fn task_support(&self, server: &str, tool: &str) -> String {
@@ -1171,8 +1536,7 @@ impl McpHub {
         let code = arg(args, "code").ok_or(
             "mcp run: give `code` (TypeScript/JavaScript; `await mcp.<server>.<tool>({...})`)",
         )?;
-        let runtime = codemode::find_runtime(&*self.inner.env)
-            .ok_or("mcp run: no JavaScript runtime (deno, node or bun) on this machine; use action call instead")?;
+        let runtime = codemode::runtime(&*self.inner.env)?;
         let timeout = Duration::from_secs(
             args.get("timeout_seconds")
                 .and_then(Value::as_u64)
@@ -1189,7 +1553,13 @@ impl McpHub {
             let result = hub.call_tool(server, tool, a, CALL_TIMEOUT)?;
             codemode::script_value(&result)
         });
-        codemode::run(&runtime, code, &self.inner.dir.0.join("run"), timeout, call)
+        codemode::run(
+            &runtime,
+            code,
+            &self.inner.dir.own.join("run"),
+            timeout,
+            call,
+        )
     }
 
     // ---- tasks ----
@@ -1232,10 +1602,17 @@ impl McpHub {
             if live.client.era == Era::Session {
                 params["task"] = json!({"ttl": TASK_TTL_MS});
             }
-            let result = live
-                .client
-                .request("tools/call", params, CALL_TIMEOUT)
-                .map_err(|e| format!("mcp call {name}.{tool}: {e}"))?;
+            let (_, result) = self
+                .on_live(&name, |live| {
+                    live.client
+                        .request("tools/call", params.clone(), CALL_TIMEOUT)
+                })
+                .map_err(|why| {
+                    format!(
+                        "mcp call {name}.{tool}: {}",
+                        self.with_tool_names(&name, tool, why)
+                    )
+                })?;
             match client::task_handle(&result) {
                 Some(handle) => {
                     task.remote = handle["taskId"].as_str().map(str::to_owned);
@@ -1952,10 +2329,9 @@ impl McpHub {
         if !live.client.has(&["resources"]) {
             return Ok(format!("outcome: noop. {name} offers no resources"));
         }
-        let list = live
-            .client
-            .list_all("resources/list", "resources")
-            .map_err(|e| e.to_string())?;
+        let (live, list) = self.on_live(&name, |live| {
+            live.client.list_all("resources/list", "resources")
+        })?;
         let templates = live
             .client
             .list_all("resources/templates/list", "resourceTemplates")
@@ -1999,13 +2375,12 @@ impl McpHub {
 
     fn read(&self, server: &str, uri: &str) -> Result<String, String> {
         let name = clean_name(server);
-        let live = self
-            .connect(&name)
-            .map_err(|e| self.connect_error(&name, e))?;
-        let r = live
-            .client
-            .request("resources/read", json!({"uri": uri}), CALL_TIMEOUT)
-            .map_err(|e| format!("mcp read: {e}"))?;
+        let (_, r) = self
+            .on_live(&name, |live| {
+                live.client
+                    .request("resources/read", json!({"uri": uri}), CALL_TIMEOUT)
+            })
+            .map_err(|why| format!("mcp read: {why}"))?;
         let parts: Vec<String> = r["contents"]
             .as_array()
             .map(|c| {
@@ -2074,9 +2449,6 @@ impl McpHub {
     fn prompt(&self, args: &Value) -> Result<String, String> {
         let name = clean_name(arg(args, "server").ok_or("mcp prompt: name the `server`")?);
         let prompt = arg(args, "name").ok_or("mcp prompt: give the prompt `name`")?;
-        let live = self
-            .connect(&name)
-            .map_err(|e| self.connect_error(&name, e))?;
         let mut pargs = serde_json::Map::new();
         if let Some(a) = args.get("args").and_then(Value::as_object) {
             for (k, v) in a {
@@ -2090,14 +2462,15 @@ impl McpHub {
                 );
             }
         }
-        let r = live
-            .client
-            .request(
-                "prompts/get",
-                json!({"name": prompt, "arguments": pargs}),
-                CALL_TIMEOUT,
-            )
-            .map_err(|e| format!("mcp prompt: {e}"))?;
+        let (_, r) = self
+            .on_live(&name, |live| {
+                live.client.request(
+                    "prompts/get",
+                    json!({"name": prompt, "arguments": pargs}),
+                    CALL_TIMEOUT,
+                )
+            })
+            .map_err(|why| format!("mcp prompt: {why}"))?;
         let msgs: Vec<String> = r["messages"]
             .as_array()
             .map(|m| {
@@ -2288,4 +2661,231 @@ fn check_dns(target: &cmux_mcp_connect::target::RemoteTarget) -> Result<(), Stri
             .map_err(|e| format!("{} resolves to {}: {e}", target.host, a.ip()))?;
     }
     Ok(())
+}
+
+/// `optchat-chief integrations ...`: the same hub on the machine's shared
+/// store, from a shell (what the person or another tool connected shows up
+/// for every Chief, and the other way round).
+///
+/// `list` | `add NAME|URL|-- COMMAND...` | `signin NAME` | `remove NAME` |
+/// `tools NAME` | `call NAME TOOL [ARGS_JSON]` | `JSON` (one hub action).
+/// A sign-in prints the page to open and waits (20 minutes) until it is done.
+pub fn cli(words: &[String]) -> i32 {
+    if words.first().is_some_and(|w| w == "serve") {
+        return serve::run();
+    }
+    if words.iter().any(|w| w == "--json") {
+        let words: Vec<String> = words.iter().filter(|w| *w != "--json").cloned().collect();
+        return cli_json(&words, &mut std::io::stdout());
+    }
+    let shared = store::shared_dir();
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    let tx = Mutex::new(tx);
+    let hub = McpHub::new(
+        shared.join("cli"),
+        shared.clone(),
+        None,
+        Arc::new(move |t: String| {
+            let _ = tx.lock().unwrap().send(t);
+        }),
+    );
+    let word = |i: usize| words.get(i).map(String::as_str).unwrap_or("");
+    let args = match word(0) {
+        "" | "list" | "ls" => json!({"action": "list"}),
+        "add" | "connect" => {
+            // `add -- CMD ARGS...` stays a local command (resolve's `-- ` rule).
+            let rest: Vec<&str> = words[1..].iter().map(String::as_str).collect();
+            json!({"action": "add", "target": rest.join(" ")})
+        }
+        "signin" | "auth" => json!({"action": "signin", "server": word(1)}),
+        "remove" | "rm" => json!({"action": "remove", "server": word(1)}),
+        "tools" | "describe" => json!({"action": "describe", "server": word(1)}),
+        "call" => {
+            let a: Value = serde_json::from_str(words.get(3).map(String::as_str).unwrap_or("{}"))
+                .unwrap_or(json!({}));
+            json!({"action": "call", "server": word(1), "tool": word(2), "args": a})
+        }
+        w if w.starts_with('{') => serde_json::from_str(w).unwrap_or(json!({})),
+        other => {
+            eprintln!(
+                "optchat-chief integrations: unknown {other:?}; use list, add, signin, remove, tools, call or one JSON action"
+            );
+            return 2;
+        }
+    };
+    let out = hub.handle(&args, &Caller::Chief);
+    let code = match &out {
+        Ok(text) => {
+            println!("{text}");
+            if text.starts_with("outcome: waiting") {
+                match rx.recv_timeout(oauth::SIGN_IN_WINDOW + Duration::from_secs(30)) {
+                    Ok(note) => {
+                        println!("{note}");
+                        i32::from(!note.contains("signed in and connected"))
+                    }
+                    Err(_) => {
+                        eprintln!("nobody finished the sign-in");
+                        1
+                    }
+                }
+            } else {
+                0
+            }
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            1
+        }
+    };
+    hub.stop();
+    code
+}
+
+/// One saved server as Settings > MCP Servers shows it (no secret, ever).
+pub fn settings_row(server: &Server) -> Value {
+    let (kind, address) = match &server.transport {
+        Some(Transport::Http { url }) => ("remote", url.clone()),
+        Some(t) => ("local", t.label()),
+        None => ("remote", String::new()),
+    };
+    let state = match server.state.as_str() {
+        "connected" => "connected",
+        "needs sign-in" => "signInNeeded",
+        s if s.starts_with("failed") => "failed",
+        _ => "unknown",
+    };
+    json!({
+        "name": server.name,
+        "kind": kind,
+        "address": redact(&address),
+        "publisher": server.publisher,
+        "verified": server.verified,
+        "state": state,
+        "problem": server.state.strip_prefix("failed: ").map(redact),
+        // None: a Chief added it, every agent has it (`shared::visible`).
+        "scope": server.scope.as_deref().unwrap_or("agents"),
+        "tools": server.tools.len(),
+        "addedMs": server.added_ms,
+    })
+}
+
+/// `optchat-chief integrations --json list | signin NAME | remove NAME`, for
+/// Settings > MCP Servers: one JSON object per line. `signin` prints
+/// `{"status":"waiting","page":URL}` (the page the person opens), waits for
+/// them, then `{"status":"connected"}` or `{"status":"failed","why":...}`;
+/// a server that connects at once prints only `{"status":"connected"}`.
+pub fn cli_json(words: &[String], out: &mut dyn std::io::Write) -> i32 {
+    let shared = store::shared_dir();
+    let word = |i: usize| words.get(i).map(String::as_str).unwrap_or("");
+    let mut emit = |v: Value| {
+        let _ = writeln!(out, "{v}");
+        let _ = out.flush();
+    };
+    match word(0) {
+        "" | "list" | "ls" => {
+            let dir = Dir::new(shared.join("cli"), shared.clone());
+            let rows: Vec<Value> = dir.load_servers().values().map(settings_row).collect();
+            emit(json!({"servers": rows}));
+            0
+        }
+        verb @ ("signin" | "remove") if !word(1).is_empty() => {
+            let (tx, rx) = std::sync::mpsc::channel::<String>();
+            let tx = Mutex::new(tx);
+            let hub = McpHub::new(
+                shared.join("cli"),
+                shared.clone(),
+                None,
+                Arc::new(move |t: String| {
+                    let _ = tx.lock().unwrap().send(t);
+                }),
+            );
+            let code = match hub.handle(&json!({"action": verb, "server": word(1)}), &Caller::Chief)
+            {
+                Err(why) => {
+                    emit(json!({"status": "failed", "why": redact(&why)}));
+                    1
+                }
+                Ok(_) if verb == "remove" => {
+                    emit(json!({"status": "removed"}));
+                    0
+                }
+                Ok(text) if text.starts_with("outcome: waiting") => {
+                    let page = text
+                        .lines()
+                        .find(|l| l.starts_with("https://") || l.starts_with("http://"))
+                        .unwrap_or_default();
+                    emit(json!({"status": "waiting", "page": page}));
+                    match rx.recv_timeout(oauth::SIGN_IN_WINDOW + Duration::from_secs(30)) {
+                        Ok(note) if note.contains("signed in and connected") => {
+                            emit(json!({"status": "connected"}));
+                            0
+                        }
+                        Ok(note) => {
+                            let why = note.split_once("] ").map_or(note.as_str(), |(_, w)| w);
+                            emit(json!({"status": "failed", "why": redact(why)}));
+                            1
+                        }
+                        Err(_) => {
+                            emit(
+                                json!({"status": "failed", "why": "the sign-in was not finished in time"}),
+                            );
+                            1
+                        }
+                    }
+                }
+                Ok(_) => {
+                    emit(json!({"status": "connected"}));
+                    0
+                }
+            };
+            hub.stop();
+            code
+        }
+        other => {
+            emit(
+                json!({"status": "failed", "why": format!("unknown {other:?}: use list, signin NAME or remove NAME")}),
+            );
+            2
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hub() -> (tempfile::TempDir, McpHub) {
+        let tmp = tempfile::tempdir().unwrap();
+        let hub = McpHub::new(
+            tmp.path().join("own"),
+            tmp.path().join("shared"),
+            None,
+            Arc::new(|_| {}),
+        );
+        (tmp, hub)
+    }
+
+    #[test]
+    fn a_subagent_may_add_known_services_by_name_only() {
+        let (_tmp, hub) = hub();
+        for ok in [
+            json!({"action": "add", "target": "linear"}),
+            json!({"action": "add", "target": "Slack"}),
+            json!({"action": "add", "target": "https://mcp.linear.app/mcp"}),
+        ] {
+            assert!(hub.subagent_may("add", &ok), "{ok}");
+        }
+        for refused in [
+            json!({"action": "add", "target": "https://mcp.example.com/mcp"}),
+            json!({"action": "add", "target": "npx -y @x/mcp"}),
+            json!({"action": "add", "target": "linear", "headers": {"A": "b"}}),
+            json!({"action": "add", "target": "linear", "name": "fake"}),
+            json!({"action": "add"}),
+        ] {
+            assert!(!hub.subagent_may("add", &refused), "{refused}");
+        }
+        assert!(!hub.subagent_may("remove", &json!({"server": "linear"})));
+        // Sign-in only to a verified server that is there.
+        assert!(!hub.subagent_may("signin", &json!({"server": "linear"})));
+    }
 }

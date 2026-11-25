@@ -20,7 +20,7 @@ afterEach(() => {
 /** The sidebar as a person reads it: each section's header (null when untitled), then its links. */
 function sidebar(container: ParentNode): Array<{ header: string | null; links: string[] }> {
   return [...container.querySelectorAll("[data-sidebar-section]")].map((section) => ({
-    header: section.querySelector(".sidebar-section-title")?.textContent ?? null,
+    header: section.querySelector(".sidebar-section-title, .sidebar-more-label")?.textContent ?? null,
     links: [...section.querySelectorAll("[data-section-link]")].map((link) => link.getAttribute("data-section-link")!),
   }));
 }
@@ -29,6 +29,9 @@ test("the sidebar sections hold every category once, in category order", () => {
   expect(sidebarSections.flatMap((section) => section.categories)).toEqual(categories.map((category) => category.id));
   expect(sidebarSections[0]!.title).toBeNull();
   expect(sidebarSections.slice(1).every((section) => section.title !== null)).toBe(true);
+  // Only the last, More, is drawn closed.
+  expect(sidebarSections.filter((section) => section.collapsed).map((section) => section.id)).toEqual(["more"]);
+  expect(sidebarSections.at(-1)!.collapsed).toBe(true);
 });
 
 test("no card holds more than 16 rows", () => {
@@ -41,11 +44,12 @@ test("no card holds more than 16 rows", () => {
 test("the sidebar draws each section's header above its categories", async () => {
   page = await renderPage({ path: "/settings/general" });
   const shown = sidebar(page.container);
-  expect(shown[0]).toEqual({ header: null, links: ["general", "updates"] });
+  expect(shown[0]).toEqual({ header: null, links: ["general", "customize", "updates"] });
   expect(shown.find((section) => section.links.includes("agents"))).toEqual({
     header: "AI",
-    links: ["chat", "agents", "chief"],
+    links: ["chat", "agents", "chief", "models"],
   });
+  // Every page is in the sidebar once, those under More too (closed, they are inert until opened).
   expect(shown.flatMap((section) => section.links)).toEqual(categories.map((category) => category.id));
   // A header labels its group for VoiceOver and is never a link a click or Tab lands on.
   const header = page.container.querySelector(".sidebar-section-title")!;
@@ -63,6 +67,11 @@ test("outside DEV builds Development is gone and its section keeps the rest", as
   const links = sidebar(page.container).flatMap((section) => section.links);
   expect(links).not.toContain("development");
   expect(links).toContain("experimental");
+  // More counts the pages it holds in this build.
+  const more = page.container.querySelector('[data-sidebar-section="more"]')!;
+  expect(more.querySelector(".sidebar-more-count")?.textContent).toBe(
+    String(more.querySelectorAll("[data-section-link]").length),
+  );
 });
 
 test("a click on the category already shown takes its page back to the top; another category does not", async () => {

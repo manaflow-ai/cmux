@@ -10,6 +10,13 @@ impl WorkspaceRegistry {
         FULL_TOPOLOGY_READS.with(Cell::get)
     }
 
+    /// Side table rows that loads on this thread read for a screen they did
+    /// not load (test hook).
+    #[cfg(test)]
+    pub(crate) fn other_screen_side_rows_read_for_test() -> u64 {
+        screen_rows::other_screen_side_rows_read_for_test()
+    }
+
     /// The stored subtrees of `workspaces` only; see
     /// [`load_resource_topology_scoped`].
     pub(crate) fn resource_topology_scoped(
@@ -112,6 +119,42 @@ impl WorkspaceRegistry {
         Ok(topology)
     }
 
+    /// What a workspace commit that adds one workspace, closes none and leaves `active` as
+    /// the active workspace reads before it ([`Self::resource_topology_for_workspace_commit`]
+    /// for that case): the frame of the two ends of a focus move only (the workspace the focus
+    /// leaves and `active`, which may be the new one, without a row yet), and their active
+    /// screens' subtrees when the focus moves. No row of another workspace is read.
+    pub(crate) fn resource_topology_for_workspace_insert(
+        &self,
+        active: Option<&WorkspacePublicId>,
+    ) -> anyhow::Result<ResourceTopologySnapshot> {
+        let connection = self.connection.get();
+        let previous = meta_value(&connection, "active_workspace_id")?
+            .map(WorkspacePublicId::parse)
+            .transpose()?;
+        let mut scope = previous.into_iter().collect::<Vec<_>>();
+        if let Some(active) = active
+            && !scope.contains(active)
+        {
+            scope.push(active.clone());
+        }
+        let mut topology = load_scope_frame(
+            &connection,
+            self.session_id.clone(),
+            self.generation.clone(),
+            &scope,
+        )?;
+        if topology.active_workspace.as_ref() != active {
+            let focus_ends = topology
+                .active_screens
+                .iter()
+                .filter_map(|(_, screen)| screen.clone())
+                .collect::<Vec<_>>();
+            load_screen_subtrees(&connection, &mut topology, &focus_ends)?;
+        }
+        Ok(topology)
+    }
+
     /// The stored subtrees of the active workspace and of `workspaces`: what
     /// a focus change reads, since it changes only the workspace it leaves and
     /// the one it focuses. One frame read names the active workspace.
@@ -120,14 +163,25 @@ impl WorkspaceRegistry {
         workspaces: &[WorkspacePublicId],
     ) -> anyhow::Result<ResourceTopologySnapshot> {
         let connection = self.connection.get();
-        let mut topology =
-            load_topology_frame(&connection, self.session_id.clone(), self.generation.clone())?;
-        let mut scope = topology.active_workspace.iter().cloned().collect::<Vec<_>>();
+        // The frame holds the active screen of the scope's workspaces only (the one the focus
+        // leaves and the ones it goes to): the frame of every workspace made each focus
+        // read, and each caller then search, a row for each workspace of the session.
+        let mut scope = meta_value(&connection, "active_workspace_id")?
+            .map(WorkspacePublicId::parse)
+            .transpose()?
+            .into_iter()
+            .collect::<Vec<_>>();
         for workspace in workspaces {
             if !scope.contains(workspace) {
                 scope.push(workspace.clone());
             }
         }
+        let mut topology = load_scope_frame(
+            &connection,
+            self.session_id.clone(),
+            self.generation.clone(),
+            &scope,
+        )?;
         load_subtrees(&connection, &mut topology, &scope)?;
         Ok(topology)
     }
@@ -224,8 +278,11 @@ pub(crate) fn load_resource_topology(
     #[cfg(test)]
     FULL_TOPOLOGY_READS.with(|reads| reads.set(reads.get() + 1));
     let mut topology = load_topology_frame(connection, session_id, generation)?;
-    topology.screens =
-        screen_rows::with_side_tables(connection, load_screens(connection, "", &[])?)?;
+    topology.screens = screen_rows::with_side_tables(
+        connection,
+        load_screens(connection, "", &[])?,
+        screen_rows::SideRows::All,
+    )?;
     topology.panes = load_panes(connection, "", &[])?;
     topology.tabs = load_tabs(connection, "", &[])?;
     topology.browsers = load_browsers(connection, "", &[])?;
@@ -293,7 +350,8 @@ fn load_subtrees(
     for workspace in workspaces {
         screens.extend(load_screens(connection, " AND workspace_id = ?1", &[&workspace.as_str()])?);
     }
-    topology.screens = screen_rows::with_side_tables(connection, screens)?;
+    topology.screens =
+        screen_rows::with_side_tables(connection, screens, screen_rows::SideRows::OfLoadedScreens)?;
     for screen in &topology.screens {
         let panes = load_panes(connection, " AND screen_id = ?1", &[&screen.public_id.as_str()])?;
         topology.panes.extend(panes);
@@ -382,34 +440,38 @@ pub(crate) fn load_topology_frame(
 
 /// Add each of `screens`, its panes and their tabs to `topology`: what the
 /// public value of a screen and of its panes is built from. A screen that
-/// `topology` holds already is not read again.
+/// `topology` holds already is not read again. The side tables are read one
+/// time for all of `screens`, not one time for each screen.
 fn load_screen_subtrees(
     connection: &Connection,
     topology: &mut ResourceTopologySnapshot,
     screens: &[ScreenPublicId],
 ) -> anyhow::Result<()> {
+    let mut rows: Vec<RegistryScreen> = Vec::new();
     for id in screens {
-        if topology.screens.iter().any(|screen| &screen.public_id == id) {
+        let held = |screen: &RegistryScreen| &screen.public_id == id;
+        if topology.screens.iter().any(held) || rows.iter().any(held) {
             continue;
         }
-        let loaded = screen_rows::with_side_tables(
-            connection,
-            load_screens(connection, " AND public_id = ?1", &[&id.as_str()])?,
-        )?;
-        for screen in &loaded {
-            let panes =
-                load_panes(connection, " AND screen_id = ?1", &[&screen.public_id.as_str()])?;
-            for pane in &panes {
-                topology.tabs.extend(load_tabs(
-                    connection,
-                    " AND t.pane_id = ?1",
-                    &[&pane.public_id.as_str()],
-                )?);
-            }
-            topology.panes.extend(panes);
-        }
-        topology.screens.extend(loaded);
+        rows.extend(load_screens(connection, " AND public_id = ?1", &[&id.as_str()])?);
     }
+    if rows.is_empty() {
+        return Ok(());
+    }
+    let loaded =
+        screen_rows::with_side_tables(connection, rows, screen_rows::SideRows::OfLoadedScreens)?;
+    for screen in &loaded {
+        let panes = load_panes(connection, " AND screen_id = ?1", &[&screen.public_id.as_str()])?;
+        for pane in &panes {
+            topology.tabs.extend(load_tabs(
+                connection,
+                " AND t.pane_id = ?1",
+                &[&pane.public_id.as_str()],
+            )?);
+        }
+        topology.panes.extend(panes);
+    }
+    topology.screens.extend(loaded);
     Ok(())
 }
 
@@ -503,6 +565,7 @@ fn load_screens(
                 zoomed_pane: zoomed_pane.map(PanePublicId::parse).transpose()?,
                 auto_layout: auto_layout.map(|value| serde_json::from_str(&value)).transpose()?,
                 viewport: serde_json::from_str(&viewport)?,
+                floating: Vec::new(),
             })
         })
         .collect::<anyhow::Result<Vec<_>>>()

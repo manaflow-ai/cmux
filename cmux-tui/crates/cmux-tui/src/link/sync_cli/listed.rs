@@ -43,8 +43,8 @@ pub(super) fn open_listed(path: &Path, id: Option<(u64, u64)>) -> anyhow::Result
 }
 
 /// The entry `name` (not a folder) of the folder `handle` holds open, as
-/// `entry` found it, read only through that descriptor: a credential file is
-/// left out, a regular file and a symlink go, anything else is named skipped.
+/// `entry` found it, read only through that descriptor: a secret or credential
+/// file is left out, a regular file and a symlink go, anything else is named skipped.
 pub(super) fn entry_in(
     set: &mut LocalSet,
     rules: Rules,
@@ -54,7 +54,7 @@ pub(super) fn entry_in(
     name: &str,
     entry: place::Entry,
 ) -> anyhow::Result<()> {
-    if let Some(why) = skips::secret(name)
+    if let Some(why) = skips::secret_at(set.skips.top(), relative)
         .or_else(|| skips::credential(relative, false))
         .filter(|_| rules == Rules::Copy)
     {
@@ -89,17 +89,19 @@ pub(super) fn add_entry(
 
 /// Adds the working file `path` of `folder` (`top` holds it open), reached
 /// through the folders on its way, each opened by descriptor without following
-/// a symlink; one gone or swapped since git listed it is left out.
+/// a symlink; one gone or swapped since git listed it is left out. `chain`
+/// keeps the folders the last path went through open for the next one.
 pub(super) fn add_working(
     set: &mut LocalSet,
+    chain: &mut place::Chain,
     top: &place::Dir,
     folder: &Path,
     path: &str,
 ) -> anyhow::Result<()> {
-    match place::parent_of(top, path) {
+    match chain.parent_of(top, path) {
         Ok(Some((dir, name))) => {
-            let entry = dir.entry(&name)?;
-            add_entry(set, path.to_string(), &folder.join(path), &dir, &name, entry)
+            let entry = dir.entry(name)?;
+            add_entry(set, path.to_string(), &folder.join(path), dir, name, entry)
         }
         Ok(None) => Ok(()),
         Err(error) if swapped(&error) => Ok(()),
@@ -258,95 +260,5 @@ pub(super) fn git_text(
 }
 
 #[cfg(test)]
-mod tests {
-    use std::os::unix::fs::PermissionsExt as _;
-
-    use super::super::local::{Rules, collect};
-
-    /// A file this user cannot read is listed by its entry, not opened, so a
-    /// sharing rule can leave it out before anything reads it.
-    #[test]
-    fn an_unreadable_file_is_listed_without_being_read() {
-        let root = tempfile::tempdir().unwrap();
-        let top = std::fs::canonicalize(root.path()).unwrap();
-        std::fs::write(top.join("a.txt"), "a\n").unwrap();
-        std::fs::write(top.join(".env"), "TOKEN=x\n").unwrap();
-        std::fs::set_permissions(top.join(".env"), std::fs::Permissions::from_mode(0o000)).unwrap();
-        let set = collect(&top, Rules::Share, None).unwrap();
-        let env = set.files.get(".env").expect("listed");
-        assert_eq!(env.permissions, 0o600);
-        assert!(env.id.is_some() && set.files.contains_key("a.txt"));
-    }
-
-    /// A git file's symlink is followed from the folder listed, through its
-    /// descriptor: with that folder swapped since for a symlink to another
-    /// (`~/.ssh`), a relative text never reaches a file there. A symlinked
-    /// reflog is left out, and so is a config whose file is in a credential
-    /// folder.
-    #[test]
-    fn a_git_file_symlink_is_read_from_the_folder_listed_never_its_path() {
-        use super::super::place;
-        use super::git_text;
-        let root = tempfile::tempdir().unwrap();
-        let root = std::fs::canonicalize(root.path()).unwrap();
-        let (git, ssh) = (root.join("repo/.git"), root.join("home/.ssh"));
-        std::fs::create_dir_all(&git).unwrap();
-        std::fs::create_dir_all(&ssh).unwrap();
-        std::fs::write(git.join("config.real"), "[core]\n\tmine = 1\n").unwrap();
-        std::fs::write(ssh.join("config.real"), "PRIVATE KEY\n").unwrap();
-        for name in ["config", "id_rsa"] {
-            std::os::unix::fs::symlink("config.real", git.join(name)).unwrap();
-        }
-        let held = place::Dir::open(&git).unwrap();
-        std::fs::rename(&git, root.join("repo/.git-old")).unwrap();
-        std::os::unix::fs::symlink(&ssh, &git).unwrap();
-        let read =
-            |name: &str| git_text(&held, name, &place::Entry::Link, &git.join(name)).unwrap();
-        assert_eq!(read("config").as_deref(), Some(&b"[core]\n\tmine = 1\n"[..]));
-        assert_eq!(read("id_rsa"), None, "a symlinked reflog or other git file is left out");
-        let secret = place::Dir::open(&root.join("repo/.git-old")).unwrap();
-        std::fs::remove_file(root.join("repo/.git-old/config")).unwrap();
-        std::os::unix::fs::symlink(ssh.join("config.real"), root.join("repo/.git-old/config"))
-            .unwrap();
-        assert_eq!(git_text(&secret, "config", &place::Entry::Link, &git).unwrap(), None);
-    }
-
-    /// A share of files reads no git state: an unreadable reflog never fails it.
-    #[test]
-    fn a_share_of_a_working_copy_reads_no_git_state() {
-        let root = tempfile::tempdir().unwrap();
-        let top = std::fs::canonicalize(root.path()).unwrap();
-        let git = |args: &[&str]| {
-            assert!(
-                cmux_process::Command::new("git")
-                    .arg("-C")
-                    .arg(&top)
-                    .args(args)
-                    .status()
-                    .unwrap()
-                    .success()
-            );
-        };
-        git(&["init", "-q"]);
-        std::fs::write(top.join("a.txt"), "a\n").unwrap();
-        git(&["add", "a.txt"]);
-        git(&[
-            "-c",
-            "user.name=t",
-            "-c",
-            "user.email=t@example.invalid",
-            "commit",
-            "-q",
-            "-m",
-            "a",
-        ]);
-        let head = top.join(".git/logs/HEAD");
-        std::fs::set_permissions(&head, std::fs::Permissions::from_mode(0o000)).unwrap();
-        let set = collect(&top, Rules::Share, None).unwrap();
-        std::fs::set_permissions(&head, std::fs::Permissions::from_mode(0o644)).unwrap();
-        assert!(
-            set.files.contains_key("a.txt")
-                && set.files.keys().all(|key| !key.starts_with(".git/"))
-        );
-    }
-}
+#[path = "listed_tests.rs"]
+mod tests;

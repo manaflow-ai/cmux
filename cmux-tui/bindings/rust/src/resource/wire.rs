@@ -661,17 +661,7 @@ pub(crate) fn mutation_meta(value: &Value) -> Result<MutationReceipt> {
     let replayed = object.get("replayed").and_then(Value::as_bool).ok_or_else(|| {
         Error::UnexpectedEnvelope("mutation replayed must be a boolean".to_string())
     })?;
-    let unknown = object
-        .keys()
-        .filter(|key| !matches!(key.as_str(), "value" | "generation" | "revision" | "replayed"))
-        .cloned()
-        .collect::<Vec<_>>();
-    if !unknown.is_empty() {
-        return Err(Error::UnexpectedEnvelope(format!(
-            "mutation result contains unknown fields: {}",
-            unknown.join(", ")
-        )));
-    }
+    // Fields a newer daemon adds are ignored, not refused.
     Ok(MutationResult { value: (), generation, revision, replayed })
 }
 
@@ -691,40 +681,27 @@ pub(crate) fn created_path(value: &Value) -> Result<CreatedPath> {
         .and_then(Value::as_str)
         .ok_or_else(|| Error::UnexpectedEnvelope("created path kind is required".to_string()))?;
     let workspace_id = find_required_id(value, "workspace_id")?;
-    let (allowed, path) = match kind {
-        "workspace" => (&["kind", "workspace_id"][..], CreatedPath::Workspace { workspace_id }),
-        "terminal" => (
-            &["kind", "workspace_id", "screen_id", "pane_id", "tab_id", "terminal_id"][..],
-            CreatedPath::Terminal {
-                workspace_id,
-                screen_id: find_required_id(value, "screen_id")?,
-                pane_id: find_required_id(value, "pane_id")?,
-                tab_id: find_required_id(value, "tab_id")?,
-                terminal_id: find_required_id(value, "terminal_id")?,
-            },
-        ),
-        "browser" => (
-            &["kind", "workspace_id", "screen_id", "pane_id", "tab_id", "browser_id"][..],
-            CreatedPath::Browser {
-                workspace_id,
-                screen_id: find_required_id(value, "screen_id")?,
-                pane_id: find_required_id(value, "pane_id")?,
-                tab_id: find_required_id(value, "tab_id")?,
-                browser_id: find_required_id(value, "browser_id")?,
-            },
-        ),
+    let path = match kind {
+        "workspace" => CreatedPath::Workspace { workspace_id },
+        "terminal" => CreatedPath::Terminal {
+            workspace_id,
+            screen_id: find_required_id(value, "screen_id")?,
+            pane_id: find_required_id(value, "pane_id")?,
+            tab_id: find_required_id(value, "tab_id")?,
+            terminal_id: find_required_id(value, "terminal_id")?,
+        },
+        "browser" => CreatedPath::Browser {
+            workspace_id,
+            screen_id: find_required_id(value, "screen_id")?,
+            pane_id: find_required_id(value, "pane_id")?,
+            tab_id: find_required_id(value, "tab_id")?,
+            browser_id: find_required_id(value, "browser_id")?,
+        },
         other => {
             return Err(Error::UnexpectedEnvelope(format!("unknown created path kind {other}")));
         }
     };
-    let unknown =
-        object.keys().filter(|key| !allowed.contains(&key.as_str())).cloned().collect::<Vec<_>>();
-    if !unknown.is_empty() {
-        return Err(Error::UnexpectedEnvelope(format!(
-            "created path contains unknown fields: {}",
-            unknown.join(", ")
-        )));
-    }
+    // Fields a newer daemon adds are ignored, not refused.
     Ok(path)
 }
 
@@ -753,7 +730,6 @@ pub(crate) fn list<T: DeserializeOwned>(
 
 pub(crate) fn terminal_history(value: &Value) -> Result<TerminalHistoryResult> {
     #[derive(Deserialize)]
-    #[serde(deny_unknown_fields)]
     struct Wire {
         start: Value,
         #[serde(default)]

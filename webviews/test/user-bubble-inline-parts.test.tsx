@@ -135,6 +135,75 @@ try {
     expect(host.querySelector("[data-inline-content]")).not.toBeNull();
     expect(host.textContent).not.toContain("shot-original.heic");
   });
+  // Leo, 2026-11-22: "there should be no problem doing so for inline attachments after send." A
+  // sent prompt whose attachments the composer placed mid-text draws each one where it was put in
+  // the inline view, and each tile's box is fixed before its poster or thumbnail arrives, so
+  // nothing on the line moves when it lands. The strip view keeps them in the block above.
+  test("inline: a row with placed parts draws each attachment where it was put, its box reserved", async () => {
+    clearImageEntries();
+    resetTranscriptDisclosure();
+    await act(async () => setComposerSettings({ attachmentView: "inline" }));
+    // No bytes yet: the thumbnail's placeholder holds the tile's box.
+    await render(
+      prompt("placed-reserved", "look at this and that please", [
+        { kind: "text", text: "look at " },
+        { kind: "image", id: "a", mimeType: "image/png", name: "a.png", width: 800, height: 600, placed: true },
+        { kind: "text", text: "this and " },
+        {
+          kind: "file",
+          name: "clip.mov",
+          mimeType: "video/quicktime",
+          uri: "file:///tmp/clip.mov",
+          placed: true,
+        },
+        { kind: "text", text: "that please" },
+      ]),
+      undefined,
+      // acpmux still reading the image.
+      () => new Promise<never>(() => {}),
+    );
+    expect(host.querySelector("[data-inline-attachment-strip]")).toBeNull();
+    const content = host.querySelector<HTMLElement>(".cv-user__bubble [data-inline-content]")!;
+    expect(content).not.toBeNull();
+    const order = [...content.children].map((node) =>
+      node.classList.contains("cv-user__inline-image")
+        ? node.querySelector(".cv-user__video")
+          ? "video"
+          : "image"
+        : node.textContent,
+    );
+    expect(order).toEqual(["look at ", "image", "this and ", "video", "that please"]);
+    // The placeholder's box is the thumbnail's own (SENT_IMAGE_HEIGHT tall, 4:3), so nothing moves
+    // when it lands.
+    const { SENT_IMAGE_HEIGHT } = await import("../src/agent-session/acpmux/conversation/userBubbleModel");
+    const width = Math.round((SENT_IMAGE_HEIGHT * 4) / 3);
+    const placeholder = content.querySelector<HTMLElement>(".cv-user__inline-image > .cv-user__image-placeholder")!;
+    expect(placeholder).not.toBeNull();
+    expect(placeholder.style.width).toBe(`${width}px`);
+    expect(placeholder.style.aspectRatio).toBe(`${width} / ${SENT_IMAGE_HEIGHT}`);
+  });
+  test("strip: a row with placed parts draws its attachments in the block above the text", async () => {
+    clearImageEntries();
+    resetTranscriptDisclosure();
+    await act(async () => setComposerSettings({ attachmentView: "strip" }));
+    try {
+      await render(
+        prompt("placed-strip", "look at this", [
+          { kind: "text", text: "look at " },
+          { kind: "image", id: "a", mimeType: "image/png", name: "a.png", width: 800, height: 600, placed: true },
+          { kind: "text", text: "this" },
+        ]),
+        undefined,
+        () => new Promise<never>(() => {}),
+      );
+      const block = host.querySelector<HTMLElement>("[data-inline-attachment-strip]")!;
+      expect(block?.querySelector(".cv-user__image-placeholder")).not.toBeNull();
+      expect(host.querySelector(".cv-user__bubble [data-inline-content]")!.textContent).toBe("look at this");
+    } finally {
+      await act(async () => setComposerSettings({ attachmentView: "inline" }));
+    }
+  });
+
   for (const attachmentView of ["inline", "strip"] as const) {
     test(`${attachmentView}: a 2,000-line interleaved prompt folds and toggles without losing its order`, async () => {
       resetTranscriptDisclosure();
@@ -191,6 +260,7 @@ try {
     );
     const body = host.querySelector(".cv-user__text")!;
     expect(body.classList.contains("is-clamped")).toBe(true);
+    // The one fold.
     expect(host.querySelectorAll("[aria-expanded]")).toHaveLength(1);
     await act(async () => host.querySelector<HTMLButtonElement>(".cv-user__more")!.click());
     expect(body.classList.contains("is-clamped")).toBe(false);
@@ -530,8 +600,13 @@ try {
       "[data-inline-content] .cv-user__inline-file",
     ]) {
       const box = style(selector);
-      expect(box.display).toBe("inline-block");
+      // Placed in the text, an image tile and a file chip both sit on the line where they were put; the
+      // tile is a flex box and its image's button a block, so no font descent sits under the thumbnail
+      // when its image loads (conversation.css; the placeholder's box holds).
+      expect(box.display).toBe(selector.endsWith("inline-image") ? "inline-flex" : "inline-block");
       expect(box.verticalAlign).toBe("middle");
+      if (selector.endsWith("image"))
+        expect(style("[data-inline-content] .cv-user__inline-image > button").display).toBe("block");
       expect([box.marginTop, box.marginBottom, box.marginLeft, box.marginRight]).toEqual(
         [
           INLINE_ATTACHMENT_MARGIN.y,
@@ -544,10 +619,14 @@ try {
     expect(style("[data-inline-content] .cv-user__inline-file").maxWidth).toBe(
       `min(${INLINE_FILE_CHIP.maxWidth}px, 72vw)`,
     );
-    // The image's box: its own shape at most 320 wide and 120 tall (UserBubble.tsx sentImageSize).
+    // The image's box: its own shape at most SENT_IMAGE_MAX_WIDTH wide and SENT_IMAGE_HEIGHT tall
+    // (userBubbleModel.ts sentImageSize): the 1600 x 400 image is width-bound.
+    const { sentImageSize } = await import("../src/agent-session/acpmux/conversation/userBubbleModel");
+    const drawn = sentImageSize({ width: 1600, height: 400 });
+    expect(drawn.width / drawn.height).toBe(4);
     const img = host.querySelector<HTMLImageElement>("[data-inline-content] img")!;
-    expect(img.style.width).toBe("320px");
-    expect(img.style.aspectRatio.replace(/\s/g, "")).toBe("320/80");
+    expect(img.style.width).toBe(`${drawn.width}px`);
+    expect(img.style.aspectRatio.replace(/\s/g, "")).toBe(`${drawn.width}/${drawn.height}`);
     // The chip's own box (composerAttachments.css `.acpmux-file-chip`): its height, sides and gap.
     const chip = readFileSync(
       new URL("../src/agent-session/acpmux/composerAttachments.css", import.meta.url),

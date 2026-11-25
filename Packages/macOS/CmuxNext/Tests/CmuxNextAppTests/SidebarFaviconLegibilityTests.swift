@@ -148,7 +148,12 @@ import Testing
         let bitmap = try #require(drawn.image?.cgImage(forProposedRect: &proposed, context: nil, hints: nil))
         let wanted = min(CGFloat(source.width), (f.width * 2).rounded(.up))
         #expect(CGFloat(bitmap.width) >= wanted, "the favicon draws from \(bitmap.width) px for \(f.width) pt")
-        #expect(f.width == f.height && f.width >= SidebarStyle.kindGlyphSize - 0.5, "the favicon is \(f.size), not the column's glyph size")
+        #expect(f.width == f.height, "the favicon frame stays square")
+        let image = try #require(drawn.image)
+        let ink = try #require(SidebarGlyphInk.shared.box(of: image, glyph: "legibility-mono-\(dark)"))
+        let drawnExtent = SidebarOpticalGlyph.fittedExtent(ink.size) * f.width / image.size.width
+        #expect(abs(drawnExtent - SidebarStyle.rowFaviconOpticalSide) <= 0.5,
+                "the favicon ink is \(drawnExtent) pt, expected \(SidebarStyle.rowFaviconOpticalSide) pt")
     }
 
     /// A band item draws its favicon through the same favicon path as a workspace row: on the dark sidebar a dark mono

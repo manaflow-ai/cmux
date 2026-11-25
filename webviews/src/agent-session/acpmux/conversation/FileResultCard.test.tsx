@@ -1,7 +1,7 @@
 // l10n-allow-file: test fixtures.
-// An opened read or file search draws what it found (FileResultCard.tsx), never its input fields and
-// raw output: a read as its file, line range and numbered lines cut to eight; a search as its counts
-// and each file's matching lines, each opening the file in cmux. Find reads what the card draws.
+// An opened file search draws what it found (FileResultCard.tsx), never its input fields and raw
+// output: its counts and each file's matching lines, each opening the file in cmux. A read no longer
+// opens (2026-11-14 change). Find reads what the card draws.
 import { afterEach, expect, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -13,7 +13,9 @@ import { resetLinkStore } from "../chips/linkStore";
 import { activityText } from "./chatFind";
 import { TranscriptReadOnly } from "./readOnly";
 import { ToolRow } from "./ToolRow";
+import { CommandRow } from "./CommandRow";
 import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
+import { factsCardText, visibleLabelText } from "../../../../test/support/factsCard";
 import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
@@ -95,24 +97,49 @@ const READ = Array.from({ length: 12 }, (_, index) => `${String(120 + index).pad
 const GREP =
   "/work/app/src/a.ts:12:  const x = useTool();\n/work/app/src/a.ts:40:useTool(b)\n/work/app/src/lib/b.ts:3:import { useTool }";
 
-test("an opened Read is its file, line range and numbered lines, scrolling past eight; closed, one row", async () => {
+// Since the 2026-11-14 change a read is a static row named by its file name: it does not open, so it
+// never draws its file card.
+test("a Read is one static row named by its file, its full path on hover, with no file card", async () => {
   const container = await render(<ToolRow item={item(HARNESS_CALLS.claude.read, READ)} />);
+  expect(container.querySelector("button.cv-tool")).toBeNull();
+  const row = container.querySelector("div.cv-tool");
+  expect(row).not.toBeNull();
+  expect(row!.getAttribute("aria-expanded")).toBeNull();
+  expect(visibleLabelText(row!.querySelector(".cv-tool__text")!)).toBe("Read foo.ts");
+  expect(await factsCardText(row!.querySelector(".cv-tool__file")!)).toBe("/work/app/src/foo.ts");
+  await act(async () => (row as HTMLElement).click());
   expect(container.querySelector(".cv-filepeek")).toBeNull();
-  await open(container);
   expect(container.querySelector(".cv-tool-detail")).toBeNull();
-  expect(container.querySelector(".cv-edit-diff__name")?.textContent).toBe("foo.ts");
-  expect(container.querySelector(".cv-filepeek__range")?.textContent).toBe("Lines 120–131");
-  expect(container.querySelector(".cv-filepeek__gutter")?.textContent?.split("\n")).toEqual(
-    Array.from({ length: 12 }, (_, index) => String(120 + index)),
-  );
-  // The lines without Claude's numbers and arrows.
-  expect(container.querySelector(".cv-filepeek__lines")?.textContent).toContain("line 1");
-  expect(container.querySelector(".cv-filepeek__lines")?.textContent).not.toContain("→");
-  const body = container.querySelector(".cv-filepeek__body")!;
-  expect(body.getAttribute("data-preview")).toBe("cut");
-  // The box scrolls through all twelve; no Show all row under it.
-  expect(container.querySelector(".cv-filepeek .cv-output-more")).toBeNull();
 });
+
+for (const [name, Row, kind, command] of [
+  ["Bash command row", CommandRow, "execute", "cat src/foo.ts"],
+  ["Bash tool row", ToolRow, "execute", "sed -n '12,18p' src/foo.ts"],
+  ["Codex parsed exec row", ToolRow, "read", "sed -n 1,80p src/foo.ts"],
+] as const) {
+  for (const status of ["in_progress", "completed"] as const) {
+    test(`${name} (${status}) names the file and discloses the exact shell command`, async () => {
+      const tool = {
+        ...HARNESS_CALLS.codex.read,
+        id: "shell-read",
+        title: kind === "execute" ? "Bash" : "Read foo.ts",
+        kind,
+        command,
+        status,
+      };
+      const container = await render(<Row item={item(tool, "file contents")} />);
+      const row = container.querySelector<HTMLButtonElement>("button.cv-tool");
+      expect(row?.getAttribute("aria-expanded")).toBe("false");
+      expect(row?.querySelector(".cv-tool__file")?.textContent).toBe("foo.ts");
+      expect(row?.textContent).toContain("Read foo.ts");
+      expect(row?.textContent).not.toContain(command);
+      expect(container.querySelector(".cv-shell")).toBeNull();
+      await open(container);
+      expect(container.querySelector(".cv-shell__command")?.textContent).toBe(`$ ${command}`);
+      expect(container.querySelector(".cv-shell__output")?.textContent).toBe("file contents");
+    });
+  }
+}
 
 test("an opened Grep lists matches by file with their line numbers, and a line opens its file", async () => {
   const calls: [string, Record<string, unknown>][] = [];
@@ -120,6 +147,7 @@ test("an opened Grep lists matches by file with their line numbers, and a line o
   setChipHost(async (method, params) => {
     if (method === "link.inspect")
       return {
+        policy: { supportsFileLine: true },
         paths: Object.fromEntries((params.paths as string[]).map((path) => [path, { place: "root", folder: false }])),
       };
     calls.push([method, params]);
@@ -138,7 +166,7 @@ test("an opened Grep lists matches by file with their line numbers, and a line o
   expect(lines[0]!.title).toBe("/work/app/src/a.ts:12");
   await act(async () => lines[2]!.click());
   await act(async () => {});
-  expect(calls).toEqual([["link.openPath", { path: "/work/app/src/lib/b.ts" }]]);
+  expect(calls).toEqual([["link.openPath", { path: "/work/app/src/lib/b.ts", line: 3 }]]);
 });
 
 test("a chat on another machine, whose paths the host does not place, draws its files as text", async () => {

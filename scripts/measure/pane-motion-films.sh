@@ -7,14 +7,19 @@
 #   cmux-ci run --class exclusive --measurement --label measure --label gui-session-v1 \
 #     --script scripts/measure/pane-motion-films.sh --ref <sha> --arg=--config=bench --arg=--vdisplay=120 \
 #     [--arg=--films=kinds] [--arg=--workspaces=N] [--arg=--live-shells=K] [--arg=--step-seconds=S] [--arg=--no-gate] \
-#     --artifact pane-motion-films.tar
+#     [--arg=--window-look=KEY=VALUE,KEY=VALUE] --artifact pane-motion-films.tar
 # --config=<debug|release|bench> picks reload.sh's build configuration (the recorder and the debug keys are in debug
 # and bench builds), --vdisplay=HZ a virtual main display at HZ (as held-new-tab.sh; it is 1x), --step-seconds=S the
 # step's own bound (a film with no time left before it is `not_run` in films.json, and the films so far still come
 # back), --no-gate exit 0 when some films are made and some are not (an artifact comes back only from a passing step;
 # a failed preflight and a run with no film stay exit 1); every other argument goes to pane-motion-films.py (its
-# --launch-form picks how the app is launched and how the keys go). The artifact: films.json, each <id>.mov and its
-# <id>.mov.frames.json.
+# --launch-form picks how the app is launched and how the keys go; its --window-look the look of the films' window,
+# which that script checks only after the build: a word it refuses ends the step then, exit 3). The artifact:
+# films.json, build-flags.json, each <id>.mov and its <id>.mov.frames.json (with a look: <id>-<the look's kind>).
+# films.json's `build` and build-flags.json say the form of the app's build, from the reload's own log
+# (scripts/measure/build-flags.py): the reload's `bench configuration` line, the optimization settings of the build's
+# command line, and the count of the Swift compiler's command lines with -Onone, with -O and with -Osize. The step's
+# log has them in one `BUILD-FLAGS` line.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 tag="panefilm"
@@ -57,6 +62,10 @@ if [[ -z "$app" || ! -d "$app" ]]; then
   grep -E "error:|BUILD FAILED" "$out/reload.log" | head -n 60 >&2 || true
   exit 1
 fi
+# The form of the build, for films.json and the artifact. A fault of this read stops no film: films.json then says
+# that the build's form was not read.
+mkdir -p "$out/films"
+python3 scripts/measure/build-flags.py "$out/reload.log" --out "$out/films/build-flags.json" || true
 vdisplay_pid="" display="real"
 # shellcheck disable=SC2329 # run by the trap below
 cleanup() {
@@ -80,7 +89,18 @@ if [[ -n "$vdisplay_hz" ]]; then
     done
     display="$(grep -m1 '^ready\|^error' "$vd/out" 2>/dev/null || echo 'the virtual display never reported')"
     echo "pane-motion-films: display: $display"
-    sleep 2  # WindowServer settles the new main display before the app opens on it
+    # Until a new process sees the virtual display as its main display (what the app opens on), 15 s.
+    # Only when the helper's ready line says it made the display main (main=ID).
+    vd_id="$(sed -n 's/^ready \([0-9]*\) [0-9.]* main=\1 .*/\1/p' "$vd/out" 2>/dev/null | head -1 || true)"
+    if [[ -n "$vd_id" ]]; then
+      vd_main="" vd_deadline=$((SECONDS + 15))
+      while (( SECONDS < vd_deadline )); do
+        vd_main="$("$vd/VDisplay.app/Contents/MacOS/VDisplay" probe 2>/dev/null | awk '$1 == "main" {print $2}' || true)"
+        [[ "$vd_main" == "$vd_id" ]] && break
+        sleep 0.2
+      done
+      [[ "$vd_main" == "$vd_id" ]] || echo "warning: a new process still sees display ${vd_main:-?} as main, not the virtual display $vd_id, after 15 s" >&2
+    fi
   else
     echo "pane-motion-films: the virtual display helper did not compile; the films are of the real display"
   fi
@@ -88,9 +108,10 @@ fi
 # The films end 2 minutes before the step's bound (the build's time is in $SECONDS): the tar and the upload need them.
 if [[ -n "$step_seconds" ]]; then film_args+=("--budget=$(( step_seconds - SECONDS - 120 > 60 ? step_seconds - SECONDS - 120 : 60 ))"); fi
 status=0
-python3 scripts/measure/pane-motion-films.py --app "$app" --out "$out/films" --display="$display" ${film_args[@]+"${film_args[@]}"} || status=$?
+python3 scripts/measure/pane-motion-films.py --app "$app" --out "$out/films" --display="$display" \
+  --build "$out/films/build-flags.json" ${film_args[@]+"${film_args[@]}"} || status=$?
 if [ -f "$out/films/films.json" ]; then
-  (cd "$out/films" && find . -maxdepth 1 \( -name 'films.json' -o -name '*.mov' -o -name '*.mov.frames.json' \) -print0 \
+  (cd "$out/films" && find . -maxdepth 1 \( -name 'films.json' -o -name 'build-flags.json' -o -name '*.mov' -o -name '*.mov.frames.json' \) -print0 \
     | tar -cf "$OLDPWD/pane-motion-films.tar" --null -T -) || true
   echo "pane-motion-films: artifact $(du -h pane-motion-films.tar 2>/dev/null | cut -f1)"
 fi

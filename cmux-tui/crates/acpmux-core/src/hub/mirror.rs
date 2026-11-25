@@ -36,13 +36,19 @@ pub const MAX_FRAME_CHANGES: usize = crate::wire::MAX_REPLAY_FRAME_BYTES / MIN_O
 /// the same turn waited about 20 ms behind a unit of [`MAX_FRAME_CHANGES`]
 /// against 75 µs alone; at this size it waits about 2 ms. The dialer cuts a
 /// frame into units of this size, each with the mark after its last change.
+/// Measured: about 3.7 µs a row in one writer turn: 512 rows hold a local write about 2 ms.
 pub const MAX_UNIT_CHANGES: usize = 512;
 
-/// At most this many mirror changes in one writer turn, all origins together.
-/// Thirty origins each with a unit of [`MAX_UNIT_CHANGES`] queued held a local
-/// row about 60 ms in one turn; past this count the rest of the units wait for
-/// the next turn, so a local row waits behind at most four units, about 8 ms.
-pub const MAX_TURN_UNIT_CHANGES: usize = 4 * MAX_UNIT_CHANGES;
+/// At most this many mirror changes in one writer turn, all origins together
+/// (decision 298). A turn writes its units before a local row queued with them,
+/// at 4.1 to 5.1 µs a change whatever the count (build, append, the index apply
+/// and publishing, measured at 512 to 15,360 changes a turn), and ends with one
+/// log sync of about 0.3 ms. So a local row waits behind at most two units,
+/// about 5 ms: with 30 units of [`MAX_UNIT_CHANGES`] queued, its capped p95 was
+/// 4.1 to 5.5 ms, against 8.0 to 10.0 ms at four units, where the bound of 10 ms
+/// sat on the p95 (`turn_cap_compare`, cmux#44124). Draining all 30 units took
+/// within 3% of the same time at both counts. The units past this count wait for the next turns.
+pub const MAX_TURN_UNIT_CHANGES: usize = 2 * MAX_UNIT_CHANGES;
 
 pub enum UnitChange {
     Summary(Box<Summary>),
@@ -538,6 +544,7 @@ impl HubWriter {
         {
             self.turn_measure.unit_ns[2] += applied.duration_since(began).as_nanos();
         }
+        self.hold_history(current.seq(), next.seq());
         self.publish_folder_index(next, &folder_ops);
         for record in records {
             if record.gone {

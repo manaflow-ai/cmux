@@ -25,6 +25,29 @@ export interface Env {
   /** Provisional window (ms) for socket-close end reasons; default 3000. */
   CLOSE_GRACE_MS?: string;
   TURN_KEY_API_TOKEN?: string;
+  /**
+   * Where the cmux relay ICE comes from: `local` (the hub's own mint),
+   * `platform-first` (cmux-platform's minter, the local mint on failure) or
+   * `platform` (cmux-platform only). Unknown or missing: `local`. src/turn.ts.
+   */
+  TURN_SOURCE?: string;
+  /** cmux-platform origin that mints the relay ICE (`POST /v1/relay/ice-servers`). */
+  PLATFORM_TURN_ORIGIN?: string;
+  /** Bearer token for that route; missing: the hub mints locally. */
+  DEVICE_HUB_TURN_TOKEN?: string;
+  /**
+   * cmux-platform per Stack project, asked who a joined machine's credential belongs to
+   * (`POST /v1/auth/machine`): comma list of `<stackProjectId>=<https origin>`. Empty: the
+   * route answers 503. src/machine.ts.
+   */
+  MACHINE_ORIGINS?: string;
+  /** Deadline (ms) for that lookup; default 5000. */
+  MACHINE_TIMEOUT_MS?: string;
+  /**
+   * Which deployment this is: `production` (the top level of wrangler.toml), `dev` (env.dev, and a tag's
+   * stack), `test` (vitest.config.ts). Only dev, test and local serve dev build spaces (src/buildSpace.ts).
+   */
+  ENVIRONMENT?: string;
 }
 
 export function csv(value: string | undefined): string[] {
@@ -47,3 +70,5 @@ export const SCOPE_HEADER = "x-hub-scope";
 export const SESSION_DEVICE_HEADER = "x-hub-session-device";
 /** A host-scoped session's cmux relay entitlement, recorded at the last anchor (`1` or `0`). */
 export const HOST_RELAY_HEADER = "x-hub-host-relay";
+/** The request's build space (src/buildSpace.ts), "" for the default space: the User DO hands it to its Session DOs. */
+export const SPACE_HEADER = "x-hub-build-space";

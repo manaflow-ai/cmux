@@ -36,7 +36,7 @@ import CmuxNextFocus
 /// in the window hook (`ShellWindow.performKeyEquivalent`), and the whole
 /// dispatcher in Chromium's pre-key hook (`CEFTab.keyRouter`); a decided key
 /// runs nothing there, so nothing runs twice.
-final class KeyRouter: BrowserKeyRouting {
+final class KeyRouter: BrowserKeyRouting, ParkedTypingRouter {
     unowned let registry: ActionRegistry
     weak var services: AppServices?
     /// A key that is not a Command or Control chord goes on to `window`'s
@@ -179,16 +179,17 @@ final class KeyRouter: BrowserKeyRouting {
     func interceptKeyDown(_ event: NSEvent, in window: NSWindow?, heldBefore: Bool = false) -> Bool { // perf-hot: 0.5ms key-dispatch (every key-down of the process)
         guard event.type == .keyDown else { return false }
         services?.linkHints.noteKeyDown(event, in: window) // whether the page had it (Chromium sends back a key it left unhandled)
-        // A key-down the dispatcher already decided (sent again: a view's doCommand re-sending a chord, a replayed
-        // dispatch) is not decided twice: it goes on to AppKit's dispatch, so its action never runs a second time.
-        if decided.contains(event) { return false }
-        if !heldBefore, menuPickKeys.capture(event) { return true } // `heldBefore`: a hold runs the key again; it was typed before the menu, and the hold's rule gets it
-        if answersBlockingDialog(event, in: window) { return true }  // never the view's under the dialog
-        if newTabInputCoordinator.capture(event, in: window) { return true }
-        if creationInputCoordinator.capture(event, in: window) { return true }
+        // A key it offered to a WebKit page and the page sent back unhandled runs the action held for it; any other
+        // key-down the dispatcher already decided (sent again: a view's doCommand re-sending a chord, a replayed
+        // dispatch) goes on to AppKit's dispatch, so its action never runs a second time.
+        if decided.contains(event) { return runResentPageKey(event) }
+        if !heldBefore, menuPickKeys.capture(event) { trace?("hold: menu pick"); return true } // `heldBefore`: a hold runs the key again; it was typed before the menu, and the hold's rule gets it
+        if answersBlockingDialog(event, in: window) { trace?("dialog: blocking"); return true }  // never the view's under the dialog
+        if newTabInputCoordinator.capture(event, in: window) { trace?("hold: new tab"); return true }
+        if creationInputCoordinator.capture(event, in: window) { trace?("hold: creation"); return true }
         // Set again only when this key runs an action (debug.key reports it).
         lastInterception = nil
-        if cancelsMissedModal(event, in: window) { return true }
+        if cancelsMissedModal(event, in: window) { trace?("dialog: cancel missed modal"); return true }
         if runsUndoToast(event, in: window) {
             trace?("undo toast: Cmd-Z ran the toast")
             return true
@@ -200,31 +201,39 @@ final class KeyRouter: BrowserKeyRouting {
             return true
         }
         if routesPopupKey(event, in: window) {
+            trace?("popup: key")
             cancelChord()
             return true
         }
         // Link hints are showing: their letters, Backspace and Escape.
         if let hints = services?.linkHints, hints.isActive, hints.interceptKeyDown(event, in: window) {
+            trace?("hints: link")
             cancelChord()
             return true
         }
         // Window hints are showing (Click by Hint): the same keys.
         if let hints = services?.windowHints, hints.isActive, hints.interceptKeyDown(event, in: window) {
+            trace?("hints: window")
             cancelChord()
             return true
         }
         // Cmd-P / Cmd-Shift-P (as bound) in a web view outside a main window: the native palette.
         if routesNativePaletteKey(event, in: window) {
+            trace?("palette: native")
             cancelChord()
             return true
         }
         // Browser focus mode: Esc Esc leaves it (the first Escape still reaches the page).
-        if routesFocusModeEscape(event, in: window) { return true }
+        if routesFocusModeEscape(event, in: window) { trace?("browser: leave focus mode"); return true }
         let isChord = Self.isChord(event.modifierFlags)
-        if isChord { dropTypeAhead() }
+        if isChord {
+            parkedTyping.keyEndsQueue(event, text: typeAhead.text, for: typeAhead.surface) // before the drop: a New Tab key parks this text
+            dropTypeAhead()
+        }
         guard chords.isPending || isChord else {
-            if routesBareKey(event, in: window) { return true }
-            if typesAhead(event, in: window) || typesIntoPrimaryInput(event, in: window) { return true }
+            if routesBareKey(event, in: window) { trace?("binding: bare key"); return true }
+            if typesAhead(event, in: window) { trace?("hold: page type-ahead"); return true }
+            if typesIntoPrimaryInput(event, in: window) { trace?("redirect: primary input"); return true }
             onTyping?(window)
             return false
         }
@@ -292,6 +301,7 @@ final class KeyRouter: BrowserKeyRouting {
     }
 
     func run(_ candidate: Candidate, context: KeyContext, window: String) {
+        services?.personInput.hostMarks.ranAction(for: inputDispatch.event) // first: the key is the app's, so a page whose view saw it is not touched by it (New Tab reads that)
         lastInterception = (candidate.id, window, true)
         let ran: Bool
         switch candidate.source {
@@ -299,9 +309,7 @@ final class KeyRouter: BrowserKeyRouting {
             ran = RegistryKeyBindings(registry).run(KeyBinding(keys: [], command: candidate.id, argument: argument, arguments: candidate.arguments),
                                                     keyContext: context.bits)
         case .ghostty(let arguments):
-            var invocation = ActionInvocation(arguments: arguments)
-            invocation.keyContext = context.bits
-            ran = registry.perform(candidate.id, invocation: invocation)
+            ran = registry.perform(candidate.id, invocation: ActionInvocation(arguments: arguments, keyContext: context.bits))
         }
         // A refused run (Cmd-W on a top page) is still a cmux shortcut; debug.key says it did not run.
         lastInterception = (candidate.id, window, ran)
@@ -339,6 +347,7 @@ final class KeyRouter: BrowserKeyRouting {
     var typeAhead = TypeAheadQueue()
     var typeAheadFocus: TypeAheadWait?
     var deliveringTypeAhead: String?
+    lazy var parkedTyping = ParkedTyping(router: self) // text for a New Tab page that its pane no longer shows
     var typeAheadTail = TypeAheadTail<HeldTypeAheadKey>() // Return and the keys after it, waiting behind a page's queued text
     /// The New Tab action owns this buffer before a cold page has a readiness object.
     lazy var newTabInputCoordinator = NewTabInputCoordinator(router: self)
@@ -373,9 +382,17 @@ final class KeyRouter: BrowserKeyRouting {
     // MARK: Chords
 
     var chords = ChordTracker()
+    private(set) lazy var keyModes = KeyModeLayer(registry: registry)  // a user key mode (design/key-modes.md)
 
     /// The key-down a page has first, with the action to run if it reports the key unhandled.
-    var pageFirstOffer = PageFirstKeyOffer()
+    var pageFirstOffer = PageFirstKeyOffer<HeldPageAction>()
+
+    /// The cmux action a page-first key runs if its page leaves the key unhandled.
+    struct HeldPageAction {
+        var candidate: Candidate
+        var context: KeyContext
+        var window: String
+    }
 
     /// Whether a chord, the Cmd-J leader included, may arm in `focus`:
     /// where content shortcuts run (a terminal, a page, an agent chat, the
@@ -428,7 +445,7 @@ final class KeyRouter: BrowserKeyRouting {
         case .dismissed:
             // A window or navigation shortcut after the leader runs as itself (Cmd-W closes the tab); a stray key
             // and Escape are consumed, as before.
-            return Self.decidesAfterChord(event, resolved: registry.resolveShortcut(for: event)) ? nil : true
+            return LeaderLayer.decidesAfterChord(event, resolved: registry.resolveShortcut(for: event), qwerty: registry.matchesQwertyPositions) ? nil : true
         case .run(let id, let argument, let arguments):
             lastInterception = (id, controller.state.id, true)
             let ran = RegistryKeyBindings(registry).run(KeyBinding(keys: [], command: id, argument: argument, arguments: arguments), keyContext: bits)
@@ -437,17 +454,9 @@ final class KeyRouter: BrowserKeyRouting {
         case .mismatch:
             // A window or navigation shortcut after a prefix it does not complete runs as itself: Cmd-W after an
             // armed chord prefix went to the page (or terminal) instead of closing the tab.
-            if Self.decidesAfterChord(event, resolved: registry.resolveShortcut(for: event)) { return nil }
+            if LeaderLayer.decidesAfterChord(event, resolved: registry.resolveShortcut(for: event), qwerty: registry.matchesQwertyPositions) { return nil }
             if !Self.isChord(event.modifierFlags) { onTyping?(window) }
             return false
         }
-    }
-
-    /// Whether a key that ended an armed chord without completing it is decided as a shortcut of its own (nil from
-    /// ``routeChord``): a Command or Control chord bound to a system or navigation action, other than the leader
-    /// prefix itself (a second Cmd-J still dismisses the leader). Content shortcuts and typing keep going to the view.
-    static func decidesAfterChord(_ event: NSEvent, resolved: (id: ActionID, argument: String?, tier: ActionKeyTier)?) -> Bool {
-        guard isChord(event.modifierFlags), let resolved, resolved.tier != .content else { return false }
-        return !ActionRegistry.shortcuts(for: event).contains(LeaderLayer.prefix)
     }
 }

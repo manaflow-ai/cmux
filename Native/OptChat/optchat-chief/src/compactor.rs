@@ -1164,6 +1164,7 @@ impl AcpmuxCompactor {
             env: Default::default(),
             fast: self.spec.fast,
             peer: None,
+            stop_condition: None,
         };
         let id = self
             .port
@@ -1691,7 +1692,8 @@ impl AcpmuxCompactor {
                 "node": node_label(node),
                 "usage_key": format!("{}:{}", node.name(), live.id),
                 "harness": live.route,
-                "model": self.model(),
+                // A judge or review call names its own model (node_override).
+                "model": self.node_override(node).and_then(|(_, m)| m).or_else(|| self.model()),
                 "ms": live.opened.elapsed().as_millis() as u64,
                 "prompts": live.prompts,
                 "usage": live.usage.as_ref().map(crate::trace::usage),
@@ -1824,6 +1826,13 @@ impl AcpmuxCompactor {
 /// the compactor's family (its slot presets are made for that family).
 impl crate::brain::reaction_wake::ReactionJudge for AcpmuxCompactor {
     fn judge(&self, ask: &crate::brain::reaction_wake::JudgeAsk) -> Result<String, String> {
+        self.judge_priced(ask).map(|(t, _)| t)
+    }
+
+    fn judge_priced(
+        &self,
+        ask: &crate::brain::reaction_wake::JudgeAsk,
+    ) -> Result<(String, Option<f64>), String> {
         if let Some(h) = ask.harness.as_deref() {
             let mine = self.harness();
             let catalog = self.port.harness_catalog().unwrap_or(Value::Null);
@@ -1845,8 +1854,15 @@ impl crate::brain::reaction_wake::ReactionJudge for AcpmuxCompactor {
             .map_err(|e| e.message)
             .and_then(|session| {
                 let reply = self.prompt(node, &session, vec![text_block(&ask.prompt)], &|| {});
+                // The node's cost, before end_node removes its record.
+                let cost = self
+                    .live
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .get(&node)
+                    .and_then(|l| l.cost);
                 self.end_node(node);
-                reply.map(|r| r.text).map_err(|e| e.message)
+                reply.map(|r| (r.text, cost)).map_err(|e| e.message)
             });
         self.overrides
             .lock()
