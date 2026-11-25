@@ -1149,6 +1149,7 @@
         "CmuxNextDaemon",
         "CmuxNextFiles",
         "CmuxNextLayout",
+        "CmuxNextTerminalFind",
         "CmuxNextWakeups",
         "CmuxNextWindowRules"
       ],
@@ -1484,6 +1485,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHome",
       "targets": [
+        "CmuxNextActions",
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextDesignTokens",
@@ -2278,6 +2280,7 @@
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextDesignTokens",
+        "CmuxNextPages",
         "CmuxNextSettings",
         "CmuxNextSettingsWindow",
         "CmuxNextSidebar"
@@ -2387,6 +2390,7 @@
         "CmuxNextDesign",
         "CmuxNextDictation",
         "CmuxNextTerminal",
+        "CmuxNextTerminalFind",
         "CmuxNextTestSupport"
       ],
       "packages": [],
