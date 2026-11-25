@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 689,
+  "count": 690,
   "sections": [
     {
       "id": "general",
@@ -7387,6 +7387,14 @@
           "help": "Installed extensions can show a card under a finished tool call in agent chat.",
           "kind": "toggle",
           "default": false,
+          "group": "Experiments"
+        },
+        {
+          "key": "experiments.composerHatGroups",
+          "title": "Composer Hat: Two Groups",
+          "help": "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph.",
+          "kind": "toggle",
+          "default": true,
           "group": "Experiments"
         },
         {
