@@ -46,5 +46,7 @@ jobs:
           persist-credentials: false
       - name: Select pinned Xcode
         run: ./scripts/select-ci-xcode.sh
-      - name: Test the RFB engine
-        run: swift test --package-path Packages/Shared/CmuxVNC
+      # The engine's own tests (CmuxVNCTests) run on Linux (scripts/ci/swift-linux-packages.txt); the Mac runs
+      # only what needs Apple's network transport, CommonCrypto or a live host.
+      - name: Test the RFB engine's Apple integration
+        run: swift test --package-path Packages/Shared/CmuxVNC --filter CmuxVNCIntegrationTests

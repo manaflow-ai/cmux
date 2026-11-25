@@ -13,7 +13,20 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "webviews/src/agent-session/**"
-      - "webviews/bench/**"
+      # The bench's own files only (chat-open-ab.sh, chat-open.bench.ts and what it imports): the other ~150 benches
+      # under webviews/bench/ never run here, so a change to one of them cannot move this report.
+      - "webviews/bench/chat-open*"
+      - "webviews/bench/browsers.ts"
+      - "webviews/bench/daemonPage.ts"
+      - "webviews/bench/godFixture.ts"
+      - "webviews/bench/perfRow.ts"
+      - "webviews/bench/replayLogs.ts"
+      - "webviews/bench/runnerCalibration.ts"
+      - "webviews/bench/sourceMapper.ts"
+      - "webviews/test/support/papercutChat.ts"
+      - "webviews/test/support/paintedFrames.ts"
+      - "webviews/test/support/systemChrome.ts"
+      - "webviews/test/support/warmDevServer.ts"
       - ".github/workflows/chat-open-perf-report.yml"
   # Every nightly's code (each push to nightly-next, whatever it touched) is measured against the nightly before it,
   # so NOW's chat_attach rows read a fresh number every nightly: the series.json artifact, keyed per runner class.
@@ -31,10 +44,15 @@ env:
   # The base branch's tip (or the push's previous tip). The bench measures against its merge base with the head
   # (the Fetch base step), so commits the base gained after the head branched never read as the head's change.
   BASE_TIP: ${{ github.event.pull_request.base.sha || github.event.before }}
-  # Rounds of the A/B (each round opens every side and fixture) and timed opens per side, fixture and round:
-  # 10 x 2 gives 20 opens per side and fixture, so p95 is the 19th of 20.
-  ROUNDS: "10"
-  OPENS: "2"
+  # Rounds of the A/B (each round opens every side and fixture) and timed opens per side, fixture and round.
+  # nightly-next: 10 x 2 gives 20 opens per side and fixture, so p95 is the 19th of 20 (nearest rank).
+  # Pull request: 4 x 3 gives 12 opens, so p95 is the 12th of 12, the max (goal ci-min-per-pr-1500). The k-th of n
+  # sits at quantile k/(n+1) on average: 19 of 20 reads the 90.5th percentile (sd 6.3 points), 12 of 12 the 92.3rd
+  # (sd 7.1), so the PR's p95 reads the same tail with a little more spread. Fewer than 12 opens per side stops being
+  # a tail (10 of 10 already spreads 8.3 points), and an even round count keeps the side order balanced. The
+  # rounds run 4 processes of ~7.3 s each; a PR runs 16 of the 40 bench processes, about 150 s off a ~560 s job.
+  ROUNDS: ${{ github.event_name == 'pull_request' && '4' || '10' }}
+  OPENS: ${{ github.event_name == 'pull_request' && '3' || '2' }}
 
 jobs:
   # CI cut (goal ci-runner-min-per-day-10k; Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time,
@@ -70,7 +88,7 @@ jobs:
             echo "measure=true" >> "$GITHUB_OUTPUT"; echo "compare failed: measure"; exit 0
           fi
           n="$(printf '%s\n' "$files" | grep -c . || true)"
-          if (( n >= 300 )) || printf '%s\n' "$files" | grep -Eq '^(webviews/src/agent-session/|webviews/bench/|\.github/workflows/chat-open-perf-report\.yml$)'; then
+          if (( n >= 300 )) || printf '%s\n' "$files" | grep -Eq '^(webviews/src/agent-session/|webviews/bench/(chat-open|browsers\.ts$|daemonPage\.ts$|godFixture\.ts$|perfRow\.ts$|replayLogs\.ts$|runnerCalibration\.ts$|sourceMapper\.ts$)|webviews/test/support/(papercutChat|paintedFrames|systemChrome|warmDevServer)\.ts$|\.github/workflows/chat-open-perf-report\.yml$)'; then
             echo "measure=true" >> "$GITHUB_OUTPUT"; echo "the push changes a measured path ($n files): measure"
           else
             echo "measure=false" >> "$GITHUB_OUTPUT"
@@ -221,7 +239,9 @@ jobs:
           out = ["## chat-open attach_to_latest, base vs head (report only)", ""]
           out.append(f"Runner class `{klass}` ({os.environ.get('RUNNER_CPU') or 'cpu unknown'}), browser `{os.environ.get('BROWSER') or 'unknown'}`; "
                      f"base `{base[:12]}`, head `{head[:12]}`; webviews/bench/chat-open-ab.sh, "
-                     f"{os.environ['ROUNDS']} rounds x {os.environ['OPENS']} opens, interleaved on this runner.")
+                     f"{os.environ['ROUNDS']} rounds x {os.environ['OPENS']} opens, interleaved on this runner."
+                     + (" A pull request runs 4 x 3 (p95 is the max of 12 opens, about the 92nd percentile; "
+                        "nightly-next runs 10 x 2, the 19th of 20)." if os.environ.get("GITHUB_EVENT_NAME") == "pull_request" else ""))
           out.append("")
           if status == "missing":
               out.append("**Bench not run:** this head has no `webviews/bench/chat-open-ab.sh`. The check passes anyway.")

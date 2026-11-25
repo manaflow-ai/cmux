@@ -49,6 +49,9 @@ jobs:
         uses: ./.github/actions/runner-cargo-home
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.2
         with:
+          # The lockfile and toolchain name the entry: with the environment hash off, a bare key never changed, so the first save
+          # was restored forever and its stale third-party crates rebuilt on every run (ci-min-per-pr-1500, 2026-11-25).
+          key: ${{ hashFiles('coderouter/Cargo.lock', '.cargo/config.toml') }}
           save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
