@@ -61,7 +61,7 @@ tree workers/cmux-vm/cli
 # embeds a file this list does not cover and prints the line to add. A blob a
 # revision lacks is left out of its key.
 blob Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Resources/browser-sources.json
-blob Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings
+tree Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings.d
 blob Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json
 blob Resources/cmux-cli-path/fish/vendor_conf.d/cmux-cli-path.fish
 blob Resources/cmux-cli-path/zsh/.zshenv
@@ -92,6 +92,9 @@ blob Resources/theme-files/minimal-sessions.json
 blob Resources/theme-files/moss.json
 blob Resources/theme-files/phosphor.json
 blob Resources/theme-files/teal.json
+# cmux-config checks a theme file's `slots` against the shipped slots
+# (theme_file::slots, theme.slots.resolve).
+blob schemas/theme/slots.json
 # cmux-config embeds the shipped sidebar looks (sidebar_look::shipped).
 blob Resources/sidebar-looks/claude.json
 blob Resources/sidebar-looks/codex.json

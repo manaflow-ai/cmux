@@ -456,6 +456,7 @@
         ],
         "id" : "appearance",
         "lead" : [
+          "looksGallery",
           "themeStudio",
           "backdrops",
           "density"
@@ -79587,7 +79588,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
