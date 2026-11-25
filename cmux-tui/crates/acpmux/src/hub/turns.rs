@@ -172,17 +172,6 @@ fn outcome_token(outcome: &PromptOutcome) -> usize {
     Arc::as_ptr(outcome) as usize
 }
 
-fn prompt_outcome_token(session: &Session, prompt_id: &str) -> usize {
-    session
-        .prompts
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .iter()
-        .find(|(id, _)| id == prompt_id)
-        .map(|(_, outcome)| outcome_token(outcome))
-        .expect("a duplicate prompt always has a pending outcome")
-}
-
 /// Return the existing outcome, or create a new attempt and retire any receipt for an
 /// older attempt with the same client id. The ledger is bounded and can forget a completed
 /// outcome while the larger acceptance cache still remembers it; leaving that receipt live
@@ -190,10 +179,10 @@ fn prompt_outcome_token(session: &Session, prompt_id: &str) -> usize {
 fn begin_outcome(
     session: &Session,
     prompt_id: &str,
-) -> Result<PromptOutcome, tokio::sync::watch::Receiver<Option<Result<Value, RpcError>>>> {
+) -> Result<PromptOutcome, (tokio::sync::watch::Receiver<Option<Result<Value, RpcError>>>, usize)> {
     let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
     match ledger.iter().find(|(id, _)| id == prompt_id) {
-        Some((_, outcome)) => Err(outcome.subscribe()),
+        Some((_, outcome)) => Err((outcome.subscribe(), outcome_token(outcome))),
         None => {
             // Keep the lock order identical to keep_acceptance (prompts, then accepted).
             // A pending outcome cannot be pruned, so this only retires a receipt whose
@@ -432,7 +421,7 @@ impl Hub {
         };
         let seen = begin_outcome(session, &prompt_id);
         let outcome = match seen {
-            Err(mut first) => {
+            Err((mut first, token)) => {
                 // A copy never reaches the queue: it lets the chat's prompt admission go
                 // (#52381) before it waits for the first run. Held, it kept every later prompt
                 // of the chat from its queue for the whole first run, and that run's own queue
@@ -446,13 +435,8 @@ impl Hub {
                     // first run's end), so it never answers "taken, no turn" for a run that may
                     // yet be refused, nor waits out a whole inbox message's answer (an outbox
                     // retry did, every 120 s, forever: 2026-11-25).
-                    if let Some(kept) = Box::pin(first_acceptance(
-                        session,
-                        &prompt_id,
-                        prompt_outcome_token(session, &prompt_id),
-                        &mut first,
-                    ))
-                    .await
+                    if let Some(kept) =
+                        Box::pin(first_acceptance(session, &prompt_id, token, &mut first)).await
                     {
                         let mut notice = duplicate(json!({"_meta": {"acpmux": {
                             "turnId": kept.get("turnId"),
