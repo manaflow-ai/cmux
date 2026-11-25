@@ -112,6 +112,12 @@ fn run_reading(
     exe_prefix: &[&str],
     payload: impl FnOnce() -> anyhow::Result<Value>,
 ) -> anyhow::Result<()> {
+    // Before anything that can wait: the agent has its answer inside the
+    // timeout it was installed with, whatever runs long below.
+    answer_deadline::arm(
+        cmux_tui_hooks::installed_hook_wait(&args.source, &args.native_event),
+        answers_with_an_object(&args.source, &args.native_event),
+    );
     let native = payload()?;
     let session = native.get("session_id").and_then(Value::as_str).map(str::to_owned);
     let session = session.as_deref();
@@ -135,7 +141,8 @@ fn run_reading(
     ) {
         // Output a provider decision, not a journal failure that the shell
         // wrapper may discard. No ready lease survives this pre-tool hook.
-        println!("{}", cmux_git::native_hook::denial(&error.to_string()));
+        let denial = cmux_git::native_hook::denial(&error.to_string());
+        answer_deadline::answer(|| println!("{denial}"));
         return Ok(());
     }
     if nested {
@@ -152,10 +159,20 @@ fn run_reading(
     {
         // Repository readiness is the only blocking part of this hook. Once
         // it passed, journal delivery is telemetry and must not deny a tool.
-        println!("{{}}");
+        answer_deadline::answer(|| println!("{{}}"));
         return Ok(());
     }
     result
+}
+
+/// Whether the agent reads one JSON object from this hook (its command
+/// prints `{}` itself only when the helper fails): the events that deliver
+/// messages, the session context, and the pre-tool gate. The rest print
+/// nothing; their command echoes the object.
+fn answers_with_an_object(source: &str, native_event: &str) -> bool {
+    inbox::Delivery::for_event(source, native_event).is_some()
+        || session_context::applies(source, native_event, |name| env::var_os(name))
+        || (native_event == "PreToolUse" && matches!(source, "claude" | "codex"))
 }
 
 fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::Result<()> {
@@ -190,7 +207,10 @@ fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::R
     cmux_tui_core::stamp_agent_hook_observed_now(&mut ingress);
     let event = serde_json::to_value(ingress)?;
     let (request_id, encoded) = encode_request(event, live)?;
-    let handoff = handoff_wait(&args.source, &args.native_event);
+    // The handoff takes no more than the time left: past it the agent has
+    // its answer, and the child delivers the event anyway.
+    let handoff = handoff_wait(&args.source, &args.native_event)
+        .min(answer_deadline::within(HANDOFF_WAIT).saturating_duration_since(Instant::now()));
     match detach::append_detached(&socket, &request_id, &encoded, handoff, exe_prefix)? {
         Handoff::Sent => {}
         Handoff::ChildExited => bail!("hook child gave up before writing the journal request"),
@@ -233,6 +253,10 @@ fn inherited_route_is_untrusted(
         && getenv(HOOK_ROUTE_ENV).is_none_or(|value| value != "launch")
         && cmux_tui_core::platform::descends_from_codex_app_server_daemon()
 }
+
+/// The hook's answer inside the agent's timeout for it.
+#[path = "cmux-tui-hook/answer_deadline.rs"]
+mod answer_deadline;
 
 /// One agent's queue of hook events on disk.
 #[path = "cmux-tui-hook/hook_spool.rs"]
