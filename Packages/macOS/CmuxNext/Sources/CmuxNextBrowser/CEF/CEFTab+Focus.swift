@@ -77,6 +77,16 @@ extension CEFTab {
         // after the next commit, so the grant waits for that commit. Every grant path comes here.
         // A page shown in a recent turn waits for its first frame out of the window (`CEFLayerHosting.firstFrameHold`):
         // the ask is kept and the hold's end grants it, so nothing re-arms a grant each pass meanwhile.
+        // A window still being restored (Restart to Update shows its windows one per frame) or an inactive app cannot
+        // hold the keys: a grant now made the page window key before its cmux window showed and the app lost its key
+        // window. The ask is kept and a window show or app activation grants it (`watchForKeyableWindow`).
+        if let owner = container.window, !owner.isVisible || owner.occlusionState.contains(.visible) == false || !NSApp.isActive {
+            host.lifecycleTrace.record(id, "grant kept: window not on screen or app inactive")
+            traceGrant("kept: window not on screen")
+            pendingFocus = true
+            watchForKeyableWindow(owner)
+            return
+        }
         let hosting = host.hostView.layerHosting
         if hosting.holdsFirstFrame() {
             host.lifecycleTrace.record(id, "grant kept: first-frame hold")
@@ -124,6 +134,24 @@ extension CEFTab {
         }
         keyWindows.makeKey(window)
         traceGrant("granted")
+    }
+
+    /// Re-asks a kept grant once the window shows or the app activates (one-shot).
+    private func watchForKeyableWindow(_ window: NSWindow) {
+        guard keyableObservers.isEmpty else { return }
+        let center = NotificationCenter.default
+        let fire: @Sendable (Notification) -> Void = { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.keyableObservers.forEach(center.removeObserver)
+                self.keyableObservers = []
+                AfterFrameCommit().run { [weak self] in self?.grantPendingFocusIfShown() }
+            }
+        }
+        keyableObservers = [
+            center.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main, using: fire),
+            center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main, using: fire),
+        ]
     }
 
     /// `cmux app clicks`: the grant's outcome, on the newest press in the page's cmux window.
