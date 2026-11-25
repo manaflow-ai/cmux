@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextLayout
@@ -46,8 +47,19 @@ enum DebugLayoutCounters {
         if paneCountChanges.count > 64 { paneCountChanges.removeFirst(paneCountChanges.count - 64) }
     }
 
+    /// The sidebar slide's content hold (`WindowRootView.followContentAreaMotion`), one line per card frame: the card's
+    /// size, the held width, the held view's and its layout's size, and `LayoutRootView` passes so far (the last 96).
+    static var holdFrames: [String] = []
+    static func noteHold(card: CGRect, hold: CGFloat?, held: NSView?, event: String = "frame") {
+        let layout = (held as? WorkspaceContentView)?.layoutView
+        func size(_ s: CGSize?) -> String { s.map { "\(Int($0.width.rounded()))x\(Int($0.height.rounded()))" } ?? "-" }
+        holdFrames.append("\(event) card \(size(card.size)) hold \(hold.map { String(Int($0.rounded())) } ?? "-") held \(size(held?.frame.size)) layout \(size(layout?.frame.size)) passes \(LayoutRootView.layoutPasses)")
+        if holdFrames.count > 96 { holdFrames.removeFirst(holdFrames.count - 96) }
+    }
+
     static func handle(_ params: [String: JSONValue]) -> JSONValue {
         let report: JSONValue = [
+            "hold_frames": .array(holdFrames.map { .string($0) }),
             "pane_snapshots": JSONValue(Int(truncatingIfNeeded: paneSnapshots)),
             "workspace_applies": JSONValue(Int(truncatingIfNeeded: workspaceApplies)),
             "topology_sends": JSONValue(Int(truncatingIfNeeded: topologySends)),
@@ -70,6 +82,7 @@ enum DebugLayoutCounters {
             TerminalSurfaceView.windowStateUpdates = 0
             StatusIndicatorAppearance.resyncs = 0
             paneCountChanges.removeAll()
+            holdFrames.removeAll()
             sources.removeAll()
         }
         return report

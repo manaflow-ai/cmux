@@ -67,6 +67,9 @@ extension WindowRootView {
         } else {
             startContentHold(card: card)
         }
+        #if DEBUG
+        DebugLayoutCounters.noteHold(card: card, hold: contentHold?.width, held: contentHold?.views.first?.view)
+        #endif
         if contentHold != nil, let window {
             NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window,
                                             userInfo: [browserPagesGeometryOnlyKey: true])
@@ -94,6 +97,9 @@ extension WindowRootView {
     /// The slide landed (or stopped): the held content takes the card's size and its own mask back.
     func releaseContentHold() {
         guard let hold = contentHold else { return }
+        #if DEBUG
+        DebugLayoutCounters.noteHold(card: contentHost.bounds, hold: nil, held: nil, event: "release")
+        #endif
         contentHold = nil
         for held in hold.views where held.view.superview === contentHost {
             held.view.autoresizingMask = held.mask
