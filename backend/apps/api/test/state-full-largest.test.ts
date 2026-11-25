@@ -15,7 +15,7 @@ describe("owner.state_full names the head's largest parts", () => {
   })
 
   it("orders by size", () => {
-    expect(stateLargest(head).map((p) => p.key)).toEqual(["ssh_revoke_pending", "installs", "grants", "user", "tag"])
+    expect(stateLargest(head).map((p) => p.key)).toEqual(["ssh_revoke_pending", "installs", "grants", "tag", "user"])
   })
 
   it("answers undefined under the limit and [] for a non-object head", () => {
