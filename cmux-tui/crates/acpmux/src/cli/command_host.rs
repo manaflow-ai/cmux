@@ -454,6 +454,10 @@ pub struct HypervisorOpts {
     /// An argument for --pod-init; repeat for more.
     #[arg(long = "pod-init-arg", value_name = "ARG", allow_hyphen_values = true)]
     pub pod_init_args: Vec<String>,
+    /// With --driver pods: a variable of serve's own environment to hand each pod's init,
+    /// by name, so its value never shows in an argv (a model token); repeat for more.
+    #[arg(long = "pod-env", value_name = "NAME")]
+    pub pod_env: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]

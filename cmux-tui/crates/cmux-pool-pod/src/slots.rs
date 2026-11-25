@@ -151,6 +151,9 @@ pub struct PodSlots<X> {
     init: (String, Vec<String>),
     /// Environment for the init (the pod's `HOME` is always set to its root).
     env: Vec<(String, String)>,
+    /// Variables the init takes from the caller's environment by name, so a value (a
+    /// model token) never sits in an argv that `ps` shows.
+    pass_env: Vec<String>,
 }
 
 impl<X: HostRunner> PodSlots<X> {
@@ -160,7 +163,15 @@ impl<X: HostRunner> PodSlots<X> {
             pods_dir: pods_dir.into().trim_end_matches('/').to_owned(),
             init: ("sleep".to_owned(), vec!["infinity".to_owned()]),
             env: Vec::new(),
+            pass_env: Vec::new(),
         }
+    }
+
+    /// Hand these variables of the caller's environment to each pod's init, by name
+    /// (`systemd-run --setenv=NAME`). One the caller does not have is left unset.
+    pub fn with_pass_env(mut self, names: Vec<String>) -> Self {
+        self.pass_env = names;
+        self
     }
 
     /// What each pod boots: for a guest, its own `acpmux` daemon.
@@ -198,6 +209,9 @@ impl<X: HostRunner> PodSlots<X> {
         ]);
         for (key, value) in &self.env {
             out.push(format!("--setenv={key}={value}"));
+        }
+        for name in &self.pass_env {
+            out.push(format!("--setenv={name}"));
         }
         out.push("--".to_owned());
         out.extend(bwrap_argv(&self.pods_dir, &root, &root, &self.init.0, &self.init.1));
@@ -291,7 +305,8 @@ impl<X: HostRunner> PodSlots<X> {
             &argv(&[
                 "sh",
                 "-c",
-                "mkdir -p -- \"$1\" \"$(dirname -- \"$2\")\" && cat > \"$2\"",
+                // The root is the pod's HOME: owner-only, or its acpmux refuses its state dir.
+                "mkdir -p -- \"$1\" \"$(dirname -- \"$2\")\" && chmod 0700 -- \"$1\" && cat > \"$2\"",
                 "sh",
                 &self.root(slot),
                 &self.meta(slot),
@@ -463,16 +478,45 @@ mod tests {
         assert_eq!(Slot::from_unit("user.slice"), None);
     }
 
+    /// The real shell and filesystem; systemd's calls answer as an empty user manager.
+    struct RealFs;
+
+    impl HostRunner for RealFs {
+        fn run(&self, argv: &[String], stdin: &[u8]) -> Result<Output, String> {
+            match argv.first().map(String::as_str) {
+                Some("systemd-run" | "systemctl") => Ok(Output::default()),
+                _ => ProcessRunner.run(argv, stdin),
+            }
+        }
+    }
+
+    #[test]
+    fn create_makes_the_root_owner_only_whatever_the_umask() {
+        use std::os::unix::fs::PermissionsExt as _;
+        // Without the chmod, mkdir gives the host's umask (002 on our VMs: drwxrwxr-x),
+        // and the pod's acpmux refuses a writable ancestor of its state dir.
+        let dir = std::env::temp_dir().join(format!("cmux-pool-pod-mode-{}", std::process::id()));
+        let pods = PodSlots::new(RealFs, dir.to_str().unwrap());
+        let size = SlotSize { vcpus: 1, memory_mib: 256 };
+        assert_eq!(pods.create(&slot("a"), size).unwrap(), SlotState::Running);
+        let mode = std::fs::metadata(dir.join("a")).unwrap().permissions().mode() & 0o777;
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(mode, 0o700, "{mode:o}");
+    }
+
     #[test]
     fn create_boots_the_init_in_bwrap_with_home_at_the_root() {
         let host = FakeHost::default();
-        let pods = PodSlots::new(&host, "/srv/pods/").with_init(
-            "acpmux",
-            vec!["daemon".into()],
-            vec![("ACPMUX_HUB".into(), "https://hub".into())],
-        );
+        let pods = PodSlots::new(&host, "/srv/pods/")
+            .with_init(
+                "acpmux",
+                vec!["daemon".into()],
+                vec![("ACPMUX_HUB".into(), "https://hub".into())],
+            )
+            .with_pass_env(vec!["ANTHROPIC_AUTH_TOKEN".into()]);
         let boot = pods.boot_argv(&slot("a")).join(" ");
-        assert!(boot.starts_with("systemd-run --user --quiet --collect --expand-environment=no --unit=cmux_pod_a_hold.service --slice=cmux_pod_a.slice --setenv=HOME=/srv/pods/a --setenv=ACPMUX_HUB=https://hub -- bwrap "), "{boot}");
+        // A passed variable goes by name only: its value never reaches the argv.
+        assert!(boot.starts_with("systemd-run --user --quiet --collect --expand-environment=no --unit=cmux_pod_a_hold.service --slice=cmux_pod_a.slice --setenv=HOME=/srv/pods/a --setenv=ACPMUX_HUB=https://hub --setenv=ANTHROPIC_AUTH_TOKEN -- bwrap "), "{boot}");
         assert!(boot.ends_with("--tmpfs /srv/pods --bind /srv/pods/a /srv/pods/a --setenv CMUX_POD_ROOT /srv/pods/a --chdir /srv/pods/a -- acpmux daemon"), "{boot}");
         let size = SlotSize { vcpus: 3, memory_mib: 2048 };
         assert_eq!(pods.create(&slot("a"), size).unwrap(), SlotState::Running);
