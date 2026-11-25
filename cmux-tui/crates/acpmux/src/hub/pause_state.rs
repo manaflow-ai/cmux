@@ -26,13 +26,9 @@ pub(crate) enum PauseState {
 }
 
 /// The class of a failed turn's error, for a stranded row: one of `resume_cause`'s
-/// (`capacity`, `rate_limit`, `transport`, `agent_exited`, `context`), `disk` (no space left),
+/// (`capacity`, `rate_limit`, `transport`, `agent_exited`, `context`, `disk`),
 /// `auth` (a sign-in failure), `refused` (a bad or refused request), else `error`.
 pub(crate) fn cause(error: &str) -> &'static str {
-    let lower = error.to_lowercase();
-    if lower.contains("no space left on device") || lower.contains("os error 28") {
-        return "disk";
-    }
     if let Some(cause) = crate::turn_errors::resume_cause(error, error) {
         return cause;
     }
@@ -48,7 +44,7 @@ pub(crate) fn cause(error: &str) -> &'static str {
 /// Whether a stranded row's cause is an outage acpmux means to ride out (overload, the
 /// connection, a dead agent): such a strand is acpmux's own gap, not the chat's.
 pub(crate) fn is_outage(cause: &str) -> bool {
-    matches!(cause, "capacity" | "rate_limit" | "transport" | "agent_exited")
+    matches!(cause, "capacity" | "rate_limit" | "transport" | "agent_exited" | "disk")
 }
 
 /// The row's paused or stranded state ([module docs](self)).

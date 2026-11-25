@@ -1356,8 +1356,7 @@ final class PendingAgentSource: AgentSessionSource {
         guard let index = held.firstIndex(where: { $0.at == sentAt }) else { return }
         let dropped = held[index...]
         held.removeSubrange(index...)
-        let seconds = max(1, Int(holdWindow.components.seconds))
-        let reason = "Not sent: \(summary.macName) was unreachable for more than \(seconds) seconds. Send again when it's back."
+        let reason = "Not sent: \(summary.macName) is offline."
         for (intent, _) in dropped {
             guard case .prompt(let text, let attachments, _, let promptID, _) = intent else { continue }
             for continuation in continuations {
