@@ -37,7 +37,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
 use zeroize::Zeroizing;
 
-use super::relay::{RELAY_PEER, RelayCarrier};
+use super::relay::{RELAY_PEER, RelayCarrier, RelayEndpoint};
 use super::turn::{Allocated, TurnCarrier, TurnTransport};
 use super::{
     DialError, DialFuture, DialOptions, Dialed, Dialer, LinkPath, SessionEvents, TransportKind, UltraSetting,
@@ -587,14 +587,21 @@ fn relay_plan(
     ticket: Option<String>,
     early: Option<roam::EarlyJoin>,
 ) -> Option<roam::RelayPlan> {
-    let mut endpoint = options.relay.clone()?;
-    endpoint.egress = options.egress.clone();
+    let endpoint = relay_endpoint(options)?;
     let Some(peer) = peer else {
         options.diagnosis.relay("peer_cannot", Some(endpoint.host()));
         abort_early(early.as_ref());
         return None;
     };
     Some(roam::RelayPlan { endpoint, now: own_now || peer == RELAY_NOW, ticket, early })
+}
+
+/// This side's relay endpoint, leaving through this dial's egress (the
+/// system proxy, "proxy only"): the one every join uses, early or not.
+fn relay_endpoint(options: &DialOptions) -> Option<RelayEndpoint> {
+    let mut endpoint = options.relay.clone()?;
+    endpoint.egress = options.egress.clone();
+    Some(endpoint)
 }
 
 /// Stops a join started on an early ticket that no plan will take.
@@ -2944,7 +2951,7 @@ pub(super) fn dial_wireguard<'a>(
                     // before the Mac's. The join starts now, off the wait.
                     SignalPayload::WgTicket {} => {
                         if let (true, None, Some(endpoint), Some(ticket)) =
-                            (own_relay_now, &early_join, options.relay.clone(), envelope.relay_ticket)
+                            (own_relay_now, &early_join, relay_endpoint(options), envelope.relay_ticket)
                         {
                             options.timeline.mark("relay_early_join");
                             let (session, peer, used) =
