@@ -35,10 +35,10 @@ extension ConversationViewController {
         if offset > threshold, velocity > 0, !replyHapticFired {
             replyHapticFired = true
             cell.replyIndicator.pulse(isOutgoing: model.isOutgoing) {
-                UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+                ConversationHaptics.impact(.soft)
             }
         } else if replyHapticFired, offset < threshold, velocity < 0 {
-            UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+            ConversationHaptics.impact(.soft)
             replyHapticFired = false
         }
     }
