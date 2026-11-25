@@ -5532,5 +5532,15 @@
     "unavailableTitle": "Oturum açmanız doğrulanamadı",
     "unavailableBody": "Oturum açma sağlayıcımız yoğun. Birkaç saniye bekleyin, ardından daveti yeniden açın. Yeniden oturum açmanız gerekmez.",
     "retry": "Tekrar dene"
+  },
+  "connected": {
+    "title": "{app} hesabına giriş yaptın",
+    "titleGeneric": "Giriş yaptın",
+    "errorTitle": "{app} hesabına giriş yapılamadı",
+    "errorTitleGeneric": "Giriş tamamlanmadı",
+    "body": "Devam etmek için cmux'a dön.",
+    "errorBody": "cmux'a dön ve tekrar dene.",
+    "button": "cmux'a dön",
+    "closeHint": "Bu sekmeyi kapatabilirsin."
   }
 }

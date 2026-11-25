@@ -36,6 +36,8 @@ pub struct Pending {
     pub redirect_uri: String,
     pub client_id: String,
     pub resource: String,
+    /// The registry's name for the server (`linear`), for the signed-in page; None off the registry.
+    pub app: Option<String>,
 }
 
 pub(super) fn agent() -> ureq::Agent {
@@ -147,6 +149,8 @@ pub struct Known {
     pub scope_delimiter: Option<String>,
     /// The server signs in with a device code (RFC 8628) and `client_id`.
     pub device: bool,
+    /// The registry entry's name (`linear`): the app the signed-in page names.
+    pub name: Option<String>,
 }
 
 /// An extra registry file (the builtin's shape) whose entries sign in like
@@ -179,6 +183,7 @@ impl Known {
             scopes: e.scopes.clone(),
             scope_delimiter: e.scope_delimiter.clone(),
             device: e.auth == cmux_mcp_connect::registry::AuthKind::Device,
+            name: Some(e.name.clone()),
         })
     }
 }
@@ -257,6 +262,7 @@ pub fn start(server_url: &str, www_authenticate: &str, known: &Known) -> Result<
             redirect_uri,
             client_id,
             resource,
+            app: known.name.clone(),
         },
     })
 }
@@ -279,6 +285,42 @@ pub fn with_scope_delimiter(url: &str, delimiter: &str) -> String {
         .collect();
     u.query_pairs_mut().clear().extend_pairs(pairs);
     u.to_string()
+}
+
+/// Where a finished browser sign-in lands: cmux.com's one "you're signed in, back to cmux" page
+/// (web/app/connected/route.ts), the same page the cloud's MCP callback ends on.
+pub const CONNECTED_PAGE_ORIGIN: &str = "https://cmux.com";
+
+/// `<origin>/connected?app=<name>&status=ok|error`. The name is the registry's (only registry
+/// servers have one), cut to `[a-z0-9-]`; anything else is `generic`, so no server-chosen text
+/// reaches the page's URL.
+pub fn connected_page_url(app: Option<&str>, ok: bool) -> String {
+    let app = app
+        .filter(|a| {
+            !a.is_empty()
+                && a.len() <= 64
+                && a.bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        })
+        .unwrap_or("generic");
+    let status = if ok { "ok" } else { "error" };
+    format!("{CONNECTED_PAGE_ORIGIN}/connected?app={app}&status={status}")
+}
+
+/// The loopback's answer once the code is in hand: a 302 to the cmux.com page, with the inline
+/// page as the body for a browser that does not follow it.
+fn signed_in_response(app: Option<&str>) -> String {
+    let page = auth_page(
+        true,
+        "Signed in",
+        "cmux Chief is connecting the server. You can close this tab.",
+        None,
+    );
+    format!(
+        "HTTP/1.1 302 Found\r\nLocation: {}\r\nCache-Control: no-store\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{page}",
+        connected_page_url(app, true),
+        page.len()
+    )
 }
 
 /// The cmux NEXT sign-in page's frame (web/app/handler: `cmux-sign-in.tsx`'s `Page` and
@@ -306,14 +348,13 @@ fn auth_page(ok: bool, title: &str, detail: &str, code: Option<&str>) -> String 
 }
 
 /// web/app/globals.css's tokens and the Tailwind classes of the sign-in page, written out, in
-/// the site's Geist (system fonts until it loads, or offline).
+/// system fonts (a loopback page fetches nothing from outside).
 const AUTH_PAGE_CSS: &str = "\
-@import url(\"https://fonts.googleapis.com/css2?family=Geist:wght@400;600&family=Geist+Mono&display=swap\");\
 :root{--background:#fafafa;--foreground:#171717;--muted:#707070;--border:#e5e5e5}\
 @media (prefers-color-scheme:dark){:root{--background:#0a0a0a;--foreground:#ededed;--muted:#a3a3a3;--border:#262626}}\
 *,::before,::after{box-sizing:border-box;margin:0;padding:0;border:0 solid}\
 html{line-height:1.5;-webkit-text-size-adjust:100%;\
-font-family:Geist,ui-sans-serif,system-ui,sans-serif,\"Apple Color Emoji\",\"Segoe UI Emoji\";\
+font-family:ui-sans-serif,system-ui,sans-serif,\"Apple Color Emoji\",\"Segoe UI Emoji\";\
 -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}\
 body{background:var(--background);color:var(--foreground)}\
 main{display:flex;min-height:100vh;align-items:center;justify-content:center;padding:48px 16px}\
@@ -321,7 +362,7 @@ section{width:100%;max-width:340px}\
 h1{font-size:22px;font-weight:600;letter-spacing:-0.02em}\
 .body{margin-top:6px;font-size:14px;line-height:24px;color:var(--muted)}\
 .code{display:inline-block;margin-top:24px;border:1px solid var(--border);padding:0 6px;\
-font-family:\"Geist Mono\",ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:18px;\
+font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:18px;\
 color:var(--muted)}";
 
 fn escape(text: &str) -> String {
@@ -371,31 +412,24 @@ pub fn wait(started: Started) -> Result<OAuthTokens, String> {
             continue;
         };
         let code = pending.auth.callback_code(query, &pending.state);
-        let (status, page) = match &code {
-            Ok(_) => (
-                "200 OK",
-                auth_page(
-                    true,
-                    "Signed in",
-                    "cmux Chief is connecting the server. You can close this tab.",
-                    None,
-                ),
-            ),
-            Err(e) => (
-                "400 Bad Request",
-                auth_page(
+        let _ = match &code {
+            Ok(_) => conn.write_all(signed_in_response(pending.app.as_deref()).as_bytes()),
+            // A failure stays on the loopback: its detail (the server's error) is shown here
+            // and never leaves the machine in a URL.
+            Err(e) => {
+                let page = auth_page(
                     false,
                     "Sign-in failed",
                     "Return to cmux and try again.",
                     Some(&e.to_string()),
-                ),
-            ),
+                );
+                write!(
+                    conn,
+                    "HTTP/1.1 400 Bad Request\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{page}",
+                    page.len()
+                )
+            }
         };
-        let _ = write!(
-            conn,
-            "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{page}",
-            page.len()
-        );
         let code = match code {
             Ok(c) => c,
             // A stray or forged request: keep waiting for the real one.
@@ -523,6 +557,47 @@ mod tests {
         assert!(
             out.contains("client_id=c") && out.contains("state=s"),
             "{out}"
+        );
+    }
+
+    #[test]
+    fn a_registry_server_lands_on_its_named_signed_in_page() {
+        let k = Known::for_url("https://mcp.linear.app/mcp");
+        assert_eq!(k.name.as_deref(), Some("linear"));
+        assert_eq!(
+            connected_page_url(k.name.as_deref(), true),
+            "https://cmux.com/connected?app=linear&status=ok"
+        );
+        let off_registry = Known::for_url("https://mcp.example.invalid/mcp");
+        assert!(off_registry.name.is_none());
+        assert_eq!(
+            connected_page_url(off_registry.name.as_deref(), true),
+            "https://cmux.com/connected?app=generic&status=ok"
+        );
+        for hostile in ["Linear", "a&b=c", "x/../y", "", &"a".repeat(65)] {
+            assert!(
+                connected_page_url(Some(hostile), false).ends_with("?app=generic&status=error"),
+                "{hostile}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_signed_in_answer_redirects_and_keeps_the_inline_page() {
+        let r = signed_in_response(Some("sentry"));
+        assert!(r.starts_with("HTTP/1.1 302 Found\r\n"), "{r}");
+        assert!(r.contains("\r\nLocation: https://cmux.com/connected?app=sentry&status=ok\r\n"));
+        let (head, body) = r.split_once("\r\n\r\n").unwrap();
+        assert!(head.contains(&format!("Content-Length: {}", body.len())));
+        assert!(body.contains("data-auth-state=\"ok\"") && body.contains("Signed in"));
+    }
+
+    #[test]
+    fn the_loopback_page_fetches_no_fonts() {
+        let page = auth_page(false, "Sign-in failed", "x", Some("code"));
+        assert!(
+            !page.contains("@import") && !page.contains("fonts.googleapis"),
+            "{page}"
         );
     }
 

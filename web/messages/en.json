@@ -7734,5 +7734,15 @@
       "chatMove": "to move a chat to another machine and get its answer there, one run",
       "note": "Test runs on our own accounts, not a promise. This pass includes up to {count} machines at once."
     }
+  },
+  "connected": {
+    "title": "You're signed in to {app}",
+    "titleGeneric": "You're signed in",
+    "errorTitle": "Couldn't sign in to {app}",
+    "errorTitleGeneric": "Sign-in didn't finish",
+    "body": "Head back to cmux to keep going.",
+    "errorBody": "Go back to cmux and try again.",
+    "button": "Back to cmux",
+    "closeHint": "You can close this tab."
   }
 }
