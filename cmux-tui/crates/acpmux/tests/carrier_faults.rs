@@ -1279,7 +1279,7 @@ async fn hub_outage_delivers_a_waiting_message_once_when_the_hub_returns() {
     // Each message once: the waiting one, and the outage send if A's outbox kept it.
     assert_eq!(
         info["turnCount"], turns,
-        "{turns} messages ran {} turns: {info}",
+        "{turns} messages ran {} turns (outage send {outage_send}): {info}",
         info["turnCount"]
     );
     let acked = fake.state.lock().unwrap().acks.iter().filter(|(m, _)| m == "msg_waiting").count();
