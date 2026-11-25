@@ -71,6 +71,12 @@ sidebar's looks use the same bare names.
 | `toolCard.radius` | 0 to 20 points | 6 to 12, by card | The corner radius of the transcript's cards: tool output, errors, plans and questions. |
 | `toolCard.border` | `hairline`, `none` | `hairline` | Whether those cards draw a hairline edge. |
 | `toolCards` | `row`, `card`, `minimal` | `row` | How a run of tool calls draws: rows with icons, the rows on a card, or quiet rows with no icons. |
+| `toolRow.textSize` | 0.75 to 1 | 1 | The size of a tool row's words (its title and the command or file after it), as a share of the text size. |
+| `toolRow.weight` | 300 to 700 | 400 | The weight of a tool row's words. |
+| `toolRow.font` | `text`, `mono` | `text` | The face of a tool row's title: the text face or the code face. |
+| `toolRow.commandFont` | `text`, `mono` | the title's | The face of the command, file or path a tool row names. |
+| `toolOutput.textSize` | 0.7 to 1 | 0.857 (12 at 14) | The size of an opened call's command and output, as a share of the text size. Its lines are 1.5 times it. |
+| `toolOutput.font` | `mono`, `text` | `mono` | The face of an opened call's command and output. |
 | `codeCard.radius` | 0 to 20 points | 16 | The corner radius of code blocks. |
 | `timestamps` | `hover`, `always`, `off` | `hover` | When a message's time shows. |
 
@@ -78,7 +84,8 @@ Only these tokens change where rows sit: `density`, `rowSpacing`, `messageWidth`
 (`reply.*` moves only replies, `userMessage.font*` only your messages), and the `userMessage`
 padding and width. Every other token changes only how rows are painted. The
 chat measures rows with the same values it draws with, so switching a look never makes the
-transcript jump.
+transcript jump. A tool row keeps its one 20 point line at any size its tokens allow, so the tool
+type tokens move no row; `toolOutput.textSize` changes only the height of a call you opened.
 
 ## Shipped looks
 
@@ -86,7 +93,7 @@ transcript jump.
 |---|---|---|
 | `cmux` | The chat as cmux draws it. This is the default. | none |
 | `claude` | Room to read: a narrower column, replies in a serif and your messages in the sans, larger text, quiet tool lines with no icons, soft bubbles and rounded cards, in the style of the Claude app | `density: comfortable`, `messageWidth: 720`, `fontSize: 15`, `lineHeight: 1.4`, `reply.font: serif`, `reply.fontSize: 16`, `userMessage.font: system`, `userMessage.fontSize: 15`, `toolCards: minimal`, `userMessage.radius: 16`, `userMessage.maxWidth: 0.8`, `userMessage.fill: 0.04`, `toolCard.radius: 12` |
-| `codex` | A narrow column, a rounded bubble for your messages, borderless cards and no times, in the style of the Codex app | `messageWidth: 640`, `fontSize: 13`, `lineHeight: 1.6`, `userMessage.radius: 10`, `userMessage.paddingBlock: 7`, `userMessage.paddingInline: 12`, `userMessage.fill: 0.05`, `toolCard.radius: 10`, `toolCard.border: none`, `toolCards: minimal`, `timestamps: off` |
+| `codex` | A narrow column, a rounded bubble for your messages, borderless cards and no times, in the style of the Codex app | `messageWidth: 640`, `fontSize: 13`, `lineHeight: 1.6`, `userMessage.radius: 10`, `userMessage.paddingBlock: 7`, `userMessage.paddingInline: 12`, `userMessage.fill: 0.05`, `toolCard.radius: 10`, `toolCard.border: none`, `toolCards: minimal`, `timestamps: off`, `toolOutput.textSize: 0.92` |
 | `studio` | Dense work logs: tight rows, a rounded bubble, small radii | `density: compact`, `messageWidth: 736`, `userMessage.paddingBlock: 11`, `userMessage.paddingInline: 12`, `userMessage.fill: 0.05`, `toolCard.radius: 6`, `codeCard.radius: 6` |
 
 The table file has every value of every look.

@@ -84,7 +84,8 @@ picture of the window (2880x1800): /tmp/shot.png; the extension is in the sideba
   extension's own view is not masked.
 
 - **Design warnings** follow the reload line when the first scene breaks a design rule: a font
-  size off the type roles, an Apple text style the web and macOS draw at different sizes, more than
+  size off the type roles, a `font` name that is no type role (`largeTitle` is drawn as 34 pt
+  regular; the role at that size is `numeral`), more than
   two accent colors, a gap or padding off the spacing scale (0 2 4 6 8 12 16 20 24 32 48), a raw or
   unknown color, text below the contrast minimum, and in a widget more than four type roles or text
   with no line limit. Each names its fix (`use Caption(...) (12 pt)`, `use 8`). They warn; the load still counts.
@@ -223,7 +224,7 @@ Settings > Apps, or `cmux ext remove local/my-prs`.
 | `sidebar` (default; `section` too) | a sidebar section | `cmux.section/1` |
 | `session-info` | a section in an agent chat's Session Info panel; its context is that chat's session | `cmux.session.info.section/1` |
 | `pane` | a view in a tab, opened from the command palette by its title | `cmux.pane/1` |
-| `newtab` | a whole New Tab page, shown once picked: `cmux settings set tabs.newTabApp local/NAME` | `cmux.newtab/1` |
+| `newtab` | a view over the New Tab composer, shown once picked: `cmux settings set tabs.newTabApp local/NAME` | `cmux.newtab/1` |
 | `command` | a command in the palette, `cmux NAME hello` in a terminal, and a tool for agents | `catalog.json` |
 | `menu` | refused until cmux has context-menu contributions (`cmux.context_menu/1`); the error says what to make meanwhile | |
 

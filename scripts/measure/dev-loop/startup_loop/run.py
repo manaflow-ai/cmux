@@ -470,10 +470,16 @@ class Loop:
             f.write(seed.stdout + seed.stderr)
         self.finish_launch("prime", p, outp)
         if seed.returncode != 0:
-            raise RuntimeError("seed of a terminal front failed: " + (seed.stdout + seed.stderr)[-800:])
+            # The step returns only report.json, so carry the priming launch's own words too.
+            prime = " | ".join("%s: %s" % (os.path.basename(f), open(f, errors="replace").read()[-500:].strip())
+                               for f in (outp, outp + ".err") if os.path.exists(f))
+            raise RuntimeError("seed of a terminal front failed: " + (seed.stdout + seed.stderr)[-800:]
+                               + (" (prime launch: %s)" % prime if prime else ""))
 
     def idle_instance(self, label):
         p, outp, t, pid = self.launch(label, 3600)
+        # sleep-ok: the floor measures quitting an idle app; launch-ready reports its window and echo only at exit,
+        # so this fixed idle window is the condition itself, not a wait on one.
         time.sleep(IDLE_S)
         if not alive(pid):
             raise RuntimeError("launch %s: app %d ended by itself" % (label, pid))

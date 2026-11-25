@@ -37,9 +37,8 @@ def stem(entry: str) -> str:
 
 
 def profile_dirs(target: Path) -> list[Path]:
-    """target/<profile> and target/<triple>/<profile>: every directory with a .fingerprint child."""
-    return sorted({p.parent for p in target.glob(".fingerprint")} | {p.parent for p in target.glob("*/.fingerprint")}
-                  | {p.parent for p in target.glob("*/*/.fingerprint")})
+    """target/<profile>, target/<triple>/<profile> and target/groups/<n>/<triple>/<profile>: every directory with a .fingerprint child."""
+    return sorted({p.parent for depth in range(5) for p in target.glob("*/" * depth + ".fingerprint")})
 
 
 def remove(path: Path) -> int:

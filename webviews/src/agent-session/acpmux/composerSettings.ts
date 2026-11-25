@@ -11,6 +11,8 @@
 // attachments ... so you can see it all and close aka delete"). Sent messages draw "both" as
 // "inline". It is only a look: a draft's text, its attachment marks and their order are the same
 // in every view, so switching never changes what is sent. Anything else reads as "inline".
+// `agentPane.composerVimKeys` (`composerVimKeys`) is off by default: on, the chat's prompt takes the minimal
+// modal vim of composer/vimKeys.ts (Esc for normal mode); off, the composer never reads those keys.
 // `agentPane.scrollToBottomOnSend` is on by default and preserves the existing send-to-latest
 // behavior. When off, an up-scrolled reader stays anchored while new rows arrive below; a reader at
 // the bottom continues following streaming output.
@@ -44,6 +46,9 @@
 // `emptyChatComposerPosition` is `agentPane.emptyChatComposerPosition` ("bottom" by default): "center"
 // sits a chat's composer in the middle of the pane until its first message (styles.css,
 // [data-empty-chat-composer="center"]). Anything else reads as "bottom".
+// `followUpMode` is `agentPane.followUpMode` ("steer" by default): what Return and Send do with a
+// message sent while an agent that steers is mid-turn, "steer" it into the turn or "queue" it for after
+// (followUpMode.ts); ⌘Return does the other. Anything else reads as "steer".
 // `cloudEnvironments` is the launch flag CLOUD_ENVIRONMENTS_ENABLED (Swift
 // AgentPaneCloudEnvironmentsFlag, read from the bundle's LSEnvironment, else the launch
 // environment; no cmux.json key): on, picking Cloud in a new chat's strip adds the Environment chip
@@ -56,6 +61,7 @@ import { useSyncExternalStore } from "react";
 // top :("). The others stay as choices.
 export type { HarnessPlacement } from "../../ui/harnessPlacement";
 import type { HarnessPlacement } from "../../ui/harnessPlacement";
+import { readFollowUpMode, type FollowUpMode } from "./followUpMode";
 export type ReasoningSliderStyle = "accent" | "minimal";
 export type AttachmentView = "inline" | "strip" | "both";
 export type NewChatPlace = "local" | "cloud";
@@ -70,6 +76,7 @@ export type ComposerSettings = {
   dictationSource: DictationSource;
   dictationShortcut: string;
   spellChecking: boolean;
+  composerVimKeys: boolean;
   attachmentView: AttachmentView;
   scrollToBottomOnSend: boolean;
   reasoningSlider: boolean;
@@ -82,6 +89,7 @@ export type ComposerSettings = {
   composerRing: ComposerRing;
   composerLook: ComposerLookSetting;
   emptyChatComposerPosition: EmptyChatComposerPosition;
+  followUpMode: FollowUpMode;
   cloudEnvironments: boolean;
 };
 
@@ -91,6 +99,7 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   dictationSource: "cmux",
   dictationShortcut: "",
   spellChecking: false,
+  composerVimKeys: false,
   attachmentView: "inline",
   scrollToBottomOnSend: true,
   reasoningSlider: false,
@@ -103,6 +112,7 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   composerRing: "context",
   composerLook: "auto",
   emptyChatComposerPosition: "bottom",
+  followUpMode: "steer",
   cloudEnvironments: true,
 };
 const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
@@ -110,6 +120,7 @@ type ComposerFlag =
   | "showContextUsage"
   | "showDictation"
   | "spellChecking"
+  | "composerVimKeys"
   | "reasoningSlider"
   | "plainFooter"
   | "harnessSwitch"
@@ -132,6 +143,7 @@ export function readComposerSettings(value: unknown): ComposerSettings {
       : "cmux",
     dictationShortcut: typeof raw.dictationShortcut === "string" ? raw.dictationShortcut : "",
     spellChecking: flag("spellChecking"),
+    composerVimKeys: flag("composerVimKeys"),
     attachmentView,
     scrollToBottomOnSend: flag("scrollToBottomOnSend"),
     reasoningSlider: flag("reasoningSlider"),
@@ -147,6 +159,7 @@ export function readComposerSettings(value: unknown): ComposerSettings {
     composerRing: raw.composerRing === "planUsage" ? "planUsage" : "context",
     composerLook: raw.composerLook === "studio" ? "studio" : "auto",
     emptyChatComposerPosition: raw.emptyChatComposerPosition === "center" ? "center" : "bottom",
+    followUpMode: readFollowUpMode(raw.followUpMode),
     cloudEnvironments: flag("cloudEnvironments"),
   };
 }

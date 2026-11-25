@@ -1,9 +1,11 @@
 // The session sidebar's model: what each session row shows and how rows group
 // by project. It follows the acpmux TUI sidebar (crates/acpmux/src/tui/render),
 // so a session reads the same in the terminal and in the pane.
+import { type AutoSession, autoSessionOf, heldInCloud } from "./autoSession/autoSession";
 import { type Translate, translate } from "./i18n";
 import { withoutRelayLabel, withoutRelayLabelOfMessage } from "./conversation/relayEnvelope";
 import { readRetry, type RetryState } from "./subagents/retryState";
+import { parseSessionIcon, type HarnessIconSpec } from "../shared/harnessIcons";
 import { senderSessionName } from "./senderIdentity";
 import { replacedSince } from "./sessionIndex";
 import { type SessionUsageStats, usageStatsOf } from "./usageStats";
@@ -12,6 +14,13 @@ import { type SessionUsageStats, usageStatsOf } from "./usageStats";
 export type AcpmuxSessionEntry = {
   sessionId: string;
   displayTitle?: string;
+  /** The name it was given (acpmux `displayName`, "Mango"): every human-visible surface shows it
+   *  first. Absent when none was given. */
+  displayName?: string;
+  /** Its names before its renames, oldest first (acpmux `formerNames`): "fka" lines read the last. */
+  formerNames?: string[];
+  /** The icon it set (acpmux `icon`), drawn in place of its harness mark (`SessionMark`). */
+  icon?: HarnessIconSpec;
   title?: string;
   name?: string;
   harness?: string;
@@ -130,6 +139,9 @@ export type AcpmuxSessionEntry = {
   laneError?: string;
   /** What it spends: context, 24h tokens and cost, subagents (acpmux `usageStats`, usageStats.ts). */
   usageStats?: SessionUsageStats;
+  /** Where an Auto chat stands (acpmux `autoSession`, autoSession/autoSession.ts); unset from an
+   *  acpmux without Auto, and the row then reads as it did before. */
+  autoSession?: AutoSession;
 };
 
 /** A cold-archived chat's preview, as acpmux keeps it in `session.json` (`ColdPreview`). */
@@ -290,16 +302,39 @@ function doingLine(session: Record<string, any>): string | undefined {
   return step ?? tool ?? text(session.lane?.step);
 }
 
-/** What a session waits on the person for: only the person answers either, in the app. */
-export type SessionWaiting = { on: "question"; prompt?: string } | { on: "permission" };
+/** What a session waits on the person for: only the person answers any of them, in the app. acpmux
+ *  names every wait (`waitingOn`, subsession_send.rs `waiting_on`): a question, a tool's permission,
+ *  a secret's value, the password for one command as root, or an MCP server to connect. */
+export type SessionWaiting =
+  | { on: "question"; prompt?: string }
+  | { on: "permission" }
+  | { on: "secret" }
+  | { on: "elevation" }
+  | { on: "mcpConnect" };
 
 /** `waitingOn` while the session waits on the person, with a question's first prompt
  *  (`waitingPrompt`) when acpmux gives it. */
 export function sessionWaiting(session: Record<string, any>): SessionWaiting | undefined {
   if (session.waitingOn === "permission") return { on: "permission" };
+  if (session.waitingOn === "secret") return { on: "secret" };
+  if (session.waitingOn === "elevation") return { on: "elevation" };
+  if (session.waitingOn === "mcp_connect") return { on: "mcpConnect" };
   if (session.waitingOn !== "question") return undefined;
   const prompt = text(session.waitingPrompt);
   return prompt ? { on: "question", prompt } : { on: "question" };
+}
+
+/** `formerNames` as acpmux sends it (oldest first), its non-blank strings; absent for none. */
+export function formerNamesOf(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const names = value.filter((name): name is string => typeof name === "string" && name.trim() !== "");
+  return names.length > 0 ? names : undefined;
+}
+
+/** The newest of its former names ("fka claude-sr2-coord-old"), unless it is the name shown now. */
+export function formerName(entry: { formerNames?: string[]; displayTitle?: string }): string | undefined {
+  const last = entry.formerNames?.at(-1);
+  return last && last !== entry.displayTitle ? last : undefined;
 }
 
 /** What a row draws at its right edge, most urgent first. */
@@ -310,9 +345,13 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
   const pending = Number(session.pendingPermissions ?? 0);
   const turn = chiefTurn(session.tags);
   const cold = coldArchive(session.coldArchive);
+  const auto = autoSessionOf(session.autoSession);
   return {
     sessionId: session.sessionId,
     displayTitle: sessionTitle(session),
+    displayName: text(session.displayName),
+    formerNames: formerNamesOf(session.formerNames),
+    icon: parseSessionIcon(session.icon),
     title: session.title,
     name: session.name,
     harness: session.harness,
@@ -382,6 +421,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     ...(session.retryDeciding === true && { retryDeciding: true as const }),
     laneError: text(session.lane?.error),
     usageStats: usageStatsOf(session.usageStats),
+    ...(auto && { autoSession: auto }),
   };
 }
 
@@ -469,12 +509,14 @@ export function isOpaqueName(bare: string): boolean {
 }
 
 /**
- * The title (the agent's title, else the first prompt) when the name was generated (`codex`,
+ * Its given name (acpmux `displayName`) when it has one. Else the title (the agent's title, else
+ * the first prompt) when the name was generated (`codex`,
  * `codex-3`, `codex-fork`, after the harness profile or its family), else the name the user gave. A generated
  * name is the launch profile's (`claude-sr`), so a chat with no prompt yet is a "New chat".
  */
 export function sessionTitle(
   session: {
+    displayName?: string;
     title?: string;
     lastPrompt?: string;
     name?: string;
@@ -485,6 +527,9 @@ export function sessionTitle(
   },
   t: Translate = translate,
 ): string {
+  // The name it was given (acpmux decides it: a given handle) reads everywhere first.
+  const given = session.displayName?.trim();
+  if (given) return given;
   const name = senderSessionName(session.name ?? "", session.peer);
   const bare = name.split("/").pop() ?? name;
   // acpmux names a session `agent` or `agent-N`, and a fork `<name>-fork`, also made unique with `-N`.
@@ -523,10 +568,12 @@ const shown = (value: unknown): string | undefined => {
 
 /**
  * A folderless workspace's private chat folder, `~/Library/Application Support/cmux/agent-home/<workspace-id>`
- * (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE). It is not a project, so it is never shown by its id.
+ * (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE), or a DEV build's own,
+ * `~/Library/Application Support/cmux-next/builds/<key>/agent-home/<workspace-id>` (BuildStatePaths `agentHome`).
+ * It is not a project, so it is never shown by its id (cmux#53226: a tagged build listed its own by UUID).
  */
 export function isAgentHome(cwd: string | undefined): boolean {
-  return /\/Library\/Application Support\/cmux\/agent-home(?:\/|$)/.test(cwd ?? "");
+  return /\/Library\/Application Support\/(?:cmux|cmux-next\/builds\/[^/]+)\/agent-home(?:\/|$)/.test(cwd ?? "");
 }
 
 /**
@@ -688,6 +735,11 @@ export class FolderRecency {
     return this.order;
   }
 
+  /// When a chat here last worked in `folder` (of the list last read), if any did.
+  usedAt(folder: string): number | undefined {
+    return this.newest.get(folder);
+  }
+
   private build(sessions: readonly AcpmuxSessionEntry[]) {
     this.order = recentFolders(sessions, this.folderOf);
     this.newest = new Map();
@@ -779,9 +831,13 @@ export type SessionPlace =
     }
   | undefined;
 
-export function sessionPlace(session: AcpmuxSessionEntry, groupHost?: string): SessionPlace {
+export function sessionPlace(session: AcpmuxSessionEntry, groupHost?: string, t: Translate = translate): SessionPlace {
   const host = cloudHost(session);
   if (host && host !== groupHost) return { kind: "cloud", label: host, branch: session.branch };
+  // An Auto chat of this Mac that the Cloud runs now reads as a Cloud chat does, by the word the
+  // composer's Where menu uses: its row names no machine of its own.
+  if (!host && heldInCloud(session.autoSession))
+    return { kind: "cloud", label: t("composer.cloud"), branch: session.branch };
   if (session.worktree) return { kind: "worktree", label: session.branch ?? projectLabel(session.worktree) };
   if (session.branch) return { kind: "branch", label: session.branch };
   return undefined;
