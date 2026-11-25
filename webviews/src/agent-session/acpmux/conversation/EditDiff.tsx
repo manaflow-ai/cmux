@@ -14,6 +14,7 @@ import {
   useState,
   type ComponentType,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 import { editPatch, type TurnFile } from "../diff";
 import { copyTextResult } from "./clipboard";
@@ -63,6 +64,8 @@ type EditDiffProps = {
   reveal?: number;
   /** Never cut to a preview (an edit a permission ask is about). */
   whole?: boolean;
+  /** More corner actions after Wrap and copy (the edited-files card's Open in Changes). */
+  actions?: ReactNode;
 };
 
 export function EditDiff(props: EditDiffProps) {
@@ -74,6 +77,7 @@ export function EditDiffFrame({
   file,
   reveal = 0,
   whole = false,
+  actions,
   hunks: Hunks,
 }: EditDiffProps & {
   hunks: ComponentType<{ file: TurnFile; patches: string[]; wrap: boolean }>;
@@ -117,6 +121,7 @@ export function EditDiffFrame({
         >
           <Copy />
         </button>
+        {actions}
       </div>
       <div ref={body} className="cv-edit-diff__body" data-preview={preview.attribute}>
         {/* The placeholder holds the body's height until Pierre has drawn every edit: the renderer's

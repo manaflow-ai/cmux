@@ -235,6 +235,30 @@
           ]
         },
         {
+          "key": "agentPane.composerVimKeys",
+          "title": {
+            "key": "settings.agentPane.composerVimKeys",
+            "text": "Vim Keys in the Composer"
+          },
+          "help": {
+            "key": "settings.agentPane.composerVimKeys.help",
+            "text": "Esc for normal mode, i to type again; h j k l, w b e, 0 $, x, dd and u edit. Return still sends."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "vim",
+            "modal",
+            "normal mode",
+            "insert mode",
+            "keyboard",
+            "hjkl",
+            "composer",
+            "message box",
+            "prompt"
+          ]
+        },
+        {
           "key": "agentPane.attachmentView",
           "note": "How the composer and sent messages show attachments (agentPane.attachmentView). Only the look: a draft's text, its attachments and their order are the same in all.",
           "title": {
