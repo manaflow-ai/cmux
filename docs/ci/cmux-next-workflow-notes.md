@@ -2194,31 +2194,6 @@ strips the workspace crates' own output (scripts/ci/cargo_target_strip.py, now a
 uploads, and saves. The build job holds the `next-cache-writer` environment on feat-cmux-next only; every other ref only reads.
 The darwin cross-toolchain install moved above these steps so the key can name it. Evidence: docs/findings/2026-11-23-rust-cache-pool-keys.md (cmuxterm-hq#20570).
 
-## note-210d
-
-Above `Key the cargo build in R2`, `Restore the libghostty-vt zig cache from R2`, `Save the libghostty-vt zig
-cache to R2` in fast-tier-cargo
-(`.github/workflows/cmux-next.yml`), and the `opt_level` of `matrix core` in scripts/cmux-next/fast-tier.json.
-
-After note-210b and #50826 (`--lib`) the R2 restore hits, yet the cmux-tui-core prebuild still took 8m11s
-(job 137395218484, 2026-11-22): the strip drops the workspace's own crates, so every run recompiles them.
-From the log's timestamps: ~95 workspace crates about 1 minute in parallel; ghostty-vt-sys's build script
-(the ReleaseFast `zig build` of libghostty-vt) about 2.5 minutes; ghostty-vt 1m43s; the cmux-tui-core test
-library 3m56s.
-
-Zig's cache is content-addressed (a manifest of input hashes, rehashed when a file's stat differs), so a
-restored cache can never hand back a stale object. The job points `ZIG_LOCAL_CACHE_DIR` at
-`$RUNNER_TEMP/ghostty-vt-zig-cache` and keeps it in R2 under the workspace hash, zig version and the
-ghostty-next gitlink. A pull request restores the exact key or the newest under the prefix; a feat-cmux-next
-push restores only the exact key, so a gitlink bump builds once and saves that commit's objects alone.
-
-cmux-tui-core's own crate builds at opt-level 0 here (`"opt_level": 0` on its entry in
-scripts/cmux-next/fast-tier.json, a `--config profile.dev.package.cmux-tui-core.opt-level=0` on its build
-and run). Its entry runs one 5 s test, so compiling the test library is the cost. Setting the whole
-workspace to 0 (`CARGO_PROFILE_DEV_OPT_LEVEL=0`, the first head of #51206) cut the core build from 8m11s to
-6m13s, but the sidebar layout reducer's test went from 17.2 s to past its 60 s cap. Dependencies and every
-other crate keep their profiles, and the dev loop's opt-level 1 stays in Cargo.toml.
-
 ## note-211
 
 Retired: `fast-tier-cargo` no longer fetches the ghostty-next Zig packages first.
@@ -5268,3 +5243,32 @@ only on `unavailable` while the placement still names a gateway runner for this 
 the controller's hook never fires on it. Consumers read `fast-tier-fleet-mac`'s verdict and result when it ran,
 else fast-tier-fleet's; an `unavailable` with no fallback leaves cmux-next fast tier to run the suites itself,
 as when no fleet job ran.
+## note-cloud-journey-pr-wall
+
+Above `seed`, the R2 restore steps and the workflow `env` in `.github/workflows/cloud-journey-pr.yml`, and
+`scripts/cmux-next/cloud-journey-cargo-key.sh`.
+
+`Cloud journey (PR CLI on staging)` was about 24 minutes of a pull request's wall, and most of it was a cold
+`cargo build -p cmux-tui` with no cargo cache. In run 45528981033 (PR 55112, Freestyle runner) the job took 37 min:
+queue about 3 s, checkout 23 s, submodules 14 s, apt, Rust and Zig setup 39 s, build 30.75 min (624 crates, 489 of
+them dependencies; the `cmux-tui` crate alone 18 min at `opt-level = 1` with full debuginfo), staging journey 5 min.
+Twelve recent runs: build 11 to 31 min, journey 5 to 9 min, total 20 to 37 min. Path routing was already in place,
+and only 1 of 21 recent matching pull requests matched through test files alone, so routing was not the cause.
+
+Three changes, the check unchanged:
+
+- The compiled dependencies come from R2 (note-210b's store: public reads, so pull requests restore with no
+  credentials). `seed` builds the same binary on a feat-cmux-next push that changes the key's inputs (lockfiles,
+  toolchain, this workflow, the key script) or on a dispatch there. It skips when the exact key exists, strips
+  the workspace's own output (`cargo_target_strip.py`) and saves the target and the registry. It is its own job
+  because the R2 write keys live in `next-cache-writer` (tests/test_ci_pull_request_caches_are_read_only.py), and
+  `journey` already holds `cmux-next-vm-image-dev`. A miss or a slow restore (4 min bound, continue-on-error)
+  builds cold as before.
+- The workspace crates build at `opt-level 0` with `debug = line-tables-only` and no incremental output
+  (`CARGO_PROFILE_DEV_*`, `CARGO_INCREMENTAL` in the workflow env). Dependencies keep `profile.dev.package."*"`
+  (opt-level 3). The journey is network-bound, and a panic still has file and line. The key hashes these
+  variables, so `seed` and `journey` cannot drift.
+- `*_tests.rs` and `tests/` under cmux-tui no longer start the journey: neither reaches the binary.
+
+Not changed here: backend.yml's journey-staging, cloud-resume-matrix.yml and migrate-journey-pr.yml run the same
+uncached build.

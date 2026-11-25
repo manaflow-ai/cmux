@@ -3876,7 +3876,7 @@ jobs:
             echo "registry=${CARGO_HOME:-$HOME/.cargo}/registry"
           } >> "$GITHUB_OUTPUT"
           # libghostty-vt's zig build keeps its objects in a cache of its own (content-addressed, so any
-          # older copy is safe to restore). Why: docs/ci/cmux-next-workflow-notes.md#note-210d
+          # older copy is safe to restore). Why: docs/ci/cmux-next-workflow-notes/2026-11-25-fast-tier-zig-cache.md
           zig_prefix="cmux-next-fast-tier-ghostty-vt-zig-v1-$workspace-$("${CMUX_ZIG:-zig}" version)-"
           {
             echo "zig-prefix=$zig_prefix"
@@ -3915,7 +3915,7 @@ jobs:
 
       # A pull request falls back to the newest cache; a push restores only its exact key, so a new
       # ghostty-next commit saves a cache holding that commit's objects alone (no growth).
-      # Why: docs/ci/cmux-next-workflow-notes.md#note-210d
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-25-fast-tier-zig-cache.md
       - name: Restore the libghostty-vt zig cache from R2
         id: r2-zig-cache
         if: ${{ steps.r2-cargo-key.outputs.zig-key != '' }}
@@ -3995,7 +3995,7 @@ jobs:
           path: ${{ steps.r2-cargo-key.outputs.registry }}
           key: ${{ steps.r2-cargo-key.outputs.registry-key }}
 
-      # Why: docs/ci/cmux-next-workflow-notes.md#note-210d
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-25-fast-tier-zig-cache.md
       - name: Save the libghostty-vt zig cache to R2
         if: ${{ success() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.r2-cargo-key.outputs.zig-key != '' && steps.r2-zig-cache.outputs.cache-hit != 'true' }}
         timeout-minutes: 6
