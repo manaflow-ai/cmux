@@ -2,9 +2,12 @@
    recordings (minimap-ref SPEC, model.ts). Colors are the theme's tokens: in the dark reference
    theme a resting tick is the muted text at 40% (#3d3d3d on #161616), a current one the text at
    75%, a hovered or focused one the text. Motion is transform, plus the band's opacity glide. */
+/* Its origin is the view under a floating tab row (VirtualTranscript `topInset`, set on the scroller as
+   --acpmux-rail-top), the origin `railBox` is measured from: at the scroller's own top the rail drew
+   over the tab row's title (Leo, 2026-11-25: "overlay bug in scroll rail"). */
 .acpmux-minimap {
   position: sticky;
-  top: 0;
+  top: var(--acpmux-rail-top, 0px);
   z-index: var(--layer-sticky);
   height: 0;
 }

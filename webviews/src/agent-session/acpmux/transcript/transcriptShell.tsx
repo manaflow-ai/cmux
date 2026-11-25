@@ -263,6 +263,9 @@ export function drawTranscriptShell({
                   ? 0
                   : transcriptFadeReach(below - FOLLOW_BOTTOM_DEADBAND_PX),
                 ...(dockSpace > 0 ? { "--acpmux-dock-space": `${dockSpace}px` } : {}),
+                // A floating tab row's height (`topInset`): the rails' sticky top (threadMinimap.css,
+                // chatMinimap.css), so neither draws over the tab row's title.
+                ...(topInset > 0 ? { "--acpmux-rail-top": `${topInset}px` } : {}),
                 ...(dockHoles ? { "--acpmux-dock-holes": dockHoles } : {}),
                 ...(pinnedPill ? { "--acpmux-view-top": `${pinAt.pad + topInset + SUBAGENT_OF_HEIGHT}px` } : {}),
                 // The live line's box and the gap over it in a run, from their one source (transcriptGrid.ts).
@@ -309,6 +312,7 @@ export function drawTranscriptShell({
               scroller={ref}
               viewportHeight={height - room}
               foot={height - dockSpace}
+              topInset={topInset}
               width={width}
               endReserve={endReserve}
               scrolls={layout.totalHeight - height > 0.5}

@@ -50,6 +50,8 @@ type Props = {
   viewportHeight: number;
   /// Where the transcript's mask ends the view (the composer's top).
   foot: number;
+  /// CSS px of the scroller's top a floating tab row covers (VirtualTranscript `topInset`): the strip starts below it.
+  topInset?: number;
   /// The pane's width, for the right gutter.
   width: number;
   /// The room the column keeps at its right (VirtualTranscript's endReserve): the minimap's own while it
@@ -68,7 +70,8 @@ export function ChatMinimap(props: Props) {
 
 /// The setting is on: draws when the right gutter has room for it.
 function ChatMinimapOn(props: Props) {
-  const track = Math.floor(props.foot - MINIMAP_TOP - MINIMAP_BOTTOM);
+  // Its box starts under a floating tab row (chatMinimap.css --acpmux-rail-top), so the track ends at the foot.
+  const track = Math.floor(props.foot - (props.topInset ?? 0) - MINIMAP_TOP - MINIMAP_BOTTOM);
   // The right gutter of the column the chat really draws (Text Width, Full Width): none, no minimap.
   const sizing = useChatSizing();
   const column = chatColumnOf(useChatDisplay(), sizing.scale);
