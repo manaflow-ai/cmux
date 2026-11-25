@@ -20,7 +20,7 @@ pub(super) fn tools() -> Vec<Value> {
     vec![
         json!({
             "name": "watch_add",
-            "description": "Wake a chat once, with one ordinary message, when one of these sessions ends a turn, asks for permission or closes: a coordinator's way to learn a worker is done or blocked without polling. Or, with at or every and a prompt (no sessions), wake it with that prompt at a time: once, or every period until end; a fire missed while the host slept is sent once. The daemon keeps the watch and the wake it owes across restarts and a recipient's outage, and removes the watch after its last wake is delivered. Returns the watch id.",
+            "description": "Wake a chat once, with one message, when one of these sessions ends a turn, asks for permission or closes: learn a worker is done or blocked without polling. Or, with at or every and a prompt (no sessions), wake it with that prompt at a time. Watches and owed wakes survive restarts. Returns the watch id.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -28,10 +28,10 @@ pub(super) fn tools() -> Vec<Value> {
                     "to": {"type": "string", "description": "The session to wake (default: this chat)."},
                     "until": {"type": "array", "items": {"type": "string", "enum": ["ready", "permission", "done", "closed"]}, "description": "States that wake it (default ready and permission)."},
                     "match": {"type": "string", "description": "Only a turn whose transcript contains this text wakes it, such as BLOCKER."},
-                    "at": {"type": "string", "description": "A time watch: wake once at this time, RFC 3339 or +DURATION such as +30m. With every, the first fire."},
-                    "every": {"type": "string", "description": "A time watch: wake every DURATION, such as 30m or 1d."},
-                    "end": {"type": "string", "description": "With every: fire no more after this time (RFC 3339 or +DURATION)."},
-                    "prompt": {"type": "string", "description": "The message a time watch sends when it falls due."}
+                    "at": {"type": "string", "description": "Wake at this time: RFC 3339 or +30m. With every, the first fire."},
+                    "every": {"type": "string", "description": "Wake every period, such as 30m or 1d."},
+                    "end": {"type": "string", "description": "With every: stop after this time."},
+                    "prompt": {"type": "string", "description": "The message a time watch sends."}
                 }
             }
         }),
