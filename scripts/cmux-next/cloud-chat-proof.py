@@ -914,6 +914,14 @@ if code != 0:
 # run, so a start still pending (exit 75: creation goes on in the app) is asked again with the same
 # name, and the machine can be found for cleanup by that name when no answer named its id.
 # The whole step has 30 minutes: sign-in (at most ~5), pending retries (10) and the last wait (10).
+# `--login` only where the CLI still takes it: the Rust start-chat (#55501) copies no login from the Mac (its machine's
+# agents use the Cloud model route) and refuses the word, so an older app's CLI gets it and this one does not.
+if START_LOGIN:
+    help_code, help_out, help_err = cmux("cloud", "start-chat", "--help", timeout=30)
+    if "--login" not in help_out + help_err:
+        record("cloud start-chat takes no --login (dropped)", 0, "", "")
+        evidence["claude_login"]["login"] = None
+        START_LOGIN = ()
 chat_started = time.monotonic()
 chat_deadline = chat_started + 600
 while True:  # bounded: the same start-chat again while its machine is still being made
