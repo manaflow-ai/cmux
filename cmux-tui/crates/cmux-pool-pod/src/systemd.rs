@@ -150,6 +150,10 @@ impl<X: CommandRunner> SystemdPodRuntime<X> {
             "/proc",
             "--tmpfs",
             "/tmp",
+            // Hide every other pod: an empty tmpfs over the pods dir, then
+            // this pod's root alone on top of it.
+            "--tmpfs",
+            &self.pods_dir,
             // Same path inside and out: the root is read-only, so a new
             // mount point like /pod cannot be made, and files and exec agree.
             "--bind",

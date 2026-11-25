@@ -232,7 +232,7 @@ fn exec_runs_in_the_pod_slice_inside_bwrap() {
     let argv = rt.exec_argv(&pod, &req);
     let joined = argv.join(" ");
     assert!(joined.starts_with("systemd-run --user --quiet --collect --wait --pipe --expand-environment=no --slice=cmux_pod_lane_a_1.slice --setenv=HOME=/home/cmux/pods/lane-a-1 -- bwrap "));
-    assert!(joined.contains("--bind /home/cmux/pods/lane-a-1 /home/cmux/pods/lane-a-1 --setenv CMUX_POD_ROOT /home/cmux/pods/lane-a-1 --chdir /home/cmux/pods/lane-a-1 -- acpmux daemon"));
+    assert!(joined.contains("--tmpfs /home/cmux/pods --bind /home/cmux/pods/lane-a-1 /home/cmux/pods/lane-a-1 --setenv CMUX_POD_ROOT /home/cmux/pods/lane-a-1 --chdir /home/cmux/pods/lane-a-1 -- acpmux daemon"));
     assert_eq!(
         rt.start_argv(&pod)[2],
         [
