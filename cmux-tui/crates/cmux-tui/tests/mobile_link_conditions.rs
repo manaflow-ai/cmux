@@ -13,7 +13,8 @@
 //!   replaces the connection's last one);
 //! - reconnect (profiles whose disruption drops the LAN link): attached to a surface printing every 250 ms, the
 //!   profile's disruption, then the app's policy (the link gives up after 20 s with nothing in;
-//!   an address change redials at once, iOS `NWPathMonitor` -> `path_changed`): a redial and
+//!   an address change or the path coming back redials at once, iOS `NWPathMonitor` ->
+//!   `path_changed`): a redial and
 //!   re-attach. `gap_after_link_back_ms` from the link's return to the first fresh output,
 //!   `gap_total_ms` from the disruption.
 //!
@@ -138,6 +139,9 @@ struct Daemon {
     history: Vec<(String, u64)>,
     /// Prints a tick every 250 ms (the reconnect's live output).
     ticker: u64,
+    /// Streams a line every 20 ms (the streaming duress: output on the link while another
+    /// surface attaches); none in the bytes-per-minute bench.
+    streamer: Option<u64>,
     /// The pane new tabs go in, and the next tab's serial (`Daemon::tab`).
     pane: Value,
     serial: AtomicU64,
@@ -217,6 +221,7 @@ impl Daemon {
                 socket,
                 history: Vec::new(),
                 ticker: 0,
+                streamer: None,
                 pane: Value::Null,
                 serial: AtomicU64::new(0x800),
             },
@@ -267,6 +272,12 @@ impl Daemon {
             &mut client,
             "i=0; while :; do i=$((i+1)); printf 'tick %d\\n' $i; sleep 0.25; done".to_owned(),
         );
+        let streamer = (!scales.is_empty()).then(|| {
+            tab(
+                &mut client,
+                "i=0; while :; do i=$((i+1)); printf 'stream %07d the quick brown fox jumps over the lazy dog\\n' $i; sleep 0.02; done".to_owned(),
+            )
+        });
         // Every history is printed before anything is measured.
         let deadline = std::time::Instant::now() + Duration::from_secs(300);
         for (scale, surface) in &history {
@@ -284,6 +295,7 @@ impl Daemon {
         }
         daemon.history = history;
         daemon.ticker = ticker;
+        daemon.streamer = streamer;
         daemon.pane = pane;
         daemon
     }
@@ -355,6 +367,10 @@ enum Inbound {
     Reply(u64, Value),
     Output { surface: u64, data: Vec<u8>, vt_state: bool },
 }
+
+/// The app's wait after a path change before it redials (cmux-next-ios
+/// LinkController.swift:180 `networkSettle`).
+const NETWORK_SETTLE: Duration = Duration::from_millis(150);
 
 /// One phone channel to the daemon over the shaper.
 struct Conn {
@@ -680,17 +696,87 @@ impl Bench {
         }
     }
 
-    async fn reconnect(&self, profile: &LinkProfile, surface: u64, run: u64, seed: u64) {
+    /// Duress: another surface streams on the link while this one attaches.
+    async fn streaming(
+        &self,
+        profile: &LinkProfile,
+        scale: &str,
+        surface: u64,
+        streamer: u64,
+        run: u64,
+        seed: u64,
+    ) {
+        let phase = "streaming";
+        let (shaper, _relay) = match link(self.upstream, profile, seed).await {
+            Ok(link) => link,
+            Err(e) => return error(profile, phase, scale, run, &format!("shaper: {e}")),
+        };
+        let Ok(mut conn) = Conn::open(shaper.addr()).await else {
+            return error(profile, phase, scale, run, "connect failed");
+        };
+        if attach(&mut conn, streamer, true).await.is_none()
+            || conn
+                .output(streamer, None, false, Instant::now() + Duration::from_secs(10))
+                .await
+                .is_none()
+        {
+            emit(profile, phase, scale, "first_content_ms", None, run, seed);
+            return error(profile, phase, scale, run, "the stream is not live");
+        }
+        shaper.reset_counters();
+        let down_before = conn.down_bytes.load(Ordering::SeqCst);
+        let started = Instant::now();
+        match attach(&mut conn, surface, false).await {
+            Some(first) => {
+                emit(
+                    profile,
+                    phase,
+                    scale,
+                    "first_content_ms",
+                    Some(ms(first - started)),
+                    run,
+                    seed,
+                );
+                let down = conn.down_bytes.load(Ordering::SeqCst) - down_before;
+                emit(profile, phase, scale, "bytes_down", Some(down as f64), run, seed);
+            }
+            None => {
+                emit(profile, phase, scale, "first_content_ms", None, run, seed);
+                error(profile, phase, scale, run, "no first content");
+            }
+        }
+    }
+
+    /// `path_back` (the path-change row, the app's behaviour): a dial from the dark still pending
+    /// when the link comes back is dropped for a new one after `NETWORK_SETTLE`, as the app does
+    /// on its NWPathMonitor event (cmux-next-ios NetworkPathMonitor.swift:55, LinkController.swift
+    /// :180, :193). Without it, on a blackout (the harness-dark-dial row), the harness's own dial
+    /// from the dark rides the shaper's SYN backoff; the app does not do that.
+    async fn reconnect(
+        &self,
+        profile: &LinkProfile,
+        surface: u64,
+        run: u64,
+        seed: u64,
+        path_back: bool,
+    ) {
+        let blackout =
+            matches!(profile.disruption, Some(cmux_fault::shaper::Disruption::Blackout { .. }));
+        let phase = match (path_back, blackout) {
+            (true, _) => "path-change",
+            (false, true) => "harness-dark-dial",
+            (false, false) => "reconnect",
+        };
         let scale = "1x";
         let (shaper, _relay) = match link(self.upstream, profile, seed).await {
             Ok(link) => link,
-            Err(e) => return error(profile, "reconnect", scale, run, &format!("shaper: {e}")),
+            Err(e) => return error(profile, phase, scale, run, &format!("shaper: {e}")),
         };
         let Ok(mut conn) = Conn::open(shaper.addr()).await else {
-            return error(profile, "reconnect", scale, run, "connect failed");
+            return error(profile, phase, scale, run, "connect failed");
         };
         if attach(&mut conn, surface, true).await.is_none() {
-            return error(profile, "reconnect", scale, run, "first attach failed");
+            return error(profile, phase, scale, run, "first attach failed");
         }
         // Live: a tick has arrived since the attach.
         if conn
@@ -698,7 +784,7 @@ impl Bench {
             .await
             .is_none()
         {
-            return error(profile, "reconnect", scale, run, "the ticker is not live");
+            return error(profile, phase, scale, run, "the ticker is not live");
         }
         let address_change = matches!(
             profile.disruption,
@@ -737,38 +823,77 @@ impl Bench {
             Some(at) => Some(at),
             None => {
                 drop(conn);
-                match Conn::open(shaper.addr()).await {
-                    Ok(mut new) => attach(&mut new, surface, true).await,
-                    Err(_) => None,
+                let addr = shaper.addr();
+                // The fresh output's time, and the dial's: when it went out, when it opened. The
+                // local connect to the shaper returns at once (it holds the upstream connect, SYN
+                // backoff included), so the dial is open at the first answer through it: the
+                // client-info/identify reply, as chat's is at `initialize`.
+                let dial = move || async move {
+                    let sent = Instant::now();
+                    let mut new = Conn::open(addr).await.ok()?;
+                    let ids = new
+                        .send(vec![("set-client-info", client_info()), ("identify", json!({}))])
+                        .await
+                        .ok()?;
+                    new.reply(*ids.last()?, |_, _, _, _| {}).await?;
+                    let open = Instant::now();
+                    Some((attach(&mut new, surface, false).await?, sent, open))
+                };
+                let now = Instant::now();
+                let got = if path_back && now < back {
+                    match timeout(back - now, dial()).await.ok().flatten() {
+                        Some(got) => Some(got),
+                        None => {
+                            tokio::time::sleep_until(back + NETWORK_SETTLE).await;
+                            dial().await
+                        }
+                    }
+                } else {
+                    dial().await
+                };
+                if let Some((_, sent, open)) = got {
+                    let from_back = if sent >= back { ms(sent - back) } else { -ms(back - sent) };
+                    emit(
+                        profile,
+                        phase,
+                        scale,
+                        "dial_from_link_back_ms",
+                        Some(from_back),
+                        run,
+                        seed,
+                    );
+                    emit(profile, phase, scale, "dial_open_ms", Some(ms(open - sent)), run, seed);
                 }
+                got.map(|(at, _, _)| at)
             }
         };
         let Some(fresh) = fresh else {
             for metric in ["gap_after_link_back_ms", "gap_total_ms"] {
-                emit(profile, "reconnect", scale, metric, None, run, seed);
+                emit(profile, phase, scale, metric, None, run, seed);
             }
-            return error(
-                profile,
-                "reconnect",
-                scale,
-                run,
-                "no fresh output after the link came back",
-            );
+            return error(profile, phase, scale, run, "no fresh output after the link came back");
         };
         emit(
             profile,
-            "reconnect",
+            phase,
             scale,
             "gap_after_link_back_ms",
             Some(ms(fresh.saturating_duration_since(back))),
             run,
             seed,
         );
-        emit(profile, "reconnect", scale, "gap_total_ms", Some(ms(fresh - dropped)), run, seed);
+        emit(profile, phase, scale, "gap_total_ms", Some(ms(fresh - dropped)), run, seed);
+        // The path-change gap split: the app's fixed settle before its redial, then the rest.
+        if phase == "path-change" {
+            let settle = ms(NETWORK_SETTLE);
+            let after = ms(fresh.saturating_duration_since(back));
+            emit(profile, phase, scale, "settle_ms", Some(settle), run, seed);
+            emit(profile, phase, scale, "gap_after_settle_ms", Some(after - settle), run, seed);
+        }
         if let Some(redial) = redial_at {
             emit(
                 profile,
-                "reconnect",
+                phase,
                 scale,
                 "redial_after_drop_ms",
                 Some(ms(redial - dropped)),
@@ -807,11 +932,24 @@ fn terminal_attach_under_link_profiles() {
             for (scale, surface) in &daemon.history {
                 for run in 0..runs {
                     bench.cold_and_warm(profile, scale, *surface, run, seed_base + run).await;
+                    if let Some(streamer) = daemon.streamer {
+                        bench
+                            .streaming(profile, scale, *surface, streamer, run, seed_base + run)
+                            .await;
+                    }
                 }
             }
             if profile.disrupts_lan() {
+                // path-change only differs on a blackout: an address change redials at once.
+                let blackout = matches!(
+                    profile.disruption,
+                    Some(cmux_fault::shaper::Disruption::Blackout { .. })
+                );
                 for run in 0..runs {
-                    bench.reconnect(profile, daemon.ticker, run, seed_base + run).await;
+                    bench.reconnect(profile, daemon.ticker, run, seed_base + run, false).await;
+                    if blackout {
+                        bench.reconnect(profile, daemon.ticker, run, seed_base + run, true).await;
+                    }
                 }
             }
         }
