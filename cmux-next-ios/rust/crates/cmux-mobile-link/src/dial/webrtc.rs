@@ -454,6 +454,7 @@ async fn finish(
         liveness: None,
         media,
         webrtc_media: false,
+        overlay: None,
         reliable: false,
     })
 }
