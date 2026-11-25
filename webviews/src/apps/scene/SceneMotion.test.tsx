@@ -8,7 +8,16 @@ import { JSDOM } from "jsdom";
 import { fileURLToPath } from "node:url";
 import { settleReact } from "../../../test/support/domTeardown";
 import { SceneRenderer } from "./SceneRenderer";
-import { loopStyle, parseMotion, sceneTiming, springLinear, trimRange } from "./motionProps";
+import {
+  loopStyle,
+  parseMotion,
+  sceneTiming,
+  sceneTransitionKind,
+  sceneTransitionLeaveMs,
+  sceneTransitionVars,
+  springLinear,
+  trimRange,
+} from "./motionProps";
 import { MAX_PARTICLES, ParticleField } from "./particleField";
 import { glowFilter, gradientImage, offsetTranslate } from "./sceneStyle";
 import { SceneStore, type SceneOp } from "./store";
@@ -53,6 +62,29 @@ describe("timings", () => {
     const normal = sceneTiming({ duration: 0.2, curve: "linear" }, { mode: "full", speed: 1.5 })!;
     expect(fast).toEqual({ duration: 200, easing: "linear" });
     expect(normal.duration).toBeCloseTo(300);
+  });
+});
+
+describe("timed transitions", () => {
+  test("the bare kind keeps scene.css's steps; {kind, motion} carries its own timing", () => {
+    expect(sceneTransitionKind("slide")).toBe("slide");
+    expect(sceneTransitionKind({ kind: "pop", motion: "bouncy" })).toBe("pop");
+    expect(sceneTransitionKind({ motion: "bouncy" })).toBeUndefined();
+    expect(sceneTransitionKind(undefined)).toBeUndefined();
+    expect(sceneTransitionVars("slide", FULL)).toBeUndefined();
+    expect(sceneTransitionLeaveMs("slide", FULL)).toBeUndefined();
+    expect(sceneTransitionVars({ kind: "slide", motion: { duration: 0.3, curve: "linear" } }, FULL)).toEqual({
+      "--cmux-app-scene-enter": "300ms",
+      "--cmux-app-scene-leave": "300ms",
+      "--cmux-app-scene-ease": "linear",
+    });
+    expect(
+      sceneTransitionLeaveMs({ kind: "slide", motion: { duration: 0.3 } }, { mode: "full", speed: 1.5 }),
+    ).toBeCloseTo(450);
+    // Reduce Motion keeps scene.css's crossfade at its own step.
+    expect(
+      sceneTransitionVars({ kind: "slide", motion: { duration: 0.3 } }, { mode: "reduced", speed: 1 }),
+    ).toBeUndefined();
   });
 });
 
@@ -323,6 +355,30 @@ describe("renderer", () => {
     expect(view.node("u")!.getAttribute("aria-hidden")).toBe("true");
     // No Web Animation: the enter and leave are CSS.
     expect(view.animations).toHaveLength(0);
+  });
+
+  test("{kind, motion} enters and leaves as its kind, on its own timing", () => {
+    const timed = { kind: "slide", motion: { duration: 0.4, curve: "linear" } };
+    const view = render(stack({ op: "create", id: "t", type: "Text", props: { text: "x" } }));
+    view.apply([
+      { op: "create", id: "u", type: "Text", props: { text: "y", transition: timed } },
+      { op: "children", id: "root", children: ["t", "u"] },
+    ]);
+    const element = view.node("u")!;
+    expect(element.dataset.transition).toBe("slide");
+    expect(element.dataset.entering).toBe("");
+    expect(element.style.getPropertyValue("--cmux-app-scene-enter")).toBe("400ms");
+    expect(element.style.getPropertyValue("--cmux-app-scene-ease")).toBe("linear");
+    view.apply([
+      { op: "remove", id: "u" },
+      { op: "children", id: "root", children: ["t"] },
+    ]);
+    expect(view.node("u")!.dataset.leaving).toBe("");
+  });
+
+  test("a bare transition sets no timing of its own", () => {
+    const view = render(stack({ op: "create", id: "t", type: "Text", props: { text: "x", transition: "slide" } }));
+    expect(view.node("t")!.style.getPropertyValue("--cmux-app-scene-enter")).toBe("");
   });
 
   test("Particles draws one canvas that takes no input", () => {
