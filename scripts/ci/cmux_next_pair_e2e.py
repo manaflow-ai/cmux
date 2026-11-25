@@ -120,8 +120,8 @@ ATTACH_LINE = re.compile(r"demo step: live-attach (\S+) ?(.*)")
 def mac_workspace(app, sock, home, session=None, rpc=None):
     """A terminal workspace on the Mac: "created <id8>, terminal <id8> (how)", or why not.
 
-    First the app's own control socket, `action.run newSurface` (a person's first terminal, as
-    scripts/measure/launch-ready.swift asks): the app's daemon makes it, wherever its owner listens. The
+    First the app's own control socket, `action.run newTab` (New Workspace, with its terminal): the app's daemon
+    makes it, wherever its owner listens. The
     CLI (`cmux workspace create`) guessed that socket and missed it: the app runs its owner with a per-build
     CMUX_TUI_STATE_DIR and CMUX_TUI_RUNTIME_SCOPE (DaemonLauncher), so neither TEMP/cmux-tui-UID/SESSION.sock
     nor /tmp's was there, and `daemon ensure` then started a second daemon the phone never saw (run
@@ -132,11 +132,15 @@ def mac_workspace(app, sock, home, session=None, rpc=None):
 
     if rpc:
         before = {w.get("id") for w in workspaces()}
-        asked = rpc("action.run", {"action": "newSurface"}, timeout=60)
-        fresh = wait_for(lambda: next((w for w in workspaces() if w.get("id") not in before), None)
-                         or (workspaces()[0] if workspaces() else None), 30, every=1)
+        # `newTab` is the catalog's New Workspace (cmd-N, cmux-action-catalog workspace.rs) and starts its
+        # terminal; `newSurface` only adds a tab to the current workspace, which on a fresh app is its home, and
+        # the phone files a `kind` "home" workspace under homeWorkspaces, never its Workspaces list (DaemonTree),
+        # so the demos found no terminal (run 45646323695). Only a new, non-home workspace counts.
+        asked = rpc("action.run", {"action": "newTab", "args": {"name": "pair-e2e"}}, timeout=60)
+        fresh = wait_for(lambda: next((w for w in workspaces()
+                                       if w.get("id") not in before and w.get("kind") != "home"), None), 30, every=1)
         if fresh:
-            return f"created {str(fresh.get('id'))[:8]} ({len(workspaces())} in the app's topology; app newSurface)"
+            return f"created {str(fresh.get('id'))[:8]} ({len(workspaces())} in the app's topology; app newTab)"
         why = redact(json.dumps(asked))[-200:]
     else:
         why = "no app socket"
@@ -160,14 +164,14 @@ def mac_workspace(app, sock, home, session=None, rpc=None):
         lines = [line for line in done.stdout.splitlines() if line.strip()]
         made = json.loads(lines[-1]) if lines else {}
     except (OSError, ValueError, subprocess.TimeoutExpired) as error:
-        return f"NOT created (app newSurface: {why}; CLI {type(error).__name__})"
+        return f"NOT created (app newTab: {why}; CLI {type(error).__name__})"
     # Daemon verbs answer {"value": {...}}, agents verbs {"result": {...}} (relaunch_restore_check.unwrap).
     if isinstance(made, dict):
         made = next((made[k] for k in ("value", "result") if isinstance(made.get(k), dict)), made)
     ws, term = (made.get("workspace_id"), made.get("terminal_id")) if isinstance(made, dict) else (None, None)
     if not ws:
-        return f"NOT created (app newSurface: {why}; CLI exit {done.returncode}: {redact((done.stderr or done.stdout).strip())[-200:]})"
-    return f"created {str(ws)[:8]}, terminal {str(term)[:8] if term else 'none'} (CLI; app newSurface: {why})"
+        return f"NOT created (app newTab: {why}; CLI exit {done.returncode}: {redact((done.stderr or done.stdout).strip())[-200:]})"
+    return f"created {str(ws)[:8]}, terminal {str(term)[:8] if term else 'none'} (CLI; app newTab: {why})"
 
 
 def attach_leg(simctl,udid, bundle_id, phone_env, phone_log, phone_shot, work, note):
