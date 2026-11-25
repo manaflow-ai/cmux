@@ -739,7 +739,13 @@ pub(crate) fn early_usage_error(args: &[String], message: &str) -> i32 {
 /// acpmux's (`--json` is a global clap option there).
 /// `agent` is not one of them: its verbs acpmux runs (agent_engine_requested, agent_acp_scope_args) take
 /// `--json` after the scope, and its app verbs (`agent list`, `agent open`) read the cmux global one where it is.
-const JSON_AFTER_SCOPE: &[&str] = &["acp", "harness", "chats", "board"];
+const JSON_AFTER_SCOPE: &[&str] = &["acp", "harness", "chats", "board", "send", "inbox"];
+
+/// Session-engine verbs that also answer as a plain top-level `cmux` word: `cmux send` is
+/// `cmux agent send` and `cmux inbox` is the engine's team inbox, one command grammar under
+/// both names (Leo, 2026-11-25: "start renaming more things out of acpmu and into just plain
+/// cmux"). A word here must not be a cmux scope or app verb; `cli_tests` checks it.
+pub(crate) const TOP_LEVEL_ENGINE_VERBS: &[&str] = &["send", "inbox"];
 
 /// `cmux --json <scope> …` for a scope `main` routes by its first word: the
 /// leading `--json` moves to just after the scope word (to the end for `host`
@@ -1938,6 +1944,8 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   notification  List and create notifications
   attention     Mark tabs where the person must act; find the next one
   agent         Manage agent sessions and terminal agents
+  send          Send a message to an agent session (`cmux agent send`)
+  inbox         Read and acknowledge messages other agents sent you
   move          Move agent sessions to another machine (also teleport, evacuate)
   room          Organize workspaces into rooms
   space         List and organize spaces
@@ -2028,7 +2036,11 @@ USAGE
 const AGENT_HELP: &str = "\
 USAGE
   cmux agent ls [PATTERN...] [--machine HOST] [--all] [--json]
-  cmux agent send SESSION [OPTIONS] [--] TEXT...
+  cmux agent new NAME [OPTIONS] [-- PROMPT...]
+  cmux agent send SESSION [OPTIONS] [--] TEXT...   (also: cmux send)
+  cmux agent wait SESSION [--timeout DURATION]
+  cmux agent last SESSION
+  cmux inbox [list|read|ack ...]               (the team inbox)
   cmux agent history SESSION [-n N]
   cmux agent search QUERY... [--role user|assistant|tool] [--since DURATION] [-n N]
   cmux agent resolve QUERY
