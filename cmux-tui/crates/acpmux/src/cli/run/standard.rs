@@ -821,6 +821,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             dry_run,
             notice,
             gather,
+            within,
         } => {
             if let Some(delivery) = status {
                 let client = before_deadline(deadline, &delivery, connect(true)).await?;
@@ -874,6 +875,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // Clap already validated the explicit class. Keep it separate from inferred defaults.
             let relay_class = class.as_deref().and_then(crate::prompt_class::PromptClass::parse);
             prompt_id.class = class;
+            prompt_id.within = within;
             prompt_id.notice = notice.as_ref().map(|n| n.0.clone());
             (prompt_id.pr, prompt_id.thread) = (inbox.pr, inbox.thread);
             prompt_id.relay = relay_fields(relay);
