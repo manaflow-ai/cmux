@@ -83,6 +83,69 @@ export async function readStartTrace(raw: Raw, id: string, spans: Span[], machin
 }
 
 /*
+ * One journey send as one trace (cmux#55505's format): the journey mints a W3C trace id per send and carries it as
+ * `traceparent` and `x-cmux-start-trace` on the create op and the carrier ticket, and as `params._meta.traceId` on the
+ * prompt to acpmux. After the first token it reads the platform's Chrome trace JSON for that id
+ * (GET /v1/cloud/start-traces/{id}/chrome, opens in ui.perfetto.dev) and prints each hop beside its floor. Tracing never
+ * fails the journey: a 404 (the route not deployed yet) or any error is printed and the run goes on.
+ */
+
+/** A send's trace: the 32 lowercase hex W3C trace id, and the headers that carry it on a platform request. */
+export type SendTrace = { id: string; headers: Record<string, string> };
+
+export function mintSendTrace(bytes: (n: number) => Uint8Array = (n) => crypto.getRandomValues(new Uint8Array(n))): SendTrace {
+  const hex = (n: number) => {
+    for (;;) {
+      const h = Array.from(bytes(n), (b) => b.toString(16).padStart(2, "0")).join("");
+      if (!/^0+$/.test(h)) return h; // W3C: an all-zero trace or span id is invalid
+    }
+  };
+  const id = hex(16);
+  return { id, headers: { traceparent: `00-${id}-${hex(8)}-01`, "x-cmux-start-trace": id } };
+}
+
+export type ChromeEvent = { name?: string; ph?: string; ts?: number; dur?: number; args?: Record<string, unknown> };
+export type SendTraceRow = { hop: string; ms: number; floor_ms: number | null };
+
+/** The Chrome trace's events: a bare array, or the object form's `traceEvents`. */
+export function chromeEvents(body: unknown): ChromeEvent[] {
+  const list = Array.isArray(body) ? body : Array.isArray((body as any)?.traceEvents) ? (body as any).traceEvents : [];
+  return list.filter((e: unknown): e is ChromeEvent => typeof e === "object" && e !== null);
+}
+
+/** Each complete ("X") event as hop, ms and floor_ms, in trace order. */
+export function sendTraceRows(body: unknown): SendTraceRow[] {
+  return chromeEvents(body)
+    .filter((e) => e.ph === "X")
+    .sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0))
+    .map((e) => {
+      const floor = Number(e.args?.floor_ms);
+      return { hop: String(e.args?.hop ?? e.name ?? "?"), ms: Math.round((e.dur ?? 0) / 1000), floor_ms: Number.isFinite(floor) ? floor : null };
+    });
+}
+
+/** The rows as a fixed-width table: hop, ms, floor_ms. */
+export function sendTraceTable(rows: SendTraceRow[]): string {
+  const w = Math.max(3, ...rows.map((r) => r.hop.length));
+  const line = (a: string, b: string, c: string) => `${a.padEnd(w)}  ${b.padStart(8)}  ${c.padStart(8)}`;
+  return [line("hop", "ms", "floor_ms"), ...rows.map((r) => line(r.hop, String(r.ms), r.floor_ms === null ? "-" : String(r.floor_ms)))].join("\n");
+}
+
+/**
+ * Read a send's Chrome trace. `{ body }` on 200; `{ missing }` with why otherwise (404: the route is not deployed, or
+ * the trace is unknown). Never throws.
+ */
+export async function readSendTrace(raw: Raw, id: string): Promise<{ body: unknown } | { missing: string }> {
+  try {
+    const r = await raw("GET", `/v1/cloud/start-traces/${encodeURIComponent(id)}/chrome`, undefined, 15_000);
+    if (r.status === 200) return { body: r.body };
+    return { missing: `HTTP ${r.status}${r.status === 404 ? " (the /chrome route is not deployed, or the trace is unknown)" : ""} ${String(r.body?.error?.code ?? "")}`.trim() };
+  } catch (error) {
+    return { missing: String((error as Error)?.message ?? error).slice(0, 200) };
+  }
+}
+
+/*
  * snappy-bench/v1, the cloud leg: send to first token on a fresh Cloud chat, cut into its parts, beside the model's
  * own floor (Leo, 2026-11-25: "austin started a cloud chat on current main ... he apparently got like 40+ seconds
  * from sending message to first token"). On a fresh chat the person's send is the create (Enter on "new chat in
@@ -142,7 +205,16 @@ export function stepParts(stages: any): Record<string, number> {
 }
 
 /** One run's numbers from a journey probe.json / journey.json or an hq probe row: null when it has no times. */
-export function snappyRun(row: any): { send_first_token_ms: number | null; parts: Record<string, number>; sign_in_ms?: number; run?: string } | null {
+/** The parts the guest timed on its own clock (journey `guest_ms`): what each part costs on the machine, without the
+ * probe's exec round trips, which the app (on the carrier) never pays. */
+export function guestParts(row: any): Record<string, number> {
+  const g = row?.guest_ms ?? [...(Array.isArray(row?.steps) ? row.steps : [])].reverse().find((s: any) => s?.fields?.guest_ms)?.fields?.guest_ms;
+  const out: Record<string, number> = {};
+  if (g && typeof g === "object") for (const [k, v] of Object.entries(g)) if (typeof v === "number" && Number.isFinite(v) && v >= 0) out[k] = v;
+  return out;
+}
+
+export function snappyRun(row: any): { send_first_token_ms: number | null; parts: Record<string, number>; guest_parts?: Record<string, number>; sign_in_ms?: number; run?: string } | null {
   const marks: Record<string, number> | undefined = row?.create_marks_ms
     ?? [...(Array.isArray(row?.steps) ? row.steps : [])].reverse().find((s: any) => s?.fields?.create_marks_ms)?.fields?.create_marks_ms;
   const fromSteps = stepParts(row?.stages_ms);
@@ -154,9 +226,11 @@ export function snappyRun(row: any): { send_first_token_ms: number | null; parts
   if (!marks) return { send_first_token_ms: first, parts, ...(typeof row?.launch_to_signed_in_ms === "number" ? { sign_in_ms: row.launch_to_signed_in_ms } : {}), ...(typeof row?.run === "string" && /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/actions\/runs\/\d+$/.test(row.run) ? { run: row.run } : {}) };
   // An hq row's reply time when its marks stop at `sent` (the app reads the reply, not a first-text mark).
   if (parts.first_token === undefined && first !== null && marks?.sent !== undefined && first >= marks.sent) parts.first_token = first - marks.sent;
+  const guest = guestParts(row);
   return {
     send_first_token_ms: first,
     parts,
+    ...(Object.keys(guest).length ? { guest_parts: guest } : {}),
     ...(typeof row?.launch_to_signed_in_ms === "number" ? { sign_in_ms: row.launch_to_signed_in_ms } : {}),
     ...(typeof row?.run === "string" && /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/actions\/runs\/\d+$/.test(row.run) ? { run: row.run } : {}),
   };
@@ -229,7 +303,7 @@ export async function modelFloor(env: Record<string, string | undefined>, model:
 
 export type SnappyReport = {
   schema: "snappy-bench/v1"; at: string; sha: string | null; host: string; platform: string; surface: "cloud"; mode: "active"; duress: string;
-  rows: { send_first_token_ms: (number | null)[]; send_first_token_p50_ms: number | null; model_floor_ttft_ms: number | null; parts: Record<string, number>; runs?: unknown[]; model?: string; floor?: unknown; slowest_part?: string | null };
+  rows: { send_first_token_ms: (number | null)[]; send_first_token_p50_ms: number | null; model_floor_ttft_ms: number | null; parts: Record<string, number>; guest_parts?: Record<string, number>; exec_route_ms?: Record<string, number>; runs?: unknown[]; model?: string; floor?: unknown; slowest_part?: string | null };
   run_url: string | null;
 };
 
@@ -239,6 +313,15 @@ export function snappyReport(runs: NonNullable<ReturnType<typeof snappyRun>>[], 
   for (const [name] of SNAPPY_PARTS) {
     const v = p50(runs.map((r) => r.parts[name]).filter((n): n is number => typeof n === "number"));
     if (v !== null) parts[name] = v;
+  }
+  // Guest-timed parts and, per part, what the probe's own route added (part minus the guest's time for it).
+  const guest: Record<string, number> = {};
+  const route: Record<string, number> = {};
+  for (const name of new Set(runs.flatMap((r) => Object.keys(r.guest_parts ?? {})))) {
+    const v = p50(runs.map((r) => r.guest_parts?.[name]).filter((n): n is number => typeof n === "number"));
+    if (v !== null) guest[name] = v;
+    const d = p50(runs.map((r) => (r.guest_parts?.[name] !== undefined && r.parts[name] !== undefined ? r.parts[name] - r.guest_parts[name] : undefined)).filter((n): n is number => typeof n === "number"));
+    if (d !== null) route[name] = d;
   }
   const signIn = p50(runs.map((r) => r.sign_in_ms).filter((n): n is number => typeof n === "number"));
   if (signIn !== null) parts.sign_in = signIn; // before the send (app launch to signed in), not inside send_first_token_ms
@@ -258,10 +341,11 @@ export function snappyReport(runs: NonNullable<ReturnType<typeof snappyRun>>[], 
       send_first_token_p50_ms: p50(send.filter((n): n is number => n !== null)),
       model_floor_ttft_ms: floor?.ms ?? null,
       parts,
+      ...(Object.keys(guest).length ? { guest_parts: guest, exec_route_ms: route } : {}),
       slowest_part: slowest,
       ...(o.model ? { model: o.model } : {}),
       ...(floor ? { floor: { runs: floor.runs ?? [], via: floor.via ?? null, ...(floor.missing ? { missing: floor.missing } : {}) } } : {}),
-      runs: runs.map((r) => ({ send_first_token_ms: r.send_first_token_ms, parts: r.parts, ...(r.run ? { run: r.run } : {}) })),
+      runs: runs.map((r) => ({ send_first_token_ms: r.send_first_token_ms, parts: r.parts, ...(r.guest_parts ? { guest_parts: r.guest_parts } : {}), ...(r.run ? { run: r.run } : {}) })),
     },
     run_url: o.runUrl ?? runs.find((r) => r.run)?.run ?? null,
   };

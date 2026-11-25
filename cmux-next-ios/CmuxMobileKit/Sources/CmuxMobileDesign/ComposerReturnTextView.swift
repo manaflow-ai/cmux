@@ -495,6 +495,7 @@ open class ComposerReturnTextView: UITextView {
         let id = accessibilityIdentifier ?? "composer"
         let start = CACurrentMediaTime()
         trace.typed()
+        trace.beginKey("\(id)_key_frame")
         let cpu = InputLatencyTrace.threadCPUms()
         let units = Self.measuredUnits
         let calls = Self.measureCalls

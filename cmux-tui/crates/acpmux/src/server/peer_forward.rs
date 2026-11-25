@@ -304,14 +304,35 @@ pub(super) fn trust_peer<'a>(m: &str, params: &'a Value) -> Result<Option<&'a st
 /// refused. The app gives each upload call 120 s (`AcpmuxStatusClient.putFile`).
 pub(super) const UPLOAD_LINK_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// How long a prompt for a peer's chat waits for that peer's link to come back before it is
-/// refused as unreachable: a game holds a player's action through a short drop instead of
-/// failing it. The wait wakes the peer (`Peer::wake`), so a connect attempt comes at most
-/// `Backoff::WANTED_CAP` (1 s) after the last while it waits (`peer_wanted.rs`; a restart's
-/// Close 1012 keeps the peer wanted for `RESTART_WANTED_FOR` anyway). 8 s is about seven attempts,
-/// each with its handshake: a daemon's restart handoff or a Wi-Fi drop of a few seconds. Past it
-/// the machine is likely off or resuming (about a minute) and the caller hears so, as before.
+/// How long a prompt for a peer's chat waits for that peer's link before it is refused as
+/// unreachable, for a sender that keeps such a message itself: a peer daemon's forward (its own
+/// outbox tries it again) and the acpmux CLI, which queues a refused send in this daemon's outbox
+/// ("machine is unreachable; queued here", `cli/run/standard.rs`). Every other client's prompt is
+/// held instead ([`PROMPT_QUEUED_AFTER`]). The wait wakes the peer (`Peer::wake`), so a connect
+/// attempt comes at most `Backoff::WANTED_CAP` (1 s) after the last while it waits
+/// (`peer_wanted.rs`). 8 s is about seven attempts, each with its handshake: a daemon's restart
+/// handoff or a Wi-Fi drop of a few seconds.
 pub(super) const PROMPT_LINK_WAIT: std::time::Duration = std::time::Duration::from_secs(8);
+
+/// How long a prompt from a unix-socket client that keeps no refused message itself (the app's
+/// and the phone's chats, through cmux-tui-core) waits for its peer's link on its request before
+/// it is kept in this daemon's outbox and answered as queued for the link ([`LinkWait::Outbox`]):
+/// the same live wait as [`PROMPT_LINK_WAIT`], so a blip still answers with the turn there, and a
+/// longer outage is queued, never refused (Leo, 2026-11-24: "10s timeout for messages being
+/// sendsble is a shame. if it's making good progress, it shiukd be allowed to keep going?").
+pub(super) const PROMPT_QUEUED_AFTER: std::time::Duration = PROMPT_LINK_WAIT;
+
+/// How often a held prompt asks for its peer again while it waits (`Peer::wake`, which keeps the
+/// peer wanted and runs the wake hook at most once per `WAKE_FOR`): the reconnects keep coming
+/// within `Backoff::WANTED_CAP` for as long as the prompt waits, not only for the first
+/// `WANTED_FOR` (Leo, 2026-11-24: "let's just keep optimistically connecting and reinforcing the
+/// connection").
+pub(super) const PROMPT_LINK_REINFORCE: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// How long a held prompt waits for its peer's link at most: the outbox's day
+/// (`hub/outbox.rs` `RETRY_FOR_MS`). Past it the prompt is refused as unreachable.
+pub(super) const PROMPT_HOLD_FOR: std::time::Duration =
+    std::time::Duration::from_millis(crate::hub::outbox::RETRY_FOR_MS);
 
 /// The upload methods that wait for a peer's link (`await_link`).
 pub(super) fn waits_for_link(m: &str) -> bool {
@@ -364,7 +385,9 @@ pub(super) async fn forward(
 ) -> Option<Result<Value, RpcError>> {
     let reply = gated(hub, conn, m, params).await;
     // A message this daemon handed to a peer's session is a cross-host send (`xhost_audit.rs`).
-    if matches!(m, method::SESSION_PROMPT | method::MUX_SEND_QUEUE) && matches!(reply, Some(Ok(_)))
+    // A prompt kept for its peer's link (`queue_for_link`) is sent by the outbox, which records it.
+    if matches!(m, method::SESSION_PROMPT | method::MUX_SEND_QUEUE)
+        && matches!(&reply, Some(Ok(v)) if v.get("waitingFor").is_none())
     {
         let mut fields = crate::xhost_audit::prompt_fields(params);
         let peer = session_key(params)
@@ -408,55 +431,206 @@ async fn gated(
     let Some((peer, id, _, _)) = remote else {
         return forward_inner(hub, conn, m, params, None).await.transpose();
     };
-    if let Err(e) = wait_for_prompt_link(conn, &peer, params).await {
-        return Some(Err(e));
-    }
-    let mut tries = 0;
-    loop {
-        tries += 1;
-        let link = match hub.peer_snapshots.restores_done(&peer, &id).await {
-            Ok(link) => link,
+    let mut hold = None;
+    'held: loop {
+        match wait_for_prompt_link(hub, conn, &peer, params, &mut hold).await {
+            Ok(Some(queued)) => return Some(Ok(queued)),
+            Ok(None) => {}
             Err(e) => return Some(Err(e)),
-        };
-        let reply = forward_inner(hub, conn, m, params, link).await.transpose();
-        let moved = link.is_some_and(|l| (peer.generation, peer.link_epoch()) != l);
-        if tries < 4
-            && moved
-            && matches!(&reply, Some(Err(e)) if e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str) == Some("peer_unreachable"))
-            && peer.ready()
-        {
-            continue;
         }
-        return reply;
+        let mut tries = 0;
+        loop {
+            tries += 1;
+            let link = match hub.peer_snapshots.restores_done(&peer, &id).await {
+                Ok(link) => link,
+                Err(e) if holds_again(conn, &peer, hold.as_ref(), &e) => continue 'held,
+                Err(e) => return Some(Err(e)),
+            };
+            let reply = forward_inner(hub, conn, m, params, link).await.transpose();
+            let moved = link.is_some_and(|l| (peer.generation, peer.link_epoch()) != l);
+            if tries < 4 && moved && matches!(&reply, Some(Err(e)) if unsent(e)) && peer.ready() {
+                continue;
+            }
+            // The link went again before the prompt left: it is held again, not refused.
+            if let Some(Err(e)) = &reply
+                && holds_again(conn, &peer, hold.as_ref(), e)
+            {
+                continue 'held;
+            }
+            return reply;
+        }
     }
 }
 
-/// A prompt for a chat on `peer`, whose link is down, waits up to [`PROMPT_LINK_WAIT`] for it
-/// (`await_link`) before it goes through the gate, so it goes on the link that came back once
-/// that link's restores are decided, or is refused by `forward_inner` as unreachable, as before.
-/// Nothing went out while it waited: a cancel (`request_cancel.rs` drops this future) or a
-/// client that leaves ends the wait with nothing sent.
+/// Whether `e` is a refusal of a request that never left this daemon: the peer's link took
+/// nothing (`peer_link::unreachable_error`).
+fn unsent(e: &RpcError) -> bool {
+    e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str)
+        == Some("peer_unreachable")
+}
+
+/// How a prompt for a peer's chat whose link is down waits for the link.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LinkWait {
+    /// Up to [`PROMPT_LINK_WAIT`], then refused as unreachable: a sender that keeps a refused
+    /// message itself. A peer daemon's forward (its own outbox tries it again) and the acpmux
+    /// CLI, which declares itself at `initialize` (`cli_caller.rs`) and queues a refused send in
+    /// this daemon's outbox ("machine is unreachable; queued here", `cli/run/standard.rs`).
+    Brief,
+    /// Up to [`PROMPT_QUEUED_AFTER`], then kept in this daemon's outbox under its prompt id and
+    /// answered as queued for the link: any other unix-socket client (the app's and the phone's
+    /// chats, through cmux-tui-core). The outbox delivers as the unix socket does, so only its
+    /// clients' prompts go there (`outbox::handle`).
+    Outbox,
+    /// As long as the link takes, up to [`PROMPT_HOLD_FOR`], on the request: a client on the
+    /// app's or the web listener, whose prompts the outbox does not carry. Its request answers
+    /// when the turn there ends, as any prompt's does; a client that leaves takes it along, and
+    /// its own sender sends it again under the same prompt id (`sendWhenReady.ts`).
+    Request,
+}
+
+/// How a prompt from `conn` waits for its peer's link ([`LinkWait`]). This daemon's own outbox
+/// is [`LinkWait::Brief`] and never held: it keeps its delivery and tries it again the moment the
+/// link is ready (`Outbox::peer_ready`), so holding its unsent refusal again (`holds_again`) would
+/// spin, since its link wait returns at once.
+fn link_wait(conn: &Conn) -> LinkWait {
+    if conn.socket_peer == crate::sender_harness::SocketPeer::Outbox {
+        return LinkWait::Brief;
+    }
+    match conn.origin {
+        Origin::Peer => LinkWait::Brief,
+        _ if conn.declared().is_some() => LinkWait::Brief,
+        Origin::Local => LinkWait::Outbox,
+        Origin::Web | Origin::LocalApp => LinkWait::Request,
+    }
+}
+
+/// Whether a prompt the peer's link refused unsent (`e`) after its wait waits for the link again:
+/// a prompt held on its request ([`LinkWait::Request`]) whose link went down again before it
+/// left, a peer that is not stopped, inside its [`PROMPT_HOLD_FOR`].
+fn holds_again(conn: &Conn, peer: &crate::peer::Peer, hold: Option<&Hold>, e: &RpcError) -> bool {
+    unsent(e)
+        && link_wait(conn) != LinkWait::Brief
+        && !peer.ready()
+        && !*peer.stopped().borrow()
+        && hold.is_none_or(|h| tokio::time::Instant::now() < h.until)
+}
+
+/// A prompt held for its peer's link: when the hold ends.
+struct Hold {
+    until: tokio::time::Instant,
+}
+
+/// A prompt for a chat on `peer`, whose link is down, waits for it (`await_link`) before it goes
+/// through the gate, so it goes on the link that came back once that link's restores are decided.
+/// How long, and what then, is [`LinkWait`]'s:
 ///
-/// The prompt is checked first, so a bad one is refused at once. The outbox's own attempts
-/// (`outbox.rs`) do not wait: it keeps the delivery, tries again the moment the link is ready
-/// (`Outbox::peer_ready`), and hands a delivery that reached no one to the mesh relay at once.
+/// - Brief: up to [`PROMPT_LINK_WAIT`], then refused by `forward_inner` as unreachable, as before.
+/// - Outbox: up to [`PROMPT_QUEUED_AFTER`], then kept in this daemon's outbox under its prompt id
+///   (as `send --no-wait` keeps one), which tries it the moment the link is ready and keeps trying
+///   for a day, and delivers it once. The connection hears `_acpmux/prompt_accepted` with
+///   `queued: true`, `state: "queued"`, `waitingFor: "peer_link"` and its `deliveryId`, and the
+///   request is answered at once (`Some`) with the same fields and `stopReason: "queued"`.
+/// - Request: as long as it takes, up to [`PROMPT_HOLD_FOR`], asking for the peer again every
+///   [`PROMPT_LINK_REINFORCE`].
+///
+/// Leo, 2026-11-24: "let's just keep optimistically connecting and reinforcing the connection and
+/// sync-ups can be satisfying instead of making the user think they're constsntly suspended in a
+/// state of connection limbo".
+///
+/// Nothing went out while it waited: a cancel (`request_cancel.rs` drops this future) or a
+/// client that leaves before the outbox kept it ends the wait with nothing sent. A peer removed
+/// or replaced ends any wait at once, and the prompt is refused (`Peer::stopped`).
+///
+/// The prompt is checked first, so a bad one is refused at once, as is one the remote guard
+/// keeps off every peer (`remote_guard::cloud_mobile`).
 async fn wait_for_prompt_link(
-    conn: &Conn,
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
     peer: &crate::peer::Peer,
     params: &Value,
-) -> Result<(), RpcError> {
+    hold: &mut Option<Hold>,
+) -> Result<Option<Value>, RpcError> {
     if peer.ready() || conn.socket_peer == crate::sender_harness::SocketPeer::Outbox {
-        return Ok(());
+        return Ok(None);
     }
     crate::author::of_prompt(params)?;
     crate::prompt_provenance::notice_checked(params)?;
+    if super::remote_guard::cloud_mobile(params) {
+        return Err(super::remote_guard::refuse_cloud_mobile_forward());
+    }
     // A message wakes the peer's machine as its refusal would have (`ask_back`), now instead of
     // after the wait.
     peer.wake();
-    tokio::select! {
-        _ = await_link(peer, PROMPT_LINK_WAIT) => Ok(()),
-        () = conn.closed() => Err(RpcError::internal("the client closed the connection")),
+    let closed = || RpcError::internal("the client closed the connection");
+    let wait = link_wait(conn);
+    let first = match wait {
+        LinkWait::Brief => PROMPT_LINK_WAIT,
+        LinkWait::Outbox => PROMPT_QUEUED_AFTER,
+        LinkWait::Request => PROMPT_LINK_REINFORCE,
+    };
+    let up = tokio::select! {
+        up = await_link(peer, first) => up,
+        () = conn.closed() => return Err(closed()),
+    };
+    if up || *peer.stopped().borrow() || wait == LinkWait::Brief {
+        return Ok(None);
     }
+    if wait == LinkWait::Outbox {
+        return queue_for_link(hub, conn, peer, params).await.map(Some);
+    }
+    let hold =
+        hold.get_or_insert_with(|| Hold { until: tokio::time::Instant::now() + PROMPT_HOLD_FOR });
+    loop {
+        let left = hold.until.saturating_duration_since(tokio::time::Instant::now());
+        if left.is_zero() {
+            return Ok(None);
+        }
+        // Asked for again: the reconnects keep coming within `Backoff::WANTED_CAP` while it waits.
+        peer.wake();
+        let up = tokio::select! {
+            up = await_link(peer, PROMPT_LINK_REINFORCE.min(left)) => up,
+            () = conn.closed() => return Err(closed()),
+        };
+        if up || *peer.stopped().borrow() {
+            return Ok(None);
+        }
+    }
+}
+
+/// Keeps a prompt for `peer`'s chat, whose link is still down, in this daemon's outbox under its
+/// prompt id (`outbox::handle`, as `send --no-wait` keeps one): the outbox tries it the moment the
+/// link is ready (`Outbox::peer_ready`) and keeps trying for a day, and the far daemon runs a
+/// prompt id once. The same prompt id again (a client's retry) is that delivery, never a second.
+/// Tells the connection so (`_acpmux/prompt_accepted`, `waitingFor: "peer_link"`) and answers
+/// the request with the same fields and `stopReason: "queued"`. A refusal to keep it (over the
+/// caps, a disk that cannot take it) is the request's error.
+async fn queue_for_link(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    peer: &crate::peer::Peer,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    let request = json!({"request": params});
+    let kept = Box::pin(super::outbox::handle(hub, conn, method::MUX_SEND_QUEUE, &request)).await?;
+    let prompt_id = params.pointer("/_meta/acpmux/promptId").and_then(Value::as_str);
+    let prompt_id =
+        prompt_id.or_else(|| kept.get("promptId").and_then(Value::as_str)).map(str::to_owned);
+    let mut accepted = json!({
+        "sessionId": params.get("sessionId").cloned().unwrap_or(Value::Null),
+        "promptId": prompt_id,
+        "turnId": Value::Null,
+        "queued": true,
+        "state": "queued",
+        "waitingFor": "peer_link",
+        "deliveryId": kept.get("deliveryId").cloned().unwrap_or(Value::Null),
+        // The kept delivery's state: `queued`, or what a delivery under this prompt id came to.
+        "delivery": kept.get("status").cloned().unwrap_or(Value::Null),
+        "peer": peer.name,
+    });
+    conn.send(&Message::notification(method::MUX_PROMPT_ACCEPTED, accepted.clone()));
+    accepted.set("stopReason", json!("queued"));
+    Ok(accepted)
 }
 
 /// What a request refused because `peer`'s link is down asks of the peer: a message (from any

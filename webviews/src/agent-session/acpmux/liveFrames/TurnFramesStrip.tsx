@@ -27,6 +27,12 @@ export function TurnFramesStrip({ rowId }: { rowId: string }) {
   const fresh = arrived?.rowId === rowId ? arrived : undefined;
   const frames = fresh ? fresh.frames : (reader?.peek(rowId)?.frames ?? []);
   if (!reader || frames.length === 0) return null;
+  // The list carries 320 px thumbs; the viewer asks for the whole picture and keeps the thumb when
+  // the daemon has none (or is an older one).
+  const open = async (frame: TurnFrame, alt: string) => {
+    const full = (await reader.full?.(rowId, frame.index)) ?? frame.full;
+    openImage?.(full, alt);
+  };
   return (
     <section className="acpmux-frames-strip" aria-label={t("turnFrames.title")}>
       <ul className="acpmux-frames-strip__row">
@@ -38,7 +44,7 @@ export function TurnFramesStrip({ rowId }: { rowId: string }) {
                 type="button"
                 className="acpmux-frames-strip__frame"
                 title={frame.trigger ? `${alt}: ${frame.trigger}` : alt}
-                onClick={() => openImage?.(frame.full, alt)}
+                onClick={() => void open(frame, alt)}
                 disabled={!openImage}
               >
                 <img src={frame.thumb} alt={alt} loading="lazy" draggable={false} />
