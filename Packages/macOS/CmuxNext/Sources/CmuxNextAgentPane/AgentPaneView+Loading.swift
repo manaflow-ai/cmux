@@ -21,7 +21,10 @@ public final class AgentPaneLoadingView: NSView {
     /// How long the mark waits: a page that paints sooner shows only its background before it
     /// fades in, never a mark that pops up and goes. Longer than a pane's hold on the chat it
     /// showed (`PanePaintHold.limit`), so the mark never shows the moment a hold gives up.
-    static let markDelay: Duration = .milliseconds(800)
+    /// Every chat still loading past it shows the mark, one shown before too (cmux#48605: a
+    /// rebuilt chat's cover stayed a blank pane for seconds, because a chat seen in the last
+    /// hour opened with no mark however long its page took).
+    static let markDelay: Duration = .milliseconds(600)
     /// How often the loading state checks on a page that has not painted (cx-txnr): WebKit
     /// holds the animation frames of a page it thinks is not visible (a window occluded at a
     /// relaunch), and its `pane.painted` may then never come. Seen unpainted at ``silentChecks``
@@ -49,6 +52,10 @@ public final class AgentPaneLoadingView: NSView {
     private var onGiveUp: (@MainActor () -> Void)?
     /// Whether the page's bridge is up: it answered the handshake, so it speaks for itself.
     var pageIsAlive: (@MainActor () -> Bool)?
+    /// Whether this cover may show the busy mark. Every loading chat shows it (cmux#48605); only a
+    /// reload cover over the chat's last picture says no, since the picture already shows the chat.
+    /// Read when the delay starts and when it ends, so a cover that loses its picture meanwhile marks.
+    var marksLoading: @MainActor () -> Bool = { true }
     /// How many checks in a row have seen the pane, still unpainted.
     private var seenUnpainted = 0
     /// Whether a check has already seen the page answer, so the count starts over only once.
@@ -83,7 +90,10 @@ public final class AgentPaneLoadingView: NSView {
 
     override public var isFlipped: Bool { true }
 
-    override public func hitTest(_ point: NSPoint) -> NSView? { leaving ? nil : super.hitTest(point) }
+    override public func hitTest(_ point: NSPoint) -> NSView? { leaving || passesInput ? nil : super.hitTest(point) }
+
+    /// Clicks and scrolls go to the page under it (a cover over a chat that drew, ``AgentPaneDocumentCover``).
+    var passesInput = false
 
     override public func layout() {
         super.layout()
@@ -102,6 +112,7 @@ public final class AgentPaneLoadingView: NSView {
     func showMarkLater() {
         markTurn += 1
         let turn = markTurn
+        guard marksLoading() else { return markTimer.cancel() }
         markTimer.schedule(after: Self.markDelay) { @MainActor [weak self] in self?.markDelayEnded(turn) }
     }
 
@@ -109,7 +120,7 @@ public final class AgentPaneLoadingView: NSView {
     /// thread and then hops here, so the cover can hide, leave or start a new delay in between: only the
     /// newest delay, with no ``hideMark()`` after it, puts the mark in.
     func markDelayEnded(_ turn: Int) {
-        guard turn == markTurn else { return }
+        guard turn == markTurn, marksLoading() else { return }
         addSubview(indicator)
     }
 
@@ -247,12 +258,32 @@ extension AgentPaneView {
         ChatOpenTrace.shared.bind(view: self, page: page, surface: { [weak self] in self?.traceSurface ?? .gone },
                                   engine: { [weak self] in self?.engineName ?? "gone" })
         #endif
+        armPaintGiveUp()
+    }
+
+    /// The loading state's give-up (``AgentPaneLoadingView/giveUpWhenSeenUnpainted(_:)``): a page that drew a
+    /// frame but never reported it shows as it is. One whose document drew nothing at all yet (``PageWebView/hasPainted``,
+    /// the native first-frame probe) keeps the loading state, or the picture under it, and is checked again: showing
+    /// it showed an empty document over the wallpaper for as long as the load took (12 to 70 s under load, Leo
+    /// 2026-11-22: "compLETELY blanked out this agent chat").
+    func armPaintGiveUp() {
         loadingView.giveUpWhenSeenUnpainted { [weak self] in
             guard let self, !model.hasPainted else { return }
+            let kept = Self.giveUpKeepsCover(documentDrew: page.map(\.hasPainted))
+            if page != nil { documentCover.gaveUp(kept: kept) }
+            if kept {
+                loadingLogger.error("agent pane page did not report its first paint in sight and its document drew nothing; keeps its loading state session=\(self.model.sessionId ?? "none", privacy: .public)")
+                armPaintGiveUp()
+                return
+            }
             loadingLogger.error("agent pane page did not report its first paint in sight; showing it")
             model.markPainted()
         }
     }
+
+    /// Whether the give-up keeps the cover: the page host knows its document drew no frame yet. The old host
+    /// (nil) has no such probe and shows the page, as before.
+    static func giveUpKeepsCover(documentDrew: Bool?) -> Bool { documentDrew == false }
 
     /// The page shows and the loading state goes (``AgentPaneLoadingView/leave(over:fades:)``).
     func endLoadingState() {

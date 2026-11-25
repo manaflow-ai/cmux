@@ -598,6 +598,158 @@ class WorkflowRepair(unittest.TestCase):
         self.assertNotIn("actions/cache/restore", workflow)
         self.assertNotIn("actions/cache/save", workflow)
 
+    def test_gate_profile_overrides_every_single_unit_release_package(self):
+        # Nov 21-24: #47836 gave `[profile.release.package.cmux-tui-core]` codegen-units = 1. `[profile.gate]` inherits
+        # release's package overrides, so the gate test build of cmux-tui-core took 35 minutes, the gate step ran out
+        # its limit and the last group (the v2.pr04.* rows) never ran. Every package release builds at fewer units than
+        # the gate profile needs its own `[profile.gate.package.X]` line with at least the gate profile's units.
+        try:
+            import tomllib
+        except ImportError:  # Python before 3.11: this test must never stop the report itself
+            self.skipTest("tomllib needs Python 3.11")
+        root = os.path.join(HERE, "..", "..", "..")
+        with open(os.path.join(root, "cmux-tui", "Cargo.toml"), "rb") as handle:
+            profiles = tomllib.load(handle)["profile"]
+        gate = profiles["gate"]
+        self.assertEqual(gate.get("inherits"), "release")
+        gate_units = gate["codegen-units"]
+        gate_packages = gate.get("package", {})
+        slow = []
+        for name, override in profiles["release"].get("package", {}).items():
+            units = gate_packages.get(name, {}).get("codegen-units", override.get("codegen-units", gate_units))
+            if units < gate_units:
+                slow.append(f"{name}: codegen-units {units} under the gate profile (add [profile.gate.package.{name}])")
+        self.assertEqual(slow, [])
+
+    def test_cargo_steps_before_the_home_end_inside_their_step_limit(self):
+        # Nov 19: a continue-on-error cargo step ahead of the home hit its timeout-minutes; the CI runner signalled
+        # only the step's shell, a cargo it left behind held the shared target directory's lock, and the home waited
+        # out its 17 minutes on "Blocking waiting for file lock". Every such step must run its cargo under
+        # `timeout`, which ends the whole process group, with the limit and kill grace inside timeout-minutes.
+        root = os.path.join(HERE, "..", "..", "..")
+        steps = workflow_steps(os.path.join(root, ".github", "workflows", "cmux-next-quality-report.yml"))
+        home = next(i for i, step in enumerate(steps) if step["keys"].get("id") == "v2-home")
+        home_dir = steps[home]["keys"].get("working-directory")
+        checked = []
+        for step in steps[:home]:
+            keys = step["keys"]
+            if keys.get("continue-on-error") != "true" or keys.get("working-directory") != home_dir:
+                continue
+            cargo_lines = [line for line in step["run"] if runs_cargo(line, root, home_dir)]
+            if not cargo_lines:
+                continue
+            name = keys.get("name")
+            checked.append(name)
+            self.assertIn("timeout-minutes", keys, f"{name}: a cargo step ahead of the home needs timeout-minutes")
+            step_limit = int(keys["timeout-minutes"]) * 60
+            for line in cargo_lines:
+                bound = timeout_bound(line)
+                self.assertIsNotNone(bound, f"{name}: not wrapped in timeout: {line}")
+                self.assertLess(bound, step_limit, f"{name}: timeout plus kill grace {bound} s is not under {step_limit} s")
+        self.assertIn("Run v2 gate measures", checked)
+
+    def test_the_gate_step_and_the_job_leave_a_slow_night_room(self):
+        # The gate step has taken 54 to 60 minutes on this job's runner, and one night finished at 57m27s. A limit
+        # under that cuts a run that would have finished, the home reports missing measures and the last step fails
+        # the job. The job's own limit must also hold every bounded step at its limit, or the job is cut first.
+        path = os.path.join(HERE, "..", "..", "..", ".github", "workflows", "cmux-next-quality-report.yml")
+        steps = workflow_steps(path)
+        gate = next(step for step in steps if step["keys"].get("name") == "Run v2 gate measures")
+        limits = [timeout_parts(line)[0] for line in gate["run"] if timeout_parts(line) is not None]
+        self.assertEqual(len(limits), 1)
+        self.assertGreaterEqual(limits[0], 75 * 60, "the gate script's limit leaves under 15 minutes over a 60-minute run")
+        with open(path, encoding="utf-8") as f:
+            job = [line.split(":", 1)[1] for line in f.read().splitlines() if line.startswith("    timeout-minutes:")]
+        self.assertEqual(len(job), 1)
+        bounded = sum(int(step["keys"]["timeout-minutes"]) for step in steps if "timeout-minutes" in step["keys"])
+        self.assertGreaterEqual(int(job[0]), bounded, f"the job's limit is under its steps' limits ({bounded} min)")
+
+
+def workflow_steps(path):
+    """The job's steps as {"keys": top-level scalars, "run": logical lines of run}, read without a YAML library."""
+    steps, step, in_run = [], None, False
+    with open(path, encoding="utf-8") as f:
+        lines = f.read().splitlines()
+    for raw in lines:
+        stripped = raw.strip()
+        if raw.startswith("      - "):
+            step, in_run = {"keys": {}, "run": []}, False
+            steps.append(step)
+            raw = "        " + raw[8:]
+            stripped = raw.strip()
+        if step is None:
+            continue
+        indent = len(raw) - len(raw.lstrip())
+        if stripped and indent < 8:
+            step, in_run = None, False
+            continue
+        if in_run and (indent >= 10 or not stripped):
+            if stripped and not stripped.startswith("#"):
+                step["run"].append(stripped)
+            continue
+        in_run = False
+        if indent == 8 and ":" in stripped and not stripped.startswith("#"):
+            key, _, value = stripped.partition(":")
+            value = value.strip()
+            if key == "run":
+                in_run = True
+                if value and value != "|":
+                    step["run"].append(value)
+            else:
+                step["keys"][key] = value
+    for step in steps:
+        joined, buf = [], ""
+        for line in step["run"]:
+            buf += line[:-1] + " " if line.endswith("\\") else line
+            if not line.endswith("\\"):
+                joined.append(buf)
+                buf = ""
+        step["run"] = joined
+    return steps
+
+
+def runs_cargo(line, root, working_dir):
+    words = line.split()
+    if "cargo" in words:
+        return True
+    for word in words:
+        if word.endswith(".sh"):
+            script = os.path.normpath(os.path.join(root, working_dir or "", word))
+            if os.path.isfile(script):
+                with open(script, encoding="utf-8") as f:
+                    if any(w == "cargo" for w in f.read().split()):
+                        return True
+    return False
+
+
+def timeout_bound(line):
+    """Seconds `timeout` lets the line's command live, limit plus kill grace; None when not wrapped in timeout."""
+    parts = timeout_parts(line)
+    return None if parts is None else parts[0] + parts[1]
+
+
+def timeout_parts(line):
+    """(limit, kill grace) in seconds of a line wrapped in `timeout --kill-after=G LIMIT`; None otherwise."""
+    def seconds(text):
+        text = text.strip('"')
+        scale = {"s": 1, "m": 60, "h": 3600}.get(text[-1:], None)
+        return float(text[:-1]) * scale if scale else float(text)
+
+    words = line.split()
+    if not words or words[0] != "timeout":
+        return None
+    grace, rest = None, words[1:]
+    while rest and rest[0].startswith("-"):
+        if rest[0].startswith("--kill-after="):
+            grace = seconds(rest[0].split("=", 1)[1])
+        rest = rest[1:]
+    if not rest or grace is None:
+        return None
+    try:
+        return seconds(rest[0]), grace
+    except ValueError:
+        return None
+
 
 def ci_commit(oid, at, suites):
     """suites: {workflow: {job: [conclusion per attempt, in start order]}}"""

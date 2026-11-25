@@ -15,6 +15,15 @@ const EDGE_TOLERANCE = 1;
 /// (composer/fieldGrowth.ts): mid-move the draft overflows only until the move lands, so nothing is
 /// past either edge (Lawrence 2026-11-15: "on newline, there is a frame of weirdness": the fade
 /// dimmed a one- or two-line draft for the whole growth).
+///
+/// One read a frame: a content edit or a scroll asks for the coming animation frame, and the edges
+/// are read there once, however many edits came before it. Reading scrollHeight in the edit's own
+/// task forced a layout of everything dirty on the page, once per edit: a running chat's summary
+/// card ticks its subagents' clocks while the transcript beside it is dirty, and each tick laid the
+/// chat out again, at a cost that grew with the chat's length. The frame callback runs before its
+/// paint, so the fade lands on the frame that shows the edit. A resize marks at once:
+/// ResizeObserver runs after the frame's layout, where the read costs nothing, and waiting a frame
+/// would paint the old fade on the new size.
 export function followScrollEdges(
   node: HTMLElement,
   axis: "y" | "x" = "y",
@@ -47,7 +56,23 @@ export function followScrollEdges(
           node.toggleAttribute("data-fade-left", left > EDGE_TOLERANCE);
           node.toggleAttribute("data-fade-right", past - left > EDGE_TOLERANCE);
         };
-  const resize = new ResizeObserver(mark);
+  // A DOM with no frames (the unit tests' fake platforms) reads in the edit's task, as before.
+  const framed = typeof requestAnimationFrame === "function" && typeof cancelAnimationFrame === "function";
+  let frame: number | undefined;
+  const markNow = () => {
+    if (frame !== undefined) cancelAnimationFrame(frame);
+    frame = undefined;
+    mark();
+  };
+  const markAtFrame = framed
+    ? () => {
+        frame ??= requestAnimationFrame(() => {
+          frame = undefined;
+          mark();
+        });
+      }
+    : mark;
+  const resize = new ResizeObserver(framed ? markNow : mark);
   resize.observe(node);
   const children = new Set<Element>();
   const boxless = new Set<Element>();
@@ -78,14 +103,19 @@ export function followScrollEdges(
   };
   for (const child of node.children) watchChild(child);
   const content = new MutationObserver((records) => {
+    let quietChanged = false;
     for (const record of records) {
+      if (record.type === "attributes") quietChanged = true;
       // Descendant edits can alter scrollHeight without resizing a capped/grid-stretched
       // direct child. Remeasure them, but only update resize targets for our outer boxes.
       if (record.type !== "childList" || (record.target !== node && !boxless.has(record.target as Element))) continue;
       for (const child of record.addedNodes) watchChild(child);
       for (const child of record.removedNodes) unwatchChild(child);
     }
-    mark();
+    // The quiet attribute flips inside a frame's own callbacks (composer/fieldGrowth.ts), where a
+    // frame request would land a frame late and paint the stale fade it exists to hide.
+    if (quietChanged && framed) markNow();
+    else markAtFrame();
   });
   content.observe(node, {
     childList: true,
@@ -93,14 +123,18 @@ export function followScrollEdges(
     characterData: true,
     ...(quietWhile ? { attributes: true, attributeFilter: [quietWhile] } : {}),
   });
-  node.addEventListener("scroll", mark, { passive: true });
+  // A scroll event runs in a frame's scroll steps, before its animation frame callbacks, so the
+  // frame it asks for is that same frame: the fade follows the scroll with no lag.
+  node.addEventListener("scroll", markAtFrame, { passive: true });
   mark();
   return () => {
+    if (frame !== undefined) cancelAnimationFrame(frame);
+    frame = undefined;
     resize.disconnect();
     content.disconnect();
     children.clear();
     boxless.clear();
-    node.removeEventListener("scroll", mark);
+    node.removeEventListener("scroll", markAtFrame);
   };
 }
 

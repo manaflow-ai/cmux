@@ -205,7 +205,8 @@ def check_send_after_shutdown():
                          else None)(home().get("chief_owner") or {}), 240, step=1)
     # The shutdown marker holds: no brain until an ask (the send).
     idle = wait(lambda: brain_pid() is None, 20)
-    time.sleep(5)  # test harness: a restart that ignores the marker would show within this window
+    # sleep-ok: an observation window; a restart that ignores the marker would show within it (an absence has no event)
+    time.sleep(5)
     idle = idle and brain_pid() is None
     marker = f"FIX-SEND-{RUN}"
     steps = [rpc("debug.home.drive", {"action": a, **x}) for a, x in

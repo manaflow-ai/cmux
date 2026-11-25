@@ -18,8 +18,8 @@ import Testing
             return await results.next() ?? false
         }
         let bind = Task { await hub.bind(channel, until: { await passed.value }) }
-        let end = ContinuousClock.now + .seconds(20)
-        while !channel.closed, channel.read < 50_000, ContinuousClock.now < end {
+        var end = AwakeDeadline(.seconds(20))
+        while !channel.closed, channel.read < 50_000, end.hasTimeLeft() {
             try await Task.sleep(for: .milliseconds(5)) // test: waits for the reader
         }
         #expect(channel.closed, "the channel stayed open after \(channel.read) notifications before pairing")
@@ -35,8 +35,8 @@ import Testing
         let channel = FloodChannel(limit: 3)
         let connection = AcpmuxConnection(channel: channel, held: true)
         await connection.start()
-        let end = ContinuousClock.now + .seconds(5)
-        while channel.read < 3, ContinuousClock.now < end {
+        var end = AwakeDeadline(.seconds(5))
+        while channel.read < 3, end.hasTimeLeft() {
             try await Task.sleep(for: .milliseconds(5)) // test: waits for the reader
         }
         let early = Task { () -> Int in
@@ -84,8 +84,8 @@ import Testing
         let channel = FramesChannel([envelope])
         let connection = AcpmuxConnection(channel: channel, held: true)
         await connection.start()
-        let end = ContinuousClock.now + .seconds(10)
-        while !channel.closed, ContinuousClock.now < end {
+        var end = AwakeDeadline(.seconds(10))
+        while !channel.closed, end.hasTimeLeft() {
             try await Task.sleep(for: .milliseconds(5)) // test: waits for the reader
         }
         #expect(channel.closed, "a \(envelope.count)-byte frame of \(text.count) bytes inflated was kept before pairing")
@@ -100,8 +100,8 @@ import Testing
         let channel = FramesChannel(frames)
         let connection = AcpmuxConnection(channel: channel, held: true)
         await connection.start()
-        let end = ContinuousClock.now + .seconds(20)
-        while !channel.closed, ContinuousClock.now < end {
+        var end = AwakeDeadline(.seconds(20))
+        while !channel.closed, end.hasTimeLeft() {
             try await Task.sleep(for: .milliseconds(5)) // test: waits for the reader
         }
         #expect(channel.closed, "a \(text.count)-byte notification was kept before pairing")
@@ -122,8 +122,8 @@ import Testing
         let connection = AcpmuxConnection(channel: channel, held: true)
         await connection.start()
         let id = try await connection.submit("_acpmux/watch", .object([:]))
-        let end = ContinuousClock.now + .seconds(20)
-        while !channel.allRead, !channel.closed, ContinuousClock.now < end {
+        var end = AwakeDeadline(.seconds(20))
+        while !channel.allRead, !channel.closed, end.hasTimeLeft() {
             try await Task.sleep(for: .milliseconds(5)) // test: waits for the reader
         }
         #expect(!channel.closed, "the answer to this phone's own request was refused")

@@ -13,17 +13,7 @@ extension AppActions {
         let visible = sidebar.model.selectableWorkspaces.map(\.id)
         guard let position = visible.firstIndex(of: SidebarWorkspaceID(workspace.id)) else {
             // A pinned workspace has no list row: it moves one place among the items of its section (Pinned).
-            if let store = doc.activeStore, let item = doc.item(workspace: workspace.id),
-               let to = store.shown?.layout.stepMoveTarget(item, by: offset) {
-                store.move([item], to: to, title: SidebarDocStore.moveTitle)
-            } else if let ref = WorkspaceLayoutRefs(machines: machines).ref(forWorkspace: workspace.id),
-                      let item = services.sidebarLayout.document.topItem(for: ref, room: services.windows.active?.state.profileID.rawValue),
-                      let op = services.sidebarLayout.document.stepMoveOp(item.id, by: offset) {
-                let commands = PinCommands(context: AppActionContext(services: services))
-                do { try commands.sendLayout(op, title: SidebarDocStore.moveTitle, origin: invocation.origin) } catch {
-                    services.registry.refuse(RefusalStrings.describe(error))
-                }
-            }
+            do { _ = try moveBandWorkspace(workspace, services, origin: invocation.origin) { _ in .step(offset) } } catch { services.registry.refuse(RefusalStrings.describe(error)) }
             return
         }
         guard visible.indices.contains(position + offset) else { return }
@@ -46,5 +36,15 @@ extension AppActions {
         machines.local.send("set-personal-workspace") {
             try await $0.state.placePersonalWorkspace(session: moved.session, key: key, resource: resource, index: index)
         }
+    }
+
+    /// Moves pinned `workspace` (a band item, no list row) where `placement` puts it among its section's items, for every Move
+    /// verb (`SidebarLayoutDocument.bandMove`): on the shown sidebar document, else the layout. False when no band lists it.
+    static func moveBandWorkspace(_ workspace: WorkspaceModel, _ services: AppServices, origin: ActionOrigin, _ placement: ((String) -> String?) -> SidebarBandPlacement?) throws -> Bool {
+        if let moved = services.sidebarDoc.moveBand(workspace: workspace.id, placement) { return moved }
+        let refs = WorkspaceLayoutRefs(machines: services.machines), layout = services.sidebarLayout.document, room = services.windows.active?.state.profileID.rawValue
+        let item = { (id: String) in refs.ref(forWorkspace: id).flatMap { layout.topItem(for: $0, room: room) } }
+        guard let moving = item(workspace.id), let to = placement({ item($0)?.id.rawValue }), let move = layout.bandMove(moving.id.rawValue, to) else { return false }
+        try move.layoutOp(moving.id).map { try PinCommands(context: AppActionContext(services: services)).sendLayout($0, title: SidebarDocStore.moveTitle, origin: origin) }; return true
     }
 }

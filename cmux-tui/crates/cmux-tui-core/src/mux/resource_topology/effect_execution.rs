@@ -5,6 +5,7 @@ use super::client_ids::{
     requested_reopen_tab_id,
 };
 use super::*;
+use crate::mux::resource_content::collect_screen_split_ids;
 use crate::state::app_workspaces::{APP_WORKSPACE_FIELD, APP_WORKSPACE_NAME_FIELD};
 use cmux_json::JsonSet as _;
 
@@ -103,6 +104,7 @@ impl Mux {
                     "bad request: around split {around} does not end at pane {target}"
                 );
             }
+            quick_terminal::refuse_second_make(state, resolved.pane, fields)?;
         }
         if topology_effect_may_create_workspace(operation) {
             let mutation = context.mutation.reservation();
@@ -714,6 +716,9 @@ impl Mux {
             &workspace_mutation,
             crate::state::home_store::EmptyWorkspaceMark::ephemeral(ephemeral),
             focus,
+            // Only `workspace.create` names the workspace it makes here: the
+            // caller's own name (CLI and MCP `--name`), pinned (#56422).
+            true,
         )?;
         crate::debug_spans::mark("effect.workspace_created");
         self.effect_create_terminal_in_workspace(intent, placement.workspace, options)
@@ -862,7 +867,7 @@ impl Mux {
             (viewport_width.is_some() || row_height.is_some()).then(|| self.next_id());
         let base_row_id = row_height.map(|_| self.next_id());
         let active_at = self.next_active_at();
-        let notifications = self.tree_decorations_placing(&surface);
+        let notifications = self.tab_decorations_placing(&surface);
         // A conversation tab's split (`conversation-tab-split-v1`): its one
         // `pane-added` carries the client transaction.
         let transaction = intent["fields"].as_object().and_then(frontend_browser_transaction);
@@ -884,9 +889,9 @@ impl Mux {
                     "split_id_exists: {split_public_id}"
                 );
             }
-            let Some((workspace, screen_index)) = state.screen_of(target) else {
-                anyhow::bail!("pane disappeared before new pane attachment");
-            };
+            let (workspace, screen_index) =
+                state.screen_of(target).context("pane disappeared before new pane attachment")?;
+            quick_terminal::refuse_second_make_at_attach(&state, workspace, intent, operation)?;
             if viewport_width.is_none() {
                 ensure_pane_column_not_agent_chat(operation, &state, target, splits_down(&state))?;
             }
@@ -894,6 +899,8 @@ impl Mux {
             let screen_id = state.workspaces[workspace].screens[screen_index].id;
             let screen = &mut state.workspaces[workspace].screens[screen_index];
             let before = screen.layout_snapshot();
+            let mut old_splits = HashSet::new();
+            collect_screen_split_ids(screen, &mut old_splits);
             if let Some(height) = row_height {
                 anyhow::ensure!(
                     screen.insert_layout_row_below(
@@ -991,9 +998,8 @@ impl Mux {
                 screen.active_pane = pane_id;
             }
             screen.zoomed_pane = None;
-            // `floating-panes-v1`: a floating pane whose column got a row, or that the auto layout put into a
-            // stack, is tiled.
-            screen.settle_floating_panes();
+            // `floating-panes-v1`, `quick-terminal-v1`: the list follows the new layout; a quick terminal floats.
+            quick_terminal::settle_new_pane(screen, pane_id, before.active_pane, intent);
             screen.record_layout_change(before, vec![pane_id], None);
             if let (Some(split), Some(public_id)) = (split_id, split_public_id) {
                 state.resource_indexes.splits.insert(public_id.clone(), split);
@@ -1012,7 +1018,7 @@ impl Mux {
             if focus {
                 stamp_pane_focus(self, &mut state, pane_id);
             }
-            Self::rebuild_split_screen_index(&mut state);
+            Self::reindex_screen_after_growth(&mut state, workspace, screen_index, &old_splits);
             let entity = crate::server::tree_entity_json(
                 &state,
                 &notifications,
