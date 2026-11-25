@@ -174,8 +174,14 @@ public struct TerminalTabPage: View {
                         // Once attached the cover stays until the live rows are drawn, then
                         // goes in one frame: a cut, never a fade over live rows (R3-4). Its
                         // rows are laid out for the page as it is now (keyboard up or down).
-                        TerminalConnectingView(topInset: insets.top, screenText: model.cardScreenText,
-                                               rowsLift: rowsLift, rows: model.coldFrameRows, rowsMeasured: model.coldFrameMeasured)
+                        // The saved copy as rows is the surface itself (seeded); this draws the
+                        // Mac's screen text, else the page's last still, else, with no saved copy
+                        // at all, which Mac cannot be reached and Retry once the quiet bound passed.
+                        TerminalConnectingView(topInset: insets.top,
+                                               lastFrame: model.cardScreenText == nil ? model.coldFrame : nil,
+                                               screenText: model.cardScreenText,
+                                               rowsLift: rowsLift, rows: model.coldFrameRows, rowsMeasured: model.coldFrameMeasured,
+                                               unreachable: model.unreachable, retry: model.reconnect)
                             .ignoresSafeArea()
                             .padding(.bottom, insets.bottom)
                             .transition(.identity)

@@ -29,17 +29,66 @@ import UIKit
                       quietStatus: QuietStatusGate(delay: delay))
     }
 
-    /// A cached frame wins over the skeleton in every state; the skeleton is
-    /// only for a terminal never opened on this phone.
-    @Test func theCachedFrameNeverGivesWayToTheSkeleton() {
+    /// A cached frame wins in every state; with no saved copy at all the page draws no fake rows,
+    /// only the unreachable state past the quiet bound (Leo, 2026-11-25: "the placeholder's also bad").
+    @Test func theCachedFrameNeverGivesWayToThePlaceholder() {
         #expect(TerminalConnectingView.content(hasLastFrame: true, showsPlaceholder: true) == .lastFrame)
         #expect(TerminalConnectingView.content(hasLastFrame: true, showsPlaceholder: false) == .lastFrame)
-        #expect(TerminalConnectingView.content(hasLastFrame: false, showsPlaceholder: true) == .skeleton)
+        #expect(TerminalConnectingView.content(hasLastFrame: false, showsPlaceholder: true) == .unreachable)
         #expect(TerminalConnectingView.content(hasLastFrame: false, showsPlaceholder: false) == .nothing)
-        // The Mac's pushed screen text stands in for the skeleton, never over a frame or live rows.
+        // The Mac's pushed screen text stands in for the placeholder, never over a frame or live rows.
         #expect(TerminalConnectingView.content(hasLastFrame: false, showsPlaceholder: true, hasScreenText: true) == .screenText)
         #expect(TerminalConnectingView.content(hasLastFrame: true, showsPlaceholder: true, hasScreenText: true) == .lastFrame)
         #expect(TerminalConnectingView.content(hasLastFrame: false, showsPlaceholder: false, hasScreenText: true) == .nothing)
+    }
+
+    /// No saved copy: nothing during the quiet bound, then which Mac, why, and Retry.
+    @Test func noSavedCopySaysWhichMacAndWhyOnlyPastTheQuietBound() async throws {
+        let model = makeModel(delay: .milliseconds(20))
+        model.reconnect = {}
+        #expect(model.unreachable == nil)
+        try await Task.sleep(for: .milliseconds(120))
+        let state = try #require(model.unreachable)
+        #expect(state.title == "Can't reach Mac Studio")
+        #expect(!state.reason.isEmpty)
+        // The link's own line (a network that blocks it) wins over the generic words.
+        model.linkStatus = { "This network blocks the connection" }
+        #expect(model.unreachable?.reason == "This network blocks the connection")
+        // "Offline" alone adds nothing to the title: the generic reason stays.
+        #expect(TerminalUnreachable.make(state: .offline(mac: "Mac Studio"), linkStatus: "Offline")?.reason.contains("asleep") == true)
+        #expect(TerminalUnreachable.make(state: .offline(mac: "Mac Studio"), linkStatus: nil)?.title == "Mac Studio is offline")
+        #expect(TerminalUnreachable.make(state: .attached, linkStatus: "x") == nil)
+    }
+
+    /// The offline subtitle says how old the saved copy is, and only when the page shows one.
+    @Test func theOfflineLineSaysHowOldTheSavedCopyIs() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        #expect(TerminalSavedCopyAge.phrase(since: now.addingTimeInterval(-20), now: now) == "updated just now")
+        #expect(TerminalSavedCopyAge.phrase(since: now.addingTimeInterval(-185), now: now) == "updated 3 min ago")
+        #expect(TerminalSavedCopyAge.phrase(since: now.addingTimeInterval(-7300), now: now) == "updated 2 h ago")
+        let model = makeModel()
+        #expect(model.offlineSubtitle(nil) == nil)
+        // Nothing of the Mac's on the page: no age to tell.
+        model.restoreSavedAt(now.addingTimeInterval(-185))
+        #expect(model.offlineSubtitle("Mac offline", now: now) == "Mac offline")
+        model.restoreLastFrame(Self.frame())
+        #expect(model.offlineSubtitle("Mac offline", now: now) == "Mac offline · updated 3 min ago")
+        // An older date never replaces a newer one.
+        model.restoreSavedAt(now.addingTimeInterval(-9000))
+        #expect(model.offlineSubtitle("Mac offline", now: now) == "Mac offline · updated 3 min ago")
+    }
+
+    /// A page with nothing of its own takes a saved copy that arrives late; one that is attached
+    /// or already shows rows never does.
+    @Test func onlyABlankDetachedPageTakesALateSeed() {
+        let model = makeModel()
+        #expect(model.takesLateSeed)
+        model.cardScreenText = "$ ls\nREADME.md"
+        #expect(model.takeSeed() != nil)
+        #expect(!model.takesLateSeed)
+        let attached = makeModel()
+        attached.ingest(.connection(.attached))
+        #expect(!attached.takesLateSeed)
     }
 
     /// Connection changes keep the cached frame (only drawn live rows replace it).
