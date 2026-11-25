@@ -655,3 +655,16 @@ test("the New Tab context's Cloud pick reaches the page: a folder or a GitHub re
   expect(newTabHost({ newTab: { cloudStartedProject: "acme/api" } })?.cloudStartedProject).toBeUndefined();
   expect(newTabHost({ newTab: { cloudStartedProject: HOME } })?.cloudStartedProject).toBeUndefined();
 });
+
+test("the app's Cloud pick seeds this run's copy, so a chat restored after a relaunch (no New Tab context) reads it", async () => {
+  const { cloudPickChoices, forgetAppCloudPickForTests } = await import(
+    "../src/agent-session/acpmux/newtab/startedProject"
+  );
+  // The prewarmed spare page had the context; a restored chat's page (another module instance) has none.
+  expect(cloudPickChoices("github:acme/api")).toEqual(["github:acme/api"]);
+  forgetAppCloudPickForTests();
+  expect(cloudPickChoices()).toEqual(["github:acme/api"]);
+  // This run's own start wins over the app's older copy.
+  stored.set("cmux.acpmux.newTab.cloudPick.v1", "github:acme/web");
+  expect(cloudPickChoices("github:acme/api")).toEqual(["github:acme/web", "github:acme/api"]);
+});

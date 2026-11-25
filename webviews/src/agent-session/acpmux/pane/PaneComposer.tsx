@@ -1129,9 +1129,11 @@ export function drawPaneComposer({
                   directClient.current?.notice(started);
                   return false;
                 }
-                // The folder this Cloud chat started in is Cloud's next default, kept apart from This Mac's
-                // (newtab/startedProject.ts, cmux#53226).
-                if (started && "cwd" in folder) rememberCloudPick(folder.cwd, callNative);
+                // The folder the person picked (here or by an earlier Cloud start) is Cloud's next default, kept
+                // apart from This Mac's (newtab/startedProject.ts, cmux#53226); the tab folder's GitHub origin no
+                // one picked never is.
+                if (started === true && "cwd" in folder && folder.cwd === pickedProject.current)
+                  rememberCloudPick(folder.cwd, callNative);
                 return started;
               }
               if (sandboxPickedNotOffered) {

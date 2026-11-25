@@ -109,6 +109,9 @@ export function cloudPickChoices(fromApp?: string): string[] {
   let run: string | undefined;
   try {
     run = storage()?.getItem(CLOUD_KEY) ?? undefined;
+    // The app's copy seeds this run's, which every page of the run shares: a chat restored after a relaunch (no
+    // New Tab context of its own) reads it once any page (the prewarmed spare) had the context.
+    if (!isCloudPick(run) && isCloudPick(fromApp)) storage()?.setItem(CLOUD_KEY, fromApp);
   } catch {
     run = undefined;
   }

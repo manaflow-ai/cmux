@@ -98,7 +98,7 @@ import {
   withCloudStartPick,
 } from "./newtab/draftFolder";
 import { cloudModePickFor as cloudModeFor, useCloudModePick } from "./cloudModePick";
-import { rememberStartedProject } from "./newtab/startedProject";
+import { cloudPickChoices, rememberStartedProject } from "./newtab/startedProject";
 import { shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { TaskGoalStrip } from "./TaskGoalStrip";
 import { ApprovedPlanBand } from "./ApprovedPlanBand";
@@ -4182,8 +4182,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// (`cloudSourcePick`), so every adoption (a New Tab, a session) drops it: a reused page's pick is no pick of
   /// the tab it now shows (cmux#53226).
   const pickedProject = useRef<string | undefined>(undefined);
+  /// This Mac's folder on the chip when Cloud was picked, for the way back (Cloud's own default is not This Mac's);
+  /// a reused page's is no folder of the tab it now shows.
+  const localDraftBeforeCloud = useRef<{ draft: string | undefined } | undefined>(undefined);
   const adoptNewTab = useCallback((host: NewTabHost) => {
     pickedProject.current = undefined;
+    localDraftBeforeCloud.current = undefined;
     // The adopted tab's start is measured from its own first frame (perf.ts noteStartState).
     acpmuxPerf.resetStartState();
     newTabStartGeneration.current += 1;
@@ -4229,6 +4233,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // A context that came by `newTab.context` (not injected) carries the start too: drawn with it.
   const takeEarlyNewTab = useCallback((host: NewTabHost) => {
     pickedProject.current = undefined;
+    localDraftBeforeCloud.current = undefined;
     setNewTab(host);
     const start = startFromContext(host.start);
     if (!start || handshakenRef.current) return;
@@ -4581,14 +4586,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     );
     return () => clearTimeout(timer);
   }, [folderGranting]);
-  /// This Mac's folder on the chip when Cloud was picked, for the way back (Cloud's own default is not This Mac's).
-  const localDraftBeforeCloud = useRef<string | undefined>(undefined);
-  /// The mode the last pick named, read by a grant that answers after the person moved on.
+  /// The mode now, read by a grant that answers after the person moved on.
   const composerModeNow = useRef<RunMode | undefined>(undefined);
-  /// `chooseProject` (defined below), for the Cloud pick's grant of its remembered folder.
-  const chooseProjectLatest = useRef<(cwd: string, peer?: string, refused?: () => void) => Promise<void>>(
-    () => Promise.resolve(),
-  );
+  /// `requestFolder` (defined below), for the grant of Cloud's remembered folder.
+  const requestFolderLatest = useRef<
+    (cwd: string, use: (folder: string) => void, cancel?: (refusal?: unknown) => void) => Promise<void>
+  >(() => Promise.resolve());
   const pickComposerMode = (mode: RunMode) => {
     if (mode !== sandboxModeRows.mode) {
       dropFolderRequest.current?.();
@@ -4602,26 +4605,40 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // The person's own pick here stays; else Cloud starts where their last Cloud chat did (a GitHub repository, or a
       // folder of this Mac the host grants again), never the tab's folder's GitHub origin or No folder (cmux#53226).
       const own = shown !== undefined && shown !== "" && (shown === pickedProject.current || githubFolderRepo(shown));
-      // A folder of this Mac is granted as a pick is, which only a chat not started yet takes (a started one's pick
-      // opens a new chat there).
+      // A folder of this Mac is granted as a pick is, which only a chat not started yet takes.
       const last = own
         ? undefined
         : cloudPickChoices(newTab?.cloudStartedProject).find((folder) => githubFolderRepo(folder) || freshRef.current);
       const fallback = cloudSourcePick(shown) ?? "";
-      if (sandboxModeRows.mode !== "cloud") localDraftBeforeCloud.current = projectDraft;
-      if (last === undefined || last === shown) setProjectDraft(fallback);
-      else {
+      if (sandboxModeRows.mode !== "cloud") localDraftBeforeCloud.current = { draft: projectDraft };
+      if (last === undefined) setProjectDraft(fallback);
+      else if (githubFolderRepo(last)) {
+        // The person's own pick from before: a Cloud start here records it again.
+        pickedProject.current = last;
         setProjectDraft(last);
-        // A folder of this Mac is granted as a pick is, so the start copies it; one the host refuses (removed) gives
-        // way to the tab's own as before.
-        if (!githubFolderRepo(last))
-          void chooseProjectLatest.current(last, undefined, () => {
-            if (composerModeNow.current === "cloud") setProjectDraft(fallback);
-          });
+      } else {
+        setProjectDraft(last);
+        // Granted as a pick is, so the start copies it; until the host answers a Cloud send waits
+        // (`folderGranting`). A folder the host refuses (removed) gives way to the tab's own as before. The grant
+        // only lands while this chat is still unstarted and on Cloud: it never opens a chat.
+        void requestFolderLatest.current(
+          last,
+          (folder) => {
+            setFolderGranting(0);
+            if (!freshRef.current || composerModeNow.current !== "cloud") return;
+            pickedProject.current = folder;
+            setProjectDraft(folder);
+          },
+          (refusal) => {
+            setFolderGranting(0);
+            if (refusal !== undefined && composerModeNow.current === "cloud") setProjectDraft(fallback);
+          },
+        );
+        setFolderGranting(++folderGrantSeq.current);
       }
-    } else if (sandboxModeRows.mode === "cloud" && localDraftBeforeCloud.current !== undefined) {
+    } else if (sandboxModeRows.mode === "cloud" && localDraftBeforeCloud.current) {
       // Back on This Mac the chip names This Mac's folder from before Cloud, not Cloud's.
-      setProjectDraft(localDraftBeforeCloud.current);
+      setProjectDraft(localDraftBeforeCloud.current.draft);
       localDraftBeforeCloud.current = undefined;
     } else if (githubFolderRepo(projectDraft)) {
       setProjectDraft("");
@@ -4635,6 +4652,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const composerModePick = useRef(pickComposerMode);
   useLayoutEffect(() => {
     composerModePick.current = pickComposerMode;
+    composerModeNow.current = sandboxModeRows.mode;
   });
   const composerModeRows = useMemo(
     () => ({
@@ -7542,6 +7560,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // A GitHub repository from a new Cloud chat's folder menu (githubRepos.ts, `github:owner/name`) is
       // no folder on this Mac: the host has nothing to check, and the Cloud start sends it as its `cwd`.
       if (!peer && githubFolderRepo(cwd)) {
+        // The person's pick: a Cloud start in it is Cloud's next default (newtab/startedProject.ts).
+        pickedProject.current = cwd;
         if (freshRef.current) setProjectDraft(cwd);
         accepted?.(cwd);
         return Promise.resolve();
@@ -7576,7 +7596,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [folderContinuation, requestFolder, dropDeferredGitHub],
   );
   useLayoutEffect(() => {
-    chooseProjectLatest.current = chooseProject;
+    requestFolderLatest.current = requestFolder;
   });
   /// The folder another chat's `/cd --on cloud` handed this New Cloud Chat (commandPlace.ts): once
   /// the page is ready, it opens in it as a folder pick does, which checks and grants the folder.
