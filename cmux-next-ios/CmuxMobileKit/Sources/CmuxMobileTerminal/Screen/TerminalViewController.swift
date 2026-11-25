@@ -1688,6 +1688,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        // A swipe back or Back: the dock rides the page as it is drawn now.
+        holdsForNavigation(nil)
         #if DEBUG
         frameLog.stop()
         #endif
@@ -4685,7 +4687,64 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         view.window?.endEditing(true)
     }
 
+    // MARK: Held through a navigation transition
+
+    /// A swipe back (or Back, or a push) this page is part of: the page moves as one, so the
+    /// dock keeps its place and its key row while the page slides, whatever the keyboard
+    /// reports meanwhile (Leo, 2026-11-25: "weird looking zones esp near composer bar ... it all
+    /// doesn't move properly"). A cancelled swipe catches up with the keyboard's last word.
+    private var navigationHold: NSLayoutConstraint?
+    /// The newest keyboard notification held back, replayed when a cancelled swipe lets go.
+    private var heldKeyboardNotes: [Notification] = []
+
+    /// Replaying held notes: they go through.
+    private var replayingHeldNotes = false
+
+    /// Whether the keyboard notification is held back by a navigation transition (nil: the
+    /// transition's start, from the appearance callbacks).
+    @discardableResult
+    private func holdsForNavigation(_ note: Notification?) -> Bool {
+        guard !SwipeBackWholePage.legacy, !replayingHeldNotes, chrome == .embedded,
+              let coordinator = transitionCoordinator, coordinator.isAnimated else { return false }
+        if let note { heldKeyboardNotes.append(note) }
+        guard navigationHold == nil else { return true }
+        // The stack stays where it is drawn now, above whatever the guide does.
+        view.layoutIfNeeded()
+        let hold = bottomStack.bottomAnchor.constraint(equalTo: view.bottomAnchor,
+                                                       constant: bottomStack.frame.maxY - view.bounds.maxY)
+        hold.priority = .required - 1
+        hold.isActive = true
+        navigationHold = hold
+        coordinator.animate(alongsideTransition: nil) { [weak self] context in
+            self?.endNavigationHold(cancelled: context.isCancelled)
+        }
+        return true
+    }
+
+    private func endNavigationHold(cancelled: Bool) {
+        navigationHold?.isActive = false
+        navigationHold = nil
+        let notes = heldKeyboardNotes
+        heldKeyboardNotes = []
+        guard cancelled else { return }
+        // Back on screen: the keyboard's last state, as if it had just been reported.
+        keyboardDock.refresh()
+        replayingHeldNotes = true
+        defer { replayingHeldNotes = false }
+        for note in notes {
+            switch note.name {
+            case UIResponder.keyboardWillShowNotification: keyboardWillShow(note)
+            case UIResponder.keyboardWillHideNotification: keyboardWillHide(note)
+            case UIResponder.keyboardDidShowNotification: keyboardDidShow(note)
+            case UIResponder.keyboardDidHideNotification: keyboardDidHide(note)
+            default: break
+            }
+        }
+        view.setNeedsLayout()
+    }
+
     @objc private func keyboardWillShow(_ note: Notification) {
+        if holdsForNavigation(note) { return }
         #if DEBUG
         if CommandLine.arguments.contains("-CmuxMobileTermLog") { NSLog("mobileterm kbd willShow t=%.3f first=%d", CACurrentMediaTime(), surface.isFirstResponder ? 1 : 0) }
         startKeyboardProbe(showing: true)
@@ -4702,6 +4761,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     @objc private func keyboardWillHide(_ note: Notification) {
+        if holdsForNavigation(note) { return }
         #if DEBUG
         if CommandLine.arguments.contains("-CmuxMobileTermLog") { NSLog("mobileterm kbd willHide t=%.3f first=%d", CACurrentMediaTime(), surface.isFirstResponder ? 1 : 0) }
         startKeyboardProbe(showing: false)
@@ -4714,6 +4774,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     @objc private func keyboardDidHide(_ note: Notification) {
+        if holdsForNavigation(note) { return }
         #if DEBUG
         if CommandLine.arguments.contains("-CmuxMobileTermLog") { NSLog("mobileterm kbd didHide t=%.3f first=%d", CACurrentMediaTime(), surface.isFirstResponder ? 1 : 0) }
         #endif
@@ -4729,6 +4790,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     @objc private func keyboardDidShow(_ note: Notification) {
+        if holdsForNavigation(note) { return }
         // A show a newer hide interrupted (the keyboard key pressed twice).
         guard !isStale(note), !endsOnScreen(note, onScreen: false) else { return }
         #if DEBUG
