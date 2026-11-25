@@ -48,7 +48,7 @@
 //! `cmux-cloud-machine`'s Cloud machine record and rules (the other `cloud_machine_*`) and
 //! the small Cloud API models (`cloud_model_*`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
-//! `focus_child_window_key`), agent cursor visibility
+//! `focus_child_window_key`, `focus_escape_exit`, `focus_work_context`), agent cursor visibility
 //! (`agent_cursor_visibility`) and input invariants (`focus_input_world`,
 //! `focus_input_step`, `focus_debug_window`), the window focus machine
 //! (`cmux_focus_*`, [`focus`]: a handle per window, typed events and
@@ -562,6 +562,18 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: cmux_focus_core::wire::ChildWindowKeyRequest =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&cmux_focus_core::wire::child_window_key(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"focus_escape_exit" => {
+                let request: cmux_focus_core::wire::EscapeExitRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&cmux_focus_core::wire::escape_exit(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"focus_work_context" => {
+                let request: cmux_focus_core::wire::WorkContextRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&cmux_focus_core::wire::work_context(&request))
                     .map_err(|_| ERR_INVALID)?
             }
             b"focus_input_world" => {
