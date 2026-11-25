@@ -1190,7 +1190,9 @@ function Columns({
       ? faceOf(activeAccount, t("picker.harnessLogin"))
       : (routeFace ?? faceOf(undefined, t("picker.harnessLogin")));
   const ownerName = ownerTab?.name ?? owner?.name ?? "";
-  const badge = owner?.mark ?? owner?.id;
+  // The tab's brand mark when its routes are other products (Gemini for Antigravity, Lucas
+  // 2026-11-25), else the route's own.
+  const badge = ownerTab?.mark ?? owner?.mark ?? owner?.id;
   const login = t("picker.harnessLogin");
   // A row's detail: what kind of account it is. The harness's own login says nothing more.
   const kindLabel = (kind: string | undefined) =>

@@ -430,3 +430,46 @@ test("a harness whose models are still loading is no launch tab", async () => {
   expect(picked).toEqual([]);
   expect(doc.querySelector('.acpmux-cols [role="listbox"]')?.textContent).toContain("No models yet");
 });
+
+// Lucas 2026-11-25: "the icon for account on gemini/antigravity should be gemini". The account
+// avatar's badge on a tab whose routes are other products draws the tab's brand.
+test("the Gemini tab's account avatar wears the Gemini mark on its Antigravity route", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
+  const geminiCli = {
+    id: "gemini",
+    name: "Gemini CLI",
+    mark: "gemini",
+    models: [{ id: "gemini-3.8-flash", name: "3.8 Flash" }],
+    pickable: true,
+  };
+  const antigravity = {
+    id: "antigravity",
+    name: "Antigravity",
+    mark: "antigravity",
+    models: [{ id: "gemini-4-neon", name: "Gemini 4 Neon" }],
+    pickable: true,
+  };
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <ModelPicker
+        catalog={[claude, geminiCli, antigravity]}
+        harness="antigravity"
+        model="gemini-4-neon"
+        label="Gemini 4 Neon"
+        efforts={[]}
+        recents={[]}
+        onLand={() => {}}
+        onCombo={() => {}}
+        onHarness={() => {}}
+        onEffort={() => {}}
+        quick={{}}
+      />,
+    ),
+  );
+  await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
+  await settle();
+  const badge = dom.window.document.querySelector(".acpmux-cols-corner .acpmux-cols-avatar-badge [data-agent]");
+  expect(badge?.getAttribute("data-agent")).toBe("gemini");
+});
