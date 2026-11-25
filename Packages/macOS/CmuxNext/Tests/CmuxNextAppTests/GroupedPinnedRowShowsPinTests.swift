@@ -122,8 +122,11 @@ import Testing
         return row
     }
 
-    @Test(arguments: DensityPreset.allCases, [Metrics.sidebarMinWidth, 260])
-    func aPinnedGroupMemberDrawsItsPinBesideItsIconAndStatus(_ preset: DensityPreset, width: CGFloat) throws {
+    // `nil` is the sidebar's minimum width: `Metrics` is main-actor state, and `@Test(arguments:)`
+    // is evaluated outside the actor, so the test resolves it in its body.
+    @Test(arguments: DensityPreset.allCases, [nil, 260] as [CGFloat?])
+    func aPinnedGroupMemberDrawsItsPinBesideItsIconAndStatus(_ preset: DensityPreset, width requested: CGFloat?) throws {
+        let width = requested ?? Metrics.sidebarMinWidth
         try autoreleasepool {
             Motion.reduceMotionOverride = true
             defer { Motion.reduceMotionOverride = nil }
