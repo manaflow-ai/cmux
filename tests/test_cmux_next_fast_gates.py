@@ -381,7 +381,8 @@ class WorkflowShape(unittest.TestCase):
                          "github.event.pull_request.head.repo.full_name == github.repository",
                          "contains(github.event.pull_request.body, 'CI-Receipt:')"):
             self.assertIn(fragment, receipt["if"])
-        self.assertEqual(receipt["permissions"], {"contents": "read", "actions": "read", "statuses": "write"})
+        self.assertEqual(receipt["permissions"], {"contents": "read", "actions": "read", "statuses": "write",
+                                                  "id-token": "write"})
         checkout = receipt["steps"][0]
         self.assertTrue(checkout["uses"].startswith("actions/checkout@"))
         self.assertEqual(checkout["with"]["ref"], "${{ github.event.pull_request.base.sha }}")
