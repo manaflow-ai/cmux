@@ -680,14 +680,16 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     private func noteChat(_ summary: [String: Any]) {
         guard let host, let chatNoted, JSONSerialization.isValidJSONObject(summary),
               let data = try? JSONSerialization.data(withJSONObject: summary) else { return }
-        // A tab whose record holds another name of the chat (its session name) reads it under that name too.
+        // A tab whose record holds another name of the chat (its session name) reads it under that name too, and a Cloud
+        // machine's own tab names its chat under the daemon's store host (`registry:<id>`, ``linksAlias``), as its links are noted.
         let alias = state.withLock { $0.session }.flatMap { $0 != summary["sessionId"] as? String ? $0 : nil }
+        let hosts = [host] + (linksAlias.flatMap { $0 != host ? [$0] : nil } ?? [])
         MainDelivery().run {
             guard var summary = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
-            chatNoted(summary, host)
+            for host in hosts { chatNoted(summary, host) }
             if let alias {
                 summary["sessionId"] = alias
-                chatNoted(summary, host)
+                for host in hosts { chatNoted(summary, host) }
             }
         }
     }

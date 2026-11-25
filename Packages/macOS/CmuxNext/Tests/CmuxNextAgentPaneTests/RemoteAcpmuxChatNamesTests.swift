@@ -62,6 +62,18 @@ import Testing
                               "install:vm acp_1 Fix the flaky login test", "install:vm sub Fix the flaky login test"])
     }
 
+    /// A Cloud machine's own tab records its chat under the daemon's store host (`registry:<id>`): the wire notes it there
+    /// too, as it notes the chat's links, so that tab reads the title whichever host the tab's route names.
+    @Test func theChatIsNotedUnderTheDaemonsStoreHostToo() async throws {
+        let noted = Noted(), frames = Frames()
+        let wire = RemoteAcpmuxWire(client: FakeClient(), session: "acp_1", host: "install:vm", linksAlias: "registry:vm",
+                                    chatNoted: noted.chatNoted)
+        try await wire.open(onFrame: { frames.append($0) }, onClose: { _, _ in })
+        wire.send(#"{"jsonrpc":"2.0","id":1,"method":"_acpmux/attach","params":{"sessionId":"acp_1"}}"#) { _ in }
+        try await Self.waitUntil { noted.all.count == 2 }
+        #expect(noted.all == ["install:vm acp_1 Fix the flaky test", "registry:vm acp_1 Fix the flaky test"])
+    }
+
     @Test func aHostlessWireNotesNothing() async throws {
         let noted = Noted(), frames = Frames()
         let wire = RemoteAcpmuxWire(client: FakeClient(), session: "sub", chatNoted: noted.chatNoted)

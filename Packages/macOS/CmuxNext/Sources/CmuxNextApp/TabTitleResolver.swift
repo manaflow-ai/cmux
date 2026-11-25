@@ -79,7 +79,7 @@ struct TabTitleResolver {
             // A subagent's pane is a tab on its chat's session: it shows the subagent's own name, never
             // the chat's (Leo 2026-10-30: "subagents shouldn't be tab-named the exact same as the parent").
             if let subagent = subagentTitle(tab) { return subagent }
-            let title = chatTitle(tab)
+            let title = chatTitle(fronted(tab) ?? tab) // a Mac tab showing a Cloud chat in place reads that chat's title (cmux#55668)
             if title == AgentPaneModel.tabTitle, let name = cloudStarts?.title(of: tab) ?? workspaceName.flatMap(AgentChatTabTitle.taskName) { return name }
             return title
         }
