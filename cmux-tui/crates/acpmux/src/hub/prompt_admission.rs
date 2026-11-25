@@ -41,11 +41,26 @@ pub(crate) const ANSWER_BOUND: Duration = Duration::from_secs(5);
 /// shown (or a restore) before it joins the queue, which answers it (#55502's bound).
 pub(crate) const TURN_LOCK_WAIT: Duration = Duration::from_secs(2);
 
+#[derive(Clone, Copy, Debug)]
+pub(super) enum Stage {
+    Setup(&'static str),
+    DirectDispatch,
+}
+
+impl Stage {
+    pub(super) fn name(self) -> &'static str {
+        match self {
+            Self::Setup(name) => name,
+            Self::DirectDispatch => "direct dispatch",
+        }
+    }
+}
+
 /// One prompt's admission: the lock while it holds it, the step it is in, and whether it reached
 /// a step it must finish (then it is never deferred).
 pub struct Admission {
     guard: StdMutex<Option<OwnedMutexGuard<()>>>,
-    stage: StdMutex<&'static str>,
+    stage: StdMutex<Stage>,
     committed: AtomicBool,
     acquired: AtomicBool,
     came: Instant,
@@ -65,7 +80,7 @@ impl Admission {
     pub(crate) fn new(session: &Session) -> Arc<Self> {
         Arc::new(Self {
             guard: StdMutex::new(None),
-            stage: StdMutex::new("admission"),
+            stage: StdMutex::new(Stage::Setup("admission")),
             committed: AtomicBool::new(false),
             acquired: AtomicBool::new(false),
             came: Instant::now(),
@@ -104,7 +119,7 @@ impl Admission {
             let Some(admission) = lease.upgrade() else { return };
             let lapsed = admission.guard.lock().unwrap_or_else(|e| e.into_inner()).take();
             if lapsed.is_some() {
-                let stage = admission.stage_now();
+                let stage = admission.stage_now().name();
                 tracing::warn!(session = %admission.session, stage, "prompt admission lease lapsed: let go");
             }
         });
@@ -117,11 +132,16 @@ impl Admission {
 
     /// The step it is in now, named when its lease lapses.
     pub(crate) fn enter(&self, stage: &'static str) {
-        *self.stage.lock().unwrap_or_else(|e| e.into_inner()) = stage;
+        *self.stage.lock().unwrap_or_else(|e| e.into_inner()) = Stage::Setup(stage);
+    }
+
+    /// This setup owns the next turn until it starts or hands its place to the queue.
+    pub(super) fn claimed_direct_turn(&self) {
+        *self.stage.lock().unwrap_or_else(|e| e.into_inner()) = Stage::DirectDispatch;
     }
 
     /// The step it is in.
-    pub(crate) fn stage_now(&self) -> &'static str {
+    pub(super) fn stage_now(&self) -> Stage {
         *self.stage.lock().unwrap_or_else(|e| e.into_inner())
     }
 
@@ -269,14 +289,14 @@ impl Hub {
     }
 
     /// Puts a prompt that got no answer in time into the queue, durably, and accepts it as queued.
-    /// Its own setup was dropped before any step it must finish; the queue runs it as a restored
-    /// prompt (`start_restored`), and this returns that run's answer.
-    pub(super) async fn defer_unanswered(
+    /// Keep any provisional turn up to the journal write, then release it before acceptance.
+    pub(super) fn queue_unanswered(
         self: &Arc<Self>,
         session: &Arc<Session>,
         d: Deferral,
-        stage: &'static str,
-    ) -> Result<Value, RpcError> {
+        stage: Stage,
+        release_claim: impl FnOnce(),
+    ) -> Result<super::PromptOutcome, RpcError> {
         let text = super::session::prompt_text(&d.blocks);
         let replaced = std::sync::OnceLock::new();
         let slot = Slot {
@@ -321,26 +341,26 @@ impl Hub {
         session.queued.fetch_add(1, Ordering::SeqCst);
         // The queue's own from now on, as `restore_queues` makes a prompt it read back: the
         // queue runs it, and a resend of its id waits on its ledger entry.
-        let (outcome, position) = self.enqueue(session, &slot, &turn_id, limits, |row, _| {
-            let outcome = super::prompt_ledger::recover(session, &row.prompt_id);
-            row.restored = true;
-            row.resume = true;
-            session
-                .restored
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .push((row.prompt_id.clone(), row.turn_id.clone()));
-            outcome
-        })?;
-        let mut answer = outcome.subscribe();
+        let claimed = matches!(stage, Stage::DirectDispatch);
+        let (outcome, position) =
+            self.enqueue(session, &slot, &turn_id, limits, claimed, |row, _| {
+                let outcome = super::prompt_ledger::recover(session, &row.prompt_id);
+                row.restored = true;
+                row.resume = true;
+                session
+                    .restored
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push((row.prompt_id.clone(), row.turn_id.clone()));
+                outcome
+            })?;
+        release_claim();
+        let stage = stage.name();
         tracing::warn!(session = %session.id, prompt = %d.prompt_id, stage, position, "prompt unanswered in time: queued");
         let accepted = json!({"sessionId": session.id, "promptId": d.prompt_id, "turnId": turn_id, "queued": true, "state": "queued", "position": position, "deferred": true});
         if let Some(f) = d.on_accepted.lock().unwrap_or_else(|e| e.into_inner()).take() {
             f(accepted);
         }
-        self.start_restored(session);
-        let dropped = || RpcError::internal("the queued run of this prompt was dropped");
-        let settled = answer.wait_for(Option::is_some).await.map_err(|_| dropped())?.clone();
-        settled.unwrap_or_else(|| Err(dropped()))
+        Ok(outcome)
     }
 }

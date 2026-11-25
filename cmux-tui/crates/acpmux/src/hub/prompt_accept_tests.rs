@@ -104,10 +104,14 @@ async fn an_idle_prompt_is_deferred_if_dispatch_blocks_before_first_acceptance()
     let (release, release_rx) = tokio::sync::oneshot::channel::<()>();
     *hub.prompt_start_seam.lock().unwrap() = Some((arrived_tx, release_rx));
     let (accepted_tx, accepted) = tokio::sync::oneshot::channel();
-    let prompt = prompt(&hub, &session, "idle-config-deadline", "blocked config", accepted_tx);
+    let first = prompt(&hub, &session, "idle-config-deadline", "blocked config", accepted_tx);
 
     tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
-    // Keep direct dispatch parked after it claims the turn slot.
+    // A later arrival has a durable place behind the stalled direct dispatch.
+    let (later_tx, later_accepted) = tokio::sync::oneshot::channel();
+    let later = prompt(&hub, &session, "later", "second", later_tx);
+    let queued = tokio::time::timeout(WAIT, later_accepted).await.unwrap().unwrap();
+    assert_eq!(queued["queued"], true);
 
     let accepted = tokio::time::timeout(Duration::from_secs(8), accepted)
         .await
@@ -120,8 +124,10 @@ async fn an_idle_prompt_is_deferred_if_dispatch_blocks_before_first_acceptance()
     );
     assert!(release.send(()).is_err(), "the blocked setup was dropped");
 
-    let result = tokio::time::timeout(WAIT, prompt).await.unwrap().unwrap().unwrap();
-    assert_eq!(result["stopReason"], "end_turn", "{result}");
+    for prompt in [first, later] {
+        let result = tokio::time::timeout(WAIT, prompt).await.unwrap().unwrap().unwrap();
+        assert_eq!(result["stopReason"], "end_turn", "{result}");
+    }
     assert!(!session.turn_claimed(), "deferral cleans up the speculative turn claim");
     let messages = hub
         .events(&session.id, 0, 10_000)
@@ -130,7 +136,7 @@ async fn an_idle_prompt_is_deferred_if_dispatch_blocks_before_first_acceptance()
         .filter(|record| record.kind == "user_message")
         .map(|record| record.msg["promptId"].clone())
         .collect::<Vec<_>>();
-    assert_eq!(messages, [json!("idle-config-deadline")]);
+    assert_eq!(messages, [json!("idle-config-deadline"), json!("later")]);
 }
 
 #[tokio::test]
