@@ -282,6 +282,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.twoTone` | string | `"off"` | `off`, `auto`, `inkSakura`, `charcoalRose`, `inkMagenta`, `creamForest`, `navySand`, `boneOxblood`, `slateMatcha`, `plumAmber` | Two-Tone. The sidebar and tab bar in one tone, the panes in another. Works with every window style and theme. |
 | `appearance.cornerFlush` | string | `"flush"` | `off`, `flush`, `flush-tight`, `flush-goo` | Selected Tab Shape. How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water. |
 | `appearance.tabShape` | string | `"block"` | `block`, `rounded` | Tab Shape. The tabs and the sidebar's rows: blocks with the tab's corner, or rounded capsules. |
+| `appearance.gooeyTabs` | string | `"off"` | `off`, `subtle`, `full` | Gooey Tabs. Lets the selected tab flow into the content like a liquid, with springy motion when tabs are selected, opened, closed or dragged. Subtle keeps it gentle; Full stretches and wobbles more. |
 | `ui.paneAnimations` | boolean | `true` |  | Animate Panes. Splits, closes, moves, zooms and column scrolls slide into place. |
 | `ui.animations.newTab` | boolean | `true` |  | Animate New Tabs. A new tab grows into its place in the tab bar. Off shows it there at once. |
 | `ui.animations.newWorkspace` | boolean | `true` |  | Animate New Workspaces. A new workspace row opens in the sidebar. Off shows it there at once. |
@@ -394,6 +395,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.vscodeMinimap` | boolean | `false` |  | VS Code Minimap. A small picture of the whole chat at its right edge. Click or drag it to scroll. |
 | `agentPane.display.headerBreadcrumb` | boolean | `false` |  | Header Path. Show the chat's repository and branch before its title in the header, as a path. |
 | `agentPane.display.chatListStatusPills` | boolean | `false` |  | Status Pills in All Chats. Shows Running, Needs you, Done or Failed as a small pill on each live chat in All Chats. |
+| `agentPane.display.subagentOf` | boolean | `false` |  | Subagent Of in Header. In a subagent's own pane, show which chat it belongs to beside its name in the header. |
 | `agentPane.display.pinnedPlan` | boolean | `false` |  | Pin Task List in Chat. Keeps the agent's task list under the latest message, not over the composer. |
 | `agentPane.display.environmentCard` | boolean | `false` |  | Environment Card. A card at the chat's top right with its changes, branch, commit and pull request. |
 | `agentPane.display.changesPill` | boolean | `false` |  | Changes Pill. A pill over the composer with how many files the chat changed. |
@@ -828,6 +830,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `experiments.toastGlass` | boolean | `false` |  | Toast Glass. Toasts in chats sit on the same glass as the app's own toasts. |
 | `experiments.terminalHistoryFind` | boolean | `true` |  | Terminal History Find. Cmd-F in a terminal searches its whole history, with case, whole-word and regex options. |
 | `experiments.chatWidgets` | boolean | `false` |  | Extension Chat Widgets. Installed extensions can show a card under a finished tool call in agent chat. |
+| `experiments.introWalk` | boolean | `false` |  | Intro Walk. Make cmux Yours becomes four short screens: a whole look, how you work, trust and notifications, then density and background. |
 | `experiments.threadMinimapRestReveal` | boolean | `false` |  | Prompt Rail Waits for a Resting Pointer. In narrow chats the prompt rail opens only when the pointer rests on the edge, never while you select text. |
 | `experiments.terminalHistory` | boolean | `false` |  | Terminal Agent History. Claude Code and Codex terminals get a button that opens their earlier history as a read-only chat. |
 | `experiments.attachmentTypeIcons` | boolean | `false` |  | Attachment Type Icons. While an attachment loads, its chip shows a file or image icon instead of the loading mark. |
