@@ -2112,10 +2112,24 @@ public protocol ChatPromptOutboxProtocol: AnyObject, Sendable {
     func pending()  -> UInt32
     
     /**
+     * The link made progress at `now_ms` (bytes heard from the Mac, a channel bound, a write
+     * taken): prompts waiting their turn keep going; the hold bounds a stall, not a send.
+     */
+    func progressed(nowMs: UInt64) 
+    
+    /**
      * A tap on Send with its attachments' upload ids (started at pick time). Never waits. False
      * when this `promptId` is already here.
      */
     func push(promptId: String, text: String, uploadIds: [String], resend: Bool, tappedMs: UInt64, nowMs: UInt64)  -> Bool
+    
+    /**
+     * The Mac answered it with an error (`origin`, `code`, `reason`: `error.data`'s). A "not now"
+     * (Rust tells: starting, busy, restarting, timed out, native origin ...) is retried after a
+     * backoff of 1 s doubling to 30 s and is not final; only a real refusal gives the prompt
+     * back. `None` when the prompt is not here.
+     */
+    func refusal(promptId: String, origin: String?, code: String?, reason: String?, nowMs: UInt64)  -> ChatRefusal?
     
     /**
      * The Mac refused it.
@@ -2126,6 +2140,18 @@ public protocol ChatPromptOutboxProtocol: AnyObject, Sendable {
      * The Mac's answer to `_acpmux/queue_remove`: `removed` from its queue, or not.
      */
     func removeAnswered(promptId: String, removed: Bool)  -> ChatPromptDone?
+    
+    /**
+     * The Mac's `_cmux/prompt_resend` notice for this prompt: `state` is `sent`, `accepted`,
+     * `retrying` (with `retry_in_ms`) or `refused`. A refusal gives the prompt back (`Some`); the
+     * others only change its look. An unknown state is ignored.
+     */
+    func resendNotice(promptId: String, state: String, retryInMs: UInt64?, nowMs: UInt64)  -> ChatPromptDone?
+    
+    /**
+     * How long until the prompt goes again after a "not now", or none.
+     */
+    func retryInMs(promptId: String, nowMs: UInt64)  -> UInt64?
     
     /**
      * The person asks it to go now. False when it is not an unwritten prompt here.
@@ -2149,6 +2175,11 @@ public protocol ChatPromptOutboxProtocol: AnyObject, Sendable {
      * with its other uploads to cancel.
      */
     func uploadFailed(uploadId: String, reason: String)  -> ChatPromptDone?
+    
+    /**
+     * The upload `upload_id` took a chunk at `now_ms`: its prompt keeps going.
+     */
+    func uploadProgressed(uploadId: String, nowMs: UInt64) 
     
     /**
      * The upload `upload_id` ended on the Mac at `mac_path`. Unknown ids are ignored.
@@ -2206,7 +2237,7 @@ open class ChatPromptOutbox: ChatPromptOutboxProtocol, @unchecked Sendable {
         return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_chatpromptoutbox(self.handle, $0) }
     }
     /**
-     * `hold_ms`: how long a prompt waits for the link before it comes back. `seed`: the retry
+     * `hold_ms`: how long a prompt may go with no progress (see `progressed`) before it comes back. `seed`: the retry
      * jitter's (any value; a random one per source).
      */
 public convenience init(holdMs: UInt64, seed: UInt64) {
@@ -2415,6 +2446,18 @@ open func pending() -> UInt32  {
 }
     
     /**
+     * The link made progress at `now_ms` (bytes heard from the Mac, a channel bound, a write
+     * taken): prompts waiting their turn keep going; the hold bounds a stall, not a send.
+     */
+open func progressed(nowMs: UInt64)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_chatpromptoutbox_progressed(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(nowMs),$0
+    )
+}
+}
+    
+    /**
      * A tap on Send with its attachments' upload ids (started at pick time). Never waits. False
      * when this `promptId` is already here.
      */
@@ -2427,6 +2470,25 @@ open func push(promptId: String, text: String, uploadIds: [String], resend: Bool
         FfiConverterSequenceString.lower(uploadIds),
         FfiConverterBool.lower(resend),
         FfiConverterUInt64.lower(tappedMs),
+        FfiConverterUInt64.lower(nowMs),$0
+    )
+})
+}
+    
+    /**
+     * The Mac answered it with an error (`origin`, `code`, `reason`: `error.data`'s). A "not now"
+     * (Rust tells: starting, busy, restarting, timed out, native origin ...) is retried after a
+     * backoff of 1 s doubling to 30 s and is not final; only a real refusal gives the prompt
+     * back. `None` when the prompt is not here.
+     */
+open func refusal(promptId: String, origin: String?, code: String?, reason: String?, nowMs: UInt64) -> ChatRefusal?  {
+    return try!  FfiConverterOptionTypeChatRefusal.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_chatpromptoutbox_refusal(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(promptId),
+        FfiConverterOptionString.lower(origin),
+        FfiConverterOptionString.lower(code),
+        FfiConverterOptionString.lower(reason),
         FfiConverterUInt64.lower(nowMs),$0
     )
 })
@@ -2453,6 +2515,36 @@ open func removeAnswered(promptId: String, removed: Bool) -> ChatPromptDone?  {
             self.uniffiCloneHandle(),
         FfiConverterString.lower(promptId),
         FfiConverterBool.lower(removed),$0
+    )
+})
+}
+    
+    /**
+     * The Mac's `_cmux/prompt_resend` notice for this prompt: `state` is `sent`, `accepted`,
+     * `retrying` (with `retry_in_ms`) or `refused`. A refusal gives the prompt back (`Some`); the
+     * others only change its look. An unknown state is ignored.
+     */
+open func resendNotice(promptId: String, state: String, retryInMs: UInt64?, nowMs: UInt64) -> ChatPromptDone?  {
+    return try!  FfiConverterOptionTypeChatPromptDone.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_chatpromptoutbox_resend_notice(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(promptId),
+        FfiConverterString.lower(state),
+        FfiConverterOptionUInt64.lower(retryInMs),
+        FfiConverterUInt64.lower(nowMs),$0
+    )
+})
+}
+    
+    /**
+     * How long until the prompt goes again after a "not now", or none.
+     */
+open func retryInMs(promptId: String, nowMs: UInt64) -> UInt64?  {
+    return try!  FfiConverterOptionUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_chatpromptoutbox_retry_in_ms(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(promptId),
+        FfiConverterUInt64.lower(nowMs),$0
     )
 })
 }
@@ -2513,6 +2605,18 @@ open func uploadFailed(uploadId: String, reason: String) -> ChatPromptDone?  {
         FfiConverterString.lower(reason),$0
     )
 })
+}
+    
+    /**
+     * The upload `upload_id` took a chunk at `now_ms`: its prompt keeps going.
+     */
+open func uploadProgressed(uploadId: String, nowMs: UInt64)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_chatpromptoutbox_upload_progressed(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(uploadId),
+        FfiConverterUInt64.lower(nowMs),$0
+    )
+}
 }
     
     /**
@@ -4366,6 +4470,172 @@ public func FfiConverterTypeLinkObserver_lift(_ handle: UInt64) throws -> LinkOb
 #endif
 public func FfiConverterTypeLinkObserver_lower(_ value: LinkObserver) -> UInt64 {
     return FfiConverterTypeLinkObserver.lower(value)
+}
+
+
+
+
+
+
+public protocol LinkProgressClockProtocol: AnyObject, Sendable {
+    
+    /**
+     * When the link last made progress, if it has.
+     */
+    func lastProgressMs()  -> UInt64?
+    
+    /**
+     * The link made progress at `now_ms`.
+     */
+    func progressed(nowMs: UInt64) 
+    
+    /**
+     * A wait begun at `started_ms`, bounded by `stall_ms` of silence, at `now_ms`: how many more
+     * milliseconds of silence it may take (look again then), or none once it stalled.
+     */
+    func stallLeftMs(startedMs: UInt64, stallMs: UInt64, nowMs: UInt64)  -> UInt64?
+    
+}
+open class LinkProgressClock: LinkProgressClockProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_linkprogressclock(self.handle, $0) }
+    }
+public convenience init() {
+    let handle =
+        try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_constructor_linkprogressclock_new($0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_linkprogressclock(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * When the link last made progress, if it has.
+     */
+open func lastProgressMs() -> UInt64?  {
+    return try!  FfiConverterOptionUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkprogressclock_last_progress_ms(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * The link made progress at `now_ms`.
+     */
+open func progressed(nowMs: UInt64)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkprogressclock_progressed(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(nowMs),$0
+    )
+}
+}
+    
+    /**
+     * A wait begun at `started_ms`, bounded by `stall_ms` of silence, at `now_ms`: how many more
+     * milliseconds of silence it may take (look again then), or none once it stalled.
+     */
+open func stallLeftMs(startedMs: UInt64, stallMs: UInt64, nowMs: UInt64) -> UInt64?  {
+    return try!  FfiConverterOptionUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkprogressclock_stall_left_ms(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(startedMs),
+        FfiConverterUInt64.lower(stallMs),
+        FfiConverterUInt64.lower(nowMs),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLinkProgressClock: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = LinkProgressClock
+
+    public static func lift(_ handle: UInt64) throws -> LinkProgressClock {
+        return LinkProgressClock(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: LinkProgressClock) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LinkProgressClock {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: LinkProgressClock, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLinkProgressClock_lift(_ handle: UInt64) throws -> LinkProgressClock {
+    return try FfiConverterTypeLinkProgressClock.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLinkProgressClock_lower(_ value: LinkProgressClock) -> UInt64 {
+    return FfiConverterTypeLinkProgressClock.lower(value)
 }
 
 
@@ -12598,6 +12868,90 @@ public func FfiConverterTypeChatPromptOutcome_lower(_ value: ChatPromptOutcome) 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
+ * What to do after the Mac answered a prompt with an error.
+ */
+
+public enum ChatRefusal: Equatable, Hashable {
+    
+    /**
+     * The Mac said "not now" (starting, busy, restarting, ...): the prompt goes again after
+     * `retry_in_ms` (attempt `attempt` of the retries) and keeps looking sent or retrying.
+     */
+    case retry(attempt: UInt32, retryInMs: UInt64
+    )
+    /**
+     * A real refusal: the prompt is given back; its error text is the Mac's own.
+     */
+    case final(done: ChatPromptDone
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension ChatRefusal: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeChatRefusal: FfiConverterRustBuffer {
+    typealias SwiftType = ChatRefusal
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ChatRefusal {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .retry(attempt: try FfiConverterUInt32.read(from: &buf), retryInMs: try FfiConverterUInt64.read(from: &buf)
+        )
+        
+        case 2: return .final(done: try FfiConverterTypeChatPromptDone.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: ChatRefusal, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .retry(attempt,retryInMs):
+            writeInt(&buf, Int32(1))
+            FfiConverterUInt32.write(attempt, into: &buf)
+            FfiConverterUInt64.write(retryInMs, into: &buf)
+            
+        
+        case let .final(done):
+            writeInt(&buf, Int32(2))
+            FfiConverterTypeChatPromptDone.write(done, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeChatRefusal_lift(_ buf: RustBuffer) throws -> ChatRefusal {
+    return try FfiConverterTypeChatRefusal.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeChatRefusal_lower(_ value: ChatRefusal) -> RustBuffer {
+    return FfiConverterTypeChatRefusal.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
  * Where one attachment's upload is, as reported (its progress is `AttachmentUploads`').
  */
 
@@ -13056,6 +13410,92 @@ public func FfiConverterTypeFollowCameraMode_lift(_ buf: RustBuffer) throws -> F
 #endif
 public func FfiConverterTypeFollowCameraMode_lower(_ value: FollowCameraMode) -> RustBuffer {
     return FfiConverterTypeFollowCameraMode.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Why keys held for a detached terminal are dropped.
+ */
+
+public enum HeldKeysExpiryReason: Equatable, Hashable {
+    
+    /**
+     * The terminal's reconnect gave up.
+     */
+    case gaveUp
+    /**
+     * The Mac was offline and the link made no progress for the hold.
+     */
+    case offline
+    /**
+     * A key waited past the ceiling.
+     */
+    case ceiling
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension HeldKeysExpiryReason: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHeldKeysExpiryReason: FfiConverterRustBuffer {
+    typealias SwiftType = HeldKeysExpiryReason
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HeldKeysExpiryReason {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .gaveUp
+        
+        case 2: return .offline
+        
+        case 3: return .ceiling
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: HeldKeysExpiryReason, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .gaveUp:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .offline:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .ceiling:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHeldKeysExpiryReason_lift(_ buf: RustBuffer) throws -> HeldKeysExpiryReason {
+    return try FfiConverterTypeHeldKeysExpiryReason.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHeldKeysExpiryReason_lower(_ value: HeldKeysExpiryReason) -> RustBuffer {
+    return FfiConverterTypeHeldKeysExpiryReason.lower(value)
 }
 
 
@@ -15533,6 +15973,54 @@ fileprivate struct FfiConverterOptionTypeChatEditStep: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeChatRefusal: FfiConverterRustBuffer {
+    typealias SwiftType = ChatRefusal?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeChatRefusal.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeChatRefusal.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeHeldKeysExpiryReason: FfiConverterRustBuffer {
+    typealias SwiftType = HeldKeysExpiryReason?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeHeldKeysExpiryReason.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeHeldKeysExpiryReason.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeLastPlaceScreen: FfiConverterRustBuffer {
     typealias SwiftType = LastPlaceScreen?
 
@@ -15623,6 +16111,31 @@ fileprivate struct FfiConverterOptionSequenceTypeKeychainLeftover: FfiConverterR
         case 1: return try FfiConverterSequenceTypeKeychainLeftover.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceUInt64: FfiConverterRustBuffer {
+    typealias SwiftType = [UInt64]
+
+    public static func write(_ value: [UInt64], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterUInt64.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [UInt64] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [UInt64]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterUInt64.read(from: &buf))
+        }
+        return seq
     }
 }
 
@@ -16625,6 +17138,16 @@ public func catchUpService() -> String  {
 })
 }
 /**
+ * The quiet window a chat's outbox starts with, in milliseconds: how long a prompt may go with
+ * no progress at all before it comes back (one place for every source's default).
+ */
+public func chatPromptDefaultHoldMs() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_chat_prompt_default_hold_ms($0
+    )
+})
+}
+/**
  * Whether this launch should run the cleanup: the marker is missing, not a
  * number, or from an older version of the rules.
  */
@@ -16667,6 +17190,36 @@ public func classicCleanupVersion() -> Int64  {
     uniffi_cmux_mobile_link_ffi_fn_func_classic_cleanup_version($0
     )
 })
+}
+/**
+ * Keys held for a detached terminal, typed `typed_ages_ms` ago: why they go now, or none while
+ * they wait. `offline_age_ms`: how long the Mac has been called offline, while it is;
+ * `progress_age_ms`: how long since the link's last progress (`LinkProgressClock`), if it made
+ * any. `hold_ms` bounds silence on the link while offline; `ceiling_ms` a key's age. Ages, not
+ * instants, so the terminal's own clock and the link's need not share an origin.
+ */
+public func heldKeysExpiry(typedAgesMs: [UInt64], gaveUp: Bool, offlineAgeMs: UInt64?, progressAgeMs: UInt64?, holdMs: UInt64, ceilingMs: UInt64) -> HeldKeysExpiryReason?  {
+    return try!  FfiConverterOptionTypeHeldKeysExpiryReason.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_held_keys_expiry(
+        FfiConverterSequenceUInt64.lower(typedAgesMs),
+        FfiConverterBool.lower(gaveUp),
+        FfiConverterOptionUInt64.lower(offlineAgeMs),
+        FfiConverterOptionUInt64.lower(progressAgeMs),
+        FfiConverterUInt64.lower(holdMs),
+        FfiConverterUInt64.lower(ceilingMs),$0
+    )
+})
+}
+/**
+ * The folder (in the app's own container) where the LAN direct path keeps
+ * this phone's key and what each Mac told it; `None` turns the path off.
+ * Call once at launch, before `connect`.
+ */
+public func setLanMemoryDir(dir: String?)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_set_lan_memory_dir(
+        FfiConverterOptionString.lower(dir),$0
+    )
+}
 }
 /**
  * Which device opens `url`, a link the person opened on the phone.
@@ -17182,6 +17735,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_catch_up_service() != 29923) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_chat_prompt_default_hold_ms() != 62257) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_classic_cleanup_due() != 41191) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -17192,6 +17748,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_classic_cleanup_version() != 33020) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_held_keys_expiry() != 25051) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_lan_memory_dir() != 45946) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_link_open_side() != 2441) {
@@ -17527,13 +18089,25 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_pending() != 54210) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_progressed() != 31423) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_push() != 17318) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_refusal() != 43521) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_refused() != 29414) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_remove_answered() != 16820) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_resend_notice() != 24209) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_retry_in_ms() != 54953) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_retry_now() != 65206) {
@@ -17549,6 +18123,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_upload_failed() != 33281) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_upload_progressed() != 53726) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_uploaded() != 45828) {
@@ -17639,6 +18216,15 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_lastplacestore_tick() != 16119) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkprogressclock_last_progress_ms() != 56760) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkprogressclock_progressed() != 37804) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkprogressclock_stall_left_ms() != 48741) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_macscreenobserver_on_candidate() != 24716) {
@@ -17920,7 +18506,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_phonecatchup_open() != 21440) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_chatpromptoutbox_new() != 32253) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_chatpromptoutbox_new() != 37424) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_composeroutbox_new() != 19978) {
@@ -17930,6 +18516,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_lastplacestore_open() != 12350) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_linkprogressclock_new() != 49746) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_macscreenrd_new() != 49279) {
