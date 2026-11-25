@@ -154,6 +154,8 @@ pub struct PodSlots<X> {
     /// Variables the init takes from the caller's environment by name, so a value (a
     /// model token) never sits in an argv that `ps` shows.
     pass_env: Vec<String>,
+    /// Host paths every pod sees read-only at their own path.
+    binds: Vec<String>,
 }
 
 impl<X: HostRunner> PodSlots<X> {
@@ -164,6 +166,7 @@ impl<X: HostRunner> PodSlots<X> {
             init: ("sleep".to_owned(), vec!["infinity".to_owned()]),
             env: Vec::new(),
             pass_env: Vec::new(),
+            binds: Vec::new(),
         }
     }
 
@@ -171,6 +174,13 @@ impl<X: HostRunner> PodSlots<X> {
     /// (`systemd-run --setenv=NAME`). One the caller does not have is left unset.
     pub fn with_pass_env(mut self, names: Vec<String>) -> Self {
         self.pass_env = names;
+        self
+    }
+
+    /// Show these host paths to every pod read-only, at their own path: a harness under a
+    /// home, which the system dirs leave out. A path the host lacks is skipped.
+    pub fn with_binds(mut self, paths: Vec<String>) -> Self {
+        self.binds = paths;
         self
     }
 
@@ -214,7 +224,14 @@ impl<X: HostRunner> PodSlots<X> {
             out.push(format!("--setenv={name}"));
         }
         out.push("--".to_owned());
-        out.extend(bwrap_argv(&self.pods_dir, &root, &root, &self.init.0, &self.init.1));
+        out.extend(bwrap_argv(
+            &self.pods_dir,
+            &root,
+            &root,
+            &self.binds,
+            &self.init.0,
+            &self.init.1,
+        ));
         out
     }
 
@@ -300,9 +317,19 @@ impl<X: HostRunner> PodSlots<X> {
         Ok(SlotState::Running)
     }
 
-    /// Make and boot the slot's pod; an existing slot is left as it is.
+    /// Make and boot the slot's pod; an existing slot is left as it is. A root that no
+    /// `create` made (no meta beside it) is refused: booting into it would hand a pod files it
+    /// never owned, and leaving it would read `Stopped` with nothing said.
     pub fn create(&self, slot: &Slot, size: SlotSize) -> Result<SlotState, String> {
         if let Some(state) = self.state(slot)? {
+            let made = self.runner.run(&argv(&["cat", "--", &self.meta(slot)]), &[])?.code == 0;
+            if !made {
+                return Err(format!(
+                    "pod root {} already exists but no create made it ({} is missing): remove it or pick another slot",
+                    self.root(slot),
+                    self.meta(slot)
+                ));
+            }
             return Ok(state);
         }
         let meta = serde_json::to_vec(&size).map_err(|e| e.to_string())?;
@@ -516,6 +543,35 @@ mod tests {
         let pods = PodSlots::new(DeadInit, "/srv/pods");
         let slot = Slot::parse("a").unwrap();
         assert_eq!(pods.state(&slot).unwrap(), Some(SlotState::Stopped));
+    }
+
+    #[test]
+    fn a_root_no_create_made_is_refused_with_the_reason() {
+        // Seen live: a root left from before read `Stopped`, and the pod never booted.
+        let host = FakeHost::default();
+        host.dirs.borrow_mut().insert("/srv/pods/a".into());
+        let pods = PodSlots::new(&host, "/srv/pods");
+        let err = pods.create(&slot("a"), SlotSize::default()).unwrap_err();
+        assert!(err.contains("/srv/pods/a already exists but no create made it"), "{err}");
+        assert!(!host.calls.borrow().iter().any(|c| c[0] == "systemd-run"));
+        // Once create made it, a second create is a no-op that reads its state.
+        host.dirs.borrow_mut().clear();
+        assert_eq!(pods.create(&slot("a"), SlotSize::default()).unwrap(), SlotState::Running);
+        assert_eq!(pods.create(&slot("a"), SlotSize::default()).unwrap(), SlotState::Running);
+    }
+
+    #[test]
+    fn a_host_bind_is_read_only_at_its_own_path_in_every_pod() {
+        // A native harness under a home (`~/.local/share/claude`) is outside the system dirs.
+        let host = FakeHost::default();
+        let pods = PodSlots::new(&host, "/srv/pods")
+            .with_binds(vec!["/home/u/.local/share/claude".into()]);
+        let boot = pods.boot_argv(&slot("a")).join(" ");
+        assert!(
+            boot.contains("--ro-bind-try /home/u/.local/share/claude /home/u/.local/share/claude"),
+            "{boot}"
+        );
+        assert!(!boot.contains("--bind /home/u"), "{boot}");
     }
 
     #[test]

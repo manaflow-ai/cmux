@@ -51,7 +51,9 @@ fn driver(opts: &HypervisorOpts, config: LibvirtConfig) -> Box<dyn HypervisorDri
             if let Some(init) = &opts.pod_init {
                 pods = pods.with_init(init, opts.pod_init_args.clone(), Vec::new());
             }
-            Box::new(PodsDriver::new(pods.with_pass_env(opts.pod_env.clone())))
+            Box::new(PodsDriver::new(
+                pods.with_pass_env(opts.pod_env.clone()).with_binds(opts.pod_bind.clone()),
+            ))
         }
     }
 }
@@ -157,6 +159,7 @@ mod tests {
             pod_init: None,
             pod_init_args: Vec::new(),
             pod_env: Vec::new(),
+            pod_bind: Vec::new(),
         }
     }
 
