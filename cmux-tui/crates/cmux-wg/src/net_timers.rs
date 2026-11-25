@@ -10,7 +10,7 @@ use tokio::time::Instant;
 
 use super::Driver;
 use crate::probing;
-use crate::timers::SESSION_FRESH;
+use crate::timers::{QuietKeepalive, SESSION_FRESH};
 use crate::ultra_auto;
 use crate::ultra_hello;
 use crate::underlay::Underlay as _;
@@ -172,7 +172,8 @@ impl Driver {
         let sample = self.underlay.take_loss();
         let resent = self.pacer.take_resent();
         let was_on = auto.is_on();
-        if !auto.observe(Instant::now(), sample, resent) {
+        let changed = auto.observe(Instant::now(), sample, resent);
+        if !changed {
             return;
         }
         if !was_on && auto.is_on() {
@@ -208,10 +209,13 @@ impl Driver {
     /// session probes nothing, and neither does a held one (`WgNet::hold`):
     /// its peer is suspended on purpose, and a probe would only wake its
     /// radio, as a keepalive would. The first pass after the release
-    /// probes again.
+    /// probes again. Under the link's idle air gap, routine probes wait
+    /// for its end unless this pass already sent something.
     pub(super) fn run_probes(&mut self) {
         let now = Instant::now();
         let mut off_path = Vec::new();
+        let before = self.tunn.stats().1;
+        self.underlay.hold_routine_probes(self.air_gap.floor(before));
         self.probe_deadline = if self.schedule.is_active(now) && self.stack.hold().is_none() {
             let (tunn, scratch) = (&mut self.tunn, &mut self.scratch);
             let route = self.probe_route;
@@ -220,6 +224,7 @@ impl Driver {
             None
         };
         self.tell_off_path(&off_path);
+        self.air_gap.probed((before, self.tunn.stats().1), now);
     }
 
     /// Right behind probes, on the data path: tell the peer which counters
@@ -270,6 +275,27 @@ impl Driver {
             }
         }
         self.send_quiet_keepalive();
+    }
+
+    /// `WgNet::set_air_floor`: the quiet keepalive's interval becomes the
+    /// shorter of the persistent keepalive and `floor`.
+    pub(super) fn set_air_floor(&mut self, floor: Option<Duration>) {
+        let persistent = self
+            .config
+            .persistent_keepalive
+            .filter(|seconds| *seconds > 0)
+            .map(|seconds| Duration::from_secs(seconds.into()));
+        let every = match (persistent, floor) {
+            (Some(persistent), Some(floor)) => Some(persistent.min(floor)),
+            (one, other) => one.or(other),
+        };
+        match (&mut self.quiet_keepalive, every) {
+            (Some(keepalive), Some(every)) => keepalive.set_every(every),
+            (slot, every) => *slot = every.map(|every| QuietKeepalive::new(every, Instant::now())),
+        }
+        self.schedule.set_persistent_keepalive(
+            self.quiet_keepalive.is_some() && self.stack.hold().is_none(),
+        );
     }
 
     /// The persistent keepalive: an empty data datagram once an interval has

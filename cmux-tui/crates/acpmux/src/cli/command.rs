@@ -527,6 +527,14 @@ pub enum Command {
         attach: Vec<PathBuf>,
         #[command(flatten)]
         notice: Box<SendNotice>,
+        /// Wait for the receiver's batch instead of waking it at once, as another agent's
+        /// message does: a chat whose prompt cache lapsed takes everything that came in its
+        /// window as one turn (`hub/cold_wake.rs`). For a producer outside any chat (a forum or
+        /// Slack bridge, a CI notifier): it needs a sender (--from, ACPMUX_FROM or --notice),
+        /// and is refused as a block, a question or a fire notice, which wake at once. Does not
+        /// wait for the reply.
+        #[arg(long, conflicts_with_all = ["wait", "quiet", "timeout", "tag"])]
+        gather: bool,
     },
     /// Team-scoped durable messages. Needs a team hub (`meshRelay`); on there by default.
     #[command(aliases = aliases::INBOX)]
@@ -2209,6 +2217,31 @@ mod deadline_defaults_tests {
         match cli.command {
             Some(Command::Send { stall, .. }) => assert_eq!(stall, 7),
             _ => panic!("expected send command"),
+        }
+    }
+
+    /// `acpmux send --gather` (`hub/cold_wake.rs`): a named sender's message or notice that waits
+    /// for the chat's batch, and so never waits for its reply.
+    #[test]
+    fn a_gather_send_parses_and_never_waits_for_a_reply() {
+        let parse = |argv: &[&str]| Cli::try_parse_from(argv);
+        assert!(parse(&["acpmux", "send", "c", "hi", "--gather", "--from", "forum"]).is_ok());
+        let notice = [
+            "acpmux",
+            "send",
+            "c",
+            "--notice",
+            "--severity",
+            "info",
+            "--title",
+            "T",
+            "--sender",
+            "slack",
+            "--gather",
+        ];
+        assert!(parse(&notice).is_ok());
+        for clash in ["--wait", "--quiet"] {
+            assert!(parse(&["acpmux", "send", "c", "hi", "--gather", clash]).is_err(), "{clash}");
         }
     }
 }
