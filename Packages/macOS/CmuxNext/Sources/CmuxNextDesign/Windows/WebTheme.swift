@@ -559,14 +559,16 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// (`Palette.folderTabFill`'s test, in this scope's light or dark).
     @MainActor
     static func drawsFolderTabs(_ tokens: ThemeTokens) -> Bool {
-        CornerFlush.current.isOn && Metrics.mainPaneChromeShade(isDark: tokens.isDark) >= Metrics.folderTabMinimumShade
+        CornerFlush.current.isOn && Metrics.mainPaneChromeShade(isDark: tokens.isDark, tokens: tokens) >= Metrics.folderTabMinimumShade
     }
 
     @MainActor
     static func sidebarSurface(_ tokens: ThemeTokens, backgrounds: SurfaceBackgrounds, windowTint: Double) -> String {
         if let fill = backgrounds.fill(for: .sidebar, tokens: tokens, windowTint: windowTint) { return css(fill) }
-        let shade = Metrics.mainPaneChromeShade(isDark: tokens.isDark)
-        return shade > 0 ? css(ThemeRGB(red: 0, green: 0, blue: 0, alpha: Double(shade))) : "transparent"
+        let shade = Metrics.mainPaneChromeShade(isDark: tokens.isDark, tokens: tokens)
+        // Black, or Subtle Tone's ink (`Metrics.drawsInkFrame`), as the native shade draws it.
+        let ink = Metrics.drawsInkFrame ? tokens.textPrimary : ThemeRGB(red: 0, green: 0, blue: 0, alpha: 1)
+        return shade > 0 ? css(ink.withAlpha(Double(shade))) : "transparent"
     }
 
     /// `--cmux-chrome-divider`: `Palette.chromeDivider` for `tokens`, as CSS: the split divider's color
@@ -588,7 +590,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     @MainActor
     public static var pushInputs: [String] {
         let design = DesignSettings.shared
-        return [Borders.current.mode.rawValue, design.fontSmoothing.rawValue, design.appFont ?? "", "\(design.liquidGlass)", "\(design.previousGlass)", "\(design.menuLook)", "\(ChromeTunables.dividerStrength.value)", design.titleAreaTone.rawValue,
+        return [Borders.current.mode.rawValue, design.fontSmoothing.rawValue, design.appFont ?? "", "\(design.liquidGlass)", "\(design.previousGlass)", "\(design.menuLook)", "\(ChromeTunables.dividerStrength.value)", design.effectiveTitleAreaTone.rawValue,
                 "\(design.titleAreaContrast)", "\(Metrics.mainPaneChromeShade(isDark: false))", "\(Metrics.mainPaneChromeShade(isDark: true))"]
     }
 
