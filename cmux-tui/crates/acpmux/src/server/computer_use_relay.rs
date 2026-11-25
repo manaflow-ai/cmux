@@ -219,13 +219,13 @@ pub(super) async fn call(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
     match admit(conn.origin, conn.auth, device.as_ref()) {
         Admission::Refused(why) => Err(refused("computer_use_remote_denied", why)),
         Admission::Forward => {
+            let onward = onward(&call);
             let Some(machine) = call.machine else {
                 return Err(refused(
                     "invalid_arguments",
                     "name a machine; this machine's own calls go to its worker directly",
                 ));
             };
-            let onward = onward(&call);
             if let Some(peer) = hub.peer_by_name(&machine) {
                 return peer
                     .request(method::MUX_COMPUTER_USE_CALL, onward)
