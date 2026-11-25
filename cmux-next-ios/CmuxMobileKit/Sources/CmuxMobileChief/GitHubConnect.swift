@@ -205,10 +205,10 @@ extension GitHubConnect {
                 try? await Task.sleep(for: .seconds(5))
                 continuation.yield(nil)
             }
+            let observers = Observers(tokens: [away, back])
             continuation.onTermination = { _ in
                 opening.cancel()
-                center.removeObserver(away)
-                center.removeObserver(back)
+                observers.tokens.forEach(center.removeObserver)
             }
         }
         for await change in changes {
@@ -218,6 +218,13 @@ extension GitHubConnect {
             case nil: if !left { return }
             }
         }
+    }
+
+    /// NotificationCenter's observer tokens, handed to the stream's end to remove (they are only
+    /// read there, once).
+    private final class Observers: @unchecked Sendable {
+        let tokens: [any NSObjectProtocol]
+        init(tokens: [any NSObjectProtocol]) { self.tokens = tokens }
     }
 
     private static func show(_ message: String) {
