@@ -117,6 +117,8 @@ const host: Partial<HostLists> = {
       active: true,
       color: "#7F5FA8",
       color_key: "research build machine",
+      // A Remote machine's AutoCloud enrollment (cloud.autoCloudEnroll there), off: opt-in for customers.
+      autocloud: { on: false, error: null },
     },
     // A Cloud machine cmux made: its Dedicated agent machine switch (acpmux vmHost), on by default.
     {
@@ -198,6 +200,26 @@ const rowShapeMachines: HostLists["machines"] = [
     vm_host: { on: true, busy: false, error: null },
   },
 ];
+/** One Remote machine with its AutoCloud enrollment in `autocloud`, for the autocloud-* variants. */
+function autoCloudMachines(autocloud: NonNullable<HostLists["machines"][number]["autocloud"]>): HostLists["machines"] {
+  return [
+    {
+      id: "sample-remote-mac",
+      title: "Studio Mac",
+      subtitle: "Online · Remote",
+      active: true,
+      color: "#7F5FA8",
+      color_key: "studio mac",
+      autocloud,
+    },
+  ];
+}
+const macCaps = ["arm64", "macos", "xcode", "ios-simulator", "gpu-metal"];
+const autoCloudPlay = async (ctx: Parameters<NonNullable<SettingsPageVariant["play"]>>[0]) => {
+  const card = ctx.find({ selector: '[data-card="machines"]' });
+  card.setAttribute("data-gallery-capture", "");
+  card.scrollIntoView({ block: "center" });
+};
 const rowShapeEnvironments: CloudEnvironmentsState = {
   available: true,
   loading: false,
@@ -1018,6 +1040,62 @@ Object.assign(variants, {
   "long-rooms": variant("rooms", { host: { ...host, rooms: longRows, browser_profiles: longProfiles } }),
   "long-profiles": variant("browser", { host: { ...host, rooms: [], browser_profiles: longProfiles } }),
   "long-machines": variant("machines", { host: { ...host, machines: longRows } }),
+  "autocloud-off": variant("machines", {
+    host: {
+      ...host,
+      machines: autoCloudMachines({ on: false, error: null }),
+    },
+    note: "A Remote machine not in AutoCloud: Off, where to turn it on, the always-on idle note (customers' default).",
+    play: autoCloudPlay,
+  }),
+  "autocloud-accepting": variant("machines", {
+    host: {
+      ...host,
+      machines: autoCloudMachines({
+        on: true,
+        busy: false,
+        error: null,
+        accepting: true,
+        owner_idle: true,
+        policy: { teams: [], agents: [], hours: null },
+        caps: macCaps,
+      }),
+    },
+    note: "Enrolled and taking work while the owner is away: the owner-only policy and the Mac's capability badges.",
+    play: autoCloudPlay,
+  }),
+  "autocloud-owner-active": variant("machines", {
+    host: {
+      ...host,
+      machines: autoCloudMachines({
+        on: true,
+        busy: false,
+        error: null,
+        accepting: false,
+        owner_idle: false,
+        policy: {
+          teams: ["Sample team"],
+          agents: ["claude", "codex"],
+          hours: { from: 22, to: 7 },
+        },
+        caps: macCaps,
+      }),
+    },
+    note: "Enrolled with a team, agents and overnight hours, waiting because the owner is using it.",
+    play: autoCloudPlay,
+  }),
+  "autocloud-error": variant("machines", {
+    host: {
+      ...host,
+      machines: autoCloudMachines({
+        on: false,
+        busy: false,
+        error: "Studio Mac did not answer.",
+      }),
+    },
+    note: "The machine's AutoCloud report could not be read: its error under the idle note.",
+    play: autoCloudPlay,
+  }),
   "machines-row-shape": variant("accounts", {
     host: { ...host, machines: rowShapeMachines },
     options: { values: { "appearance.machineColors": { "research build machine": "#7F5FA8" } } },

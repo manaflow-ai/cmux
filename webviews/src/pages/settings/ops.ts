@@ -117,6 +117,32 @@ export type HostListRow = {
    * running or the machine is not reachable now; the switch is disabled.
    */
   vm_host?: { on: boolean; busy: boolean; error: string | null };
+  /**
+   * A Remote machine's AutoCloud enrollment: its `cloud.autoCloudEnroll`, as the machine's own acpmux
+   * reports it (`_acpmux/peers` health `autoCloud`). Read-only: only the machine itself enrolls.
+   * Absent until the machine answered, and on a machine too old to say.
+   */
+  autocloud?: MachineAutoCloud;
+};
+
+/** A machine's AutoCloud enrollment as the host sends it (acpmux `autoCloud`, v1). */
+export type MachineAutoCloud = {
+  /** `cloud.autoCloudEnroll` is on there (enrolled). */
+  on: boolean;
+  /** The machine's AutoCloud report could not be read. */
+  error: string | null;
+  /** Taking AutoCloud work now: enrolled, owner idle, within its hours. */
+  accepting?: boolean;
+  /** The owner is idle on it now (host-presence). */
+  owner_idle?: boolean;
+  /** Who may use it: team ids (empty: the owner's own work only), harnesses (empty: any), local hours. */
+  policy?: {
+    teams: string[];
+    agents: string[];
+    hours: { from: number; to: number } | null;
+  };
+  /** What it can run: `macos`, `xcode`, `ios-simulator`, `gpu-metal`, `linux`, `gpu-nvidia`, an arch. */
+  caps?: string[];
 };
 
 /** One browser profile row. */

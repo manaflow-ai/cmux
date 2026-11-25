@@ -276845,6 +276845,270 @@
           }
         }
       }
+    },
+    "settings.cloud.autoCloudEnroll": {
+      "comment": "Settings > Machines: the switch that enrolls this Mac in AutoCloud, so AutoCloud may place work on it while its owner is away.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Let AutoCloud Use This Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السماح لـ AutoCloud باستخدام جهاز Mac هذا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dozvoli AutoCloudu da koristi ovaj Mac"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lad AutoCloud bruge denne Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "AutoCloud darf diesen Mac nutzen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permitir que AutoCloud use este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Autoriser AutoCloud à utiliser ce Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consenti ad AutoCloud di usare questo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "AutoCloud にこの Mac を使わせる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតឱ្យ AutoCloud ប្រើ Mac នេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "AutoCloud가 이 Mac 사용 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La AutoCloud bruke denne Macen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozwól AutoCloud używać tego Maca"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permitir que o AutoCloud use este Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разрешить AutoCloud использовать этот Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ให้ AutoCloud ใช้ Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "AutoCloud bu Mac'i kullanabilsin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дозволити AutoCloud використовувати цей Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cho AutoCloud dùng Mac này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允许 AutoCloud 使用这台 Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允許 AutoCloud 使用這台 Mac"
+          }
+        }
+      }
+    },
+    "settings.cloud.autoCloudEnroll.help": {
+      "comment": "Help for the AutoCloud enroll switch: AutoCloud work runs here only while the owner is away.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AutoCloud may run your work here only while you're away. Your own use always comes first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يمكن لـ AutoCloud تشغيل عملك هنا فقط أثناء غيابك. استخدامك أنت يأتي أولاً دائمًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "AutoCloud ovdje može pokretati vaš rad samo dok ste odsutni. Vaše korištenje uvijek ima prednost."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "AutoCloud må kun køre dit arbejde her, mens du er væk. Din egen brug går altid forud."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "AutoCloud darf Ihre Arbeit hier nur ausführen, während Sie weg sind. Ihre eigene Nutzung hat immer Vorrang."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "AutoCloud solo puede ejecutar tu trabajo aquí mientras no estás. Tu propio uso siempre va primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "AutoCloud ne peut exécuter votre travail ici qu'en votre absence. Votre propre usage passe toujours en premier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "AutoCloud può eseguire il tuo lavoro qui solo mentre sei assente. Il tuo uso ha sempre la precedenza."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "AutoCloud がここで作業を実行するのは離席中のみです。あなた自身の利用が常に優先されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "AutoCloud អាចដំណើរការការងាររបស់អ្នកនៅទីនេះតែពេលអ្នកមិននៅ។ ការប្រើរបស់អ្នកតែងតែមកមុន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "AutoCloud는 자리를 비운 동안에만 여기서 작업을 실행합니다. 내 사용이 항상 우선입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "AutoCloud kan bare kjøre arbeidet ditt her mens du er borte. Din egen bruk går alltid først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "AutoCloud może uruchamiać tu twoją pracę tylko, gdy cię nie ma. Twoje użycie zawsze ma pierwszeństwo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O AutoCloud só pode executar seu trabalho aqui enquanto você está ausente. Seu próprio uso sempre vem primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "AutoCloud запускает работу здесь, только пока вас нет. Ваша работа всегда в приоритете."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "AutoCloud จะรันงานของคุณที่นี่เฉพาะตอนที่คุณไม่อยู่ การใช้งานของคุณมาก่อนเสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "AutoCloud işinizi burada yalnızca siz yokken çalıştırabilir. Kendi kullanımınız her zaman önce gelir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "AutoCloud запускає роботу тут, лише поки вас немає. Ваша робота завжди має пріоритет."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "AutoCloud chỉ chạy việc của bạn ở đây khi bạn vắng mặt. Việc bạn dùng luôn được ưu tiên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "AutoCloud 仅在你离开时在这里运行你的工作。你自己的使用始终优先。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "AutoCloud 僅在你離開時在這裡執行你的工作。你自己的使用始終優先。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

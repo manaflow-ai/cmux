@@ -702,6 +702,28 @@
           ]
         },
         {
+          "key": "cloud.autoCloudEnroll",
+          "name": "autoCloudEnroll",
+          "note": "Remote machines in AutoCloud (Leo, 2026-11-25: \"would it make sense to enroll remote machines aka stuff like [one of our Macs] capable into the autocloud, or just keep remote as it normally would be\"; RFD 0172). On, AutoCloud may place work on this machine after the Mac that asked and before the cloud pool, only while its owner is away (acpmux autocloud_enroll.rs). Off by default; only the machine itself enrolls (nothing on another machine can turn it on). The value may also be a policy object {enabled, teams, agents, hours, idleSecs}; cmux-next.json keeps it.",
+          "title": {
+            "key": "settings.cloud.autoCloudEnroll",
+            "text": "Let AutoCloud Use This Mac"
+          },
+          "help": {
+            "key": "settings.cloud.autoCloudEnroll.help",
+            "text": "AutoCloud may run your work here only while you're away. Your own use always comes first."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "cloud",
+            "auto",
+            "enroll",
+            "remote",
+            "idle"
+          ]
+        },
+        {
           "key": "cloud.agentMemory.follow",
           "name": "agentMemoryFollow",
           "title": {
