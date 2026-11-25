@@ -217,6 +217,54 @@ pub enum UltraConnection {
     Always,
 }
 
+/// Settings' Tailscale carrier policy (`transport.tailnetCarrier`). The
+/// default is deliberately off until a LocalAPI snapshot is available.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TailnetCarrier {
+    /// Do not add Tailscale addresses to races.
+    #[default]
+    Off,
+    /// Add only paths tailscaled currently reports as direct.
+    DirectOnly,
+    /// Accepted for forward compatibility. Relayed paths remain excluded by
+    /// the race helper until their cost is measured.
+    On,
+}
+
+/// Parse `transport.tailnetCarrier`, with an environment override for tests.
+pub fn tailnet_carrier_from_config_text(text: &str) -> TailnetCarrier {
+    let Ok(document) = serde_json::from_str::<Value>(&strip_jsonc(text)) else {
+        return TailnetCarrier::default();
+    };
+    match document.pointer("/transport/tailnetCarrier").and_then(Value::as_str) {
+        Some("direct-only") | Some("direct_only") => TailnetCarrier::DirectOnly,
+        Some("on") => TailnetCarrier::On,
+        _ => TailnetCarrier::Off,
+    }
+}
+
+/// Current Tailscale carrier policy. `CMUX_TAILNET_CARRIER` wins for hermetic
+/// tests and development runs.
+pub fn tailnet_carrier() -> TailnetCarrier {
+    if let Ok(value) = std::env::var("CMUX_TAILNET_CARRIER") {
+        return match value.trim() {
+            "direct-only" | "direct_only" => TailnetCarrier::DirectOnly,
+            "on" => TailnetCarrier::On,
+            _ => TailnetCarrier::Off,
+        };
+    }
+    if cfg!(test) {
+        return TailnetCarrier::default();
+    }
+    let path = config_path();
+    match std::fs::metadata(&path) {
+        Ok(metadata) if metadata.is_file() => std::fs::read_to_string(&path)
+            .map(|text| tailnet_carrier_from_config_text(&text))
+            .unwrap_or_default(),
+        _ => TailnetCarrier::default(),
+    }
+}
+
 /// [`UltraConnection`] of a settings file: `remote.ultra` (`"off"`,
 /// `"auto"`, `"always"`); without it, the retired toggle `remote.ultraMode`
 /// set to `true` is Always. Anything else, and a file that does not parse,
@@ -632,6 +680,17 @@ mod tests {
         assert_eq!(ultra(r#"{"remote": {"ultra": true}}"#), Auto, "not a choice");
         assert_eq!(ultra("{not json"), Auto);
         assert_eq!(super::ultra(), Auto, "unit tests never read the developer's file");
+    }
+
+    #[test]
+    fn tailnet_carrier_is_off_unless_direct_only_or_on_is_named() {
+        use super::TailnetCarrier::{DirectOnly, Off, On};
+        use super::tailnet_carrier_from_config_text as carrier;
+        assert_eq!(carrier(""), Off);
+        assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"direct-only"}}"#), DirectOnly);
+        assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"on"}}"#), On);
+        assert_eq!(carrier(r#"{"transport":{"tailnetCarrier":"bogus"}}"#), Off);
+        assert_eq!(carrier("{not json"), Off);
     }
 
     #[test]
