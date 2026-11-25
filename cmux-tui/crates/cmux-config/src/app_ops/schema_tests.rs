@@ -338,7 +338,7 @@ fn a_per_kind_order_inherits_all_workspaces_order() {
 fn a_browser_toolbar_button_row_toggles_it_in_the_choices_order() {
     let request =
         json!({"key": "browser.toolbarButtons", "current": ["media", "zoom", "downloads"]});
-    let options = options(request.clone());
+    let options = options(request);
     let zoom = option_titled(&options, "Zoom Level");
     assert_eq!(zoom["current"], true);
     assert_eq!(zoom["value"], json!(["media", "downloads"]));
@@ -517,7 +517,10 @@ fn a_color_lists_the_theme_first_then_its_colors_once() {
         json!({"key": "appearance.highlightColor", "current": null, "theme_colors": colors}),
     );
     assert_eq!(values(&options), [Value::Null, json!("#FF8000"), json!("#0000FF80")]);
-    assert_eq!(options[0]["title"], json!({"text": "Theme", "key": "settings.default.theme"}));
+    assert_eq!(
+        options[0]["title"],
+        json!({"text": "Terminal Theme", "key": "settings.default.terminalTheme"})
+    );
     assert_eq!(options[0]["current"], true);
     assert_eq!(options[1]["swatch"], json!({"theme": 0}));
     assert_eq!(options[2]["swatch"], json!({"theme": 2}));

@@ -21,8 +21,8 @@
 //!   by (a per-kind second-line order follows All Workspaces'), null for every other row.
 //! - `schema.palette_options` `{key, current, inherited?, theme_colors?, selection?}` answers
 //!   `{options, summary}`. An option is `{value?, title, current}` (no `value`: unset the key),
-//!   with `swatch` `{theme: INDEX}` (of `theme_colors`, each `{red, green, blue, alpha}` from 0 to
-//!   1) or `{hex}` for a color. A title is a catalog text `{text, key}`, a number
+//!   with `swatch` `{theme: INDEX}` (of `theme_colors`, each `{red, green, blue, alpha}` in 0...1)
+//!   or `{hex}` for a color. A title is a catalog text `{text, key}`, a number
 //!   `{number, unit}` the app formats, or `{format: TEXT, arg: TEXT}` (`Move %@ to Front`).
 //!   `summary` is null or the titles the row's value text joins with ", ". The background row
 //!   names a value it does not list by the app's resolution of it: `selection` `{id, title}`, or
