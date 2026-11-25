@@ -26,6 +26,7 @@ pub mod class_queue;
 pub mod classes;
 pub mod dial;
 pub mod frame;
+pub mod hold_route;
 pub mod hub;
 pub mod hybrid;
 pub mod keepalive;
