@@ -56,15 +56,17 @@ public final class RustPanePictureSchedule: PanePictureScheduling {
 
     #if canImport(CCmuxPanePicturesFFI)
     private let handle: OpaquePointer
+    /// The handle's address, a plain value, so the nonisolated deinit can free it.
+    private let handleAddress: UInt
 
     /// A new schedule (unwatched, undamaged, no picture) with `gapMs` between capture starts; nil
     /// when the library refuses one.
     public init?(gapMs: UInt64) {
         guard let handle = cmux_pane_pictures_schedule_new(gapMs) else { return nil }
-        self.handle = handle
+        (self.handle, self.handleAddress) = (handle, UInt(bitPattern: handle))
     }
 
-    deinit { cmux_pane_pictures_schedule_free(handle) }
+    nonisolated deinit { cmux_pane_pictures_schedule_free(OpaquePointer(bitPattern: handleAddress)) }
 
     public func note(_ event: PanePictureEvent, now: UInt64) -> UInt64? {
         Self.due(cmux_pane_pictures_schedule_note(handle, event.rawValue, now))
@@ -82,7 +84,7 @@ public final class RustPanePictureSchedule: PanePictureScheduling {
     public var isCurrent: Bool { cmux_pane_pictures_schedule_is_current(handle) }
 
     private static func due(_ raw: Int64) -> UInt64? {
-        raw == Int64(CMUX_PANE_PICTURES_NOT_DUE) ? nil : UInt64(raw)
+        raw < 0 ? nil : UInt64(raw)  // NOT_DUE (or any refusal) is negative: never a trap
     }
     #else
     /// This build's app FFI predates the schedule: there is none, and pictures are taken as before.
