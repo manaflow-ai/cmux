@@ -105,6 +105,9 @@ pub(crate) async fn host_health_with(
         "pressure",
         PRESSURE_KEYS.iter().filter_map(|k| Some((*k, pressure.get(*k)?.clone()))).collect(),
     );
+    // Whether this machine's owner enrolled it in AutoCloud, whose work it takes, and whether it
+    // takes any now (owner away, inside its hours): the placer's enrolled tier (`place_mode`).
+    v.set("autoCloud", json!(crate::autocloud_enroll::report_now()));
     // What the machine health loop found wrong and could not fix
     // (`machine_health.rs`); none on a machine without the loop.
     if let Some(problems) = super::machine_health::problems().await {

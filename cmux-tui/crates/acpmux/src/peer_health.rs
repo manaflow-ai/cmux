@@ -91,6 +91,8 @@ pub(crate) fn trim(v: Value) -> Value {
         // Auto chat placement weighs a peer's lid, battery and network (`host_power.rs`).
         "power",
         "network",
+        // AutoCloud enrollment: the placer's enrolled tier (`autocloud_enroll.rs`).
+        "autoCloud",
     ] {
         if let Some(x) = v.get(key).filter(|x| !x.is_null()) {
             out.insert(key.to_owned(), x.clone());
