@@ -60,7 +60,7 @@ STAGED = {
 # merge-group bridge only echoes (no token, no checkout, permissions {}). On 2026-11-21 the gate JIT label started
 # nothing from about 14:40Z while about 300 persistent runners sat idle, so its jobs queued for hours.
 POOL_LABEL = "cmux-linux"
-POOL_OPERAND = "vars.CI_GATE_SKIP_FLEET != '1' && '" + POOL_LABEL + "' || "
+POOL_SELECTOR = FORK_BRANCH + "vars.CI_OVERFLOW_LINUX || '" + POOL_LABEL + "' }}"
 POOL_JOBS = {
     ("merge-group-policy-checks.yml", "cla-assistant"),
     ("merge-group-policy-checks.yml", "cla-policy-guard"),
@@ -111,8 +111,10 @@ class RequiredGateLabelTest(unittest.TestCase):
                 continue
             with self.subTest(workflow=name, job=job_id, check=check):
                 value = runs_on(load(name)["jobs"][job_id])
-                operand = POOL_OPERAND if (name, job_id) in POOL_JOBS else GATE_OPERAND
-                self.assertTrue(value.startswith(FORK_BRANCH + operand), value)
+                if (name, job_id) in POOL_JOBS:
+                    self.assertEqual(value, POOL_SELECTOR)
+                    continue
+                self.assertTrue(value.startswith(FORK_BRANCH + GATE_OPERAND), value)
 
     def test_a_staged_job_keeps_the_admitted_selector_until_its_step(self) -> None:
         for (name, job_id), step in sorted(STAGED.items()):
@@ -136,10 +138,9 @@ class RequiredGateLabelTest(unittest.TestCase):
         self.assertEqual(found, set(GATE_JOBS) - set(STAGED) - POOL_JOBS)
 
     def test_the_switch_leaves_the_previous_selector(self) -> None:
-        for name, job_id in sorted(set(GATE_JOBS) - set(STAGED)):
+        for name, job_id in sorted(set(GATE_JOBS) - set(STAGED) - POOL_JOBS):
             with self.subTest(workflow=name, job=job_id):
-                operand = POOL_OPERAND if (name, job_id) in POOL_JOBS else GATE_OPERAND
-                after = runs_on(load(name)["jobs"][job_id]).replace(operand, "", 1)
+                after = runs_on(load(name)["jobs"][job_id]).replace(GATE_OPERAND, "", 1)
                 self.assertNotIn(GATE_LABEL, after)
                 self.assertTrue(after.startswith(FORK_BRANCH), after)
                 self.assertRegex(after, r"'blacksmith-\dvcpu-ubuntu-2404' }}$")
