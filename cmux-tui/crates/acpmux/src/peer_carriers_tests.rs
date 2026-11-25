@@ -1,5 +1,6 @@
 use super::*;
 use std::future::pending;
+use std::sync::atomic::AtomicUsize;
 use tokio::sync::mpsc;
 
 type Dial = std::pin::Pin<Box<dyn Future<Output = Result<&'static str, String>> + Send>>;
@@ -315,6 +316,7 @@ async fn configured_tokens_reach_the_peer_over_the_link_while_ssh_is_down() {
         Some("peer-token".into()),
         tx,
     );
+    peer.refuse_early(); // its fake listener is a plain tungstenite accept, as before the early request
     peer.set_link_host("inst_b".into());
     peer.set_link_socket(socket);
     assert_eq!(peer.dial_order(), [Via::Link, Via::Ssh]);
@@ -389,4 +391,113 @@ async fn relay_first_a_live_remembered_path_still_wins_when_it_answers_first() {
     assert_eq!(via, Via::Wireguard);
     assert_eq!(started.elapsed(), Duration::from_millis(8));
     assert!(!ssh_started.load(Ordering::SeqCst));
+}
+
+// ---- the opt-in tailnet path (tailnet_carrier.rs, peer_tailnet.rs)
+
+fn tailnet_peer(
+    mode: crate::tailnet_carrier::Mode,
+    calls: &Arc<AtomicUsize>,
+    hint: crate::tailnet::PeerPath,
+) -> Arc<Peer> {
+    use crate::tailnet::{Node, Status};
+    let node = |name: &str, ip: &str, path| Node {
+        path,
+        host_name: name.into(),
+        dns_name: format!("{name}.tail1.ts.net"),
+        os: "linux".into(),
+        login: Some("leo@example.com".into()),
+        tags: vec![],
+        ips: vec![ip.parse().unwrap()],
+        online: true,
+        shared: false,
+    };
+    let status = Status {
+        backend_state: "Running".into(),
+        this: node("mac", "100.64.0.1", crate::tailnet::PeerPath::Unknown),
+        peers: vec![node("box", "100.64.0.2", hint)],
+    };
+    let seen = calls.clone();
+    let snaps = crate::tailnet_carrier::Snapshots::new(Arc::new(move || {
+        seen.fetch_add(1, Ordering::SeqCst);
+        Ok(status.clone())
+    }));
+    let (tx, _rx) = mpsc::channel(8);
+    let peer = Peer::new("box", "ssh://leo@box:7777", Some("t".into()), Some("p".into()), tx);
+    *peer.tailnet.lock().unwrap() = super::super::tailnet_path::State::with(mode, Some(snaps));
+    peer
+}
+
+#[tokio::test]
+async fn the_setting_off_has_no_tailnet_path_and_calls_no_tailscale() {
+    use crate::tailnet::PeerPath;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let peer = tailnet_peer(crate::tailnet_carrier::Mode::Off, &calls, PeerPath::Direct);
+    peer.refresh_tailnet(None).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(!peer.dial_order().contains(&Via::Tailnet));
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn a_direct_hint_makes_a_path_that_is_offered_and_derp_is_not_in_direct_only() {
+    use crate::tailnet::PeerPath;
+    use crate::tailnet_carrier::Mode;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let peer = tailnet_peer(Mode::DirectOnly, &calls, PeerPath::Direct);
+    peer.refresh_tailnet(Some(Duration::from_secs(2))).await;
+    assert!(peer.dial_order().contains(&Via::Tailnet), "offered and raced");
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+    let derp = tailnet_peer(Mode::DirectOnly, &calls, PeerPath::Derp);
+    derp.refresh_tailnet(Some(Duration::from_secs(2))).await;
+    assert!(!derp.dial_order().contains(&Via::Tailnet));
+
+    let relayed = tailnet_peer(Mode::On, &calls, PeerPath::Derp);
+    relayed.refresh_tailnet(Some(Duration::from_secs(2))).await;
+    assert!(relayed.dial_order().contains(&Via::Tailnet), "on offers it, in the relayed class");
+}
+
+#[tokio::test]
+async fn a_path_that_stops_being_offered_is_taken_out() {
+    use crate::tailnet::PeerPath;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let peer = tailnet_peer(crate::tailnet_carrier::Mode::DirectOnly, &calls, PeerPath::Direct);
+    peer.refresh_tailnet(Some(Duration::from_secs(2))).await;
+    assert!(peer.dial_order().contains(&Via::Tailnet));
+    peer.apply_tailnet_route(None);
+    assert!(!peer.dial_order().contains(&Via::Tailnet));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_black_holed_tailnet_path_falls_back_within_the_stagger() {
+    // The tailnet path never answers; the next path starts one stagger later, not after the
+    // black hole's connect deadline.
+    let started = tokio::time::Instant::now();
+    let won = race(vec![(Via::Tailnet, dead()), (Via::Ssh, after(300, Ok("ssh")))], STAGGER).await;
+    let (via, _, failed) = won.expect("ssh opens");
+    assert_eq!(via, Via::Ssh);
+    assert!(failed.is_empty());
+    assert_eq!(started.elapsed(), STAGGER + Duration::from_millis(300));
+}
+
+#[tokio::test]
+async fn lockstep_a_new_client_to_a_server_with_nothing_on_the_tailnet_falls_back() {
+    // An old daemon listens on nothing at its tailnet address: the dial is refused at once.
+    let closed = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = closed.local_addr().unwrap().port();
+    drop(closed);
+    let refused = tokio::net::TcpStream::connect(("127.0.0.1", port)).await;
+    assert!(refused.is_err());
+    let won = race(
+        vec![
+            (Via::Tailnet, Box::pin(async { Err("refused".to_owned()) }) as Dial),
+            (Via::Ssh, after(5, Ok("ssh"))),
+        ],
+        STAGGER,
+    )
+    .await;
+    let (via, _, failed) = won.unwrap();
+    assert_eq!(via, Via::Ssh);
+    assert_eq!(failed.len(), 1);
 }

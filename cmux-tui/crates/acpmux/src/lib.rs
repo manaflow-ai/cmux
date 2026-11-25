@@ -98,7 +98,9 @@ pub mod desktop_bridge;
 pub mod desktop_link;
 pub mod directory_input;
 pub mod disk_usage;
+pub(crate) mod disk_writer;
 pub mod folder_instructions;
+pub mod fork_place;
 #[cfg(all(test, unix))]
 mod fork_tests;
 pub mod forum;
@@ -115,6 +117,7 @@ pub mod github_broker;
 pub mod github_lane_mint;
 #[cfg(unix)]
 pub mod github_mcp;
+pub mod github_rest_op;
 #[cfg(unix)]
 pub mod github_session_env;
 pub mod god_fixture;
@@ -159,6 +162,8 @@ pub(crate) mod home_fs;
 mod home_writers_by_path_tests;
 pub(crate) mod host_fingerprint;
 pub mod host_load;
+pub mod host_load_watch;
+pub mod host_overload;
 pub mod host_pressure;
 pub mod hosted_mcp;
 pub mod hub;
@@ -189,6 +194,7 @@ pub mod login_env;
 pub mod lossy_lines;
 #[cfg(test)]
 mod lost_home_race_tests;
+pub mod mac_lock;
 /// Calls this machine runs for the person's other machines, over the hub carrier
 /// (`machine_call_service.rs`).
 #[cfg(feature = "hub-carrier")]
@@ -251,6 +257,7 @@ pub mod peer_states;
 pub mod person_proof;
 pub mod person_tokens;
 // A new chat's place mode (Auto, Cloud, one machine) and where it starts with it.
+pub mod fleet_elastic;
 pub mod place_mode;
 pub mod placement;
 pub mod plan_build_records;
@@ -279,6 +286,7 @@ pub(crate) mod questions;
 mod quiet_dirs;
 pub mod race_records;
 pub mod range_fetch;
+pub(crate) mod rebalance;
 pub mod recovery;
 pub mod registry;
 pub(crate) mod remote_chain_profile;
@@ -294,7 +302,10 @@ mod router_socket;
 pub mod routes;
 pub mod rows;
 pub mod rpc;
+// `acpmux run-ask`: run an accepted forum `run` ask here or through the scheduler.
+pub mod run_ask;
 pub mod run_elsewhere;
+pub mod sccache_env;
 pub mod schema;
 pub mod secret_mcp;
 pub mod secret_scan;
@@ -306,6 +317,8 @@ pub mod sender_program;
 pub mod sender_token;
 pub mod sent_by;
 pub mod server;
+mod session_budget;
+mod session_disk;
 pub mod session_env;
 mod session_handle;
 pub mod session_icon;
@@ -319,6 +332,7 @@ pub mod session_search;
 #[cfg(feature = "hub-carrier")]
 pub mod session_service;
 pub mod session_status;
+mod session_store;
 pub mod sha256;
 /// The approval behind Share This Mac confirmed on the owner's other device (`share_approval.rs`).
 pub mod share_approval;
@@ -369,6 +383,7 @@ pub mod suggestion_gate;
 pub(crate) mod supervise;
 pub mod surge_triage;
 pub mod tailnet;
+pub mod tailnet_carrier;
 pub mod task_list;
 #[cfg(unix)]
 #[path = "daemon/term_sender.rs"]
@@ -390,10 +405,8 @@ pub mod touched_files;
 pub mod transcript;
 pub mod trust;
 pub mod trust_auto;
-/// The ratatui terminal UI (feature `tui`, off by default: acpmux is headless; the `cmux` multicall
-/// binary turns it on). Its entry for the CLI is `tui_entry`.
-#[cfg(feature = "tui")]
-pub mod tui;
+/// Where the CLI opens a session in a terminal UI: one the process installed (acpmux-tui, in the
+/// `cmux` binary), else a handoff to `cmux` (acpmux itself is headless).
 pub mod tui_entry;
 pub mod turn_attestation;
 pub(crate) mod turn_errors;

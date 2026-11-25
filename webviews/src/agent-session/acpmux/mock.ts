@@ -19,6 +19,7 @@ import {
 } from "./mockFixture";
 import { mockGitCommit, mockGitDiff, mockGitPush, mockGitStatus } from "./mockGit";
 import { mockFileSearch } from "./mockFiles";
+import { dataUrlImageSize } from "./conversation/imageEntries";
 import { sampleAgentHome, type AgentHome } from "./session-info/carriedSectionModel";
 import { lightTurn, loadTurn, streamedReply, streamedTool } from "./loadFixture";
 import {
@@ -271,6 +272,12 @@ export type LoadStreamOptions = {
     elapsedMs: number;
     maxGapMs: number;
     maxScheduleOffsetMs: number;
+    /// This chunk's time (`performance.now()`), the one before it and its due time (the chunk before's
+    /// with no fixed schedule), so a reader can take the maxima over a window of its own (a bench's
+    /// typing window) instead of the run's.
+    atMs: number;
+    previousAtMs: number;
+    dueAtMs: number;
   }) => void;
 };
 
@@ -544,6 +551,8 @@ export class MockAcpmuxSocket {
       } else await this.delay(options.chunkMs);
       if (options.stopped?.() || this.closed) break;
       const now = performance.now();
+      const previousAtMs = previous;
+      const dueAtMs = options.fixedSchedule ? nextChunkAt : previous;
       maxGapMs = Math.max(maxGapMs, now - previous);
       previous = now;
       if (options.fixedSchedule) {
@@ -569,7 +578,16 @@ export class MockAcpmuxSocket {
           },
         });
       }
-      options.progress?.({ deltas, toolLines, elapsedMs: now - started, maxGapMs, maxScheduleOffsetMs });
+      options.progress?.({
+        deltas,
+        toolLines,
+        elapsedMs: now - started,
+        maxGapMs,
+        maxScheduleOffsetMs,
+        atMs: now,
+        previousAtMs,
+        dueAtMs,
+      });
       if (options.toolEvery > 0 && deltas % options.toolEvery === 0) {
         this.emit(target, { update: streamedTool(turn, tools) });
         tools += 1;
@@ -1248,8 +1266,11 @@ export class MockAcpmuxSocket {
           .filter((block: Record<string, unknown>) => block?.type === "image" && typeof block.data === "string")
           .map((block: Record<string, string>) => {
             const id = `image-${this.promptImages.size + 1}`;
-            this.promptImages.set(id, { mimeType: block.mimeType ?? "image/png", data: block.data! });
-            return { id, mimeType: block.mimeType ?? "image/png", ...(block.name ? { name: block.name } : {}) };
+            const mimeType = block.mimeType ?? "image/png";
+            this.promptImages.set(id, { mimeType, data: block.data! });
+            // Its pixel size, as acpmux records it (hub/image_size.rs).
+            const size = dataUrlImageSize(`data:${mimeType};base64,${block.data}`);
+            return { id, mimeType, ...(block.name ? { name: block.name } : {}), ...size };
           });
         const queued = this.pending > 0 && promptId !== undefined;
         // A queued prompt's record names its images too, so its row shows them (ComposerQueue.tsx).

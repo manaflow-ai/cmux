@@ -82,6 +82,10 @@ FAKE_FORK_SILENT=1: the agent never answers session/fork, and goes on answering 
 FAKE_FORK_DELAY_MS=<ms>: the agent answers session/fork that long after it read it, and goes on
 answering everything else meanwhile.
 
+FAKE_FORK_REPLAY=1: before it answers session/fork, the agent replays the forked conversation as
+session/updates under the NEW session's id (a prompt, a thought, a tool call, a reply, its
+commands), as OpenCode 1.19's forkSession does (its replayMessages).
+
 FAKE_NO_FORK=1: the agent does not advertise sessionCapabilities.fork and answers
 session/fork with a bare "Internal error", as Kimi does.
 
@@ -122,6 +126,11 @@ to <path>.seen, one JSON string per line, so a test sees what reached the model.
 FAKE_QUIT_429_FILE=<path>: while <path> exists, an agent started on a chat's conversation
 (session/load) answers the load, then, idle, prints <path>'s line on stderr and exits 0 on its own,
 as a CLI does that quits on its account's 429 between turns (`quit-after:` once, this at every start).
+
+An agent that starts itself again (tests/durable_agents/credential_restart.rs):
+FAKE_REEXEC_WITHOUT=<A,B>: before it reads a line, the process execs itself again without the
+variables A and B, so /proc/PID/environ, which shows the env of its last exec, has neither. It
+works the same afterward, as a harness launched through a wrapper that cleans its env does.
 """
 import base64
 import hashlib
@@ -130,6 +139,11 @@ import sys
 import os
 import threading
 import time
+
+if os.environ.get("FAKE_REEXEC_WITHOUT"):
+    _drop = set(os.environ["FAKE_REEXEC_WITHOUT"].split(",")) | {"FAKE_REEXEC_WITHOUT"}
+    os.execve(sys.executable, [sys.executable] + sys.argv,
+              {k: v for k, v in os.environ.items() if k not in _drop})
 
 lock = threading.Lock()
 # FAKE_CAPACITY_FILE: how many prompts the storm refused, to rotate its errors.
@@ -180,9 +194,23 @@ def send(obj):
     send_all([obj])
 
 
+# FAKE_USAGE=<json>: every prompt answer that ends a turn carries it as its ACP `usage` (a
+# harness's token counts and cost). FAKE_SENT_LOG=<path>: append the wall clock (Unix
+# microseconds) each such answer is written at, one per line (the cost-per-task bench).
+FAKE_USAGE = json.loads(os.environ["FAKE_USAGE"]) if os.environ.get("FAKE_USAGE") else None
+FAKE_SENT_LOG = os.environ.get("FAKE_SENT_LOG")
+
+
 def send_all(objs):
     """Write `objs` as one write: a burst the agent sends at once."""
+    ends = [o for o in objs if isinstance(o.get("result"), dict) and "stopReason" in o["result"]]
+    if FAKE_USAGE is not None:
+        for o in ends:
+            o["result"].setdefault("usage", FAKE_USAGE)
     with lock:
+        if FAKE_SENT_LOG and ends:
+            with open(FAKE_SENT_LOG, "a") as f:
+                f.write(f"{time.time_ns() // 1000}\n")
         sys.stdout.write("".join(json.dumps(o) + "\n" for o in objs))
         sys.stdout.flush()
 
@@ -289,6 +317,10 @@ def is_cmux_guidance(block):
     """Identify cmux's hidden first-turn guidance after an adapter drops metadata."""
     if not isinstance(block, dict):
         return False
+    # The files acpmux prefetched into the prompt (`hub/prefetch.rs`): left out of fixture
+    # commands and echoes unless FAKE_ECHO_PREFETCH=1.
+    if os.environ.get("FAKE_ECHO_PREFETCH") != "1" and str(block.get("text", "")).lstrip().startswith("<cmux-prefetch-context>"):
+        return True
     source = (block.get("_meta") or {}).get("acpmux", {}).get("contextSource")
     if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance"}:
         return True
@@ -2461,6 +2493,17 @@ def main():
                 continue
             sessions += 1
             result = {"sessionId": f"{SESSION_PREFIX}{sessions}"}
+            if os.environ.get("FAKE_FORK_REPLAY") == "1":
+                new_sid = result["sessionId"]
+                update(new_sid, {"sessionUpdate": "available_commands_update", "availableCommands": []})
+                update(new_sid, {"sessionUpdate": "user_message_chunk", "messageId": "fork-u1",
+                                 "content": {"type": "text", "text": "FORK-REPLAY prompt"}})
+                update(new_sid, {"sessionUpdate": "agent_thought_chunk", "messageId": "fork-a1",
+                                 "content": {"type": "text", "text": "FORK-REPLAY thought"}})
+                update(new_sid, {"sessionUpdate": "tool_call", "toolCallId": "fork-t1", "title": "FORK-REPLAY tool",
+                                 "kind": "read", "status": "completed"})
+                update(new_sid, {"sessionUpdate": "agent_message_chunk", "messageId": "fork-a1",
+                                 "content": {"type": "text", "text": "FORK-REPLAY reply"}})
             # FAKE_FORK_DEFAULTS=1 (with FAKE_PICKER_MODES=claude): the fork's reply reports the
             # harness's defaults, not the forked session's model and effort, as Codex does.
             if os.environ.get("FAKE_FORK_DEFAULTS") == "1":

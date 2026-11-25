@@ -83,9 +83,10 @@ function shapeRows(
   drawn: { current: TurnView | undefined },
   shaped: { current: ShapedCount },
   source: readonly AcpmuxRow[],
+  expanded: ReadonlySet<string>,
 ): AcpmuxRow[] {
-  if (mode === "scratch") return turnView(source, NO_FOLDS);
-  const view = turnViewFrom(source, NO_FOLDS, {}, drawn.current);
+  if (mode === "scratch") return turnView(source, expanded);
+  const view = turnViewFrom(source, expanded, {}, drawn.current);
   drawn.current = view;
   const count = shaped.current;
   count.updates += 1;
@@ -110,6 +111,7 @@ function Transcript() {
   const [older, setOlder] = useState(false);
   const [batch, setBatch] = useState(false);
   const [shaping, setShaping] = useState<Shaping>("scratch");
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(NO_FOLDS);
   /// The thread minimap, on as the pane has it. A bench turns it off to tell whether a frame's cost
   /// is the transcript's or the rail's, which reading either component cannot settle.
   const [minimap, setMinimap] = useState(true);
@@ -127,6 +129,8 @@ function Transcript() {
     shaped.current = { updates: 0, reused: [], source: 0 };
     setShaping(mode);
   };
+  (window as unknown as { __expandWorked: (open: boolean) => void }).__expandWorked = (open) =>
+    setExpanded(open ? new Set(["worked-worked-resize-user"]) : NO_FOLDS);
   (window as unknown as { __shapingStats: () => unknown }).__shapingStats = () => ({ ...shaped.current });
   (window as unknown as { __minimap: (shown: boolean) => void }).__minimap = setMinimap;
   (window as unknown as { __batchMeasure: (version: number) => string[] }).__batchMeasure = (version) => {
@@ -159,7 +163,7 @@ function Transcript() {
   show = setRows;
   return (
     <VirtualTranscript
-      rows={batch ? rows : shapeRows(shaping, drawn, shaped, older ? [olderRow, ...rows] : rows)}
+      rows={batch ? rows : shapeRows(shaping, drawn, shaped, older ? [olderRow, ...rows] : rows, expanded)}
       registry={batch ? batchRegistry : undefined}
       sessionId="session-1"
       jumpButton
