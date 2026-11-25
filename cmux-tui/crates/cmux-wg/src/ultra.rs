@@ -118,7 +118,7 @@ const MAX_AGREED_OVERHEAD: u32 = 4;
 pub const ENV: &str = "CMUX_WG_ULTRA";
 /// `none` turns the tunnel's TCP congestion control off, so loss never
 /// shrinks a window and each stream runs at what its window and the pacer
-/// allow (Hysteria's "Brutal" idea, bounded by the 256 KiB window). For
+/// allow (Hysteria's "Brutal" idea, bounded by the stream window). For
 /// benches: it is unfair to other traffic on a congested link.
 pub const CC_ENV: &str = "CMUX_WG_ULTRA_CC";
 

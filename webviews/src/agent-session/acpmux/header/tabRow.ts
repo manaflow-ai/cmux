@@ -110,7 +110,7 @@ export function useTabRowRoot(shell: HTMLElement | null, inTabRow: boolean): voi
   }, [shell, inTabRow]);
 }
 
-/// A tools child that takes only the row's leftover room (the chat's rolling summary, ChatSummaryLine.tsx): it is in
+/// A tools child that takes only the row's leftover room (none today): it is in
 /// the width the tools report while it shows, so the tabs give it up, but never in their need, which decides whether
 /// the pane offers the row at all (PaneTabRowSharing.fitsTabRow). Before, the summary was in the need: a pane split
 /// narrower than the width it was measured at stopped offering the row, and the chat's tools dropped to a second row

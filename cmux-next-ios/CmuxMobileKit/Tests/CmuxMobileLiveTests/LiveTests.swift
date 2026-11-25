@@ -19,7 +19,7 @@ import Testing
         #expect(machine.handle(.dialSucceeded(generation: 1, path: .turnTLS)) == [])
         #expect(machine.phase == .connected(.wireGuard, .turnTLS, rttMillis: nil))
         _ = machine.handle(.linkUpdated(generation: 1, path: .turnTLS, rttMillis: 27))
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected")
+        #expect(machine.phase.statusLine(macName: "Studio") == nil)
     }
 
     @Test func offlineMacIsNotDialed() {
@@ -65,7 +65,7 @@ import Testing
         #expect(machine.phase == .connecting(.webRTC, attempt: 2))
         #expect(machine.handle(.dialFailed(generation: 2, reason: "ICE timed out")) == [.scheduleRetry(generation: 3, after: .seconds(1))])
         #expect(machine.phase == .waiting(.webRTC, attempt: 2, reason: "ICE timed out", retryIn: .seconds(1)))
-        #expect(machine.phase.statusLine(macName: "Studio") == "Reconnecting…")
+        #expect(machine.phase.statusLine(macName: "Studio") == nil)
         #expect(machine.handle(.retryDue(generation: 3)) == [.dial(generation: 4, macID: "m1", transport: .webRTC)])
         #expect(machine.handle(.dialFailed(generation: 4, reason: "x")) == [.scheduleRetry(generation: 5, after: .seconds(2))])
         // A stale timer is ignored.
@@ -94,7 +94,7 @@ import Testing
         #expect(machine.handle(.relayOnly(true)) == [.close, .dial(generation: 2, macID: "m1", transport: .webRTC)])
         #expect(machine.relayOnly)
         #expect(machine.handle(.dialSucceeded(generation: 2, path: .turn)) == [])
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected")
+        #expect(machine.phase.statusLine(macName: "Studio") == nil)
     }
 
     /// Settings → Developer "Block UDP": a change redials, like relay only.
@@ -106,7 +106,7 @@ import Testing
         #expect(machine.handle(.blockUDP(true)) == [.close, .dial(generation: 2, macID: "m1", transport: .wireGuard)])
         #expect(machine.blockUDP)
         #expect(machine.handle(.dialSucceeded(generation: 2, path: .turnTLS)) == [])
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected")
+        #expect(machine.phase.statusLine(macName: "Studio") == nil)
         // WebRTC ignores it: a change there does not redial.
         var webRTC = LinkMachine(transport: .webRTC)
         _ = webRTC.handle(.target(mac))

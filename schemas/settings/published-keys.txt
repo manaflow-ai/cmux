@@ -212,6 +212,7 @@ appearance.surfaces.tabBar.opacity
 appearance.surfaces.terminal.color
 appearance.surfaces.terminal.opacity
 appearance.tabBarBackground
+appearance.terminalCellBackgrounds
 appearance.theme
 appearance.themeEdits
 appearance.themeFile
