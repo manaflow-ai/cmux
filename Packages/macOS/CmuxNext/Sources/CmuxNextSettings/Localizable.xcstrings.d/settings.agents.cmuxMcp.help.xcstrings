@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agents.cmuxMcp.help" : {
+      "comment" : "Settings > Agents > cmux Tools in Your Coding Agents: whether cmux adds its MCP server (Computer Use included) to the person's coding agents (agents.cmuxMcp)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. cmux never changes your agents’ own settings."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تحصل الوكلاء التي تشغّلها في cmux على أدوات cmux، بما فيها Computer Use: ‏Claude Code وCodex في طرفيات cmux ومحادثات الوكلاء. لا يغيّر cmux أبدًا الإعدادات الخاصة بوكلائك."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agenti koje pokreneš u cmuxu dobijaju cmux alate, uključujući Computer Use: Claude Code i Codex u cmux terminalima i agentskim razgovorima. cmux nikad ne mijenja vlastite postavke tvojih agenata."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agenter, du starter i cmux, får cmux’ værktøjer, Computer Use inklusive: Claude Code og Codex i cmux’ terminaler og agentchats. cmux ændrer aldrig dine agenters egne indstillinger."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agenten, die du in cmux startest, bekommen die Werkzeuge von cmux, Computer Use eingeschlossen: Claude Code und Codex in den Terminals und Agent-Chats von cmux. cmux ändert nie die eigenen Einstellungen deiner Agenten."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los agentes que inicias en cmux reciben las herramientas de cmux, Computer Use incluido: Claude Code y Codex en las terminales y los chats de agentes de cmux. cmux nunca cambia los ajustes propios de tus agentes."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les agents que vous lancez dans cmux reçoivent les outils de cmux, Computer Use compris : Claude Code et Codex dans les terminaux et les discussions d’agents de cmux. cmux ne modifie jamais les réglages propres de vos agents."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gli agenti che avvii in cmux ricevono gli strumenti di cmux, Computer Use incluso: Claude Code e Codex nei terminali e nelle chat degli agenti di cmux. cmux non cambia mai le impostazioni proprie dei tuoi agenti."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux で起動したエージェントは、Computer Use を含む cmux のツールを使えます。対象は cmux のターミナルとエージェントチャットの Claude Code と Codex です。cmux がエージェント自身の設定を変更することはありません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ភ្នាក់ងារដែលអ្នកចាប់ផ្ដើមក្នុង cmux ទទួលបានឧបករណ៍ cmux រួមទាំង Computer Use៖ Claude Code និង Codex ក្នុងស្ថានីយ និងការជជែកភ្នាក់ងាររបស់ cmux។ cmux មិនដែលផ្លាស់ប្ដូរការកំណត់ផ្ទាល់ខ្លួនរបស់ភ្នាក់ងារអ្នកទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux에서 시작한 에이전트는 Computer Use를 포함한 cmux 도구를 사용합니다. cmux 터미널과 에이전트 채팅의 Claude Code와 Codex가 해당됩니다. cmux는 에이전트 자체 설정을 절대 바꾸지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agenter du starter i cmux, får cmux-verktøyene, Computer Use inkludert: Claude Code og Codex i cmux-terminaler og agentsamtaler. cmux endrer aldri agentenes egne innstillinger."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agenci uruchamiani w cmux dostają narzędzia cmux, w tym Computer Use: Claude Code i Codex w terminalach i czatach agentów cmux. cmux nigdy nie zmienia własnych ustawień Twoich agentów."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Os agentes que você inicia no cmux recebem as ferramentas do cmux, incluindo o Computer Use: Claude Code e Codex nos terminais e chats de agentes do cmux. O cmux nunca altera as configurações dos seus agentes."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Агенты, которых вы запускаете в cmux, получают инструменты cmux, включая Computer Use: Claude Code и Codex в терминалах и чатах агентов cmux. cmux никогда не меняет собственные настройки ваших агентов."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เอเจนต์ที่คุณเริ่มใน cmux จะได้เครื่องมือของ cmux รวมถึง Computer Use ได้แก่ Claude Code และ Codex ในเทอร์มินัลและแชตเอเจนต์ของ cmux cmux ไม่เปลี่ยนการตั้งค่าของเอเจนต์คุณเลย"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux’ta başlattığın ajanlar, Computer Use dahil cmux araçlarını alır: cmux terminallerindeki ve ajan sohbetlerindeki Claude Code ve Codex. cmux ajanlarının kendi ayarlarını asla değiştirmez."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Агенти, яких ви запускаєте в cmux, отримують інструменти cmux, зокрема Computer Use: Claude Code і Codex у терміналах і чатах агентів cmux. cmux ніколи не змінює власні налаштування ваших агентів."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Các tác tử bạn khởi chạy trong cmux nhận công cụ của cmux, gồm cả Computer Use: Claude Code và Codex trong terminal và cuộc trò chuyện tác tử của cmux. cmux không bao giờ thay đổi cài đặt riêng của các tác tử của bạn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你在 cmux 中启动的智能体会获得 cmux 的工具（包括 Computer Use）：即 cmux 终端和智能体聊天中的 Claude Code 与 Codex。cmux 绝不会更改你的智能体自己的设置。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你在 cmux 中啟動的智慧代理會取得 cmux 的工具（包括 Computer Use）：即 cmux 終端機與代理聊天中的 Claude Code 和 Codex。cmux 絕不會更改你的智慧代理本身的設定。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

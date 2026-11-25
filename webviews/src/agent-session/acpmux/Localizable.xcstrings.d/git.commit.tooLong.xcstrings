@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "git.commit.tooLong" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "الرسالة أطول من 64 KiB. اختصرها لتتمكن من الإيداع."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Poruka je duža od 64 KiB. Skratite je da biste commitali."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Beskeden er længere end 64 KiB. Forkort den for at committe."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Die Nachricht ist länger als 64 KiB. Kürze sie, um zu committen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The message is longer than 64 KiB. Shorten it to commit."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El mensaje supera los 64 KiB. Acórtalo para confirmar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le message dépasse 64 KiB. Raccourcissez-le pour valider."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il messaggio supera 64 KiB. Accorcialo per eseguire il commit."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メッセージが 64 KiB を超えています。コミットするには短くしてください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "សារវែងជាង 64 KiB ។ សូមកាត់វាឱ្យខ្លីដើម្បី Commit ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "메시지가 64 KiB를 초과합니다. 커밋하려면 메시지를 줄이십시오."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Meldingen er lengre enn 64 KiB. Forkort den for å committe."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Opis jest dłuższy niż 64 KiB. Skróć go, aby zatwierdzić."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A mensagem tem mais de 64 KiB. Encurte-a para fazer commit."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сообщение длиннее 64 KiB. Сократите его, чтобы закоммитить."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ข้อความยาวเกิน 64 KiB ทำให้สั้นลงเพื่อคอมมิต"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mesaj 64 KiB'tan uzun. Commit etmek için kısaltın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Повідомлення довше за 64 KiB. Скоротіть його, щоб закомітити."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Thông điệp dài hơn 64 KiB. Hãy rút gọn để commit."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "信息超过 64 KiB。请缩短后再提交。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "訊息超過 64 KiB。請縮短後再提交。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

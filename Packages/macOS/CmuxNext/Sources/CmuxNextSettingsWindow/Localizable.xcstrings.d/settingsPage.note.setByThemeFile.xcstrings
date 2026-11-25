@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.note.setByThemeFile" : {
+      "comment" : "Settings row note: the active theme file (the file name, %@) sets this row's value; a change in Settings applies over it.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يحدده %@. أي تغيير هنا يُطبَّق فوقه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Postavlja %@. Promjena ovdje važi preko nje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Angivet af %@. En ændring her gælder over den."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Von %@ gesetzt. Eine Änderung hier gilt darüber."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Set by %@. A change here applies over it."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Definido por %@. Un cambio aquí se aplica sobre él."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Défini par %@. Une modification ici s'applique par-dessus."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Impostato da %@. Una modifica qui si applica sopra."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ が設定しています。ここでの変更が優先されます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កំណត់ដោយ %@។ ការផ្លាស់ប្ដូរនៅទីនេះ អនុវត្តលើវា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@에서 설정했습니다. 여기서 변경하면 그 위에 적용됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Angitt av %@. En endring her gjelder over den."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ustawione przez %@. Zmiana tutaj obowiązuje ponad nim."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Definido por %@. Uma alteração aqui se aplica sobre ele."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Задано в %@. Изменение здесь действует поверх него."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "กำหนดโดย %@ การเปลี่ยนที่นี่จะใช้แทน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ tarafından belirlenir. Buradaki bir değişiklik onun üzerine uygulanır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Задано в %@. Зміна тут діє поверх нього."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Do %@ đặt. Thay đổi ở đây sẽ áp dụng đè lên."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "由 %@ 设置。在此更改会覆盖它。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "由 %@ 設定。在此變更會覆蓋它。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

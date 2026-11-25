@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "sandbox.unchecked" : {
+      "comment" : "Chat: notice that the app didn't answer whether this tab has a sandboxed run",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't check this tab for a sandboxed run."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Tab konnte nicht auf einen Sandbox-Lauf geprüft werden."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossible de vérifier si cet onglet a une exécution isolée."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تعذّر التحقق من وجود تشغيل معزول في علامة التبويب هذه."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se pudo comprobar si esta pestaña tiene una ejecución aislada."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法檢查此分頁是否有沙箱執行。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法检查此标签页是否有沙箱运行。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 탭에 샌드박스 실행이 있는지 확인하지 못했습니다."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このタブにサンドボックス実行があるか確認できませんでした。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nije bilo moguće provjeriti ima li ova kartica izolovano pokretanje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kunne ikke tjekke, om denne fane har en sandkassekørsel."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Impossibile verificare se questa scheda ha un'esecuzione in sandbox."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មិនអាចពិនិត្យថាផ្ទាំងនេះមានដំណើរការក្នុងប្រអប់ខ្សាច់ឬទេ។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kunne ikke sjekke om denne fanen har en sandkassekjøring."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nie udało się sprawdzić, czy ta karta ma uruchomienie w piaskownicy."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Não foi possível verificar se esta aba tem uma execução isolada."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Не удалось проверить, есть ли в этой вкладке запуск в песочнице."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ตรวจสอบไม่ได้ว่าแท็บนี้มีการเรียกใช้แบบแซนด์บ็อกซ์หรือไม่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu sekmede korumalı çalıştırma olup olmadığı denetlenemedi."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Не вдалося перевірити, чи є в цій вкладці запуск у пісочниці."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không thể kiểm tra thẻ này có lần chạy hộp cát hay không."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

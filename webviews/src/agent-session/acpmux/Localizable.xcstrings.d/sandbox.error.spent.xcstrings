@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "sandbox.error.spent" : {
+      "comment" : "Chat: this tab already ran its one sandboxed message (or one is running)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This tab already ran a sandboxed message. Open a new tab for another."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Tab hat schon eine Sandbox-Nachricht ausgeführt. Öffne für eine weitere einen neuen Tab."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cet onglet a déjà exécuté un message isolé. Ouvrez un nouvel onglet pour un autre."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "شغّلت علامة التبويب هذه رسالة معزولة بالفعل. افتح علامة تبويب جديدة لرسالة أخرى."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta pestaña ya ejecutó un mensaje aislado. Abre una pestaña nueva para otro."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此分頁已執行過沙箱訊息。請開新分頁執行另一則。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此标签页已运行过沙箱消息。请打开新标签页运行另一条。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 탭은 이미 샌드박스 메시지를 실행했습니다. 다른 메시지는 새 탭에서 실행하세요."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このタブではすでにサンドボックスのメッセージを実行しました。別のメッセージは新しいタブで実行してください。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ova kartica je već pokrenula izolovanu poruku. Otvorite novu karticu za drugu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne fane har allerede kørt en sandkassebesked. Åbn en ny fane til en anden."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Questa scheda ha già eseguito un messaggio in sandbox. Apri una nuova scheda per un altro."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្ទាំងនេះបានដំណើរការសារក្នុងប្រអប់ខ្សាច់រួចហើយ។ បើកផ្ទាំងថ្មីសម្រាប់សារផ្សេង។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne fanen har allerede kjørt en sandkassemelding. Åpne en ny fane for en annen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ta karta uruchomiła już wiadomość w piaskownicy. Otwórz nową kartę dla kolejnej."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Esta aba já executou uma mensagem isolada. Abra uma nova aba para outra."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "В этой вкладке уже запускалось сообщение в песочнице. Откройте новую вкладку для другого."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แท็บนี้เรียกใช้ข้อความแบบแซนด์บ็อกซ์ไปแล้ว เปิดแท็บใหม่สำหรับข้อความอื่น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu sekme zaten korumalı bir mesaj çalıştırdı. Başka biri için yeni sekme açın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ця вкладка вже запускала повідомлення в пісочниці. Відкрийте нову вкладку для іншого."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Thẻ này đã chạy một tin nhắn hộp cát. Hãy mở thẻ mới cho tin nhắn khác."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
