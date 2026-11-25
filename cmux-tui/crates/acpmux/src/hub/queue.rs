@@ -850,34 +850,6 @@ impl Hub {
         None
     }
 
-    /// Why the chat takes no new prompt now, if it takes none: [`Self::queue_slot`] and a
-    /// deferred prompt (`prompt_admission.rs`) refuse it alike.
-    pub(super) fn takes_no_prompt(&self, session: &Session, p: &Slot<'_>) -> Option<RpcError> {
-        // A chat being moved takes no prompt: its new daemon does (`transfer_out.rs`).
-        if session.moving().is_some() {
-            return Some(moving_error(session));
-        }
-        // A watched chat takes no prompt until it is taken over (`watch.rs`).
-        if session.meta().watching.is_some() {
-            return Some(super::watch::read_only());
-        }
-        // A chat handing its conversation to a terminal takes no new prompt: the terminal
-        // does, once the turn ends (`release_to_watch.rs`).
-        if session.releasing.load(Ordering::SeqCst) {
-            return Some(super::release_to_watch::releasing_error());
-        }
-        // A lane's report to a parent whose close has begun: refused, never reopening it
-        // (`lane_reports.rs`).
-        if refuses_closing(p) && closing(session) {
-            return Some(closing_error());
-        }
-        // Nor once a shutdown began: no agent may start from then on (`shutdown.rs`).
-        if refuses_closing(p) && self.shutting_down() {
-            return Some(super::shutdown::shutting_down_error());
-        }
-        None
-    }
-
     /// [`Self::enqueue_or_refuse`]'s step: puts `p` in the queue, unless it has no room for it
     /// (`queue_admission.rs`): then nothing is put in, written or replaced.
     pub(super) fn enqueue<T>(
