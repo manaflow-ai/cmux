@@ -1,3 +1,4 @@
+public import CmuxNextApps
 public import CmuxNextDaemon
 public import CmuxNextPages
 public import CmuxNextSettings
@@ -20,8 +21,12 @@ public final class ExtensionSettingsPageRoute: PageProvider {
     private let connection: @MainActor () -> DaemonConnection?
     private var changedListeners: [UUID: @MainActor (CmuxNextSettings.JSONValue) -> Void] = [:]
 
-    public init(connection: @escaping @MainActor () -> DaemonConnection?) {
+    /// `apps`: the client whose `.changed` (the daemon's `apps-changed`) fires the `changed` stream.
+    public init(apps: AppsClient? = nil, connection: @escaping @MainActor () -> DaemonConnection?) {
         self.connection = connection
+        apps?.observeEvents(owner: self) { [weak self] event in
+            if case .changed = event { self?.appsChanged() }
+        }
     }
 
     /// The installed extensions changed (the apps client's `.changed`): every open Settings page lists again.
