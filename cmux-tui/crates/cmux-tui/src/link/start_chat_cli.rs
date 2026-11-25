@@ -83,7 +83,7 @@ use pick::{Candidate, Destination};
 const USAGE: &str = "usage: cmux link start-chat plan --request JSON\n       \
 cmux link start-chat pin --key KEY --account ACCOUNT --machine ID [--workspace ID]\n       \
 cmux link start-chat create-begin --key KEY --account ACCOUNT --name NAME --create-key CREATE_KEY\n       \
-cmux link start-chat create-sent --key KEY --account ACCOUNT --team TEAM --create-key CREATE_KEY\n       \
+cmux link start-chat create-sent --key KEY --account ACCOUNT --team TEAM --create-key CREATE_KEY [--route relay|direct]\n       \
 cmux link start-chat create-refused --key KEY --account ACCOUNT --create-key CREATE_KEY\n       \
 cmux link start-chat target-pane --key KEY --account ACCOUNT --machine ID --pane PANE\n       \
 cmux link start-chat strand --key KEY --account ACCOUNT --machine ID\n       \
@@ -139,9 +139,21 @@ pub(super) fn run(args: &[String]) -> i32 {
             }
         }
         "create-sent" => {
-            match (flags.key(), flags.account(), flags.one("--team"), flags.one("--create-key")) {
-                (Some(key), Some(account), Some(team), Some(create_key)) => {
-                    Some(create_sent(&ledger, &key, account, team, create_key))
+            // `--route relay|direct`: how the create goes out; not given, the relay.
+            let route = match flags.all("--route").as_slice() {
+                [] => Some(None),
+                [route] if ["relay", "direct"].contains(route) => Some(Some(*route)),
+                _ => None,
+            };
+            match (
+                flags.key(),
+                flags.account(),
+                flags.one("--team"),
+                flags.one("--create-key"),
+                route,
+            ) {
+                (Some(key), Some(account), Some(team), Some(create_key), Some(route)) => {
+                    Some(create_sent(&ledger, &key, account, team, create_key, route))
                 }
                 _ => None,
             }
@@ -231,8 +243,10 @@ impl Keys {
         }
     }
 
+    /// `create_routes`: this ledger keeps a sent create's route (`create-sent --route`), so the
+    /// App may send a person's own create direct; without it every create is the relay's.
     fn json(&self) -> Value {
-        json!({"create_key": self.create, "tab_key": self.tab, "remote_place": self.place})
+        json!({"create_key": self.create, "tab_key": self.tab, "remote_place": self.place, "create_routes": true})
     }
 }
 
@@ -415,6 +429,7 @@ fn plan_with_calls(
             if !pending.refused {
                 return json!({"ok": true, "machine": null, "new_name": pending.name,
             "create_team": pending.team, "create_sent": pending.sent, "create_key": keys.create,
+            "create_route": pending.route, "create_routes": true,
             "tab_key": keys.tab, "remote_place": keys.place});
             }
         }
@@ -719,6 +734,28 @@ fn folder_repo(local: &str) -> Option<String> {
 
 /// The git directory that holds the config of the repository `folder` is in: the nearest `.git` at or above
 /// it, followed through a worktree's `gitdir:` file and its `commondir`.
+/// The project id a folder's agent memory is keyed by (`cmux link memory plan`): the folder's
+/// normalised git remote, else, with a ledger, this installation's folder id in it (the one a
+/// start-chat copy records). `None`: not a folder, or no remote and no ledger.
+pub(in crate::link) fn memory_project_id(
+    ledger: Option<&Path>,
+    folder: &Path,
+) -> anyhow::Result<Option<String>> {
+    let Some(local) = folder.to_str() else { return Ok(None) };
+    match ledger {
+        Some(ledger) => project::folder_key(ledger, local),
+        None => Ok(git_common_dir(folder)
+            .and_then(|dir| std::fs::read_to_string(dir.join("config")).ok())
+            .and_then(|config| origin_url(&config))
+            .and_then(|remote| project::remote_key(&remote))),
+    }
+}
+
+/// The start-chat ledger this Mac keeps, if it has a state folder.
+pub(in crate::link) fn default_ledger() -> Option<PathBuf> {
+    ledger::path()
+}
+
 fn git_common_dir(folder: &Path) -> Option<PathBuf> {
     let dot_git =
         folder.ancestors().map(|dir| dir.join(".git")).find(|dot_git| dot_git.exists())?;
@@ -826,9 +863,12 @@ impl Ensure {
         }
         let project_key = match optional("--project-key")? {
             Some(key) => Some(project::normalize_key(&key)?),
-            // Without a project key the ensure needs the repository.
+            // Without a project key the ensure needs the repository, or the cloud environment it boots in
+            // (`cloud new-machine --environment`: the platform injects its variables and runs its setup).
             None => {
-                repo.as_ref()?;
+                if repo.is_none() {
+                    environment.as_ref()?;
+                }
                 None
             }
         };
@@ -1121,9 +1161,16 @@ fn create_begin(ledger: &Path, key: &str, account: &str, name: &str, create_key:
     }
 }
 
-fn create_sent(ledger: &Path, key: &str, account: &str, team: &str, create_key: &str) -> Value {
+fn create_sent(
+    ledger: &Path,
+    key: &str,
+    account: &str,
+    team: &str,
+    create_key: &str,
+    route: Option<&str>,
+) -> Value {
     match Ledger::update(ledger, |pins| {
-        pins.mark_create_sent(&Send::new(key, account), team, create_key)
+        pins.mark_create_sent(&Send::new(key, account), team, create_key, route)
     }) {
         Ok(true) => json!({"ok": true}),
         Ok(false) => refused("not_found", "no pending create"),

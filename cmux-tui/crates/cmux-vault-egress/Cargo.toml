@@ -14,8 +14,10 @@ http.workspace = true
 http-body-util.workspace = true
 hyper.workspace = true
 hyper-util = { workspace = true, features = ["service", "tokio"] }
-# CA and per-host leaf certificates, kept in this process's memory only.
+# The CA (kept by the daemon for the next one) and per-host leaf certificates (memory only).
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring", "pem"] }
+# Reads the CA certificate the daemon kept (its subject, key and end).
+x509-parser = { version = "0.18", default-features = false }
 rustls.workspace = true
 # Upstream servers are verified against the OS trust store.
 rustls-native-certs = "0.8"

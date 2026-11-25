@@ -63,12 +63,25 @@ All on the existing unix socket; method names in `rpc.rs`. Lane A owns these.
 - `_acpmux/connections/chatgpt.token` `{ "id": "..." }` -> `{ "access_token": "...", "expires_at": unix }`.
   Local socket only, for the gateway. Refreshes when under 5 minutes left; refreshes for one id are
   serialized (one in flight; others await it). Never logged.
+- `_acpmux/connections/chatgpt.import` `{ "secret_file": "/abs/path/auth.json" }` -> `{ "connection": Connection }`.
+  CI only (cmuxterm-hq#15720): refused unless the daemon's environment sets `ACPMUX_CI_CHATGPT_IMPORT=1`,
+  and on every connection but the local unix socket. Reads a Codex CLI `auth.json`, requires its ID
+  token to be issued to Codex's client, and writes the same record and `chatgpt-plan` route a browser
+  sign-in does. Import into a fresh acpmux home per job: the first refresh rotates the refresh token.
 - `_acpmux/connections/remove` `{ "id" }`: a chatgpt-plan connection revokes its refresh token
   (revocation endpoint from the OpenID configuration), clears tokens, keeps `client_id` + host id.
   Other kinds delegate to the existing `_acpmux/route/remove`.
 - `_acpmux/connections/key.add` `{ "provider", "secret": "keychain:ITEM", "label"? }` -> state.
   The app stores the pasted key in the Keychain first (as `cmux.chief.backend.add` does) and passes
-  only the reference.
+  only the reference. The app first takes every whitespace character out of the paste (a wrapped key
+  is still one key), then calls `key.check`.
+- `_acpmux/connections/key.check` `{ "provider", "secret": "keychain:ITEM" }` -> `{ "provider",
+  "result": "ok|bad_shape|bad_key|unreachable", "save", "http_status", "detail", "message" }`
+  (`key_check.rs`). The vendor prefix first (openai `sk-`, anthropic `sk-ant-`, openrouter `sk-or-`,
+  google `AIza`, xai `xai-`), then one authenticated read (the model list; OpenRouter's
+  `/api/v1/key`), 8 s. 401/403 (and Google's or xAI's 400) is `bad_key`, `save: false`, `message`
+  "Key rejected by OpenAI"; a network failure, timeout or 5xx is `unreachable` and saves anyway.
+  The key is resolved in the daemon and never answered or logged.
 - Notification `_acpmux/connections.changed` with `ConnectionsState`.
 
 ### Sign in with ChatGPT (Codex's own sign-in, cmux#45774)
@@ -191,7 +204,8 @@ Connections (all held on the Mac: acpmux routes + Keychain references):
 - **Claude**: `claude-token`, the long-lived token from Claude Code's own `claude setup-token`
   (the person runs it; cmux never implements Claude's OAuth). Settings > Models > Claude Code opens
   a cmux terminal tab running `claude setup-token` and a paste field; the pasted value is checked
-  (`sk-ant-oat` prefix, no whitespace), stored in the Keychain, and only `keychain:ITEM` reaches
+  (`sk-ant-oat` prefix, every whitespace character taken out first, inner ones too: a
+  terminal wraps and pads the printed line), stored in the Keychain, and only `keychain:ITEM` reaches
   acpmux (`_acpmux/connections/claude_token.add {secret, label?}` -> state; kind `claude-token`,
   provider anthropic, family claude). An Anthropic API key (`api-key`, anthropic) also serves Claude.
 - **Codex**: `chatgpt-plan` (Sign in with ChatGPT, lane A as built) or an OpenAI API key.

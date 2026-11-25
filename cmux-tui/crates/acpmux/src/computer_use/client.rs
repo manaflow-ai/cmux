@@ -34,6 +34,9 @@ const MAX_DAEMON_REPLY: u64 = 1 << 20;
 /// The daemon command that names the worker (lane `worker` serves it).
 pub const ENDPOINT_CMD: &str = "computer-use-endpoint";
 
+/// What an agent does when Computer Use is off: open the guided setup for the person.
+const OFF_NEXT: &str = "Open its setup for the person with `cmux action run palette.computerUse.setup` (it opens without taking their focus; there the person turns Computer Use on and grants the two macOS permissions), tell them it is open, and try again once they finish.";
+
 /// Where the worker serves, from the daemon.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Endpoint {
@@ -141,17 +144,47 @@ impl std::fmt::Display for DaemonError {
 pub const DAEMON_SOCKET_ENV: &str = "CMUX_TUI_SOCKET";
 
 /// The real daemons: the cmux-tui daemon on its local socket
-/// (`CMUX_TUI_SOCKET`, else the `main` session's default socket) and this
-/// user's acpmux daemon (`ACPMUX_SOCKET` / `ACPMUX_HOME`).
+/// (`CMUX_TUI_SOCKET`, else the running app's daemon, else the `main`
+/// session's: [`super::daemon_socket`]) and this user's acpmux daemon
+/// (`ACPMUX_SOCKET` / `ACPMUX_HOME`).
 pub struct SocketDaemon {
     pub path: PathBuf,
+    /// Every path the lookup considered, for the error when none answers.
+    looked: Vec<super::daemon_socket::Candidate>,
 }
 
 impl SocketDaemon {
     pub fn from_env() -> Self {
-        let path =
-            cmux::raw::env_socket_path().unwrap_or_else(|| cmux::raw::default_socket_path("main"));
-        Self { path }
+        Self::from_candidates(super::daemon_socket::from_process())
+    }
+
+    /// The daemon at `path` and no other: a socket another process's environment named (the
+    /// terminal a chat types into, `hub/terminal_input.rs`).
+    pub fn at(path: PathBuf) -> Self {
+        Self { path, looked: Vec::new() }
+    }
+
+    /// The first of `candidates` whose socket exists, else the first.
+    pub fn from_candidates(candidates: Vec<super::daemon_socket::Candidate>) -> Self {
+        let path = super::daemon_socket::pick(&candidates)
+            .map(|c| c.path.clone())
+            .unwrap_or_else(|| cmux::raw::default_socket_path("main"));
+        Self { path, looked: candidates }
+    }
+
+    /// Why the daemon could not be reached: the path tried and, when the lookup had others,
+    /// every one it looked at and what named it.
+    fn unreachable(&self, error: &io::Error) -> DaemonError {
+        let mut why = format!("{} at {}", error, self.path.display());
+        if self.looked.len() > 1 {
+            let looked: Vec<String> = self
+                .looked
+                .iter()
+                .map(|c| format!("{} ({})", c.path.display(), c.source))
+                .collect();
+            why.push_str(&format!("; looked for {}", looked.join(", ")));
+        }
+        DaemonError::Unreachable(why)
     }
 
     #[cfg(unix)]
@@ -170,9 +203,21 @@ impl SocketDaemon {
         Ok(stream)
     }
 
-    /// `{"cmd": cmd, ...params}` on a new connection; the reply's `data`.
+    /// `{"cmd": cmd, ...params}` on a new connection; the reply's `data`. A
+    /// daemon older than the command is restarted once with the installed
+    /// build first (`daemon_skew.rs`).
     pub fn request(&self, cmd: &str, params: Value) -> Result<Value, DaemonError> {
-        let unreachable = |e: io::Error| DaemonError::Unreachable(e.to_string());
+        crate::daemon_skew::request(self, cmd, params)
+    }
+}
+
+impl crate::daemon_skew::RawDaemon for SocketDaemon {
+    fn restart_in_place(&self, cli: &std::path::Path) -> Result<(), String> {
+        crate::daemon_skew::restart_in_place(cli, &self.path)
+    }
+
+    fn send_once(&self, cmd: &str, params: Value) -> Result<Value, DaemonError> {
+        let unreachable = |e: io::Error| self.unreachable(&e);
         let mut stream = self.connect().map_err(unreachable)?;
         let id = format!("cu-{}", uuid::Uuid::now_v7().simple());
         let mut request = match params {
@@ -418,11 +463,14 @@ impl Outcome {
             Outcome::Output(out) => out.to_mcp(),
             Outcome::Off(reason) => ToolOutput::error(
                 "computer_use_off",
-                if reason.is_empty() {
-                    "Computer Use is off on this machine. The person can turn it on in Settings > Computer Use.".to_owned()
-                } else {
-                    format!("Computer Use is off: {reason}. The person can turn it on in Settings > Computer Use.")
-                },
+                format!(
+                    "Computer Use is off{}. {OFF_NEXT}",
+                    if reason.is_empty() {
+                        " on this machine".to_owned()
+                    } else {
+                        format!(": {reason}")
+                    }
+                ),
             )
             .to_mcp(),
             Outcome::Failed { code, message } => ToolOutput::error(code, message.clone()).to_mcp(),
@@ -709,11 +757,13 @@ impl<D: Daemon> Caller<D> {
                         }
                     },
                     Err(DaemonError::Refused { code, message }) => {
-                        // A daemon without the command never gets it by waiting.
+                        // A daemon without the command never gets it by waiting. An older
+                        // daemon an update left running was already swapped for the
+                        // installed build once (`daemon_skew.rs`); the message says why not.
                         return Err(Outcome::Failed {
                             code: "computer_use_unavailable".into(),
                             message: format!(
-                                "cmux could not start Computer Use: {message} ({code})"
+                                "cmux could not start Computer Use: {message} ({code})."
                             ),
                         });
                     }
@@ -751,6 +801,19 @@ impl<D: Daemon> Caller<D> {
             (self.sleep)(backoff.min(deadline - now));
             backoff = (backoff * 2).min(MAX_BACKOFF);
         }
+    }
+
+    /// The person's other machines a call this Mac refused as locked can run on instead (design
+    /// L3, the "remote" route): reachable now, Computer Use `ready` there, never `except` (the
+    /// machine that just answered locked). Only machines the person already joined to this one,
+    /// over their authenticated link; nothing here unlocks a Mac. Empty for a call another machine
+    /// sent (it runs only here, never one hop further) and when the daemon cannot list them.
+    pub fn routable_machines(&self, except: Option<&str>) -> Vec<String> {
+        if self.origin.is_some() {
+            return Vec::new();
+        }
+        let Ok(data) = self.daemon.machines() else { return Vec::new() };
+        routable_in(&data, except)
     }
 
     /// `list_machines`: this machine's daemon knows the person's machines.
@@ -823,6 +886,19 @@ impl<D: Daemon> Caller<D> {
             backoff = (backoff * 2).min(MAX_BACKOFF);
         }
     }
+}
+
+/// The machine names in a `_acpmux/computer_use_machines` answer that can take a call now.
+pub(crate) fn routable_in(data: &Value, except: Option<&str>) -> Vec<String> {
+    data.get("machines")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|m| m["reachable"].as_bool() == Some(true) && m["computer_use"] == "ready")
+        .filter_map(|m| m["name"].as_str())
+        .filter(|name| Some(*name) != except)
+        .map(str::to_owned)
+        .collect()
 }
 
 #[cfg(test)]

@@ -44,9 +44,21 @@ final class ComposeInlineRedraw {
         scheduled = nil
         let arrived = Set(pending.values.compactMap { $0.attachment.map(ObjectIdentifier.init) })
         pending = [:]
-        guard !arrived.isEmpty, let field, let storage = field.textStorage, let tlm = field.textLayoutManager else { return }
+        guard !arrived.isEmpty, let field, let storage = field.textStorage else { return }
         field.countInlineRedraw()
         var dirty = NSRect.null
+        // The composer field is TextKit 1 (ComposeTextView): the pictures' glyph boxes, drawn by the field itself.
+        guard let tlm = field.textLayoutManager else {
+            storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+                guard let a = value as? ComposeInlineAttachment, arrived.contains(ObjectIdentifier(a)),
+                      let r = field.textKit1Rect(for: range) else { return }
+                dirty = dirty.union(r)
+            }
+            guard !dirty.isNull else { field.needsDisplay = true; return }
+            let origin = field.textContainerOrigin
+            field.setNeedsDisplay(dirty.offsetBy(dx: origin.x, dy: origin.y))
+            return
+        }
         storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
             guard let a = value as? ComposeInlineAttachment, arrived.contains(ObjectIdentifier(a)),
                   let at = tlm.location(tlm.documentRange.location, offsetBy: range.location),

@@ -30,13 +30,13 @@ public nonisolated final class DaemonHomeSource: HomeSource {
     let attachmentCache: URL
     /// Most bytes `attachmentCache` keeps; least recently used files go first.
     let attachmentCacheLimit: Int
-    /// The Chief's subagents (`a<n>`) that have a session on its acpmux, read on the main actor; an
-    /// observable read, so ``agentStarts()`` yields each change. The app passes its Chief's lane watch.
-    let startedAgents: @MainActor @Sendable () -> Set<String>
+    /// The Chief's subagents (`a<n>`) that have a session on its acpmux, and when each session began, read on the
+    /// main actor; an observable read, so ``agentStarts()`` yields each change. The app passes its Chief's lane watch.
+    let startedAgents: @MainActor @Sendable () -> HomeAgentStarts
 
     public init(me: Participant, attachmentCache: URL = DaemonHomeSource.defaultAttachmentCache,
          attachmentCacheLimit: Int = DaemonHomeSource.defaultAttachmentCacheLimit,
-         startedAgents: @escaping @MainActor @Sendable () -> Set<String> = { [] }) {
+         startedAgents: @escaping @MainActor @Sendable () -> HomeAgentStarts = { HomeAgentStarts() }) {
         self.me = me
         self.startedAgents = startedAgents
         self.attachmentCache = attachmentCache
@@ -76,12 +76,12 @@ public nonisolated final class DaemonHomeSource: HomeSource {
 
     /// The Chief's subagents with a session on its acpmux (``startedAgents``, read on the main actor and
     /// observed): a queued agent that starts shows here first, with no word in the chat. Only the newest set waits.
-    public func agentStarts() async -> AsyncStream<Set<String>> {
-        let (stream, continuation) = AsyncStream.makeStream(of: Set<String>.self, bufferingPolicy: .bufferingNewest(1))
+    public func agentStarts() async -> AsyncStream<HomeAgentStarts> {
+        let (stream, continuation) = AsyncStream.makeStream(of: HomeAgentStarts.self, bufferingPolicy: .bufferingNewest(1))
         let read = startedAgents
         // task-owner: ends with the reader (onTermination); event-driven (Observation)
         let reader = Task {
-            for await peers in ObservationStream(read) { continuation.yield(peers) }
+            for await starts in ObservationStream(read) { continuation.yield(starts) }
             continuation.finish()
         }
         continuation.onTermination = { _ in reader.cancel() }

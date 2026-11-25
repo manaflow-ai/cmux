@@ -105,6 +105,29 @@ fn subagent_goal_a_claude_subagent_starts_with_one_prompt_under_the_goal_on_opus
     );
 }
 
+/// A subagent that waits for the user's OK before a push stops once (user, 2026-11-23: "it spams
+/// too much 'still holding' even though the turn has ended"). The check reads only the condition,
+/// so the condition must accept a wait on the user's decision and a repeat of that report; it
+/// named only money, legal, destructive, credential and physical blockers, so every check sent the
+/// subagent back to post one more hold message.
+#[test]
+fn subagent_goal_a_wait_on_the_users_decision_is_a_stop_and_a_repeat_is_too() {
+    let condition = optchat_chief::goal::CONDITION;
+    assert!(
+        condition.contains("leaves a decision to the user"),
+        "a wait on the user's OK is a stop: {condition}"
+    );
+    assert!(condition.contains("OK of a look"), "{condition}");
+    assert!(
+        condition.contains("repeats an earlier report")
+            && condition.contains("never ask for it again"),
+        "a repeated hold report ends the checks: {condition}"
+    );
+    // A build or CI wait is still not a stop.
+    assert!(condition.contains("Waiting on a build"), "{condition}");
+    assert!(condition.chars().count() <= optchat_chief::goal::CONDITION_LIMIT);
+}
+
 /// A first turn that was cancelled (or failed) is the subagent's end: nothing follows it.
 #[test]
 fn subagent_goal_nothing_follows_a_cancelled_first_turn() {

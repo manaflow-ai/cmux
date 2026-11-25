@@ -800,7 +800,7 @@ class MediaBranch:
 def retry_pause(seconds: float) -> None:
     """The wait before a retried push or API write; its own function so a test can count retries without
     patching time.sleep for the whole interpreter (subprocess waits on a child with it)."""
-    time.sleep(seconds)
+    time.sleep(seconds)  # sleep-ok: backoff between retries of a failed push or API write
 
 
 # Where the API fallback runs `gh`; tests point it at a stand-in.
