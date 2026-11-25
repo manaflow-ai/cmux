@@ -31,10 +31,12 @@ existing one is kept aside and put back at the end.
 """
 import argparse, json, os, plistlib, re, shutil, socket, subprocess, sys, tempfile, time, urllib.request
 
-BUNDLE_ID = "com.cmuxterm.app.nightly.cmux-next"
-APP_NAME = "cmux NEXT.app"
-SOCKET = "/tmp/cmux-nightly-cmux-next.sock"
 HOME = os.path.expanduser("~")
+# The NIGHTLY's identity is the product's, not this script's: it moved from com.cmuxterm.app.nightly.cmux-next ("cmux
+# NEXT.app", /tmp/cmux-nightly-cmux-next.sock) to com.cmuxterm.app.nightly ("cmux NIGHTLY.app", its socket in
+# ~/.local/state/cmux-next). Preflight refuses on any of them; after the install the socket comes from the bundle's own id.
+KNOWN_BUNDLES = ("com.cmuxterm.app.nightly", "com.cmuxterm.app.nightly.cmux-next")
+SOCKET = None
 FEED = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
 DMG = "https://files-next.cmux.com/nightly-next/cmux-nightly-next-macos-arm64-{build}.dmg"
 USER_AGENT = {"User-Agent": "cmux-restart-to-update-migration/1 (Sparkle-compatible test)"}
@@ -157,15 +159,18 @@ SETTINGS = [
 def preflight():
     if run("launchctl", "print", f"gui/{os.getuid()}").returncode != 0:
         sys.exit("refused: no Aqua GUI session for this user")
-    running = run("pgrep", "-fl", f"{APP_NAME}/Contents/MacOS").stdout.strip()
-    if running:
-        sys.exit(f"refused: a cmux NEXT runs here:\n{running}")
-    installed = [p for p in run("mdfind", f"kMDItemCFBundleIdentifier == '{BUNDLE_ID}'").stdout.splitlines()
-                 if p.endswith(".app") and "/cmux-rtu-" not in p]
-    if installed:
-        sys.exit("refused: cmux NEXT is installed here: " + ", ".join(installed))
-    if os.path.exists(SOCKET):
-        sys.exit(f"refused: {SOCKET} exists")
+    for name in ("cmux NIGHTLY.app", "cmux NEXT.app"):
+        running = run("pgrep", "-fl", f"{name}/Contents/MacOS").stdout.strip()
+        if running:
+            sys.exit(f"refused: a {name} runs here:\n{running}")
+    for bundle_id in KNOWN_BUNDLES:
+        installed = [p for p in run("mdfind", f"kMDItemCFBundleIdentifier == '{bundle_id}'").stdout.splitlines()
+                     if p.endswith(".app") and "/cmux-rtu-" not in p]
+        if installed:
+            sys.exit(f"refused: {bundle_id} is installed here: " + ", ".join(installed))
+        for path in socket_candidates(bundle_id):
+            if os.path.exists(path):
+                sys.exit(f"refused: {path} exists")
 
 
 def feed_newest():
@@ -194,17 +199,61 @@ def install(build, folder):
     return app
 
 
+def sanitize(text):
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or None
+
+
+def socket_candidates(bundle_id):
+    """The control socket ControlSocketPath.resolve gives this bundle id: the /tmp name, moved into
+    ~/.local/state/cmux-next when it fits sun_path (the app keeps the /tmp name as a symlink)."""
+    tmp = None
+    for channel_id, channel in (("com.cmuxterm.app.nightly", "nightly"), ("com.cmuxterm.app.rc", "rc"),
+                                ("com.cmuxterm.app.staging", "staging")):
+        if bundle_id == channel_id:
+            tmp = f"/tmp/cmux-{channel}.sock"
+        elif bundle_id.startswith(channel_id + ".") and sanitize(bundle_id[len(channel_id) + 1:]):
+            tmp = f"/tmp/cmux-{channel}-{sanitize(bundle_id[len(channel_id) + 1:])}.sock"
+    if not tmp:
+        return []
+    moved = os.path.join(HOME, ".local/state/cmux-next", tmp[len("/tmp/"):])
+    return [moved, tmp] if len(moved.encode()) <= 103 else [tmp]
+
+
+def use_bundle(app):
+    """Point SOCKET at the installed bundle's control socket; returns its bundle id."""
+    global SOCKET
+    with open(os.path.join(app, "Contents/Info.plist"), "rb") as f:
+        bundle_id = plistlib.load(f).get("CFBundleIdentifier", "")
+    candidates = socket_candidates(bundle_id) or sys.exit(f"refused: no control socket rule for bundle {bundle_id!r}")
+    SOCKET = next((c for c in candidates if os.path.exists(c)), candidates[0])
+    return bundle_id
+
+
+def find_socket(app):
+    """The first candidate that exists now (the update may move it), kept in SOCKET."""
+    global SOCKET
+    with open(os.path.join(app, "Contents/Info.plist"), "rb") as f:
+        candidates = socket_candidates(plistlib.load(f).get("CFBundleIdentifier", ""))
+    found = next((c for c in candidates if os.path.exists(c)), None)
+    if found:
+        SOCKET = found
+    return found
+
+
 def launch(app, log):
     # No launch environment: Sparkle's relaunch has none either, so both launches read the same state.
     opened = run("open", "-n", "--stdout", log, "--stderr", log, app)
     if opened.returncode != 0:
         print(f"open failed: {opened.stderr}")
         return None
-    return wait(lambda: os.path.exists(SOCKET) and rpc("updates.status").get("build"), 120)
+    return wait(lambda: find_socket(app) and rpc("updates.status").get("build"), 120)
 
 
 def app_pids(app):
-    return [int(p) for p in run("pgrep", "-f", os.path.join(app, "Contents/MacOS/")).stdout.split()]
+    # The app's own executables only: Sparkle's installer carries the app's path in its arguments too.
+    prefix = os.path.realpath(app) + "/Contents/MacOS/"
+    rows = (line.strip().split(None, 1) for line in run("ps", "-axo", "pid=,comm=").stdout.splitlines() if line.strip())
+    return [int(r[0]) for r in rows if len(r) == 2 and os.path.realpath(r[1]).startswith(prefix)]
 
 
 def seed(app, work):
@@ -370,7 +419,12 @@ def main():
         recorder = subprocess.Popen(["screencapture", "-x", "-v", "-V", str(opts.film_seconds), film],
                                     stdout=subprocess.DEVNULL, stderr=open(os.path.join(opts.out, "film.log"), "w"))
         report["film_started"] = time.time()
-        record("older build launched, control socket answers", bool(launch(app, log)), rpc("updates.status").get("build"))
+        report["bundle_id"] = use_bundle(app)
+        launched = launch(app, log)
+        record("older build launched, control socket answers", bool(launched), f"{report['bundle_id']} at {SOCKET}: {launched}")
+        if not launched:
+            # Every later check needs the socket; stop here instead of reporting their empty reads.
+            raise SystemExit(1)
         made = seed(app, work)
         report["seed"] = made
         tabless = seed_tabless(app, work, opts.tabless) if opts.tabless else []
@@ -398,7 +452,7 @@ def main():
                json.dumps({k: (staged or {}).get(k) for k in ("phase", "detected_version", "badge", "card")}))
         if opts.tabless:
             ended = [r["terminal"] for r in tabless if not alive(r["pid"])]
-            record("tab-less terminals alive at the click (the attach streams hold them)", not ended,
+            record("tab-less terminals alive at the click (the attach streams hold them)", not ended and bool(tabless),
                    f"ended before the update: {ended}" if ended else f"{len(tabless)} alive")
         pids = app_pids(app)
         steps_before = steps(work)
@@ -409,7 +463,7 @@ def main():
         record("the older app quit for the install", bool(gone), f"pids {pids}")
         replaced = wait(lambda: bundle_build(app) == to_build, 300, 1)
         record("Sparkle replaced the bundle with the newest build", bool(replaced), bundle_build(app))
-        back = wait(lambda: app_pids(app) and os.path.exists(SOCKET) and rpc("updates.status").get("build") == to_build, 180, 1)
+        back = wait(lambda: app_pids(app) and find_socket(app) and rpc("updates.status").get("build") == to_build, 180, 1)
         report["relaunch_s"] = round(time.time() - clicked, 1)
         record("Sparkle relaunched the updated app by itself", bool(back), f"{report['relaunch_s']} s after the click")
         settled = wait(lambda: len(windows_seen(topology())) >= len(before["topology_windows"]) and topology(), 60, 0.5)
@@ -420,14 +474,14 @@ def main():
                  "settings": {p: setting(p) for p in made["settings"]}}
         report["after"] = after
         print("after:", json.dumps(after), flush=True)
-        record("windows: as many, each showing the same workspace", after["topology_windows"] == before["topology_windows"],
+        record("windows: as many, each showing the same workspace", after["topology_windows"] == before["topology_windows"] and bool(before["topology_windows"]),
                f"{before['topology_windows']} -> {after['topology_windows']}" + ("" if settled else " (never settled)"))
-        record("workspaces kept by name", set(before["workspaces"]) <= set(after["workspaces"]),
+        record("workspaces kept by name", set(before["workspaces"]) <= set(after["workspaces"]) and bool(before["workspaces"]),
                f"{before['workspaces']} -> {after['workspaces']}")
         record("terminal process survived the update", after["terminal"]["pid"] == before["terminal"]["pid"] and bool(after["terminal"]["pid"]),
                f"{before['terminal']} -> {after['terminal']}")
         record("terminal output kept", after["terminal"]["token_on_screen"], "")
-        record("settings kept", after["settings"] == before["settings"], f"{before['settings']} -> {after['settings']}")
+        record("settings kept", after["settings"] == before["settings"] and bool(before["settings"]), f"{before['settings']} -> {after['settings']}")
         if opts.agents:
             pids_now = [p for p in agents["pids"] if alive(p)]
             mark = steps(work)
