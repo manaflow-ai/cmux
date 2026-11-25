@@ -2483,7 +2483,7 @@ async fn dispatch_request_with_identity(
             let inbox_on =
                 match tokio::time::timeout_at(admission.answer_due(), hub.config.read()).await {
                     Ok(config) => config.agent_inbox(),
-                    Err(_) => false,
+                    Err(_) => return Err(crate::hub::auto_resume::retry_turn::busy()),
                 };
             // Files uploaded first and named in the prompt get their bytes back here, before
             // anything reads them (`prompt_uploads.rs`). A prompt id the chat took already goes on
