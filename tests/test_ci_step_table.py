@@ -38,6 +38,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 sys.path.insert(0, str(ROOT / "tests"))
 import ci_steps  # noqa: E402
+import crate_results  # noqa: E402
 from test_ci_post_merge_checks import BASE, branch_matches, load_workflows, triggers  # noqa: E402
 
 
@@ -1749,6 +1750,149 @@ class IosJobTest(unittest.TestCase):
                 on = yaml.safe_load((ROOT / ".github/workflows" / name).read_text())[True]
                 self.assertNotIn("pull_request", on)
                 self.assertLessEqual(kept, set(on))
+
+
+class CrateStore:
+    def __init__(self, hits: dict[str, str] | None = None) -> None:
+        self.hits = hits or {}  # step name -> key that passed
+        self.asked: list[tuple[str, str, bool]] = []
+        self.posted: list[tuple[str, str, str, bool]] = []
+        self.error = ""
+
+    def lookup(self, key: str, step: str, audit: bool = False) -> dict | None:
+        self.asked.append((key, step, audit))
+        return {"key": key, "run_url": "r"} if self.hits.get(step) == key else None
+
+    def post(self, key: str, step: str, outcome: str, seconds: float, audit: bool = False) -> None:
+        self.posted.append((key, step, outcome, audit))
+
+
+class CrateResults(unittest.TestCase):
+    """scripts/ci/crate_results.py: cmux-next-daemon-tests keyed per crate (its files, its path dependencies', what
+    its sources name outside it), so a change to one crate reruns only the crates that reach it."""
+
+    TREE = {
+        "cmux-tui/Cargo.toml": '[workspace]\nmembers = ["crates/a", "crates/b", "crates/c"]\n'
+                               '[workspace.dependencies]\nc = { path = "crates/c" }\n',
+        "cmux-tui/Cargo.lock": "# lock\n",
+        "cmux-tui/crates/a/Cargo.toml": '[package]\nname = "a"\n',
+        "cmux-tui/crates/a/src/lib.rs": 'const X: &str = include_str!("../../../../shared/x.txt");\n'
+                                        'fn p() { let _ = std::path::Path::new("..").join("crates"); }\n',
+        "cmux-tui/crates/a/tests/ta.rs": "#[test] fn cmux_next_a() {}\n",
+        "cmux-tui/crates/b/Cargo.toml": '[package]\nname = "b"\n[dev-dependencies]\nc = { workspace = true }\n',
+        "cmux-tui/crates/b/src/lib.rs": "pub fn b() {}\n",
+        "cmux-tui/crates/b/tests/tb.rs": "#[test] fn cmux_next_b() {}\n",
+        "cmux-tui/crates/c/Cargo.toml": '[package]\nname = "c"\n',
+        "cmux-tui/crates/c/src/lib.rs": "pub fn c() {}\n",
+        "shared/x.txt": "x\n",
+        "other/y.txt": "y\n",
+    }
+    ARGS = ["-p", "a", "-p", "b", "--lib", "--test", "ta", "--test", "tb"]
+
+    def repo(self, changes: dict[str, str] | None = None) -> Path:
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(root)])
+        for path, text in {**self.TREE, **(changes or {})}.items():
+            (root / path).parent.mkdir(parents=True, exist_ok=True)
+            (root / path).write_text(text)
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "t"], cwd=root, check=True)
+        return root
+
+    def keys(self, changes: dict[str, str] | None = None) -> dict[str, str]:
+        root = self.repo(changes)
+        ws = crate_results.Workspace(crate_results.tree_files(root), crate_results.disk_reader(root))
+        return {n: crate_results.crate_key(ws, f, n, fl, ts, crate_results.step_doc({})) for n, f, fl, ts in crate_results.crates(ws, self.ARGS)}
+
+    def test_a_crate_key_moves_with_its_files_its_path_deps_and_what_it_names_outside_it(self):
+        base = self.keys()
+        dep = self.keys({"cmux-tui/crates/c/src/lib.rs": "pub fn c() { 1; }\n"})
+        self.assertEqual(dep["a"], base["a"], "a does not reach c")
+        self.assertNotEqual(dep["b"], base["b"], "b reaches c through a workspace dev-dependency")
+        named = self.keys({"shared/x.txt": "changed\n"})
+        self.assertNotEqual(named["a"], base["a"], "a's include_str! names shared/x.txt")
+        self.assertEqual(named["b"], base["b"])
+        self.assertEqual(self.keys({"other/y.txt": "z\n"}), base, "a file no crate reads moves no key")
+        self.assertNotEqual(self.keys({"cmux-tui/Cargo.lock": "# other\n"})["a"], base["a"], "the lock moves all")
+
+    def test_crate_step_names_are_ones_the_store_takes(self):
+        # build-fleet/cmd/controller/step_results.go stepResultStepRE: a name outside it is refused, every lookup misses.
+        store = CrateStore()
+        self.plan(store)
+        self.assertTrue(store.asked)
+        for _key, step, _audit in store.asked:
+            self.assertRegex(step, r"^[A-Za-z0-9._-]{1,80}$")
+
+    def test_a_climb_to_a_folder_around_the_crate_names_nothing(self):
+        root = self.repo()
+        ws = crate_results.Workspace(crate_results.tree_files(root), crate_results.disk_reader(root))
+        self.assertNotIn("cmux-tui/crates/b/src/lib.rs", ws.inputs("cmux-tui/crates/a"))
+
+    def plan(self, store, args=None, env=None):
+        root = self.repo()
+        state = root / "state.json"
+        out = io.StringIO()
+        runs = crate_results.plan(state, list(args or self.ARGS), env or {}, root=root, store=store, out=out)
+        return runs, state, out.getvalue()
+
+    def test_a_crate_whose_key_passed_before_does_not_run(self):
+        keys = self.keys()
+        runs, state, out = self.plan(CrateStore({"crate.a": keys["a"]}))
+        self.assertEqual(runs, ["-p", "b", "--lib", "--test", "tb"])
+        self.assertIn("a reused", out)
+        store = CrateStore()
+        crate_results.post(state, {}, store=store)
+        self.assertEqual([(k, s) for k, s, *_ in store.posted], [(keys["b"], "crate.b")])
+
+    def test_every_crate_reused_runs_nothing(self):
+        keys = self.keys()
+        runs, state, _ = self.plan(CrateStore({"crate.a": keys["a"], "crate.b": keys["b"]}))
+        self.assertEqual(runs, [])
+        store = CrateStore()
+        crate_results.post(state, {}, store=store)
+        self.assertEqual(store.posted, [])
+
+    def test_an_audited_hit_runs_and_posts_as_an_audit(self):
+        keys = self.keys()
+        with mock.patch.object(crate_results.ci_steps, "audited", lambda key, env: key == keys["a"]):
+            runs, state, out = self.plan(CrateStore({"crate.a": keys["a"]}))
+        self.assertIn("-p", runs)
+        self.assertIn("a", runs)
+        store = CrateStore()
+        crate_results.post(state, {}, store=store)
+        self.assertIn((keys["a"], "crate.a", "pass", True), store.posted)
+
+    def test_what_it_cannot_split_or_ask_runs_every_crate(self):
+        self.assertEqual(self.plan(CrateStore(), ["--workspace"])[0], ["--workspace"])
+        self.assertEqual(self.plan(CrateStore(), ["-p", "nope"])[0], ["-p", "nope"])
+        self.assertEqual(self.plan(CrateStore(), ["-p", "a", "--test", "nope"])[0], ["-p", "a", "--test", "nope"])
+        with mock.patch.object(crate_results.ci_steps.StepResults, "from_env", return_value=None):
+            runs, _state, out = self.plan(None)
+        self.assertEqual(runs, self.ARGS)
+        self.assertIn("no store", out)
+
+    def test_a_broken_plan_runs_every_crate_and_only_reused_all_skips(self):
+        out = io.StringIO()
+        with mock.patch.object(crate_results, "plan", side_effect=RuntimeError("boom")), \
+                mock.patch("sys.stdout", out), mock.patch("sys.stderr", io.StringIO()):
+            crate_results.main(["plan", "/dev/null", "--", "-p", "a"])
+        self.assertEqual(out.getvalue().strip(), "-p a")
+        out = io.StringIO()
+        with mock.patch.object(crate_results, "plan", return_value=[]), mock.patch("sys.stdout", out):
+            crate_results.main(["plan", "/dev/null", "--", "-p", "a"])
+        self.assertEqual(out.getvalue().strip(), crate_results.REUSED_ALL)
+
+    def test_the_step_plans_by_crate_and_posts_only_after_a_pass(self):
+        run = ci_steps.load().steps[crate_results.STEP].run
+        self.assertIn("crate_results.py plan", run)
+        self.assertIn('[ "$plan" = REUSED_ALL ]', run)
+        self.assertIn('[ -n "$plan" ] || plan="$all_members"', run, "an empty plan runs every crate")
+        self.assertIn('[ "$status" -ne 0 ] || python3 ../scripts/ci/crate_results.py post', run)
+        self.assertLess(run.index("crate_results.py plan"), run.index("rustup toolchain install"),
+                        "a step whose crates all hit installs and compiles nothing")
+        self.assertIn("scripts/ci/crate_results.py", ci_steps.load().steps[crate_results.STEP].inputs)
+
 
 if __name__ == "__main__":
     unittest.main()

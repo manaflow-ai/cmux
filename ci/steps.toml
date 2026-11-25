@@ -1650,10 +1650,25 @@ inputs = [
   "scripts/ci/cmux-tui-test-target.sh",
   "scripts/ci/r2-cache.sh",
   "scripts/blacksmith-testbox-source-mtimes.py",
+  "scripts/ci/crate_results.py",
   "ghostty-next",
 ]
 run = '''
 cd cmux-tui
+# Each crate's tests are reused when its own inputs (its files, its path dependencies' files, what its sources name
+# outside it, Cargo.lock, the toolchain) passed before anywhere in the fleet: scripts/ci/crate_results.py. Only the
+# crates that missed run; when none did, nothing is installed, restored or compiled.
+# It prints REUSED_ALL for that; any other failure (no output) runs every crate.
+crates="$(mktemp /tmp/cmux-next-crates.XXXXXX.json)"
+all_members="$(../scripts/ci/cmux-next-daemon-test-packages.sh)"
+plan="$(python3 ../scripts/ci/crate_results.py plan "$crates" -- $all_members || true)"
+if [ "$plan" = REUSED_ALL ]; then
+  echo "cmux_next_ test members: every one reused; nothing to run"
+  rm -f "$crates"
+  exit 0
+fi
+[ -n "$plan" ] || plan="$all_members"
+read -r -a members <<<"$plan"
 channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
 rustup toolchain install "$channel" --profile minimal --component clippy,rustfmt
 # The build env cmux-tui-artifacts.yml's feat-cmux-next push job tests with, so its saved target is fresh here: no
@@ -1666,7 +1681,6 @@ unset CMUX_ZIG ZIG
 home="$(mktemp -d /tmp/acpmux-home.XXXXXX)"
 export ACPMUX_HOME="$home" ACPMUX_SOCKET=""
 log="$(mktemp /tmp/cmux-next-tests.XXXXXX.txt)"
-read -r -a members <<<"$(../scripts/ci/cmux-next-daemon-test-packages.sh)"
 echo "cmux_next_ test members: ${members[*]}"
 status=1
 for attempt in 1 2 3; do
@@ -1690,6 +1704,8 @@ done
 acpmux="$(command -v acpmux || true)"
 [ -z "$acpmux" ] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
 rm -rf "$home" "$log"
+[ "$status" -ne 0 ] || python3 ../scripts/ci/crate_results.py post "$crates" || true
+rm -f "$crates"
 exit "$status"
 '''
 
