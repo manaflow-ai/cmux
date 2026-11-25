@@ -143,7 +143,7 @@ fn snapshot(term: &Vt) -> Snapshot {
     for y in 0..total {
         match term.styled_screen_row(y) {
             Some((cells, links, wraps)) => {
-                rows.push((cells.into_iter().zip(links).collect(), wraps))
+                rows.push((cells.into_iter().zip(links).collect(), wraps));
             }
             None => break,
         }
@@ -1057,7 +1057,7 @@ fn prompt_redraw(line: &'static str) -> Redraw {
 fn tui_frame(cols: usize, rows: usize) -> Vec<u8> {
     let mut out = String::from("\x1b[H\x1b[2J");
     let title = format!(" PID USER %CPU COMMAND {cols}x{rows} ");
-    out += &format!("\x1b[1;1H\x1b[7m{title:<cols$}\x1b[0m", cols = cols);
+    out += &format!("\x1b[1;1H\x1b[7m{title:<cols$}\x1b[0m");
     for i in 0..rows.saturating_sub(2) {
         let cmd = format!("process-{i} ✔ 中文");
         let line = format!("{:5} user {:4.1} ", 1000 + i, (i * 7 % 100) as f32);

@@ -4,10 +4,10 @@ import Foundation
 
 /// The Mac's agent chats from a phone, with lines the phone already sends (no host or
 /// acpmux guard change):
-/// - the list: acpmux `_acpmux/sessions {localOnly, limit, cursor}` (a read acpmux's remote
-///   guard serves a Web connection): the chats this Mac's acpmux runs, never a peer's (another
-///   machine's), in acpmux's order, the one the Mac's lists read; of them it keeps what a chat
-///   list shows: no side chat, no subagent session;
+/// - the list: acpmux `_acpmux/sessions {localOnly, topLevelOnly, limit, cursor}` (a read
+///   acpmux's remote guard serves a Web connection): the chats this Mac's acpmux runs, never a
+///   peer's (another machine's), in acpmux's order, the one the Mac's lists read, and only what a
+///   chat list shows: acpmux leaves out side chats and subagent sessions before it pages;
 /// - Open in Tab: daemon `new-conversation-tab {pane, agent_session}` (the Mac's
 ///   `agent.openSessionTab`), or the tab that already shows the chat in that workspace;
 /// - Open in New Workspace: `create-workspace {name}`, then `new-conversation-tab
@@ -32,8 +32,11 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
             // The channel is coming back: the list says it is reconnecting and asks again.
             throw ConnectionInterrupted()
         }
-        // acpmux drops a peer's chats before it pages (`localOnly`), so a page is this Mac's own.
-        var params: [String: JSONValue] = ["localOnly": .bool(true), "limit": .number(Double(Self.chatPageSize))]
+        // acpmux drops a peer's chats (`localOnly`), side chats and sessions another chat's agent
+        // started (`topLevelOnly`) before it pages, so a page is this Mac's own top-level chats.
+        var params: [String: JSONValue] = [
+            "localOnly": .bool(true), "topLevelOnly": .bool(true), "limit": .number(Double(Self.chatPageSize)),
+        ]
         if let cursor { params["cursor"] = .string(cursor) }
         let reply: JSONValue
         do {
@@ -52,16 +55,14 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
         return AgentChatPage(chats: chats, nextCursor: reply["nextCursor"]?.stringValue)
     }
 
-    /// One acpmux `SessionSummary` as a listed chat; nil for one a chat list leaves out: a side
-    /// chat (`side` tag) and a session another chat's agent started (`spawnedBy`, or a
-    /// sub-session's `startedBy`, which stays set after its parent closes: it lists under its parent).
+    /// One acpmux `SessionSummary` as a listed chat; nil for one with no id or harness. acpmux,
+    /// not the phone, leaves out side chats and sessions another chat's agent started
+    /// (`topLevelOnly`, acpmux `session_order::top_level_summary`).
     nonisolated static func listing(_ value: JSONValue) -> AgentChatListing? {
         // A chat with no harness names no agent a tab of it could run.
         guard let id = value["sessionId"]?.stringValue, !id.isEmpty,
               let harness = value["harness"]?.stringValue, !harness.isEmpty else { return nil }
         let tags = value["tags"]
-        if tags?["side"] != nil { return nil }
-        for parent in ["spawnedBy", "startedBy"] where value[parent]?.stringValue?.isEmpty == false { return nil }
         let archived = tags?["archived"] != nil || value["archived"] == .bool(true)
         let title = value["title"]?.stringValue ?? value["lastPrompt"]?.stringValue
         let rolling = value["rollingSummary"]
