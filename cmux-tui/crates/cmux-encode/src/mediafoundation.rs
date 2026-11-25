@@ -359,6 +359,12 @@ impl MfPlat {
             t.SetUINT64(&MF_MT_FRAME_RATE, (u64::from(cfg.fps.max(1)) << 32) | 1)?;
             t.SetUINT64(&MF_MT_PIXEL_ASPECT_RATIO, (1u64 << 32) | 1)?;
             t.SetUINT32(&MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive.0 as u32)?;
+            // The pictures' colour (crate::color::SCREEN: BT.709 video range from sRGB), which
+            // the encoder writes into the SPS VUI so a viewer converts them back the same way.
+            t.SetUINT32(&MF_MT_YUV_MATRIX, MFVideoTransferMatrix_BT709.0 as u32)?;
+            t.SetUINT32(&MF_MT_VIDEO_NOMINAL_RANGE, MFNominalRange_16_235.0 as u32)?;
+            t.SetUINT32(&MF_MT_VIDEO_PRIMARIES, MFVideoPrimaries_BT709.0 as u32)?;
+            t.SetUINT32(&MF_MT_TRANSFER_FUNCTION, MFVideoTransFunc_sRGB.0 as u32)?;
         }
         Ok(t)
     }

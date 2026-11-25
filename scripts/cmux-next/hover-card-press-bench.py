@@ -55,6 +55,16 @@ def wait(check, seconds, step=0.2):
     return None
 
 
+def card_showing(showing=True):
+    """`debug.hover_cards` says a card shows (or, with showing=False, none shows and the coordinator is idle)."""
+    c = rpc("debug.hover_cards") or {}
+    if "error" in c:
+        return None
+    if showing:
+        return c.get("card_showing") == "true"
+    return c.get("card_showing") != "true" and c.get("phase", "idle") == "idle"
+
+
 def row():
     rows = ((rpc("debug.sidebar_rows") or {}).get("windows") or [{}])[0].get("rows") or []
     for r in rows:
@@ -122,9 +132,11 @@ try:
     if not point:
         raise SystemExit("hover-card-press: no workspace row")
     rpc("debug.mouse", {"action": "move", "x": 700, "y": 500})
-    time.sleep(0.5)
+    if not wait(lambda: card_showing(False), 10, 0.05):
+        raise SystemExit("hover-card-press: a card still shows 10 s after the pointer left the rows")
     rpc("debug.mouse", {"action": "move", "x": point[0], "y": point[1]})
-    time.sleep(2.0)  # past the dwell: the card shows
+    if not wait(card_showing, 15, 0.05):  # past the dwell: the card shows
+        raise SystemExit("hover-card-press: the row's card did not show within 15 s of resting the pointer on it")
     for label in ("Show details", "Hide details"):  # warm-up
         rpc("debug.hover_cards", {"press": label})
         time.sleep(0.8)

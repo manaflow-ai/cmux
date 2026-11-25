@@ -2,6 +2,10 @@
 
 Tagged builds isolate app name, bundle ID, debug socket, and DerivedData path so multiple agents and the user's normal app do not collide.
 
+First: a web or daemon change needs no build. `cmux app try .` copies the installed NIGHTLY and swaps your code
+into the copy ([the loop](../../../CLAUDE.md#the-loop-use-it-first-then-test)); a tagged build is for a change
+`scripts/cmux-next/hot-verify.py plan` says needs one (Swift signatures, resources, FFI Rust).
+
 ```bash
 ./scripts/reload.sh --tag <tag>
 ./scripts/reload.sh --tag <tag> --launch
@@ -66,14 +70,36 @@ The helper refuses to run without `CMUX_TAG`, targets the tag's socket (cmux NEX
 
 `/tmp/cmux-cli` points at the most recently reloaded build and can target the user's main app socket, so it is never safe for tagged dogfood.
 
+## Quitting a tagged build ends its helpers
+
+A shipped cmux keeps its terminal owner, acpmux, the Chief host and their shells and agents running
+after a quit, so the next launch picks them up. A tagged build (`com.cmuxterm.app.debug.<tag>`, not the
+`next` daily) does not: at launch it starts `cmux-tui __dev-reaper`, which waits for the app to exit
+(Cmd-Q, the end-sessions quit, `reload.sh` replacing it, a crash) and then ends every process that names
+`cmux DEV <tag>.app/`, every terminal holder or host owned by it, and their descendants. `reload.sh`
+also ends the old build's tree before it replaces the bundle. Set `CMUX_DEV_KEEP_HELPERS=1` in the app's
+environment (and for `reload.sh`) to keep them, to test that terminals survive a quit.
+
+```bash
+./scripts/dev-build.py list                  # every tag with a process here, its owner chat and verdict
+./scripts/dev-build.py stop --tag <tag>      # quit the app, end its whole tree (--dry-run to preview)
+./scripts/dev-build.py stop --all-idle       # every tag with only helpers left, or whose claiming chat closed
+```
+
+`reload.sh --tag <tag> --launch` run from an agent chat claims the tag for that chat
+(`dev-build.py claim`), so `stop --all-idle` ends the build once the chat is closed. A running build
+nobody claimed is left alone. `scripts/cmux-next/quit-leaves-no-helpers-live.py <tag> <app>` launches a
+tagged build, ends it each way and checks that nothing of the tag is left.
+
 ## Daemon edits
 
 A change to the cmux-tui daemon or acpmux needs no app reload. Swap the tagged session's daemon for the
 new build and keep its terminals and agent sessions: `<new build>/cmux-tui --session cmux-app-<tag>
 server restart`, and `<new build>/cmux-tui-acpmux daemon restart` for acpmux
-([cmux-tui/AGENTS.md](../../../cmux-tui/AGENTS.md#daemon-edits-swap-the-running-daemon)). The next
-`reload.sh` launch hands the session back to the daemon bundled in the app, unless you bundle your build
-with `CMUX_NEXT_TUI_BIN=<path>`.
+([cmux-tui/AGENTS.md](../../../cmux-tui/AGENTS.md#daemon-edits-swap-the-running-daemon)). Quitting the
+app ends that daemon (above) unless the app runs with `CMUX_DEV_KEEP_HELPERS=1`; with it, the next
+`reload.sh` launch (also run with `CMUX_DEV_KEEP_HELPERS=1`) hands the session back to the daemon bundled
+in the app, unless you bundle your build with `CMUX_NEXT_TUI_BIN=<path>`.
 
 ## Cleanup
 
