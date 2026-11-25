@@ -1,0 +1,3 @@
+{"label":"first-window","footprint":"cmux [24617]: 64-bit Footprint: 64 MB (16384 bytes per page)"}
+{"label":"after-5s","footprint":"cmux [24617]: 64-bit Footprint: 262 MB (16384 bytes per page)"}
+{"label":"after-walk","footprint":"cmux [24617]: 64-bit Footprint: 257 MB (16384 bytes per page)"}

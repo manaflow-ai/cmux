@@ -57,12 +57,16 @@ final class TooltipPanel: NSPanel {
     let legibility = ThemeChangeView()
     /// The scope the glass draws in: the hovered view's, at full strength.
     private weak var adoptedScope: ThemeScope?
+    /// The shared hover surface's look the glass draws (``HoverSurfaceLook``).
+    private var hoverLook: HoverSurfaceLook
 
     init() {
         glass = Glass.makeSurface(.tooltip, cornerRadius: Self.radius, interactive: false)
         // The glass is its clear window's whole content: before macOS 26 its blur samples what is
         // behind the window (the page, a terminal), as its Liquid Glass refracts it.
         glass.samplesBehindWindow = true
+        hoverLook = HoverSurfaceLook.current
+        hoverLook.apply(to: glass)
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         isOpaque = false
         backgroundColor = .clear
@@ -105,10 +109,11 @@ final class TooltipPanel: NSPanel {
     /// keeps its elevation contract after that replacement.
     private func configureSurfaceShadow() {
         guard let layer = surface.layer else { return }
+        let shadow = hoverLook.shadow(default: TooltipSurface.shadow)
         layer.shadowColor = NSColor.black.cgColor
-        layer.shadowOpacity = Float(TooltipSurface.shadow.alpha)
-        layer.shadowRadius = TooltipSurface.shadow.layerRadius
-        layer.shadowOffset = TooltipSurface.shadow.layerOffset()
+        layer.shadowOpacity = Float(shadow.alpha)
+        layer.shadowRadius = shadow.layerRadius
+        layer.shadowOffset = shadow.layerOffset()
     }
 
     override var canBecomeKey: Bool { false }
@@ -127,6 +132,12 @@ final class TooltipPanel: NSPanel {
             adoptedScope = scope
         }
         self.appearance = appearance
+        // The shared hover surface (solid by default; its glass is the setting's other value), applied
+        // again only when the setting changed, so a pinned material holds.
+        if HoverSurfaceLook.current != hoverLook {
+            hoverLook = HoverSurfaceLook.current
+            hoverLook.apply(to: glass)
+        }
         glass.refreshMaterial()
         glass.applyTheme()
         content.set(text: value, shortcut: shortcut)

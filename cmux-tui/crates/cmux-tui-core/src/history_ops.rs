@@ -218,7 +218,7 @@ fn day_start_ms(fields: &Map<String, Value>, now_ms: i64) -> Result<i64, Resourc
 
 /// Local midnight of today in the daemon's time zone.
 #[cfg(unix)]
-fn local_day_start_ms(now_ms: i64) -> i64 {
+pub(crate) fn local_day_start_ms(now_ms: i64) -> i64 {
     let secs = now_ms.div_euclid(1000) as libc::time_t;
     // SAFETY: localtime_r writes only into `tm`, which outlives the call.
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
@@ -232,7 +232,7 @@ fn local_day_start_ms(now_ms: i64) -> i64 {
 
 /// UTC midnight: no local time zone lookup on this platform yet.
 #[cfg(not(unix))]
-fn local_day_start_ms(now_ms: i64) -> i64 {
+pub(crate) fn local_day_start_ms(now_ms: i64) -> i64 {
     now_ms - now_ms.rem_euclid(86_400_000)
 }
 

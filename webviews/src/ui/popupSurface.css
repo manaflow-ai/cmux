@@ -17,9 +17,11 @@
      that does not clips its own label (Leo 2026-11-12: "it doesn't follow").
      test/floating-ui-follows-text-size.test.ts holds the floating surfaces to it. */
   --ui-px: calc(1px * var(--cmux-interface-scale, 1));
-  /* The design scale's popup radius (schemas/design-scale namedRadii popup), the native GlassMenu's too. */
-  --ui-popup-radius: var(--ds-radius-popup, 8px);
-  --ui-popup-padding: calc(var(--ds-space-1) * var(--cmux-interface-scale, 1));
+  /* The floating role's corner (schemas/design-roles: popover, and menu below), the native GlassMenu's
+     too. A popup that draws another corner sets --ui-popup-radius on itself. A look's --menu-radius and
+     --menu-padding (README "Menu tokens a look sets") win; unset, today's values. */
+  --ui-popup-radius: var(--menu-radius, var(--role-popover-radius, 8px));
+  --ui-popup-padding: var(--menu-padding, calc(var(--ds-space-1) * var(--cmux-interface-scale, 1)));
   /* The raised step of the shared elevation scale (`--elevation-2`, pages/shared/desktop.css; the
      native PopupStyle.elevation2) and a hairline edge: one
      elevation in pages and in the app chrome. popup-surface.test.ts holds the two in step. The
@@ -28,14 +30,14 @@
      draws its own border. */
   /* The fallback is the same step, for a host that loads this sheet without desktop.css (the
      gallery shell): an undefined token would drop the whole shadow, rim included. */
-  --ui-popup-drop: var(--elevation-2, 0 2px 6px color-mix(in srgb, black 11%, transparent));
+  --ui-popup-drop: var(--menu-shadow, var(--elevation-2, 0 2px 6px color-mix(in srgb, black 11%, transparent)));
   --ui-popup-shadow:
     var(--ui-popup-drop),
     inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ui-popup-edge, color-mix(in srgb, currentColor 12%, transparent));
-  --ui-row-height: calc(var(--ds-control-row) * var(--cmux-interface-scale, 1));
+  --ui-row-height: var(--menu-row-height, calc(var(--ds-control-row) * var(--cmux-interface-scale, 1)));
   /* A row's highlight is concentric with its popup (design/grid.md section 1: the outer radius minus the
      inset, never less than 4): 8 - 4 = 4. A select on AppKit's menu lines keeps its 5 and 5 (ui.css). */
-  --ui-row-radius: max(4px, calc(var(--ui-popup-radius) - var(--ui-popup-padding, 4px)));
+  --ui-row-radius: var(--menu-hover-radius, max(4px, calc(var(--ui-popup-radius) - var(--ui-popup-padding, 4px))));
   --ui-row-padding-inline: calc(var(--ds-space-2) * var(--cmux-interface-scale, 1));
   /* The fade-in a dialog and the find pill take. A popup, a menu, a tooltip and a hover card have
      none: they open and close in one frame (below, and pages/shared/desktop.css). The motion scale's
@@ -48,6 +50,11 @@
   /* The dialog's grow-in and its backdrop's fade-in take the standard step. A New Tab sets it to 0s
      (newtab/noEntry.css), as it does --ui-popup-open. */
   --ui-dialog-open: var(--cmux-motion-standard, 180ms);
+}
+/* A menu takes the menu role's corner (schemas/design-roles), the same step as a popover's today; a look's
+   --menu-radius wins here too. */
+:where(.ui-popup.ui-menu, .ui-popup.ui-context-menu) {
+  --ui-popup-radius: var(--menu-radius, var(--role-menu-radius, 8px));
 }
 
 /* appearance.borders none (data-borders on the root, applyAgentTheme) clears the rim in place, as it
@@ -140,9 +147,13 @@
 }
 .ui-popup {
   --glass-elevation: var(--ui-popup-drop);
-  --glass-edge: var(--ui-popup-edge, color-mix(in srgb, currentColor 12%, transparent));
+  --glass-edge: var(--menu-border, var(--ui-popup-edge, color-mix(in srgb, currentColor 12%, transparent)));
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
   --glass-opaque: var(--surface-popup);
+}
+/* appearance.borders none clears a look's menu edge (--menu-border) too, as it clears the default one. */
+:root[data-borders="none"] .ui-popup {
+  --glass-edge: transparent;
 }
 /* A floating glass surface that is not a .ui-popup (a toolbar, a preview, a suggestion list) falls
    back to the same opaque popup surface under Reduce Transparency. */
@@ -184,13 +195,13 @@
    same padding on every side. A dialog whose padding is not the default sets --ui-dialog-padding on its
    popup and pads with it (scripts/cmux-next/check-concentric-containers.py). */
 .ui-dialog.ui-glass {
-  --ui-dialog-padding: var(--ds-space-5);
+  --ui-dialog-padding: var(--role-dialog-inset);
   --glass-tint: var(--transient-surface-veil);
   --glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
   --glass-elevation: var(--elevation-2);
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
   --glass-opaque: var(--surface-popup);
-  border-radius: calc(var(--ds-radius-control) + var(--ui-dialog-padding));
+  border-radius: calc(var(--role-control-radius) + var(--ui-dialog-padding));
   background: var(--glass-tint);
 }
 /* A quick-open palette (the ledger's) is a dialog but floats like a popup: it takes the popup tint, not
@@ -206,15 +217,17 @@
 :where(.ui-menu-group-label) {
   display: block;
   padding: 6px var(--ui-row-padding-inline) 2px;
-  color: color-mix(in srgb, currentColor 55%, transparent);
-  font-size: var(--text-caption);
+  color: var(--menu-label-color, color-mix(in srgb, currentColor 55%, transparent));
+  font-size: var(--menu-label-size, var(--text-caption));
   line-height: var(--text-caption--line-height);
-  font-weight: var(--weight-emphasis);
+  font-weight: var(--menu-label-weight, var(--weight-emphasis));
   letter-spacing: var(--text-caption--letter-spacing);
 }
 /* A menu's shortcut column and its search field use the type scale where the host loads no ui.css (the
    agent pane): a field does not inherit the page's font, so it drew the browser's 13.33 px. */
 :where(.ui-menu-shortcut) {
+  /* Unset, --menu-shortcut-color leaves the color to the row (an unset custom property inherits). */
+  color: var(--menu-shortcut-color);
   font-size: var(--text-caption);
   font-variant-numeric: tabular-nums;
   line-height: var(--text-caption--line-height);
@@ -230,7 +243,7 @@
   height: 1px;
   margin: 4px var(--ui-row-padding-inline);
   border: 0;
-  background: color-mix(in srgb, currentColor 12%, transparent);
+  background: var(--menu-separator, color-mix(in srgb, currentColor 12%, transparent));
 }
 
 /* Directional enter and exit (ui/presence.ts, Leo 2026-10-20): a surface comes in from the edge it
@@ -390,7 +403,10 @@
 .ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)) {
   --ui-menu-lead: var(--cmux-menu-icon-x);
   --ui-menu-icon-text: calc(var(--cmux-menu-icon-size) + var(--cmux-menu-icon-gap));
-  padding: var(--cmux-menu-highlight-inset);
+  /* A look's menu tokens (README "Menu tokens a look sets"): the panel's padding is the highlight's
+     inset, so a row's text stays on the grid's leading whatever the padding. Unset: the grid's. */
+  --ui-menu-inset: var(--menu-padding, var(--cmux-menu-highlight-inset));
+  padding: var(--ui-menu-inset);
 }
 .ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)):has(.ui-menu-check) {
   --ui-menu-lead: var(--cmux-menu-state-icon-x);
@@ -401,15 +417,15 @@
   gap: var(--cmux-menu-icon-gap);
   min-height: var(--ui-row-height);
   padding-block: 0;
-  padding-inline: calc(var(--ui-menu-lead) - var(--cmux-menu-highlight-inset))
-    calc(var(--cmux-menu-trailing) - var(--cmux-menu-highlight-inset));
-  border-radius: var(--cmux-menu-highlight-radius);
+  padding-inline: calc(var(--ui-menu-lead) - var(--ui-menu-inset))
+    calc(var(--cmux-menu-trailing) - var(--ui-menu-inset));
+  border-radius: var(--menu-hover-radius, var(--cmux-menu-highlight-radius));
 }
 .ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)) .ui-menu-item .ui-menu-check {
   position: absolute;
   inset-block: 0;
   inset-inline-start: calc(
-    var(--cmux-menu-state-x) - var(--cmux-menu-highlight-inset) - var(--cmux-menu-icon-size) / 2
+    var(--cmux-menu-state-x) - var(--ui-menu-inset) - var(--cmux-menu-icon-size) / 2
   );
   display: inline-flex;
   align-items: center;
@@ -431,21 +447,41 @@
 }
 .ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)):has(.ui-menu-item > :is(.ui-menu-icon, .icon-menu-emoji))
   .ui-menu-item:not(:has(> :is(.ui-menu-icon, .icon-menu-emoji))) {
-  padding-inline-start: calc(var(--ui-menu-lead) + var(--ui-menu-icon-text) - var(--cmux-menu-highlight-inset));
+  padding-inline-start: calc(var(--ui-menu-lead) + var(--ui-menu-icon-text) - var(--ui-menu-inset));
 }
 /* A row with a second line (a folder's path) keeps its first line on the row's middle. */
-.ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)) .ui-menu-item:has(.acpmux-menu-description) {
+.ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)) .ui-menu-item:has(.acpmux-menu-description, .ui-menu-subtitle) {
   padding-block: calc((var(--ui-row-height) - var(--text-control--line-height)) / 2);
 }
 .ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)) .ui-menu-group-label {
-  padding-inline: calc(var(--ui-menu-lead) - var(--cmux-menu-highlight-inset))
-    calc(var(--cmux-menu-trailing) - var(--cmux-menu-highlight-inset));
+  padding-inline: calc(var(--ui-menu-lead) - var(--ui-menu-inset))
+    calc(var(--cmux-menu-trailing) - var(--ui-menu-inset));
 }
 .ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)) .ui-menu-shortcut {
   padding-inline-start: var(--cmux-menu-shortcut-gap);
 }
 .ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)) .ui-separator {
-  margin-inline: calc(var(--cmux-menu-separator-inset) - var(--cmux-menu-highlight-inset));
+  margin-inline: calc(var(--menu-separator-inset, var(--cmux-menu-separator-inset)) - var(--ui-menu-inset));
+}
+/* A look's destructive ink and disabled strength in every host (ui.css draws its own from the same
+   tokens). Unset, each leaves the row as it was: the color inherits, the opacity is its initial 1. */
+:where(.ui-menu-item-destructive) {
+  color: var(--menu-destructive);
+}
+:where(.ui-menu-item[data-disabled]) {
+  opacity: var(--menu-disabled-opacity);
+}
+/* A row's second line (MenuItem `subtitle`): under its title, quieter and smaller. */
+:where(.ui-menu-text) {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+:where(.ui-menu-subtitle) {
+  color: var(--menu-subtitle-color, color-mix(in srgb, currentColor 55%, transparent));
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 /* A menu opened from a field-like trigger (a select, the saved environment's Host field) is that
@@ -477,6 +513,12 @@
    side: it may cover its own anchor, so it fits the window less the edge margins. */
 .ui-popup[data-popup-shift] { --available-height: calc(100vh - 16px); }
 
+/* A point-anchored menu can cross its pointer. Only a menu taller than the viewport scrolls. */
+.ui-popup[data-pointer-menu] {
+  box-sizing: border-box;
+  max-height: 100dvh;
+}
+
 /* Keep the popup's tint, rim and exterior shadow outside the row mask. A constrained
    flex child takes the same available content height; the shell keeps its existing padding. */
 .ui-popup.ui-glass.ui-popup-scroll-shell {
@@ -496,23 +538,36 @@
 
 /* Shared scroll-edge fade: rows soften only at edges with more content. The tracker
    disconnects its observers and passive scroll listener when the surface unmounts. */
+/* Each band eases (smoothstep sampled at 9 stops), not a straight ramp: a linear band meets full ink
+   at a slope break the eye reads as a hard line under the fade (Leo, 2026-11-22: "there's
+   simultaneously a fade AND a hard break ideally lessen the hard break"). A band of 0px is all
+   ink. */
 .ui-scroll-edge-fade:is([data-fade-top], [data-fade-bottom]) {
   --ui-scroll-fade-top: 0px;
   --ui-scroll-fade-bottom: 0px;
-  -webkit-mask-image: linear-gradient(
+  --ui-scroll-fade-mask: linear-gradient(
     to bottom,
-    transparent,
-    #000 var(--ui-scroll-fade-top),
-    #000 calc(100% - var(--ui-scroll-fade-bottom)),
-    transparent
+    rgb(0 0 0 / 0) calc(var(--ui-scroll-fade-top) * 0),
+    rgb(0 0 0 / 0.043) calc(var(--ui-scroll-fade-top) * 0.125),
+    rgb(0 0 0 / 0.156) calc(var(--ui-scroll-fade-top) * 0.25),
+    rgb(0 0 0 / 0.316) calc(var(--ui-scroll-fade-top) * 0.375),
+    rgb(0 0 0 / 0.5) calc(var(--ui-scroll-fade-top) * 0.5),
+    rgb(0 0 0 / 0.684) calc(var(--ui-scroll-fade-top) * 0.625),
+    rgb(0 0 0 / 0.844) calc(var(--ui-scroll-fade-top) * 0.75),
+    rgb(0 0 0 / 0.957) calc(var(--ui-scroll-fade-top) * 0.875),
+    rgb(0 0 0 / 1) calc(var(--ui-scroll-fade-top) * 1),
+    rgb(0 0 0 / 1) calc(100% - var(--ui-scroll-fade-bottom) * 1),
+    rgb(0 0 0 / 0.957) calc(100% - var(--ui-scroll-fade-bottom) * 0.875),
+    rgb(0 0 0 / 0.844) calc(100% - var(--ui-scroll-fade-bottom) * 0.75),
+    rgb(0 0 0 / 0.684) calc(100% - var(--ui-scroll-fade-bottom) * 0.625),
+    rgb(0 0 0 / 0.5) calc(100% - var(--ui-scroll-fade-bottom) * 0.5),
+    rgb(0 0 0 / 0.316) calc(100% - var(--ui-scroll-fade-bottom) * 0.375),
+    rgb(0 0 0 / 0.156) calc(100% - var(--ui-scroll-fade-bottom) * 0.25),
+    rgb(0 0 0 / 0.043) calc(100% - var(--ui-scroll-fade-bottom) * 0.125),
+    rgb(0 0 0 / 0) calc(100% - var(--ui-scroll-fade-bottom) * 0)
   );
-  mask-image: linear-gradient(
-    to bottom,
-    transparent,
-    #000 var(--ui-scroll-fade-top),
-    #000 calc(100% - var(--ui-scroll-fade-bottom)),
-    transparent
-  );
+  -webkit-mask-image: var(--ui-scroll-fade-mask);
+  mask-image: var(--ui-scroll-fade-mask);
 }
 .ui-scroll-edge-fade[data-fade-top] {
   --ui-scroll-fade-top: 14px;
@@ -538,3 +593,206 @@
   max-height: min(420px, var(--available-height, 420px));
   overflow-y: auto;
 }
+/* A popup keeps the box it opened with while its data changes (ui/popupSettle.ts writes the three
+   lengths once the box drew the same for two frames, and takes them away while the person types or
+   presses in it). The width holds and never narrows while open; the height is a floor, and the
+   whole height where the popup scrolls its rows ("box"). `!important`: a popup's own class or an
+   inline width must not win over the rule every popup shares; the sheet's `max-*` caps still bound
+   it, so a popup still gives way to a short window. */
+.ui-popup[data-popup-settled] {
+  width: var(--popup-settled-width) !important;
+  min-height: min(var(--popup-settled-height), var(--available-height, 100vh)) !important;
+}
+.ui-popup[data-popup-settled="box"] { height: var(--popup-settled-height) !important; }
+/* From its first settled frame until it closes, freed for the person's input or not: never narrower
+   than it has been (the floor is at least the sheet's own min-width, which it replaces). */
+.ui-popup[data-popup-floor] { min-width: min(var(--popup-settled-floor), calc(100vw - 16px)) !important; }
+
+/* A page-drawn context menu's submenu (ContextMenu `submenu`): its panel opens at the row's inline
+   end, its edge on the parent panel's edge and its first row level with the row (the row sits the
+   highlight inset in from both). No measurement: the row's host is the containing block. A menu
+   with no submenu row draws none of this. */
+.ui-context-submenu-host {
+  position: relative;
+}
+.ui-popup.ui-context-menu.ui-context-submenu {
+  position: absolute;
+  inset-block-start: calc(-1 * var(--cmux-menu-highlight-inset));
+  inset-inline-start: calc(100% + var(--cmux-menu-highlight-inset));
+  min-width: 180px;
+  z-index: var(--layer-raised);
+}
+
+/* MENU STYLE V2 (experiment menu-style-v2, menuStyleV2.experiment.ts; Leo's taste build list): the
+   arm is `data-menu-style` on a page-drawn menu's root (Menu.tsx MenuPopup, ContextMenu.tsx), and
+   these rules move only the tokens the grid above already reads, so every row, check, icon,
+   separator and submenu moves together. A menu without the attribute (arm off) is untouched.
+   - an inset pill: the highlight 4 in from the panel's edge, radius 6 (the panel's 10 less the
+     inset, concentric), 28 px rows;
+   - the shortcut column at the trailing edge in the secondary text colour;
+   - a submenu flush with its row (Menu.tsx Submenu offsets, MENU_V2_INSET; the context submenu above);
+   - destructive rows red (ContextMenu also moves them into one last group, menuArrange.ts);
+   - light: a soft shadow; dark: a 1 px hairline and no shadow. */
+.ui-popup:is(.ui-menu, .ui-context-menu):is([data-menu-style="v2"], [data-menu-style="v2-glass"]) {
+  --cmux-menu-highlight-inset: 4px;
+  --cmux-menu-highlight-radius: 6px;
+  --ui-popup-radius: 10px;
+  --ui-row-height: calc(28px * var(--cmux-interface-scale, 1));
+  border-radius: var(--ui-popup-radius);
+}
+.ui-popup:is(.ui-menu, .ui-context-menu)[data-menu-style="v2"] {
+  --glass-edge: light-dark(
+    color-mix(in srgb, currentColor 10%, transparent),
+    color-mix(in srgb, currentColor 18%, transparent)
+  );
+  /* The shadow's colour is clear in dark, where the inset 1 px hairline is the panel's only edge. */
+  --glass-elevation:
+    0 6px 20px light-dark(rgb(0 0 0 / 12%), transparent), 0 1px 3px light-dark(rgb(0 0 0 / 8%), transparent),
+    inset 0 0 0 1px light-dark(transparent, color-mix(in srgb, currentColor 18%, transparent));
+}
+/* V2 glass: the same rows on a clearer, more frosted 12 px panel with a soft shadow in both schemes. */
+.ui-popup:is(.ui-menu, .ui-context-menu)[data-menu-style="v2-glass"] {
+  --ui-popup-radius: 12px;
+  --cmux-menu-highlight-radius: 8px;
+  --glass-tint: color-mix(in srgb, var(--glass-surface, Canvas) 62%, transparent);
+  --glass-backdrop: var(--ds-glass-chip-blur); /* the chip level: 24 px, 1.6 */
+  --glass-elevation: 0 10px 30px color-mix(in srgb, black 18%, transparent), var(--elevation-1, 0 1px 3px color-mix(in srgb, black 10%, transparent));
+}
+.ui-popup[data-menu-style] .ui-menu-item .ui-menu-shortcut {
+  margin-inline-start: auto;
+  color: var(--ui-fg-2, color-mix(in srgb, currentColor 55%, transparent));
+}
+.ui-popup[data-menu-style] .ui-menu-item.ui-menu-item-destructive {
+  color: var(--ds-color-danger, var(--cmux-app-danger, light-dark(#c0392b, #ff6b6b)));
+}
+
+/* MENU ROW STATES (experiment menu-row-states, menuRowStates.experiment.ts): `data-menu-states` on
+   the menu's root. The check column is already every row's when any row is checkable (the grid
+   above). A disabled row with a reason draws it, one amber line under its label, and keeps only its
+   label and marks dimmed; an async row's trailing slot is reserved from the start, so its spinner
+   moves nothing. */
+.ui-popup[data-menu-states] .ui-menu-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  color: color-mix(in srgb, currentColor 45%, transparent);
+}
+.ui-popup[data-menu-states] .ui-menu-reason {
+  overflow: hidden;
+  color: var(--ds-color-attention, light-dark(#a15c00, #f0c674));
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ui-popup[data-menu-states] .ui-menu-item:is([data-disabled], :disabled):has(.ui-menu-reason) {
+  padding-block: var(--grid-half-step);
+  opacity: 1;
+  --ui-menu-reason-row: 1;
+}
+/* The row's children ask for the row's custom property, not for its `:has()`: a `:has()` before a
+   subject that names nothing (`> :not(.ui-menu-text)`) made Chromium restyle every element of the
+   page on any `:has()` change (test/css-invalidation-scope.test.ts). */
+@container style(--ui-menu-reason-row: 1) {
+  .ui-popup[data-menu-states] .ui-menu-item:is([data-disabled], :disabled) > :not(.ui-menu-text) {
+    opacity: 0.45;
+  }
+}
+.ui-popup[data-menu-states] .ui-menu-async {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--cmux-menu-icon-size);
+  height: var(--cmux-menu-icon-size);
+  margin-inline-start: auto;
+}
+.ui-popup[data-menu-states] .ui-menu-shortcut + .ui-menu-async {
+  margin-inline-start: var(--cmux-menu-icon-gap);
+}
+.ui-popup[data-menu-states] .ui-menu-spinner {
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-block-start-color: currentColor;
+  border-radius: 50%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ui-popup[data-menu-states] .ui-menu-spinner {
+    animation: cmux-spin var(--cmux-spinner-period) linear infinite;
+  }
+}
+/* The open trigger takes the panel's fill, so the button and its menu read as one (arm "on"). */
+.ui-button.ui-button[data-menu-join][data-popup-open] {
+  background: var(--glass-tint, var(--surface-popup, Canvas));
+}
+
+/* A resizable popup's grips (PopupResize.tsx, cmux#51745), as the model menu's
+   (quickModelColumns.css .acpmux-cols-resize): on the side edge away from the one lined up with its
+   button, the top or bottom edge away from it, and the corner between them, each centred on the edge.
+   A dropdown above its chip grows up, right and up-right; one below it grows down and away. A popup
+   that clips sets --ui-popup-resize-out to 0 so its grips sit wholly inside. */
+.ui-popup[data-resizable] { position: relative; }
+.ui-popup-resize {
+  position: absolute;
+  z-index: var(--layer-raised, 1);
+  touch-action: none;
+}
+.ui-popup-resize[data-axis="x"] {
+  top: var(--ds-space-3);
+  bottom: var(--ds-space-3);
+  width: 8px;
+  cursor: ew-resize;
+}
+.ui-popup-resize[data-axis="x"][data-edge="end"] { right: var(--ui-popup-resize-out, -4px); }
+.ui-popup-resize[data-axis="x"][data-edge="start"] { left: var(--ui-popup-resize-out, -4px); }
+.ui-popup-resize[data-axis="y"] {
+  left: var(--ds-space-3);
+  right: var(--ds-space-3);
+  height: var(--ds-space-2);
+  cursor: ns-resize;
+}
+.ui-popup-resize[data-axis="y"][data-side="top"] { top: var(--ui-popup-resize-out, -4px); }
+.ui-popup-resize[data-axis="y"][data-side="bottom"] { bottom: var(--ui-popup-resize-out, -4px); }
+.ui-popup-resize[data-axis="both"] {
+  width: var(--ds-space-3);
+  height: var(--ds-space-3);
+  cursor: nwse-resize;
+}
+.ui-popup-resize[data-axis="both"][data-edge="end"] { right: var(--ui-popup-resize-out, -4px); }
+.ui-popup-resize[data-axis="both"][data-edge="start"] { left: var(--ui-popup-resize-out, -4px); }
+.ui-popup-resize[data-axis="both"][data-side="bottom"] { bottom: var(--ui-popup-resize-out, -4px); }
+.ui-popup-resize[data-axis="both"][data-side="top"] { top: var(--ui-popup-resize-out, -4px); }
+.ui-popup-resize[data-axis="both"][data-edge="start"][data-side="bottom"],
+.ui-popup-resize[data-axis="both"][data-edge="end"][data-side="top"] { cursor: nesw-resize; }
+/* The edges' bar shows on hover and through a drag; it draws on the edge, taking no presses. */
+.ui-popup-resize::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  translate: -50% -50%;
+  border-radius: var(--ds-radius-control);
+  background: color-mix(in srgb, currentColor 30%, transparent);
+  opacity: 0;
+  pointer-events: none;
+}
+.ui-popup-resize[data-axis="x"]::after { width: 2px; height: 28px; }
+.ui-popup-resize[data-axis="y"]::after { width: 28px; height: calc(var(--ds-space-1) / 2); }
+.ui-popup-resize[data-axis="both"]::after {
+  inset: var(--ds-space-1);
+  translate: none;
+  border-radius: 0;
+  background: none;
+  border-right: 1.5px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-bottom: 1.5px solid color-mix(in srgb, currentColor 30%, transparent);
+}
+.ui-popup-resize[data-axis="both"][data-edge="start"]::after { transform: scaleX(-1); }
+.ui-popup-resize[data-axis="both"][data-side="top"]::after { transform: scaleY(-1); }
+.ui-popup-resize[data-axis="both"][data-edge="start"][data-side="top"]::after { transform: scale(-1, -1); }
+.ui-popup-resize:hover::after,
+.ui-popup-resize[data-dragging]::after { opacity: 1; }
+/* A menu made taller than its rows keeps them at its top; its scroller takes the room. */
+.ui-popup.ui-popup-scroll-shell[data-resized-height] > .ui-popup-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }

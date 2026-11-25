@@ -22,6 +22,9 @@ export type UnreadSide = "in" | "above" | "below";
 /// this when there's nothing"). Unknown until the transcript says, which a lone line (the gallery)
 /// never does: it draws.
 /// `placed`: the line's observer answered once, so where it first showed is known.
+/// `count`: the messages under the line ("157 new messages", sinceNews.ts `sinceCount`), kept current
+/// while the line is unread and frozen once it is read, so a dissipating label never changes under
+/// the eye. Unknown (the label reads "New") until the transcript counts.
 export type UnreadView = {
   mark: string;
   side: UnreadSide;
@@ -30,6 +33,7 @@ export type UnreadView = {
   hidden: boolean;
   quiet?: boolean;
   placed?: boolean;
+  count?: number;
 };
 
 /// How the banner shows, the `agentPane.display.unreadBanner` setting (chatDisplay.ts): expanded
@@ -51,7 +55,8 @@ function publish(next: UnreadView): void {
     now.read === next.read &&
     now.hidden === next.hidden &&
     now.quiet === next.quiet &&
-    now.placed === next.placed
+    now.placed === next.placed &&
+    now.count === next.count
   )
     return;
   view = next;
@@ -93,6 +98,15 @@ export function noteUnreadNews(mark: string, news: boolean): void {
   const now = of(mark);
   const live = news && now.quiet === true && now.side === "in";
   publish({ ...now, quiet: !news, read: now.read || live });
+}
+
+/// How many messages came under the line for `mark` (the transcript's `sinceCount`; Leo, 2026-11-15,
+/// of the terminal's "157 new messages" rule: "we needto properly do somthing like this in the gui
+/// somehow"). Only the label's words change: the row takes no height either way. Frozen once read.
+export function noteUnreadCount(mark: string, count: number | undefined): void {
+  const now = of(mark);
+  if (now.read || count === undefined) return;
+  publish({ ...now, count });
 }
 
 /// The line was on screen to a reader at the pane for the dwell (SinceDivider.tsx `useDissipate`):
