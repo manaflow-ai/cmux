@@ -210,5 +210,19 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(lookup["outputs"]["hit"], "${{ steps.upload.outcome == 'success' && 'true' || 'false' }}")
 
 
+class ZigPackageMirrorTests(unittest.TestCase):
+    def test_helper_build_fetches_zig_packages_from_the_mirror_first(self):
+        # Run 45594076083: a zig-packages cache miss let `zig build` fetch glslang from
+        # deps.files.ghostty.org, which failed TlsInitializationFailed and the nightly with it.
+        script = (ROOT / "scripts/ci/nightly-steps/helper-build.sh").read_text()
+        fetch = script.find("bash scripts/ci/fetch-ghostty-zig-packages.sh ghostty")
+        build = script.find("./scripts/build-ghostty-cli-helper.sh")
+        self.assertGreaterEqual(fetch, 0, "helper-build.sh must seed Zig packages from the mirror")
+        self.assertLess(fetch, build, "the mirror fetch must come before the zig build")
+        self.assertIn('HELPER_CACHE_HIT:-}" != "true"', script[:fetch])
+        workflow = WORKFLOW.read_text()
+        self.assertGreaterEqual(workflow.count("bash scripts/ci/nightly-steps/helper-build.sh"), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
