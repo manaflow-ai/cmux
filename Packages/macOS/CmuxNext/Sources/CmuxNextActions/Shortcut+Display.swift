@@ -1,4 +1,7 @@
+import Foundation
+#if canImport(AppKit)
 import AppKit
+#endif
 
 extension Shortcut {
     // Key-equivalent characters for non-printing keys (NSMenuItem semantics).

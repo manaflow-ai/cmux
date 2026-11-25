@@ -261,6 +261,11 @@ jobs:
               # cmux-tui-artifacts.yml builds Linux in its own call so the Cloud
               # machine channel moves without waiting for the macOS legs.
               selected = [target for target in targets if target["target"].endswith("-unknown-linux-musl")]
+          elif target_set in ("linux-x86_64", "linux-aarch64"):
+              # cmux-tui-artifacts.yml builds each Linux target in its own call so the
+              # Cloud machine channel points from x86_64 without waiting for aarch64.
+              arch = target_set.removeprefix("linux-")
+              selected = [target for target in targets if target["target"] == f"{arch}-unknown-linux-musl"]
           elif target_set == "macos":
               selected = [target for target in targets if target["target"].endswith("-apple-darwin")]
           elif target_set == "macos-arm64":
@@ -296,9 +301,9 @@ jobs:
           lto = os.environ["LTO"]
           if lto not in ("fat", "thin"):
               raise SystemExit(f"unsupported lto: {lto!r}")
-          if lto == "thin" and (target_set != "linux" or packages_requested or not os.environ["ARTIFACT_PREFIX"]):
+          if lto == "thin" and (target_set not in ("linux", "linux-x86_64", "linux-aarch64") or packages_requested or not os.environ["ARTIFACT_PREFIX"]):
               # Thin is only for the Cloud machine channel's own copy of the Linux binaries.
-              raise SystemExit("lto=thin needs target_set=linux, no packages and an artifact_prefix")
+              raise SystemExit("lto=thin needs a Linux target_set (linux, linux-x86_64, linux-aarch64), no packages and an artifact_prefix")
 
           print("matrix=" + json.dumps({"include": selected}, separators=(",", ":")))
           print("unix_targets=" + ("true" if selected else "false"))

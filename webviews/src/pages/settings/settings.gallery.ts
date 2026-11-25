@@ -341,6 +341,25 @@ const variants: Record<string, SettingsPageVariant> = {
     options: { values: { "agentPane.display.harnessPlacement": "symbols" } },
     note: "An explicit top symbols choice wins over the old left rail and offers Reset.",
   }),
+  // Taste Board #15: Beta chips on experimental rows (appearance.settingsBetaChips, off by default).
+  "beta-chips-off": variant("experimental", {
+    focus: "appearance.settingsBetaChips",
+    note: "Beta chips off (the default): the Experimental page and its sidebar entry exactly as today.",
+  }),
+  "beta-chips-on": variant("experimental", {
+    focus: "appearance.settingsBetaChips",
+    options: { values: { "appearance.settingsBetaChips": true } },
+    note: "Beta chips on: each experimental row's title and the Experimental sidebar entry carry a small Beta chip.",
+  }),
+  "beta-chips-on-labs": variant("experimental", {
+    focus: "labs.previewFeatures",
+    options: { values: { "appearance.settingsBetaChips": true } },
+    note: "Beta chips on, scrolled to the Labs rows (Preview Features, Voice Room, Live Code).",
+  }),
+  "beta-chips-on-general": variant("general", {
+    options: { values: { "appearance.settingsBetaChips": true } },
+    note: "Beta chips on, on an everyday page: no row gets a chip; only the Experimental sidebar entry does.",
+  }),
   "agent-tools": variant("agents", {
     focus: "agents.cmuxMcp",
     note: "Give Agents cmux’s Tools (on by default) with its Claude Code and Codex switches, each coding agent on this Mac, and the manual lines for agents started elsewhere.",
@@ -2038,6 +2057,7 @@ export default settingsPageEntry({
     "pages/settings/components/SearchField.tsx",
     "pages/settings/components/SearchResults.tsx",
     "pages/settings/components/SectionActions.tsx",
+    "pages/settings/components/BetaChip.tsx",
     "pages/settings/components/SectionList.tsx",
     "pages/settings/components/SectionRoute.tsx",
     "pages/settings/components/SectionView.tsx",
