@@ -69,6 +69,7 @@ import {
   backgroundTurnRowId,
   foldBackgroundTurns,
   foldedBackgroundIds,
+  foldedWithoutWork,
   hiddenInBackground,
   openBackgroundTurns,
   endsDrawingRows,
@@ -818,6 +819,8 @@ export function turnViewFrom(
     const last = at === starts.length - 1;
     const live = working && last;
     dated[at] = showsTimestamp(times[at]!, visible === undefined ? undefined : times[visible], now, fromStart);
+    // A quiet background turn that draws work keeps its answer in sight (`foldedWithoutWork`).
+    const turnFolded = foldedWithoutWork(rows, start + 1, end, foldedBackground);
     const shaped = shapedTurn(
       rows,
       start,
@@ -829,7 +832,7 @@ export function turnViewFrom(
       dated[at]!,
       sessionStatus,
       agentFamily,
-      foldedBackground,
+      turnFolded,
       live ? trayAgents : 0,
       at === retryAt,
       live ? turnStartedAtMs : undefined,
@@ -844,7 +847,7 @@ export function turnViewFrom(
     for (const row of shaped) {
       // The local turn may contain a late done line whose background owner is in a prior
       // prompt. Its original background line still controls disclosure of that completion.
-      if (hiddenInBackground(row, foldedBackground)) continue;
+      if (hiddenInBackground(row, turnFolded)) continue;
       if (last && isWaitingMessage(row)) pending.push(row);
       else appendLaneNotice(drawn, row);
     }
@@ -881,14 +884,14 @@ export function turnViewFrom(
         dated[at]!,
         sessionStatus,
         agentFamily,
-        foldedBackground,
+        turnFolded,
         0,
         at === retryAt,
         undefined,
         arms,
       );
       for (const row of shapedOpen) {
-        if (hiddenInBackground(row, foldedBackground)) continue;
+        if (hiddenInBackground(row, turnFolded)) continue;
         if (last && isWaitingMessage(row)) pending.push(row);
         else appendLaneNotice(drawn, row.kind === WORKED && row.foldOpen ? inWorkedRun(row, [run], run) : row);
       }
