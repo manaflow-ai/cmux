@@ -45,15 +45,21 @@ def split_top(expression: str, op: str) -> list[str]:
     return parts
 
 
-def unsafe_skips(condition: str) -> list[str]:
-    """Return the `!(...)` clauses of `condition` that can skip the job on an open PR into main."""
+def clauses(condition: str) -> list[str]:
     text = condition.strip()
     if text.startswith("${{") and text.endswith("}}"):
         text = text[3:-2]
+    return split_top(text, "&&")
+
+
+def unsafe_skips(condition: str, handed_off: set[str] = frozenset()) -> list[str]:
+    """Return the `!(...)` clauses of `condition` that can skip the job on an open PR into main. A clause in
+    handed_off is safe: a sibling job with the same name runs on exactly that condition (handoffs)."""
     return [
         clause
-        for clause in split_top(text, "&&")
+        for clause in clauses(condition)
         if clause.startswith("!(") and not any(scope in clause for scope in SAFE_SCOPES)
+        and clause[2:-1].strip() not in handed_off
     ]
 
 
@@ -71,7 +77,17 @@ def offenders(seen: list[str] | None = None) -> list[str]:
                 continue
             if seen is not None:
                 seen.append(f"{path.name}:{job_id}")
-            for clause in unsafe_skips(str(job.get("if") or "")):
+            jobs = document.get("jobs") or {}
+            # A skip clause is covered when another job with the same expression name runs on exactly it (its
+            # non-skip clauses, in order): backend-migrations.yml's gate skips when the plan found no migration
+            # change and gate-no-change, on the persistent pool, runs on exactly that, so one of them reports.
+            handed: set[str] = set()
+            for other_id, other in jobs.items():
+                if other_id != job_id and isinstance(other, dict) and other.get("name") == job.get("name"):
+                    positives = [c for c in clauses(str(other.get("if") or ""))
+                                 if not c.startswith("!") and c not in ("always()", "!cancelled()", "success()")]
+                    handed.add(" && ".join(positives))
+            for clause in unsafe_skips(str(job.get("if") or ""), handed):
                 found.append(f"{path.name}:{job_id}: {clause}")
     return found
 
@@ -86,6 +102,19 @@ class RequiredGateNeverSkipsIntoMainTests(unittest.TestCase):
     def test_unscoped_no_change_skip_is_caught(self) -> None:
         condition = "always() && !(needs.plan.result == 'success' && needs.plan.outputs.migrations != 'true')"
         self.assertEqual(len(unsafe_skips(condition)), 1)
+
+    def test_a_skip_handed_to_a_same_named_sibling_passes(self) -> None:
+        no_change = "needs.plan.result == 'success' && needs.plan.outputs.migrations == 'false'"
+        jobs = {
+            "gate": {"name": "${{ 'backend migrations applied' }}", "if": f"always() && !({no_change})"},
+            "gate-no-change": {"name": "${{ 'backend migrations applied' }}", "if": f"${{{{ !cancelled() && {no_change} }}}}"},
+        }
+        handed = {" && ".join(c for c in clauses(jobs["gate-no-change"]["if"]) if not c.startswith("!"))}
+        self.assertEqual(unsafe_skips(jobs["gate"]["if"], handed), [])
+        # A sibling that runs on something narrower does not cover the skip.
+        narrower = "needs.plan.result == 'success' && needs.plan.outputs.migrations == 'false' && github.actor == 'x'"
+        handed = {" && ".join(c for c in clauses(f"!cancelled() && {narrower}") if not c.startswith("!"))}
+        self.assertEqual(len(unsafe_skips(jobs["gate"]["if"], handed)), 1)
 
     def test_feat_cmux_next_and_closed_scopes_pass(self) -> None:
         condition = (
