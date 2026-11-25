@@ -8,127 +8,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The owner ended sharing"
+            "value" : "The owner stopped sharing this chat"
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Der Besitzer hat die Freigabe beendet"
+            "state" : "needs_review",
+            "value" : "Der Besitzer teilt diesen Chat nicht mehr"
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Le propriétaire a arrêté le partage"
+            "state" : "needs_review",
+            "value" : "Le propriétaire a cessé de partager cette discussion"
           }
         },
         "ar" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "أنهى المالك المشاركة"
+            "state" : "needs_review",
+            "value" : "توقف المالك عن مشاركة هذه الدردشة"
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "El propietario dejó de compartir"
+            "state" : "needs_review",
+            "value" : "El propietario dejó de compartir este chat"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "擁有者已結束分享"
+            "state" : "needs_review",
+            "value" : "擁有者已停止分享此對話"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "所有者已停止共享"
+            "state" : "needs_review",
+            "value" : "所有者已停止共享此对话"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "소유자가 공유를 종료했습니다"
+            "state" : "needs_review",
+            "value" : "소유자가 이 채팅 공유를 중단했습니다"
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "オーナーが共有を終了しました"
+            "state" : "needs_review",
+            "value" : "オーナーがこのチャットの共有を停止しました"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Vlasnik je prekinuo dijeljenje"
+            "value" : "Vlasnik je prestao dijeliti ovaj razgovor"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ejeren har afsluttet delingen"
+            "value" : "Ejeren holdt op med at dele denne chat"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Il proprietario ha interrotto la condivisione"
+            "value" : "Il proprietario ha smesso di condividere questa chat"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ម្ចាស់បានបញ្ចប់ការចែករំលែក"
+            "value" : "ម្ចាស់បានឈប់ចែករំលែកការជជែកនេះ"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Eieren har avsluttet delingen"
+            "value" : "Eieren sluttet å dele denne chatten"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Właściciel zakończył udostępnianie"
+            "value" : "Właściciel przestał udostępniać ten czat"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "O dono encerrou o compartilhamento"
+            "value" : "O proprietário parou de compartilhar este chat"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Владелец прекратил общий доступ"
+            "value" : "Владелец перестал делиться этим чатом"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "เจ้าของหยุดการแชร์แล้ว"
+            "value" : "เจ้าของหยุดแชร์แชตนี้แล้ว"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Sahibi paylaşımı sonlandırdı"
+            "value" : "Sahibi bu sohbeti paylaşmayı durdurdu"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Власник припинив спільний доступ"
+            "value" : "Власник припинив ділитися цим чатом"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chủ sở hữu đã dừng chia sẻ"
+            "value" : "Chủ sở hữu đã ngừng chia sẻ cuộc trò chuyện này"
           }
         }
       }

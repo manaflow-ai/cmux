@@ -6,7 +6,6 @@
 // file default on a busy worker:
 // cmux-web-test-timeout: 360
 import { afterAll, afterEach, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
 import path from "node:path";
 import { readCatalog } from "../../../scripts/pages/catalog.mjs";
 import { LOCALES } from "../../../scripts/pages/gen-strings.mjs";

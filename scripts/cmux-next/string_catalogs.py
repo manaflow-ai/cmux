@@ -28,6 +28,10 @@ sees first):
                                                    table, Xcode's included) as DIR's file for that key; --prune also
                                                    deletes the files of keys CATALOG does not have
   string_catalogs.py add DIR KEY --en TEXT [--comment TEXT]   one new English-only key (manual extraction)
+  string_catalogs.py adopt [TABLE ...]             in a merge or rebase where one side edited a table file and the
+                                                   other made it a directory: carry the edited side's key changes
+                                                   (git's base stage -> its stage) into the directory and remove
+                                                   the file; default: every such conflicted table
   string_catalogs.py check [DIR ...]               every file is one key named by its file, no two names differ only
                                                    in case (a Mac checkout cannot hold both), no table file committed
                                                    beside its directory; default: every directory in the repository
@@ -168,6 +172,49 @@ def split(catalog: Path, directory: Path, prune: bool = False) -> tuple[int, int
     return written, deleted
 
 
+def _stage(root: Path, stage: int, path: str) -> dict | None:
+    shown = subprocess.run(["git", "-C", str(root), "show", f":{stage}:{path}"], capture_output=True)
+    return json.loads(shown.stdout.decode("utf-8")).get("strings", {}) if shown.returncode == 0 else None
+
+
+def adopt(root: Path, tables: list[str]) -> list[str]:
+    """Carry each conflicted TABLE's edited side into its directory; the lines it reports."""
+    if not tables:
+        listed = subprocess.run(["git", "-C", str(root), "diff", "--name-only", "--diff-filter=U", "-z"],
+                                capture_output=True, check=True).stdout.decode("utf-8").split("\0")
+        tables = [p for p in listed if p.endswith(ENTRY) and (root / (p + ".d")).is_dir()]
+    done = []
+    for table in tables:
+        directory = root / (table + ".d")
+        if not directory.is_dir():
+            raise ValueError(f"{table}: no {table}.d beside it to adopt into")
+        before = _stage(root, 1, table) or {}
+        edited = [side for side in (_stage(root, 2, table), _stage(root, 3, table)) if side is not None]
+        if len(edited) != 1:
+            raise ValueError(f"{table}: not a conflict where one side edited it and the other removed it")
+        after, = edited
+        header = load(directory)
+        header = {"sourceLanguage": header["sourceLanguage"], "version": header["version"]}
+        added = changed = removed = 0
+        for key in sorted(set(before) | set(after)):
+            if before.get(key) == after.get(key):
+                continue
+            path = entry_file(directory, key)
+            if key not in after:
+                if path.exists():
+                    path.unlink()
+                    removed += 1
+            elif before.get(key) != after[key]:
+                changed += key in before
+                added += key not in before
+                write_if_changed(path, entry_text(key, after[key], header))
+        subprocess.run(["git", "-C", str(root), "rm", "-q", "--cached", "--", table], capture_output=True, check=True)
+        (root / table).unlink(missing_ok=True)
+        subprocess.run(["git", "-C", str(root), "add", "--", str(directory.relative_to(root))], check=True)
+        done.append(f"{table}: +{added} ~{changed} -{removed} key(s) carried into {directory.name}")
+    return done
+
+
 def check(dirs: list[Path], root: Path) -> list[str]:
     errors = []
     for directory in dirs:
@@ -195,8 +242,8 @@ def check(dirs: list[Path], root: Path) -> list[str]:
                                  capture_output=True).returncode == 0
         if tracked:
             errors.append(f"{table.relative_to(root)}: committed beside {directory.name}; it is build output. "
-                          f"Move its keys in with `string_catalogs.py split {table.name} --into {directory.name}`, "
-                          "then delete it")
+                          "In a merge or rebase that conflicts on it, `string_catalogs.py adopt` carries your side's "
+                          f"key changes into {directory.name} and removes it")
     return errors
 
 
@@ -220,6 +267,9 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("key")
     a.add_argument("--en", required=True)
     a.add_argument("--comment")
+    ad = sub.add_parser("adopt")
+    ad.add_argument("tables", nargs="*")
+    ad.add_argument("--root", type=Path, default=ROOT)
     k = sub.add_parser("check")
     k.add_argument("dirs", nargs="*", type=Path)
     k.add_argument("--root", type=Path, default=ROOT)
@@ -246,6 +296,9 @@ def main(argv: list[str] | None = None) -> int:
                 entry = {"comment": args.comment, **entry}
             write_if_changed(path, entry_text(args.key, entry))
             print(path)
+        elif args.cmd == "adopt":
+            for line in adopt(args.root, args.tables):
+                print(line)
         else:
             errors = check(args.dirs or directories(args.root), args.root)
             for error in errors:

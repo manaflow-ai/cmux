@@ -16,7 +16,6 @@
 // these cases had measured the English words three times (Lawrence 2026-11-21: "make the gallery
 // switch the Harnesses page's language so the German and Japanese cases measure real translated text").
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { readFileSync } from "node:fs";
 import path from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
 import { readCatalog } from "../scripts/pages/catalog.mjs";

@@ -107,6 +107,41 @@ class Layout(unittest.TestCase):
                          ["a.one.xcstrings", "b.two.xcstrings", "c.left.xcstrings", "c.right.xcstrings"])
 
 
+    def test_adopt_carries_a_branch_that_edited_the_old_file_into_the_directory_on_rebase(self):
+        repo = self.dir / "repo"
+        repo.mkdir()
+        git(repo, "init", "-q", "-b", "main")
+        git(repo, "config", "user.email", "t@example.com")
+        git(repo, "config", "user.name", "t")
+        # Enough keys that no one key's file reads as the table renamed (git's rename detection), as in the real
+        # tables of thousands of keys.
+        base = self.table()
+        base["strings"].update({f"z.filler{n}": entry(f"Filler {n}") for n in range(12)})
+        table = repo / "T.xcstrings"
+        table.write_text(sc.dumps(base), encoding="utf-8")
+        git(repo, "add", ".")
+        git(repo, "commit", "-qm", "base")
+        git(repo, "checkout", "-q", "-b", "feature")
+        edited = json.loads(json.dumps(base))
+        edited["strings"]["c.new"] = entry("New")
+        edited["strings"]["a.one"] = entry("One, edited")
+        del edited["strings"]["b.two"]
+        table.write_text(sc.dumps(edited), encoding="utf-8")
+        git(repo, "commit", "-qam", "feature edits the table")
+        git(repo, "checkout", "-q", "main")
+        sc.split(table, repo / "T.xcstrings.d")
+        git(repo, "rm", "-q", "T.xcstrings")
+        git(repo, "add", ".")
+        git(repo, "commit", "-qm", "split")
+        git(repo, "checkout", "-q", "feature")
+        self.assertNotEqual(subprocess.run(["git", "-C", str(repo), "rebase", "main"], capture_output=True).returncode, 0)
+        lines = sc.adopt(repo, [])
+        self.assertEqual(lines, ["T.xcstrings: +1 ~1 -1 key(s) carried into T.xcstrings.d"])
+        self.assertEqual(sc.load(repo / "T.xcstrings.d"), edited)
+        self.assertFalse(table.exists())
+        self.assertEqual(git(repo, "diff", "--name-only", "--diff-filter=U"), "")
+
+
 class RealTree(unittest.TestCase):
     def test_every_table_directory_is_one_file_per_key_and_no_table_is_committed(self):
         dirs = sc.directories(ROOT)

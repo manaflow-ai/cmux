@@ -2611,7 +2611,13 @@ impl ChildAgent {
                 link: std::sync::RwLock::new(link.clone()),
                 inbound,
                 detached: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-                logged: tokio::sync::watch::channel(resume_after).0,
+                // Through the host's `acked_h` too: an owner acknowledged those entries once it
+                // handled them, and the host dropped them, so none replays. Not every entry leaves
+                // a `hostSeq` in the log (a stderr line, an Exit, a tap the live path keeps), so
+                // the log's last one can trail it, and an adoption waiting for the hello's
+                // `last_h` waited out `REPLAY_STALL` (10 s of every carrier restart fault,
+                // 2026-11-24: "adopt agent hosts 10012ms", "replay incomplete").
+                logged: tokio::sync::watch::channel(resume_after.max(adopted.acked_h)).0,
                 log_turn: tokio::sync::Mutex::new(()),
                 broken: std::sync::atomic::AtomicBool::new(false),
                 broken_retry: std::sync::atomic::AtomicBool::new(false),

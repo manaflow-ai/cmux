@@ -8,127 +8,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Couldn't load the chat. Check your connection."
+            "value" : "Couldn't load the chat."
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Der Chat konnte nicht geladen werden. Prüfe deine Verbindung."
+            "state" : "needs_review",
+            "value" : "Der Chat konnte nicht geladen werden."
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Impossible de charger la discussion. Vérifiez votre connexion."
+            "state" : "needs_review",
+            "value" : "Impossible de charger la discussion."
           }
         },
         "ar" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "تعذّر تحميل الدردشة. تحقّق من اتصالك."
+            "state" : "needs_review",
+            "value" : "تعذّر تحميل الدردشة."
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "No se pudo cargar el chat. Comprueba tu conexión."
+            "state" : "needs_review",
+            "value" : "No se pudo cargar el chat."
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "無法載入聊天。請檢查你的網路連線。"
+            "state" : "needs_review",
+            "value" : "無法載入對話。"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "无法加载聊天。请检查你的网络连接。"
+            "state" : "needs_review",
+            "value" : "无法加载对话。"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "채팅을 불러오지 못했습니다. 연결을 확인하세요."
+            "state" : "needs_review",
+            "value" : "채팅을 불러오지 못했습니다."
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "チャットを読み込めませんでした。接続を確認してください。"
+            "state" : "needs_review",
+            "value" : "チャットを読み込めませんでした。"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chat se nije mogao učitati. Provjerite vezu."
+            "value" : "Nije moguće učitati razgovor."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chatten kunne ikke indlæses. Tjek din forbindelse."
+            "value" : "Kunne ikke indlæse chatten."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Impossibile caricare la chat. Controlla la connessione."
+            "value" : "Impossibile caricare la chat."
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "មិនអាចផ្ទុកការជជែកបានទេ។ សូមពិនិត្យការតភ្ជាប់របស់អ្នក។"
+            "value" : "មិនអាចផ្ទុកការជជែកបានទេ។"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Kunne ikke laste inn chatten. Sjekk tilkoblingen."
+            "value" : "Kunne ikke laste inn chatten."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Nie udało się wczytać czatu. Sprawdź połączenie."
+            "value" : "Nie udało się wczytać czatu."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Não foi possível carregar o chat. Verifique sua conexão."
+            "value" : "Não foi possível carregar o chat."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Не удалось загрузить чат. Проверьте подключение."
+            "value" : "Не удалось загрузить чат."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "โหลดแชทไม่ได้ ตรวจสอบการเชื่อมต่อของคุณ"
+            "value" : "โหลดแชตไม่ได้"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Sohbet yüklenemedi. Bağlantınızı kontrol edin."
+            "value" : "Sohbet yüklenemedi."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Не вдалося завантажити чат. Перевірте з’єднання."
+            "value" : "Не вдалося завантажити чат."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Không thể tải cuộc trò chuyện. Hãy kiểm tra kết nối."
+            "value" : "Không thể tải cuộc trò chuyện."
           }
         }
       }

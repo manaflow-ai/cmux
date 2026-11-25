@@ -63,6 +63,19 @@ class PersonaWalkTests(unittest.TestCase):
             self.assertEqual(got["first_reply_failed"], 0.0)
             self.assertIn("persona-walk: first_window not reached", ctx.notes)
 
+    def test_task_steps_become_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            (d / "timings.jsonl").write_text('{"step":"install","ms":100}\n{"step":"first_window","ms":2000}\n'
+                                             '{"step":"shell_in_new_tab","ms":800}\n{"step":"million_lines","ms":4100}\n')
+            (d / "log.txt").write_text("05:00:00 STUCK split: no shell ran it in 10 s\n")
+            got = values(ingest(d))
+            self.assertEqual(got["shell_in_new_tab"], 800.0)
+            self.assertEqual(got["million_lines"], 4100.0)
+            self.assertEqual(got["tasks_done"], 3.0)
+            self.assertEqual(got["stuck_points"], 1.0)
+            self.assertEqual(got["first_reply_failed"], 0.0)
+
     def test_not_a_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(BenchError):
