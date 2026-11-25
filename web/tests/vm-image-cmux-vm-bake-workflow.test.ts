@@ -250,12 +250,6 @@ describe("cloud-vm-image-bake.yml large_image", () => {
   const bakeRecord = { name, lockSha256: "f".repeat(64), inputsSha256: "e".repeat(64) };
   const largeRecord = { name: `${name}-large`, snapshotId: LARGE_SNAPSHOT, size: { vcpu: 4, memGiB: 16, diskGiB: 64 }, grow: { callMs: 400, guestViewMs: 1300 }, snapshotMs: 900, ms: 2500 };
   const candidateOf = (out: string) => JSON.parse(readFileSync(path.join(out, "channel-dev.json"), "utf8")) as Record<string, unknown>;
-  /** The candidate without its two timestamps and without `large`. */
-  const fields = (c: Record<string, unknown>) => {
-    const { baked_at: _at, smoke, large: _large, ...rest } = c;
-    return { ...rest, smoke: { ...(smoke as Record<string, unknown>), at: "" } };
-  };
-
   test("is off by default for a dispatch and for the image roll's call", () => {
     expect(workflow.on.workflow_dispatch.inputs.large_image).toMatchObject({ type: "boolean", default: false });
     expect((workflow.on as unknown as { workflow_call: { inputs: Record<string, { default: unknown }> } }).workflow_call.inputs.large_image).toMatchObject({ default: false });
@@ -313,6 +307,10 @@ describe("cloud-vm-image-bake.yml large_image", () => {
 
     // Baked and smoked one second later.
     setClock(after);
+    // Compare both candidates at the same instant, including future timestamp fields.
+    expect((await runStep("Dev channel candidate", inputs, dir)).result.status).toBe(0);
+    const withoutLarge = candidateOf(out);
+    expect(withoutLarge).not.toHaveProperty("large");
     writeFileSync(bakeJson, JSON.stringify({ ...bakeRecord, large: largeRecord }));
     writeFileSync(largeSmoke, JSON.stringify({ snapshotId: LARGE_SNAPSHOT, passed: true, checks: { a: { ok: true }, b: { ok: true }, c: { ok: true } } }));
     expect((await runStep("Dev channel candidate", inputs, dir)).result.status).toBe(0);
@@ -322,9 +320,9 @@ describe("cloud-vm-image-bake.yml large_image", () => {
       snapshot: `${name}-large`,
       snapshot_id: LARGE_SNAPSHOT,
       size: { vcpu: 4, mem_gib: 16, disk_gib: 64 },
-      smoke: { result: "PASSED", detail: "large-smoke.ts (CI run 4242): 3 checks passed" },
+      smoke: { result: "PASSED", at: after, detail: "large-smoke.ts (CI run 4242): 3 checks passed" },
     });
-    expect(fields(recorded)).toEqual(fields(today));
+    expect(recorded).toEqual({ ...withoutLarge, large: recorded.large });
     expect(recorded.snapshot_id).toBe("sh-test");
 
     // A failed large smoke, a smoke of another snapshot, and no smoke at all: the candidate is today's.
