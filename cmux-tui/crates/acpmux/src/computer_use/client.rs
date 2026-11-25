@@ -506,6 +506,8 @@ pub struct Caller<D: Daemon> {
     /// ends and its cursor never lingers. None until the first call, and
     /// again once the worker it was open to went away.
     attached: std::sync::Arc<Mutex<Option<Endpoint>>>,
+    /// No presence connection ([`Self::detached`]): the session outlives this process.
+    detached: bool,
 }
 
 /// Where the agent cursor's tag comes from.
@@ -532,7 +534,23 @@ impl<D: Daemon> Caller<D> {
             next_id: std::sync::atomic::AtomicU64::new(1),
             tag: Mutex::new(CursorTag::default()),
             attached: std::sync::Arc::new(Mutex::new(None)),
+            detached: false,
         }
+    }
+
+    /// The same caller with no presence connection (`session/attach`): its session outlives
+    /// this process, so the element ids one short-lived process (the `cmux computer-use call`
+    /// CLI) was shown still act in the next one with the same session key. The worker ends
+    /// such a session once it has been idle a while (`server/detached.rs`); [`Self::idle`]
+    /// hides its cursor after each call.
+    pub fn detached(mut self) -> Self {
+        self.detached = true;
+        self
+    }
+
+    /// Whether this caller opens a presence connection on its first call.
+    pub fn attaches(&self) -> bool {
+        !self.detached && self.origin.is_none()
     }
 
     /// Opens this session's presence connection to `endpoint` (`session/attach`) unless one is
@@ -541,7 +559,7 @@ impl<D: Daemon> Caller<D> {
     /// worker. Only for this machine's own agent (a relayed call's session is the other
     /// machine's).
     fn attach(&self, endpoint: &Endpoint) {
-        if self.origin.is_some() {
+        if !self.attaches() {
             return;
         }
         let Ok(mut attached) = self.attached.lock() else { return };
@@ -723,6 +741,15 @@ impl<D: Daemon> Caller<D> {
     pub fn end_session(&self) {
         let Ok(Some(endpoint)) = self.endpoint.lock().map(|e| e.clone()) else { return };
         let request = json!({"id": self.id(), "method": "session/end", "session": self.session});
+        let _ = exchange(&endpoint, &request);
+    }
+
+    /// The session's Computer Use is no longer active (`session/idle`): its cursor hides, its
+    /// state (element ids, last looks) stays for its next call. Once, best effort, and only
+    /// when a call reached the worker (no endpoint: nothing to hide).
+    pub fn idle(&self) {
+        let Ok(Some(endpoint)) = self.endpoint.lock().map(|e| e.clone()) else { return };
+        let request = json!({"id": self.id(), "method": "session/idle", "session": self.session});
         let _ = exchange(&endpoint, &request);
     }
 
