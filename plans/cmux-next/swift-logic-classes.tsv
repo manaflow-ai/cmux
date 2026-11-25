@@ -964,7 +964,6 @@ CmuxNextAgentPane	extension	AgentPaneTunables	0	LOGIC	100	0	Packages/macOS/CmuxN
 CmuxNextAgentPane	extension	AgentPaneTunables	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTunables+NewTabWidgets.swift	Debug-settings tunable key and default
 CmuxNextAgentPane	extension	AgentPaneTunables	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTunables+OutsideChats.swift	Debug-settings tunable key and default
 CmuxNextAgentPane	extension	AgentPaneTunables	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTunables+PointerInspector.swift	Debug-settings tunable key and default
-CmuxNextAgentPane	extension	AgentPaneTunables	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTunables+SubagentTray.swift	Debug-settings tunable key and default
 CmuxNextAgentPane	extension	AgentPaneTunables	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTunables+SuggestedTasks.swift	Debug-settings tunable key and default
 CmuxNextAgentPane	extension	AgentPaneTunables	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTunables+SystemDictation.swift	Debug-settings tunable key and default
 CmuxNextAgentPane	enum	AgentPaneHarnessPlacement	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTunables.swift	from enum AgentPaneTopStripStyle:8: Debug-settings tunable choices and defaults
@@ -2513,11 +2512,6 @@ CmuxNextApp	extension	PageDescriptor	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sour
 CmuxNextApp	extension	PageFactory	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/HomeChannelsPage.swift	from extension InternalPageID:11: channels page descriptor/host
 CmuxNextApp	enum	HomeChannelsPageTab	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/HomeChannelsPageTab.swift	from enum HomeChannelsPageTab:8: channels page tab
 CmuxNextApp	enum	HomeChannelsStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/HomeChannelsPageTab.swift	from enum HomeChannelsPageTab:8: channels page tab
-CmuxNextApp	class	MobilePairingPageService	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/MobilePairing/MobilePairingPage.swift	from extension PageDescriptor:5: mobile pairing page descriptor
-CmuxNextApp	extension	InternalPageID	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/MobilePairing/MobilePairingPage.swift	from extension PageDescriptor:5: mobile pairing page descriptor
-CmuxNextApp	extension	PageDescriptor	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/MobilePairing/MobilePairingPage.swift	mobile pairing page descriptor
-CmuxNextApp	class	MobilePairingPageProvider	0	MIXED	0	60	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/MobilePairing/MobilePairingPageProvider.swift	from class MobilePairingPageProvider:27: page ops relaying phone host status and pairing answers; hand-written op names (:28-31)
-CmuxNextApp	struct	MobilePairingStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/MobilePairing/MobilePairingStrings.swift	localized string table (bundle resources)
 CmuxNextApp	class	PageConnectionWatch	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/PageConnectionWatch.swift	from class PageConnectionWatch:10: page connection watch
 CmuxNextApp	struct	PageFactory	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/PageFactory.swift	from struct PageFactory:25: page factory composition wiring
 CmuxNextApp	class	AppPageNativeProvider	0	MIXED	0	40	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/PageProviders.swift	from class AppPageNativeProvider:13: native provider forwarding confirmed namespace ops to owner providers
@@ -8500,8 +8494,6 @@ CmuxNextMobile	enum	MobileHostEvent	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sourc
 CmuxNextMobile	struct	MobileHostLaunch	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostLaunch.swift	child launch environment and executable for hostd
 CmuxNextMobile	struct	MobileHostMacIdentity	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostMacIdentity.swift	Mac identity key custody and proof
 CmuxNextMobile	struct	MobileHostMacIdentityStore	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostMacIdentity.swift	from struct MobileHostMacIdentity:14: Mac identity key custody and proof
-CmuxNextMobile	struct	MobileHostPairInvite	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostPairInvite.swift	from struct MobileHostPairTokens:14: pair token mint, 300 s life, burn, revoke rule
-CmuxNextMobile	struct	MobileHostPairTokens	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostPairInvite.swift	pair token mint, 300 s life, burn, revoke rule
 CmuxNextMobile	struct	MobileHostPairPrompts	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostPairPrompts.swift	pair prompt quiet period rule per account
 CmuxNextMobile	class	MobileHostPairedDevicesFile	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostPairedDevices.swift	from struct MobileHostPairRequest:10: paired devices model, pair request, keys, lists
 CmuxNextMobile	class	MobileHostPairedQuitWatch	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostPairedDevices.swift	from struct MobileHostPairRequest:10: paired devices model, pair request, keys, lists
@@ -9153,7 +9145,6 @@ CmuxNextPhone	struct	SurfaceFrameFeed	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sou
 CmuxNextPhone	class	CloudDesktopSurfaceSources	0	MIXED	85	15	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/CloudDesktopSurfaceSources.swift	tab-key parse (copies hostd cloud_desktop_of), refusal codes, per-tab sources, liveness watch LOGIC; refusal codes and tab key repeat hostd MIRROR (#31795); F14
 CmuxNextPhone	let	logger	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/CloudDesktopSurfaceSources.swift	os.Logger
 CmuxNextPhoneAccess	class	CloudHostReplicaFollower	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess/CloudHostReplicaFollower.swift	from class CloudHostReplicaFollower:21: follows settings, reconciles wanted cloud host replica state per daemon/account
-CmuxNextPhoneAccess	enum	MobilePairingState	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess/MobilePairingState.swift	mobile pairing step state machine
 CmuxNextPhoneAccess	struct	PhoneAccessLeftovers	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess/PhoneAccessLeftovers.swift	UserDefaults cleanup of the removed Phone Access listener's flag, platform plumbing
 CmuxNextPopups	class	BrowserPopupWindow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPopups/BrowserPopupWindow.swift	NSWindow for browser popup
 CmuxNextPopups	enum	BrowserPopupWindowGeometry	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPopups/BrowserPopupWindowGeometry.swift	popup window size rules (Chrome AdjustToFit)
@@ -11958,24 +11949,24 @@ CmuxNextCloud	class	CloudRefuseRedirects	0	PLATFORM	0	0	Packages/macOS/CmuxNext/
 CmuxNextCloud	extension	Duration	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveCore.swift	milliseconds for FFI requests
 CmuxNextCloud	extension	CloudStartCore	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveCore.swift	asks Rust starts_as_person, copies_through_store, shell_quoted, plan_request
 CmuxNextCloud	extension	CloudMachineRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveCore.swift	create request init for a send
-CmuxNextCloud	struct	CloudMoveCLI	0	PLATFORM	0	30	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveCLI.swift	process runner; args and answers read by Rust moves::cli; answer DTOs
+CmuxNextCloud	struct	CloudMoveCLI	0	MIXED	32	30	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveCLI.swift	process runner and Rust-answer DTOs; real logic left in Swift: preflight size and refusal parsing, spare-warm reply readers, gateway serves, strand, seed-field fallback
 CmuxNextCloud	struct	CloudMoveCLIUnanswered	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveCLI.swift	FFI did not answer error
 CmuxNextCloud	struct	CloudStartSetup	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudStartProgress.swift	start setup progress DTO decoded from Rust
 CmuxNextCloud	struct	CloudStartInfo	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudStartProgress.swift	start info DTO
 CmuxNextCloud	struct	SeedProgress	0	MIXED	0	40	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudStartProgress.swift	progress DTO; reader asks Rust seed_read; main-actor feed glue
-CmuxNextCloud	struct	CloudLegacyPin	0	PLATFORM	0	20	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudLegacyPin.swift	reads manifest file; rules in Rust moves::pin
+CmuxNextCloud	struct	CloudLegacyPin	0	MIXED	0	20	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudLegacyPin.swift	reads manifest file; rules in Rust moves::pin; Codable pin mirror
 CmuxNextCloud	extension	CloudExecResult	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudLegacyPin.swift	asks Rust legacy_update
-CmuxNextCloud	struct	CloudMoveFolder	0	PLATFORM	0	20	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveFolder.swift	asks Rust folder ops; isFolder disk read
-CmuxNextCloud	struct	CloudNewWorkspacePlan	0	PLATFORM	0	30	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveFolder.swift	asks Rust plan, route, copy_step; push loop glue
+CmuxNextCloud	struct	CloudMoveFolder	0	MIXED	49	8	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveFolder.swift	normalized path rule, copyKey hash and remote suffix still in Swift (Rust moves::folder has the same normalized); isFolder disk read; folder fields mirror
+CmuxNextCloud	struct	CloudNewWorkspacePlan	0	MIXED	41	40	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveFolder.swift	route mapping and copy_step loop in Swift; Route/Refusal/Outcome/CopyFailure mirror Rust types
 CmuxNextCloud	enum	CloudNewWorkspaceMachine	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveFolder.swift	Rust new_workspace_machine answer
-CmuxNextCloud	class	CloudMoveRetries	0	PLATFORM	0	40	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveLedgers.swift	defaults I/O; ledger rules in Rust moves::ledger
+CmuxNextCloud	class	CloudMoveRetries	0	MIXED	0	43	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveLedgers.swift	defaults I/O; Retry and Shown mirror the Rust ledger; ledger rules in Rust moves::ledger
 CmuxNextCloud	extension	CloudMoveRetries.Retry	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveLedgers.swift	retry accessors
-CmuxNextCloud	struct	CloudMoveAlwaysGrants	0	PLATFORM	0	30	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveLedgers.swift	defaults I/O; grant rules in Rust
-CmuxNextCloud	class	CloudMovedChats	0	PLATFORM	0	40	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMovedChats.swift	defaults I/O; ledger rules in Rust
+CmuxNextCloud	struct	CloudMoveAlwaysGrants	0	MIXED	0	33	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMoveLedgers.swift	defaults I/O; Scope and Grant mirror the Rust grant; grant rules in Rust
+CmuxNextCloud	class	CloudMovedChats	0	MIXED	4	49	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudMovedChats.swift	defaults I/O; Entry and BroughtBack mirror the Rust ledger; Entry.shown builds a Retry.Shown; ledger rules in Rust
 CmuxNextCloud	enum	CloudTaskKind	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudAutosize.swift	Rust task_kind answer
 CmuxNextCloud	struct	CloudAutosizeRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudAutosize.swift	autosize DTO
 CmuxNextCloud	struct	CloudSizePick	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudAutosize.swift	size pick DTO
-CmuxNextCloud	struct	CloudWorkPick	0	PLATFORM	0	30	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudWorkPick.swift	runs git and lists the folder; Rust work_pick reads them
+CmuxNextCloud	struct	CloudWorkPick	0	MIXED	15	36	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudWorkPick.swift	runs git and lists the folder; pick fields and Facts/Picked mirror Rust work_pick; git fact chain and env in Swift
 CmuxNextCloud	struct	CloudWait	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudWait.swift	main-actor observation with deadlines; rules in Rust moves::wait
 CmuxNextCloud	extension	CloudWait	0	MIXED	40	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudWait.swift	start wait sequencing (linked, retriedOnce, relinkedOnce, ended); dropped-link and relink rules in Rust
 CmuxNextCloud	struct	CloudOutdatedMachine	0	MIXED	30	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudWait.swift	update-then-copy sequencing; refusal and relink rules in Rust

@@ -13,6 +13,8 @@ enum WorkspacesListItem: Equatable {
     case title(String)
     /// Every Mac is asleep (All Macs, no search).
     case asleep
+    /// The filtered Mac can't be used: what is wrong and Retry, above its last-known rows (cmux#52200).
+    case recovery(String)
     /// A Mac workspace group's header.
     case group(WorkspaceGroupHeaderModel)
     /// Group by Folder: a folder's header over its loose rows.
@@ -146,10 +148,13 @@ struct WorkspacesCollection: UIViewRepresentable {
 final class WorkspacesCollectionView: UICollectionView {
     /// VoiceOver's three-finger scroll down at the top refreshes, as it does with `UIRefreshControl`.
     var accessibilityRefresh: (() -> Bool)?
+    /// The list came back on screen (its controller applies what it held).
+    var onWindow: (() -> Void)?
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
         guard window != nil else { return }
+        onWindow?()
         var responder: UIResponder? = self
         while let next = responder?.next {
             if let controller = next as? UIViewController {
@@ -332,6 +337,11 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
             return section
         }
         let view = WorkspacesCollectionView(frame: .zero, collectionViewLayout: layout)
+        view.onWindow = { [weak self] in
+            // Before the frame that shows it again (a back swipe draws the list at once).
+            guard let self, self.pending != nil, !self.applyScheduled else { return }
+            self.applyPending()
+        }
         view.backgroundColor = .clear
         view.alwaysBounceVertical = true
         view.keyboardDismissMode = .onDrag
@@ -398,7 +408,7 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
         case .group: EdgeInsets(top: 4, leading: 0, bottom: 0, trailing: 20)
         case .folder: EdgeInsets(top: 10, leading: 0, bottom: 2, trailing: 20)
         case .fold: EdgeInsets(top: 10, leading: 0, bottom: 4, trailing: 20)
-        case .asleep: EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20)
+        case .asleep, .recovery: EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20)
         case .loading: EdgeInsets()
         }
     }
@@ -425,6 +435,10 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
         applyScheduled = false
         heights.textSize = collectionView?.traitCollection.preferredContentSizeCategory ?? .large
         guard let next = pending, let dataSource else { return }
+        // Off screen (a workspace is open over the list), the latest model waits
+        // for the list to come back: a busy Mac's pushes would otherwise diff and
+        // lay out the hidden list on main while the person types in a composer.
+        guard collectionView?.window != nil || dataSource.snapshot().numberOfSections == 0 else { return }
         pending = nil
         let animated = pendingAnimated && !UIAccessibility.isReduceMotionEnabled && collectionView?.window != nil
         pendingAnimated = false

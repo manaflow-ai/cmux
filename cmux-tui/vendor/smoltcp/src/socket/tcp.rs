@@ -645,6 +645,10 @@ pub struct Socket<'a> {
     /// The last sequence number sent.
     /// I.e. in an idle socket, local_seq_no+tx_buffer.len().
     remote_last_seq: TcpSeqNumber,
+    /// cmux patch: how far the highest sequence number ever sent (SND.MAX)
+    /// lies past `remote_last_seq`: nonzero only after a retransmission
+    /// timeout rewound `remote_last_seq` to resend everything.
+    remote_rewound: usize,
     /// The last acknowledgement number sent.
     /// I.e. in an idle socket, remote_seq_no+rx_buffer.len().
     remote_last_ack: Option<TcpSeqNumber>,
@@ -697,9 +701,15 @@ pub struct Socket<'a> {
     /// cmux patch: the path under the connection changed; the next RTO
     /// branch resends without backing off ([path_changed](#method.path_changed)).
     path_change_retransmit: bool,
+    /// cmux patch: retransmission is held while the peer is silent on purpose
+    /// ([set_retransmit_paused](#method.set_retransmit_paused)).
+    retransmit_paused: bool,
     /// cmux patch: lower the segment size when full segments keep timing out
     /// ([set_black_hole_fallback](#method.set_black_hole_fallback)).
     black_hole_fallback: bool,
+    /// cmux patch: the most data in the network at once, below the congestion
+    /// window ([set_send_window_cap](#method.set_send_window_cap)).
+    send_window_cap: Option<usize>,
     /// cmux patch: retransmission timeouts in a row, with no ACK of new data
     /// between them, of a head segment larger than the base.
     black_hole_rtos: u8,
@@ -800,6 +810,7 @@ impl<'a> Socket<'a> {
             local_seq_no: TcpSeqNumber::default(),
             remote_seq_no: TcpSeqNumber::default(),
             remote_last_seq: TcpSeqNumber::default(),
+            remote_rewound: 0,
             remote_last_ack: None,
             remote_last_win: 0,
             remote_win_len: 0,
@@ -821,7 +832,9 @@ impl<'a> Socket<'a> {
             sack_window_cut: false,
             local_mss: usize::MAX,
             path_change_retransmit: false,
+            retransmit_paused: false,
             black_hole_fallback: false,
+            send_window_cap: None,
             black_hole_rtos: 0,
             path_mss_cap: None,
             repaired_below: None,
@@ -1106,6 +1119,25 @@ impl<'a> Socket<'a> {
         self.timer = Timer::Retransmit { expires_at: Instant::from_micros(0) };
     }
 
+    /// cmux patch: hold or resume retransmission.
+    ///
+    /// A tunnel whose peer went silent on purpose (a phone the OS suspended in
+    /// the background) holds it: data in flight stays unacknowledged and is
+    /// not resent, by the RTO, a tail-loss probe or a zero-window probe, so the
+    /// silence costs no segments. New data is still sent once, and segments
+    /// that arrive are answered as usual. Resumed with data in flight, the
+    /// socket resends from the oldest unacknowledged byte at its next poll
+    /// with the RTO back at the RTT estimate's value, as
+    /// [path_changed](#method.path_changed) does: the peer is back. Off by
+    /// default; the setting is preserved across [listen](#method.listen) and
+    /// [connect](#method.connect).
+    pub fn set_retransmit_paused(&mut self, paused: bool) {
+        let was = core::mem::replace(&mut self.retransmit_paused, paused);
+        if was && !paused {
+            self.path_changed();
+        }
+    }
+
     /// cmux patch: the link under this connection repairs its own losses
     /// from now on.
     ///
@@ -1150,6 +1182,20 @@ impl<'a> Socket<'a> {
         if self.window_before_cut.as_ref().is_some_and(|(_, until)| self.local_seq_no >= *until) {
             self.window_before_cut = None;
         }
+    }
+
+    /// cmux patch: octets in the transmit buffer that were never sent (the
+    /// queue Linux's `TCP_NOTSENT_LOWAT` bounds). [`Self::send_queue`] also
+    /// counts the octets in flight; after a retransmission timeout rewinds
+    /// the send point, those count as unsent again until they are resent.
+    pub fn unsent_queue(&self) -> usize {
+        self.tx_buffer.len().saturating_sub(self.flight_size())
+    }
+
+    /// cmux patch: the smoothed round-trip time (RFC 6298 SRTT), `None`
+    /// before the first measurement.
+    pub fn smoothed_rtt(&self) -> Option<Duration> {
+        self.rtte.have_measurement.then(|| Duration::from_millis(self.rtte.srtt as u64))
     }
 
     /// cmux patch: the delayed-ACK allowance of tail-loss probes, `None` when they are off.
@@ -1214,6 +1260,24 @@ impl<'a> Socket<'a> {
     /// cmux patch: whether SACK loss recovery is on.
     pub fn sack_recovery(&self) -> bool {
         self.sack_recovery
+    }
+
+    /// cmux patch: the most data the connection keeps in the network at
+    /// once (bytes sent and neither acknowledged nor known lost), below the
+    /// congestion window. The receive window bounds how much a connection
+    /// could use; this bounds how much it does, so an owner that measures
+    /// the path can keep a large buffer for long paths without a whole
+    /// buffer of data queued in front of every segment on short ones.
+    /// Retransmissions and zero window probes do not wait for it.
+    ///
+    /// `None` (the default) leaves the congestion and remote windows alone.
+    pub fn set_send_window_cap(&mut self, cap: Option<usize>) {
+        self.send_window_cap = cap;
+    }
+
+    /// cmux patch: the cap [set_send_window_cap](#method.set_send_window_cap) set.
+    pub fn send_window_cap(&self) -> Option<usize> {
+        self.send_window_cap
     }
 
     /// cmux patch: turn black-hole fallback (RFC 4821 section 7.7, Linux's
@@ -1592,6 +1656,7 @@ impl<'a> Socket<'a> {
         self.local_seq_no = TcpSeqNumber::default();
         self.remote_seq_no = TcpSeqNumber::default();
         self.remote_last_seq = TcpSeqNumber::default();
+        self.remote_rewound = 0;
         self.remote_last_ack = None;
         self.remote_last_win = 0;
         self.remote_win_len = 0;
@@ -1749,6 +1814,7 @@ impl<'a> Socket<'a> {
         let seq = Self::random_seq_no(cx);
         self.local_seq_no = seq;
         self.remote_last_seq = seq;
+        self.remote_rewound = 0;
         Ok(())
     }
 
@@ -2071,6 +2137,18 @@ impl<'a> Socket<'a> {
         self.tx_buffer.len()
     }
 
+    /// cmux patch: the highest sequence number sent (SND.MAX).
+    fn send_max(&self) -> TcpSeqNumber {
+        self.remote_last_seq + self.remote_rewound
+    }
+
+    /// cmux patch: after `remote_last_seq` moved, keep SND.MAX at
+    /// `send_max` (or at `remote_last_seq`, once that passes it).
+    fn keep_send_max(&mut self, send_max: TcpSeqNumber) {
+        self.remote_rewound =
+            if send_max > self.remote_last_seq { send_max - self.remote_last_seq } else { 0 };
+    }
+
     /// Number of octets transmitted but not yet ACKed.
     fn flight_size(&self) -> usize {
         self.remote_last_seq - self.local_seq_no
@@ -2086,7 +2164,9 @@ impl<'a> Socket<'a> {
         } else {
             self.flight_size()
         };
-        self.congestion_controller.inner().window().saturating_sub(in_network)
+        let window = self.congestion_controller.inner().window();
+        let window = self.send_window_cap.map_or(window, |cap| window.min(cap));
+        window.saturating_sub(in_network)
     }
 
     /// Return the amount of octets queued in the receive buffer. This value can be larger than
@@ -2165,7 +2245,8 @@ impl<'a> Socket<'a> {
         // [...] an empty acknowledgment segment containing the current send-sequence number
         // and an acknowledgment indicating the next sequence number expected
         // to be received.
-        reply_repr.seq_number = self.remote_last_seq;
+        // cmux patch: SND.MAX, as on every pure ACK (see `dispatch`).
+        reply_repr.seq_number = self.send_max();
         reply_repr.ack_number = Some(self.remote_seq_no + self.rx_buffer.len());
         self.remote_last_ack = reply_repr.ack_number;
 
@@ -2616,6 +2697,7 @@ impl<'a> Socket<'a> {
                 self.local_seq_no = Self::random_seq_no(cx);
                 self.remote_seq_no = repr.seq_number + 1;
                 self.remote_last_seq = self.local_seq_no;
+                self.remote_rewound = 0;
                 self.remote_has_sack = repr.sack_permitted;
                 self.remote_win_scale = repr.window_scale;
                 // Remote doesn't support window scaling, don't do it.
@@ -2666,6 +2748,7 @@ impl<'a> Socket<'a> {
 
                 self.remote_seq_no = repr.seq_number + 1;
                 self.remote_last_seq = self.local_seq_no + 1;
+                self.remote_rewound = 0;
                 self.remote_last_ack = Some(repr.seq_number);
                 self.remote_has_sack = repr.sack_permitted;
                 self.remote_win_scale = repr.window_scale;
@@ -2858,7 +2941,9 @@ impl<'a> Socket<'a> {
             // in theory but also impossible in practice, since they have been already
             // deallocated from the buffer.
             if self.remote_last_seq < self.local_seq_no {
-                self.remote_last_seq = self.local_seq_no
+                let send_max = self.send_max();
+                self.remote_last_seq = self.local_seq_no;
+                self.keep_send_max(send_max);
             }
 
             self.prune_loss_marks();
@@ -3172,7 +3257,8 @@ impl<'a> Socket<'a> {
             // If a timeout expires, we should abort the connection.
             net_debug!("timeout exceeded");
             self.set_state(State::Closed);
-        } else if let Timer::TailLossProbe { rto_at, .. } = self.timer
+        } else if !self.retransmit_paused
+            && let Timer::TailLossProbe { rto_at, .. } = self.timer
             && self.timer.should_retransmit(cx.now())
         {
             // cmux patch: the probe timer expired with no ACK of new data. Resend
@@ -3190,7 +3276,7 @@ impl<'a> Socket<'a> {
                 self.timer = Timer::Retransmit { expires_at: rto_at };
                 self.rtte.on_retransmit();
             }
-        } else if self.timer.should_retransmit(cx.now()) {
+        } else if !self.retransmit_paused && self.timer.should_retransmit(cx.now()) {
             if let Timer::Retransmit { .. } = self.timer {
                 // If a retransmit timer expired, we should resend data starting at the last ACK.
                 net_debug!("retransmitting after rto");
@@ -3204,7 +3290,9 @@ impl<'a> Socket<'a> {
                 // Rewind "last sequence number sent", as if we never
                 // had sent them. This will cause all data in the queue
                 // to be sent again.
+                let send_max = self.send_max();
                 self.remote_last_seq = self.local_seq_no;
+                self.keep_send_max(send_max);
 
                 // cmux patch: RFC 2018 (8): after a timeout the sender must not
                 // trust earlier SACK blocks, since the peer may have dropped that
@@ -3275,7 +3363,7 @@ impl<'a> Socket<'a> {
         } else if self.timer.should_keep_alive(cx.now()) {
             // If we need to transmit a keep-alive packet, do it.
             tcp_trace!("keep-alive timer expired");
-        } else if self.timer.should_zero_window_probe(cx.now()) {
+        } else if !self.retransmit_paused && self.timer.should_zero_window_probe(cx.now()) {
             tcp_trace!("sending zero-window probe");
         } else if self.timer.should_close(cx.now()) {
             // If we have spent enough time in the TIME-WAIT state, close the socket.
@@ -3406,7 +3494,10 @@ impl<'a> Socket<'a> {
                     };
 
                     // To send a zero-window-probe, force the window limit to at least 1 byte.
-                    if win_limit == 0 && self.timer.should_zero_window_probe(cx.now()) {
+                    if win_limit == 0
+                        && !self.retransmit_paused
+                        && self.timer.should_zero_window_probe(cx.now())
+                    {
                         win_limit = 1;
                         is_zero_window_probe = true;
                     }
@@ -3538,7 +3629,22 @@ impl<'a> Socket<'a> {
         // to not waste time waiting for the retransmit timer on packets that we know
         // for sure will not be successfully transmitted.
         ip_repr.set_payload_len(repr.buffer_len());
-        emit(cx, packet_meta, (ip_repr, repr))?;
+        // cmux patch: a pure ACK carries the highest sequence number sent
+        // (SND.MAX), as Linux's do, not the send point a retransmission
+        // timeout rewound. The peer may hold data past the rewound point whose
+        // ACK was lost; to it a segment numbered there is old, so it drops the
+        // segment with its ACK field (RFC 9293 3.10.7.4). With both ends
+        // rewound, each dropped the other's ACKs, and a connection carrying
+        // data both ways through loss stalled until its user timeout.
+        let mut wire_repr = repr;
+        if wire_repr.payload.is_empty()
+            && wire_repr.control == TcpControl::None
+            && !is_keep_alive
+            && !is_zero_window_probe
+        {
+            wire_repr.seq_number = self.send_max();
+        }
+        emit(cx, packet_meta, (ip_repr, wire_repr))?;
 
         // We have successfully emitted, if this was a fast retransmission it is not pending anymore
         self.pending_fast_retransmit = false;
@@ -3574,7 +3680,11 @@ impl<'a> Socket<'a> {
         // We've sent a packet successfully, so we can update the internal state now.
         // Use max() so a fast-retransmit segment (whose seq_number is local_seq_no, well
         // behind the current frontier) doesn't rewind the tracked "highest sent" sequence.
+        let send_max = self.remote_last_seq + self.remote_rewound;
         self.remote_last_seq = self.remote_last_seq.max(repr.seq_number + repr.segment_len());
+        // As `keep_send_max`, inline: `repr` still borrows the send buffer.
+        self.remote_rewound =
+            if send_max > self.remote_last_seq { send_max - self.remote_last_seq } else { 0 };
         self.remote_last_ack = repr.ack_number;
         self.remote_last_win = repr.window_len;
 
@@ -3662,8 +3772,22 @@ impl<'a> Socket<'a> {
                 (_, _) => PollAt::Ingress,
             };
 
+            // cmux patch: while retransmission is held, its deadlines wait
+            // for a segment from the peer instead.
+            let timer_poll_at = match self.timer {
+                Timer::Retransmit { .. }
+                | Timer::FastRetransmit
+                | Timer::TailLossProbe { .. }
+                | Timer::ZeroWindowProbe { .. }
+                    if self.retransmit_paused =>
+                {
+                    PollAt::Ingress
+                }
+                _ => self.timer.poll_at(),
+            };
+
             // We wait for the earliest of our timers to fire.
-            *[self.timer.poll_at(), timeout_poll_at, delayed_ack_poll_at]
+            *[timer_poll_at, timeout_poll_at, delayed_ack_poll_at]
                 .iter()
                 .min()
                 .unwrap_or(&PollAt::Ingress)
@@ -5461,6 +5585,42 @@ mod test {
         );
     }
 
+    /// cmux patch: `unsent_queue` counts only what was never sent, and
+    /// `smoothed_rtt` appears with the first measurement.
+    #[test]
+    fn test_unsent_queue_and_smoothed_rtt() {
+        let mut s = socket_established();
+        assert_eq!(s.smoothed_rtt(), None);
+        s.send_slice(b"abcdef").unwrap();
+        assert_eq!(s.unsent_queue(), 6);
+        recv!(
+            s,
+            time 0,
+            [TcpRepr {
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1),
+                payload: &b"abcdef"[..],
+                ..RECV_TEMPL
+            }]
+        );
+        assert_eq!(s.unsent_queue(), 0);
+        assert_eq!(s.send_queue(), 6);
+        s.send_slice(b"gh").unwrap();
+        assert_eq!(s.unsent_queue(), 2);
+        send!(
+            s,
+            time 40,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1 + 6),
+                ..SEND_TEMPL
+            }
+        );
+        assert_eq!(s.smoothed_rtt(), Some(Duration::from_millis(40)));
+        assert_eq!(s.send_queue(), 2);
+        assert_eq!(s.unsent_queue(), 2);
+    }
+
     #[test]
     fn test_established_send() {
         let mut s = socket_established();
@@ -7167,6 +7327,38 @@ mod test {
 
     #[test]
     #[cfg(feature = "socket-tcp-reno")]
+    fn test_send_window_cap_limits_data_in_flight_below_cwnd() {
+        let mut s = socket_established_with_buffer_sizes(8192, 64);
+        s.set_congestion_control(CongestionControl::Reno);
+        s.remote_win_len = 65535;
+        s.remote_mss = 1024;
+        // Reno's initial window is 2048 bytes; the cap allows one segment.
+        s.set_send_window_cap(Some(1024));
+        assert_eq!(s.send_window_cap(), Some(1024));
+
+        let data = [b'x'; 8192];
+        s.send_slice(&data[..]).unwrap();
+        recv!(s, time 0, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload: &data[..1024],
+            ..RECV_TEMPL
+        }));
+        recv_nothing!(s, time 0);
+
+        // Lifting the cap lets the congestion window's second segment out.
+        s.set_send_window_cap(None);
+        recv!(s, time 0, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1 + 1024,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload: &data[..1024],
+            ..RECV_TEMPL
+        }));
+        recv_nothing!(s, time 0);
+    }
+
+    #[test]
+    #[cfg(feature = "socket-tcp-reno")]
     fn test_congestion_window_doesnt_limit_fast_retransmit() {
         let mut s = socket_established_with_buffer_sizes(8192, 64);
         s.set_congestion_control(CongestionControl::Reno);
@@ -7268,6 +7460,56 @@ mod test {
             ..RECV_TEMPL
         }), exact);
         recv_nothing!(s, time 1550);
+    }
+
+    /// cmux patch: after a retransmission timeout rewinds the send point, a
+    /// pure ACK still carries the highest sequence number sent (SND.MAX). The
+    /// peer may have every byte up to it; to that peer an ACK numbered at
+    /// the rewound point is old, and it would drop the ACK it carries.
+    #[test]
+    fn test_pure_ack_after_rto_carries_send_max() {
+        let mut s = socket_established();
+        s.remote_mss = 6;
+        s.send_slice(b"abcdef012345").unwrap();
+        recv!(s, time 0, Ok(TcpRepr {
+            control:    TcpControl::None,
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..RECV_TEMPL
+        }), exact);
+        recv!(s, time 0, Ok(TcpRepr {
+            control:    TcpControl::Psh,
+            seq_number: LOCAL_SEQ + 1 + 6,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"012345"[..],
+            ..RECV_TEMPL
+        }), exact);
+        // The RTO rewinds the send point and resends from the start.
+        recv!(s, time 1000, Ok(TcpRepr {
+            control:    TcpControl::None,
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"abcdef"[..],
+            ..RECV_TEMPL
+        }), exact);
+        // An ACK now (data from the peer, no new data to send) is numbered
+        // at SND.MAX, not at the resent segment's end.
+        let mut acks = Vec::new();
+        s.cx.set_now(Instant::from_millis(1001));
+        s.remote_win_len = 0;
+        s.socket.ack_delay_timer = AckDelayTimer::Immediate;
+        s.socket.remote_last_ack = None;
+        let _ = s.socket.dispatch(&mut s.cx, |_, _, (_, repr)| {
+            if repr.payload.is_empty() {
+                acks.push(repr.seq_number);
+            }
+            Ok::<(), ()>(())
+        });
+        assert_eq!(acks, vec![LOCAL_SEQ + 1 + 12]);
+        // A reply to an unacceptable segment carries it too.
+        let (_, reply) = s.socket.ack_reply(&SEND_IP_TEMPL, &SEND_TEMPL);
+        assert_eq!(reply.seq_number, LOCAL_SEQ + 1 + 12);
     }
 
     #[test]
@@ -10525,6 +10767,33 @@ mod test {
         assert_eq!(s.rtte.retransmission_timeout(), Duration::from_millis(200));
         recv_nothing!(s, time 449);
         recv!(s, time 450, Ok(segment), exact);
+    }
+
+    #[test]
+    fn test_retransmit_paused_resends_nothing_until_resumed() {
+        let mut s = socket_established();
+        s.set_min_rto(Duration::from_millis(200));
+        s.set_tail_loss_probe(Some(Duration::from_millis(25)));
+        s.rtte.sample(40);
+        s.send_slice(b"abcdef").unwrap();
+        let segment = TcpRepr {
+            control: TcpControl::Psh,
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload: &b"abcdef"[..],
+            ..RECV_TEMPL
+        };
+        recv!(s, time 0, Ok(segment), exact);
+        // The peer went silent on purpose: no probe, no RTO, and no poll due.
+        s.set_retransmit_paused(true);
+        for at in [100, 200, 1_000, 10_000, 60_000] {
+            recv_nothing!(s, time at);
+        }
+        assert_eq!(s.socket.poll_at(&mut s.cx), PollAt::Ingress);
+        // Back: resent at once, the RTO at the estimate's 200 ms.
+        s.set_retransmit_paused(false);
+        recv!(s, time 60_100, Ok(segment), exact);
+        assert_eq!(s.rtte.retransmission_timeout(), Duration::from_millis(200));
     }
 
     #[test]

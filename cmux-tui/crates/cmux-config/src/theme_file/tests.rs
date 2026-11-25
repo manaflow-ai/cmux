@@ -198,6 +198,168 @@ fn a_theme_file_sets_the_terminal_font_and_the_sidebar_shape() {
     );
 }
 
+/// The sidebar's rows are part of a look: density, text size, status icons,
+/// grouping and the row's own elements, so one file restyles the sidebar. A
+/// per-kind row override and what the sidebar holds (chats) stay out.
+#[test]
+fn a_theme_file_sets_how_the_sidebar_rows_draw() {
+    let file = overlay(
+        r#"{
+          "sidebar.density": "compact", "sidebar.textSize": "large", "sidebar.detailedStatusIcons": true,
+          "sidebar.showColors": false, "sidebar.groupBy": "none", "workspaceColors.indicatorStyle": "dot",
+          "sidebar.workspaceRow.icon": false, "sidebar.workspaceRow.working": true,
+          "sidebar.workspaceRow.secondLineOrder": ["branch"],
+          "sidebar.workspaceRow.agent.icon": true, "sidebar.showChats": false
+        }"#,
+    );
+    assert_eq!(
+        file.keys(),
+        [
+            "sidebar.density",
+            "sidebar.detailedStatusIcons",
+            "sidebar.groupBy",
+            "sidebar.showColors",
+            "sidebar.textSize",
+            "sidebar.workspaceRow.icon",
+            "sidebar.workspaceRow.secondLineOrder",
+            "sidebar.workspaceRow.working",
+            "workspaceColors.indicatorStyle",
+        ]
+    );
+    let mut refused: Vec<&str> = file.diagnostics.iter().map(|d| d.path.as_str()).collect();
+    refused.sort();
+    assert_eq!(refused, ["sidebar.showChats", "sidebar.workspaceRow.agent.icon"]);
+}
+
+/// The app's copy of the look lists (Swift `ThemeFileOverlay`) is this one:
+/// a key one reader takes and the other refuses would apply in the app and
+/// not in the CLI's `cmux theme check`, or the other way round.
+#[test]
+fn the_look_lists_match_the_apps() {
+    let swift =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../../../Packages/macOS/CmuxNext/Sources/CmuxNextSettings/ThemeFileOverlay.swift",
+        ))
+        .expect("ThemeFileOverlay.swift");
+    // The quoted strings of the Swift `static let NAME ... = [ ... ]` literal.
+    let literal = |name: &str| -> BTreeSet<String> {
+        let start = swift.find(&format!("static let {name}")).expect(name);
+        let body = &swift[start..];
+        let body = &body[body.find('[').expect("[") + 1..body.find(']').expect("]")];
+        // `joined(separator: ".")` is the one quoted string that is no key.
+        body.split('"').skip(1).step_by(2).filter(|s| *s != ".").map(str::to_owned).collect()
+    };
+    let set = |list: &[&str]| list.iter().map(|key| (*key).to_owned()).collect::<BTreeSet<_>>();
+    assert_eq!(literal("lookKeys"), set(&LOOK_KEYS));
+    assert_eq!(literal("lookPrefixes"), set(&LOOK_PREFIXES));
+    // Swift names the theme file's own key and its exceptions key through their settings' `configPath`.
+    let named: Vec<&str> = EXCLUDED_KEYS
+        .iter()
+        .copied()
+        .filter(|key| ![SETTING_KEY, EXCEPTIONS_KEY].contains(key))
+        .collect();
+    assert_eq!(literal("excludedKeys"), set(&named));
+    assert!(
+        swift.contains("ThemeFileSetting.configPath")
+            && swift.contains("ThemeFileExceptionsSetting.configPath")
+    );
+    assert!(swift.contains(&format!("static let rowPrefix = \"{ROW_PREFIX}\"")));
+}
+
+/// The shipped Minimal sessions file sets every key it writes, each to the
+/// value it writes, with no refusal: read through the same reader the app's
+/// copy uses, applied over an empty root, every value reads back.
+#[test]
+fn the_minimal_sessions_file_applies_every_value_it_writes() {
+    let text = shipped("minimal-sessions").expect("minimal-sessions ships");
+    let file = ThemeFile::read(
+        "minimal-sessions",
+        Some(Ok(text)),
+        &json!({}),
+        None,
+        Schema::embedded(),
+        &Domains::default(),
+    );
+    assert!(file.is_loaded);
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    let Value::Object(written) = crate::jsonc::parse(text).expect("the file is JSONC") else {
+        panic!("the file is no object");
+    };
+    let written: Vec<(&String, &Value)> =
+        written.iter().filter(|(key, _)| !RESERVED_KEYS.contains(&key.as_str())).collect();
+    // It restyles the sidebar as a whole: every row element, the status and the grouping.
+    assert!(written.len() >= 20, "the file writes only {} keys", written.len());
+    let mut keys: Vec<String> = written.iter().map(|(key, _)| (*key).clone()).collect();
+    keys.sort();
+    assert_eq!(file.keys(), keys, "every key it writes is taken, none twice");
+    let root = file.applied(&json!({}), &none());
+    for (key, value) in &written {
+        assert_eq!(at(&root, key), Some(*value), "{key}");
+    }
+    // The ones that make it a minimal session list.
+    assert_eq!(at(&root, "sidebar.workspaceRow.statusPlacement"), Some(&json!("leading")));
+    assert_eq!(at(&root, "appearance.statusIndicator.iconSet"), Some(&json!("symbols")));
+    assert_eq!(at(&root, "sidebar.workspaceRow.icon"), Some(&json!(false)));
+    assert_eq!(at(&root, "sidebar.density"), Some(&json!("compact")));
+    // A managed key keeps the managed value.
+    let managed: BTreeSet<String> = ["sidebar.workspaceRow".to_string()].into();
+    let kept = file.applied(&json!({"sidebar": {"workspaceRow": {"icon": true}}}), &managed);
+    assert_eq!(at(&kept, "sidebar.workspaceRow.icon"), Some(&json!(true)));
+    assert_eq!(at(&kept, "sidebar.workspaceRow.statusPlacement"), None);
+}
+
+/// A theme file of 5,000 keys, nearly all junk (per-kind row overrides, row
+/// names no schema has, keys of no setting), still loads: every junk key is
+/// refused by name, the valid ones apply, and nothing else is taken.
+#[test]
+fn a_theme_file_of_five_thousand_junk_keys_still_applies_its_valid_ones() {
+    let valid: [(&str, Value); 6] = [
+        ("sidebar.density", json!("compact")),
+        ("sidebar.groupBy", json!("none")),
+        ("sidebar.workspaceRow.statusPlacement", json!("leading")),
+        ("sidebar.workspaceRow.icon", json!(false)),
+        ("sidebar.showColors", json!(false)),
+        ("appearance.statusIndicator.iconSet", json!("symbols")),
+    ];
+    let kinds = ["terminal", "agent", "browser", "mixed"];
+    let mut junk: Vec<String> = Vec::new();
+    for index in 0..(5_000 - valid.len()) {
+        junk.push(match index % 3 {
+            0 => format!("sidebar.workspaceRow.{}.j{index}", kinds[index % kinds.len()]),
+            1 => format!("sidebar.workspaceRow.j{index}"),
+            _ => format!("nope.j{index}"),
+        });
+    }
+    let mut members: Vec<String> = junk.iter().map(|key| format!("  \"{key}\": true")).collect();
+    for (offset, (key, value)) in valid.iter().enumerate() {
+        // Spread the valid keys through the junk.
+        members.insert(offset * 800, format!("  \"{key}\": {value}"));
+    }
+    let text = format!("{{\n{}\n}}", members.join(",\n"));
+    assert!(text.len() <= MAXIMUM_BYTES, "{} bytes", text.len());
+    let started = std::time::Instant::now();
+    let file = overlay(&text);
+    let elapsed = started.elapsed();
+    assert!(file.is_loaded);
+    let mut want: Vec<String> = valid.iter().map(|(key, _)| (*key).to_string()).collect();
+    want.sort();
+    assert_eq!(file.keys(), want);
+    let refused: BTreeSet<&str> = file.diagnostics.iter().map(|d| d.path.as_str()).collect();
+    for key in &junk {
+        assert!(refused.contains(key.as_str()), "{key} was not refused");
+    }
+    for (key, _) in &valid {
+        assert!(!refused.contains(key), "{key} was refused");
+    }
+    assert_eq!(file.diagnostics.len(), junk.len(), "one refusal per junk key");
+    let root = file.applied(&json!({}), &none());
+    for (key, value) in &valid {
+        assert_eq!(at(&root, key), Some(value), "{key}");
+    }
+    // Each refusal looks up its line in the text: keep that from going quadratic.
+    assert!(elapsed.as_secs_f64() < 5.0, "reading 5,000 keys took {elapsed:?}");
+}
+
 /// Leo, 2026-11-18: "you guys should be customizing the tabs/sidebars a lot
 /// deeper too. prob likewise the session info and the top right buttons as
 /// well". A theme sets the toolbar's buttons, Session Info and the sidebar's
@@ -281,6 +443,7 @@ fn the_shipped_theme_files_apply_with_no_refusals() {
         "moss",
         "meadow",
         "lily-pond",
+        "minimal-sessions",
     ] {
         assert!(list.iter().any(|name| name == look), "{look} in {list:?}");
     }
@@ -621,4 +784,22 @@ fn a_theme_file_keeps_the_corner_treatment() {
     assert!(bad.keys().is_empty());
     assert!(bad.diagnostics.iter().any(|d| d.path == "appearance.cornerFlush"
         && d.message.starts_with("expected one of")));
+}
+
+/// `appearance.tabShape` (block, rounded) is a look a theme file sets (the gooey look is `appearance.cornerFlush`); any other value is refused by the
+/// schema's choices, as `cmux settings set` refuses it.
+#[test]
+fn a_theme_file_sets_the_tab_shape() {
+    for shape in ["block", "rounded"] {
+        let file = overlay(&format!(r#"{{ "appearance.tabShape": "{shape}" }}"#));
+        assert!(file.diagnostics.is_empty(), "{shape}: {:?}", file.diagnostics);
+        let root = file.applied(&json!({}), &none());
+        assert_eq!(at(&root, "appearance.tabShape"), Some(&json!(shape)));
+    }
+    // "gooey" is the corner treatment's `flush-goo`, not a tab shape.
+    let wobbly = overlay(r#"{ "appearance.tabShape": "gooey" }"#);
+    assert!(wobbly.keys().is_empty());
+    let refused =
+        wobbly.diagnostics.iter().find(|d| d.path == "appearance.tabShape").expect("gooey refused");
+    assert!(refused.message.starts_with("expected one of"), "{}", refused.message);
 }

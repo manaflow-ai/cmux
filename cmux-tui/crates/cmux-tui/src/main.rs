@@ -141,6 +141,8 @@ mod sidebar_projection;
 mod sidebar_status;
 #[cfg(unix)]
 mod staged_update;
+/// The interactive client's UI-loop hang watchdog (sample, report, cancel, restart).
+mod ui_watchdog;
 // The staged swap probes builds through cmux-remote, a unix-only dependency:
 // elsewhere nothing is ever staged and no notice waits.
 #[cfg(not(unix))]
@@ -1918,6 +1920,8 @@ pub fn main() -> std::process::ExitCode {
     cmux_tui_core::server::install_build_stamp(build_stamp());
     cmux_tui_core::release::install_distribution_version(version_report::DISTRIBUTION_STAMP);
     acpmux::hub::install_build(acpmux_build_id::build());
+    // acpmux is headless; its interactive commands open the terminal UI this binary links.
+    acpmux_tui::install();
     #[cfg(unix)]
     cmux_tui_core::git_seed::on_seeded(warm_seeded_deps);
     // The daemon's `device-setup` (the app's set-up buttons) runs `cmux device setup|start`'s code.
@@ -1945,7 +1949,7 @@ pub fn main() -> std::process::ExitCode {
 }
 
 /// Runs the host argv[0]'s file name names (`cmux-browser-host`,
-/// `cmux-app-host`) and returns its exit code, or `None` when it names none.
+/// `cmux-app-host`, `cmux-mobile-host`) and returns its exit code, or `None` when it names none.
 #[cfg(unix)]
 fn run_folded_host() -> Option<i32> {
     let argv0 = std::env::args_os().next()?;
@@ -1954,6 +1958,11 @@ fn run_folded_host() -> Option<i32> {
     match name {
         "cmux-browser-host" => Some(cmux_browser_host::cli::run(args())),
         "cmux-app-host" => Some(cmux_app_host::entry::run(&args())),
+        // A tool the app downloads on first use (`tool_packs`): runs it in this process's place.
+        "cmux-mobile-host" => {
+            let exe = std::fs::canonicalize(std::env::current_exe().ok()?).ok()?;
+            cmux_tui_core::tool_packs::run_as(name, &exe)
+        }
         _ => None,
     }
 }

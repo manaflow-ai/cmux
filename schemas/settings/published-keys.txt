@@ -212,6 +212,7 @@ appearance.surfaces.tabBar.opacity
 appearance.surfaces.terminal.color
 appearance.surfaces.terminal.opacity
 appearance.tabBarBackground
+appearance.terminalCellBackgrounds
 appearance.theme
 appearance.themeEdits
 appearance.themeFile
@@ -298,6 +299,7 @@ chief.subagentSidebar
 chief.subagentSidebarHideWords
 chief.subagentSidebarMinWords
 chief.subagentSidebarShowWords
+cloud.agentMemory.follow
 cloud.agentsStartWithoutAsking
 cloud.newWorkspaceFolder
 cloud.newWorkspacesInCloud
@@ -501,6 +503,7 @@ notifications.attention.showOnTab
 notifications.attention.style
 notifications.attention.terminals
 notifications.attention.width
+notifications.delivery.blocked
 notifications.delivery.permissionRequest
 notifications.delivery.question
 notifications.delivery.taskComplete
