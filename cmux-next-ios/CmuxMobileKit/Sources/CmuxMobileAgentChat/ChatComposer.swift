@@ -125,13 +125,17 @@ struct ChatComposer: View {
             }
             .ignoresSafeArea()
         }
+        // Files start for the Mac the moment they are picked, not at Send (AttachmentPrestager).
+        .onChange(of: attachments.map(\.id), initial: true) { _, _ in
+            store.composerAttachmentsChanged(attachments)
+        }
         .onChange(of: photoItems) { _, items in
             guard !items.isEmpty else { return }
             Task { await loadPhotos(items) }
         }
         .cmuxMobileSensoryFeedback(.impact(weight: .light), trigger: sendCount)
-        .onChange(of: focus.wrappedValue) { _, focused in
-            if focused { expandRequested = false }
+        .onChange(of: expandRequested && focus.wrappedValue) { _, expansionFocused in
+            if expansionFocused { expandRequested = false }
         }
         .onAppear {
             if expandOnAppear { expand() }
@@ -149,7 +153,7 @@ struct ChatComposer: View {
         .task {
             let arguments = ProcessInfo.processInfo.arguments
             guard let index = arguments.firstIndex(of: "-cmux-mobile-demo"),
-                  arguments.indices.contains(index + 1), arguments[index + 1] == "offline-send",
+                  arguments.indices.contains(index + 1), ["offline-send", "offline-held"].contains(arguments[index + 1]),
                   !ranOfflineSendDemo else { return }
             ranOfflineSendDemo = true
             text = "Run the tests and summarize the results."
