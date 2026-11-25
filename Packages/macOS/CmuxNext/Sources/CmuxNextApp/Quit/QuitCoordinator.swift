@@ -208,11 +208,11 @@ final class QuitCoordinator {
                 await QuitSaveSteps(
                     remoteSnapshots: { await services.remoteTerminals.saveSnapshots() },
                     agentComposers: { await services.agentTabs.relaunchWake.save(AgentQuitFiles.composers(services.agentTabs, isIncognito: { AgentQuitFiles.contains(incognito, $0) })) },
-                    agentImages: { services.launchImages.pictures?.stop(); await AgentQuitFiles.saveImages(services.agentTabs) { AgentQuitFiles.contains(incognito, $0) } },
+                    agentImages: { services.launchImages.pictures?.stop(); if let saved = services.updater.savedForRelaunch { await saved.value } else { await AgentQuitFiles.saveImages(services.agentTabs) { AgentQuitFiles.contains(incognito, $0) } } }, // a relaunch saved them while its windows were on screen (UpdateWindowHandoff.savesBeforeLeaving)
                     terminalFrames: {
                         await TerminalLaunchFrames.beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
                             .save(services.cache.terminals.mapValues(\.session))
-                        await services.cache.savePageFramesForQuit() // and browser pages' (`BrowserPageFrames`)
+                        if services.updater.savedForRelaunch == nil { await services.cache.savePageFramesForQuit() } // and browser pages' (`BrowserPageFrames`); a relaunch saved them on screen
                     },
                     browserRecords: { await services.cache.browserTabs.flushRecords() },
                     windows: {
