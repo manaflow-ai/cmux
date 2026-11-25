@@ -333,6 +333,19 @@ class FixCauseLabelsStartNoJobs(unittest.TestCase):
                     self.assertEqual(jobs_started(risk, context), [], (action, label, state))
                     self.assertEqual(job_name(risk, "evidence", context), "risk evidence label (ignored)")
 
+    def test_merge_freeze_checks_only_on_freeze_ok(self):
+        # Only freeze-ok changes the merge freeze verdict; any other label skips under another name, open or closed.
+        freeze = label_target_workflows()["merge-freeze.yml"]
+        for action in sorted(LABEL_ACTIONS):
+            for state in ("open", "closed"):
+                context = event(action, "freeze-ok", state=state)
+                self.assertEqual(jobs_started(freeze, context), ["check"], (action, state))
+                self.assertEqual(job_name(freeze, "check", context), "merge freeze")
+                for label in ("fix-cause:ci-config", "risk:normal", "area:ios"):
+                    context = event(action, label, state=state)
+                    self.assertEqual(jobs_started(freeze, context), [], (action, label, state))
+                    self.assertEqual(job_name(freeze, "check", context), "merge freeze label (ignored)")
+
     def test_the_repository_has_label_target_workflows(self):
         # Guards the scan itself: an empty set would pass everything.
         self.assertIn("risk-tier.yml", label_target_workflows())
@@ -351,8 +364,6 @@ class FixCauseLabelsStartNoJobs(unittest.TestCase):
 
     def test_other_labels_on_closed_pull_requests_are_unchanged(self):
         workflows = label_target_workflows()
-        context = event("labeled", "risk:normal")
-        self.assertEqual(jobs_started(workflows["merge-freeze.yml"], context), ["check"])
         into_main = event("labeled", "risk:normal", base="main")
         self.assertEqual(jobs_started(workflows["backend-migrations.yml"], into_main, MIGRATION_CHANGE), ["plan", "gate"])
 
