@@ -132,7 +132,7 @@ struct ChatComposer: View {
         .task {
             let arguments = ProcessInfo.processInfo.arguments
             guard let index = arguments.firstIndex(of: "-cmux-mobile-demo"),
-                  arguments.indices.contains(index + 1), arguments[index + 1] == "offline-send",
+                  arguments.indices.contains(index + 1), ["offline-send", "offline-held"].contains(arguments[index + 1]),
                   !ranOfflineSendDemo else { return }
             ranOfflineSendDemo = true
             text = "Run the tests and summarize the results."
