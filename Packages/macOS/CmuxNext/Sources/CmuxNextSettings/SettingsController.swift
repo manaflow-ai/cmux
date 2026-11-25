@@ -472,16 +472,16 @@ public final class SettingsController {
                                            configDirectory: URL, buildDefaults: SettingsBuildDefaults,
                                            lastGoodTheme: SettingsLoadInputs.ThemeFile? = nil, listingThemes: Bool = true,
                                            sidebarLooksFolder: URL? = SidebarLookPreset.bundledFolder) -> Loaded {
-        var source = ""
-        var problem: String?
-        var root = lastGood
-        do {
-            source = try read.get()
-            let parsed = try JSONC.parse(source)
-            if case .object = parsed { root = parsed } else { problem = "root is not an object" }
-        } catch {
-            problem = JSONC.problem(error, in: source)
+        // A text that does not parse, or is not an object, keeps the last good root
+        // (cmux-config `controller.load_root`).
+        let source = (try? read.get()) ?? ""
+        let request: JSONValue = switch read {
+        case .success(let text): ["source": .string(text), "last_good": lastGood]
+        case .failure(let error): ["error": .string(JSONC.problem(error, in: nil)), "last_good": lastGood]
         }
+        let reply = SettingsRust.answer("controller.load_root", request)
+        let root = reply["root"] ?? lastGood
+        let problem = reply["problem"]?.stringValue
         // Managed layers always merge, over the last good file when this one
         // is unreadable, so MDM forced values apply even while the user's
         // file is broken (spec/enterprise.md 5.2).
@@ -619,21 +619,16 @@ extension SettingsController {
             // The keys the person changed over the file keep their own value (#44894).
             let exceptions = ThemeFileExceptionsSetting.keys(in: root)
             applied = overlay.applied(to: root, managed: managed.union(exceptions))
-            // Each row the file sets says where its value comes from.
-            let file = "\(ThemeFileSetting.folderName)/\(name).\(ThemeFileSetting.fileExtension)"
             // The file's own density is over both density rows, unless the person changed one over the file.
             density = overlay.density(under: managed.union(exceptions))
-            let densityRows = density == nil ? [] : [DensitySetting.configPath, CustomDensitySelectionSetting.configPath]
-                .filter { path in !overlay.values.contains { $0.path == path } }.map { $0.joined(separator: ".") }
-            diagnostics = overlay.diagnostics + (overlay.values.map { $0.path.joined(separator: ".") } + densityRows)
-                .filter { id in !managed.contains { $0 == id || id.hasPrefix($0 + ".") || $0.hasPrefix(id + ".") } }
-                .map { id in
-                    exceptions.contains(id)
-                        ? SettingsDiagnostic(kind: .overThemeFile, path: id,
-                                             message: "your value applies over the theme file's; Reset returns to the file's", file: file)
-                        : SettingsDiagnostic(kind: .setByThemeFile, path: id,
-                                             message: "set by the theme file; a change here applies over it", file: file)
-                }
+            // Each row the file sets says where its value comes from (cmux-config `controller.theme_file_notes`).
+            let notes = SettingsRust.answer("controller.theme_file_notes", [
+                "root": root,
+                "file_keys": .array(overlay.values.map { .string($0.path.joined(separator: ".")) }),
+                "density": .bool(density != nil),
+                "managed": .array(managed.sorted().map(JSONValue.string)),
+            ])["diagnostics"]?.arrayValue ?? []
+            diagnostics = overlay.diagnostics + notes.compactMap(SettingsDiagnostic.init(wire:))
         }
     }
 

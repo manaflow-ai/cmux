@@ -51,11 +51,7 @@ extension SettingsController {
 
     /// Whether writing `value` at `path` asks for a window the desktop shows through.
     nonisolated static func asksForSeeThrough(_ path: [String], _ value: JSONValue) -> Bool {
-        switch path {
-        case WindowBackgroundSetting.opacityPath: (value.doubleValue ?? 1) < 1
-        case WindowBackgroundSetting.materialPath: value.stringValue.map { $0 != "none" } ?? false
-        default: false
-        }
+        SettingsRust.answer("controller.see_through", ["path": .array(path.map(JSONValue.string)), "value": value])["see_through"]?.boolValue ?? false
     }
 
     /// The linked edits for a write, read against `file` (the settings file's parsed document).

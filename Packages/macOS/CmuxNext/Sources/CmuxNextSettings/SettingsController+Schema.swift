@@ -137,20 +137,15 @@ extension SettingsController {
     /// Removes `path`, then each parent object that became empty: each parent goes only while it is
     /// still empty in the file the writer publishes, so an object that gains a member meanwhile stays.
     nonisolated static func removingPruned(_ path: [String]) -> [SettingsFileEdit] {
-        [.reset(path)] + (1..<max(path.count, 1)).reversed().map { .resetUnchanged(Array(path.prefix($0)), .object([:])) }
+        let reply = SettingsRust.answer("controller.remove_pruned", ["path": .array(path.map(JSONValue.string))])
+        return (reply["edits"]?.arrayValue ?? []).compactMap(SettingsFileEdit.init(wire:))
     }
 
     /// `root` after `edits`, as the writer applies them (an emptied parent is left in place: the
-    /// planner reads values, not empty objects).
+    /// planner reads values, not empty objects). cmux-config `controller.apply_edits`.
     nonisolated static func applying(_ edits: [SettingsFileEdit], to root: JSONValue) -> JSONValue {
-        edits.reduce(root) { root, edit in
-            switch edit {
-            case .set(let path, let value): replacing(path, with: value, in: root)
-            case .setUnset(let path, let value): root.value(at: path) == nil ? replacing(path, with: value, in: root) : root
-            case .reset(let path): root.value(at: path) == nil ? root : replacing(path, with: nil, in: root)
-            case .resetUnchanged(let path, let value): root.value(at: path) == value ? replacing(path, with: nil, in: root) : root
-            }
-        }
+        guard !edits.isEmpty else { return root }
+        return SettingsRust.answer("controller.apply_edits", ["root": root, "edits": .array(edits.map(\.wire))])["root"] ?? root
     }
 
     /// Advanced > Reset All Settings: removes every key the schema lists and
@@ -201,5 +196,20 @@ extension SettingsController {
     func setsInThemeFile(_ key: String) -> Bool {
         guard !ThemeFileExceptionsSetting.unexceptionable.contains(key) else { return false }
         return themeFile?.values.contains { $0.path.joined(separator: ".") == key } ?? false
+    }
+}
+
+extension SettingsFileEdit {
+    /// The edit a `{op, path, value?}` reply names (``wire``'s inverse), nil for another shape.
+    nonisolated init?(wire: JSONValue) {
+        guard let op = wire["op"]?.stringValue,
+              let path = wire["path"]?.arrayValue?.compactMap(\.stringValue) else { return nil }
+        switch (op, wire["value"]) {
+        case ("set_exact", let value?), ("set", let value?): self = .set(path, value)
+        case ("set_unset", let value?): self = .setUnset(path, value)
+        case ("reset", _): self = .reset(path)
+        case ("reset_unchanged", let value?): self = .resetUnchanged(path, value)
+        default: return nil
+        }
     }
 }
