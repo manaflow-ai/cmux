@@ -13,7 +13,9 @@ export type NoticeTier = keyof typeof NOTICE_TIER;
 /// failure, Sandboxed), a design-system one `.ui-notice` (PlanScopeDriftNotice). A new notice built on
 /// one of them is one here. Never the composer, the asks stack, the tray or the goal: the transcript
 /// measures these to lie over its foot (VirtualTranscript `noticeHold`), so no row moves as one comes.
-export const DOCK_NOTICE = `:scope > :is(${[
+/// The composer form draws its own remote, sign-in and blocked note inside itself, above its box
+/// (Composer.tsx), so that one is matched one level down.
+export const DOCK_NOTICE = `:scope > .acpmux-composer > .acpmux-composer-remote-note, :scope > :is(${[
   "acpmux-host-line",
   "acpmux-host-line-group",
   "acpmux-host-error",
