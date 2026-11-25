@@ -239,6 +239,54 @@ fn settings_crud_reads_a_key_alias_as_its_key() {
     }
 }
 
+/// `cmux settings history|undo|restore REV|reset --group G` reach the daemon's
+/// settings owner (the recovery ops), whoever made the change they take back.
+#[cfg(unix)]
+#[test]
+fn settings_recovery_verbs_reach_the_daemon_owner() {
+    let route = super::super::daemon_settings_scope;
+    for args in [
+        &["settings", "history"][..],
+        &["settings", "undo"][..],
+        &["settings", "restore", "12"][..],
+        &["config", "reset", "--group", "appearance.sidebar"][..],
+    ] {
+        assert!(route(&strings(args)), "{args:?}");
+    }
+    let routing = serde_json::json!({"machine": "current", "session": "current"});
+
+    let history = protocol(&["settings", "history"]);
+    assert_eq!(operation(&history), "settings.history");
+    assert_eq!(history.params, routing);
+
+    let undo = protocol(&["settings", "undo"]);
+    assert_eq!(operation(&undo), "settings.undo");
+    assert_eq!(undo.params, routing);
+
+    let restore = protocol(&["settings", "restore", "12"]);
+    assert_eq!(operation(&restore), "settings.restore");
+    assert_eq!(
+        restore.params,
+        serde_json::json!({"revision": "12", "machine": "current", "session": "current"})
+    );
+
+    let group = protocol(&["settings", "reset", "--group", "appearance.sidebar"]);
+    assert_eq!(operation(&group), "settings.reset_group");
+    assert_eq!(
+        group.params,
+        serde_json::json!({"group": "appearance.sidebar", "machine": "current", "session": "current"})
+    );
+
+    for bad in [
+        &["settings", "restore", "twelve"][..],
+        &["settings", "restore"][..],
+        &["settings", "undo", "extra"][..],
+        &["settings", "reset", "a.b", "--group", "appearance"][..],
+    ] {
+        assert!(parse(&strings(bad), super::super::Surface::CmuxTui).is_err(), "{bad:?}");
+    }
+}
+
 #[test]
 fn coding_agent_hook_management_stays_local() {
     let CommandPlan::AgentHooks(plan) = parse(
