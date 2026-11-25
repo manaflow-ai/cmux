@@ -1,4 +1,29 @@
 {
+  "settings.choice.keyStyleVim": {
+    "class": "brand",
+    "source": "Vim"
+  },
+  "settings.choice.keyStyleEmacs": {
+    "class": "brand",
+    "source": "Emacs"
+  },
+  "settings.choice.keyStyleStandard": {
+    "source": "Standard",
+    "identityLocales": {
+      "de": {
+        "reason": "Standard is the standard German word for the default choice.",
+        "values": [
+          "Standard"
+        ]
+      },
+      "fr": {
+        "reason": "Standard is the standard French word for the default choice.",
+        "values": [
+          "Standard"
+        ]
+      }
+    }
+  },
   "settingsPage.chiefContact.slack": {
     "class": "brand",
     "source": "Slack"
