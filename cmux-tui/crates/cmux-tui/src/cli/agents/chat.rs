@@ -727,6 +727,13 @@ impl Transcript {
                     let status = msg["status"].as_str().unwrap_or("completed");
                     let mut extra = Map::new();
                     extra.insert("status".into(), json!(status));
+                    // A failed turn's own words ("You've hit your weekly limit · resets …"), for the
+                    // waiter's error (cmux#55066); masked as every other text here is.
+                    if let Some(error) = msg["errorText"].as_str().or_else(|| msg["error"].as_str())
+                        && !error.is_empty()
+                    {
+                        extra.insert("error".into(), json!(acpmux::secret_scan::mask(error)));
+                    }
                     self.push(seq, "turn_end", String::new(), extra);
                 }
                 _ => {}

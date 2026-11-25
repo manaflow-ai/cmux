@@ -277,7 +277,12 @@ fn the_reply_is_the_last_answer_of_the_last_turn() {
     ];
     assert_eq!(
         last_turn(&items, 0),
-        Some(Ended { seq: 8, status: "completed".into(), reply: Some("two, steered".into()) })
+        Some(Ended {
+            seq: 8,
+            status: "completed".into(),
+            reply: Some("two, steered".into()),
+            error: None
+        })
     );
     // A turn that ended at or before the baseline is not the one waited on, and neither is one
     // whose prompt came before it (the prompt sent was still held when that turn ended).
@@ -377,4 +382,42 @@ fn an_event_inside_the_check_gap_is_checked_when_the_gap_passes() {
     assert!(gate.due(false, at(450)), "the owed check runs once the gap passed");
     assert!(!gate.due(false, at(700)), "nothing owed: a wake does not check");
     assert!(gate.due(false, at(1450)), "the recheck still runs every second");
+}
+
+/// cmux#55066: a chat here whose turn failed on a used-up account said only "the turn ended
+/// failed". The turn's own words come through, and an account out of usage says so and the way on.
+#[test]
+fn a_failed_turn_here_says_the_agents_words_and_an_account_limits_way_on() {
+    let weekly = "You've hit your weekly limit · resets Nov 27, 7am (UTC)";
+    let mut fake = Fake::new(new_receipt());
+    fake.waits = VecDeque::from([idle()]);
+    fake.turn_start = 1;
+    let failed =
+        json!({"id": 2, "role": "turn_end", "text": "", "status": "failed", "error": weekly});
+    fake.reads = VecDeque::from([vec![item(1, "user", "reply ok"), failed]]);
+    let outcome =
+        run_turn(&mut fake, &Begin::New(vec!["reply ok".into()]), Duration::from_secs(60));
+    let Outcome::Failed { error, exit } = &outcome else { panic!("{outcome:?}") };
+    assert_eq!((error["code"].as_str(), *exit), (Some("chat.turn_failed"), 1));
+    let message = error["message"].as_str().unwrap();
+    assert!(
+        message.starts_with(
+            "Claude's account hit its weekly usage limit; it resets Nov 27, 7am (UTC)."
+        ),
+        "{message}"
+    );
+    assert!(message.contains("--agent codex"), "{message}");
+    assert_eq!(error["details"]["errorKind"], "usage.limit");
+    assert_eq!(error["details"]["agent_error"], weekly);
+
+    // Another failure keeps its own words; no words at all keeps the status.
+    let mut fake = Fake::new(new_receipt());
+    fake.waits = VecDeque::from([idle()]);
+    fake.turn_start = 1;
+    let other = json!({"id": 2, "role": "turn_end", "text": "", "status": "failed", "error": "API Error: 500"});
+    fake.reads = VecDeque::from([vec![item(1, "user", "go"), other]]);
+    let outcome = run_turn(&mut fake, &Begin::New(vec!["go".into()]), Duration::from_secs(60));
+    let Outcome::Failed { error, .. } = &outcome else { panic!("{outcome:?}") };
+    assert_eq!(error["message"], "API Error: 500");
+    assert!(error["details"].get("errorKind").is_none(), "{error}");
 }

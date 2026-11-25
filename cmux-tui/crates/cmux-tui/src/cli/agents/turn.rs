@@ -90,6 +90,8 @@ pub(in crate::cli) struct Ended {
     pub seq: u64,
     pub status: String,
     pub reply: Option<String>,
+    /// A failed turn's own error, as its agent said it.
+    pub error: Option<String>,
 }
 
 pub(in crate::cli) fn last_turn(items: &[Value], baseline: u64) -> Option<Ended> {
@@ -120,6 +122,7 @@ pub(in crate::cli) fn last_turn(items: &[Value], baseline: u64) -> Option<Ended>
         seq,
         status: turn_end.get("status").and_then(Value::as_str).unwrap_or("completed").to_owned(),
         reply: answer.and_then(|item| item.get("text")).and_then(Value::as_str).map(str::to_owned),
+        error: turn_end.get("error").and_then(Value::as_str).map(str::to_owned),
     })
 }
 
@@ -320,12 +323,20 @@ pub(in crate::cli) fn run_turn(port: &mut dyn Port, begin: &Begin, timeout: Dura
                 answer.set("turn", json!({"seq": ended.seq, "status": ended.status}));
                 answer.set("reply", ended.reply.map_or(Value::Null, Value::String));
                 if FAILED.contains(&ended.status.as_str()) {
-                    return Outcome::Failed {
-                        error: json!({"code": "chat.turn_failed",
-                                      "message": format!("the turn ended {}", ended.status),
-                                      "details": answer, "retryable": false}),
-                        exit: 1,
-                    };
+                    // The agent's own words when it said any, else the status; an account out of
+                    // usage or turned off says so, and the ways on (cmux#55066).
+                    let harness =
+                        answer.get("agent").and_then(Value::as_str).unwrap_or_default().to_owned();
+                    let message = ended
+                        .error
+                        .clone()
+                        .unwrap_or_else(|| format!("the turn ended {}", ended.status));
+                    let mut error = json!({"code": "chat.turn_failed", "message": message,
+                                           "details": answer, "retryable": false});
+                    if let Some(said) = ended.error.as_deref() {
+                        crate::cli::account_limit::explain(&mut error, said, &harness);
+                    }
+                    return Outcome::Failed { error, exit: 1 };
                 }
                 return Outcome::Done(answer);
             }

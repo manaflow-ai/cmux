@@ -11,7 +11,7 @@ use cmux_json::JsonSet as _;
 
 /// Rewrites `error` (a `chat.turn_failed`) when `said`, the agent's error, names an account
 /// limit. `harness` is the chat's harness id (`claude`, `codex`, `claude-sr`); empty is Claude.
-pub(super) fn explain(error: &mut Value, said: &str, harness: &str) {
+pub(in crate::cli) fn explain(error: &mut Value, said: &str, harness: &str) {
     let Some(limit) = acpmux::usage_limit::account_limit(said) else { return };
     let harness = if harness.is_empty() { "claude" } else { harness };
     let other = other_agent(harness);

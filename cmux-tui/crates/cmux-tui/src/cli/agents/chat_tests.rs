@@ -309,3 +309,25 @@ fn reads_of_one_acpmux_share_one_connection() {
     // The hello, then one request per read.
     assert_eq!(requests.load(Ordering::SeqCst), 5);
 }
+
+/// cmux#55066: a failed turn's end carries its agent's own words, so `cmux chat --wait` here can
+/// say what happened ("You've hit your weekly limit · resets …"), not only that it failed.
+#[test]
+fn a_failed_turns_end_carries_its_agents_words() {
+    let events = vec![
+        mux(1, "user_message", json!({"text": "reply ok"})),
+        mux(2, "turn_result", json!({"status": "failed", "error": "You've hit your weekly limit"})),
+        mux(3, "user_message", json!({"text": "again"})),
+        mux(4, "turn_result", json!({"status": "failed", "errorText": "API Error: 500"})),
+        mux(5, "user_message", json!({"text": "fine"})),
+        mux(6, "turn_result", json!({"status": "completed"})),
+    ];
+    let mut loads = 0;
+    let (transcript, more, cursor) = load(0, 10, source(events, 10, false, &mut loads)).unwrap();
+    let page = transcript.page("c", 0, 10, more, cursor);
+    let ends: Vec<&Value> =
+        page["items"].as_array().unwrap().iter().filter(|i| i["role"] == "turn_end").collect();
+    assert_eq!(ends[0]["error"], "You've hit your weekly limit", "{page}");
+    assert_eq!(ends[1]["error"], "API Error: 500", "{page}");
+    assert_eq!(ends[2].get("error"), None, "{page}");
+}
