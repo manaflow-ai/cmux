@@ -2946,3 +2946,50 @@ test("with This Mac picked a GitHub repository's pick checks nothing out; Return
   expect(asks[0]![2]).toBe("/Users/you/.cmux/worktrees/api/lane");
   forgetAddedRepos();
 });
+
+// cmux#53226: with Cloud picked, the New Tab folder menu said "No recent folders" while this Mac's projects
+// and the added repositories were there to pick; Cloud lists the same recent list as This Mac.
+test("with Cloud picked the New Tab folder menu lists this Mac's recent folders and the added repositories", async () => {
+  forgetAddedRepos();
+  rememberAddedRepo({ fullName: "acme/api", private: false });
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat([])}
+        cwd="/Users/you/src/cmux"
+        projects={[
+          { cwd: "/Users/you/src/cmux", label: "cmux" },
+          { cwd: "/Users/you/notes", label: "notes" },
+        ]}
+        environments
+        runMode={{ mode: "cloud", onMode: () => {} }}
+        onCloud={() => true}
+      />,
+    );
+  });
+  const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const folder = () => container.querySelector<HTMLButtonElement>('.acpmux-composer-context [aria-label="Folder"]')!;
+  await act(async () => folder().click());
+  await settle();
+  const rows = [
+    ...document.querySelectorAll<HTMLElement>(".acpmux-folder-popover .ui-combobox-scroll [role=option]"),
+  ].map((row) => row.querySelector(".acpmux-menu-label")?.textContent);
+  expect(document.querySelector(".acpmux-location-empty")).toBeNull();
+  expect(rows).toEqual(expect.arrayContaining(["cmux", "notes", "acme/api"]));
+  // The screenshot's state: a repository picked, the menu opened again. The list stays the same.
+  const repo = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) =>
+    option.textContent?.includes("acme/api"),
+  );
+  await act(async () => repo!.click());
+  await settle();
+  expect(folder().textContent).toContain("acme/api");
+  await act(async () => folder().click());
+  await settle();
+  const again = [
+    ...document.querySelectorAll<HTMLElement>(".acpmux-folder-popover .ui-combobox-scroll [role=option]"),
+  ].map((row) => row.querySelector(".acpmux-menu-label")?.textContent);
+  expect(document.querySelector(".acpmux-location-empty")).toBeNull();
+  expect(again).toEqual(expect.arrayContaining(["cmux", "notes", "acme/api"]));
+  forgetAddedRepos();
+});
