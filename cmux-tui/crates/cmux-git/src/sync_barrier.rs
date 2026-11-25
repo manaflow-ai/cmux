@@ -206,12 +206,14 @@ fn try_take(file: File, kind: Kind) -> io::Result<Result<FileLock, File>> {
 /// wait for each other's writes or startup. They live outside the repository
 /// and share a location even when daemon processes have different TMPDIRs.
 /// Never unlink these inodes, for the same reason as the repository markers.
+/// The `cmux-next-` prefix keeps the name out of Classic's `cmux*` /tmp
+/// namespace (goal next-zero-classic-footprint-all-surfaces).
 fn creation_lock(folder: &Path) -> io::Result<File> {
     use std::os::unix::ffi::OsStrExt;
     // SAFETY: geteuid has no preconditions.
     let uid = unsafe { libc::geteuid() };
     let hash = format!("{:x}", Sha256::digest(folder.as_os_str().as_bytes()));
-    open(&PathBuf::from(format!("/tmp/cmux-repo-sync-{uid}-{hash}.lock")), true)
+    open(&PathBuf::from(format!("/tmp/cmux-next-repo-sync-{uid}-{hash}.lock")), true)
 }
 
 fn wait_take(file: File, kind: Kind) -> io::Result<FileLock> {
