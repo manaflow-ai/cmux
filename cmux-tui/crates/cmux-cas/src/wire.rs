@@ -83,8 +83,12 @@ impl Frame {
 
     /// The frame's body (no length prefix).
     pub fn encode_body(&self) -> Result<Vec<u8>> {
-        let mut out =
-            Vec::with_capacity(3 + self.fields.iter().map(|(_, v)| 5 + v.len()).sum::<usize>());
+        let size = self
+            .fields
+            .iter()
+            .try_fold(3usize, |n, (_, v)| n.checked_add(5)?.checked_add(v.len()))
+            .ok_or("a frame over usize")?;
+        let mut out = Vec::with_capacity(size.min(MAX_BODY));
         out.extend_from_slice(&self.version.to_le_bytes());
         out.push(self.kind);
         for (tag, value) in &self.fields {
@@ -134,7 +138,8 @@ impl Frame {
     /// Writes the frame, length first.
     pub fn write_to(&self, out: &mut dyn Write) -> Result<()> {
         let body = self.encode_body()?;
-        out.write_all(&(body.len() as u32).to_le_bytes())?;
+        let len = u32::try_from(body.len()).map_err(|_| "a frame over 4 GiB")?;
+        out.write_all(&len.to_le_bytes())?;
         out.write_all(&body)?;
         Ok(())
     }
