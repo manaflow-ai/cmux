@@ -59,6 +59,9 @@ public final class HomeNativeTranscriptView: NSView {
     public var keepLocation: () -> Bool = { false }
     /// The app's clipboard history for the + menu's Clipboard rows (`home.clipboardHistory`); nil: none.
     public var clipboardHistory: HomeClipboardHistory?
+    /// Builds a + menu row from the app's registered action, when the host supplies one.
+    public var plusMenuRow: ((Int, Int, String) -> NSMenuItem?)?
+    var plusMenuItems: [[HomePlusMenuItem]] = []
     /// The chain of attachment preparations, in the order they arrived.
     // task-owner: replaced by the next intake; awaited by attachmentsReady
     var intake: Task<Void, Never>?
