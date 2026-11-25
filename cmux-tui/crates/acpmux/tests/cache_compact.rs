@@ -215,7 +215,7 @@ async fn an_idle_claude_chat_compacts_once_before_its_cache_expires_only_when_op
 
     // The setting explicitly off (it is on by default): no compaction, however full and idle.
     set(false);
-    let off = c.ok("session/new", new).await["sessionId"].as_str().unwrap().to_owned();
+    let off = c.ok("session/new", new.clone()).await["sessionId"].as_str().unwrap().to_owned();
     c.ok("session/prompt", prompt(&off, "cache-probe")).await;
     clock.advance(Duration::from_secs(3600));
     settle_until(Duration::from_millis(500), || false).await;
