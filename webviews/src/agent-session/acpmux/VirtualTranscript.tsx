@@ -222,7 +222,7 @@ import { NO_ROWS, rowKind, FOLLOW_BOTTOM_DEADBAND_PX, SCROLL_ANCHOR_SETTLE_MS } 
 import { focusRoute } from "../../ui/focusRoute";
 import { continuesLiveResize, LIVE_RESIZE_MS, stepLiveResize } from "./conversation/liveResizeStep";
 import { DOCK_NOTICE } from "./noticeSlotModel";
-import { chatSnapshotDock } from "./chatSnapshot/live";
+import { chatSnapshotDock, showsChatSnapshot } from "./chatSnapshot/live";
 import { ThinkingGlyph } from "./conversation/ThinkingGlyph";
 import { useLiveGlyphTrigger } from "./conversation/thinkingGlyphModel";
 import {
@@ -1510,7 +1510,19 @@ function TranscriptView({
     const copy = chatSnapshotDock(DOCK_NOTICE);
     return Math.max(0, copy.space - Math.min(copy.notice, restExtra));
   });
-  if (!dockPending && copyDock > 0) setCopyDock(0);
+  /// Released only once the copy is off screen: if acpmux's state came while the copy still showed,
+  /// letting go at once moved every row by the dock's height difference in the swap's own frame (the
+  /// chat-copy-dock-swap test, queue sent meanwhile). After the swap the rows settle once, as it expects.
+  useEffect(() => {
+    if (dockPending || copyDock <= 0) return;
+    let frame = 0;
+    const release = () => {
+      if (showsChatSnapshot()) frame = requestAnimationFrame(release);
+      else setCopyDock(0);
+    };
+    release();
+    return () => cancelAnimationFrame(frame);
+  }, [dockPending, copyDock]);
   // Full stack height is distinct from the overlap room: a tall dock can extend beyond the
   // viewport, while an after-latest tray still needs the whole stack reserved in stage flow.
   const [dockHeight, setDockHeight] = useState(0);
@@ -3989,7 +4001,7 @@ function TranscriptView({
     dockNotice,
     restExtra,
     lineLast: rows.length > 0 && isLiveLine(rows[rows.length - 1]!),
-    copyDock: dockPending ? copyDock : 0,
+    copyDock,
     rowsGrew,
     rowsHeight: measured.layout.totalHeight,
     over: THREAD_TOP + topInset + tailGap,
