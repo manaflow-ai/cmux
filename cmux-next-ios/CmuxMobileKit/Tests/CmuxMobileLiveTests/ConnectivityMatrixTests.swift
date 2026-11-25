@@ -191,7 +191,7 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
                 "outage_s": outage.seconds, "reconnect_ms": (reconnected?.seconds ?? -1) * 1000, "dials": timeline.dials,
             ])
             #expect(reconnected != nil && reconnected! <= .seconds(2), "\(variant): reconnected \(String(describing: reconnected)) after the network came back")
-            #expect(timeline.statusLines(from: lost, to: back) == ["Reconnecting…"], "\(variant): \(timeline.statusLines(from: lost, to: back))")
+            #expect(timeline.statusLines(from: lost, to: back).isEmpty, "\(variant): \(timeline.statusLines(from: lost, to: back))")
             // Retries back off: an 8 h outage is not a dial every second.
             #expect(Double(timeline.dials) <= outage.seconds / 15 + 10, "\(variant): \(timeline.dials) dials")
             results.append(reconnected ?? .seconds(3600))
@@ -360,7 +360,7 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
         let connected = timeline.connected(after: .zero)
         report("app_killed_and_relaunched", "small", ["connect_ms": (connected?.seconds ?? -1) * 1000])
         #expect(connected == dialTime)
-        #expect(timeline.statusLines(from: .zero, to: dialTime) == ["Reconnecting…"])
+        #expect(timeline.statusLines(from: .zero, to: dialTime).isEmpty)
     }
 
     /// A memory warning while connected gives memory back without touching
