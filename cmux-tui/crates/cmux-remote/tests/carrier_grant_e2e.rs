@@ -252,6 +252,7 @@ async fn raw_link(
                 connection_attempt: attempt,
                 resume: Lane::ALL.into_iter().map(|lane| (lane, 0)).collect(),
                 daemon_takes_ik: false,
+                early: Vec::new(),
                 handshake_timeout: CONNECT_TIMEOUT,
             },
         ),
