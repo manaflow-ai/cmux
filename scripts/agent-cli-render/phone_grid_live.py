@@ -45,7 +45,7 @@ class Client:
             if msg.get("id") == rid:
                 if msg.get("ok") is False or "error" in msg:
                     raise SystemExit(f"{cmd}: {msg}")
-                return msg.get("result", msg)
+                return msg.get("data", msg.get("result", msg))
 
 
 def screen(c: Client, surface: int) -> str:
@@ -91,6 +91,13 @@ def main() -> int:
         print("workspace", json.dumps(ws)[:300])
         work = run / "work"
         work.mkdir()
+        # A scratch Claude home (phone-grid-live.sh) trusts the folder up front.
+        home = os.environ.get("CLAUDE_CONFIG_DIR")
+        if home:
+            config = Path(home) / ".claude.json"
+            data = json.loads(config.read_text()) if config.exists() else {}
+            data.setdefault("projects", {})[os.path.realpath(work)] = {"hasTrustDialogAccepted": True}
+            config.write_text(json.dumps(data))
         time.sleep(1.5)
         c.request("send", surface=surface, text=f"cd {work} && claude\r")
         text = wait_for(c, surface, lambda t: "/effort" in t or "trust" in t, 60, "claude to start")

@@ -129,7 +129,8 @@ fn main() {
     let (mc, mr) = (state["cols"].as_u64().unwrap() as u16, state["rows"].as_u64().unwrap() as u16);
     let mut mac_term =
         ghostty_vt::Terminal::new(mc, mr, 1 << 20, ghostty_vt::Callbacks::default()).unwrap();
-    mac_term.vt_write(&b64(state["replay"].as_str().unwrap_or_default()));
+    mac_term
+        .vt_write(&b64(state["data"].as_str().or(state["replay"].as_str()).unwrap_or_default()));
     for v in &lines {
         if v["event"] == "output" {
             mac_term.vt_write(&b64(v["data"].as_str().unwrap_or_default()));

@@ -9,7 +9,7 @@
 //! narrow one give the same facts (`tests/parity.rs` checks them against the recorded sessions).
 
 use crate::claude::Chrome;
-use crate::{Cell, FAINT, Grid};
+use crate::{Cell, FAINT, Grid, INVERSE};
 
 /// What one look at the screen found. `None`: not on screen now (the banner scrolled away, no
 /// turn has ended), so the last value seen still holds ([`ScreenFacts::apply`]).
@@ -118,9 +118,15 @@ impl ScreenFacts {
                     break;
                 }
                 let mut line = String::new();
-                for cell in row.iter().skip(2) {
+                let cells: Vec<&Cell> = row.iter().skip(2).collect();
+                for (x, cell) in cells.iter().enumerate() {
                     let text = if cell.text.is_empty() { " " } else { cell.text.as_str() };
-                    if cell.style.attrs & FAINT != 0 && i == 0 {
+                    // The cursor sits on an empty prompt's first placeholder letter, drawn
+                    // inverse rather than dim: it belongs to the placeholder.
+                    let cursor_on_dim = x == 0
+                        && cell.style.attrs & INVERSE != 0
+                        && cells.get(1).is_some_and(|next| next.style.attrs & FAINT != 0);
+                    if i == 0 && (cell.style.attrs & FAINT != 0 || cursor_on_dim) {
                         dim.push_str(text);
                     } else {
                         line.push_str(text);

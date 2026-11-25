@@ -33,6 +33,15 @@ if npm install --silent --prefix "$work/claude" "@anthropic-ai/claude-code@$clau
   export PATH="$work/claude/node_modules/.bin:$PATH"
 fi
 command -v claude >/dev/null || { echo "phone-grid-live: no claude" >&2; exit 2; }
+# Its own Claude home: the host's stays untouched, and no first-run theme picker.
+export CLAUDE_CONFIG_DIR="$work/claude-home"
+mkdir -p "$CLAUDE_CONFIG_DIR"
+printf '{"hasCompletedOnboarding": true, "theme": "dark"}\n' > "$CLAUDE_CONFIG_DIR/.claude.json"
+# The pane's shell may not read the login environment: the model route goes in Claude's settings.
+python3 -c 'import json, os, sys
+env = {k: v for k, v in os.environ.items() if k in ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN")}
+json.dump({"env": env}, open(sys.argv[1], "w"))' "$CLAUDE_CONFIG_DIR/settings.json"
+chmod 600 "$CLAUDE_CONFIG_DIR/settings.json"
 echo "claude: $(claude --version)"
 cd "$repo/cmux-tui"
 cargo build -q -p cmux-tui --bin cmux-tui
