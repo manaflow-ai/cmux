@@ -135,8 +135,6 @@ struct AttentionRingTimingTests {
     /// once the switch's frame lets the ring draw. Holding the rings must keep the overlay's mark, or the blink
     /// (which needs the ring it blinks out) never starts.
     @Test func switchingToAWorkspaceStillBlinksItsReadRingOnTheOverlay() async throws {
-        Motion.reduceMotionOverride = false
-        defer { Motion.reduceMotionOverride = nil }
         let fixture = try await Self.open(active: false)
         defer { fixture.close() }
         let pane = LayoutPaneID(fixture.ringing.id)
@@ -151,15 +149,19 @@ struct AttentionRingTimingTests {
         try await PinnedPageTests.until({ fixture.controller.content?.workspace === fixture.a && fixture.controller.focus.state.pane != fixture.ringing.id })
         fixture.services.appActiveSource = { true }
 
+        let host = try #require(layoutView.context.hosts[pane])
         fixture.controller.showWorkspace(requested: fixture.b.id)
         #expect(model.attention[pane] == nil && model.attentionReadByEntry.contains(pane), "the switch did not read b's ring")
         #expect(overlay.attentionLayer.isHidden, "the read ring blinks over the old workspace's frame")
+        // The overlay blinks a ring out only from the mark it shows (`PaneOverlayView.applyAttention`, covered alone by
+        // `PaneAttentionDismissFlashTests`): the hold keeps that mark on the chrome, so the release's sync is a read ring
+        // going, which blinks. The animation itself is not asserted here: it reads the process-wide Reduce Motion, which
+        // a suite running beside this one resets while this test awaits the switch's frame.
+        #expect(host.chromeInputs?.attention != nil, "the hold dropped the overlay's mark, so the read ring has nothing to blink out")
         try await PinnedPageTests.until({ !model.holdsAttentionUntilShown }, report: { "the hold never ended" })
-        try await PinnedPageTests.until({ overlay.attentionAnimationKeys.contains("attention-dismiss") }, report: {
-            "the switch took b's ring without the dismiss blink on the overlay (ring shown \(overlay.attentionRingShown), keys \(overlay.attentionAnimationKeys), "
-                + "read by entry \(model.attentionReadByEntry.contains(pane)), live \(layoutView.isLive), animates \(layoutView.canAnimate), "
-                + "motion off \(Motion.reduceMotion), same overlay \(layoutView.context.hosts[pane]?.chrome === overlay))"
-        })
+        try await PinnedPageTests.until({ host.chromeInputs?.attention == nil }, report: { "the release never took b's read ring off the overlay" })
+        #expect(host.chromeInputs?.readByEntry == true, "the switch took b's ring without the dismiss blink")
+        #expect(layoutView.canAnimate, "the shown layout cannot animate the blink (live \(layoutView.isLive))")
         #expect(!overlay.attentionLayer.isHidden, "the blink plays hidden")
     }
 
