@@ -493,13 +493,20 @@ impl Hub {
                     // does, and never runs into the seqs the restore needs.
                     // Its sender hears from it by its due time (`prompt_admission.rs`): a turn
                     // lock still held then (a turn that has not shown, or a call that never came
-                    // back) leaves it None, and it queues below.
+                    // back) leaves it None, and it queues below. It waits at most
+                    // `TURN_LOCK_WAIT` for the lock: a lock held with no turn shown frees no sooner
+                    // for waiting, and the queue answers now.
+                    let lock_due = p.answer_due.map(|due| {
+                        due.min(
+                            tokio::time::Instant::now() + super::prompt_admission::TURN_LOCK_WAIT,
+                        )
+                    });
                     let guard = loop {
                         let done = session.restore_done.notified();
                         tokio::pin!(done);
                         done.as_mut().enable();
                         let lock = session.turn_lock.lock();
-                        let guard = match p.answer_due {
+                        let guard = match lock_due {
                             Some(due) => match tokio::time::timeout_at(due, lock).await {
                                 Ok(guard) => guard,
                                 Err(_) => break None,
@@ -511,7 +518,7 @@ impl Hub {
                         }
                         drop(guard);
                         // The restore wait keeps the same due time (as #55502 bounds it).
-                        match p.answer_due {
+                        match lock_due {
                             Some(due) => {
                                 if tokio::time::timeout_at(due, done).await.is_err() {
                                     break None;
