@@ -2110,16 +2110,11 @@ impl Brain {
             return;
         };
         let show = self.chief.show_after_report;
-        let main = self.state.conversation.clone();
-        let done: Vec<(String, String, u64, bool, bool, bool)> = record
+        let done: Vec<(String, String, u64, bool, bool)> = record
             .subs
             .iter()
             .filter(|s| s.status == SubStatus::Done)
             .map(|s| {
-                // Only a report owed to the Chief's own conversation is
-                // host-posted there; a side floor's keeps its turn.
-                let on_main = main.is_some() && self.report_conversation(record, s) == main;
-                let posted = s.host_posted.is_some() && s.host_posted == s.report;
                 let report = s.report.as_deref().unwrap_or("");
                 let footer = crate::agent_chat::footer(&s.id);
                 // What the work left to show, for the "After work" rule; a
@@ -2134,12 +2129,11 @@ impl Brain {
                     format!("[{}] {report}\n{footer}{block}", s.id),
                     s.floor,
                     report_requires_approval(s.policy.as_deref()),
-                    s.stopped || posted,
-                    on_main,
+                    s.stopped,
                 )
             })
             .collect();
-        for (id, text, floor, requires_approval, mut quiet, on_main) in done {
+        for (id, text, floor, requires_approval, quiet) in done {
             // A stopped run (the person's own stop) owes no outcome.
             if !quiet {
                 let (report, policy) = self
@@ -2147,24 +2141,7 @@ impl Brain {
                     .sub(&id)
                     .map(|(_, sub)| (sub.report.clone().unwrap_or_default(), sub.policy.clone()))
                     .unwrap_or_default();
-                let fresh = !self.state.untold.iter().any(|u| u.id == id);
                 self.note_finished(&id, &report, policy.as_deref());
-                // Lucas's latency plan, item 3: a mechanical result needs no
-                // Chief turn to relay it. The host posts it now and the report
-                // is queued quiet, so the Chief's next turn reads it without a
-                // turn of its own; a judgment report keeps the turn.
-                if fresh
-                    && on_main
-                    && !super::outcome_ledger::outcome_requires_chief(&report, policy.as_deref())
-                    && self.post_due_outcome(&id)
-                {
-                    (self.log)(&format!("subagent {id}: host-posted its result"));
-                    if let Some(sub) = self.state.sub_mut(&id) {
-                        sub.host_posted = Some(report.clone());
-                    }
-                    self.save();
-                    quiet = true;
-                }
             }
             let source = Source::Spawn(SpawnRef {
                 spawn: spawn.to_owned(),

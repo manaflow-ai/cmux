@@ -400,6 +400,9 @@ impl Brain {
 pub fn outcome_requires_chief(report: &str, policy: Option<&str>) -> bool {
     policy == Some(crate::approval::ASK)
         || crate::auto_resume::error_line(report).is_some()
+        // A host-written report ("(turn failed: ...)", "(did not start:
+        // ...)", "(failed: ...)") is a failure, never a mechanical result.
+        || report.trim_start().starts_with('(')
         || !crate::check_in::report_is_final(report)
         || report.to_ascii_lowercase().contains("approval")
         || report.to_ascii_lowercase().contains("decision")
@@ -470,6 +473,10 @@ mod tests {
             None
         ));
         assert!(outcome_requires_chief("Should I restart the worker?", None));
+        assert!(outcome_requires_chief(
+            "(turn failed: You've hit your weekly limit)",
+            None
+        ));
         assert!(outcome_requires_chief(
             "The change is ready for approval.",
             None

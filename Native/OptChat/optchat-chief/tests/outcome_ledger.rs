@@ -7,8 +7,9 @@
 //! A finished subagent (not stopped by the person) waits until a Chief post
 //! names it (`a1`). A turn that saw its report and ended without naming it
 //! gets one retry turn on an `[untold]` note; after that it is dropped. A
-//! mechanical result (final, no open question or decision) is host-posted at
-//! once instead (Lucas's latency plan, item 3): no Chief turn relays it.
+//! mechanical result (final, no open question or decision) is host-posted
+//! once its window passes instead (Lucas's latency plan, item 3): no
+//! `[untold]` Chief turn relays it.
 
 mod common;
 
@@ -123,9 +124,7 @@ fn report_task(h: &mut Harness, task: &str) -> Arc<Spawner> {
     let worker = std::thread::spawn(move || sp.spawn(vec![task], None));
     let deadline = Instant::now() + Duration::from_secs(20);
     let mut idle_sent = false;
-    // The report reaches the Chief's log, or (a mechanical result) the
-    // host posts it to the chat and starts no turn.
-    while !h.log().iter().any(|(_, t)| t.starts_with("[a1] ")) && !host_posted(h) {
+    while !h.log().iter().any(|(_, t)| t.starts_with("[a1] ")) {
         assert!(Instant::now() < deadline, "no report: {:?}", h.log());
         if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
             h.brain.step(input);
@@ -276,21 +275,25 @@ fn untold_checks_wait_a_batching_window_and_ask_for_one_digest() {
     assert!(retry.contains("one message"), "a digest: {retry}");
 }
 
-/// A final report is host-posted at once: the person's chat gets `[a1]` and
-/// it needs no Chief turn. The Chief's next turn is told in its log that the
-/// host posted it, so the Chief sees the result without a repost.
+/// A final report the Chief's turn did not name is host-posted once its
+/// batching window passes, not relayed by an `[untold]` turn. The Chief's
+/// next turn is told in its log that the host posted it, so the Chief sees
+/// the result without a repost.
 #[test]
 fn a_host_posted_result_shows_in_the_chiefs_next_turn() {
     let mut h = Harness::new(script(|_, _| None));
     report_and_settle(&mut h);
+    assert_eq!(h.brain.untold_outcomes(), vec!["a1".to_owned()]);
+    h.brain.fire_outcome_checks_at(u64::MAX / 2);
+    h.settle_posts();
+    assert!(host_posted(&h), "the host posted the result to the chat");
     assert!(
         h.brain.untold_outcomes().is_empty(),
         "host-posted: nothing waits for the Chief"
     );
-    assert!(host_posted(&h), "the host posted the result to the chat");
     assert!(
-        !prompts(&h).iter().any(|t| t.contains("[a1]")),
-        "no Chief turn spent relaying it"
+        !prompts(&h).iter().any(|t| t.contains(UNTOLD_TAG)),
+        "no [untold] turn spent relaying it"
     );
     h.say("user_local", "what happened to the sidebar?");
     h.settle();
