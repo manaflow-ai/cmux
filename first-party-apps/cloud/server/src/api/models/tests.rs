@@ -71,13 +71,16 @@ fn fields_the_catalog_lacks_reach_the_app() {
                 "observed_at": 1_700_000_000_000i64
             },
             "idlePause": idle,
+            "origin": { "kind": "person", "label": "Surge" },
         }),
     );
     let machine = decode(source.clone());
     assert!(machine.has_capability("agent_session"));
     assert!(!machine.has_capability("provider_secret"));
     let encoded = encode(&machine);
-    for key in ["platform", "capabilities", "provider_operations", "disk_health", "idlePause"] {
+    for key in
+        ["platform", "capabilities", "provider_operations", "disk_health", "idlePause", "origin"]
+    {
         assert_eq!(encoded[key], source[key], "{key}");
     }
 
@@ -97,6 +100,7 @@ fn fields_the_catalog_lacks_reach_the_app() {
     assert!(plain.get("provider_operations").is_none());
     assert!(plain.get("disk_health").is_none());
     assert!(plain.get("idlePause").is_none());
+    assert!(plain.get("origin").is_none());
 }
 
 #[test]
@@ -111,6 +115,7 @@ fn the_extra_fields_never_shadow_a_catalog_field() {
         provider_operations: vec!["x".into()],
         disk_health: Some(json!({ "free_mb": 1 })),
         idle_pause: Some(json!({})),
+        origin: Some(json!({ "label": "Surge" })),
     })
     .expect("extra encodes");
     for key in extra.as_object().expect("extra").keys() {

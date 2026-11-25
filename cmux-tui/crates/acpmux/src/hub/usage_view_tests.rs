@@ -133,7 +133,7 @@ async fn a_chat_aged_out_between_passes_tells_its_own_row_only() {
     hub.usage_pass_due_for_test();
     hub.refresh_usage_stats().await;
     assert_eq!(hub.usage_passes_for_test(), (2, 0), "no chat to read");
-    assert!(!hub.usage_stats.stats.lock().unwrap().get("aging").is_some(), "its stats went");
+    assert!(hub.usage_stats.stats.lock().unwrap().get("aging").is_none(), "its stats went");
     assert!(session.summary_gen.load(Ordering::SeqCst) > own, "its own row was told");
     assert_eq!(every_row_generation(&hub), every, "no other closed row went stale");
     let told = hub.events.list_since(head).unwrap().rows;
@@ -151,7 +151,7 @@ async fn a_purged_chats_stats_make_every_closed_row_stale() {
     stats_found(&hub, "purged");
     let every = every_row_generation(&hub);
     hub.refresh_usage_stats().await;
-    assert!(!hub.usage_stats.stats.lock().unwrap().get("purged").is_some());
+    assert!(hub.usage_stats.stats.lock().unwrap().get("purged").is_none());
     assert!(every_row_generation(&hub) > every, "every closed row went stale");
 }
 
