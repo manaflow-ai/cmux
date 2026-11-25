@@ -1,6 +1,7 @@
 // DEBUG and Demo builds only: mock content is never compiled into Production.
 #if DEBUG
 import CmuxAgentQuestion
+import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileTransport
 import Foundation
@@ -59,6 +60,7 @@ public final class MockAgentSession: AgentSessionSource {
         continuation.yield(.batch(replayed))
         // `CMUX_MOBILE_MOCK_LINK=down`: the chat's history is there, its Mac is not.
         if link == .down { continuation.yield(.status(.disconnected)) }
+        observeHostLoad()
         return stream
     }
 
@@ -172,6 +174,28 @@ public final class MockAgentSession: AgentSessionSource {
         pendingPermissionID = nil
         permissionWaiter?.resume(returning: optionID)
         permissionWaiter = nil
+    }
+
+    /// `HostLoadSim`'s observers (DEBUG host load).
+    private var hostLoad: [NSObjectProtocol] = []
+
+    /// `HostLoadSim`: a heavy tick re-sends the session's status (every other
+    /// tick, as the daemon's status events do while an agent works); a cut
+    /// disconnects it.
+    private func observeHostLoad() {
+        guard hostLoad.isEmpty else { return }
+        if HostLoadSim.mode == .cut { emit(.status(.disconnected)) }
+        let center = NotificationCenter.default
+        hostLoad.append(center.addObserver(forName: HostLoadSim.tick, object: nil, queue: .main) { [weak self] note in
+            let tick = note.object as? Int ?? 0
+            MainActor.assumeIsolated {
+                guard let self, tick % 2 == 0 else { return }
+                self.emit(.status(self.summary.status))
+            }
+        })
+        hostLoad.append(center.addObserver(forName: HostLoadSim.cut, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.emit(.status(.disconnected)) }
+        })
     }
 
     func emit(_ event: AgentSessionEvent) {

@@ -28,6 +28,8 @@
 //!     cmux link project serve --socket S --at REMOTE [--name N] FOLDER
 //!     cmux link project back --socket S --at REMOTE FOLDER
 //!     cmux link project release --socket S --at REMOTE FOLDER [--why archived|deleted]
+//!     cmux link project pin | unpin --socket S --at REMOTE FOLDER PATH   (available offline)
+//!     cmux link project pins --socket S --at REMOTE FOLDER
 //!     cmux link project enable | disable | status
 
 use std::collections::BTreeMap;
@@ -103,7 +105,9 @@ struct Served {
 
 const USAGE: &str = "usage: cmux link project serve --socket S --at REMOTE [--name N] FOLDER | stop --at \
                      REMOTE | back --socket S --at REMOTE FOLDER | release --socket S --at REMOTE FOLDER [--why \
-                     archived|deleted] | enable | disable | status | moves on|off";
+                     archived|deleted] | pin --socket S --at REMOTE FOLDER PATH | unpin --socket S --at \
+                     REMOTE FOLDER PATH | pins --socket S --at REMOTE FOLDER | enable | disable | status | \
+                     moves on|off";
 
 /// `cmux link project ...`: one JSON line on stdout, exit 0 on success.
 pub(crate) fn run(args: &[String]) -> i32 {
@@ -125,6 +129,9 @@ pub(crate) fn run(args: &[String]) -> i32 {
         Some("stop") => stop(args.get(1..).unwrap_or_default()),
         Some("back") => super::project_back::back_command(args.get(1..).unwrap_or_default()),
         Some("release") => super::project_back::release_command(args.get(1..).unwrap_or_default()),
+        Some(cmd @ ("pin" | "unpin" | "pins")) => {
+            super::project_pin::command(cmd, args.get(1..).unwrap_or_default())
+        }
         _ => Err(anyhow::anyhow!(USAGE)),
     };
     match outcome {
@@ -611,6 +618,16 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
                 Err(error) => {
                     eprintln!("cmux link project: the listing stays off the store: {error:#}");
                 }
+            });
+        }
+        // The files the agent reads first (project_hot.rs), warmed beside the serving loop that
+        // answers their fetches: after the chat's start, never in front of it (git's dirty set
+        // takes a second or more on a big checkout).
+        if super::project_hot::enabled() {
+            scope.spawn(|| {
+                let dirty = super::project_hot::dirty(&folder);
+                let hot = super::project_hot::pick(&listed.manifest, &dirty);
+                super::project_hot::warm(&socket, &name, &hot);
             });
         }
         serve_until_gone(&socket, &name, &at, &encoded, &listed, (stream, packed), &mut revisions);

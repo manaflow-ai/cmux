@@ -216,12 +216,6 @@ pub struct SessionSummary {
     #[serde(default)]
     #[schemars(default)]
     pub task_list: Option<crate::task_list::TaskListSummary>,
-    /// Where the chat stands and its next action (`hub/rolling_summary.rs`), for the sidebar
-    /// and the chat header. Absent before the first turn that makes one, and from a peer on an
-    /// older acpmux.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(default)]
-    pub rolling_summary: Option<crate::store::RollingSummary>,
     /// The plan the person last approved in this chat (`hub/plan_build.rs`), which the pane keeps
     /// in sight while the agent builds it. Absent until one, and from a peer on an older acpmux.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -352,6 +346,11 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(default)]
     pub retry_deciding: bool,
+    /// It waits for capacity and goes on by itself (`hub/capacity_wait.rs`). Absent otherwise,
+    /// and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub capacity_wait: Option<CapacityWait>,
     /// Attached clients.
     pub attached: u64,
     /// Some attached client shows the chat.
@@ -867,6 +866,34 @@ pub struct ErrorDetails {
     pub retry_after_ms: Option<u64>,
 }
 
+/// A chat waiting for capacity (`hub/capacity_wait.rs`): a turn cut by an overloaded model, an
+/// exhausted account pool or the account's rate limit, which acpmux continues by itself. A
+/// client draws it as one calm state ("Waiting for capacity, about 40 s"; in a list "paused for
+/// capacity, resumes ~22:41"), never as a failed turn, and keeps `error` for a details
+/// disclosure.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CapacityWait {
+    /// `capacity` or `rate_limit`.
+    pub reason: RetryReason,
+    /// When it goes on (epoch ms); absent while the continuation is still being decided.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub resumes_at: Option<u64>,
+    /// The cut turn the wait continues, when there is one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub turn_id: Option<String>,
+    /// Since when it waits (epoch ms): the cut turn's end.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub since: Option<u64>,
+    /// The harness's raw error, cut to 600 characters, for a details disclosure only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub error: Option<String>,
+}
+
 /// An automatic retry of a failed turn that waits (`hub/auto_resume.rs`): attempt `attempt`
 /// of `of`, at `nextAt` (epoch ms). It sends the prompt `promptId~resume-<attempt>` in the same
 /// session, for the cut turn `turnId`.
@@ -885,8 +912,9 @@ pub struct RetrySummary {
 /// Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no
 /// capacity (HTTP 503 or 529, overloaded, no account free), the account hit its usage or rate
 /// limit (`rate_limit`, HTTP 429: the chat holds every turn until the reset, `hub/rate_hold.rs`),
-/// the connection dropped, the agent process died mid-turn, or the chat outgrew its model's
-/// context window (`context`: it is compacted, then continued at once).
+/// the connection dropped, the agent process died mid-turn, the chat outgrew its model's
+/// context window (`context`: it is compacted, then continued at once), or the machine's disk
+/// was full (`disk`: it goes on once space is free again).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum RetryReason {
@@ -895,6 +923,7 @@ pub enum RetryReason {
     Transport,
     AgentExited,
     Context,
+    Disk,
 }
 
 impl RetryReason {
@@ -906,6 +935,7 @@ impl RetryReason {
             "transport" => Some(Self::Transport),
             "agent_exited" => Some(Self::AgentExited),
             "context" => Some(Self::Context),
+            "disk" => Some(Self::Disk),
             _ => None,
         }
     }
@@ -917,6 +947,7 @@ impl RetryReason {
             Self::Transport => "transport",
             Self::AgentExited => "agent_exited",
             Self::Context => "context",
+            Self::Disk => "disk",
         }
     }
 }

@@ -40,7 +40,14 @@ export function TooltipProvider({ children }: { children: ReactNode }) {
   );
 }
 
-/** A hover card flips between above and below only, then shifts along its row. */
+/**
+ * Every tooltip and hover card here (a Tooltip, a `ui-card` Tooltip, an AnchoredCard above or below
+ * its anchor) flips between above and below only, then shifts along its row, never down onto it. A
+ * card taller than the room on both sides stays on the roomier one and scrolls (desktop.css
+ * --available-height). Base UI's default falls back to the anchor's side when neither fits
+ * (`fallbackAxisSide: "end"`), which drew a tall facts card on the row it describes (Leo,
+ * 2026-11-22: "and more bullshit somehow happened here"; test/hover-card-cover.test.ts).
+ */
 const CARD_COLLISION = { side: "flip", align: "shift", fallbackAxisSide: "none" } as const;
 
 export interface TooltipProps {
@@ -135,9 +142,8 @@ export function Tooltip({
             side={side}
             sideOffset={tooltipGap}
             collisionPadding={padding}
-            // A card taller than the room above and below stays on that axis and scrolls in what
-            // the roomier side has (desktop.css --available-height), never flipped beside its row.
-            {...(wraps && { collisionAvoidance: CARD_COLLISION })}
+            // Above or below its row only, a tooltip as a card (CARD_COLLISION): never beside it.
+            collisionAvoidance={CARD_COLLISION}
             {...(anchor && { anchor: () => placed() })}
           >
             <BaseTooltip.Popup
@@ -255,6 +261,9 @@ export function AnchoredCard({
           align="start"
           sideOffset={tooltipGap}
           collisionPadding={padding}
+          // A card above or below its anchor stays off the anchor's row (CARD_COLLISION); one placed
+          // beside it on purpose keeps Base UI's flips.
+          {...((side === "top" || side === "bottom") && { collisionAvoidance: CARD_COLLISION })}
         >
           <BaseTooltip.Popup
             ref={setPopup}

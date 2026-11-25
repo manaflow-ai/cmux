@@ -1,0 +1,20 @@
+[package]
+name = "cmux-relay-snapshot"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cmux-relay-snapshot-v1: the sealed source-of-truth snapshot a relay stores for a cold-opening viewer (RFD 0142 R2): ECIES on P-256, signed by the source identity key, ordered by (epoch, seq); the relay never holds a key that opens it"
+
+[lints]
+workspace = true
+
+[dependencies]
+aes-gcm = "0.10"
+hkdf = "0.12"
+# The same ECIES parameters as cmux-mobile-host's seal.rs (P-256 ECDH, HKDF-SHA256, AES-256-GCM)
+# and the same fixed 64-byte ECDSA signature as the phone's Secure Enclave identity key.
+p256 = { version = "0.13", features = ["ecdh", "ecdsa"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+sha2.workspace = true

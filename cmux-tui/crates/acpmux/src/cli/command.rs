@@ -154,7 +154,7 @@ mod agent_front_door_tests {
 pub(super) mod aliases {
     macro_rules! root_aliases {
         ($($command:ident => [$($alias:literal),+]),+ $(,)?) => {
-            $(pub(super) const $command: &[&str] = &[$($alias),+];)+
+            $(pub(in crate::cli) const $command: &[&str] = &[$($alias),+];)+
 
             pub(in crate::cli) const GROUPS: &[&[&str]] = &[$($command),+];
         };
@@ -182,6 +182,7 @@ pub(super) mod aliases {
         RENAME => ["rename-session"],
         SHUTDOWN => ["kill-server"],
         SEARCH => ["grep"],
+        TAIL => ["events", "log", "logs"],
     }
 }
 
@@ -205,6 +206,14 @@ pub enum Command {
     /// timeout, 4 head moved off --sha (`cli/pr_wait.rs`).
     #[command(name = "pr-wait")]
     PrWait(crate::cli::pr_wait::PrWaitArgs),
+    /// Run another person's agent's accepted forum `run` ask: one command at a repo's pushed ref,
+    /// here when light, through the scheduler (cmux-ci) when heavy; prints the result as JSON,
+    /// `{exit, tail, artifacts}`. A refused ask exits 7 with its reason (`run_ask.rs`).
+    #[command(name = "run-ask")]
+    RunAsk {
+        /// The ask's JSON as the forum serves it, from a file, or - for stdin.
+        file: String,
+    },
     /// Send a local brief to another harness on a machine (or the least-loaded
     /// allowed machine with `--machine auto`) and record its identity.
     Dispatch(DispatchArgs),
@@ -245,6 +254,10 @@ pub enum Command {
     /// files, what the session this shell runs in edited lately.
     #[command(name = "who-else", aliases = aliases::WHO_ELSE)]
     WhoElse(crate::cli::who_else::WhoElseArgs),
+    /// Byte channels between agents, here or on a peer: `listen SERVICE` prints each channel's
+    /// bytes, `open [HOST] SERVICE` sends stdin and prints what comes back, like netcat.
+    #[command(subcommand)]
+    Channel(crate::cli::channel::ChannelCommand),
     /// What turns on this machine cost, whatever harness ran them: totals, then one line per
     /// repository, pull request, day, person, workspace, vendor, model or account.
     #[command(aliases = aliases::LEDGER)]
@@ -269,9 +282,10 @@ pub enum Command {
     Wait {
         /// Session names or ids. Every running session on every host when omitted.
         sessions: Vec<String>,
-        /// Give up after this many seconds.
-        #[arg(long)]
-        timeout: Option<u64>,
+        /// Give up after this many seconds (exit 3). Default an hour, as `pr-wait`'s: no wait an
+        /// agent arms sleeps forever, so a hung turn or a lost event wakes it to look again.
+        #[arg(long, default_value_t = crate::cli::orchestrate::WAIT_BOUND_S)]
+        timeout: u64,
         /// Wait for every named session, not just the first to resolve.
         #[arg(long)]
         all: bool,
@@ -365,6 +379,15 @@ pub enum Command {
     /// stdout (`placement/sub_fork_run.rs`; the parent's runner starts it over ssh).
     #[command(name = "sub-fork-job", hide = true)]
     SubForkJob,
+    /// Run a heavy build or test on a fork of this Cloud machine (RFD 0144 piece 3,
+    /// `placement/run_vm.rs`): its output streams here, its file changes come back. Runs here
+    /// when AutoCloud is off, this is no Cloud machine, or the command is not a heavy class.
+    #[command(name = "run-vm", hide = true)]
+    RunVm {
+        /// The shell command, after `--`.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
+        command: Vec<String>,
+    },
     /// Execute one authenticated Cloud trigger operation from a JSON stdin envelope.
     #[command(name = "trigger-chat", hide = true)]
     TriggerChat {
@@ -514,6 +537,19 @@ pub enum Command {
         attach: Vec<PathBuf>,
         #[command(flatten)]
         notice: Box<SendNotice>,
+        /// Wait for the receiver's batch instead of waking it at once, as another agent's
+        /// message does: a chat whose prompt cache lapsed takes everything that came in its
+        /// window as one turn (`hub/cold_wake.rs`). For a producer outside any chat (a forum or
+        /// Slack bridge, a CI notifier): it needs a sender (--from, ACPMUX_FROM or --notice),
+        /// and is refused as a block, a question or a fire notice, which wake at once. Does not
+        /// wait for the reply.
+        #[arg(long, conflicts_with_all = ["wait", "quiet", "timeout", "tag"])]
+        gather: bool,
+        /// Deliver it within this long (90s, 5m, 1h): a message the receiver's inbox holds wakes
+        /// the receiver by its deadline, at the latest 15 minutes for a result (an action) and
+        /// 60 for an FYI (a block or a question wakes it at once). This only tightens that.
+        #[arg(long, value_name = "DURATION", value_parser = crate::prompt_class::parse_within)]
+        within: Option<u64>,
     },
     /// Team-scoped durable messages. Needs a team hub (`meshRelay`); on there by default.
     #[command(aliases = aliases::INBOX)]
@@ -670,6 +706,10 @@ pub enum Command {
     /// Forum rules: announce one, list the current ones, ack one.
     #[command(subcommand)]
     Forum(crate::cli::forum::ForumCmd),
+    /// The fleet memory mount (~/.cmux/memory): sync, put, get, ls, history, status, and link a
+    /// harness's memory folder into it.
+    #[command(subcommand)]
+    Memory(crate::cli::memory::MemoryCmd),
     /// Bridge Claude Desktop, Codex Desktop and ChatGPT Desktop to each other and to cmux sessions:
     /// connect, send, inbox.
     #[command(subcommand)]
@@ -785,11 +825,13 @@ pub enum Command {
     /// (tools_mcp.rs; not for people).
     #[command(hide = true)]
     ToolsMcp,
-    // Old spellings, kept working but hidden from help.
-    #[command(hide = true)]
+    // Old spellings, kept working but hidden from help. `events`, `log` and `logs` are what an
+    // agent guesses for a session's events (Leo, 2026-11-21: "your thing should also be
+    // acceptable input"): they run this, and say it is `session tail`.
+    #[command(hide = true, aliases = aliases::TAIL)]
     Tail {
         session: String,
-        #[arg(long, default_value_t = 50)]
+        #[arg(long, short = 'n', visible_alias = "tail", default_value_t = 50)]
         last: u64,
         #[arg(long, short)]
         follow: bool,
@@ -850,7 +892,16 @@ pub enum Command {
         /// Answer once the agent is ready, not when it starts.
         #[arg(long)]
         wait: bool,
+        /// A harness and model the person set up, `HARNESS[:MODEL]`, warmed beside the default
+        /// (personal spares; repeat for each, at most 4).
+        #[arg(long = "shape", value_name = "HARNESS[:MODEL]")]
+        shapes: Vec<String>,
     },
+    /// The harnesses and models this machine's person used in the last week (newest first, at
+    /// most 4), as `warm-home --shape` takes them: the Cloud app reads them on the Mac and warms
+    /// a spare of each on the person's Cloud machine.
+    #[command(name = "spare-shapes", hide = true)]
+    SpareShapes,
     #[command(hide = true)]
     Info {
         session: String,
@@ -878,7 +929,9 @@ pub enum Command {
     PauseAgent { session: String },
     #[command(hide = true)]
     WakeAgent { session: String },
-    #[command(hide = true)]
+    // Built only by flattening `session hold` / `session release`; its fields carry no #[arg], so it
+    // is no subcommand of its own (clap's debug build refused the positional `held` switch).
+    #[command(skip)]
     SessionHold {
         session: Option<String>,
         held: bool,
@@ -887,6 +940,7 @@ pub enum Command {
         set_allow: Option<Vec<String>>,
         reason: Option<String>,
         status: bool,
+        hold_for: Option<String>,
     },
     #[command(hide = true)]
     ResumeQueue {
@@ -920,6 +974,26 @@ pub enum Command {
         after_help = "Examples:\n  acpmux icon @ 🥭\n  acpmux icon @ sf:leaf.fill\n  acpmux icon @ ./mark.svg\n  acpmux icon @ https://github.com\n  acpmux rename @ Mango --handle --icon 🥭\n  acpmux icon @ none"
     )]
     Icon { session: String, icon: Option<String> },
+    /// Make a session the successor of sessions that died or moved (a rotation, a restart under a
+    /// new name, a move): a message to one of them reaches it, here and through the mesh hub.
+    /// Each name it takes over keeps the names that one answered to.
+    #[command(
+        after_help = "Examples:\n  acpmux succeed old-host/old-lane\n  acpmux succeed --session lane-b lane-a"
+    )]
+    Succeed {
+        /// The session that takes over (default: the one this shell runs in).
+        #[arg(long, default_value = "@")]
+        session: String,
+        /// `HOST/NAME`, or a NAME on this machine.
+        #[arg(required = true)]
+        names: Vec<String>,
+    },
+    /// Role addresses a session answers to: `goal:SLUG`, `area:NAME`, `topic:NAME`. A message
+    /// to one reaches the session that claimed it last, here and through the mesh hub.
+    Role {
+        #[command(subcommand)]
+        cmd: RoleCmd,
+    },
     /// Give the session this shell runs in a stable name every machine that peers this one sends
     /// to: a Claude Code session acpmux did not start (the Claude desktop app's Code tab, a
     /// terminal `claude`). Run it from that session's own Bash tool: it delivers a one-time code
@@ -985,6 +1059,14 @@ pub enum Command {
         session: String,
         #[arg(long = "answer", value_name = "QUESTION=CHOICE")]
         answer: Vec<String>,
+    },
+    #[command(hide = true)]
+    Place {
+        session: String,
+        #[arg(long)]
+        on: String,
+        #[arg(long)]
+        reason: Option<String>,
     },
     #[command(hide = true)]
     Export {
@@ -1056,6 +1138,9 @@ pub enum Command {
     /// `daemon felt`: the felt-latency histograms (the net graph).
     #[command(hide = true)]
     DaemonFelt,
+    /// `daemon placement`: one tailnet placement update.
+    #[command(hide = true)]
+    DaemonPlacement { message: String },
     /// `daemon prune`: clear dead daemons' records (a dry run unless `apply`).
     #[command(hide = true)]
     DaemonPrune {
@@ -1091,7 +1176,8 @@ pub enum Command {
         /// permission mode every new chat starts in, `permissions.codex=ask` for
         /// one harness, `session.memory_mb=6144`, `session.swap_mb=2048`,
         /// `session.tasks_max=8192`, `session.sessions_tasks_max=131072`,
-        /// `session.cpu_class=normal` or `remote_daemon=127.0.0.1:PORT`). A value the
+        /// `session.cpu_class=background`, `remote_daemon=127.0.0.1:PORT` or
+        /// `lane_gh_broker=~/.cache/lane-gh-broker/broker.sock`). A value the
         /// daemon would refuse to start with is refused and config.json is left as it was:
         /// `transport.wireguard=true` needs `transport.wireguardStatic` in config.json first.
         /// The hub carrier (`cmux remote ... --via-machine`) needs no setting here: a joined
@@ -1354,6 +1440,26 @@ pub enum SecretCmd {
 }
 
 #[derive(Subcommand)]
+pub enum RoleCmd {
+    /// Claim ADDRESS: every other session here gives it up.
+    #[command(after_help = "Examples:\n  acpmux role claim goal:ci-linux-on-pool")]
+    Claim {
+        address: String,
+        /// The session that claims it (default: the one this shell runs in).
+        #[arg(long, default_value = "@")]
+        session: String,
+    },
+    /// Give ADDRESS up.
+    Release {
+        address: String,
+        #[arg(long, default_value = "@")]
+        session: String,
+    },
+    /// Every role and successor entry the sessions here hold.
+    Ls,
+}
+
+#[derive(Subcommand)]
 pub enum SessionCmd {
     /// Queue a new session on a mesh host; prints a receipt, not completed execution.
     Start(crate::cli::mesh_control::StartArgs),
@@ -1398,8 +1504,9 @@ pub enum SessionCmd {
     /// paused. Its person's own prompt, opening it in the app, or `session release` lifts it.
     /// With `--fleet`: hold every session on this machine but the allowlist's names (a trailing
     /// `*` matches a prefix, `*TERM*` any name containing TERM in any case), and refuse new
-    /// sessions outside them. `--allow` adds names to the allowlist and keeps the rest;
-    /// `--set-allow` replaces it. Prints the allowlist before and after.
+    /// sessions outside them, for 12 hours unless `--for` says otherwise. `--allow` adds names
+    /// to the allowlist of a hold that is on and keeps the rest (with no hold on it changes
+    /// nothing); `--set-allow` replaces it. Prints the allowlist before and after.
     Hold {
         /// The session (not with `--fleet`).
         session: Option<String>,
@@ -1420,6 +1527,10 @@ pub enum SessionCmd {
         /// With `--fleet`: print the fleet hold, change nothing.
         #[arg(long)]
         status: bool,
+        /// With `--fleet`: how long it holds (`30m`, `4h`, `2d`; `never` keeps it until
+        /// released). Default 12h.
+        #[arg(long = "for", value_name = "DURATION")]
+        hold_for: Option<String>,
     },
     /// Release a held session (`session hold`): it runs its next prompt as usual. With
     /// `--fleet`: lift the fleet hold.
@@ -1523,6 +1634,20 @@ pub enum SessionCmd {
         #[arg(long = "answer", value_name = "QUESTION=CHOICE")]
         answer: Vec<String>,
     },
+    /// Move a chat between Local (this Mac), Cloud (stays in cmux Cloud) and AutoCloud (here
+    /// while the Mac is up, in the Cloud while it sleeps), through Auto mode's fenced handoff. The
+    /// person may make any move; a chat's own agent may move it off the Mac only while the
+    /// AutoCloud setting is on, and back to local never (the answer says needs_person and the
+    /// command). `cmux chat move SESSION --on PLACE` runs this.
+    Place {
+        session: String,
+        /// local, cloud or auto (autocloud).
+        #[arg(long)]
+        on: String,
+        /// Why, for the log.
+        #[arg(long)]
+        reason: Option<String>,
+    },
     /// Export a session bundle.
     Export {
         session: String,
@@ -1566,7 +1691,7 @@ pub enum SessionCmd {
     /// Print the last raw events as JSON lines; -f keeps following.
     Tail {
         session: String,
-        #[arg(long, default_value_t = 50)]
+        #[arg(long, short = 'n', visible_alias = "tail", default_value_t = 50)]
         last: u64,
         #[arg(long, short)]
         follow: bool,
@@ -1871,6 +1996,13 @@ pub enum DaemonCmd {
     /// person feels (a prompt's send to ack, a typed key's echo) over the last minute and since
     /// start. Numbers and names only.
     Felt,
+    /// Tell the stable tailnet node's front where a workspace runs now: one placement message as
+    /// JSON (`{"kind":"moved","workspace":"default","placement":{"ssh":"10.0.0.5:22"}}`; kinds
+    /// set, moved, removed). Open connections keep their target; new ones go to the new place.
+    Placement {
+        /// The placement message (JSON).
+        message: String,
+    },
     /// Restart the daemon, preserving hosted sessions so they resume on startup.
     Restart,
     /// Clear what dead daemons left: for the shared home and each per-build home, the socket and
@@ -1997,7 +2129,7 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Route { facts } => Command::RouteDeath { facts },
             SessionCmd::Pause { session } => Command::PauseAgent { session },
             SessionCmd::Wake { session } => Command::WakeAgent { session },
-            SessionCmd::Hold { session, fleet, allow, set_allow, reason, status } => {
+            SessionCmd::Hold { session, fleet, allow, set_allow, reason, status, hold_for } => {
                 Command::SessionHold {
                     session,
                     held: true,
@@ -2006,6 +2138,7 @@ pub fn flatten(c: Command) -> Command {
                     set_allow,
                     reason,
                     status,
+                    hold_for,
                 }
             }
             SessionCmd::Release { session, fleet } => Command::SessionHold {
@@ -2016,6 +2149,7 @@ pub fn flatten(c: Command) -> Command {
                 set_allow: Some(Vec::new()),
                 reason: None,
                 status: false,
+                hold_for: None,
             },
             SessionCmd::Icon { session, icon } => Command::Icon { session, icon },
             SessionCmd::Rename { session, new_name, handle, icon } => {
@@ -2046,6 +2180,7 @@ pub fn flatten(c: Command) -> Command {
             }
             SessionCmd::Deny { session } => Command::Deny { session },
             SessionCmd::Answer { session, answer } => Command::Answer { session, answer },
+            SessionCmd::Place { session, on, reason } => Command::Place { session, on, reason },
             SessionCmd::Export { session, dest } => Command::Export { session, dest },
             SessionCmd::Import { path, name } => Command::Import { path, name },
             SessionCmd::Transfer { session, to, cwd, name, interrupt, after_turn } => {
@@ -2117,6 +2252,7 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Restart => Command::DaemonRestart,
             DaemonCmd::Stats { by, since, top } => Command::DaemonStats { by, since, top },
             DaemonCmd::Felt => Command::DaemonFelt,
+            DaemonCmd::Placement { message } => Command::DaemonPlacement { message },
             DaemonCmd::Prune { apply } => Command::DaemonPrune { apply },
             DaemonCmd::Service { action } => Command::DaemonService { action },
             DaemonCmd::Config { show_token, set } => Command::Config { show_token, set },
@@ -2180,6 +2316,31 @@ mod deadline_defaults_tests {
         match cli.command {
             Some(Command::Send { stall, .. }) => assert_eq!(stall, 7),
             _ => panic!("expected send command"),
+        }
+    }
+
+    /// `acpmux send --gather` (`hub/cold_wake.rs`): a named sender's message or notice that waits
+    /// for the chat's batch, and so never waits for its reply.
+    #[test]
+    fn a_gather_send_parses_and_never_waits_for_a_reply() {
+        let parse = |argv: &[&str]| Cli::try_parse_from(argv);
+        assert!(parse(&["acpmux", "send", "c", "hi", "--gather", "--from", "forum"]).is_ok());
+        let notice = [
+            "acpmux",
+            "send",
+            "c",
+            "--notice",
+            "--severity",
+            "info",
+            "--title",
+            "T",
+            "--sender",
+            "slack",
+            "--gather",
+        ];
+        assert!(parse(&notice).is_ok());
+        for clash in ["--wait", "--quiet"] {
+            assert!(parse(&["acpmux", "send", "c", "hi", "--gather", clash]).is_err(), "{clash}");
         }
     }
 }
