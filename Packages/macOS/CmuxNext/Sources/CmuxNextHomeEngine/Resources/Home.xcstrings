@@ -4878,138 +4878,6 @@
         }
       }
     },
-    "home.teleport.row": {
-      "comment": "Chief settings card: the row label for where the Chief runs (This Mac, cmux Cloud or a host).",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Runs On"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يعمل على"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Radi na"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kører på"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Läuft auf"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Se ejecuta en"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "S’exécute sur"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "In esecuzione su"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "実行場所"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ដំណើរការលើ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "실행 위치"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kjører på"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Działa na"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Executa em"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Работает на"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ทำงานบน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Çalıştığı yer"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Працює на"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chạy trên"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "运行于"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "執行於"
-          }
-        }
-      }
-    },
     "home.teleport.checking": {
       "comment": "Chief teleport chip: the dry run of a move to %@ (a machine name) is running.",
       "extractionState": "manual",
@@ -11996,137 +11864,6 @@
         }
       }
     },
-    "home.engine.nextTurn": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Changes apply from the next turn."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "変更は次のターンから適用されます。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تُطبَّق التغييرات من الدور التالي."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Promjene vrijede od sljedećeg poteza."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ændringer gælder fra næste tur."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Änderungen gelten ab dem nächsten Zug."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Los cambios se aplican desde el próximo turno."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les changements s’appliquent dès le prochain tour."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le modifiche valgono dal prossimo turno."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការផ្លាស់ប្ដូរអនុវត្តចាប់ពីវេនបន្ទាប់។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "변경 사항은 다음 턴부터 적용됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Endringer gjelder fra neste tur."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zmiany obowiązują od następnej tury."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "As alterações valem a partir do próximo turno."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Изменения действуют со следующего хода."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "การเปลี่ยนแปลงมีผลตั้งแต่รอบถัดไป"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Değişiklikler sonraki turdan itibaren geçerlidir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Зміни діють з наступного ходу."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Thay đổi áp dụng từ lượt tiếp theo."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "更改从下一轮开始生效。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "變更從下一輪開始生效。"
-          }
-        }
-      }
-    },
     "home.engine.noTurn": {
       "extractionState": "manual",
       "localizations": {
@@ -18830,138 +18567,6 @@
         }
       }
     },
-    "home.engine.reactions.note": {
-      "comment": "Chief reaction classifier (a416).",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A cheap model decides whether your reaction on a Chief message needs an answer. Only then does the Chief start typing. Empty fields use your settings."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chiefのメッセージへのリアクションに返答が必要かを安価なモデルが判断します。必要なときだけChiefが入力を始めます。空欄はあなたの設定を使います。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يقرر نموذج رخيص ما إذا كان تفاعلك على رسالة Chief يحتاج إلى رد. عندها فقط يبدأ Chief بالكتابة. الحقول الفارغة تستخدم إعداداتك."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Jeftin model odlučuje treba li vaša reakcija na Chiefovu poruku odgovor. Tek tada Chief počinje kucati. Prazna polja koriste vaše postavke."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "En billig model afgør, om din reaktion på en Chief-besked kræver svar. Kun da begynder Chief at skrive. Tomme felter bruger dine indstillinger."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ein günstiges Modell entscheidet, ob deine Reaktion auf eine Chief-Nachricht eine Antwort braucht. Nur dann beginnt der Chief zu tippen. Leere Felder nutzen deine Einstellungen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un modelo económico decide si tu reacción en un mensaje del Chief necesita respuesta. Solo entonces el Chief empieza a escribir. Los campos vacíos usan tus ajustes."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un modèle bon marché décide si votre réaction sur un message du Chief appelle une réponse. Ce n’est qu’alors que le Chief commence à écrire. Les champs vides utilisent vos réglages."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Un modello economico decide se la tua reazione a un messaggio del Chief richiede una risposta. Solo allora il Chief inizia a scrivere. I campi vuoti usano le tue impostazioni."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ម៉ូដែលថោកសម្រេចថាប្រតិកម្មរបស់អ្នកលើសារ Chief ត្រូវការចម្លើយឬអត់។ មានតែពេលនោះ Chief ចាប់ផ្ដើមវាយ។ វាលទទេប្រើការកំណត់របស់អ្នក។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief 메시지에 남긴 반응에 답이 필요한지 저렴한 모델이 판단합니다. 필요할 때만 Chief가 입력을 시작합니다. 빈 칸은 내 설정을 사용합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "En billig modell avgjør om reaksjonen din på en Chief-melding trenger svar. Først da begynner Chief å skrive. Tomme felt bruker innstillingene dine."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tani model decyduje, czy twoja reakcja na wiadomość Chiefa wymaga odpowiedzi. Dopiero wtedy Chief zaczyna pisać. Puste pola używają twoich ustawień."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Um modelo barato decide se sua reação em uma mensagem do Chief precisa de resposta. Só então o Chief começa a digitar. Campos vazios usam seus ajustes."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Недорогая модель решает, нужен ли ответ на вашу реакцию на сообщение Chief. Только тогда Chief начинает печатать. Пустые поля берут ваши настройки."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "โมเดลราคาถูกตัดสินว่ารีแอคชันของคุณบนข้อความ Chief ต้องการคำตอบหรือไม่ Chief จะเริ่มพิมพ์เมื่อต้องการเท่านั้น ช่องว่างใช้การตั้งค่าของคุณ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ucuz bir model, bir Chief mesajına verdiğiniz tepkinin yanıt gerektirip gerektirmediğine karar verir. Ancak o zaman Chief yazmaya başlar. Boş alanlar ayarlarınızı kullanır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Недорога модель вирішує, чи потребує ваша реакція на повідомлення Chief відповіді. Лише тоді Chief починає друкувати. Порожні поля беруть ваші налаштування."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Một mô hình rẻ quyết định cảm xúc của bạn trên tin nhắn Chief có cần trả lời không. Chỉ khi đó Chief mới bắt đầu nhập. Ô trống dùng cài đặt của bạn."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "由廉价模型判断你对 Chief 消息的回应是否需要答复。只有需要时 Chief 才开始输入。留空的字段使用你的设置。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "由低成本模型判斷你對 Chief 訊息的回應是否需要答覆。只有需要時 Chief 才開始輸入。留空的欄位使用你的設定。"
-          }
-        }
-      }
-    },
     "home.engine.reactions.classifier": {
       "comment": "Chief reaction classifier (a416): the disclosure over its harness, model and instructions.",
       "extractionState": "manual",
@@ -23044,134 +22649,134 @@
         }
       }
     },
-    "home.chief.welcomeHello": {
-      "comment": "Chief's first message on a fresh install: a short greeting. Chief's next message says what it can do.",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مرحبًا بك في cmux! 👋 أنا Chief."
+    "home.chief.welcomeHello" : {
+      "comment" : "Chief's first message on a fresh install: a short greeting. Chief's next message says what it can do.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "مرحبًا بك في cmux! 👋 أنا Chief."
           }
         },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dobro došli u cmux! 👋 Ja sam Chief."
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dobro došli u cmux! 👋 Ja sam Chief."
           }
         },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Velkommen til cmux! 👋 Jeg er Chief."
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Velkommen til cmux! 👋 Jeg er Chief."
           }
         },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Willkommen bei cmux! 👋 Ich bin Chief."
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Willkommen bei cmux! 👋 Ich bin Chief."
           }
         },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Welcome to cmux! 👋 I'm Chief."
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Welcome to cmux! 👋 I'm Chief."
           }
         },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "¡Te damos la bienvenida a cmux! 👋 Soy Chief."
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "¡Te damos la bienvenida a cmux! 👋 Soy Chief."
           }
         },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bienvenue dans cmux ! 👋 Je suis Chief."
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bienvenue dans cmux ! 👋 Je suis Chief."
           }
         },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Benvenuto in cmux! 👋 Sono Chief."
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Benvenuto in cmux! 👋 Sono Chief."
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux へようこそ！👋 Chief です。"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux へようこそ！👋 Chief です。"
           }
         },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "សូមស្វាគមន៍មកកាន់ cmux! 👋 ខ្ញុំគឺ Chief។"
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "សូមស្វាគមន៍មកកាន់ cmux! 👋 ខ្ញុំគឺ Chief។"
           }
         },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux에 오신 것을 환영합니다! 👋 저는 Chief예요."
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux에 오신 것을 환영합니다! 👋 저는 Chief예요."
           }
         },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Velkommen til cmux! 👋 Jeg er Chief."
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Velkommen til cmux! 👋 Jeg er Chief."
           }
         },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Witaj w cmux! 👋 Jestem Chief."
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Witaj w cmux! 👋 Jestem Chief."
           }
         },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Boas-vindas ao cmux! 👋 Eu sou o Chief."
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Boas-vindas ao cmux! 👋 Eu sou o Chief."
           }
         },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Добро пожаловать в cmux! 👋 Я Chief."
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Добро пожаловать в cmux! 👋 Я Chief."
           }
         },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ยินดีต้อนรับสู่ cmux! 👋 ฉันคือ Chief"
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ยินดีต้อนรับสู่ cmux! 👋 ฉันคือ Chief"
           }
         },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux'a hoş geldiniz! 👋 Ben Chief."
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux'a hoş geldiniz! 👋 Ben Chief."
           }
         },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ласкаво просимо до cmux! 👋 Я Chief."
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ласкаво просимо до cmux! 👋 Я Chief."
           }
         },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chào mừng bạn đến với cmux! 👋 Mình là Chief."
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chào mừng bạn đến với cmux! 👋 Mình là Chief."
           }
         },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "欢迎使用 cmux！👋 我是 Chief。"
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "欢迎使用 cmux！👋 我是 Chief。"
           }
         },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "歡迎使用 cmux！👋 我是 Chief。"
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "歡迎使用 cmux！👋 我是 Chief。"
           }
         }
       }
@@ -23304,6 +22909,666 @@
           "stringUnit": {
             "state": "translated",
             "value": "想換成你喜歡的樣子嗎？可以從內建藝術作品或你自己的圖片中[選擇背景](%@)。也可以略過，直接跟我打聲招呼。"
+          }
+        }
+      }
+    },
+    "home.chiefRegistry.needsChief" : {
+      "comment" : "Refusal: a Chief action ran without one of this Mac's Chiefs.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pick one of this Mac's Chiefs."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "اختر أحد Chiefs على هذا الـMac."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Odaberi jedan od Chiefova na ovom Macu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vælg en af denne Macs Chiefs."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wähle einen der Chiefs dieses Mac."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Elige uno de los Chiefs de este Mac."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Choisissez l’un des Chiefs de ce Mac."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Scegli uno dei Chief di questo Mac."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このMacのChiefを1つ選んでください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ជ្រើស Chief មួយនៃ Mac នេះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 Mac의 Chief를 하나 선택하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Velg en av denne Macens Chiefs."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wybierz jednego z Chiefów tego Maca."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Escolha um dos Chiefs deste Mac."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Выберите одного из Chief на этом Mac."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เลือก Chief หนึ่งตัวของ Mac เครื่องนี้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu Mac’in Chief’lerinden birini seçin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Виберіть одного з Chief на цьому Mac."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chọn một Chief của máy Mac này."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "请选择这台 Mac 上的一个 Chief。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "請選擇這台 Mac 上的一個 Chief。"
+          }
+        }
+      }
+    },
+    "home.chiefRegistry.needsAgent" : {
+      "comment" : "Refusal: Make Agent a Chief ran without an agent id.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pick an agent from your conversations (an agent_… id)."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "اختر وكيلًا من محادثاتك (معرّف agent_…)."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Odaberi agenta iz svojih razgovora (ID agent_…)."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vælg en agent fra dine samtaler (et agent_…-id)."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wähle einen Agenten aus deinen Unterhaltungen (eine agent_…-ID)."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Elige un agente de tus conversaciones (un id agent_…)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Choisissez un agent de vos conversations (un identifiant agent_…)."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Scegli un agente dalle tue conversazioni (un ID agent_…)."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "会話からエージェントを選んでください(agent_… のID)。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ជ្រើសភ្នាក់ងារពីការសន្ទនារបស់អ្នក (លេខសម្គាល់ agent_…)។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "대화에서 에이전트를 선택하세요(agent_… ID)."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Velg en agent fra samtalene dine (en agent_…-ID)."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wybierz agenta ze swoich rozmów (identyfikator agent_…)."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Escolha um agente das suas conversas (um ID agent_…)."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Выберите агента из своих разговоров (ID agent_…)."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เลือกเอเจนต์จากการสนทนาของคุณ (รหัส agent_…)"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sohbetlerinizden bir ajan seçin (agent_… kimliği)."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Виберіть агента зі своїх розмов (ID agent_…)."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chọn một tác tử trong các cuộc trò chuyện của bạn (mã agent_…)."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "请从你的对话中选择一个智能体(agent_… ID)。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "請從你的對話中選擇一個代理(agent_… ID)。"
+          }
+        }
+      }
+    },
+    "home.chiefRegistry.needsModel" : {
+      "comment" : "Refusal: Set Chief Model ran without a model.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Type the model the Chief should use."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "اكتب النموذج الذي يجب أن يستخدمه الـChief."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Upiši model koji Chief treba koristiti."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Skriv den model, Chief skal bruge."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gib das Modell ein, das der Chief nutzen soll."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Escribe el modelo que debe usar el Chief."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Saisissez le modèle que le Chief doit utiliser."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Scrivi il modello che il Chief deve usare."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chiefが使うモデルを入力してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "វាយម៉ូដែលដែល Chief គួរប្រើ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief가 사용할 모델을 입력하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Skriv modellen Chief skal bruke."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wpisz model, którego ma używać Chief."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Digite o modelo que o Chief deve usar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Введите модель, которую должен использовать Chief."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "พิมพ์โมเดลที่ Chief ควรใช้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief’in kullanacağı modeli yazın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Введіть модель, яку має використовувати Chief."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nhập mô hình mà Chief nên dùng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "请输入 Chief 要使用的模型。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "請輸入 Chief 要使用的模型。"
+          }
+        }
+      }
+    },
+    "home.chiefRegistry.needsEffort" : {
+      "comment" : "Refusal: Set Chief Effort ran without an effort.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pick the effort the Chief should use."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "اختر الجهد الذي يجب أن يستخدمه الـChief."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Odaberi napor koji Chief treba koristiti."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vælg den indsats, Chief skal bruge."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wähle den Aufwand, den der Chief nutzen soll."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Elige el esfuerzo que debe usar el Chief."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Choisissez l’effort que le Chief doit utiliser."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Scegli l’impegno che il Chief deve usare."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chiefが使う推論レベルを選んでください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ជ្រើសកម្រិតខិតខំដែល Chief គួរប្រើ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief가 사용할 추론 강도를 선택하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Velg innsatsen Chief skal bruke."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wybierz wysiłek, którego ma używać Chief."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Escolha o esforço que o Chief deve usar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Выберите усилие, которое должен использовать Chief."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เลือกระดับความพยายามที่ Chief ควรใช้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief’in kullanacağı eforu seçin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Виберіть зусилля, яке має використовувати Chief."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chọn mức nỗ lực mà Chief nên dùng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "请选择 Chief 要使用的推理强度。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "請選擇 Chief 要使用的推理強度。"
+          }
+        }
+      }
+    },
+    "home.chiefRegistry.editNeedsChannels" : {
+      "comment" : "Refusal: Edit Chief opens in Home's Channels view, and that view is turned off.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit Chief… opens in Home's Channels view, which is off."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يُفتح «تعديل Chief…» في عرض القنوات في Home، وهو متوقف."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uredi Chief… se otvara u prikazu Kanali u Home, koji je isključen."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rediger Chief… åbner i Homes Kanaler-visning, som er slået fra."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "„Chief bearbeiten…“ öffnet sich in der Kanäle-Ansicht von Home, die aus ist."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Editar Chief… se abre en la vista Canales de Home, que está desactivada."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Modifier le Chief… s’ouvre dans la vue Canaux de Home, qui est désactivée."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Modifica Chief… si apre nella vista Canali di Home, che è disattivata."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「Chiefを編集…」はHomeのチャンネル表示で開きますが、その表示はオフです。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កែ Chief… បើកក្នុងទិដ្ឋភាពឆានែលរបស់ Home ដែលបានបិទ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief 편집…은 Home의 채널 보기에서 열리지만 이 보기가 꺼져 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rediger Chief… åpnes i Homes Kanaler-visning, som er slått av."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Edytuj Chiefa… otwiera się w widoku Kanały w Home, który jest wyłączony."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Editar Chief… abre na visualização Canais do Home, que está desativada."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«Изменить Chief…» открывается в представлении «Каналы» в Home, а оно выключено."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แก้ไข Chief… เปิดในมุมมองช่องของ Home ซึ่งปิดอยู่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chief’i Düzenle…, Home’un Kanallar görünümünde açılır ve bu görünüm kapalı."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«Редагувати Chief…» відкривається в поданні «Канали» в Home, а воно вимкнене."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sửa Chief… mở trong chế độ xem Kênh của Home, chế độ này đang tắt."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "“编辑 Chief…”在 Home 的频道视图中打开,而该视图已关闭。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「編輯 Chief…」在 Home 的頻道檢視中開啟,而該檢視已關閉。"
           }
         }
       }
@@ -24364,138 +24629,6 @@
         }
       }
     },
-    "home.engine.vault.note": {
-      "comment": "Footnote under the Vault section. 'cmux cloud secret set NAME' is a command and stays in English.",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "محفوظة في سلسلة المفاتيح. يستخدمها Chief ووكلاؤه بالاسم؛ ولا تظهر القيم في الدردشة أبدًا. أضف واحدة باستخدام cmux cloud secret set NAME."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Čuvaju se u vašem Keychainu. Chief i njegovi agenti koriste ih po imenu; vrijednosti se nikad ne prikazuju u chatu. Dodajte jednu naredbom cmux cloud secret set NAME."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gemt i din nøglering. Chief og dens agenter bruger dem efter navn; værdier vises aldrig i chatten. Tilføj en med cmux cloud secret set NAME."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "In deinem Schlüsselbund gespeichert. Chief und seine Agenten nutzen sie per Name; Werte erscheinen nie im Chat. Füge einen mit cmux cloud secret set NAME hinzu."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kept in your Keychain. Chief and its agents use them by name; values never appear in chat. Add one with cmux cloud secret set NAME."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Se guardan en tu llavero. Chief y sus agentes las usan por nombre; los valores nunca aparecen en el chat. Añade una con cmux cloud secret set NAME."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conservés dans votre trousseau. Chief et ses agents les utilisent par leur nom ; les valeurs n’apparaissent jamais dans la conversation. Ajoutez-en un avec cmux cloud secret set NAME."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Conservate nel tuo portachiavi. Chief e i suoi agenti le usano per nome; i valori non compaiono mai in chat. Aggiungine una con cmux cloud secret set NAME."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キーチェーンに保存されます。Chief とそのエージェントは名前で使用し、値がチャットに表示されることはありません。cmux cloud secret set NAME で追加できます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "រក្សាទុកក្នុង Keychain របស់អ្នក។ Chief និងភ្នាក់ងាររបស់វាប្រើវាតាមឈ្មោះ; តម្លៃមិនដែលបង្ហាញក្នុងការជជែកទេ។ បន្ថែមមួយដោយ cmux cloud secret set NAME។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "키체인에 보관됩니다. Chief와 에이전트는 이름으로 사용하며 값은 채팅에 표시되지 않습니다. cmux cloud secret set NAME으로 추가하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lagret i nøkkelringen din. Chief og agentene bruker dem etter navn; verdier vises aldri i chatten. Legg til en med cmux cloud secret set NAME."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Przechowywane w Twoim pęku kluczy. Chief i jego agenci używają ich po nazwie; wartości nigdy nie pojawiają się w czacie. Dodaj je poleceniem cmux cloud secret set NAME."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Guardadas nas suas Chaves. O Chief e seus agentes as usam pelo nome; os valores nunca aparecem no chat. Adicione uma com cmux cloud secret set NAME."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Хранятся в вашей связке ключей. Chief и его агенты используют их по имени; значения никогда не появляются в чате. Добавьте их командой cmux cloud secret set NAME."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เก็บไว้ในพวงกุญแจของคุณ Chief และเอเจนต์ใช้ตามชื่อ ค่าจะไม่ปรากฏในแชท เพิ่มได้ด้วย cmux cloud secret set NAME"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Anahtar Zinciri’nizde saklanır. Chief ve ajanları bunları adıyla kullanır; değerler sohbette asla görünmez. cmux cloud secret set NAME ile ekleyin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Зберігаються у вашій в’язці ключів. Chief і його агенти використовують їх за назвою; значення ніколи не з’являються в чаті. Додайте командою cmux cloud secret set NAME."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Được lưu trong Chuỗi khóa của bạn. Chief và các tác tử dùng chúng theo tên; giá trị không bao giờ xuất hiện trong cuộc trò chuyện. Thêm bằng cmux cloud secret set NAME."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保存在你的钥匙串中。Chief 及其代理按名称使用它们；值永远不会出现在聊天中。使用 cmux cloud secret set NAME 添加。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "儲存在你的鑰匙圈中。Chief 及其代理按名稱使用它們；值永遠不會出現在聊天中。使用 cmux cloud secret set NAME 新增。"
-          }
-        }
-      }
-    },
     "home.engine.connections": {
       "comment": "Chief Settings section header: the accounts the Chief acts through (Gmail, Google Calendar).",
       "extractionState": "manual",
@@ -24624,138 +24757,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "連線"
-          }
-        }
-      }
-    },
-    "home.engine.connections.note": {
-      "comment": "Footnote under the Connections section.",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يقرأ Chief ويرسل فقط عبر حساب متصل. ويسألك قبل إرسال بريد إلكتروني أو دعوة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief čita i šalje samo preko povezanog računa. Pita vas prije slanja e-pošte ili pozivnice."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief læser og sender kun via en forbundet konto. Den spørger dig, før den sender en e-mail eller en invitation."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief liest und sendet nur über ein verbundenes Konto. Vor dem Senden einer E-Mail oder Einladung fragt er dich."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief reads and sends only through a connected account. It asks you before it sends an email or an invitation."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief solo lee y envía a través de una cuenta conectada. Te pregunta antes de enviar un correo o una invitación."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief ne lit et n’envoie que via un compte connecté. Il vous demande avant d’envoyer un e-mail ou une invitation."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief legge e invia solo tramite un account collegato. Ti chiede conferma prima di inviare un’email o un invito."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief は接続済みのアカウントを通じてのみ読み取りと送信を行います。メールや招待を送る前に確認します。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief អាន និងផ្ញើតែតាមរយៈគណនីដែលបានតភ្ជាប់ប៉ុណ្ណោះ។ វាសួរអ្នកមុនពេលផ្ញើអ៊ីមែល ឬការអញ្ជើញ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief는 연결된 계정을 통해서만 읽고 보냅니다. 이메일이나 초대를 보내기 전에 확인을 요청합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief leser og sender bare gjennom en tilkoblet konto. Den spør deg før den sender en e-post eller en invitasjon."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief czyta i wysyła tylko przez połączone konto. Pyta Cię przed wysłaniem e-maila lub zaproszenia."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O Chief lê e envia apenas por uma conta conectada. Ele pergunta antes de enviar um e-mail ou um convite."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief читает и отправляет только через подключённый аккаунт. Перед отправкой письма или приглашения он спрашивает вас."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief อ่านและส่งผ่านบัญชีที่เชื่อมต่อเท่านั้น และจะถามคุณก่อนส่งอีเมลหรือคำเชิญ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief yalnızca bağlı bir hesap üzerinden okur ve gönderir. E-posta veya davet göndermeden önce size sorar."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief читає й надсилає лише через підключений обліковий запис. Перед надсиланням листа чи запрошення він запитує вас."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief chỉ đọc và gửi qua tài khoản đã kết nối. Nó sẽ hỏi bạn trước khi gửi email hoặc lời mời."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief 只通过已连接的账户读取和发送。发送邮件或邀请前会先询问你。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief 只透過已連線的帳號讀取和傳送。傳送郵件或邀請前會先詢問你。"
           }
         }
       }

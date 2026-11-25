@@ -178,6 +178,9 @@ public struct Metrics {
     /// Height of the fade at a scrolling list's top or bottom edge while
     /// content is hidden beyond it (`ScrollEdgeFade`).
     public static var scrollEdgeFade: CGFloat { MetricTunables.scrollEdgeFade.value }
+    /// Height of the fade at a scrolling list's bottom edge while content is hidden below
+    /// (`ScrollEdgeFade`): taller than the top's.
+    public static var scrollEdgeFadeBottom: CGFloat { MetricTunables.scrollEdgeFadeBottom.value }
 
     public static var dividerThickness: CGFloat { MetricTunables.dividerThickness.value }
     /// Width of the sidebar's resting edge line (`sidebar.border`,

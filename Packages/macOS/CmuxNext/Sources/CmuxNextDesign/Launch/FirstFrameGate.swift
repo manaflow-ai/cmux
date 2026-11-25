@@ -25,6 +25,23 @@ public final class FirstFrameGate {
         if isOpen { work() } else { waiters.append(work) }
     }
 
+    /// Runs `steps` in order after the gate opens, one per run-loop pass, each
+    /// after that pass's frame commit (`AfterFrameCommit`): none runs inside the
+    /// first frame's commit, and input and display get a pass between two steps.
+    /// `stop` is read before each step (an app that is terminating).
+    public func afterOpen(stop: @escaping @MainActor () -> Bool = { false }, _ steps: [@MainActor () -> Void]) {
+        whenOpen { Self.runOnePerPass(steps[...], stop: stop) }
+    }
+
+    private static func runOnePerPass(_ steps: ArraySlice<@MainActor () -> Void>, stop: @escaping @MainActor () -> Bool) {
+        guard let step = steps.first else { return }
+        AfterFrameCommit().run {
+            if stop() { return }
+            step()
+            runOnePerPass(steps.dropFirst(), stop: stop)
+        }
+    }
+
     /// Opens the gate (first call only) and runs the waiting work.
     public func open() {
         guard !isOpen else { return }
@@ -44,5 +61,31 @@ public final class FirstFrameGate {
     /// Returns once the gate is open (at once when it already is).
     public func opened() async {
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in whenOpen { done.resume() } }
+    }
+}
+
+/// One view's launch work held for the turn after the first frame's commit (as ``FirstFrameGate/afterOpen``'s
+/// steps), so it neither delays that frame nor runs inside its commit; `runNow` makes it sooner, when the
+/// person or an action needs it. Work given while some is held is dropped: the held work reads the view's
+/// latest state when it runs (Home's first conversation host, ~90 ms on main: TopHomePageView).
+@MainActor
+public final class FirstFrameHold {
+    private var held: (@MainActor () -> Void)?
+
+    public init() {}
+
+    /// Runs `work` at once when `gate` is nil or open; else holds it until the turn after the gate opens.
+    public func run(after gate: FirstFrameGate?, _ work: @escaping @MainActor () -> Void) {
+        guard held == nil else { return }
+        guard let gate, !gate.isOpen else { return work() }
+        held = work
+        gate.whenOpen { AfterFrameCommit().run { [weak self] in self?.runNow() } }
+    }
+
+    /// Runs the held work now, once (nothing when none is held).
+    public func runNow() {
+        let work = held
+        held = nil
+        work?()
     }
 }

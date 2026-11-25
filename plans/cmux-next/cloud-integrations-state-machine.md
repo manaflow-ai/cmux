@@ -199,6 +199,22 @@ covers the repo (one repo, at most 1 h, never at rest); the person's own login s
 Measured on the same account, no GitHub link: `GET /v1/integrations/github/status` answers `connection: null`
 (the unlinked state of section 1); `GET /v1/integrations/github/repos` answers 404 `integration.not_found` in
 283 ms, which the picker must show as the Connect row of section 5, never as an error. Screenshots and video of the
-GUI flows wait on air-blue's screen being unlocked.
+GUI flows were captured on the fleet instead (see Evidence).
 
 Fixes merged or open are listed with their PRs in this file's PR and its follow-ups.
+
+## Evidence
+
+Captured on 2026-11-24 with `cmux-ci capture` on a fleet display worker, at `c2b7ec92a371`, as light and dark stills
+plus a video. The PR that added this section shows them.
+
+- GitHub setup on a machine, team linked: the confirm says the machine's git gets a short-lived token per repo from
+  cmux's GitHub App and no GitHub token is stored on the machine (sections 1 and 3).
+- GitHub setup on a machine, team not linked: the confirm says the team has not connected the App, so the machine
+  signs in to GitHub itself and keeps that token (the unlinked state of section 1).
+- MCP: Settings > Agents shows cmux Tools for agents in cmux and the `claude mcp add` line for agents on this Mac.
+
+Not captured in the GUI: the repositories picker and a Cloud chat start against a real Cloud account. The capture
+route that signs in to the Cloud test account (`pr-capture-cloud.yml`) refused this lane before dispatch: the lane
+lacks its `capture_cloud` grant. The production probe covers both headless (cmuxterm-hq synthetic-probes run
+44952884350, job integrations-production, both legs green).

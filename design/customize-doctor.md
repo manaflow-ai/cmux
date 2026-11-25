@@ -22,28 +22,22 @@ card and the line leave together in one frame. Nothing changes on its own: every
 only on a click (Follow default keeps a copy of the settings file). Remove, Restore and Recover ask first,
 inline, Cancel focused, and say what is kept. A dismissed finding stays, muted, until it changes.
 
-## The notice: three treatments
+## The notice: two treatments
 
-Web gallery `pages.settings-customize-doctor`, variants `treatment-chip`, `treatment-banner` and
-`treatment-inline`. Choosing one is one line (`customizeDoctor.ts` `treatment`).
+Web gallery `pages.settings-customize-doctor`, variants `treatment-banner` and `treatment-inline`.
+Choosing one is one line (`customizeDoctor.ts` `treatment`).
 
-- **chip** (shipped): a dot and the CLI's line at the bottom of the Settings sidebar, with Recover… beside
-  it while there is a way back; a click opens the card. It is the app-health footer's pattern: the words
-  show without a hover, at the edge where status already lives, on every Settings page, and it moves no
-  content (only the section list above it gets one line shorter and scrolls). Its cost: it is small, and
-  a person reading the column may not look at the sidebar's foot.
+- **inline** (shipped): the count and the line in the card's own header, nothing else. Quiet and never
+  in the way; outside Settings the native toast on launch (`customize.doctorNotice`, default on) is
+  what tells the person.
 - **banner**: ui/Notice's warning banner with Review (and Recover…) across the top of the Settings
   column. Nobody misses it, but a warning stays until resolved, so a finding the person chose to leave
   (an `info` leftover) pushes every Settings page down until they dismiss it, and it competes with the
   read-only and try-on bars that sit in the same place.
-- **inline**: the count and the line in the card's own header, nothing else. Quietest, and never in the
-  way, but it only shows once the person is already on Personalization, so it does not "tell the user":
-  it is the B-treatment problem from design/app-health.md (you must go there to see the words).
 
-**Recommended: chip.** It is the only treatment that tells the person on every Settings page without
-taking room from the page's content, it reuses a pattern already chosen for the same job (a small mark
-and words that open into labelled detail), and the native toast on launch covers the "automatically"
-half outside Settings (`customize.doctorNotice`, default on).
+A third, **chip** (a dot and the line at the bottom of the Settings sidebar, shipped first in #50458),
+was removed on 2026-11-23: Lawrence, on "29 things change your customization: aws-…" under the
+categories, "remove this thing". The sidebar holds only the search field and the categories.
 
 ## The card
 

@@ -81,15 +81,7 @@ enum AppCommandPalette {
     /// runs the op with the app's grants). The work's failure is the action's
     /// failure: the CLI and the palette report the real result.
     @MainActor static func run(_ entry: Entry, services: AppServices, origin: ActionOrigin, arguments: AppJSON = .object([:])) -> ActionWork {
-        let client = services.apps.client
         let appOrigin = AppOrigin(rawValue: origin.rawValue) ?? .script
-        return Task { @MainActor in
-            do throws(AppsClientError) {
-                _ = try await client.run(app: entry.app.id, op: entry.command.op, args: arguments, origin: appOrigin)
-                return nil
-            } catch {
-                return ActionWorkFailure(error.description)
-            }
-        }
+        return services.apps.client.runAsAction(app: entry.app, command: entry.command, arguments: arguments, origin: appOrigin)
     }
 }

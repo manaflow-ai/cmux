@@ -37,6 +37,29 @@ pub struct PinReport {
     pub first_error: Option<i32>,
 }
 
+/// One pin as a status shows it: what it holds and how much of that is on this machine's disk.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize)]
+pub struct PinState {
+    /// The pinned path, relative to the projected folder (`""` is the whole folder).
+    pub path: String,
+    /// Files under it.
+    pub files: u64,
+    /// Their bytes.
+    pub bytes: u64,
+    /// Of those, the bytes on disk now: `bytes` once it is fully available offline.
+    pub local_bytes: u64,
+    /// Whether this manifest still has the path (a pin outlives a new manifest without it).
+    pub present: bool,
+}
+
+impl PinState {
+    /// Whether every byte under the pin is on disk (it reads with the Mac away).
+    #[must_use]
+    pub fn complete(&self) -> bool {
+        self.present && self.local_bytes >= self.bytes
+    }
+}
+
 /// The pinned paths an earlier daemon wrote (none when there is no file).
 pub(super) fn read_pins(file: &Path) -> anyhow::Result<BTreeSet<String>> {
     match fs::read(file) {
@@ -83,6 +106,23 @@ impl Overlay {
         self.cache_lock().kept_bytes
     }
 
+    /// Every pin with its files, bytes and the bytes of them on disk now, in path order.
+    #[must_use]
+    pub fn pin_states(&self) -> Vec<PinState> {
+        self.pins()
+            .into_iter()
+            .map(|path| match self.files_under(&path) {
+                Ok((files, bytes)) => {
+                    // A source on the machine's disk (a git object store) holds every byte.
+                    let local_bytes =
+                        if self.fetch.cache() { self.local_bytes(&files) } else { bytes };
+                    PinState { files: files.len() as u64, bytes, local_bytes, present: true, path }
+                }
+                Err(_) => PinState { path, ..PinState::default() },
+            })
+            .collect()
+    }
+
     fn pins_lock(&self) -> MutexGuard<'_, BTreeSet<String>> {
         self.pins.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -112,6 +152,42 @@ impl Overlay {
             self.cache_lock().pin(&files);
         }
         Ok(self.hydrate(&files, bytes))
+    }
+
+    /// Warms the cache with the files at or under `paths`, picked in the order given, up to
+    /// `max_files` files and `max_bytes` bytes (a file that would pass the byte cap is skipped,
+    /// the walk goes on): fetched into the LRU like a read's (its folder's read-ahead too), so
+    /// nothing is pinned, recorded or kept apart, and `pins` never shows it. The Mac names what the agent likely reads first (its instruction
+    /// files, the files it changed, the newest) as soon as the folder is mounted, so those reads
+    /// find their bytes on disk instead of waiting on the Mac. A path this manifest lacks is
+    /// skipped; the walk stops at the first `EHOSTDOWN`, as a pin's does.
+    pub fn warm(&self, paths: &[String], max_files: usize, max_bytes: u64) -> PinReport {
+        let mut picked = HashSet::new();
+        let mut bytes = 0u64;
+        'paths: for path in paths {
+            let Ok(path) = normalize(path) else { continue };
+            let Ok((under, _)) = self.files_under(&path) else { continue };
+            let mut under: Vec<u32> = under.into_iter().collect();
+            under.sort_unstable();
+            for file in under {
+                if picked.len() >= max_files {
+                    break 'paths;
+                }
+                let Some(size) = self.manifest.entry(file).map(|entry| entry.size) else {
+                    continue;
+                };
+                if picked.contains(&file) || bytes.saturating_add(size) > max_bytes {
+                    continue;
+                }
+                picked.insert(file);
+                bytes += size;
+            }
+        }
+        if !self.fetch.cache() {
+            // A source on the machine's disk (a git object store) is warm already.
+            return PinReport { files: picked.len() as u64, bytes, ..PinReport::default() };
+        }
+        self.hydrate(&picked, bytes)
     }
 
     /// Unpins `path`; its files not under another pin go back to the LRU (and down to the cap).
@@ -187,14 +263,12 @@ impl Overlay {
                 }
                 Kind::Link => {}
                 Kind::Dir => {
-                    let (first, children) = self.manifest.children(index);
-                    for (offset, child) in children.iter().enumerate() {
-                        let Ok(offset) = u32::try_from(offset) else { break };
+                    for (child_id, child) in self.manifest.children(index) {
                         let child_path = if check { join(&at, &child.name) } else { String::new() };
                         if check && Self::hidden(&inner, &child_path) {
                             continue;
                         }
-                        stack.push((first + offset, child_path));
+                        stack.push((child_id, child_path));
                     }
                 }
             }

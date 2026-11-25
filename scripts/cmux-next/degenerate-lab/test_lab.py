@@ -93,6 +93,22 @@ class GodSmall(unittest.TestCase):
         rows = lab.god_small_rows([{"part": "webview", "scale": 1.0, "load": "cpu", "report": report}])
         self.assertEqual(rows[0]["name"], "degenerate.scroll.interval_p95_ms.cpu")
 
+    def test_each_finished_phase_leaves_rows_a_cut_log_keeps(self):
+        r = {"part": "daemon", "scale": 0.1, "load": "cpu", "exit": 0,
+             "runs": [{"shape": "god", "pad": "x" * 900}], "churnSamples": [{"t": 60, "rssMb": 879}]}
+        lines = lab.result_lines(r)
+        self.assertTrue(all(len(line) <= lab.LOG_LINE + len("LAB-RESULT+ ") for line in lines))
+        whole, part = [], []
+        for line in lines:
+            tag, _, text = line.partition(" ")
+            part.append(text)
+            if tag == "LAB-RESULT":
+                whole.append(json.loads("".join(part)))
+                part = []
+        self.assertEqual([w["row"] for w in whole], [r["runs"][0], r["churnSamples"][0]])
+        self.assertEqual(whole[1]["load"], "cpu")
+        self.assertEqual(len(lab.result_lines({"part": "chat", "load": "idle", "skipped": "no harness"})), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

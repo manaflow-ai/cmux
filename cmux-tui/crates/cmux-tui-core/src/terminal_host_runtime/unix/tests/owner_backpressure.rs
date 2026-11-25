@@ -46,7 +46,7 @@ fn a_full_foreign_client_never_holds_the_reader_and_is_still_cut_off() {
     let smart = SmartStreamState::new();
     let (tap, _receiver, mut client) = tap_pair(false);
     fill_output_queue(&tap);
-    smart.taps.lock().unwrap().insert(1, tap.clone());
+    smart.taps.lock().unwrap().insert(1, tap);
 
     let started = Instant::now();
     smart.wait_for_owner_room_until(1024, Instant::now() + Duration::from_secs(10));

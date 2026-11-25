@@ -11,6 +11,8 @@
 #     --artifact .build/meet-browser/report.tgz --timeout 2700
 #   dmg=URL   the NEXT DMG (default: newest NIGHTLY). The fake cmux row needs the measurement switch in the app.
 #   build=JOB  a cmux-ci app build to measure before its switches reach the NIGHTLY feed
+#   build=here build a tagged app at this checkout on the worker (reload.sh, as split-spring.sh does) and
+#              measure it: the engine and permission fixes on the ref, before any NIGHTLY carries them
 #   call=S    seconds of the loopback call (default 60)
 #   only=a,b  some runs only (cmux-chromium,cmux-chromium-fake,cmux-webkit,chrome-fake,chrome-plain)
 # Prints MEET_BROWSER {json} and the table. report.tgz also includes Chrome startup logs.
@@ -31,7 +33,7 @@ for arg in "$@"; do
 done
 [[ "$call" =~ ^[0-9]+$ ]] || { echo "call=S takes seconds" >&2; exit 2; }
 [[ -z "$only" || "$only" =~ ^[a-z,-]+$ ]] || { echo "only=a,b takes run names" >&2; exit 2; }
-[[ -z "$build_job" || ( -z "$dmg" && "$build_job" =~ ^[0-9a-f]{24}$ ) ]] || { echo "use one app source: build=JOB or dmg=URL" >&2; exit 2; }
+[[ -z "$build_job" || ( -z "$dmg" && "$build_job" =~ ^([0-9a-f]{24}|here)$ ) ]] || { echo "use one app source: build=JOB or dmg=URL" >&2; exit 2; }
 if [[ -z "$build_job$dmg" ]]; then
   dmg="$(curl -fsSL --retry 3 --retry-all-errors https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
     | grep -oE 'url="https://[^"]+-macos-arm64-[0-9]+\.dmg"' | head -1 | cut -d'"' -f2)"
@@ -55,7 +57,38 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 mkdir -p "$work/app"
-if [[ -n "$build_job" ]]; then
+if [[ "$build_job" == here ]]; then
+  tag="meet-$(git rev-parse --short=10 HEAD)"
+  # A worker's warm checkout has no submodules and no GhosttyKit: get them first, as split-spring.sh does
+  # (without them cargo's ghostty-vt-sys build script fails: cmux18 step c447fb01).
+  for sub in ghostty ghostty-next; do
+    if [ ! -e "$sub/.git" ]; then
+      echo "MEET fetching submodule $sub"
+      git submodule update --init --depth 1 "$sub" || exit 1
+    fi
+  done
+  if [ ! -f GhosttyKit.xcframework/Info.plist ]; then
+    rm -rf GhosttyKit.xcframework
+    if [ -z "${GHOSTTYKIT_ARCHIVE_CACHE_DIR:-}" ] && [ -n "${CI_SHARED_CACHE_DIR:-}" ]; then
+      export GHOSTTYKIT_ARCHIVE_CACHE_DIR="$CI_SHARED_CACHE_DIR/ghosttykit-archives"
+    fi
+    echo "MEET getting GhosttyKit"
+    ./scripts/download-prebuilt-ghosttykit.sh || exit 1
+  fi
+  echo "MEET building the app at $(git rev-parse HEAD) (reload.sh --tag $tag)"
+  # Streamed into the step's output (and kept), so a failure shows its cause, not only cargo's last line.
+  CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" 2>&1 | tee "$out/reload.log"
+  built="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
+  if [[ -z "$built" || ! -d "$built" ]]; then
+    echo "MEET the tagged build printed no app path" >&2
+    grep -E "error:|BUILD FAILED" "$out/reload.log" | head -n 40 >&2
+    build_log="$(sed -n 's/^==> log: //p' "$out/reload.log" | tail -n 1)"
+    [[ -n "$build_log" && -f "$build_log" ]] && grep -E "error: " "$build_log" | head -n 40 >&2
+    exit 1
+  fi
+  app="$work/app/$(basename "$built")"
+  ditto "$built" "$app" || exit 3
+elif [[ -n "$build_job" ]]; then
   ci="$(command -v cmux-ci || true)"
   ci="${ci:-$HOME/.local/bin/cmux-ci}"
   "$ci" artifact "$build_job" "$work/app.zip" || exit 3

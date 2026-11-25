@@ -134,6 +134,7 @@ impl SegmentTable {
         #[cfg(test)]
         self.listings.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let mut out = Vec::new();
+        let mut cold = Vec::new();
         let mut cut_pending = false;
         let mut sealed = Vec::new();
         let Ok(rd) = std::fs::read_dir(dir) else {
@@ -149,8 +150,21 @@ impl SegmentTable {
                 && let Ok(index) = stem.parse::<u32>()
             {
                 out.push((index, entry.path()));
+            } else if let Some(index) = super::cold_segments::idx_index(&name) {
+                cold.push(index);
             } else if let Some(plain) = sealed_segments::plain_name(&name) {
                 sealed.push(plain.to_owned());
+            }
+        }
+        // A sealed segment that went cold (`store/cold_segments.rs`) reads from its archive once
+        // only its index is left: while its `.ndjson` is there, that is the segment.
+        if !cold.is_empty()
+            && let Some(session) = dir.parent()
+        {
+            for index in cold {
+                if !out.iter().any(|(i, _)| *i == index) {
+                    out.push((index, super::cold_segments::zst_path(session, index)));
+                }
             }
         }
         out.sort();

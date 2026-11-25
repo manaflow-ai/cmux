@@ -30,18 +30,54 @@ jobs:
     permissions:
       actions: write
     steps:
+      # The kick spends the cmux-bot App's own REST hour first and github.token only when that is refused: on
+      # 2026-11-24 every push's kick (runs 45381829805 to 45383131900) went red on "HTTP 403: API rate limit
+      # exceeded for installation" with github.token's shared hour spent by other workflows. A failed mint
+      # leaves github.token alone. When every token is rate-limited the kick is skipped with a warning, not a
+      # red: both workflows it wakes run on their own cron (the dispatcher every 5 minutes, the tick at :07 and
+      # :37 and when a cmux-next or cmux-tui artifacts run finishes), so a lost kick only delays the tip feed.
+      # Any other failure (a renamed workflow, a refused permission) stays red.
+      - name: Mint the cmux-bot token
+        id: cmux-bot-token
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+
       - name: Dispatch cmux-next-dev-daily-dispatch.yml on main
-        env:
-          GH_TOKEN: ${{ github.token }}
+        env: &kick-env
+          BOT_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+          REPO_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh workflow run cmux-next-dev-daily-dispatch.yml --repo "$GH_REPO" --ref main
+          KICK: |
+            kick() {
+              local token out
+              for token in "$BOT_TOKEN" "$REPO_TOKEN"; do
+                [ -n "$token" ] || continue
+                if out="$(GH_TOKEN="$token" "$@" 2>&1)"; then
+                  [ -z "$out" ] || printf '%s\n' "$out"
+                  return 0
+                fi
+                printf '%s\n' "$out" >&2
+                grep -qiE 'rate limit exceeded|secondary rate limit|HTTP 429' <<<"$out" || return 1
+              done
+              echo "::warning title=DEV kick skipped::every token was rate-limited for: $*; the workflow's own cron picks up the tip"
+            }
+        run: |
+          set -uo pipefail
+          eval "$KICK"
+          kick gh workflow run cmux-next-dev-daily-dispatch.yml --repo "$GH_REPO" --ref main
       # The nightly-next tick (nightly-next-tick.yml on main) at landing too. It heard of a landing only from its
       # 5-minute cron, or 15-26 min later when cmux-next or cmux-tui artifacts finished (86dc299b, 2026-11-14: landed
       # 04:29:21Z; they finished 04:44 and 04:55). With no sha the tick applies its rolling rule, which starts nothing
       # beside a running build and promotes only a buildable commit.
       - name: Dispatch nightly-next-tick.yml on main
         if: ${{ !cancelled() }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: gh workflow run nightly-next-tick.yml --repo "$GH_REPO" --ref main
+        env: *kick-env
+        run: |
+          set -uo pipefail
+          eval "$KICK"
+          kick gh workflow run nightly-next-tick.yml --repo "$GH_REPO" --ref main
