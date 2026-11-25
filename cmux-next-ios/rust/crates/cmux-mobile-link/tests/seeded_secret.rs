@@ -1,12 +1,13 @@
 //! Seeded secrets through this crate's gated clients, on the wire (cmux_egress::capture): the
 //! Stack token rides only in `Authorization`, and the hub's shared session secret goes nowhere.
 //! tests/egress_seeded.json names these tests for the `cmux_mobile_link::api`,
-//! `cmux_mobile_link::dial::relay` and `cmux_mobile_link::hub` gate sites.
+//! `cmux_mobile_link::dial::relay`, `cmux_mobile_link::hub` and `cmux_mobile_link::signaling` gate sites.
 
 use cmux_egress::capture;
 use cmux_mobile_link::api::ApiClient;
 use cmux_mobile_link::dial::relay::{RelayCarrier, RelayEndpoint};
 use cmux_mobile_link::hub::{HubParams, HubSource};
+use cmux_mobile_link::signaling::SignalingClient;
 use cmux_transport::hub::HubRole;
 
 const HOST: &str = "mobile-api.cmux.dev";
@@ -73,4 +74,17 @@ async fn hub_join_sends_the_token_only_in_authorization_and_the_secret_nowhere()
     only_in_authorization(token, "/v1/hub/", 1);
     let secret = std::str::from_utf8(&secret).unwrap();
     assert!(capture::leaks(secret).is_empty(), "{:?}", capture::leaks(secret));
+}
+
+#[tokio::test]
+async fn signaling_upgrade_sends_the_token_only_in_authorization() {
+    setup();
+    let token = "SEEDsignalBearer-4d8a";
+    let team = "team-seeded";
+    let device = "d2d2d2d2-0000-4000-8000-00000000cafe";
+    // The capture server answers the upgrade `200`, so the connect fails after the request was seen.
+    assert!(SignalingClient::connect(&format!("https://{HOST}"), token, team, device).await.is_err());
+    let sent = capture::requests_to(HOST);
+    assert!(sent.iter().any(|r| r.target.starts_with(&format!("/v1/teams/{team}/signal"))), "{sent:?}");
+    only_in_authorization(token, "/v1/teams/", 1);
 }

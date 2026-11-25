@@ -56,6 +56,9 @@
   "cmux_mobile_link::hub": {
    "test": "cmux-next-ios/rust/crates/cmux-mobile-link/tests/seeded_secret.rs::hub_join_sends_the_token_only_in_authorization_and_the_secret_nowhere"
   },
+  "cmux_mobile_link::signaling": {
+   "test": "cmux-next-ios/rust/crates/cmux-mobile-link/tests/seeded_secret.rs::signaling_upgrade_sends_the_token_only_in_authorization"
+  },
   "cmux_projection::peers": {
    "todo": true
   },
@@ -168,7 +171,7 @@
    "todo": true
   },
   "cmux_tui_core::apps::git_source": {
-   "none": "header-less GETs of a public repository's refs and archive (and GitHub's release and tag APIs), plus an anonymous install count {ref, commit}: no auth, cookie or person data in the request"
+   "none": "header-less GETs of a public repository's refs, archive and release (no token, cookie or credential; a private repository 404s), and the anonymous install ping {ref, commit} with no user id"
   },
   "cmux_tui_core::blob_fetch": {
    "todo": true
