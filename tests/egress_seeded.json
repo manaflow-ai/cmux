@@ -35,6 +35,21 @@
   "cmux_coderouter": {
    "todo": true
   },
+  "cmux_mobile_host::auth": {
+   "test": "cmux-next-ios/rust/crates/cmux-mobile-host/tests/seeded_secret.rs::the_refresh_token_rides_only_in_its_header"
+  },
+  "cmux_mobile_host::services::acpmux": {
+   "none": "a WebSocket to the Mac's own acpmux listener only: connect_acpmux_as refuses any host that is not loopback, so its bearer never leaves the machine"
+  },
+  "cmux_mobile_link::api": {
+   "test": "cmux-next-ios/rust/crates/cmux-mobile-link/tests/seeded_secret.rs::api_bearer_rides_only_in_authorization"
+  },
+  "cmux_mobile_link::dial::relay": {
+   "test": "cmux-next-ios/rust/crates/cmux-mobile-link/tests/seeded_secret.rs::relay_join_sends_the_token_only_in_authorization"
+  },
+  "cmux_mobile_link::hub": {
+   "test": "cmux-next-ios/rust/crates/cmux-mobile-link/tests/seeded_secret.rs::hub_join_sends_the_token_only_in_authorization_and_the_secret_nowhere"
+  },
   "cmux_projection::peers": {
    "todo": true
   },
