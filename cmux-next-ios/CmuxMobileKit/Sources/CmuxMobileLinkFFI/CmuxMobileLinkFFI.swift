@@ -3777,6 +3777,21 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
      */
     func warmMedia() 
     
+    /**
+     * Open the Mac's file at `path` into `dest` on the phone, over `bundle` when the Mac has it:
+     * chunks the phone already holds (it sent the file, or opened it before) do not cross again.
+     * Falls back to `file` on an older Mac.
+     */
+    func openFileBundle(path: String, dest: String, storeDir: String) async throws  -> FileTransfer
+    
+    /**
+     * Send the phone's file at `path` to the Mac as attachment `name` (into `cwd`'s attachments
+     * folder when given, as `upload`), over `bundle` when the Mac has it: a file the Mac already
+     * holds costs one round trip and its manifest. `store_dir` is this Mac's folder in the app's
+     * Caches. Falls back to `upload` on an older Mac.
+     */
+    func uploadFileBundle(path: String, name: String, cwd: String, storeDir: String) async throws  -> FileTransfer
+    
 }
 /**
  * A connected link to one Mac.
@@ -4279,6 +4294,51 @@ open func warmMedia()  {try! rustCall() {
             self.uniffiCloneHandle(),$0
     )
 }
+}
+    
+    /**
+     * Open the Mac's file at `path` into `dest` on the phone, over `bundle` when the Mac has it:
+     * chunks the phone already holds (it sent the file, or opened it before) do not cross again.
+     * Falls back to `file` on an older Mac.
+     */
+open func openFileBundle(path: String, dest: String, storeDir: String)async throws  -> FileTransfer  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_open_file_bundle(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(path),FfiConverterString.lower(dest),FfiConverterString.lower(storeDir)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeFileTransfer_lift,
+            errorHandler: FfiConverterTypeCmuxMobileError_lift
+        )
+}
+    
+    /**
+     * Send the phone's file at `path` to the Mac as attachment `name` (into `cwd`'s attachments
+     * folder when given, as `upload`), over `bundle` when the Mac has it: a file the Mac already
+     * holds costs one round trip and its manifest. `store_dir` is this Mac's folder in the app's
+     * Caches. Falls back to `upload` on an older Mac.
+     */
+open func uploadFileBundle(path: String, name: String, cwd: String, storeDir: String)async throws  -> FileTransfer  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_upload_file_bundle(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(path),FfiConverterString.lower(name),FfiConverterString.lower(cwd),FfiConverterString.lower(storeDir)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeFileTransfer_lift,
+            errorHandler: FfiConverterTypeCmuxMobileError_lift
+        )
 }
     
 
@@ -9774,6 +9834,105 @@ public func FfiConverterTypeConnectOptions_lower(_ value: ConnectOptions) -> Rus
 
 
 /**
+ * One file moved: where it landed and what crossed the link.
+ */
+public struct FileTransfer: Equatable, Hashable {
+    /**
+     * The upload: the file's path on the Mac (the `upload` reply's). The open: `dest`.
+     */
+    public var path: String
+    /**
+     * The file's size.
+     */
+    public var size: UInt64
+    /**
+     * Whether it went over `bundle` (false: the old `upload` / `file`).
+     */
+    public var bundle: Bool
+    /**
+     * Channel payload bytes the phone sent.
+     */
+    public var sentBytes: UInt64
+    /**
+     * Channel payload bytes the phone received.
+     */
+    public var receivedBytes: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The upload: the file's path on the Mac (the `upload` reply's). The open: `dest`.
+         */path: String, 
+        /**
+         * The file's size.
+         */size: UInt64, 
+        /**
+         * Whether it went over `bundle` (false: the old `upload` / `file`).
+         */bundle: Bool, 
+        /**
+         * Channel payload bytes the phone sent.
+         */sentBytes: UInt64, 
+        /**
+         * Channel payload bytes the phone received.
+         */receivedBytes: UInt64) {
+        self.path = path
+        self.size = size
+        self.bundle = bundle
+        self.sentBytes = sentBytes
+        self.receivedBytes = receivedBytes
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FileTransfer: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFileTransfer: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FileTransfer {
+        return
+            try FileTransfer(
+                path: FfiConverterString.read(from: &buf), 
+                size: FfiConverterUInt64.read(from: &buf), 
+                bundle: FfiConverterBool.read(from: &buf), 
+                sentBytes: FfiConverterUInt64.read(from: &buf), 
+                receivedBytes: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FileTransfer, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterUInt64.write(value.size, into: &buf)
+        FfiConverterBool.write(value.bundle, into: &buf)
+        FfiConverterUInt64.write(value.sentBytes, into: &buf)
+        FfiConverterUInt64.write(value.receivedBytes, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFileTransfer_lift(_ buf: RustBuffer) throws -> FileTransfer {
+    return try FfiConverterTypeFileTransfer.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFileTransfer_lower(_ value: FileTransfer) -> RustBuffer {
+    return FfiConverterTypeFileTransfer.lower(value)
+}
+
+
+/**
  * A rect in the shared screen's pixels, origin top left.
  */
 public struct FollowRect: Equatable, Hashable {
@@ -10805,6 +10964,149 @@ public func FfiConverterTypePairRequestCard_lift(_ buf: RustBuffer) throws -> Pa
 #endif
 public func FfiConverterTypePairRequestCard_lower(_ value: PairRequestCard) -> RustBuffer {
     return FfiConverterTypePairRequestCard.lower(value)
+}
+
+
+/**
+ * The overview's filter: a scope, and whether browsers and simulator
+ * screens show.
+ */
+public struct PaneFilter: Equatable, Hashable {
+    public var scope: PaneScope
+    public var showBrowsers: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(scope: PaneScope, showBrowsers: Bool) {
+        self.scope = scope
+        self.showBrowsers = showBrowsers
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PaneFilter: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePaneFilter: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PaneFilter {
+        return
+            try PaneFilter(
+                scope: FfiConverterTypePaneScope.read(from: &buf), 
+                showBrowsers: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PaneFilter, into buf: inout [UInt8]) {
+        FfiConverterTypePaneScope.write(value.scope, into: &buf)
+        FfiConverterBool.write(value.showBrowsers, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePaneFilter_lift(_ buf: RustBuffer) throws -> PaneFilter {
+    return try FfiConverterTypePaneFilter.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePaneFilter_lower(_ value: PaneFilter) -> RustBuffer {
+    return FfiConverterTypePaneFilter.lower(value)
+}
+
+
+/**
+ * What the overview shows under a filter.
+ */
+public struct PaneFilterResult: Equatable, Hashable {
+    /**
+     * Indices into the panes, in their order, of the panes shown.
+     */
+    public var shown: [UInt32]
+    /**
+     * Panes hidden, by what hid them, for the control's count and the
+     * header's "3 of 7": a hidden browser never looks lost.
+     */
+    public var hiddenTerminals: UInt32
+    public var hiddenBrowsers: UInt32
+    /**
+     * The filter hides something: the control shows as on.
+     */
+    public var filtering: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Indices into the panes, in their order, of the panes shown.
+         */shown: [UInt32], 
+        /**
+         * Panes hidden, by what hid them, for the control's count and the
+         * header's "3 of 7": a hidden browser never looks lost.
+         */hiddenTerminals: UInt32, hiddenBrowsers: UInt32, 
+        /**
+         * The filter hides something: the control shows as on.
+         */filtering: Bool) {
+        self.shown = shown
+        self.hiddenTerminals = hiddenTerminals
+        self.hiddenBrowsers = hiddenBrowsers
+        self.filtering = filtering
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PaneFilterResult: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePaneFilterResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PaneFilterResult {
+        return
+            try PaneFilterResult(
+                shown: FfiConverterSequenceUInt32.read(from: &buf), 
+                hiddenTerminals: FfiConverterUInt32.read(from: &buf), 
+                hiddenBrowsers: FfiConverterUInt32.read(from: &buf), 
+                filtering: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PaneFilterResult, into buf: inout [UInt8]) {
+        FfiConverterSequenceUInt32.write(value.shown, into: &buf)
+        FfiConverterUInt32.write(value.hiddenTerminals, into: &buf)
+        FfiConverterUInt32.write(value.hiddenBrowsers, into: &buf)
+        FfiConverterBool.write(value.filtering, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePaneFilterResult_lift(_ buf: RustBuffer) throws -> PaneFilterResult {
+    return try FfiConverterTypePaneFilterResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePaneFilterResult_lower(_ value: PaneFilterResult) -> RustBuffer {
+    return FfiConverterTypePaneFilterResult.lower(value)
 }
 
 
@@ -15388,6 +15690,189 @@ public func FfiConverterTypeMediaState_lower(_ value: MediaState) -> RustBuffer 
 }
 
 
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * What a pane is, as the overview sorts it.
+ */
+
+public enum PaneKind: Equatable, Hashable {
+    
+    /**
+     * An agent session (a chat).
+     */
+    case agent
+    /**
+     * A terminal.
+     */
+    case terminal
+    /**
+     * A web page.
+     */
+    case browser
+    /**
+     * A streamed simulator screen: the same dev-server case as a browser.
+     */
+    case simulator
+    /**
+     * A kind this build does not know (a newer Mac's): always shown, since a
+     * filter must never hide what it cannot name.
+     */
+    case other
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension PaneKind: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePaneKind: FfiConverterRustBuffer {
+    typealias SwiftType = PaneKind
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PaneKind {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .agent
+        
+        case 2: return .terminal
+        
+        case 3: return .browser
+        
+        case 4: return .simulator
+        
+        case 5: return .other
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: PaneKind, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .agent:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .terminal:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .browser:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .simulator:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .other:
+            writeInt(&buf, Int32(5))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePaneKind_lift(_ buf: RustBuffer) throws -> PaneKind {
+    return try FfiConverterTypePaneKind.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePaneKind_lower(_ value: PaneKind) -> RustBuffer {
+    return FfiConverterTypePaneKind.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * The overview's main choice.
+ */
+
+public enum PaneScope: Equatable, Hashable {
+    
+    /**
+     * Agent sessions only.
+     */
+    case agents
+    /**
+     * Agent sessions and terminals.
+     */
+    case agentsAndTerminals
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension PaneScope: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePaneScope: FfiConverterRustBuffer {
+    typealias SwiftType = PaneScope
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PaneScope {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .agents
+        
+        case 2: return .agentsAndTerminals
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: PaneScope, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .agents:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .agentsAndTerminals:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePaneScope_lift(_ buf: RustBuffer) throws -> PaneScope {
+    return try FfiConverterTypePaneScope.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePaneScope_lower(_ value: PaneScope) -> RustBuffer {
+    return FfiConverterTypePaneScope.lower(value)
+}
+
+
 
 /**
  * Why the store refused.
@@ -16913,6 +17398,31 @@ fileprivate struct FfiConverterOptionSequenceTypeKeychainLeftover: FfiConverterR
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceUInt32: FfiConverterRustBuffer {
+    typealias SwiftType = [UInt32]
+
+    public static func write(_ value: [UInt32], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterUInt32.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [UInt32] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [UInt32]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterUInt32.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceUInt64: FfiConverterRustBuffer {
     typealias SwiftType = [UInt64]
 
@@ -17505,6 +18015,31 @@ fileprivate struct FfiConverterSequenceTypeTimingMark: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeTimingMark.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypePaneKind: FfiConverterRustBuffer {
+    typealias SwiftType = [PaneKind]
+
+    public static func write(_ value: [PaneKind], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypePaneKind.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [PaneKind] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [PaneKind]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypePaneKind.read(from: &buf))
         }
         return seq
     }
@@ -18370,6 +18905,63 @@ public func pairRequestsSupported(capabilities: [String]) -> Bool  {
 })
 }
 /**
+ * The panes the overview shows. `active` is the open pane's index: it always
+ * shows, so opening the overview from a pane the filter hides still zooms
+ * out of its own card, and the way back to it is one tap.
+ */
+public func paneFilterApply(kinds: [PaneKind], active: UInt32?, filter: PaneFilter) -> PaneFilterResult  {
+    return try!  FfiConverterTypePaneFilterResult_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_pane_filter_apply(
+        FfiConverterSequenceTypePaneKind.lower(kinds),
+        FfiConverterOptionUInt32.lower(active),
+        FfiConverterTypePaneFilter_lower(filter),$0
+    )
+})
+}
+/**
+ * A saved filter back; anything unreadable (an empty or newer setting) is
+ * the default, so a bad value can never hide panes.
+ */
+public func paneFilterDecode(saved: String) -> PaneFilter  {
+    return try!  FfiConverterTypePaneFilter_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_pane_filter_decode(
+        FfiConverterString.lower(saved),$0
+    )
+})
+}
+/**
+ * The overview's filter until the person picks another: agent sessions and
+ * terminals, browsers behind their toggle.
+ */
+public func paneFilterDefault() -> PaneFilter  {
+    return try!  FfiConverterTypePaneFilter_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_pane_filter_default($0
+    )
+})
+}
+/**
+ * The filter as one stable word, for the phone's settings: it never changes
+ * for a filter, so a saved choice survives updates.
+ */
+public func paneFilterEncode(filter: PaneFilter) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_pane_filter_encode(
+        FfiConverterTypePaneFilter_lower(filter),$0
+    )
+})
+}
+/**
+ * Whether one pane of `kind` shows under `filter`, before the open-pane rule.
+ */
+public func paneFilterShows(filter: PaneFilter, kind: PaneKind) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_pane_filter_shows(
+        FfiConverterTypePaneFilter_lower(filter),
+        FfiConverterTypePaneKind_lower(kind),$0
+    )
+})
+}
+/**
  * Turn relay-held sends on or off for links made from now on (default off).
  */
 public func setRelayHoldEnabled(on: Bool)  {try! rustCall() {
@@ -18764,6 +19356,21 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_pair_requests_supported() != 49678) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_pane_filter_apply() != 17630) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_pane_filter_decode() != 25789) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_pane_filter_default() != 6491) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_pane_filter_encode() != 63147) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_pane_filter_shows() != 3846) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_relay_hold_enabled() != 23892) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -18921,6 +19528,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_warm_media() != 33318) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_open_file_bundle() != 4368) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_upload_file_bundle() != 2441) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkobserver_on_event() != 31759) {
