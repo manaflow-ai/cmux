@@ -261,10 +261,13 @@ struct SystemTable;
 
 impl Table for SystemTable {
     fn snapshot(&mut self) -> Vec<Process> {
-        let ps = |columns: &str| match std::process::Command::new("/bin/ps")
+        // The one process listing in cmux-next that is not a ratchet to remove
+        // (scripts/cmux-next/process-scan-baseline.tsv, `keep`): it runs in a DEV build only,
+        // after the app has exited, when no registry is left to ask, to end that build's tree.
+        let ps = |columns: &str| match cmux_process::Command::new("/bin/ps")
             .args(["-axww", "-o", columns])
-            .stdin(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .stdin(cmux_process::Stdio::null())
+            .stderr(cmux_process::Stdio::null())
             .output()
         {
             Ok(output) => Some(String::from_utf8_lossy(&output.stdout).into_owned()),
