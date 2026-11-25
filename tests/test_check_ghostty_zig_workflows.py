@@ -117,6 +117,29 @@ def test_ghostty_next_init_satisfies_the_guard() -> None:
     assert failures == [], failures
 
 
+def test_git_dash_c_init_satisfies_the_guard() -> None:
+    failures = failures_for(
+        """\
+        name: fixture
+        on: workflow_dispatch
+        jobs:
+          build:
+            runs-on: ubuntu-latest
+            steps:
+              - uses: actions/checkout@v6
+              - name: Init both Ghostty sources in a worktree
+                run: |
+                  src="$RUNNER_TEMP/src"
+                  sha="$(git rev-parse --verify --quiet "$AT^{commit}" || true)"
+                  git -C "$src" submodule update --init --depth 1 ghostty ghostty-next
+              - name: Install Zig
+                run: ./scripts/install-zig-ci.sh
+        """
+    )
+
+    assert failures == [], failures
+
+
 def test_an_unrelated_submodule_does_not_satisfy_the_guard() -> None:
     failures = failures_for(
         """\
