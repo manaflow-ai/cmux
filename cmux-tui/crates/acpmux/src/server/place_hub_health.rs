@@ -1,7 +1,8 @@
 //! Part of `place.rs`. Before a placement weighs the machines only the mesh hub reaches, their
 //! health is read through the hub (`server/mesh_read.rs` `host_health`, kept by
-//! `hub/hub_health.rs`). A machine with no reading yet is waited for up to [`FIRST_WAIT`]; one
-//! with a reading is weighed by it while a fresh one is asked. After a placement, a refresh asks
+//! `hub/hub_health.rs`). A machine with no reading yet, or one older than
+//! `placement::reach::STALE_MS`, is waited for up to [`FIRST_WAIT`]; one with a fresh reading is
+//! weighed by it while a newer one is asked. After a placement, a refresh asks
 //! again each minute for `INTEREST_MS`, then stops.
 
 use crate::hub::Hub;
@@ -49,8 +50,14 @@ pub(super) async fn refresh_with(
         h.retain(&hosts.iter().cloned().collect::<BTreeSet<_>>());
         let running = h.interested(now);
         let due = h.due(&hosts, now);
-        let missing: BTreeSet<String> =
-            due.iter().filter(|host| h.reading(host).is_none()).cloned().collect();
+        // No reading, or one too old to believe (`placement::reach::STALE_MS`): waited for, so
+        // a placement after an idle spell weighs a fresh reading, not one it would pass over.
+        let stale = |at: u64| now.saturating_sub(at) > crate::placement::reach::STALE_MS;
+        let missing: BTreeSet<String> = due
+            .iter()
+            .filter(|host| h.reading(host).is_none_or(|(at, _)| stale(at)))
+            .cloned()
+            .collect();
         (due, missing, running)
     };
     let mut first = Vec::new();

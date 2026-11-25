@@ -474,6 +474,12 @@ impl Hub {
                 fields.insert("health".into(), reading);
                 fields.insert("healthAt".into(), json!(at));
             }
+            // Its newest read failed: placement passes it over (`placement/reach.rs`).
+            if let Some(failed) = health.failed_at(name)
+                && let Some(fields) = row.as_object_mut()
+            {
+                fields.insert("healthFailedAt".into(), json!(failed));
+            }
         }
         rows
     }

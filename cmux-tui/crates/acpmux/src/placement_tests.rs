@@ -29,7 +29,14 @@ fn health(ram_gb: f64, cores: u64, load: f64, disk_gb: f64, live: u64) -> Value 
 }
 
 fn c(name: &str, health: Value) -> Candidate {
-    Candidate { name: name.into(), local: false, health, health_at: None, via_hub: false }
+    Candidate {
+        name: name.into(),
+        local: false,
+        health,
+        health_at: None,
+        via_hub: false,
+        unreachable: None,
+    }
 }
 
 fn host<'a>(v: &'a Value, name: &str) -> &'a Value {
@@ -771,4 +778,53 @@ fn the_pick_order_is_under_then_headroom_then_unread_then_full() {
     assert_eq!((&v["pick"], &v["overloaded"]), (&json!("laptop"), &json!(false)), "{v:#}");
     let v = place(&[full], Some(&reg), Work::Agent);
     assert_eq!((&v["pick"], &v["overloaded"]), (&json!("big"), &json!(true)), "{v:#}");
+}
+
+/// 2026-11-25: `machine pick` chose a host whose copy then failed with "Connection closed", and
+/// the launch went elsewhere by hand. A host the transport cannot reach takes nothing, even the
+/// overloaded fallback: the one it can reach takes the work, over its cap if it must.
+#[test]
+fn a_host_the_transport_cannot_reach_is_never_picked() {
+    let gone = Candidate {
+        unreachable: Some("unreachable: scp: Connection closed 30s ago".into()),
+        ..c("big", health(60.0, 32, 0.0, 400.0, 0))
+    };
+    let v = place(
+        &[gone.clone(), c("small", health(16.0, 8, 0.2, 200.0, 0))],
+        Some(&registry()),
+        Work::Agent,
+    );
+    assert_eq!(v["pick"], "small", "{v:#}");
+    let big = host(&v, "big");
+    assert_eq!(big["ok"], false, "{v:#}");
+    assert_eq!(big["load"], false, "not a load refusal, so never the overloaded fallback: {v:#}");
+    assert!(big["refused"].as_str().unwrap().contains("Connection closed"), "{v:#}");
+
+    // The only other host is past its cap: it takes the work overloaded, not the unreachable one.
+    let v = place(
+        &[gone.clone(), c("small", health(16.0, 8, 0.2, 200.0, 12))],
+        Some(&registry()),
+        Work::Agent,
+    );
+    assert_eq!((&v["pick"], &v["overloaded"]), (&json!("small"), &json!(true)), "{v:#}");
+
+    // Alone, it is no pick at all: the caller falls back as it does when no host takes the work.
+    let v = place(&[gone], Some(&registry()), Work::Agent);
+    assert_eq!(v["pick"], Value::Null, "{v:#}");
+}
+
+/// A peer row's stale reading, failed read, or recorded transfer failure marks the candidate.
+#[test]
+fn a_peer_row_says_when_it_cannot_be_reached() {
+    let now = 100 * reach::STALE_MS;
+    let row =
+        |at: u64| json!({"name": "lane", "connected": true, "health": {"cpus": 4}, "healthAt": at});
+    let none = reach::Failures::default();
+    assert_eq!(Candidate::peer_at(&row(now - 1_000), now, &none).unwrap().unreachable, None);
+    let stale = Candidate::peer_at(&row(now - 2 * reach::STALE_MS), now, &none).unwrap();
+    assert!(stale.unreachable.unwrap().contains("min old"));
+    let mut failed = reach::Failures::default();
+    failed.record("lane", "scp: Connection closed", now - 1_000);
+    let c = Candidate::peer_at(&row(now - 1_000), now, &failed).unwrap();
+    assert!(c.unreachable.unwrap().contains("scp: Connection closed"));
 }
