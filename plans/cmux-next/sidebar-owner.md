@@ -1,5 +1,17 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-14 (lane/customize-experiments-mark): an "Experiment on · #N" chip floats above the footer row at the
+  avatar's edge while an unmerged PR's pages are on (`cmux customize use pr:N`), and draws and lays out nothing
+  otherwise. Leo, verbatim: "I want it to like look good and look, you know, like it's a part of the app, like it's
+  styled properly, like you guys have scrutinized the placement, the layout and whatever, so that it doesn't look
+  jank. And I want people to not accidentally soft lock themselves and like have good recovery options or whatever."
+  It is app health's chip (sidebar-card veil, caption text, chip radius; design/app-health.md), stacks above app
+  health's line when both show, and never moves the row. Native on purpose: a PR's pages can break Settings itself,
+  so its Turn Off runs `customize library off pr-N` through the bundled CLI. View `CustomizeExperimentsMarkView`
+  (CmuxNextPages), placement `SidebarFooterBand.placeExperimentsMark`; gallery `ui.customize-experiments.mark`.
+  Regressions: `SidebarProfileChipTests.theExperimentsMarkShowsNothingWhenOffAndMovesNothingWhenOn`,
+  `CustomizeExperimentsTests`.
+
 - 2026-11-17 (wallpaper-lighting): Sidebar-Look: Leo, 2026-11-17: "what if you almost treat the background wallpaper like a light source? lighting inside cmux!?". Under `appearance.wallpaperLighting` (off by default) the sidebar's edge line catches the wallpaper's key light: a `WallpaperRimLayer` along the line, brightest where it faces the light, hidden while the setting is off. Nothing else in the sidebar moves or changes color. Regression: `WallpaperLightTests`.
 
 - 2026-11-24 (lucas/now-playing-controls): Sidebar-Look: Lucas, 2026-11-24: "lets center the icons here on the music player and also investigate why the icon shows play even after you press it and play it for a while". The Now Playing card's Previous, Play or Pause and Next are centered on the card, no longer from the leading edge, so Play keeps its place for every source; the divider and Picture in Picture follow Next, and the level bars stay at the trailing end and still drop when they do not fit. The Play or Pause disc draws its new glyph the moment the state changes (`SidebarNowPlayingPlayButton.renderGlyph`): it waited for a layout pass that never came, because its frame does not change, so it kept drawing Play while the track played. Regression: `NowPlayingLevelsTests.playOrPauseIsTheFilledControl` (centered), `NowPlayingLevelsTests.playOrPauseDrawsTheNewGlyphAtOnce`.
