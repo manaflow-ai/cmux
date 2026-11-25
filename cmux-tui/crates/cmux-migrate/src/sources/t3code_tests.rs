@@ -288,3 +288,43 @@ fn secret_canary_never_reaches_the_plan() {
     assert!(!json.contains("CANARY"), "{json}");
     assert!(plan.projects.iter().all(|p| p.machine.secret_names.is_empty()));
 }
+
+/// A thread that ran in the project folder itself is that project's chat, not a second machine
+/// for the same folder (which the duplicate check would drop, transcript and all).
+#[test]
+fn a_thread_in_the_project_folder_joins_the_project() {
+    let f = Fixture::new();
+    let root = f.checkout("code/app", "https://github.com/acme/app.git");
+    f.project("p1", "app", &root, "[]");
+    f.thread("t1", "p1", "main", &root, Some("5b1c0f6e-0000-4000-8000-000000000001"));
+    let folder = f.home.join(".claude/projects").join(laptop::claude_slug(&root));
+    fs::create_dir_all(&folder).unwrap();
+    fs::write(folder.join("5b1c0f6e-0000-4000-8000-000000000001.jsonl"), "{}\n").unwrap();
+    let plan = f.plan(&clean);
+    assert_eq!(plan.projects.len(), 1, "{:?}", plan.projects);
+    let slug = laptop::claude_slug(&root);
+    assert!(
+        plan.projects[0].chats.iter().any(|c| c.path.contains(&slug)),
+        "{:?}",
+        plan.projects[0]
+    );
+    assert!(!plan.warnings.iter().any(|w| w.contains("more than once")), "{:?}", plan.warnings);
+}
+
+/// A table past the row cap is said in the plan, never cut silently.
+#[test]
+fn a_table_past_the_row_cap_is_a_warning() {
+    let f = Fixture::new();
+    f.db.execute_batch(
+        "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i <= 5000)
+         INSERT INTO projection_projects (project_id, title, workspace_root, scripts_json, deleted_at)
+         SELECT 'p' || i, 'p' || i, '/nowhere', '[]', 'x' FROM n;",
+    )
+    .unwrap();
+    let plan = f.plan(&clean);
+    assert!(
+        plan.warnings.iter().any(|w| w.contains("projection_projects has more than 5000 rows")),
+        "{:?}",
+        plan.warnings
+    );
+}

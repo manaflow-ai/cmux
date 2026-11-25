@@ -41,7 +41,7 @@ SOURCE:
   ssh:HOST                      a box you reach over SSH (one read-only probe)
   codespaces | coder            your workspaces there (gh / coder CLI, signed in)
   gitpod [PATH]                 a checkout's .gitpod.yml
-  t3code [t3code:PATH]          T3 Code's projects, thread worktrees and their
+  t3code | t3 [t3code:PATH]     T3 Code's projects, thread worktrees and their
                                 Claude Code / Codex sessions (CMUX_SWITCH_KIT=1)
   daytona | exe.dev | namespace | devpod | devin | capy
                                 how that product's workspaces move (`routes`)

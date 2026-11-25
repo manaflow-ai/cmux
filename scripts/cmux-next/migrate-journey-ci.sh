@@ -86,6 +86,7 @@ done
 # apply makes a machine per project and per thread worktree. A canary in the auth table and a script command
 # must never reach the plan.
 t3_url="${MIGRATE_T3_REPO:-https://github.com/microsoft/vscode-remote-try-node}"
+runner_home=$HOME
 export HOME="$out/home-t3code"
 mkdir -p "$HOME"
 t3_repo="$HOME/code/$(basename "$t3_url")"
@@ -126,6 +127,7 @@ if grep -q CANARY23822 "$out/t3code.plan.json"; then
   status=1
 fi
 unset CMUX_SWITCH_KIT
+export HOME="$runner_home"   # later cases start from the runner's HOME, not the T3 fixture's
 # An existing server over SSH: the workflow starts a throwaway sshd on 127.0.0.1 whose own HOME holds one
 # checkout and dotfiles, and names it in MIGRATE_SSH_HOST (an ~/.ssh/config alias) and MIGRATE_SSH_HOME (the
 # migrating HOME that alias is written into). `cmux migrate plan ssh:HOST` runs the read-only probe there.
