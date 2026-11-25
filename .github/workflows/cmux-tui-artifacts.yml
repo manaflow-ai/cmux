@@ -203,9 +203,6 @@ jobs:
   # sets the window (default 60: about 48 pushes fit the marker search's 40 commits
   # and the probe fallback's 50 only up to an hour; about 24 builds a day).
   coalesce:
-    # actions: read: base-coalesce lists this workflow's runs to re-run a window whose run failed.
-    permissions:
-      actions: read
     uses: ./.github/workflows/base-coalesce.yml
     with:
       key: cmux-tui-artifacts
