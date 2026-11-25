@@ -633,8 +633,12 @@ def rows_of(procs: dict, spans: list) -> list[dict]:
             if u0 is None or u1 is None:
                 continue
             span = max(t1 - t0, 1e-3)
+            # Package-idle and interrupt wakeups apart (bench_memory.usage): on a busy Mac the first reads near 0.
+            idle = (u1[5] - u0[5]) if len(u0) > 5 and len(u1) > 5 else None
             per.append({"cpu_pct": round(100 * (u1[3] - u0[3]) / 1e9 / span, 3),
                         "wakeups_per_s": round((u1[4] - u0[4]) / span, 2),
+                        "idle_wakeups_per_s": round(idle / span, 2) if idle is not None else None,
+                        "interrupt_wakeups_per_s": round((u1[4] - u0[4] - idle) / span, 2) if idle is not None else None,
                         "switches_per_s": round((c1 - c0) / span, 2) if c0 is not None and c1 is not None else None})
         if not per:
             continue
@@ -644,6 +648,8 @@ def rows_of(procs: dict, spans: list) -> list[dict]:
             return values[len(values) // 2] if values else None
         rows.append({"pid": pid, "kind": kind, "command": cmd[:200], "windows": per,
                      "cpu_pct": mid("cpu_pct"), "wakeups_per_s": mid("wakeups_per_s"),
+                     "idle_wakeups_per_s": mid("idle_wakeups_per_s"),
+                     "interrupt_wakeups_per_s": mid("interrupt_wakeups_per_s"),
                      "switches_per_s": mid("switches_per_s")})
     rows.sort(key=lambda row: -(row["cpu_pct"] or 0))
     return rows
@@ -1051,6 +1057,7 @@ def main(argv: list[str] | None = None) -> int:
                         f"{entry['name']!r}x{entry['threads']}={entry['cpu_ms_per_s']}" for entry in groups[:16]))
         for row in rows:
             log(f"IDLE-CPU {row['kind']} pid={row['pid']} cpu_pct={row['cpu_pct']} wakeups_per_s={row['wakeups_per_s']} "
+                f"idle_wakeups_per_s={row['idle_wakeups_per_s']} interrupt_wakeups_per_s={row['interrupt_wakeups_per_s']} "
                 f"switches_per_s={row['switches_per_s']} windows={json.dumps([[w['cpu_pct'], w['wakeups_per_s']] for w in row['windows']])}")
         kinds: dict = {}
         for row in rows:
