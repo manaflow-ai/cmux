@@ -37,7 +37,6 @@ const label = (tool: Tool) => {
     (command) => (running ? command : t("tools.ranCommand", { command })),
     undefined,
     running ? undefined : t("tools.ranUnnamed"),
-    !running,
   );
 };
 
@@ -215,7 +214,7 @@ test("the live line and a running row name the working step as written, not its 
 });
 
 test("a running script and the live line read as a script, never as its heredoc marker", () => {
-  expect(label(shell(ALS, { status: "in_progress" }))).toBe("python3 -");
+  expect(label(shell(ALS, { status: "in_progress" }))).toBe("A Python script on als.json");
   const live = (command: string) =>
     toolLabel(shell(command, { status: "in_progress" }), "Bash", (line) => line, undefined, undefined, false);
   for (const [command] of CASES) {
@@ -241,7 +240,8 @@ test("the live line names a heredoc script as a script, and a pipeline by its wo
     expect(line.kind).toBe(THINKING);
     return line.doing;
   };
-  expect(liveOf(ALS)).toBe("a Python script on als.json");
+  expect(liveOf("sleep 30 && deploy")).toBe("sleep 30 && deploy");
+  expect(liveOf(ALS)).toBe("A Python script on als.json");
   expect(liveOf(LEO)?.startsWith("ffmpeg -v error")).toBe(true);
 });
 

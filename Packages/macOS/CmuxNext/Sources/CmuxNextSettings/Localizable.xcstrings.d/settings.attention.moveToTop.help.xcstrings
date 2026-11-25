@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.attention.moveToTop.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A notification moves its workspace to the top, unless you are looking at it."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ينقل الإشعار مساحة العمل الخاصة به إلى الأعلى، ما لم تكن تنظر إليها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Obavijest premješta svoj radni prostor na vrh, osim ako ga gledate."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En notifikation flytter sit arbejdsområde øverst, medmindre du kigger på det."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eine Mitteilung verschiebt ihren Arbeitsbereich nach oben, außer du siehst ihn dir gerade an."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una notificación mueve su espacio de trabajo arriba, salvo que lo estés mirando."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Une notification place son espace de travail en haut, sauf si vous le regardez."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una notifica sposta il suo spazio di lavoro in cima, a meno che tu non lo stia guardando."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "通知を受け取ったワークスペースは、見ている場合を除き先頭に移動します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការជូនដំណឹងផ្លាស់ទីកន្លែងធ្វើការរបស់វាទៅខាងលើ លុះត្រាតែអ្នកកំពុងមើលវា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "알림이 오면 보고 있지 않는 한 그 워크스페이스가 맨 위로 이동합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Et varsel flytter arbeidsområdet sitt øverst, med mindre du ser på det."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Powiadomienie przenosi swój obszar roboczy na górę, chyba że na niego patrzysz."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uma notificação move seu espaço de trabalho para o topo, a menos que você esteja olhando para ele."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Уведомление перемещает своё рабочее пространство наверх, если только вы не смотрите на него."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "การแจ้งเตือนจะย้ายพื้นที่ทำงานของมันไปไว้บนสุด เว้นแต่คุณกำลังดูอยู่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir bildirim, ona bakmıyorsanız çalışma alanını en üste taşır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сповіщення переміщує свій робочий простір угору, якщо ви не дивитеся на нього."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Thông báo sẽ chuyển không gian làm việc của nó lên đầu, trừ khi bạn đang xem nó."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "收到通知的工作区会移到顶部，除非你正在查看它。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "收到通知的工作區會移到頂端，除非你正在查看它。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

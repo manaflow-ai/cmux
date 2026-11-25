@@ -63,7 +63,7 @@ pub fn enabled(switch: Option<&str>) -> bool {
 pub fn shapes(file: &[u8], now_ms: u64) -> Vec<Shape> {
     let mut list = serde_json::from_slice::<SpareFile>(file).map(|f| f.spares).unwrap_or_default();
     list.retain(|e| now_ms.saturating_sub(e.used_at_ms) <= RECENT_MS);
-    list.sort_by(|a, b| b.used_at_ms.cmp(&a.used_at_ms));
+    list.sort_by_key(|entry| std::cmp::Reverse(entry.used_at_ms));
     list.into_iter()
         .take(MAX)
         .map(|e| Shape { harness: e.harness, preset: e.preset, model: e.model })
