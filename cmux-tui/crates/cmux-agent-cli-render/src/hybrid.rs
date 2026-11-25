@@ -422,17 +422,16 @@ fn text_len(text: &str) -> usize {
 fn encoded_len(seq: u64, at_ms: u64, shift: i16, runs: &[Run<'_>]) -> usize {
     let shift = i32::from(shift);
     let zigzag = ((shift << 1) ^ (shift >> 31)) as u64;
-    let mut len = varint_len(seq)
-        + varint_len(at_ms)
-        + varint_len(zigzag)
-        + varint_len(runs.len() as u64);
+    let mut len =
+        varint_len(seq) + varint_len(at_ms) + varint_len(zigzag) + varint_len(runs.len() as u64);
     for run in runs {
         match run {
             Run::Set { row, col, cells } => {
                 len += varint_len(u64::from(*row)) + varint_len(u64::from(*col));
                 len += varint_len(((cells.len() as u64) << 1) | 1);
                 let style = cells.first().map(|cell| cell.style).unwrap_or_default();
-                len += color_len(style.fg) + color_len(style.bg) + varint_len(u64::from(style.attrs));
+                len +=
+                    color_len(style.fg) + color_len(style.bg) + varint_len(u64::from(style.attrs));
                 len += cells.iter().map(|cell| text_len(&cell.text)).sum::<usize>();
             }
             Run::Clear { row, col, len: count } => {
