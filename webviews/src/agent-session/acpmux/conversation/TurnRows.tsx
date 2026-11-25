@@ -35,10 +35,10 @@ import {
   isEmptyFooter,
   isStopped,
   offersRetry,
+  turnTimeKey,
   workedCallsText,
   workedLabel,
   workedMessagesText,
-  turnTimeKey,
   formatDuration,
   FOLD_COUNTS_SWITCH,
   workedCountsText,
@@ -51,7 +51,7 @@ import { turnCopyText } from "./turnCopy";
 import { workedLine } from "./workedLine.experiment";
 import { workedCountParts, workedOutcome, workedOutcomeParts, workedSentence, type WorkedPart } from "./workedOutcome";
 import { TimedLabel } from "./TurnTokens";
-import { AlertCircle, Retry, Close } from "./icons";
+import { AlertCircle, Close, Retry } from "./icons";
 import { DisclosureChevron } from "./DisclosureChevron";
 import { ForkButton, MessageCopy, MessageFooterRow, MessageMore, PinButton, ReadAloudButton } from "./MessageActions";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";

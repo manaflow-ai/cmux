@@ -142,8 +142,9 @@ test("a refused subagent's row is its name and one short status, nothing else", 
     expect(row.querySelector(".cv-tool__chevron")).toBeNull();
     expect(row.textContent).not.toContain("13ms");
     expect(row.textContent).not.toContain("retry");
-    // The whole reason stays in the tooltip.
-    expect(row.querySelector(".cv-subagent-failed__text")?.getAttribute("title")).toContain(REFUSAL);
+    // The whole reason is in the line's name, never a tooltip over the next row (cmux#52916).
+    expect(row.querySelector(".cv-subagent-done")?.getAttribute("aria-label")).toContain(REFUSAL);
+    expect(row.querySelector("[title]")).toBeNull();
     act(() => root?.unmount());
     root = undefined;
   }
