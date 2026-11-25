@@ -77,11 +77,14 @@ describe("joined machine GitHub token: gates", { timeout: 60_000 }, () => {
     expect(gh.mints()).toHaveLength(0)
   })
 
-  it("refuses every method when PLATFORM_MACHINE_GITHUB is not on, or outside development", async () => {
+  it("is on by default in every environment, and PLATFORM_MACHINE_GITHUB \"off\" refuses every method", async () => {
     const a = await signedInWithInstall("joined-off", "cli")
     const { gh } = await linkGitHub(a.session, a.team)
     const ask = { machine: "mach_off1", team: a.team, user: a.user, repo: "acme/web", permissions: { contents: "read" } } as const
-    for (const env of [{ ...testEnv, PLATFORM_MACHINE_GITHUB: undefined }, { ...testEnv, PLATFORM_MACHINE_GITHUB: "off" }, { ...testEnv, ENVIRONMENT: "production" }]) {
+    for (const environment of ["development", "staging", "production", "test"]) {
+      expect(machineGitHubOn({ ...testEnv, PLATFORM_MACHINE_GITHUB: undefined, ENVIRONMENT: environment } as unknown as Env)).toBe(true)
+    }
+    for (const env of [{ ...testEnv, PLATFORM_MACHINE_GITHUB: "off" }, { ...testEnv, PLATFORM_MACHINE_GITHUB: "off", ENVIRONMENT: "production" }]) {
       expect(machineGitHubOn(env as unknown as Env)).toBe(false)
       expect(await joinedMachineToken(env as unknown as Env, ask)).toMatchObject({ ok: false, status: 404, code: "platform.machine_github_off" })
       expect(await revokeJoinedMachineTokens(env as unknown as Env, { machine: "mach_off1", team: a.team })).toMatchObject({ ok: false, status: 404, code: "platform.machine_github_off" })
