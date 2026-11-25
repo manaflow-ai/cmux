@@ -228,22 +228,28 @@ private enum Chevron {
 
     /// Its corners, clockwise from the top left, `height` tall at `origin`.
     static func corners(at origin: CGPoint, height h: CGFloat) -> [CGPoint] {
-        [(0, 0), (aspect, tipY), (0, 1), (0, 1 - bottomArm), (notchX, tipY), (0, topArm)]
-            .map { CGPoint(x: origin.x + $0.0 * h, y: origin.y + $0.1 * h) }
+        let units: [CGPoint] = [
+            CGPoint(x: 0, y: 0), CGPoint(x: aspect, y: tipY), CGPoint(x: 0, y: 1),
+            CGPoint(x: 0, y: 1 - bottomArm), CGPoint(x: notchX, y: tipY), CGPoint(x: 0, y: topArm),
+        ]
+        return units.map { CGPoint(x: origin.x + $0.x * h, y: origin.y + $0.y * h) }
     }
 
     /// The colour ramp, sampled at 17 even steps across the solid chevron
-    /// (each the mean of its column's opaque pixels).
-    static let ramp: [Gradient.Stop] = [
-        (0.0, 0x07CCFE), (0.0625, 0x05CEFF), (0.125, 0x0AC8FE), (0.1875, 0x10C1FD),
-        (0.25, 0x16B9FC), (0.3125, 0x1CB2FB), (0.375, 0x22AAFA), (0.4375, 0x28A2F9),
-        (0.5, 0x2E9BF8), (0.5625, 0x3494F7), (0.625, 0x3A8CF6), (0.6875, 0x4184F5),
-        (0.75, 0x467DF5), (0.8125, 0x4C77F4), (0.875, 0x5071F4), (0.9375, 0x536EF3),
-        (1.0, 0x536DF3),
-    ].map { location, hex in
-        Gradient.Stop(color: Color(red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255,
-                                   blue: Double(hex & 0xFF) / 255),
-                      location: location)
+    /// (each the mean of its column's opaque pixels): 0xRRGGBB, evenly spaced
+    /// from the left edge (0) to the tip (1).
+    private static let rampColors: [UInt32] = [
+        0x07CCFE, 0x05CEFF, 0x0AC8FE, 0x10C1FD, 0x16B9FC, 0x1CB2FB, 0x22AAFA, 0x28A2F9,
+        0x2E9BF8, 0x3494F7, 0x3A8CF6, 0x4184F5, 0x467DF5, 0x4C77F4, 0x5071F4, 0x536EF3,
+        0x536DF3,
+    ]
+
+    static let ramp: [Gradient.Stop] = rampColors.enumerated().map { index, hex in
+        let red = Double((hex >> 16) & 0xFF) / 255
+        let green = Double((hex >> 8) & 0xFF) / 255
+        let blue = Double(hex & 0xFF) / 255
+        let location = CGFloat(index) / CGFloat(rampColors.count - 1)
+        return Gradient.Stop(color: Color(red: red, green: green, blue: blue), location: location)
     }
 
     /// The ramp from `minX` (cyan) to `maxX` (indigo), for a Canvas.
