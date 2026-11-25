@@ -494,6 +494,62 @@
           }
         },
         {
+          "key": "sidebar.showLiveToggle",
+          "note": "On by default (Leo 2026-11-24: an icon \"somewhere omnipresent... say the bottom left of the sidebar area\"). Off hides the footer's Live button only; presence.live and the Live palette action stay.",
+          "title": {
+            "key": "settings.sidebar.showLiveToggle",
+            "text": "Show Live Button"
+          },
+          "help": {
+            "key": "settings.sidebar.showLiveToggle.help",
+            "text": "A Live button after the profile button turns presence on or off. Off: use the palette."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "sidebar",
+            "live",
+            "presence",
+            "online",
+            "teammates",
+            "footer",
+            "hide",
+            "show"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "presence.live",
+          "name": "presenceLive",
+          "note": "Off by default (RFD 0141: Live is opt-in, nothing about a person leaves their machine until they turn it on). On: this Mac publishes its presence and the footer's Live button is accent-filled; off it is dimmed. The daemon reads the same key from cmux.json.",
+          "title": {
+            "key": "settings.presence.live",
+            "text": "Live Presence"
+          },
+          "help": {
+            "key": "settings.presence.live.help",
+            "text": "Show teammates and agents who are live, and let them see you. Off: you appear offline."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "live",
+            "presence",
+            "online",
+            "teammates",
+            "agents",
+            "status",
+            "sync"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "sidebar.showNewWorkspaceChooser",
           "title": {
             "key": "settings.sidebar.showNewWorkspaceChooser",
@@ -1713,6 +1769,42 @@
             "type": "ChromePlacementSetting",
             "prefixed": true
           }
+        },
+        {
+          "key": "appearance.metrics.spaceButtonSpacing",
+          "title": {
+            "key": "settings.sidebar.spaceButtonSpacing",
+            "text": "Space Button Spacing"
+          },
+          "help": {
+            "key": "settings.sidebar.spaceButtonSpacing.help",
+            "text": "Distance between the centers of neighboring Space buttons. The density default fits them to the sidebar."
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "LayoutMetricSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 18,
+            "max": 48,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 24
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "sidebar",
+            "spaces",
+            "dots",
+            "buttons",
+            "gap",
+            "spacing"
+          ]
         },
         {
           "key": "sidebar.spacesPosition",

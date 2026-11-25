@@ -355,6 +355,10 @@ pub mod resume_cut;
 mod resume_cut_tests;
 #[cfg(test)]
 mod steer_now_tests;
+// A "success" result after Claude Code's own API error line is the turn's failure.
+mod api_error;
+#[cfg(test)]
+mod api_error_tests;
 // Claude's background shells, a workflow agent's under its agent (`background_shells.rs`).
 mod background_shells;
 // Other sessions' messages steered into one step go in as one line (`steer_batch.rs`).
@@ -648,6 +652,12 @@ pub struct Translator {
     /// Claude Code wrote something for the prompt (an assistant line, a
     /// conversation reset): its result ends the turn, never startup noise.
     turn_output: AtomicBool,
+    /// The text of the turn's last assistant line when that line is Claude Code's own API
+    /// error (`is_api_error_message`, or a `<synthetic>` line saying "API Error: ..."), else
+    /// None. A result that follows it is the turn's failure even when Claude Code calls it a
+    /// success (`api_error.rs`): "API Error: Repeated 529 Overloaded errors" left chats idle
+    /// with no retry (Leo, 2026-11-24: "do they get stranded!?").
+    api_error: Mutex<Option<String>>,
     /// The `uuid` of the turn's prompt line until Claude Code echoes it
     /// (`isReplay` carries the line's `uuid`).
     prompt_echo: Mutex<Option<String>>,
@@ -849,6 +859,7 @@ impl Translator {
             recap: Mutex::new("default"),
             in_turn: AtomicBool::new(false),
             turn_output: AtomicBool::new(false),
+            api_error: Mutex::new(None),
             prompt_echo: Mutex::new(None),
             prompt_queued: AtomicBool::new(false),
             renaming: Mutex::new(std::collections::VecDeque::new()),

@@ -99,3 +99,31 @@ fn replay_drops_a_gone_directory_and_a_term_without_its_terminfo() {
     assert_eq!(cwd.as_deref(), Some("/tmp"));
     assert_eq!(env, vec![("TERM".to_string(), "xterm-256color".to_string())]);
 }
+
+/// https://github.com/manaflow-ai/cmux/issues/55601: a stored launcher reads
+/// back for the resume, filtered again as on write.
+#[test]
+fn a_stored_agent_launcher_reads_back_filtered() {
+    let record = serde_json::json!({
+        "harness": "claude",
+        "session_id": "abc-123",
+        "args": ["--dangerously-skip-permissions"],
+        "wrapper": ["sr2"],
+    });
+    let launch = stored_agent_launch(&record).unwrap();
+    assert_eq!(launch.wrapper, vec!["sr2".to_string()]);
+    assert_eq!(launch.args, vec!["--dangerously-skip-permissions".to_string()]);
+    for wrapper in [
+        serde_json::json!(["node"]),
+        serde_json::json!(["sr2", "--api-key=sk-ant-abcdefghijklmnopqrst"]),
+        serde_json::json!(["sr2\nrm -rf ~"]),
+        serde_json::json!([1]),
+    ] {
+        let mut record = record.clone();
+        record["wrapper"] = wrapper.clone();
+        assert!(stored_agent_launch(&record).unwrap().wrapper.is_empty(), "{wrapper}");
+    }
+    let mut older = record;
+    older.as_object_mut().unwrap().remove("wrapper");
+    assert!(stored_agent_launch(&older).unwrap().wrapper.is_empty(), "a record from before");
+}

@@ -245,6 +245,19 @@ fn the_text_is_saved_private_and_read_back_and_chats_off_empty_it() {
 }
 
 #[test]
+fn a_stamp_only_change_does_not_rewrite_the_saved_text() {
+    let text = index();
+    let turns = vec![turn("x", "same searchable content")];
+    text.update(&[chat("a", 1)], &|_| Some(turns.clone()));
+    let saved = text.saves();
+
+    // The chat index stamp moved, but the transcript content did not.
+    text.update(&[chat("a", 2)], &|_| Some(turns.clone()));
+    assert_eq!(text.saves(), saved, "a metadata-only stamp update rewrote the text index");
+    let _ = std::fs::remove_file(&text.path);
+}
+
+#[test]
 fn a_gone_chat_leaves_the_saved_copy_at_once_and_the_first_pass_marks_it_filled() {
     let text = index();
     assert!(!text.filled(), "nothing read yet");

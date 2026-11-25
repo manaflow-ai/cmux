@@ -5,6 +5,7 @@ import { PaletteMenu } from "./PaletteMenu";
 import { paletteSections } from "./paletteMenuModel";
 import { nativeComposerExtensions } from "./composerPlusRegistry";
 import { useT } from "./i18n";
+import { configureKeyStyle } from "../../ui/keyStyle";
 
 const open: Play = async (ctx) => {
   await ctx.click({ selector: ".acpmux-picker-button" });
@@ -38,7 +39,27 @@ const editSearch: Play = async (ctx) => {
   assertSearchAnchor();
 };
 
-type PaletteMenuVariant = "keyboard" | "balanced" | "tools" | "sessions";
+// `app.keyStyle` Vim: Esc in the search gives the keyboard to the list, j/j/k step it. The style
+// is the page's; the play puts Standard back once the rows answered (nothing draws differently).
+const vimKeys: Play = async (ctx) => {
+  configureKeyStyle({ "app.keyStyle": "vim" });
+  try {
+    await open(ctx);
+    const list = ctx.find({ role: "listbox" }) as HTMLElement;
+    const active = () => list.querySelector('[role="option"][aria-selected="true"]');
+    const first = active();
+    await ctx.press("Escape");
+    await ctx.waitFor(() => list.ownerDocument.activeElement === list);
+    await ctx.press("j");
+    await ctx.press("j");
+    await ctx.press("k");
+    await ctx.waitFor(() => active() !== first && active() === list.querySelectorAll('[role="option"]')[1]);
+  } finally {
+    configureKeyStyle({});
+  }
+};
+
+type PaletteMenuVariant = "keyboard" | "vim" | "balanced" | "tools" | "sessions";
 
 function Fixture({ variant }: { variant: PaletteMenuVariant }) {
   const t = useT();
@@ -86,6 +107,7 @@ function Fixture({ variant }: { variant: PaletteMenuVariant }) {
       (entry) =>
         variant === "balanced" ||
         variant === "keyboard" ||
+        variant === "vim" ||
         (variant === "tools"
           ? entry.section === "tools" || entry.section === "apps"
           : entry.section === "sessions" || entry.section === "tabs"),
@@ -127,6 +149,11 @@ export default componentEntry<{ variant: PaletteMenuVariant }>({
       note: "Home and End, including Shift selection, edit search instead of navigating menu rows.",
       props: { variant: "keyboard" },
       play: editSearch,
+    },
+    vim: {
+      note: "Key style Vim: Esc gives the list the keyboard; j and k step it (Standard keeps today's keys).",
+      props: { variant: "vim" },
+      play: vimKeys,
     },
     balanced: {
       note: "Chat and New Tab share one searchable registry-backed menu.",
