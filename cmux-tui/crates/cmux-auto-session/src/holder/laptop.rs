@@ -13,14 +13,24 @@ fn lose(out: &mut Out, epoch: u64, now: u64) {
     out.push(Effect::KillTree);
     out.push(Effect::WriteLeftoverPatch);
     out.chat.needs_run = false;
-    out.chat.declined = false;
+    give::forget(out);
     out.to(State::Standby { epoch });
     out.renew(now);
 }
 
+/// The store took a give of this chat, and the chat's epoch is `at` since. The answer is true
+/// whenever it arrives, also after the laptop left the give it asked with: past the epoch this
+/// laptop holds, the chat is another holder's, as a renewal answered "lost" says. At that
+/// epoch or below, the answer is to a give from before this laptop got the chat back.
+fn gave(out: &mut Out, epoch: u64, at: u64, now: u64) {
+    if at > epoch {
+        lose(out, at, now);
+    }
+}
+
 /// Auto is off for the chat.
 fn close(out: &mut Out) {
-    out.chat.declined = false;
+    give::forget(out);
     out.to(State::Off);
     out.rest();
 }
@@ -59,7 +69,7 @@ fn held_again(out: &mut Out, answer: Answer, stopped: bool, now: u64) {
         out.push(Effect::ContinueTree);
     }
     out.to(State::Holding { epoch: answer.epoch });
-    match (give::wanted(out, answer.wish), stopped) {
+    match (give::wanted(out, answer.wish, answer.wish_at), stopped) {
         (Some(to), false) => return give::begin(out, answer.epoch, to),
         (Some(_), true) => out.renew(now),
         (None, true | false) => {}
@@ -69,10 +79,11 @@ fn held_again(out: &mut Out, answer: Answer, stopped: bool, now: u64) {
     }
 }
 
-/// The person asked this daemon to move the chat it holds, and the store took the wish.
-fn wished(out: &mut Out, epoch: u64, to: MoveTo) {
-    out.chat.declined = false;
-    if let Some(to) = give::wanted(out, Some(to)) {
+/// The person asked this daemon to move the chat it holds, and the store took the wish at
+/// `at`: a new wish, whatever was refused before.
+fn wished(out: &mut Out, epoch: u64, to: MoveTo, at: Option<u64>) {
+    give::forget(out);
+    if let Some(to) = give::wanted(out, Some(to), at) {
         give::begin(out, epoch, to);
     }
 }
@@ -190,13 +201,14 @@ pub(super) fn holding(out: &mut Out, epoch: u64, event: Event, now: u64) {
             out.renew_if_work_changed(now);
         }
         Event::Closed { .. } => close(out),
-        Event::Wished { to } => wished(out, epoch, to),
+        Event::Wished { to, at } => wished(out, epoch, to, at),
+        // A give this laptop asked before the move was taken back, answered only now.
+        Event::Gave { epoch: at } => gave(out, epoch, at, now),
         Event::AutoOn
         | Event::Assigned { .. }
         | Event::ImportDone { .. }
         | Event::ImportFailed { .. }
         | Event::TurnStopped
-        | Event::Gave { .. }
         | Event::GiveFailed { .. } => {}
     }
 }
@@ -232,7 +244,10 @@ pub(super) fn giving(
                 Verdict::Holder => {
                     out.chat.fresh_at = out.chat.fresh_at.max(sent_at);
                     match answer.wish {
-                        Some(to) => out.to(State::Giving { epoch: answer.epoch, step, to }),
+                        Some(to) => {
+                            give::told(out, answer.wish_at);
+                            out.to(State::Giving { epoch: answer.epoch, step, to });
+                        }
                         None => {
                             out.push(Effect::Stay);
                             held_again(out, answer, false, now);
@@ -256,11 +271,9 @@ pub(super) fn giving(
         Event::SnapshotFailed { copy, too_large } => {
             give::copy_failed(out, epoch, to, copy, too_large);
         }
-        // The chat is another holder's: what ran here is killed and this laptop stands by.
-        Event::Gave { epoch: at } => match step {
-            GiveStep::Asking => lose(out, at.max(epoch), now),
-            GiveStep::Stopping | GiveStep::Copying => {}
-        },
+        // The chat is another holder's: what ran here is killed and this laptop stands by. At
+        // any step: a give asked before this one may be answered in the middle of it.
+        Event::Gave { epoch: at } => gave(out, epoch, at, now),
         Event::GiveFailed { why } => give::failed(out, epoch, step, to, why, now),
         Event::Closed { .. } => {
             out.push(Effect::Stay);
@@ -309,6 +322,8 @@ pub(super) fn stopped(out: &mut Out, epoch: u64, event: Event, now: u64) {
         }
         Event::SnapshotFailed { copy, too_large } => out.failed(copy, too_large),
         Event::Closed { epoch: at } => closed_while_stopped(out, epoch, at),
+        // A give asked before the tree was stopped, answered only now.
+        Event::Gave { epoch: at } => gave(out, epoch, at, now),
         // A chat whose tree is stopped is not given: the store's answer comes first, and a
         // wish it still tells then starts the give.
         Event::AutoOn
@@ -317,7 +332,6 @@ pub(super) fn stopped(out: &mut Out, epoch: u64, event: Event, now: u64) {
         | Event::ImportFailed { .. }
         | Event::Wished { .. }
         | Event::TurnStopped
-        | Event::Gave { .. }
         | Event::GiveFailed { .. } => {}
     }
 }
