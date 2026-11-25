@@ -4,6 +4,8 @@
 //! Reading, for a dependent crate: `LaunchRecord::read(path)` validates the
 //! whole file, `LaunchRecord::version()` is its format version, and
 //! `LaunchRecord::windows()` yields a `WindowView` per window, front first.
+//! `LaunchRecord::written_at_ms()` and `WindowView::sidebar_width` (v3) let the shell take the
+//! newer of this record and the daemon's launch snapshot: `newer_launch_geometry`.
 //! tests/public_api.rs pins that surface.
 use std::ffi::{CStr, c_char};
 use std::fs::{self, File, OpenOptions};
@@ -13,13 +15,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Version 2 adds scale, appearance, full screen and the display frame, and
 /// replaces the image path with an image key. Version 3 adds, after the socket path, the
-/// daemon registry id the windows belonged to. Versions 1 and 2 still read.
+/// daemon registry id the windows belonged to and then `written_at_ms` (u64 LE), and, at the
+/// end of each window, `sidebar_width` (f64 LE). Versions 1 and 2 still read, with both 0.
 pub const FORMAT_VERSION: u16 = 3;
 /// A record file larger than this is rejected unread; the writer never exceeds it.
 pub const MAX_BYTES: usize = 64 * 1024;
 const MAGIC: &[u8; 8] = b"CMUXLR01";
-/// Smallest encoded v2 window: empty strings, no tabs. Bounds FFI counts.
-const WINDOW_MIN_BYTES: usize = 103;
+/// Smallest encoded v3 window: empty strings, no tabs. Bounds FFI counts.
+const WINDOW_MIN_BYTES: usize = 111;
 
 /// Startup work is explicitly classified so a new task cannot accidentally
 /// move ahead of the first committed frame.
@@ -78,6 +81,8 @@ pub struct WindowRecord {
     pub screen_frame: Frame,
     pub visible_workspace_id: String,
     pub visible_tab_ids: Vec<String>,
+    /// The window's sidebar width in points (v3); 0.0 means unknown.
+    pub sidebar_width: f64,
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct SidebarRow {
@@ -93,9 +98,12 @@ pub struct LaunchRecordData {
     pub session_socket_path: String,
     /// The daemon registry id (its session) the windows belonged to; empty when unknown.
     pub session_registry_id: String,
+    /// Wall-clock Unix milliseconds when the record was encoded (`unix_now_ms`), the clock of the
+    /// daemon launch snapshot's `written_at_ms`. 0 means unknown: older than any snapshot.
+    pub written_at_ms: u64,
 }
 
-/// A validated record (v1 or v2). See `read`, `windows`, `front_window`.
+/// A validated record (v1, v2 or v3). See `read`, `windows`, `front_window`.
 pub struct LaunchRecord {
     bytes: Vec<u8>,
     version: u16,
@@ -105,6 +113,7 @@ pub struct LaunchRecord {
     sidebar_start: usize,
     socket: (usize, usize),
     registry: (usize, usize),
+    written_at_ms: u64,
 }
 impl std::fmt::Debug for LaunchRecord {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -159,6 +168,7 @@ impl LaunchRecord {
         }
         let socket = p.string_span()?;
         let registry = if version >= 3 { p.string_span()? } else { (0, 0) };
+        let written_at_ms = if version >= 3 { p.u64()? } else { 0 };
         if p.position() != bytes.len() {
             return None;
         }
@@ -171,12 +181,13 @@ impl LaunchRecord {
             sidebar_start,
             socket,
             registry,
+            written_at_ms,
         })
     }
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
-    /// 1 or 2; a v1 record's windows read with the v2 fields defaulted.
+    /// 1, 2 or 3; older records' windows read with the newer fields defaulted.
     pub fn version(&self) -> u16 {
         self.version
     }
@@ -200,6 +211,11 @@ impl LaunchRecord {
     pub fn session_registry_id(&self) -> &str {
         span_str(&self.bytes, self.registry).unwrap_or("")
     }
+    /// Wall-clock Unix milliseconds when the record was written, the daemon launch snapshot's
+    /// `written_at_ms` clock. 0 (every v1 or v2 record) means unknown: older than any snapshot.
+    pub fn written_at_ms(&self) -> u64 {
+        self.written_at_ms
+    }
     /// The first window, `windows().next()`.
     pub fn front_window(&self) -> Option<WindowView<'_>> {
         self.windows().next()
@@ -209,7 +225,8 @@ impl LaunchRecord {
 ///
 /// A v1 window reads with `backing_scale` 0.0 (unknown), an empty
 /// `image_key`, `appearance` 0, `appearance_follows_system` 0, `fullscreen` 0
-/// and a zero `screen_frame`; its image pixel size is what v1 stored.
+/// and a zero `screen_frame`; its image pixel size is what v1 stored. A v1 or
+/// v2 window reads with `sidebar_width` 0.0 (unknown).
 pub struct WindowView<'a> {
     bytes: &'a [u8],
     pub id: &'a str,
@@ -233,6 +250,8 @@ pub struct WindowView<'a> {
     /// The frame of the window's display when written.
     pub screen_frame: Frame,
     pub visible_workspace_id: &'a str,
+    /// The window's sidebar width in points when written; 0.0 (v1, v2) means unknown.
+    pub sidebar_width: f64,
     tabs_start: usize,
     tabs: usize,
 }
@@ -298,6 +317,36 @@ impl<'a> Iterator for TabIter<'a> {
     }
 }
 
+/// Which saved geometry the first frame uses: this launch record's, or the daemon launch
+/// snapshot's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GeometrySource {
+    Record,
+    Snapshot,
+}
+
+/// The newer of the launch record and the daemon launch snapshot, by their `written_at_ms`.
+/// The record wins only when strictly newer and known (nonzero); a tie goes to the snapshot.
+pub fn newer_launch_geometry(
+    record_written_at_ms: u64,
+    snapshot_written_at_ms: u64,
+) -> GeometrySource {
+    if record_written_at_ms != 0 && record_written_at_ms > snapshot_written_at_ms {
+        GeometrySource::Record
+    } else {
+        GeometrySource::Snapshot
+    }
+}
+
+/// Wall-clock Unix milliseconds, computed as the daemon launch snapshot computes its
+/// `written_at_ms`.
+pub fn unix_now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or_default()
+}
+
 fn frame_is_usable(f: Frame) -> bool {
     [f.x, f.y, f.width, f.height].iter().all(|n| n.is_finite()) && f.width > 0.0 && f.height > 0.0
 }
@@ -355,6 +404,7 @@ fn encode(r: &LaunchRecordData) -> Result<Vec<u8>, &'static str> {
         for t in &w.visible_tab_ids {
             put_string(&mut o, t)?
         }
+        o.extend_from_slice(&w.sidebar_width.to_le_bytes());
     }
     for s in &r.sidebar_rows {
         put_string(&mut o, &s.id)?;
@@ -363,6 +413,7 @@ fn encode(r: &LaunchRecordData) -> Result<Vec<u8>, &'static str> {
     }
     put_string(&mut o, &r.session_socket_path)?;
     put_string(&mut o, &r.session_registry_id)?;
+    o.extend_from_slice(&r.written_at_ms.to_le_bytes());
     if o.len() > MAX_BYTES {
         return Err("record exceeds 64 KiB");
     };
@@ -407,6 +458,9 @@ impl<'a> Parser<'a> {
     fn u16(&mut self) -> Option<u16> {
         Some(u16::from_le_bytes(self.take(2)?.try_into().ok()?))
     }
+    fn u64(&mut self) -> Option<u64> {
+        Some(u64::from_le_bytes(self.take(8)?.try_into().ok()?))
+    }
     fn string_span(&mut self) -> Option<(usize, usize)> {
         let n = self.u16()? as usize;
         let s = self.p;
@@ -427,6 +481,10 @@ fn parse_window(p: &mut Parser<'_>, version: u16) -> Option<()> {
     let n = p.u16()? as usize;
     for _ in 0..n {
         p.string_span()?;
+    }
+    if version >= 3 {
+        // Sidebar width.
+        p.take(8)?;
     }
     Some(())
 }
@@ -493,6 +551,7 @@ fn decode_window(b: &[u8], mut p: usize, version: u16) -> Option<(WindowView<'_>
     for _ in 0..tabs {
         p = read_span(b, p)?.1
     }
+    let sidebar_width = if version >= 3 { read_f64(b, &mut p)? } else { 0.0 };
     Some((
         WindowView {
             bytes: b,
@@ -510,6 +569,7 @@ fn decode_window(b: &[u8], mut p: usize, version: u16) -> Option<(WindowView<'_>
             fullscreen: flags[2],
             screen_frame,
             visible_workspace_id: span_str(b, ws)?,
+            sidebar_width,
             tabs_start: ts,
             tabs,
         },
@@ -550,7 +610,8 @@ pub struct CmuxLaunchWindow {
     pub fullscreen: u8,
 }
 
-/// v2 fields follow the v1 fields so their offsets are unchanged.
+/// v2 fields follow the v1 fields, and v3's `sidebar_width` the v2 fields, so earlier offsets
+/// are unchanged.
 #[repr(C)]
 pub struct CmuxLaunchWindowInput {
     pub frame_x: f64,
@@ -575,6 +636,8 @@ pub struct CmuxLaunchWindowInput {
     pub appearance: u8,
     pub appearance_follows_system: u8,
     pub fullscreen: u8,
+    /// The window's sidebar width in points; 0 when unknown.
+    pub sidebar_width: f64,
 }
 
 #[repr(C)]
@@ -598,6 +661,7 @@ unsafe fn input_data(
     sidebar_count: usize,
     socket: *const c_char,
     registry: &str,
+    written_at_ms: u64,
 ) -> Option<LaunchRecordData> {
     // A window needs at least WINDOW_MIN_BYTES encoded bytes; a sidebar row needs six.
     // Reject impossible counts before allocating or dereferencing an array.
@@ -613,6 +677,7 @@ unsafe fn input_data(
         sidebar_rows: Vec::with_capacity(sidebar_count),
         session_socket_path: unsafe { c_string(socket)? }.to_owned(),
         session_registry_id: registry.to_owned(),
+        written_at_ms,
     };
     for i in 0..window_count {
         let w = unsafe { &*windows.add(i) };
@@ -654,6 +719,7 @@ unsafe fn input_data(
             },
             visible_workspace_id: workspace,
             visible_tab_ids: tabs,
+            sidebar_width: w.sidebar_width,
         });
     }
     for i in 0..sidebar_count {
@@ -669,7 +735,7 @@ unsafe fn input_data(
 
 /// Writes a bounded launch record through the app FFI. Null pointers, invalid UTF-8,
 /// impossible counts and records over 64 KiB return false without touching the destination.
-/// `windows[0]` is the front window.
+/// `windows[0]` is the front window. It records no registry id and stamps `written_at_ms` now.
 ///
 /// # Safety
 /// Non-null pointers must reference readable, NUL-terminated strings or arrays
@@ -692,12 +758,15 @@ pub unsafe extern "C" fn cmux_launch_record_write(
             sidebar_count,
             socket,
             c"".as_ptr(),
+            unix_now_ms(),
         )
     }
 }
 
 /// `cmux_launch_record_write` that also records the daemon registry id the windows belong to
-/// (`registry_id`, the handshake's): stage 0 draws no image of another session's windows.
+/// (`registry_id`, the handshake's): stage 0 draws no image of another session's windows. It
+/// writes `written_at_ms` as given: wall-clock Unix milliseconds (`unix_now_ms`, the daemon
+/// launch snapshot's clock) when the caller built the record; 0 means unknown.
 ///
 /// # Safety
 /// As `cmux_launch_record_write`; `registry_id` is a readable NUL-terminated string.
@@ -710,15 +779,16 @@ pub unsafe extern "C" fn cmux_launch_record_write_registry(
     sidebar_count: usize,
     socket: *const c_char,
     registry_id: *const c_char,
+    written_at_ms: u64,
 ) -> bool {
     let (Some(path), Some(registry)) =
         (unsafe { c_string(path) }, unsafe { c_string(registry_id) })
     else {
         return false;
     };
-    let Some(data) =
-        (unsafe { input_data(windows, window_count, sidebars, sidebar_count, socket, registry) })
-    else {
+    let Some(data) = (unsafe {
+        input_data(windows, window_count, sidebars, sidebar_count, socket, registry, written_at_ms)
+    }) else {
         return false;
     };
     write_atomic(path, &data).is_ok()
@@ -854,6 +924,7 @@ mod tests {
             screen_frame: SCREEN,
             visible_workspace_id: "ws".into(),
             visible_tab_ids: vec!["tab".into()],
+            sidebar_width: 247.5,
         }
     }
     fn sample() -> LaunchRecordData {
@@ -866,7 +937,42 @@ mod tests {
             }],
             session_socket_path: "/tmp/sock".into(),
             session_registry_id: "reg-1".into(),
+            written_at_ms: WRITTEN_AT_MS,
         }
+    }
+    const WRITTEN_AT_MS: u64 = 1_763_500_000_123;
+    /// The v2 encoding, as the previous writer produced it: no registry id, no write time and
+    /// no sidebar width.
+    fn encode_v2(r: &LaunchRecordData) -> Vec<u8> {
+        let mut o = Vec::from(&MAGIC[..]);
+        for n in [2, r.windows.len(), r.sidebar_rows.len()] {
+            put_u16(&mut o, n);
+        }
+        for w in &r.windows {
+            put_string(&mut o, &w.id).unwrap();
+            put_frame(&mut o, w.frame);
+            o.extend_from_slice(&w.display_id.to_le_bytes());
+            o.extend_from_slice(&w.background_rgba);
+            o.extend_from_slice(&w.bar_rgba);
+            put_string(&mut o, &w.image_key).unwrap();
+            o.extend_from_slice(&w.image_pixel_width.to_le_bytes());
+            o.extend_from_slice(&w.image_pixel_height.to_le_bytes());
+            o.extend_from_slice(&w.backing_scale.to_le_bytes());
+            put_frame(&mut o, w.screen_frame);
+            o.extend_from_slice(&[w.appearance, w.appearance_follows_system, w.fullscreen]);
+            put_string(&mut o, &w.visible_workspace_id).unwrap();
+            put_u16(&mut o, w.visible_tab_ids.len());
+            for t in &w.visible_tab_ids {
+                put_string(&mut o, t).unwrap();
+            }
+        }
+        for s in &r.sidebar_rows {
+            for v in [&s.id, &s.title, &s.icon_key] {
+                put_string(&mut o, v).unwrap();
+            }
+        }
+        put_string(&mut o, &r.session_socket_path).unwrap();
+        o
     }
     /// The v1 encoding, as the previous writer produced it.
     fn encode_v1(r: &LaunchRecordData) -> Vec<u8> {
@@ -912,8 +1018,7 @@ mod tests {
         let bytes = encode(&data).unwrap();
         assert_eq!(LaunchRecord::from_bytes(bytes.clone()).unwrap().session_registry_id(), "reg-1");
         // The same record as v2: no registry string after the socket path.
-        let mut v2 = bytes[..bytes.len() - 2 - "reg-1".len()].to_vec();
-        v2[8..10].copy_from_slice(&2u16.to_le_bytes());
+        let mut v2 = encode_v2(&data);
         let r = LaunchRecord::from_bytes(v2.clone()).unwrap();
         assert_eq!(
             (r.version(), r.session_registry_id(), r.session_socket_path()),
@@ -945,9 +1050,11 @@ mod tests {
                 0,
                 c"s".as_ptr(),
                 c"reg-2".as_ptr(),
+                WRITTEN_AT_MS,
             )
         });
-        assert_eq!(LaunchRecord::read(dir.record()).unwrap().session_registry_id(), "reg-2");
+        let r = LaunchRecord::read(dir.record()).unwrap();
+        assert_eq!((r.session_registry_id(), r.written_at_ms()), ("reg-2", WRITTEN_AT_MS));
     }
     #[test]
     fn round_trip_every_v2_field() {
@@ -979,6 +1086,7 @@ mod tests {
             screen_frame: v.screen_frame,
             visible_workspace_id: v.visible_workspace_id.into(),
             visible_tab_ids: v.visible_tab_ids().map(String::from).collect(),
+            sidebar_width: v.sidebar_width,
         };
         assert_eq!(&back, w);
         // And through the FFI writer and reader.
@@ -1010,6 +1118,7 @@ mod tests {
             appearance: w.appearance,
             appearance_follows_system: w.appearance_follows_system,
             fullscreen: w.fullscreen,
+            sidebar_width: w.sidebar_width,
         };
         let socket = c("/tmp/sock");
         assert!(unsafe {
@@ -1019,6 +1128,14 @@ mod tests {
         written.sidebar_rows.clear();
         // cmux_launch_record_write records no registry id.
         written.session_registry_id.clear();
+        assert_eq!(
+            LaunchRecord::read(dir.record()).unwrap().front_window().unwrap().sidebar_width,
+            247.5
+        );
+        // It stamps the write time itself, on the snapshot's clock.
+        let now = unix_now_ms();
+        written.written_at_ms = LaunchRecord::read(dir.record()).unwrap().written_at_ms();
+        assert!(written.written_at_ms > 0 && written.written_at_ms <= now);
         assert_eq!(fs::read(dir.record()).unwrap(), encode(&written).unwrap());
         let mut out = CmuxLaunchWindow::default();
         assert!(unsafe { cmux_launch_record_front_window(path.as_ptr(), &mut out) });
@@ -1045,15 +1162,107 @@ mod tests {
         let mut b = encode(&sample()).unwrap();
         b.push(0);
         assert!(LaunchRecord::from_bytes(b).is_none());
-        for version in [0, FORMAT_VERSION + 1] {
+        for version in [0, FORMAT_VERSION + 1, 4, 0xFFFF] {
             let mut b = encode(&sample()).unwrap();
             b[8..10].copy_from_slice(&version.to_le_bytes());
             assert!(LaunchRecord::from_bytes(b).is_none())
         }
         // A v2 body labelled v1 does not parse as v1.
-        let mut b = encode(&sample()).unwrap();
+        let mut b = encode_v2(&sample());
         b[8] = 1;
-        assert!(LaunchRecord::from_bytes(b).is_none())
+        assert!(LaunchRecord::from_bytes(b).is_none());
+        // Nor a v3 body labelled v2 or v1.
+        for version in [1u16, 2] {
+            let mut b = encode(&sample()).unwrap();
+            b[8..10].copy_from_slice(&version.to_le_bytes());
+            assert!(LaunchRecord::from_bytes(b).is_none())
+        }
+    }
+    #[test]
+    fn v3_round_trips_registry_id_write_time_and_sidebar_width() {
+        let mut data = sample();
+        data.windows = vec![window("front"), window("back")];
+        data.windows[1].sidebar_width = 0.0;
+        data.windows[1].visible_tab_ids = vec![];
+        let r = LaunchRecord::from_bytes(encode(&data).unwrap()).unwrap();
+        assert_eq!(r.version(), 3);
+        assert_eq!(
+            (r.session_socket_path(), r.session_registry_id(), r.written_at_ms()),
+            ("/tmp/sock", "reg-1", WRITTEN_AT_MS)
+        );
+        let windows = r.windows().map(|w| (w.id, w.sidebar_width)).collect::<Vec<_>>();
+        assert_eq!(windows, [("front", 247.5), ("back", 0.0)]);
+        assert_eq!(r.windows().next().unwrap().visible_tab_ids().collect::<Vec<_>>(), ["tab"]);
+        assert_eq!(r.sidebar_rows().next().unwrap().title, "Side");
+        // The extremes survive.
+        data.written_at_ms = u64::MAX;
+        let r = LaunchRecord::from_bytes(encode(&data).unwrap()).unwrap();
+        assert_eq!(r.written_at_ms(), u64::MAX);
+    }
+    #[test]
+    fn v2_record_reads_with_unknown_write_time_and_sidebar_width() {
+        let data = sample();
+        let r = LaunchRecord::from_bytes(encode_v2(&data)).unwrap();
+        assert_eq!((r.version(), r.written_at_ms(), r.session_registry_id()), (2, 0, ""));
+        let w = r.front_window().unwrap();
+        assert_eq!((w.id, w.frame, w.sidebar_width), ("w", data.windows[0].frame, 0.0));
+        assert_eq!((w.image_key, w.backing_scale), (data.windows[0].image_key.as_str(), 2.0));
+        assert_eq!(w.visible_tab_ids().collect::<Vec<_>>(), vec!["tab"]);
+        assert_eq!(r.session_socket_path(), "/tmp/sock");
+    }
+    #[test]
+    fn truncated_v3_gives_no_record() {
+        let mut data = sample();
+        data.windows = vec![window("front"), window("back")];
+        let bytes = encode(&data).unwrap();
+        let len = bytes.len();
+        let header = 8 + 2 + 2 + 2;
+        let window_len = encode(&data).unwrap().len()
+            - encode(&LaunchRecordData { windows: vec![window("front")], ..data.clone() })
+                .unwrap()
+                .len();
+        let first_window_end = header + window_len;
+        let named = [
+            ("inside the magic", 5),
+            ("inside the version", 9),
+            ("inside the window count", 11),
+            ("inside the sidebar count", 13),
+            ("inside the first window id", header + 3),
+            ("inside the first window frame", header + 2 + "front".len() + 10),
+            ("inside the first sidebar_width", first_window_end - 3),
+            ("just before the first sidebar_width", first_window_end - 8),
+            ("inside the second window", first_window_end + 20),
+            ("inside the last sidebar_width", header + 2 * window_len - 1),
+            ("inside the registry id", len - 8 - 2),
+            ("inside written_at_ms", len - 3),
+            ("just before written_at_ms", len - 8),
+            ("one byte short", len - 1),
+        ];
+        for (what, at) in named {
+            assert!(at < len, "{what}");
+            assert!(LaunchRecord::from_bytes(bytes[..at].to_vec()).is_none(), "{what}");
+        }
+        // Every other prefix too, and the reader path from a file.
+        for at in 0..len {
+            assert!(LaunchRecord::from_bytes(bytes[..at].to_vec()).is_none(), "prefix {at}");
+        }
+        let dir = TestDir::new();
+        fs::write(dir.record(), &bytes[..len - 3]).unwrap();
+        assert!(LaunchRecord::read(dir.record()).is_none());
+        assert!(LaunchRecord::from_bytes(bytes).is_some());
+    }
+    #[test]
+    fn newer_launch_geometry_takes_the_record_only_when_strictly_newer_and_known() {
+        use GeometrySource::{Record, Snapshot};
+        assert_eq!(newer_launch_geometry(2_000, 1_000), Record);
+        assert_eq!(newer_launch_geometry(1_000, 2_000), Snapshot);
+        assert_eq!(newer_launch_geometry(1_000, 1_000), Snapshot);
+        assert_eq!(newer_launch_geometry(0, 1_000), Snapshot);
+        // A v1 or v2 record reads 0, so it never wins, not even against a snapshot with no time.
+        assert_eq!(newer_launch_geometry(0, 0), Snapshot);
+        // Any known record time beats an unknown snapshot time.
+        assert_eq!(newer_launch_geometry(1, 0), Record);
+        assert_eq!(newer_launch_geometry(u64::MAX, u64::MAX - 1), Record);
     }
     #[test]
     fn v1_record_reads_with_defaults() {
@@ -1066,6 +1275,7 @@ mod tests {
         assert_eq!(w.visible_tab_ids().collect::<Vec<_>>(), vec!["tab"]);
         assert_eq!((w.image_key, w.backing_scale, w.screen_frame), ("", 0.0, Frame::default()));
         assert_eq!((w.appearance, w.appearance_follows_system, w.fullscreen), (0, 0, 0));
+        assert_eq!((w.sidebar_width, r.written_at_ms()), (0.0, 0));
         assert_eq!(r.sidebar_rows().next().unwrap().title, "Side");
         assert_eq!(r.session_socket_path(), "/tmp/sock");
     }
@@ -1131,12 +1341,15 @@ mod tests {
     #[test]
     fn exact_cap_and_one_byte_over() {
         // Zero windows/rows, then a socket string; both are structurally valid.
-        for version in [1u8, 2] {
+        for version in [1u8, 2, 3] {
+            // v3 ends in an empty registry id and an 8-byte write time.
+            let tail = if version >= 3 { 2 + 8 } else { 0 };
             for extra in [0, 1] {
                 let mut bytes = Vec::from(&b"CMUXLR01\x00\x00\x00\x00\x00\x00"[..]);
                 bytes[8] = version;
-                bytes.extend_from_slice(&((MAX_BYTES - 16 + extra) as u16).to_le_bytes());
-                bytes.resize(MAX_BYTES + extra, b'x');
+                bytes.extend_from_slice(&((MAX_BYTES - 16 - tail + extra) as u16).to_le_bytes());
+                bytes.resize(MAX_BYTES - tail + extra, b'x');
+                bytes.resize(MAX_BYTES + extra, 0);
                 let dir = TestDir::new();
                 fs::write(dir.record(), &bytes).unwrap();
                 assert_eq!(LaunchRecord::from_bytes(bytes).is_some(), extra == 0);
@@ -1219,13 +1432,29 @@ mod tests {
     fn ffi_rejects_impossible_counts_before_dereference() {
         assert!(
             unsafe {
-                input_data(std::ptr::null(), usize::MAX, std::ptr::null(), 0, std::ptr::null(), "")
+                input_data(
+                    std::ptr::null(),
+                    usize::MAX,
+                    std::ptr::null(),
+                    0,
+                    std::ptr::null(),
+                    "",
+                    0,
+                )
             }
             .is_none()
         );
         assert!(
             unsafe {
-                input_data(std::ptr::null(), 0, std::ptr::null(), usize::MAX, std::ptr::null(), "")
+                input_data(
+                    std::ptr::null(),
+                    0,
+                    std::ptr::null(),
+                    usize::MAX,
+                    std::ptr::null(),
+                    "",
+                    0,
+                )
             }
             .is_none()
         );

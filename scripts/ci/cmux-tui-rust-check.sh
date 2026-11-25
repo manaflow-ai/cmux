@@ -971,7 +971,9 @@ channel_daemon_tests() {
 }
 channel_build_acpmux() {
   local features cargo_build=(cargo build)
-  rustup target add "$channel_triple" >/dev/null || return 1
+  # shellcheck source=scripts/lib/rust-targets.sh
+  source "$root/scripts/lib/rust-targets.sh"
+  ensure_rust_targets "$channel_triple" >/dev/null || return 1
   # cargo-zigbuild where the worker has it (as cmux-tui-build-package.yml builds the leg), else
   # cargo with the musl target and musl-gcc.
   if cargo zigbuild --version >/dev/null 2>&1; then cargo_build=(cargo zigbuild); fi
