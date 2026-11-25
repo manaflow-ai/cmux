@@ -330,6 +330,7 @@ mod tests {
             reason: None,
             action: None,
             down_reason: Some(DialFail::PathChanged),
+            status: None,
             last_seen: None,
             error: None,
             at: 2,
