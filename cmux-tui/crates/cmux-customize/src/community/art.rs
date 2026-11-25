@@ -404,19 +404,34 @@ impl Drop for Staged {
 /// Copies `art` into `<config dir>/wallpapers/<entry>/`, replacing what an
 /// earlier install put there. `None` when there is no art.
 pub fn install(config_dir: &Path, entry: &str, art: &Art) -> Result<Option<Staged>, Error> {
-    let dest = folder(config_dir, entry);
-    if art.images.is_empty() {
+    let files: Vec<(&str, &str)> =
+        art.images.iter().map(|image| (image.as_str(), installed_path(image))).collect();
+    install_into(config_dir, WALLPAPERS, entry, &art.source, &files)
+}
+
+/// Copies `files` (repository path, path in the folder) from `source` into
+/// `<config dir>/<kind>/<entry>/`, replacing what an earlier install put
+/// there. `None` when there are no files.
+pub(crate) fn install_into(
+    config_dir: &Path,
+    kind: &str,
+    entry: &str,
+    source: &Path,
+    files: &[(&str, &str)],
+) -> Result<Option<Staged>, Error> {
+    if files.is_empty() {
         return Ok(None);
     }
-    let parent = config_dir.join(WALLPAPERS);
+    let parent = config_dir.join(kind);
+    let dest = parent.join(entry);
     let stage = parent.join(format!(".{entry}.new"));
     let _ = std::fs::remove_dir_all(&stage);
-    let copied = art.images.iter().try_for_each(|image| {
-        let to = stage.join(installed_path(image));
+    let copied = files.iter().try_for_each(|(from, to)| {
+        let to = stage.join(to);
         if let Some(dir) = to.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        std::fs::copy(art.source.join(image), &to).map(drop)
+        std::fs::copy(source.join(from), &to).map(drop)
     });
     if let Err(error) = copied {
         let _ = std::fs::remove_dir_all(&stage);
@@ -442,7 +457,12 @@ pub fn install(config_dir: &Path, entry: &str, art: &Art) -> Result<Option<Stage
 
 /// Deletes the art an install copied for `entry`.
 pub fn remove(config_dir: &Path, entry: &str) -> Result<bool, Error> {
-    let dest = folder(config_dir, entry);
+    remove_from(config_dir, WALLPAPERS, entry)
+}
+
+/// Deletes `<config dir>/<kind>/<entry>/`, what an install copied there.
+pub(crate) fn remove_from(config_dir: &Path, kind: &str, entry: &str) -> Result<bool, Error> {
+    let dest = config_dir.join(kind).join(entry);
     if entry.is_empty() || entry.contains(['/', '\\']) || entry.starts_with('.') || !dest.is_dir() {
         return Ok(false);
     }

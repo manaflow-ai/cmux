@@ -28,7 +28,7 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-ExecStart=\"/home/ana/.local/bin/cmux-tui\" daemon start --session main
+ExecStart=\"/home/ana/.local/bin/cmux-tui\" daemon start --session main --terminal-reap-grace-seconds 30
 Restart=always
 RestartSec=3
 RestartSteps=5
@@ -51,7 +51,7 @@ fn session_launch_agent_golden() {
     assert!(plist.contains("\t<key>Label</key>\n\t<string>com.cmux.server</string>\n"), "{plist}");
     assert!(
         plist.contains(
-            "\t<key>ProgramArguments</key>\n\t<array>\n\t\t<string>/Users/ana/.local/bin/cmux-tui</string>\n\t\t<string>daemon</string>\n\t\t<string>start</string>\n\t\t<string>--session</string>\n\t\t<string>main</string>\n\t</array>\n"
+            "\t<key>ProgramArguments</key>\n\t<array>\n\t\t<string>/Users/ana/.local/bin/cmux-tui</string>\n\t\t<string>daemon</string>\n\t\t<string>start</string>\n\t\t<string>--session</string>\n\t\t<string>main</string>\n\t\t<string>--terminal-reap-grace-seconds</string>\n\t\t<string>30</string>\n\t</array>\n"
         ),
         "{plist}"
     );
@@ -93,5 +93,47 @@ fn session_units_parse_back_and_store_units_do_not() {
     );
     assert_eq!(parse_session_unit(&systemd_user_unit(&linux).unwrap()), None);
     assert_eq!(parse_session_unit("not a unit"), None);
-    assert_eq!(session_argv(BIN, "main"), [BIN, "daemon", "start", "--session", "main"]);
+    assert_eq!(
+        session_argv(BIN, "main"),
+        [BIN, "daemon", "start", "--session", "main", "--terminal-reap-grace-seconds", "30"]
+    );
+}
+
+/// A direct `daemon start` owner does not reap: without the grace, a
+/// terminal whose last tab closed (a closed workspace) would run until the
+/// service stops, holding its PTY and keeping `daemon stop --if-idle` from
+/// ever stopping. The service's daemon reaps as every owner `daemon ensure`
+/// starts does (30 s).
+#[test]
+fn the_session_daemon_reaps_closed_terminals() {
+    let linux = unix(InstallMode::User, Platform::Linux, "/home/ana");
+    let unit = systemd_session_unit(&linux, BIN, "main").unwrap();
+    assert!(unit.contains(" --terminal-reap-grace-seconds 30\n"), "{unit}");
+    let mac = unix(InstallMode::User, Platform::MacOs, "/Users/ana");
+    let plist = session_launch_agent_plist(&mac, "/Users/ana/.local/bin/cmux-tui", "main").unwrap();
+    assert!(plist.contains("<string>--terminal-reap-grace-seconds</string>"), "{plist}");
+}
+
+/// A unit or plist an earlier install wrote (no reap grace) still reads back
+/// as the session service, so uninstall and status still know it.
+#[test]
+fn session_units_without_the_reap_grace_still_parse() {
+    let old_unit =
+        "[Service]\nExecStart=\"/home/ana/.local/bin/cmux-tui\" daemon start --session main\n";
+    assert_eq!(
+        parse_session_unit(old_unit),
+        Some(SessionUnit { binary: BIN.to_owned(), session: "main".to_owned() })
+    );
+    let old_plist = "<array>\n\t\t<string>/Users/ana/.local/bin/cmux-tui</string>\n\t\t<string>daemon</string>\n\t\t<string>start</string>\n\t\t<string>--session</string>\n\t\t<string>main</string>\n\t</array>\n";
+    assert_eq!(
+        parse_session_unit(old_plist),
+        Some(SessionUnit {
+            binary: "/Users/ana/.local/bin/cmux-tui".to_owned(),
+            session: "main".to_owned()
+        })
+    );
+    // Anything else after the session is not a unit cmux wrote.
+    let other =
+        "ExecStart=\"/home/ana/.local/bin/cmux-tui\" daemon start --session main --other 1\n";
+    assert_eq!(parse_session_unit(other), None);
 }

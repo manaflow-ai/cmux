@@ -1,6 +1,9 @@
 // cmux-web-test-timeout: 600
 // Jump to latest stands on the composer's center line (Leo, 2026-11-07: "And also the jump to bottom
-// button is still not centered with the composer yet"). The button took the stage's middle (left:
+// button is still not centered with the composer yet"), and again after #48658 moved it to the card's
+// end edge (Leo, 2026-11-22: "why'd the jump to bottom move to the right ... the composer hat hidden
+// bit was the one to move to the right. or left."; jumpPlace.experiment.ts `center` ships, the hat's
+// pill moves aside, hatPillPlace.experiment.ts). The button took the stage's middle (left:
 // 50%) while the composer sits in the column between --cv-inset and --cv-inset-end: once Session Info
 // pushes the column left (a wide pane), or the computer use preview takes the column's end, the
 // button stood up to 164px right of the composer's center. Here, in the real pane, the button's

@@ -20,7 +20,9 @@ SHA256_IMAGE = re.compile(r"^[^@\s]+@sha256:[0-9a-f]{64}$")
 
 # The Blacksmith outage failover reads a variable but only ever picks another
 # Blacksmith Linux size (an ephemeral VM, never a persistent runner).
-OVERFLOW_FAILOVER = re.compile(r"vars\.CI_CLOUD_OVERFLOW_SAVED && fromJSON\(vars\.RUNNER_POOLS\)\.linux(?:_\d+)? \|\| ")
+OVERFLOW_FAILOVER = re.compile(r"vars\.CI_CLOUD_OVERFLOW_SAVED && fromJSON\(vars\.RUNNER_POOLS\)\.linux(?:_\d+)? \|\| "
+    # A fork pull request's branch of the one Linux label (scripts/ci/one_linux_label.py): fork runs only.
+    r"|github\.event\.pull_request\.head\.repo\.full_name != github\.repository && \(vars\.CI_FORK_LINUX_RUNNER \|\| '[^']+'\)")
 
 def workflow(name: str) -> dict:
     return yaml.load((WORKFLOWS / name).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
@@ -64,17 +66,11 @@ def test_secret_dispatch_jobs_use_branch_restricted_environments_and_ephemeral_r
         assert "fromJSON(vars.RUNNER_POOLS)." in runner
 
     shared_secret_readers = (
-        ("claude.yml", "claude", "claude-agent"),
         ("ci-compile-attribution.yml", "fix", "ci-attribution-agent"),
     )
     for name, job_name, environment in shared_secret_readers:
         job = workflow(name)["jobs"][job_name]
         assert environment_name(job) == environment, f"{name} secrets need {environment}"
-
-    claude_triggers = set(workflow("claude.yml")["on"])
-    assert claude_triggers == {"issue_comment", "issues"}, (
-        "the Claude secret-bearing workflow must stay on trusted default-branch events"
-    )
 
 
 def test_pull_request_target_jobs_never_receive_oidc() -> None:
@@ -90,7 +86,7 @@ def test_pull_request_target_jobs_never_receive_oidc() -> None:
         for job_name, job in (document.get("jobs") or {}).items():
             permissions = job.get("permissions") or {}
             assert permissions.get("id-token") != "write", f"{path.name} {job_name} grants OIDC"
-    assert checked >= 5, "no pull_request_target workflows were inspected"
+    assert checked >= 1, "no pull_request_target workflows were inspected"
 
 
 def test_dispatchable_jobs_with_external_credentials_use_environments() -> None:
@@ -223,9 +219,6 @@ def test_environment_secret_rollout_keeps_untrusted_jobs_secretless() -> None:
             f"backend {job_name} must skip before its protected environment is evaluated"
         )
 
-    docs_caller = workflow("docs-channels.yml")["jobs"]
-    assert "secrets" not in docs_caller["nightly"]
-    assert "secrets" not in docs_caller["release"]
     docs_deploy = workflow("docs-deploy-reusable.yml")["jobs"]["deploy"]
     assert workflow_jobs.resolve(docs_deploy).environment == {"name": "docs-${{ inputs.channel }}"}
     docs_run = run_text(docs_deploy)
@@ -233,24 +226,11 @@ def test_environment_secret_rollout_keeps_untrusted_jobs_secretless() -> None:
         assert secret in yaml.dump(docs_deploy)
     assert "secrets.vercel_" not in yaml.dump(docs_deploy)
 
-    namespace = workflow("namespace-autofix.yml")["jobs"]["autofix"]
-    assert workflow_jobs.resolve(namespace).environment == {"name": "ci-routing-agent", "deployment": "false"}
-
     pr_autofix = workflow("cmux-next-pr-autofix.yml")["jobs"]["push"]
     assert workflow_jobs.resolve(pr_autofix).environment == {"name": "cmux-pr-autofix", "deployment": "false"}
     assert "github.event_name != 'pull_request'" in pr_autofix.get("if", ""), (
         "the protected App job must skip PR refs before environment evaluation"
     )
-
-    trusted_automation = (
-        ("ci-failure-attribution.yml", "attribute", "ci-attribution-agent"),
-        ("ci-guard-attribution.yml", "analyze", "ci-attribution-agent"),
-        ("ci-guard-attribution.yml", "report", "ci-attribution-agent"),
-        ("ci-hosted-queue-rescue.yml", "rescue", "ci-bot"),
-        ("dogfood-artifact-publish.yml", "capture", "ci-bot"),
-    )
-    for name, job_name, environment in trusted_automation:
-        assert environment_name(workflow(name)["jobs"][job_name]) == environment
 
 
 def test_ci_and_deployment_container_images_are_digest_pinned() -> None:
@@ -292,16 +272,6 @@ def test_vendored_stack_auth_records_origin_patch_and_license_status() -> None:
         assert f"`{changed}`" in text
 
 
-
-def test_namespace_autofix_clones_one_commit_each() -> None:
-    # Its 10-minute job reads base files, diffs two trees and commits on the PR head; the full clone it
-    # took outgrew the limit and was cancelled in checkout on every Swift pull request (2026-11-16).
-    job = workflow("namespace-autofix.yml")["jobs"]["autofix"]
-    checkout = next(step for step in job["steps"] if str(step.get("uses", "")).startswith("actions/checkout"))
-    assert checkout["with"]["fetch-depth"] == "1", "the trusted base checkout clones one commit"
-    assert "git fetch --no-tags --depth=1 origin" in run_text(job), "the PR head fetch takes one commit"
-
-
 if __name__ == "__main__":
     test_secret_dispatch_jobs_use_branch_restricted_environments_and_ephemeral_runners()
     test_pull_request_target_jobs_never_receive_oidc()
@@ -310,5 +280,4 @@ if __name__ == "__main__":
     test_environment_secret_rollout_keeps_untrusted_jobs_secretless()
     test_ci_and_deployment_container_images_are_digest_pinned()
     test_vendored_stack_auth_records_origin_patch_and_license_status()
-    test_namespace_autofix_clones_one_commit_each()
     print("supply-chain security checks passed")

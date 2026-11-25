@@ -14,9 +14,16 @@ struct CmuxRemoteSharingSetup {
     var requestScreen: () async -> Void
     var requestControl: () async -> Void
     var enable: () async throws -> Void
-    /// Whether the person has said yes to Share This Mac on this Mac (`macScreen.shareWithoutAsking`).
+    /// Whether the person has said yes to Share This Mac on this Mac (`macScreen.shareWithoutAsking`, or
+    /// this Mac joined to their own account as last read).
     var consented: @MainActor () -> Bool
+    /// ``consented``, after reading this Mac's join again: what an owner request asks.
+    var consentedNow: @MainActor () async -> Bool
     var rememberConsent: @MainActor () -> Void
+    /// The person turned sharing on themselves: an earlier off of theirs no longer stands.
+    var forgetDecline: @MainActor () -> Void
+    /// Says who turned sharing on with no sheet; tests record it.
+    var announce: @MainActor (CmuxRemoteShareCaller?, NSWindow?) -> Void = { caller, window in caller?.announce(in: window) }
 
     init(host: MacScreenHubHost, consent: CmuxRemoteShareConsent = CmuxRemoteShareConsent(given: { false }, remember: {})) {
         refresh = {
@@ -27,17 +34,22 @@ struct CmuxRemoteSharingSetup {
         requestControl = { await host.share.requestAndWait(screenRecording: false) }
         enable = { try await host.setSharing(true, requestPermissions: false) }
         consented = consent.given
+        consentedNow = consent.givenNow
         rememberConsent = consent.remember
+        forgetDecline = consent.forgetDecline
     }
 
-    /// `remote.confirm {action: share}` for this Mac. With the person's earlier yes and Screen
-    /// Recording granted it turns sharing on at once (Accessibility stays optional, as in the
-    /// guide); otherwise it shows the guide, whose completion is that yes.
-    func ownerRequest(in window: NSWindow?) async throws -> Bool {
-        if consented() {
+    /// `remote.confirm {action: share}` for this Mac. With the person's earlier yes (or this Mac joined to
+    /// their own account, read now) and Screen Recording granted it turns sharing on at once
+    /// (Accessibility stays optional, as in the guide); otherwise it shows the guide, whose completion is
+    /// that yes. Sharing turned on with no sheet says who asked (`caller`), quietly in `window`
+    /// (``CmuxRemoteShareCaller``).
+    func ownerRequest(in window: NSWindow?, by caller: CmuxRemoteShareCaller?) async throws -> Bool {
+        if await consentedNow(), !Task.isCancelled {
             let permissions = await refresh()
             if permissions.screen, !Task.isCancelled {
                 try await enable()
+                announce(caller, window)
                 return true
             }
         }
@@ -69,7 +81,7 @@ struct CmuxRemoteSharingSetup {
         }
         if consented() {
             return .applied(result: {
-                do { return .success(["shared": .bool(try await ownerRequest(in: window))]) }
+                do { return .success(["shared": .bool(try await ownerRequest(in: window, by: CmuxRemoteShareCaller(invocation: invocation)))]) }
                 catch { return .failure(ActionWorkFailure(log: String(describing: error), reason: PlainErrorText.words(error))) }
             })
         }
@@ -135,8 +147,10 @@ struct CmuxRemoteSharingSetup {
         guard !Task.isCancelled else { return false }
         try await enable()
         // The overview sheet (its last line names the standing yes) was answered: that is the one yes. A native
-        // click with both grants ready shows no sheet and keeps nothing.
+        // click with both grants ready shows no sheet and keeps no yes. Either way the person turned sharing
+        // on here, so their earlier off no longer holds back the join default.
         if remembersYes, !consented() { rememberConsent() }
+        forgetDecline()
         return true
     }
 
@@ -180,54 +194,125 @@ struct CmuxRemoteSharingSetup {
 /// CLI, agent or device turns sharing on with no sheet while Screen Recording is granted; who
 /// may view or control is still each device's access (`cmux remote-host access`). A fleet Mac
 /// gets it forced by its MDM profile (`com.manaflow.cmux`), so nobody there sees the sheet.
+///
+/// A Mac joined to the signed-in person's own account needs no sheet either: joining is the whole
+/// consent (cmuxterm-hq remote-screen-share-zero-touch, Z4). Leo: "who's gonna walk over and click
+/// allow on a headless mac mini, or a remote macbook??? stop having that shit."
 public struct CmuxRemoteShareConsent: Sendable {
     public var given: @MainActor @Sendable () -> Bool
+    /// ``given`` after reading this Mac's join again, as an owner request asks it.
+    public var givenNow: @MainActor @Sendable () async -> Bool
     /// Writes the setting as the person: only called after the person's own answer or click.
     public var remember: @MainActor @Sendable () -> Void
+    /// Drops the person's recorded off: only called after the person turned sharing on themselves.
+    public var forgetDecline: @MainActor @Sendable () -> Void
 
-    public init(given: @escaping @MainActor @Sendable () -> Bool, remember: @escaping @MainActor @Sendable () -> Void) {
+    public init(given: @escaping @MainActor @Sendable () -> Bool, remember: @escaping @MainActor @Sendable () -> Void,
+                givenNow: @escaping @MainActor @Sendable () async -> Bool,
+                forgetDecline: @escaping @MainActor @Sendable () -> Void) {
         self.given = given
+        self.givenNow = givenNow
         self.remember = remember
+        self.forgetDecline = forgetDecline
     }
+
+    /// A yes with no join to read: ``givenNow`` is ``given``.
+    public init(given: @escaping @MainActor @Sendable () -> Bool, remember: @escaping @MainActor @Sendable () -> Void) {
+        self.init(given: given, remember: remember, givenNow: { given() }, forgetDecline: {})
+    }
+}
+
+/// This Mac joined to the signed-in person's own account (`JoinStatus.isOwn`): `last` from the last
+/// join read, `now` after reading it again. The app fills it from `JoinConsentModel`.
+public struct CmuxRemoteOwnJoin: Sendable {
+    public var last: @MainActor @Sendable () -> Bool
+    public var now: @MainActor @Sendable () async -> Bool
+
+    public init(last: @escaping @MainActor @Sendable () -> Bool, now: @escaping @MainActor @Sendable () async -> Bool) {
+        self.last = last
+        self.now = now
+    }
+
+    public static let none = CmuxRemoteOwnJoin(last: { false }, now: { false })
 }
 
 extension CmuxRemoteShareConsent {
     /// This Mac's record of the person's answered Share This Mac sheet: a date in the app's
     /// defaults, outside the settings file (as hang reports keep theirs, HangReportsController).
     nonisolated static let recordKey = "cmux.macScreen.shareWithoutAsking.consentedAt"
+    /// This Mac's record of the person's own off: Share This Mac Without Asking turned off after their
+    /// yes, or Allow Mac Screen turned off by their own click. Never set by default, so "never set" and
+    /// "turned off" read apart; the join default (Z4) stops until the person turns sharing on again.
+    nonisolated static let declinedKey = "cmux.macScreen.shareWithoutAsking.declinedAt"
 
-    /// Whether the standing yes holds. The setting must be on, and either this Mac's MDM forces it
-    /// (a device profile; a team policy is not the person's yes) or this Mac holds the record of
-    /// the answered sheet. The user-only policy guards `settings set`, not cmux-next.json, so a
-    /// `true` an agent wrote into the file alone never counts (review of #47312).
-    public nonisolated static func holds(settingOn: Bool, managed: ManagedSource?, recorded: Bool) -> Bool {
-        settingOn && (managed == .device || recorded)
+    /// Whether the yes holds. Either the setting is on and this Mac's MDM forces it (a device profile;
+    /// a team policy is not the person's yes) or this Mac holds the record of the answered sheet; or
+    /// this Mac is joined to the signed-in person's own account (`ownJoin`, Z4: "Joining is the whole
+    /// consent"), unless the person turned sharing off here (`declined`) or an administrator forces the
+    /// setting off. The user-only policy guards `settings set`, not cmux-next.json, so a `true` an agent
+    /// wrote into the file alone never counts (review of #47312); a join can't be written that way,
+    /// since its credential is acpmux's and the hub checks it.
+    public nonisolated static func holds(settingOn: Bool, managed: ManagedSource?, recorded: Bool,
+                                         ownJoin: Bool = false, declined: Bool = false) -> Bool {
+        if settingOn && (managed == .device || recorded) { return true }
+        if managed != nil && !settingOn { return false }
+        return ownJoin && !declined
     }
 
-    /// `macScreen.shareWithoutAsking` from the app's settings, with the record in `defaults`.
+    /// `macScreen.shareWithoutAsking` from the app's settings, with the records in `defaults` and
+    /// this Mac's own-account join.
     public static func setting(_ settings: @escaping @MainActor @Sendable () -> SettingsController?,
-                               defaults: UserDefaults = .standard) -> Self {
-        Self(given: {
-            guard let settings = settings() else { return false }
-            return holds(settingOn: settings.snapshot.macScreen.shareWithoutAsking,
-                         managed: settings.managedKeys[MacScreenSettings.shareWithoutAskingPath.joined(separator: ".")],
-                         recorded: defaults.object(forKey: recordKey) is Date)
-        }, remember: {
+                               ownJoin: CmuxRemoteOwnJoin = .none, defaults: UserDefaults = .standard) -> Self {
+        reading({
+            guard let settings = settings() else { return nil }
+            return (settings.snapshot.macScreen.shareWithoutAsking,
+                    settings.managedKeys[MacScreenSettings.shareWithoutAskingPath.joined(separator: ".")])
+        }, ownJoin: ownJoin, defaults: defaults) {
             guard let settings = settings(),
-                  let descriptor = SettingsSchema.descriptor(for: MacScreenSettings.shareWithoutAskingPath) else { return }
+                  let descriptor = SettingsSchema.descriptor(for: MacScreenSettings.shareWithoutAskingPath) else { return false }
+            return (try? await settings.setSetting(descriptor, to: .bool(true), by: .user)) != nil
+        }
+    }
+
+    /// The yes from `setting` (nil before settings load: no yes), the records in `defaults` and `ownJoin`.
+    /// `write` writes the setting as the person and says whether it took.
+    static func reading(_ setting: @escaping @MainActor @Sendable () -> (on: Bool, managed: ManagedSource?)?,
+                        ownJoin: CmuxRemoteOwnJoin, defaults: UserDefaults,
+                        write: @escaping @MainActor @Sendable () async -> Bool) -> Self {
+        let decide: @MainActor @Sendable (Bool) -> Bool = { joined in
+            guard let setting = setting() else { return false }
+            return holds(settingOn: setting.on, managed: setting.managed, recorded: defaults.object(forKey: recordKey) is Date,
+                         ownJoin: joined, declined: defaults.object(forKey: declinedKey) is Date)
+        }
+        return Self(given: { decide(ownJoin.last()) }, remember: {
             // task-owner: one settings write after the person answered the Share This Mac sheet; the record is
             // written only once the setting is, so a failed write leaves no record.
             Task {
-                guard (try? await settings.setSetting(descriptor, to: .bool(true), by: .user)) != nil else { return }
+                guard await write() else { return }
                 defaults.set(Date(), forKey: recordKey)
+                defaults.removeObject(forKey: declinedKey)
             }
-        })
+        }, givenNow: {
+            if decide(false) { return true }
+            // Read the join (an acpmux CLI run) only when it can change the answer.
+            guard decide(true) else { return false }
+            return decide(await ownJoin.now())
+        }, forgetDecline: { defaults.removeObject(forKey: declinedKey) })
+    }
+
+    /// Records the person's own off (Allow Mac Screen turned off by their click): the join default no
+    /// longer turns sharing on here until they turn it on again. Never called for an agent's or the CLI's off.
+    public nonisolated static func recordDecline(defaults: UserDefaults = .standard) {
+        defaults.set(Date(), forKey: declinedKey)
     }
 
     /// Drops the record whenever the setting reads off, from the file, Settings, a reset or an
     /// agent: a later `true` written into the file then needs the sheet again instead of reviving
-    /// an old yes (review of #47312, P1). Called from every settings snapshot change.
+    /// an old yes (review of #47312, P1). An off after the recorded yes is the person's decline, so the
+    /// join default stops too. Called from every settings snapshot change.
     public nonisolated static func forgetUnlessOn(settingOn: Bool, defaults: UserDefaults = .standard) {
-        if !settingOn { defaults.removeObject(forKey: recordKey) }
+        guard !settingOn else { return }
+        if defaults.object(forKey: recordKey) is Date { defaults.set(Date(), forKey: declinedKey) }
+        defaults.removeObject(forKey: recordKey)
     }
 }

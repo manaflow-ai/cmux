@@ -7,6 +7,8 @@
 /* The one Tailwind theme (schemas/design-scale, type-scale and motion-scale, through
    webviews/scripts/pages/gen-design-scale.mjs): p-3, rounded-md, text-body, bg-hover, shadow-elevation-2. */
 @import "./ui/theme.generated.css";
+/* The chrome follows the app density (diffSurface marks the root data-page-density). */
+@import "./pages/shared/pageDensity.css";
 
 :root {
   color-scheme: light dark;
@@ -29,9 +31,13 @@
   --cmux-diff-line-height: var(--text-body--line-height);
   --cmux-diff-bg: var(--cmux-diff-bg-light);
   --cmux-diff-fg: var(--cmux-diff-fg-light);
-  /* Separators, panel edges and outlines: the foreground at 8% over the
-     backdrop (#383933 on Monokai's #272822, as in the classic viewer). */
-  --cmux-diff-border: color-mix(in srgb, var(--cmux-diff-fg) 8%, transparent);
+  /* The diff's fills, lines and hovers are the design scale's content surfaces (desktop.css
+     --ds-surface-*, the same card, inset, hover and line as the chat's cards), with the diff's own
+     ink (the terminal theme's text) as their ink. No fill strength is minted here. */
+  --ds-surface-ink: var(--cmux-diff-fg);
+  /* Separators, panel edges and outlines: the content surface line (it clears with
+     appearance.borders none and firms up under Increase Contrast, as every card's). */
+  --cmux-diff-border: var(--ds-surface-card-line);
   /* "+N -N" counts: the theme's addition and deletion colors, softened
      toward the backdrop like the classic viewer's (#85b336 for Monokai's
      #a6e22e). */
@@ -50,18 +56,19 @@
   --cmux-diff-count-modified: color-mix(in srgb, var(--cmux-diff-modified-fg) 66%, var(--cmux-diff-solid-bg));
   /* Dim text: directories, file names in the tree, placeholders, icons. */
   --cmux-diff-text-dim: color-mix(in srgb, var(--cmux-diff-fg) 50%, var(--cmux-diff-solid-bg));
-  --cmux-diff-muted-bg: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
-  --cmux-diff-hover-bg: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
+  --cmux-diff-muted-bg: var(--ds-surface-inset);
+  --cmux-diff-hover-bg: var(--ds-surface-hover);
   --cmux-diff-accent: var(--cmux-accent, light-dark(#0a84ff, #7ab7ff));
   /* cmux NEXT chrome (the toolbar, the files panel, the file bars): every chip has a one-pixel
      rim and what is selected or open takes the theme accent. The toolbar has no fill, as every
      page header; the files panel takes a lift off the backdrop (--cmux-diff-files-bg). */
-  --cmux-diff-rim: color-mix(in srgb, var(--cmux-diff-fg) 12%, transparent);
+  --cmux-diff-rim: var(--ds-surface-control-line);
   /* The header's controls: the toolbar pill on the right and the source, base and jump chips on
      the left share one glossy fill (a tint of the text color, so the page or the window's backdrop
      shows through) and one hairline rim. */
-  --cmux-diff-pill-bg: color-mix(in lab, var(--cmux-diff-fg) 7%, transparent);
-  --cmux-diff-pill-hover-bg: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
+  --cmux-diff-pill-bg: var(--ds-surface-inset);
+  /* Hover over a filled rest: the hover layer over the inset (a background, two layers). */
+  --cmux-diff-pill-hover-bg: var(--ds-surface-hover-layer), var(--ds-surface-inset);
   --cmux-diff-pill-rim: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cmux-diff-rim);
   --cmux-diff-accent-tint: color-mix(in srgb, var(--cmux-diff-accent) 18%, transparent);
   /* The files panel in an opaque window: 3% of the text color over the solid backdrop (over glass
@@ -136,8 +143,8 @@ html {
     --cmux-diff-files-float-bg: var(--cmux-diff-header-bg);
     --cmux-diff-files-layer-bg: transparent;
     --cmux-diff-tree-name-strength: 65%;
-    /* A tint of the text color, not the theme surface (no navy or other theme hue). */
-    --cmux-diff-header-bg: color-mix(in srgb, var(--cmux-diff-fg) 5%, transparent);
+    /* The card surface: a tint of the text color, not the theme surface (no navy or other theme hue). */
+    --cmux-diff-header-bg: var(--ds-surface-card);
     /* The blur alone: the shared glass blur's saturate(1.4) would push the backdrop's own hues
        (a navy or a vivid image) through the film. */
     --cmux-diff-glass-filter: blur(var(--ds-glass-chrome-radius));
@@ -530,20 +537,10 @@ body {
   white-space: nowrap;
   font-weight: 500;
 }
+/* The shared `Spinner` (its sheet turns it, and Reduce Motion holds it still, cx-sya4n). */
 .base-picker-spinner {
-  width: 12px;
-  height: 12px;
   flex: 0 0 auto;
-  border-radius: 50%;
-  border: 1.6px solid color-mix(in lab, var(--cmux-diff-fg) 26%, transparent);
-  border-top-color: var(--cmux-diff-fg);
-  animation: cmux-spin var(--cmux-spinner-period, 2000ms) linear infinite;
-}
-/* Reduce Motion stops it (cx-sya4n); the diff viewer has no Static setting of its own. */
-@media (prefers-reduced-motion: reduce) {
-  .base-picker-spinner {
-    animation: none;
-  }
+  color: var(--cmux-diff-fg);
 }
 .base-picker-popover {
   /* Portaled to `document.body` and viewport-anchored so it escapes BOTH
@@ -567,9 +564,9 @@ body {
      geometry without drawing a second border over the glass surface. */
   border: 1px solid transparent;
   border-radius: var(--ds-radius-lg);
-  background: var(--glass-tint, var(--cmux-diff-bg));
-  -webkit-backdrop-filter: var(--surface-blur, none);
-  backdrop-filter: var(--surface-blur, none);
+  /* No tint or blur of its own: .ui-popup.ui-glass is the one menu glass (ui/glass/glass.css GLASS
+     LEVELS). Its own --surface-blur here was the chrome blur, a second, thinner glass than every
+     other menu's (Leo 2026-11-22: "doubled up glass/wack looking glass all over the place"). */
   z-index: 120;
   overflow: hidden;
 }
@@ -802,6 +799,15 @@ body {
 .menu-check {
   justify-self: end;
 }
+/* A row's quiet detail after its label ("3 of 30 viewed", hq #19495). */
+.menu-item[data-detail] {
+  grid-template-columns: 22px minmax(0, 1fr) auto 18px;
+}
+.menu-detail {
+  color: color-mix(in lab, var(--cmux-diff-fg) 55%, var(--cmux-diff-bg));
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 #content {
   /* Sidebar resize and slide coordinates are physical; keep their grid LTR. */
   direction: ltr;
@@ -901,6 +907,7 @@ body[data-files-hidden="true"] #files-sidebar[data-files-motion="running"] {
    glass takes the file bars' film and blur, so its names never sit on crisp code. */
 #files-sidebar[data-files-motion] {
   background: var(--cmux-diff-files-float-bg, var(--cmux-diff-files-bg));
+  /* one-material-allow: the diff viewer's own film (--cmux-diff-glass-filter, the file bars' blur), set by the see-through diff theme, not a glass surface */
   -webkit-backdrop-filter: var(--cmux-diff-glass-filter, none);
   backdrop-filter: var(--cmux-diff-glass-filter, none);
 }
@@ -1164,6 +1171,7 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
     padding: 0;
     border: 0;
     background: var(--cmux-scrim, color-mix(in srgb, #000 38%, transparent));
+    /* one-material-allow: a modal scrim's softening under the file-search dialog, not a glass surface */
     /* glass-raw-blur-allow: a scrim's softening under a dialog, not a glass surface */
     -webkit-backdrop-filter: blur(2px);
     /* glass-raw-blur-allow: a scrim's softening under a dialog, not a glass surface */
@@ -1186,6 +1194,7 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
     pointer-events: auto;
     border-left: 1px solid var(--cmux-diff-rim);
     background: var(--cmux-diff-files-float-bg, var(--cmux-diff-files-bg));
+    /* one-material-allow: the diff viewer's own film (--cmux-diff-glass-filter, the file bars' blur), not a glass surface */
     -webkit-backdrop-filter: var(--cmux-diff-glass-filter, none);
     backdrop-filter: var(--cmux-diff-glass-filter, none);
     box-shadow: var(--elevation-2);
@@ -1297,49 +1306,13 @@ body[data-status-only="true"] #status-text {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
-/* Icon badge: only for the friendly empty state, not errors or while loading. */
-#status-icon {
-  display: none;
-}
-body[data-status-only="true"] #status:not([data-error="true"]):not([data-pending="true"]) #status-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 56px;
-  height: 56px;
-  border-radius: 16px;
-  background: color-mix(in lab, var(--cmux-diff-fg) 5%, transparent);
-  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
-}
-body[data-status-only="true"] #status:not([data-error="true"]):not([data-pending="true"]) #status-icon::before {
-  content: "";
-  display: block;
-  width: 26px;
-  height: 26px;
-  background-color: currentcolor;
-  opacity: 0.8;
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpath d='M14 2v6h6'/%3E%3Cpath d='M9 13h6'/%3E%3Cpath d='M9 17h4'/%3E%3C/svg%3E") center / contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpath d='M14 2v6h6'/%3E%3Cpath d='M9 13h6'/%3E%3Cpath d='M9 17h4'/%3E%3C/svg%3E") center / contain no-repeat;
-}
-#status[data-pending="true"]::before,
-body[data-loading="true"] #status::before {
-  content: "";
-  width: 14px;
-  height: 14px;
+/* The status line's spinner while the diff loads: the shared `Spinner` (diff-viewer/Loading.tsx). */
+#status .status-spinner {
   flex: 0 0 auto;
-  border: 2px solid color-mix(in lab, var(--cmux-diff-fg) 20%, transparent);
-  border-top-color: color-mix(in lab, var(--cmux-diff-fg) 70%, var(--cmux-diff-bg));
-  border-radius: 50%;
-  animation: cmux-spin var(--cmux-spinner-period, 2000ms) linear infinite;
+  color: color-mix(in lab, var(--cmux-diff-fg) 70%, var(--cmux-diff-bg));
 }
 #status[data-error="true"] {
   color: var(--cmux-diff-deletion-fg);
-}
-@media (prefers-reduced-motion: reduce) {
-  #status[data-pending="true"]::before,
-  body[data-loading="true"] #status::before {
-    animation: none;
-  }
 }
 
 /* Diff review comments */
@@ -1351,6 +1324,8 @@ body[data-loading="true"] #status::before {
   max-height: 40%;
   border-top: 1px solid var(--cmux-diff-border);
   background: transparent;
+  /* The header's and the review line's leading inset, so the pull request lines up under the title. */
+  --comments-inset: 10px;
 }
 #comments-header {
   display: flex;
@@ -1358,13 +1333,14 @@ body[data-loading="true"] #status::before {
   justify-content: space-between;
   gap: 8px;
   min-height: 30px;
-  padding: 0 10px;
+  padding: 0 var(--comments-inset);
   color: var(--cmux-diff-text-muted);
   font-size: var(--cmux-diff-ui-font-size);
 }
-/* Send to agent: a compact accent button at the header's end. Both labels share one grid cell, so
-   the button keeps the wider one's width and the header never moves when it starts sending. */
-#comments-send {
+/* Send to agent and Post to GitHub: a compact accent button at the header's end. Both labels share
+   one grid cell, so the button keeps the wider one's width and the header never moves when it
+   starts sending or posting. */
+.comments-action {
   display: inline-grid;
   flex: 0 0 auto;
   height: 24px;
@@ -1372,18 +1348,59 @@ body[data-loading="true"] #status::before {
   font-size: var(--cmux-diff-ui-font-size);
   white-space: nowrap;
 }
-#comments-send > span {
+.comments-action > span {
   grid-area: 1 / 1;
   text-align: center;
 }
-#comments-send > span[aria-hidden="true"] {
+.comments-action > span[aria-hidden="true"] {
   visibility: hidden;
 }
-#comments-send-error {
+/* A review worktree's Send to agent: secondary to Post, so it is quiet until hovered. */
+.comments-action-quiet {
+  height: 20px;
+  padding: 0 4px;
+}
+/* The pull request under review (then the posted review) on one fixed-height line under the
+   header, with Send to agent at its end: the same line in every post state, so nothing moves. */
+#comments-review {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 24px;
+  margin-top: -4px;
+  padding: 0 4px 0 var(--comments-inset);
+  font-size: var(--cmux-diff-ui-font-size);
+}
+#comments-review-link {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cmux-diff-text-muted);
+  text-decoration: none;
+}
+#comments-review-link:hover {
+  color: var(--cmux-diff-accent);
+  text-decoration: underline;
+}
+#comments-review-link[data-posted] {
+  color: var(--cmux-diff-accent);
+}
+#comments-send-error,
+#comments-post-error {
   display: block;
   padding: 0 12px 8px;
   color: var(--cmux-diff-deletion-fg);
   font-size: var(--cmux-diff-ui-font-size);
+}
+/* gh's own reason, at most two lines: the list under it keeps its place for the retry. */
+.comments-error-reason {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--cmux-diff-text-muted);
 }
 #comments-list {
   min-height: 0;
@@ -1441,6 +1458,31 @@ body[data-loading="true"] #status::before {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--cmux-diff-text-muted);
+}
+.comment-entry-thread {
+  align-items: stretch;
+  padding: var(--grid-base) var(--grid-gap);
+}
+.comment-entry-select {
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-half-step);
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+.comment-entry-resolved,
+.comment-card-resolved {
+  opacity: 0.65;
+}
+.comment-entry-resolve {
+  align-self: flex-start;
+  margin-top: var(--grid-half-step);
 }
 .comment-composer,
 .comment-card {
@@ -1567,6 +1609,47 @@ body[data-loading="true"] #status::before {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.comment-card-resolved .comment-card-message {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.comment-card-resolved .comment-thread,
+.comment-entry-resolved .comment-thread {
+  display: none;
+}
+.comment-thread {
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-gap);
+  margin-top: 4px;
+  padding-left: var(--grid-gap);
+  border-left: 2px solid var(--cmux-diff-border);
+}
+.comment-thread-reply {
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-half-step);
+}
+.comment-thread-reply-header {
+  color: var(--cmux-diff-text-muted);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-emphasis);
+}
+.comment-thread-reply-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--cmux-diff-text-subtle);
+}
+.comment-thread-reply-button {
+  align-self: flex-start;
+  padding-left: 0;
+}
+.comment-entry-thread .comment-composer {
+  margin: var(--grid-half-step) 0 0;
+  padding: 8px;
+  box-shadow: none;
+}
 
 /* Find in diff (Cmd+F): the shared find pill (ui/findPill.css), at the top right where every
    pane's find pill sits (FindPillMetrics.inset). */
@@ -1692,6 +1775,7 @@ body[data-loading="true"] #status::before {
      an opaque window; over glass it is the file bars' film plus their blur (and Chromium's underlay,
      --cmux-diff-float-fill), so code under it frosts. */
   background: var(--cmux-diff-float-fill, color-mix(in srgb, var(--cmux-diff-fg) 4%, var(--cmux-diff-files-bg)));
+  /* one-material-allow: the diff viewer's own film (--cmux-diff-glass-filter, the file bars' blur) under the hunk pill and bulk bar, not a glass surface */
   -webkit-backdrop-filter: var(--cmux-diff-glass-filter, none);
   backdrop-filter: var(--cmux-diff-glass-filter, none);
   box-shadow:
@@ -1907,6 +1991,31 @@ svg[data-icon-fill] {
   fill: currentcolor;
   stroke: none;
 }
+/* A file's bar shows its path and its counts; its buttons show while the pointer is on the bar or
+   the keyboard is in it (a1315's cuts, 2026-11-20). A viewed file keeps its eye (it says the file is
+   done) and an open menu keeps its button. Opacity, not display, so nothing moves and Tab still
+   reaches each button. */
+.file-header
+  :is(
+    .file-review-viewed[aria-pressed="false"],
+    .file-header-menu-button:not([aria-expanded="true"]),
+    .file-review-stage,
+    .file-review-revert
+  ) {
+  opacity: 0;
+  transition: opacity var(--cmux-motion-micro) var(--cmux-ease-out);
+}
+.file-header:is(:hover, :focus-within)
+  :is(.file-review-viewed, .file-header-menu-button, .file-review-stage, .file-review-revert),
+.file-header:is(:has([data-popup-open]), :focus-within)
+  :is(.file-review-viewed, .file-header-menu-button, .file-review-stage, .file-review-revert) {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .file-header :is(.file-review-viewed, .file-header-menu-button, .file-review-stage, .file-review-revert) {
+    transition: none;
+  }
+}
 /* The page is as wide as its pane. In a narrow pane the file name keeps
    priority: the deferral badge and the "Viewed" word hide, and both stay
    reachable as tooltips on "Load diff" and the checkbox. */
@@ -1988,6 +2097,12 @@ svg[data-icon-fill] {
   display: inline-flex;
   gap: var(--ds-space-1);
 }
+/* The pill-suffix arm's "· 3/30" (diff-viewer/viewedProgress.experiment.ts). */
+.source-pill-progress {
+  color: color-mix(in lab, var(--cmux-diff-fg) 55%, var(--cmux-diff-bg));
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .source-pill-additions {
   color: light-dark(
     var(--cmux-diff-addition-text-light, var(--cmux-diff-addition-fg-light)),
@@ -2062,9 +2177,7 @@ svg[data-icon-fill] {
      geometry without drawing a second border over the glass surface. */
   border: 1px solid transparent;
   border-radius: var(--ui-popup-radius, var(--ds-radius-lg));
-  background: var(--glass-tint, color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg)));
-  -webkit-backdrop-filter: var(--surface-blur, none);
-  backdrop-filter: var(--surface-blur, none);
+  /* The tint and blur are .ui-popup.ui-glass's, the menu level every page's menus share. */
   color: var(--cmux-diff-fg);
 }
 .toolbar-menu-section {
@@ -2312,11 +2425,15 @@ svg[data-icon-fill] {
   max-height: calc(100vh - 120px);
   overflow-y: auto;
 }
+/* A row with a detail ("Hide viewed files  3 of 30 viewed") widens the menu to show both whole. */
+#options-menu.options-menu:has(.menu-item[data-detail]) {
+  width: max-content;
+  max-width: calc(100vw - 16px);
+}
 
 /* The base picker popover uses the toolbar menu surface. */
 .base-picker-popover {
   border-radius: var(--ui-popup-radius, var(--ds-radius-lg));
-  background: var(--glass-tint, color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg)));
 }
 .base-picker-search {
   padding: 9px 12px;
@@ -2352,6 +2469,8 @@ svg[data-icon-fill] {
    the code's Cmd-= zoom), a 15 px icon at 17 px, the counts and controls at
    the right edge. */
 .file-header {
+  /* The bar's gap, which its hover-only actions also use and their zero-width slot gives back. */
+  --file-header-gap: 6px;
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
@@ -2360,7 +2479,7 @@ svg[data-icon-fill] {
   padding: 0 12px 0 17px;
   font-family: var(--cmux-diff-ui-font-family);
   font-size: var(--text-field);
-  line-height: calc(20px * var(--cmux-interface-scale, 1));
+  line-height: calc(20px * var(--page-density-text, var(--cmux-interface-scale, 1)));
   /* Regular weight, as the code below it (diffWeight.ts). */
   font-weight: 400;
   color: var(--cmux-diff-fg);
@@ -2466,6 +2585,40 @@ button.file-header-open:focus-visible {
   flex: 1 1 auto;
   min-width: 4px;
 }
+/* The bar's buttons (stage, revert, "...", the eye) show only on hover, so they take no width of
+   their own: they lie over the end of the path, in a zero-width slot after the spacer (Leo,
+   2026-11-24: "if the buttons show on hover, then we should show the whole line before ellipsis-ing.
+   and when the area is hovered over, there's that whatever some amount of good fading that makes it
+   all feel like one motion"; "you're early ellipsis-ing because of a button that doesnt even always
+   show"). The path (.ui-reveal-text, ui/motion/motion.css) fades its end under them while they show
+   (ui/revealCover.ts, data-reveal-overlap: a short path never reaches them). A viewed file's eye
+   stays shown, so only then has the slot its width. */
+.file-header-actions-anchor {
+  position: relative;
+  flex: 0 0 0;
+  align-self: stretch;
+  min-width: 0;
+  /* The flex gap this slot would otherwise add. */
+  margin-inline-start: calc(-1 * var(--file-header-gap));
+}
+.file-header[data-viewed-state="viewed"] .file-header-actions-anchor {
+  flex-basis: 22px;
+  margin-inline-start: 0;
+}
+.file-header-actions {
+  position: absolute;
+  inset-inline-end: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--file-header-gap);
+}
+/* A bar with no badge or "Load diff" has no controls span to hold a gap for. */
+.file-header .file-review-controls:empty {
+  display: none;
+}
 .file-header [data-cmux-diff-metadata] {
   flex: 0 1 auto;
   min-width: 0;
@@ -2484,8 +2637,8 @@ button.file-header-open:focus-visible {
   font-size: calc(var(--cmux-diff-ui-font-size) * 0.85);
   white-space: nowrap;
 }
-/* "+N -N" then a five-block bar of the added share (FileHeader.tsx DiffStatBar), in tabular figures
-   so the counts of stacked headers line up. */
+/* "+N -N", only the counts that are not zero, in tabular figures so the counts of stacked headers
+   line up. */
 .file-header-stats {
   flex: 0 0 auto;
   display: inline-flex;
@@ -2493,23 +2646,6 @@ button.file-header-open:focus-visible {
   gap: 5px;
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
-}
-.file-header-bar {
-  display: inline-flex;
-  gap: 1.5px;
-  margin-left: 2px;
-}
-.file-header-bar > span {
-  width: 6px;
-  height: 6px;
-  border-radius: 1.5px;
-  background: var(--cmux-diff-muted-bg);
-}
-.file-header-bar > span[data-kind="added"] {
-  background: var(--cmux-diff-count-added);
-}
-.file-header-bar > span[data-kind="deleted"] {
-  background: var(--cmux-diff-count-deleted);
 }
 .file-header-additions {
   color: var(--cmux-diff-count-added);
@@ -2529,7 +2665,6 @@ button.file-header-open:focus-visible {
   justify-content: center;
   width: 22px;
   height: 22px;
-  margin-left: 6px;
   padding: 0;
   border: 0;
   border-radius: var(--ds-radius-control);

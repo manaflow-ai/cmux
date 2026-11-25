@@ -17,6 +17,7 @@
 import type { ChatMenuItem } from "./header/chatHeaderToolsModel";
 import type { CloudMachine } from "./cloudMachines";
 import { currentLanguage, type Translate } from "./i18n";
+import { intl } from "../../ui/intl";
 
 type Call = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
@@ -174,7 +175,7 @@ export function pausedInfoRows(machine: CloudMachine, t: Translate, now: number 
   ];
   if (machine.evictAt !== undefined) {
     const language = currentLanguage() || globalThis.navigator?.language || "en";
-    const date = new Intl.DateTimeFormat(language, { dateStyle: "medium" }).format(new Date(machine.evictAt));
+    const date = intl.DateTimeFormat(language, { dateStyle: "medium" }).format(new Date(machine.evictAt));
     const soon = machine.evictAt - now <= EVICT_WARN_MS;
     rows.push({
       key: "machineEvicts",

@@ -19,6 +19,7 @@
 // press or Esc goes back there. Pure: VirtualTranscript.tsx feeds it rows, offsets and acts.
 
 import type { AcpmuxRow } from "./model";
+import { trailingTimer } from "../../ui/trailingTimer";
 
 /// A place in the transcript: a row and how far into it, layout px.
 export type TranscriptPlace = { rowId: string; offset: number };
@@ -314,7 +315,8 @@ export class IdleTracker {
   private enabled = false;
   private current: IdleMark = {};
   private kept: string | undefined;
-  private timer: ReturnType<typeof setTimeout> | undefined;
+  /// One timer per quiet stretch, however many scroll frames move the place (ui/trailingTimer.ts).
+  private timer = trailingTimer(() => this.keepNow());
   /// The place row's index where it was last found (`settle`'s lookup hint).
   readonly hint = { current: -1 };
 
@@ -362,14 +364,12 @@ export class IdleTracker {
   keepSoon(): void {
     if (!this.enabled || !this.sessionId) return;
     if (JSON.stringify(keptIdle(this.current)) === this.kept) return;
-    clearTimeout(this.timer);
-    this.timer = setTimeout(() => this.keepNow(), IDLE_KEEP_MS);
+    this.timer.push(IDLE_KEEP_MS);
   }
 
   /// Keeps the stretch now when what is kept changed, and drops the write waiting.
   keepNow(): void {
-    clearTimeout(this.timer);
-    this.timer = undefined;
+    this.timer.cancel();
     if (!this.enabled || !this.sessionId) return;
     const key = JSON.stringify(keptIdle(this.current));
     if (key === this.kept) return;

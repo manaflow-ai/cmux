@@ -89,6 +89,14 @@ pub enum ToHost {
         #[serde(default)]
         values: Value,
     },
+    /// The daemon's signals cache (`cmux.watch`): watch `watch`'s entry state
+    /// `{value, status, error?, updatedAt}`, or `{fallback: true}` when the daemon does not read
+    /// that source (the runtime then reads it itself).
+    Watch {
+        watch: u64,
+        #[serde(default)]
+        state: Value,
+    },
     Run {
         cb: u64,
         export: String,
@@ -129,6 +137,24 @@ pub enum FromHost {
     },
     Unsubscribe {
         sub: u64,
+    },
+    /// Joins the daemon's signals cache entry of (`name`, `params`) as watch `watch`, for
+    /// `mount` (its wire id; absent for code outside a mount), paced by `every_seconds`.
+    Watch {
+        watch: u64,
+        name: String,
+        #[serde(default)]
+        params: Value,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mount: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        every_seconds: Option<f64>,
+    },
+    /// Leaves the entry; `refresh: true` instead asks it for a read now.
+    Unwatch {
+        watch: u64,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        refresh: bool,
     },
     Scene {
         mount: String,

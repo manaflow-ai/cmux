@@ -30,15 +30,22 @@ export const KNOWN_PROGRAMS = [
   "cursor-agent",
   "gemini",
   "grok",
+  // The Antigravity CLI (Leo 2026-11-25: "we'll want to set up antigravity/antigravity cli and opencode
+  // capable"); acpmux runs it as `agy acp` (acpmux config/discover.rs). Its updater stays off on the image
+  // (AGY_CLI_DISABLE_AUTO_UPDATE, bake.ts agyProfileScript): the lock pins the version.
+  "agy",
   "workerd",
   "gh",
   "juicefs",
+  // The compiler cache shared across one person's machines (RFD 0068 item 6). The image only installs it: a
+  // machine's RUSTC_WRAPPER and cache settings come from the platform, and only when the cache is configured.
+  "sccache",
 ] as const;
 /**
  * Programs the lock may carry but does not require yet: their release does not
  * exist, so they are pinned only once it does (cloud-automation.md section 2.2).
  */
-export const OPTIONAL_PROGRAMS = ["cmux-cua", "chrome-for-testing", "cmux-browser-host", "agent-desktop", "cmux-rd"] as const;
+export const OPTIONAL_PROGRAMS = ["cmux-cua", "chrome-for-testing", "cmux-browser-host", "agent-desktop", "cmux-rd", "optchat-chief"] as const;
 export type ProgramName = (typeof KNOWN_PROGRAMS)[number] | (typeof OPTIONAL_PROGRAMS)[number];
 
 /** Role names a program or a lock role may use (vm-image.md 4.3, cloud-automation.md 2.1). */
@@ -97,12 +104,30 @@ export type LockedProgram = Artifact & {
   readonly checksumsName?: string;
   readonly source?: string;
   readonly roles?: readonly RoleName[];
+  /** cmux-rd only: the crate version whose release is not published yet (the pin may trail the crate by that one release); cleared by the PR that pins it. */
+  readonly pendingRelease?: string;
   /** Installed into the store the first time one of its (first-use) roles starts; never baked. */
   readonly firstUse?: boolean;
   /** License and notice files (relative to the store entry) the install must find. */
   readonly notices?: readonly string[];
+  /**
+   * Helper executables (relative to the store entry) a command runs from beside itself; the install
+   * fails without each one. A program in REQUIRED_COMPANIONS must list them.
+   */
+  readonly companions?: readonly string[];
   /** The same release for the other architectures (the image itself is x86_64). */
   readonly otherArches?: Readonly<Partial<Record<OtherArch, ArchArtifact>>>;
+};
+
+/**
+ * Helpers a program's command spawns from its own folder, so the lock must carry them beside it. Codex runs
+ * every tool call through `codex-code-mode-host` next to its binary; the GitHub release tarball has only
+ * `codex`, so every Cloud Codex tool call failed with "failed to spawn code-mode host
+ * /opt/cmux/store/<sha>/codex-code-mode-host: No such file or directory" (2026-11-25). npm's
+ * `@openai/codex@<v>-linux-x64` package carries both.
+ */
+export const REQUIRED_COMPANIONS: Readonly<Partial<Record<ProgramName, readonly string[]>>> = {
+  codex: ["codex-code-mode-host"],
 };
 
 export const OTHER_ARCHES = ["aarch64"] as const;
@@ -269,6 +294,7 @@ function checkProgram(index: number, raw: unknown, seen: Set<string>, problems: 
   checkProgramRoles(where, raw.roles, problems);
   if (raw.firstUse !== undefined && typeof raw.firstUse !== "boolean") problems.push(`${where}.firstUse: must be a boolean`);
   checkNotices(where, raw.notices, problems);
+  checkCompanions(where, name, raw.bin, raw.companions, problems);
   checkOtherArches(where, raw.otherArches, problems);
   if (name === "chrome-for-testing" && typeof raw.version === "string") {
     const expected = chromeForTestingShape(raw.version).url;
@@ -281,6 +307,10 @@ function checkProgram(index: number, raw: unknown, seen: Set<string>, problems: 
     if (!Array.isArray(raw.roles) || !raw.roles.includes("desktop")) problems.push(`${where}.roles: cmux-rd is in the desktop role`);
     if (raw.firstUse === true) problems.push(`${where}.firstUse: cmux-rd is baked (its socket unit starts it on the first desktop connection)`);
   }
+  if (raw.pendingRelease !== undefined) {
+    if (name !== "cmux-rd") problems.push(`${where}.pendingRelease: only cmux-rd has a pending release`);
+    else if (typeof raw.pendingRelease !== "string" || !/^\d+\.\d+\.\d+$/.test(raw.pendingRelease)) problems.push(`${where}.pendingRelease: must be a version X.Y.Z`);
+  }
 }
 
 function checkNotices(where: string, raw: unknown, problems: string[]): void {
@@ -290,6 +320,23 @@ function checkNotices(where: string, raw: unknown, problems: string[]): void {
     return;
   }
   for (const notice of raw) if (typeof notice !== "string" || !RELATIVE_PATH.test(notice)) problems.push(`${where}.notices: ${JSON.stringify(notice)} must be a relative path inside the store entry`);
+}
+
+function checkCompanions(where: string, name: string | null | undefined, bin: unknown, raw: unknown, problems: string[]): void {
+  if (raw !== undefined && (!Array.isArray(raw) || raw.length === 0 || raw.some((c) => typeof c !== "string" || !RELATIVE_PATH.test(c)))) {
+    problems.push(`${where}.companions: must be a non-empty array of relative paths inside the store entry`);
+    return;
+  }
+  const required = name ? REQUIRED_COMPANIONS[name as ProgramName] : undefined;
+  if (!required || !isRec(bin)) return;
+  const listed = (raw as string[] | undefined) ?? [];
+  for (const target of Object.values(bin)) {
+    if (typeof target !== "string") continue;
+    const dir = target.includes("/") ? target.slice(0, target.lastIndexOf("/") + 1) : "";
+    for (const helper of required) {
+      if (!listed.includes(`${dir}${helper}`)) problems.push(`${where}.companions: ${name} spawns ${helper} from beside ${target}; list ${dir}${helper} (an archive without it breaks every tool call)`);
+    }
+  }
 }
 
 function checkOtherArches(where: string, raw: unknown, problems: string[]): void {
@@ -581,7 +628,7 @@ export function readInputsLock(file = DEFAULT_LOCK_PATH): InputsLock {
 export const ROLES_MANIFEST_PATH = "/etc/cmux/roles.json";
 
 /** A first-use program as roles.json lists it: what the installer downloads, checks and unpacks into the store. */
-export type RoleProgram = Pick<LockedProgram, "name" | "version" | "url" | "sha256" | "size" | "format" | "bin" | "fileName" | "checksumsUrl" | "checksumsName" | "notices" | "otherArches"> & { readonly storeEntry: string };
+export type RoleProgram = Pick<LockedProgram, "name" | "version" | "url" | "sha256" | "size" | "format" | "bin" | "fileName" | "checksumsUrl" | "checksumsName" | "notices" | "companions" | "otherArches"> & { readonly storeEntry: string };
 
 export type RoleManifestEntry = {
   readonly default: "on" | "off";
@@ -626,6 +673,7 @@ export function rolesManifest(lock: InputsLock): RolesManifest {
         ...(p.fileName ? { fileName: p.fileName } : {}),
         ...(p.checksumsUrl ? { checksumsUrl: p.checksumsUrl, checksumsName: p.checksumsName } : {}),
         ...(p.notices ? { notices: p.notices } : {}),
+        ...(p.companions ? { companions: p.companions } : {}),
         ...(p.otherArches ? { otherArches: p.otherArches } : {}),
         storeEntry: storeEntry(p.sha256),
       }));
@@ -717,9 +765,36 @@ export function storeEntry(sha256: string): string {
 }
 
 /** What an install needs from a lock program or a roles.json first-use program. */
-export type InstallableProgram = Pick<LockedProgram, "name" | "version" | "url" | "sha256" | "size" | "format" | "bin" | "fileName" | "checksumsUrl" | "checksumsName" | "notices">;
+export type InstallableProgram = Pick<LockedProgram, "name" | "version" | "url" | "sha256" | "size" | "format" | "bin" | "fileName" | "checksumsUrl" | "checksumsName" | "notices" | "companions">;
 
-/** Download, verify (sha256 and size) and unpack one program into its immutable store entry. */
+/**
+ * Download, verify (sha256 and size) and unpack one program into its immutable store entry. The download resumes:
+ * a run the guest's 5-minute exec cap stopped (status 124) leaves its partial file in /tmp/cmux-dl, and the next run
+ * continues it (`curl -C -`) or skips it once it is whole; a whole file whose sha256 is wrong is removed, so the next
+ * run starts over. installStoreProgram runs the command again.
+ */
+/**
+ * Executables a program spawns from the folder of its own binary, by command. The install refuses
+ * a store entry without them, so an asset that ships the binary alone fails the bake instead of
+ * every chat. Codex 0.160 runs every tool through codex-code-mode-host next to codex (codex-rs
+ * install-context code_mode_host_program); its plain release tarball carries only codex, so the
+ * lock pins the codex-package tarball that has both.
+ */
+export const SPAWNED_SIBLINGS: Readonly<Partial<Record<ProgramName, Readonly<Record<string, readonly string[]>>>>> = {
+  codex: { codex: ["codex-code-mode-host"] },
+};
+
+/** The spawned siblings of a program, as paths inside its store entry. */
+export function siblingPaths(program: Pick<LockedProgram, "name" | "bin">): string[] {
+  const byCommand = SPAWNED_SIBLINGS[program.name] ?? {};
+  return Object.entries(byCommand).flatMap(([command, siblings]) => {
+    const target = program.bin[command];
+    if (target === undefined) throw new Error(`${program.name}: no bin.${command} to find ${siblings.join(", ")} next to`);
+    const dir = path.posix.dirname(target);
+    return siblings.map((sibling) => (dir === "." ? sibling : `${dir}/${sibling}`));
+  });
+}
+
 export function programInstallCommand(program: InstallableProgram): string {
   const entry = storeEntry(program.sha256);
   const dl = `/tmp/cmux-dl/${program.sha256}`;
@@ -736,13 +811,15 @@ export function programInstallCommand(program: InstallableProgram): string {
   return [
     `mkdir -p /tmp/cmux-dl ${STORE_DIR}`,
     `rm -rf ${stage} && mkdir -p ${stage}`,
-    `curl -fsSL --retry 3 -o ${dl} ${sq(program.url)}`,
-    `${checksums}printf '%s  %s\\n' ${program.sha256} ${dl} | sha256sum -c --quiet -`,
+    `{ test "$(stat -c %s ${dl} 2>/dev/null)" = ${program.size} || curl -fsSL --retry 3 -C - -o ${dl} ${sq(program.url)}; }`,
+    `${checksums}{ printf '%s  %s\\n' ${program.sha256} ${dl} | sha256sum -c --quiet - || { rm -f ${dl}; false; }; }`,
     `test "$(stat -c %s ${dl})" = ${program.size}`,
     program.format === "npm" ? `mv ${dl} ${dl}.tgz` : "true",
     unpack,
     ...Object.values(program.bin).map((target) => `test -x ${stage}/${target}`),
+    ...siblingPaths(program).map((sibling) => `test -x ${stage}/${sibling}`),
     ...(program.notices ?? []).map((notice) => `test -s ${stage}/${notice}`),
+    ...(program.companions ?? []).map((helper) => `test -x ${stage}/${helper}`),
     `chmod -R a-w ${stage}`,
     `rm -rf ${entry} && mv ${stage} ${entry}`,
     `rm -f ${dl} ${dl}.tgz ${dl}.sums`,

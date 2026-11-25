@@ -21,7 +21,7 @@ use wait_timeout::ChildExt;
 #[cfg(all(unix, feature = "tailnet"))]
 pub mod embedded;
 #[cfg(all(unix, feature = "tailnet"))]
-pub(crate) mod embedded_service;
+pub mod embedded_join;
 
 /// How long one CLI call may take (status on a large tailnet is the
 /// slowest, about 100 ms measured on a 150-peer tailnet).
@@ -31,9 +31,27 @@ const PROBE_BOUND: Duration = Duration::from_secs(3);
 /// Largest CLI output read (a 2,000-peer status is about 4 MiB).
 const MAX_OUTPUT: u64 = 32 * 1024 * 1024;
 
+/// How this machine reaches a tailnet node right now, as `tailscale status --json` says:
+/// `CurAddr` is the direct UDP endpoint tailscaled settled on, `PeerRelay` a Tailscale peer
+/// relay, `Relay` the DERP region it falls back to.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PeerPath {
+    /// `CurAddr` is set: a direct WireGuard path (no relay in it).
+    Direct,
+    /// Through a Tailscale peer relay node.
+    PeerRelay,
+    /// No direct address, a DERP region carries the traffic.
+    Derp,
+    /// Idle node, or a status without path fields.
+    #[default]
+    Unknown,
+}
+
 /// One node of the tailnet as `tailscale status --json` reports it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Node {
+    /// The path from this machine to the node (`Unknown` for this machine's own node).
+    pub path: PeerPath,
     /// The OS host name (`HostName`).
     pub host_name: String,
     /// The MagicDNS name without the trailing dot, or empty.
@@ -195,6 +213,15 @@ impl Tailnet {
         parse_status(&raw)
     }
 
+    /// Publishes `127.0.0.1:<port>` over HTTPS on this node's tailnet name (port 443), in the
+    /// background (`tailscale serve --bg`): tailscaled holds the certificate and the proxy, so
+    /// the daemon's loopback listener never has to bind a network address. It replaces what
+    /// `tailscale serve` already shows on 443.
+    pub fn serve_https_to_loopback(&self, port: u16) -> anyhow::Result<()> {
+        let target = format!("http://127.0.0.1:{port}");
+        self.run(&["serve", "--bg", "--https=443", &target]).map(|_| ())
+    }
+
     pub fn whois(&self, ip: IpAddr) -> anyhow::Result<Identity> {
         let raw = self.run(&["whois", "--json", &ip.to_string()])?;
         parse_whois(&raw)
@@ -254,7 +281,18 @@ fn node(value: &Value, users: &HashMap<u64, String>) -> Node {
     } else {
         None
     };
+    let relay_node = value["PeerRelay"].as_str().is_some_and(|r| !r.is_empty());
+    let path = if value["CurAddr"].as_str().is_some_and(|a| !a.is_empty()) {
+        PeerPath::Direct
+    } else if relay_node {
+        PeerPath::PeerRelay
+    } else if value["Relay"].as_str().is_some_and(|r| !r.is_empty()) {
+        PeerPath::Derp
+    } else {
+        PeerPath::Unknown
+    };
     Node {
+        path,
         host_name: value["HostName"].as_str().unwrap_or_default().to_owned(),
         dns_name: trim_dot(value["DNSName"].as_str().unwrap_or_default()),
         os: value["OS"].as_str().unwrap_or_default().to_owned(),

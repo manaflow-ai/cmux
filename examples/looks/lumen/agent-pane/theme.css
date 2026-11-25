@@ -1,0 +1,17 @@
+/* Lumen's chat: fill is the only lever. Cards are a faint fill of the text's own colour with no outline, the
+   prompt bubble a 14% fill (at least 1.30:1 against the page in both themes), secondary and dim text both at 74% of the text (anything lower
+   fails on a selected row), links are the accent a step toward the text.
+   Only cmux.agentPane.style/1 tokens (schemas/agent-pane/style-tokens.json), on :root: paint, so
+   nothing in the transcript moves. Every colour is mixed from the theme's own, so one file reads
+   over Lumen and Lumen Light. */
+:root {
+  --cv-text-muted: color-mix(in srgb, var(--agent-text) 74%, transparent);
+  --cv-text-dim: color-mix(in srgb, var(--agent-text) 74%, transparent);
+  --cv-card-fill: color-mix(in srgb, var(--agent-text) 5%, transparent);
+  --cv-card-ring: transparent;
+  --cv-user-bubble-tint: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  --cv-user-bubble-edge: transparent;
+  --cv-user-bubble-radius: 12px;
+  --cv-link: color-mix(in srgb, var(--agent-accent) 85%, var(--agent-text));
+  --agent-link: color-mix(in srgb, var(--agent-accent) 85%, var(--agent-text));
+}

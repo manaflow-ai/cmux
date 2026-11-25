@@ -32,6 +32,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp  # noqa: E402
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -170,8 +171,9 @@ try:
         # One text typed on, as a person writes, so every key is a keydown into the field and its rows.
         text = (TYPED * (opts.typing_keys // len(TYPED) + 1))[: opts.typing_keys]
         type_text(text, opts.key_gap)
-        time.sleep(1)  # the last key's frame and paint (harness, not app code)
-        stats = page("typing_stats")
+        # The last key's frame and paint: the page's typing stats stop changing.
+        stats = wait_stable(lambda: page("typing_stats"), "the page's typing stats", timeout=10, interval=0.1,
+                            raise_on_timeout=False) or page("typing_stats")
         stats.pop("native_posts", None)
         json.dump(stats, open(os.path.join(OUT, "typing.json"), "w"), indent=2)
         check("typing counter counted the keys", (stats.get("keys") or 0) >= opts.typing_keys * 0.9, json.dumps(stats)[:600])

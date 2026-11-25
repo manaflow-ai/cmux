@@ -91,9 +91,6 @@ impl Brain {
         // The turn that starts now takes the cut turn's resume note: its
         // hold (a backoff, or a network cut's wait) is over.
         self.resume_at = None;
-        // What the shared screen showed since the last turn joins the log
-        // first, so this turn's delta carries it (screen_share.rs).
-        self.ingest_screen_share();
         if self.state.stopped_reply.take().is_some() {
             self.save();
         }
@@ -193,6 +190,7 @@ impl Brain {
                 let Ok(Some(start)) = start.recv() else {
                     return;
                 };
+                let engine = start.engine_override.clone().unwrap_or(engine);
                 let outcome = match &engine {
                     Engine::Acpmux => {
                         let progress = |session_id: &str, after: u64| {
@@ -387,6 +385,7 @@ impl Brain {
         let (items, rest): (Vec<Queued>, Vec<Queued>) =
             self.queue.drain(..).partition(|q| q.conversation == side);
         self.queue.extend(rest);
+        self.turn_from_automation = items.iter().any(super::automations::is_automation_note);
         // The messages, their bookkeeping (floors, children) and the pending
         // turn commit together: a crash leaves all of it or none of it, so a
         // restart never logs a message twice and never loses one.
@@ -400,7 +399,21 @@ impl Brain {
         let family = self.family_of(&engine.harness);
         // The cached layout on a Claude harness whose acpmux takes a preset
         // system prompt; else the view and the messages as blocks.
-        let (cached, plain_preset) = self.harness_presets(&engine.harness, family);
+        let engine_override = self.gateway.as_ref().and_then(|gateway| {
+            gateway.refresh();
+            matches!(
+                gateway.route(),
+                crate::gateway::GatewayRoute::DirectAnthropic
+            )
+            .then(|| self.fallback_engine.clone())
+            .flatten()
+        });
+        self.turn_gateway_fallback = engine_override.is_some();
+        let (cached, plain_preset) = if engine_override.is_some() {
+            (None, None)
+        } else {
+            self.harness_presets(&engine.harness, family)
+        };
         let marker = self.marker_refused.take();
         let ttl = self.turn_cache_ttl();
         // Our marks (spec 5a.2): the `<chat>` header, the frozen view's end and
@@ -427,6 +440,9 @@ impl Brain {
         self.turn_landed.clear();
         self.turn_posts.clear();
         self.landed_refused = false;
+        // The person wrote: the loop guard's hold ends, and what it kept
+        // from being told goes in this turn (budget_hold.rs).
+        let held_news = self.end_budget_hold(side.as_deref(), &items);
         let done = self.log_items(&items, move |next, done| {
             next.carry_answers.clear();
             let first = done.ids.first().copied().unwrap_or(first_id);
@@ -582,14 +598,36 @@ impl Brain {
         // every turn, so a file saved in the last turn holds in this one.
         // In another person's turn, only the open loops.
         let (memory, memory_seen) = self.turn_memory_block();
+        // The Cloud computer the owner attached (engine.json `computer`, read
+        // now like the turn's engine): one line, never in the cached prompt.
+        let computer = self
+            .settings
+            .engine_file
+            .as_deref()
+            .map(crate::engine::load)
+            .as_ref()
+            .and_then(crate::engine::computer_line);
+        // What to check at this turn's start and end (chief_kernel::TURN_CHECKS)
+        // and the user's turn-start digest (`chief.turnStart`, turn_start.rs,
+        // bounded at 8 s): last, after the delta, so the cached prefix is unchanged
+        // and the checks are the newest words the turn reads.
+        let checks = Some(format!(
+            "<turn-checks>\n{}\n</turn-checks>",
+            chief_kernel::TURN_CHECKS.trim()
+        ));
+        let turn_start = crate::turn_start::block();
         // The person's Home workspace as it is now: after the view, never logged.
         let tail: Vec<String> = now
             .iter()
             .chain(memory.iter())
             .chain(at_work.iter())
             .chain(open_items.iter())
+            .chain(held_news.iter())
+            .chain(computer.iter())
             .chain(home.iter())
             .chain(resumes.iter())
+            .chain(turn_start.iter())
+            .chain(checks.iter())
             .cloned()
             .collect();
         // Spec 5a: the frozen view and the delta after it (this turn's new
@@ -771,8 +809,26 @@ impl Brain {
         if let Some(line) = &at_work {
             layout["at_work"] = serde_json::json!(line);
         }
+        if let Some(line) = &computer {
+            layout["computer"] = serde_json::json!(line);
+        }
         if let Some(block) = &home {
             layout["home_workspace"] = serde_json::json!(block);
+        }
+        // The rest of the tail, in the order it was sent (open items and held
+        // news after the subagents-at-work line, the turn-start digest and
+        // the turn checks last), so the inspector sends the same bytes again.
+        if let Some(block) = &open_items {
+            layout["open_items"] = serde_json::json!(block);
+        }
+        if let Some(block) = &held_news {
+            layout["held_news"] = serde_json::json!(block);
+        }
+        if let Some(block) = &turn_start {
+            layout["turn_start"] = serde_json::json!(block);
+        }
+        if let Some(block) = &checks {
+            layout["turn_checks"] = serde_json::json!(block);
         }
         if keep {
             layout["kept"] = serde_json::json!({
@@ -846,6 +902,8 @@ impl Brain {
             keep,
             retire,
             permission_mode: permission_mode.map(str::to_owned),
+            gateway: self.gateway.clone(),
+            engine_override,
         })
     }
 
@@ -992,6 +1050,9 @@ impl Brain {
     /// turn's own. False: the write failed (the host stops).
     pub(super) fn log_delivered(&mut self, items: &[Queued]) -> bool {
         self.taint_approval(items);
+        if items.iter().any(super::automations::is_automation_note) {
+            self.turn_from_automation = true;
+        }
         let at = self.chat.status().messages;
         let batch: Vec<Item> = items.iter().map(item).collect();
         let answers = self.answers_of(items);
@@ -1460,7 +1521,45 @@ impl Brain {
         true
     }
 
+    /// A turn whose harness reported tokens but no dollars is priced from the shared table
+    /// (turn_price.rs): its engine's model, else a brain's home model.
+    fn price_unpriced(&self, outcome: &mut TurnOutcome) {
+        if outcome.stats.cost.is_some() {
+            return;
+        }
+        let Some((usage, _)) = outcome.stats.totals.as_ref() else {
+            return;
+        };
+        let engine = self.turn_engine.as_ref();
+        let model = engine.and_then(|e| e.model.clone()).or_else(|| {
+            engine
+                .filter(|e| self.settings.brains.get(&e.harness).is_some())
+                .and_then(|_| self.settings.brains.model.clone())
+        });
+        outcome.stats.cost = model.and_then(|m| crate::turn_price::price(&m, usage));
+    }
+
     pub(super) fn turn_ended(&mut self, key: &str, mut outcome: TurnOutcome) {
+        self.price_unpriced(&mut outcome);
+        let claude_turn = self
+            .turn_engine
+            .as_ref()
+            .is_some_and(|engine| self.family_of(&engine.harness) == crate::acpmux::Family::Claude);
+        if claude_turn
+            && !self.turn_gateway_fallback
+            && outcome
+                .error
+                .as_deref()
+                .is_some_and(crate::gateway::is_refusal)
+            && let Some(gateway) = &self.gateway
+        {
+            let _ = gateway.record_refusal(key, outcome.error.as_deref().unwrap_or_default());
+        }
+        if let Some(gateway) = &self.gateway
+            && let Some(text) = gateway.take_notice()
+        {
+            self.notice("gateway-wide".into(), text);
+        }
         // A failed turn on an open-source brain is cut and runs again on the default harness
         // (turn_engine_choice), so the person's message still gets its answer.
         // A lost acpmux link is no fault of the brain: that cut runs again on the brain.
@@ -1609,6 +1708,25 @@ impl Brain {
                 "turn {key} ended by the Chief's stop: nothing more posted"
             ));
         }
+        // A refused turn names the person's last message it answers and how many refused in a row.
+        let refused_post = outcome.refused && !(quiet || tool_stopped || unstarted);
+        self.refused_in_row = if refused_post {
+            self.refused_in_row.saturating_add(1)
+        } else {
+            0
+        };
+        let asked = self
+            .state
+            .turn
+            .as_ref()
+            .filter(|t| t.key == key && refused_post)
+            .and_then(|t| {
+                t.answers
+                    .iter()
+                    .rev()
+                    .find_map(|id| self.state.awaiting.iter().find(|a| &a.id == id))
+            })
+            .map(|a| a.preview.clone());
         let text = if ((stalled && !held) || hung_after_run) && !(quiet || tool_stopped) {
             UNSTARTED_TEXT.to_owned()
         } else {
@@ -1616,7 +1734,9 @@ impl Brain {
                 outcome.reply,
                 outcome.error,
                 quiet || tool_stopped || unstarted,
-                outcome.refused,
+                outcome
+                    .refused
+                    .then_some((asked.as_deref(), self.refused_in_row)),
                 &failed,
             )
         };
@@ -2337,16 +2457,18 @@ fn ended_turn_text(
     reply: Option<String>,
     error: Option<String>,
     quiet: bool,
-    refused: bool,
+    refused: Option<(Option<&str>, u32)>,
     failed: &str,
 ) -> String {
-    match (reply, error) {
+    match (reply, error, refused) {
         _ if quiet => String::new(),
-        (None, Some(error)) if refused => format!("(turn {error})"),
-        (Some(reply), Some(error)) => format!("{reply}\n\n({failed}: {error})"),
-        (Some(reply), None) => reply,
-        (None, Some(error)) => format!("({failed}: {error})"),
-        (None, None) => String::new(),
+        (None, Some(error), Some((asked, in_row))) => {
+            crate::harness_gate::refused_reply(&error, asked, in_row)
+        }
+        (Some(reply), Some(error), _) => format!("{reply}\n\n({failed}: {error})"),
+        (Some(reply), None, _) => reply,
+        (None, Some(error), None) => format!("({failed}: {error})"),
+        (None, None, _) => String::new(),
     }
 }
 
@@ -2386,7 +2508,7 @@ mod ended_turn_text_tests {
     #[test]
     fn owner_stopped_turn_posts_nothing() {
         for reply in [None, Some("Let me check.".to_owned())] {
-            let text = ended_turn_text(reply, Some("cancelled".into()), true, false, "turn failed");
+            let text = ended_turn_text(reply, Some("cancelled".into()), true, None, "turn failed");
             assert_eq!(text, "");
             assert!(!text.contains("turn stopped"));
         }
@@ -2395,11 +2517,11 @@ mod ended_turn_text_tests {
     #[test]
     fn failures_and_replies_still_post() {
         assert_eq!(
-            ended_turn_text(Some("hi".into()), None, false, false, "turn failed"),
+            ended_turn_text(Some("hi".into()), None, false, None, "turn failed"),
             "hi"
         );
         assert_eq!(
-            ended_turn_text(None, Some("boom".into()), false, false, "turn failed"),
+            ended_turn_text(None, Some("boom".into()), false, None, "turn failed"),
             "(turn failed: boom)"
         );
         assert_eq!(
@@ -2407,14 +2529,20 @@ mod ended_turn_text_tests {
                 Some("a".into()),
                 Some("boom".into()),
                 false,
-                false,
+                None,
                 "turn failed"
             ),
             "a\n\n(turn failed: boom)"
         );
         assert_eq!(
-            ended_turn_text(None, Some("refused".into()), false, true, "x"),
-            "(turn refused)"
+            ended_turn_text(
+                None,
+                Some("refused: Chief couldn't start this reply. Send again.".into()),
+                false,
+                Some((Some("hello?"), 2)),
+                "x"
+            ),
+            "Still can't answer “hello?” (2 in a row). Send again."
         );
     }
 }

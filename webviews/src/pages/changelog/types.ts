@@ -135,4 +135,4 @@ export type SheetLayout = "inline" | "stack" | "grid";
 export type SheetLinks = "hover" | "end" | "row";
 /** How a highlight's before/after pair shows (MediaCompare.tsx; the route's `compare=`, for the
     gallery): a split the person drags (default), the two side by side, or a Before / After toggle. */
-export type CompareMode = "slider" | "side" | "toggle";
+export type { CompareMode } from "../../ui/MediaCompare";

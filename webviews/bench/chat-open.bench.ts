@@ -9,6 +9,11 @@
 //   latest     the newest message ("Answer N:") painted;
 //   settled    nothing moved for 400 ms after that: no long task or layout shift, and the scroller's
 //              position and height unchanged.
+//   first_contentful_paint  the browser's first-contentful-paint entry: the web app's first paint of anything
+//              (Leo, 2026-11-22: "we also need startup times of the app to keep hill climbing"). Its row's p50 is
+//              the rounds' median and its p95 their nearest-rank 95th percentile; each round also prints the HTML's
+//              responseEnd and DOMContentLoaded beside it, so the cost before the first paint splits into fetch and
+//              script.
 // The stages that follow `attach` are the page's own: parse, first render and layout passes.
 // Long tasks (count, total) and the layout-shift sum cover the whole load; the transcript's scroll drift
 // after `latest` says how much the page still moved after the newest messages appeared.
@@ -27,10 +32,24 @@
 // chat_open.calibration_ms (chat_open.god.calibration_ms when FIXTURE=god), and each chat's
 // chat_open.<rail>.attach_to_latest_per_calibration is the median of each round's attach_to_latest over that round's
 // calibration, unit x: the page's own work in units of the runner's speed, which holds where the raw ms tracks the
-// runner. The raw ms rows stay as they were.
+// runner. The raw ms rows stay as they were. With PAIRED=1 each chat also has chat_open_paired[.god].<rail>.*: the
+// same rounds' attach_to_latest (ms) and its median over each load's own DOMContentLoaded (attach_per_dcl, unit x).
+// COMPOSER=1 (goal startup-every-path; Leo 2026-11-22: "percieved time and percieved interactive time") also types one
+// letter into the chat's composer as soon as its field is in the document and editable, and marks, from navigation start:
+//   composer_ready        the field is first in the document and editable (a MutationObserver from the first byte);
+//   composer_interactive  the frame after the letter echoed in the field (its text holds it), so the key was accepted.
+// The letter lands mid-load, so layout shifts in the 500 ms after it are the browser's hadRecentInput ones and leave the
+// shift sum: the web-ui part runs without it. Its rows (and dom_content_loaded and first_row) also carry `samples`, each
+// round's value, which cmuxterm-hq's web-startup probe reads for its p50 and p95.
 // PROFILE=1 adds a CPU profile of one load and prints the functions with the most self time between
 // navigation and the newest message plus 500 ms. The build is then unminified (so functions keep their
-// names) and every timed round runs on it, so the stage times are not the production build's.
+// names) and every timed round runs on it, so the stage times are not the production build's. It also prints
+// the stretch from the attach's answer to the newest message: busy and idle ms, a task timeline (React phase or
+// outermost page function), the idle stretches, the time by React phase and component, self time by file, and the
+// functions by self and total time.
+// TRACE=1 logs the page's socket and fetches, the transcript rows mounted and unmounted per DOM mutation batch
+// (about one per commit) and the frames.
+// PANE_OUT=dir builds the pane into dir once and reuses it on later runs (bench/chat-open-ab.sh).
 /// <reference types="bun" />
 import fs from "node:fs";
 import os from "node:os";
@@ -48,6 +67,7 @@ import {
   roundOrder,
 } from "./runnerCalibration";
 import { sourceMapper } from "./sourceMapper";
+import { sharedPaneDir } from "./support/sharedBuilds";
 
 const ROUNDS = Number(process.argv[2] ?? 7);
 const TURNS = Number(process.argv[3] ?? 300);
@@ -58,6 +78,13 @@ if (PAIRED && FIXTURE !== "god")
 const CALIBRATION_PATH = "/__calibration.html";
 /// The stage rows marked with nextFrame (in the page script below), whose measure changed in version 3.
 const NEXT_FRAME_STAGES: ReadonlySet<string> = new Set(["first_row", "latest", "attach_to_latest"]);
+/// COMPOSER=1: the stage rows that carry each round's value (`samples`), for the web-startup probe's p50 and p95.
+const SAMPLED_STAGES: ReadonlySet<string> = new Set([
+  "dom_content_loaded",
+  "first_row",
+  "composer_ready",
+  "composer_interactive",
+]);
 /// LATENCY=ms delays every answer, as a busy daemon or the app's bridge does (chat-switch.bench.ts):
 /// the open's serial round trips before its newest message show as multiples of it.
 const LATENCY = Number(process.env.LATENCY ?? 0);
@@ -70,6 +97,12 @@ if (REMOTE_TAIL !== undefined && REMOTE_TAIL !== "present" && REMOTE_TAIL !== "a
 const PEER_CONNECT_MS = REMOTE_TAIL ? Number(process.env.PEER_CONNECT_MS ?? 2000) : 0;
 if (!Number.isFinite(PEER_CONNECT_MS) || PEER_CONNECT_MS < 0) throw new Error("PEER_CONNECT_MS must be non-negative");
 const REVEAL = process.env.REVEAL === "1";
+const COMPOSER = process.env.COMPOSER === "1";
+/// The chat's composer field (composer-typing.bench.ts's PROMPT).
+const COMPOSER_FIELD =
+  ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
+/// The letter COMPOSER=1 types; the field's text must hold it.
+const COMPOSER_KEY = "q";
 if (REVEAL && FIXTURE === "god")
   throw new Error("REVEAL=1 reveals a row of the TURNS-turn chat; run it without FIXTURE=god");
 if (PAIRED && REMOTE_TAIL) throw new Error("PAIRED=1 measures local chats; run REMOTE_TAIL without it");
@@ -229,18 +262,24 @@ try {
     },
   ]);
 
-  const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "chat-open-bench-"));
-  releases.push(["pane build", () => fs.rmSync(out, { recursive: true, force: true })]);
+  // PANE_OUT=dir keeps the pane's build there and takes one already in it, so a harness that runs the
+  // bench many times on one checkout (bench/chat-open-ab.sh) builds each side once.
+  // Under bench/web-ui-suite.ts, the suite's one pane build of the run (bench/support/sharedBuilds.ts).
+  const variant = process.env.PROFILE === "1";
+  const keptOut = process.env.PANE_OUT ? path.resolve(process.env.PANE_OUT) : sharedPaneDir({ variant });
+  const out = keptOut ?? fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "chat-open-bench-"));
+  if (!keptOut) releases.push(["pane build", () => fs.rmSync(out, { recursive: true, force: true })]);
   const { build } = await import("vite");
-  await build({
-    configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: {
-      outDir: out,
-      emptyOutDir: true,
-      ...(process.env.PROFILE === "1" ? { minify: false, sourcemap: true } : {}),
-    },
-    logLevel: "error",
-  });
+  if (!keptOut || !fs.existsSync(path.join(out, "index.html")))
+    await build({
+      configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+      build: {
+        outDir: out,
+        emptyOutDir: true,
+        ...(variant ? { minify: false, sourcemap: true } : {}),
+      },
+      logLevel: "error",
+    });
   const statics = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -253,7 +292,7 @@ try {
     },
   });
   releases.push(["static server", () => statics.stop(true)]);
-  const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${PAPERCUT_CHAT}`;
+  const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${PAPERCUT_CHAT}`;
   const browser = await chromium.launch({
     headless: true,
   });
@@ -293,6 +332,8 @@ try {
     initialize: number;
     watch: number;
     dcl: number;
+    fcp: number;
+    responseEnd: number;
     scriptKiB: number;
     scripts: string[];
     forced: {
@@ -303,6 +344,8 @@ try {
       byClass: Record<string, number>;
       log: string[];
     };
+    composerReady: number;
+    composerInteractive: number;
   };
   const open = async (rail = "compact"): Promise<Round> => {
     const page = await browser.newPage({
@@ -312,6 +355,27 @@ try {
     await page.addInitScript((rail) => {
       localStorage.setItem("cmux.experiments", JSON.stringify({ "thread-minimap-layout": rail }));
     }, rail);
+    if (COMPOSER)
+      await page.addInitScript(
+        ([field, key]) => {
+          const marks = { ready: 0, interactive: 0 };
+          (window as unknown as { __composer: typeof marks }).__composer = marks;
+          const check = () => {
+            const editable = document.querySelector(field);
+            if (!marks.ready && editable) marks.ready = performance.now();
+            if (!marks.interactive && editable?.textContent?.includes(key))
+              requestAnimationFrame(() => (marks.interactive ||= performance.now()));
+          };
+          new MutationObserver(check).observe(document, {
+            subtree: true,
+            childList: true,
+            characterData: true,
+            attributes: true,
+            attributeFilter: ["contenteditable"],
+          });
+        },
+        [COMPOSER_FIELD, COMPOSER_KEY] as const,
+      );
     await page.addInitScript(
       ([latestText, instrument, hostLatency, remoteTail, diskSnapshot]) => {
         if (hostLatency > 0)
@@ -422,6 +486,120 @@ try {
             trace.push(`${performance.now().toFixed(0)} fetch ${what}`);
             return fetched(input, init).finally(() => trace.push(`${performance.now().toFixed(0)} fetched ${what}`));
           }, fetched);
+          // Transcript rows mounted and unmounted, per DOM mutation batch (about one per commit), and the
+          // frames: which rows each commit built, and whether a frame painted between them.
+          const rowsIn = (nodes: NodeList) => {
+            let count = 0;
+            for (const node of nodes)
+              if (node instanceof Element)
+                count += (node.matches("[data-row-id]") ? 1 : 0) + node.querySelectorAll("[data-row-id]").length;
+            return count;
+          };
+          new MutationObserver((records) => {
+            let added = 0;
+            let removed = 0;
+            for (const record of records) {
+              added += rowsIn(record.addedNodes);
+              removed += rowsIn(record.removedNodes);
+            }
+            if (added || removed) trace.push(`${performance.now().toFixed(1)} rows +${added} -${removed}`);
+          }).observe(document, { childList: true, subtree: true });
+          let frames = 0;
+          const frame = () => {
+            if (frames++ < 120) {
+              trace.push(`${performance.now().toFixed(1)} frame`);
+              requestAnimationFrame(frame);
+            }
+          };
+          requestAnimationFrame(frame);
+          // Each React commit (a devtools hook, as React DOM looks for one at load): how many components
+          // rendered, the busiest by count, and every state hook whose value changed, by component: what
+          // asked for the commit. Only the commits that mount or update transcript rows' parents matter here,
+          // so the first 40 commits are logged.
+          type Fiber = {
+            tag: number;
+            type: unknown;
+            flags: number;
+            alternate: Fiber | null;
+            child: Fiber | null;
+            sibling: Fiber | null;
+            memoizedState: unknown;
+          };
+          type Hook = { memoizedState: unknown; queue: unknown; next: Hook | null };
+          const nameOf = (fiber: Fiber): string => {
+            let type = fiber.type as { displayName?: string; name?: string; type?: unknown; render?: unknown } | null;
+            if (type && typeof type === "object" && "type" in type) type = type.type as typeof type;
+            if (type && typeof type === "object" && "render" in type) type = type.render as typeof type;
+            return (type && (type.displayName || type.name)) || "?";
+          };
+          let commits = 0;
+          (window as unknown as { __REACT_DEVTOOLS_GLOBAL_HOOK__: unknown }).__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
+            isDisabled: false,
+            supportsFiber: true,
+            renderers: new Map(),
+            inject: () => 1,
+            onScheduleFiberRoot: () => {},
+            onCommitFiberUnmount: () => {},
+            onPostCommitFiberRoot: () => {},
+            onCommitFiberRoot: (_id: number, root: { current: Fiber }) => {
+              if (commits++ >= 40) return;
+              const rendered = new Map<string, number>();
+              const changed: string[] = [];
+              const walk = (fiber: Fiber | null) => {
+                for (let at = fiber; at; at = at.sibling) {
+                  const component = at.tag === 0 || at.tag === 1 || at.tag === 11 || at.tag === 14 || at.tag === 15;
+                  // PerformedWork (1): this fiber rendered in this commit.
+                  if (component && (at.flags & 1 || !at.alternate)) {
+                    const name = nameOf(at);
+                    rendered.set(name, (rendered.get(name) ?? 0) + 1);
+                    if (at.alternate && at.tag !== 1) {
+                      let hook = at.memoizedState as Hook | null;
+                      let was = at.alternate.memoizedState as Hook | null;
+                      let index = 0;
+                      while (hook && was) {
+                        if (
+                          hook.queue &&
+                          hook.memoizedState !== was.memoizedState &&
+                          typeof hook.memoizedState !== "function"
+                        )
+                          changed.push(
+                            /^(TranscriptView|ThreadMinimapView|ThreadMinimap)$/.test(name)
+                              ? `${name}#${index}=${String(JSON.stringify(was.memoizedState) ?? was.memoizedState).slice(0, 40)}->${String(JSON.stringify(hook.memoizedState) ?? hook.memoizedState).slice(0, 40)}`
+                              : `${name}#${index}`,
+                          );
+                        hook = hook.next;
+                        was = was.next;
+                        index += 1;
+                      }
+                    }
+                  }
+                  // A subtree React skipped keeps the fibers (and flags) of the commit that last rendered it:
+                  // its children are the same objects as the alternate's, so it is not walked.
+                  if (!at.alternate || at.child !== at.alternate.child) walk(at.child);
+                }
+              };
+              walk(root.current.child);
+              let total = 0;
+              for (const count of rendered.values()) total += count;
+              const busiest = [...rendered]
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 6)
+                .map(([n, c]) => `${n}x${c}`);
+              trace.push(
+                `${performance.now().toFixed(1)} commit ${commits}: ${total} rendered (${busiest.join(" ")}); state changed: ${
+                  [
+                    ...changed.reduce(
+                      (counts, key) => counts.set(key, (counts.get(key) ?? 0) + 1),
+                      new Map<string, number>(),
+                    ),
+                  ]
+                    .map(([key, count]) => (count > 1 ? `${key}x${count}` : key))
+                    .slice(0, 24)
+                    .join(" ") || "-"
+                }`,
+              );
+            },
+          };
         }
         const state = {
           firstRow: 0,
@@ -517,7 +695,20 @@ try {
     calls = [];
     socketOpenedAt = 0;
     const started = Date.now();
-    await page.goto(url);
+    // COMPOSER=1: the letter goes in as soon as the field exists, while the page still loads.
+    const typed = COMPOSER
+      ? page.goto(url, { waitUntil: "commit" }).then(async () => {
+          const field = await page.waitForSelector(COMPOSER_FIELD, { timeout: 120_000 });
+          await field.focus();
+          await page.keyboard.type(COMPOSER_KEY);
+          await page.waitForFunction(
+            () => (window as unknown as { __composer: { interactive: number } }).__composer.interactive > 0,
+            null,
+            { timeout: 60_000 },
+          );
+        })
+      : page.goto(url);
+    await typed;
     await page.waitForFunction(
       (remoteTail) => {
         const state = (window as unknown as { __open: { latest: number; activity: number } }).__open;
@@ -564,6 +755,12 @@ try {
         origin: performance.timeOrigin,
         forced,
         dcl: nav.domContentLoadedEventEnd,
+        fcp: performance.getEntriesByName("first-contentful-paint")[0]?.startTime ?? 0,
+        responseEnd: nav.responseEnd,
+        composer: (window as unknown as { __composer?: { ready: number; interactive: number } }).__composer ?? {
+          ready: 0,
+          interactive: 0,
+        },
         scriptKiB: scripts.reduce((sum, r) => sum + r.decodedBodySize, 0) / 1024,
         scripts: scripts
           .map((r) => `${r.name.split("/").pop()} ${(r.decodedBodySize / 1024).toFixed(0)} KiB`)
@@ -676,9 +873,13 @@ try {
       initialize: at(arrivals.get("initialize")),
       watch: at(arrivals.get("_acpmux/watch")),
       dcl: got.dcl,
+      fcp: got.fcp,
+      responseEnd: got.responseEnd,
       scriptKiB: got.scriptKiB,
       scripts: got.scripts as unknown as string[],
       forced: got.forced as Round["forced"],
+      composerReady: got.composer.ready,
+      composerInteractive: got.composer.interactive,
     };
   };
 
@@ -687,10 +888,24 @@ try {
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Profiler.enable");
     await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
+    // When the newest message was first in the page (epoch ms), so the profile can be cut to the stretch
+    // between the attach's answer and it: the page's own parse, replay and first render.
+    await page.addInitScript((latestText) => {
+      const tick = () => {
+        if (document.body?.textContent?.includes(latestText))
+          (window as unknown as { __latestAt: number }).__latestAt = performance.timeOrigin + performance.now();
+        else requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }, LATEST);
+    attachedAt = 0;
     await cdp.send("Profiler.start");
+    const profileStart = Date.now();
     await page.goto(url);
     await page.getByText(LATEST, { exact: false }).first().waitFor({ timeout: 120_000 });
     await page.waitForTimeout(500);
+    const latestAt = await page.evaluate(() => (window as unknown as { __latestAt?: number }).__latestAt ?? 0);
+    const profileAttach = attachedAt;
     const { profile } = (await cdp.send("Profiler.stop")) as {
       profile: {
         nodes: {
@@ -763,6 +978,99 @@ try {
       console.log(`${ms.toFixed(1)}\t${key}`);
     console.log("busy per 25 ms window from profile start (ms):");
     console.log([...byWindow].map(([key, ms]) => `${key}: ${ms.toFixed(0)}`).join(", "));
+    // From the attach's answer to the newest message in the page: what the page spent, by function (self
+    // and with its callees), and how long it sat idle (a timer, a frame or an await between the two).
+    if (profileAttach && latestAt) {
+      const from = profileAttach - profileStart;
+      const to = latestAt - profileStart;
+      const windowSelf = new Map<string, number>();
+      const windowTotal = new Map<string, number>();
+      let idle = 0;
+      let busy = 0;
+      let clockAt = 0;
+      // Each idle stretch of 2 ms or more, as start+length from the attach: where the page waited.
+      const gaps: string[] = [];
+      let gapFrom = -1;
+      const runs: { task: string; at: number; ms: number; parts: Map<string, number> }[] = [];
+      const byOuter = new Map<string, number>();
+      const byFileSelf = new Map<string, number>();
+      profile.samples.forEach((id, index) => {
+        const delta = (profile.timeDeltas[index] ?? 0) / 1000;
+        clockAt += delta;
+        if (clockAt < from || clockAt > to) return;
+        const node = byId.get(id)!;
+        const name = (frame: (typeof node)["callFrame"]) =>
+          `${frame.functionName || "(anon)"} ${frame.url ? mapper(frame.url.split("/").pop() ?? "", frame.lineNumber, frame.columnNumber) : "(native)"}`.replace(
+            /home\/runner\/_work\/cmux\/cmux\/.fast-checks-checkout\/webviews\//g,
+            "",
+          );
+        if (node.callFrame.functionName === "(idle)") {
+          idle += delta;
+          if (gapFrom < 0) gapFrom = clockAt - delta;
+          return;
+        }
+        if (gapFrom >= 0 && clockAt - delta - gapFrom >= 2)
+          gaps.push(`${(gapFrom - from).toFixed(0)}+${(clockAt - delta - gapFrom).toFixed(0)}`);
+        gapFrom = -1;
+        busy += delta;
+        // The task timeline: each sample's React phase (render, commit, passive effects) or, outside
+        // React, its outermost page function, merged into runs; and per phase, the time under each
+        // outermost page function (in a render, the component rendering; in a commit, the effect).
+        let outer = "";
+        let phase = "";
+        for (let up: typeof node | undefined = node; up; up = parents.get(up.id)) {
+          const fn = up.callFrame.functionName;
+          if (!phase && (fn === "renderRootSync" || fn === "renderRootConcurrent")) phase = "render";
+          else if (!phase && fn === "commitRoot") phase = "commit";
+          else if (!phase && fn === "flushPassiveEffects") phase = "passive effects";
+          const named = name(up.callFrame);
+          if (named.includes(" src/")) outer = named;
+        }
+        const task = phase ? `React ${phase}` : outer || name(node.callFrame);
+        const last = runs.at(-1);
+        const under = `${phase || "other"}: ${outer || name(node.callFrame)}`;
+        let run = last;
+        if (last && last.task === task && clockAt - delta - (last.at + last.ms) < 1) last.ms = clockAt - last.at;
+        else runs.push((run = { task, at: clockAt - delta, ms: delta, parts: new Map() }));
+        const part = phase === "render" ? outer || name(node.callFrame) : name(node.callFrame);
+        run!.parts.set(part, (run!.parts.get(part) ?? 0) + delta);
+        byOuter.set(under, (byOuter.get(under) ?? 0) + delta);
+        const file = name(node.callFrame).split(" ").pop()!.replace(/:\d+$/, "");
+        byFileSelf.set(file, (byFileSelf.get(file) ?? 0) + delta);
+        windowSelf.set(name(node.callFrame), (windowSelf.get(name(node.callFrame)) ?? 0) + delta);
+        const seen = new Set<string>();
+        for (let up: typeof node | undefined = node; up; up = parents.get(up.id)) {
+          const key = name(up.callFrame);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          windowTotal.set(key, (windowTotal.get(key) ?? 0) + delta);
+        }
+      });
+      console.log(
+        `attach to latest in the profiled load: attach answered at ${from.toFixed(0)} ms, latest in the page at ${to.toFixed(0)} ms (${(to - from).toFixed(0)} ms): busy ${busy.toFixed(0)} ms, idle ${idle.toFixed(0)} ms`,
+      );
+      console.log("  task timeline (ms after the attach, ms, React phase or outermost page function):");
+      for (const run of runs.filter((each) => each.ms >= 1)) {
+        console.log(`  ${(run.at - from).toFixed(1)}\t${run.ms.toFixed(1)}\t${run.task.slice(0, 140)}`);
+        // A long run's largest parts (in a render, the component; otherwise the function with the self time).
+        if (run.ms >= 5)
+          for (const [part, ms] of [...run.parts].sort((a, b) => b[1] - a[1]).slice(0, 4))
+            if (ms >= 1) console.log(`  \t\t  ${ms.toFixed(1)}\t${part.slice(0, 130)}`);
+      }
+      console.log(`  idle stretches (ms after the attach + ms): ${gaps.join(", ")}`);
+      console.log("  by phase and outermost page function (in a render, the component) (ms):");
+      for (const [key, ms] of [...byOuter].sort((a, b) => b[1] - a[1]).slice(0, 40))
+        console.log(`  ${ms.toFixed(1)}\t${key.slice(0, 160)}`);
+      console.log("  self time by file (ms):");
+      for (const [key, ms] of [...byFileSelf].sort((a, b) => b[1] - a[1]).slice(0, 25))
+        console.log(`  ${ms.toFixed(1)}\t${key.slice(0, 160)}`);
+      console.log("  top self time (ms):");
+      for (const [key, ms] of [...windowSelf].sort((a, b) => b[1] - a[1]).slice(0, 30))
+        console.log(`  ${ms.toFixed(1)}\t${key.slice(0, 160)}`);
+      console.log("  top total time, with callees (ms):");
+      for (const [key, ms] of [...windowTotal].sort((a, b) => b[1] - a[1]).slice(0, 60))
+        console.log(`  ${ms.toFixed(1)}\t${key.slice(0, 160)}`);
+    }
     const total = [...self.values()].reduce((a, b) => a + b, 0);
     console.log(`profile: ${total.toFixed(0)} ms sampled; top self time (ms)`);
     for (const [key, ms] of [...self].sort((a, b) => b[1] - a[1]).slice(0, 45)) console.log(`${ms.toFixed(1)}\t${key}`);
@@ -935,6 +1243,12 @@ try {
         ["attach_to_latest", (r: Round) => r.latest - r.attach, undefined],
         ["dom_content_loaded", (r: Round) => r.dcl, undefined],
         ["long_ms", (r: Round) => r.longMs, undefined],
+        ...(COMPOSER
+          ? ([
+              ["composer_ready", (r: Round) => r.composerReady, undefined],
+              ["composer_interactive", (r: Round) => r.composerInteractive, TARGET_MS.load],
+            ] as const)
+          : []),
       ] as const)
         // Version 2: the pane's build loads English plus the page's language, as the app does
         // (scripts/agent-pane/paneLocales.mjs), no longer all 21 locales before the socket opens.
@@ -946,12 +1260,29 @@ try {
           p95: median(pick),
           target,
           version: NEXT_FRAME_STAGES.has(stage) ? 3 : 2,
+          ...(COMPOSER && SAMPLED_STAGES.has(stage) ? { samples: rounds.map(pick) } : {}),
         });
+      // The web app's first paint from navigation start, a real p95 across rounds (the stage rows above give one median).
+      const fcps = rounds.map((r) => r.fcp).sort((a, b) => a - b);
+      console.log(
+        `first paint per round (ms from navigation): fcp ${rounds.map((r) => r.fcp.toFixed(0)).join(" ")}; html responseEnd ${rounds.map((r) => r.responseEnd.toFixed(0)).join(" ")}; DOMContentLoaded ${rounds.map((r) => r.dcl.toFixed(0)).join(" ")}`,
+      );
+      if (fcps.every((fcp) => fcp > 0))
+        perfRow({
+          name: `chat_open.${arm}.first_contentful_paint`,
+          p50: median((r) => r.fcp),
+          p95: fcps[Math.max(0, Math.ceil(fcps.length * 0.95) - 1)]!,
+          target: TARGET_MS.load,
+        });
+      else console.log(`chat-open [rail ${arm}]: a round had no first-contentful-paint entry; no first paint row`);
       // The page's own work in units of this runner's speed: each round's attach_to_latest over that round's calibration
       // (runnerCalibration.ts), the median of them. It holds across runners where the ms row above tracks the runner.
       console.log(
         `per round: attach_to_latest ms ${rounds.map((r) => (r.latest - r.attach).toFixed(0)).join(" ")}; attach ms ${rounds.map((r) => r.attach.toFixed(0)).join(" ")}; first row ms ${rounds.map((r) => r.firstRow.toFixed(0)).join(" ")}; long tasks ${rounds.map((r) => r.longTasks).join(" ")}; long ms ${rounds.map((r) => r.longMs.toFixed(0)).join(" ")}`,
       );
+      // Every round's value at full precision, for a harness that pools rounds (bench/chat-open-ab.sh).
+      console.log(`per round attach_to_latest ms: ${rounds.map((r) => (r.latest - r.attach).toFixed(1)).join(" ")}`);
+      console.log(`per round dom_content_loaded ms: ${rounds.map((r) => r.dcl.toFixed(1)).join(" ")}`);
       const perRunner = perCalibration(
         rounds.map((r) => r.latest - r.attach),
         calibrations,
@@ -964,6 +1295,28 @@ try {
           unit: "x",
           version: CALIBRATION_VERSION,
         });
+      // PAIRED=1: the rows NOW's chat_attach_p95_ms reads (cmuxterm-hq goal chat-attach-p95, re-plan 2026-11-17).
+      // chat_open_paired[.god].<rail>.attach_per_dcl is the median of each round's attach_to_latest over that same
+      // load's own DOMContentLoaded, unit x: the same code read 100 to 185 ms across runners while this ratio held at
+      // 6.2 to 6.35. attach_to_latest beside it is the same rounds' median ms, the value shown against the ms target.
+      // Their own prefix keeps the small chat's paired rows apart from the web-ui part's unpaired chat_open.compact.*.
+      if (PAIRED) {
+        const perDcl = perCalibration(
+          rounds.map((r) => r.latest - r.attach),
+          rounds.map((r) => r.dcl),
+        );
+        console.log(
+          `paired ${chat.scale}: attach_to_latest / DOMContentLoaded per round ${rounds.map((r) => ((r.latest - r.attach) / r.dcl).toFixed(2)).join(" ")}; median ${perDcl}`,
+        );
+        perfRow({
+          name: `chat_open_paired.${arm}.attach_to_latest`,
+          p50: median((r) => r.latest - r.attach),
+          p95: median((r) => r.latest - r.attach),
+          version: 3,
+        });
+        if (Number.isFinite(perDcl))
+          perfRow({ name: `chat_open_paired.${arm}.attach_per_dcl`, p50: perDcl, p95: perDcl, unit: "x", version: 1 });
+      }
       // The script the page downloaded and parsed by the time the chat settled (decoded KiB): the open's
       // cost that grows with every eager import, so the perf cron names the week it grows (it grew 29%,
       // 8302 to 10722 KiB, from 2026-11-02 to 11-09 with no row to say so).

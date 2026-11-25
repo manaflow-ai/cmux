@@ -145,9 +145,9 @@ fn folders_serving_release_gates() {
     let small = best_p95(&small_window);
     let god = best_p95(&god_window);
     let all_god = all_p95(&god_window);
+    gate("v2.pr05f.serving_window", small, god, all_god);
     assert!(god <= small.saturating_mul(12) / 10, "window ratio {god}/{small}");
     assert!(all_god <= small.saturating_mul(2), "window pooled ratio {all_god}/{small}");
-    gate("v2.pr05f.serving_window", small, god, all_god);
 
     let small_page = deep_request(5, 0);
     let god_page = deep_request(2_000, 999);
@@ -170,7 +170,7 @@ fn folders_serving_release_gates() {
     let small = best_p95(&small_rounds);
     let god = best_p95(&god_rounds);
     let all_god = all_p95(&god_rounds);
+    gate("v2.pr05f.serving_page", small, god, all_god);
     assert!(god <= small.saturating_mul(12) / 10, "page ratio {god}/{small}");
     assert!(all_god <= small.saturating_mul(2), "page pooled ratio {all_god}/{small}");
-    gate("v2.pr05f.serving_page", small, god, all_god);
 }

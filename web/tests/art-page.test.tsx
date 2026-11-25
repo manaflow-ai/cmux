@@ -95,7 +95,7 @@ describe("cmux.com/art", () => {
     const missing = locales.filter((locale) => {
       const { art, footer } = messagesByLocale[locale];
       const collections = Object.keys(art?.collections ?? {}).sort().join(",");
-      return !art?.title || !footer.art || collections !== "calm,darkArt,dore,museumIcons";
+      return !art?.title || !footer.art || collections !== "calm,darkArt,dore,eastAsian,museumIcons";
     });
     expect(missing).toEqual([]);
   });

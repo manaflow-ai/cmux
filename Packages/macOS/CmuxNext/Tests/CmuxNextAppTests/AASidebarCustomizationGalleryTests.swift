@@ -22,6 +22,8 @@ import Testing
         Variant(name: "sections", settings: .init(hiddenSections: ["recents"], sectionOrder: ["projects"])),
         Variant(name: "workspace", settings: .init(workspaces: ["ws-2": .init(group: "grp", order: 0)])),
         // "projects" is the machine section's alias and already leads, so order shows only by moving Recents up.
+        // The planner reorders within a region (the app and fixed bands stay put), so Recents sits in the machine
+        // section's middle region here.
         Variant(name: "order", settings: .init(sectionOrder: ["recents"])),
         Variant(name: "hidden-workspace", settings: .init(workspaces: ["ws-2": .init(hidden: true)])),
     ]
@@ -37,7 +39,7 @@ import Testing
         let group = SidebarGroup(id: GroupID("grp"), name: "Pinned work", workspaces: [workspace("ws-1")])
         return [
             SidebarSection(kind: .machine(machine), nodes: [.workspace(workspace("ws-2")), .group(group)]),
-            SidebarSection(kind: .custom(.init(id: "recents", title: "Recents", showsTitle: true, region: .bottom)),
+            SidebarSection(kind: .custom(.init(id: "recents", title: "Recents", showsTitle: true, region: .middle)),
                            nodes: [.workspace(workspace("ws-3"))]),
         ]
     }

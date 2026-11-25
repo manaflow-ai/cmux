@@ -48,9 +48,10 @@ extension HomeChannelsSetting {
 }
 
 extension CmuxConfigSnapshot {
-    /// The `home.*` rows: attachment location, the Channels entry, the Chief pet, the messages server and the
-    /// Chief's engine (read from `root` as it applies, ``homeChiefEngine``; here only its diagnostic); each toggle
-    /// absent is off, and a value that is not a bool is off plus a diagnostic.
+    /// The `home.*` rows: attachment location, the Channels entry, the Chief pet, the messages server, the + menu's
+    /// clipboard history and the Chief's engine (read from `root` as it applies, ``homeChiefEngine``; here only its
+    /// diagnostic); each toggle absent is its default (the history on, the rest off), and a value that is not a bool
+    /// is the default plus a diagnostic.
     mutating func takeHome(_ root: JSONValue) {
         if let diagnostic = HomeChiefEngineSetting.parse(root).1 { diagnostics.append(diagnostic) }
         take(HomeKeepLocationSetting.parse(root), \.homeKeepLocation)
@@ -58,12 +59,13 @@ extension CmuxConfigSnapshot {
         take(Self.parseLabsToggle(root, path: HomeFeedRowsSetting.configPath, fallback: HomeFeedRowsSetting.fallback), \.homeFeedInChief)
         take(Self.parseLabsToggle(root, path: HomeChiefPetSetting.configPath, fallback: HomeChiefPetSetting.fallback), \.homeChiefPetEnabled)
         take(HomeChiefPetSetting.parseMascot(root), \.homeChiefPetMascot)
-        take(ChiefDockSetting.parseEdge(root), \.chiefDockEdge)
+        take(ChiefDockSetting.parseEdge(root), \.chiefDockEdge); take(Self.parseLabsToggle(root, path: ChiefDockSetting.sidePanelPath, fallback: ChiefDockSetting.sidePanelDefault), \.chiefDockSidePanel)
         take(ChiefDockSetting.parseStyle(root), \.chiefPanelStyle)
-        take(Self.parseLabsToggle(root, path: ChiefDockSetting.seesScreenPath, fallback: ChiefDockSetting.seesScreenDefault), \.chiefPanelSeesScreen)
         take(Self.parseLabsToggle(root, path: ChiefDockSetting.openBesidePath, fallback: ChiefDockSetting.openBesideDefault), \.chiefDockOpenBeside)
         take(HomeServerSetting.parse(root), \.homeServer)
         take(ChiefReactionSettings.parse(root), \.chiefReactions)
         take(HomeBubbleColorsSetting.parse(root), \.homeBubbleColors)
+        take(Self.parseLabsToggle(root, path: HomeClipboardHistorySetting.configPath, fallback: HomeClipboardHistorySetting.fallback),
+             \.homeClipboardHistory)
     }
 }

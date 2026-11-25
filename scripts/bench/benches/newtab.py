@@ -169,7 +169,8 @@ class NewTab(Bench):
             self._press_rows(ctx, sel, labels)
             openings = [r.get("opening") for r in sel if "opening" in r]
             if openings:
-                ctx.row("spare_missed", sum(not (o or {}).get("spare") for o in openings), "count", labels=labels)
+                # Missed: no page was ready for the open (not the page made ahead, `spare`, and no idle page, `idle`).
+                ctx.row("spare_missed", sum(not ((o or {}).get("spare") or (o or {}).get("idle")) for o in openings), "count", labels=labels)
 
     def _arm_lines(self, ctx: Context, arms: list[re.Match]) -> None:
         """The log's ARM lines: per arm and metric, p50, p95 and n (no samples in a log)."""

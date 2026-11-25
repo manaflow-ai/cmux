@@ -1,0 +1,44 @@
+// Ukiyo-e: the Great Wave: Hokusai's Great Wave behind frosted washi paper, Prussian-blue ink, a two-tone window and serif pages.
+// Washi paper (#f4ecd8) and the Prussian blue (#2f5d8a) the print is famous for, inked in deep indigo. ANSI colors are solved in OKLCH at one lightness over the page, so
+// no hue shouts. An opt-in look: nothing here changes until you pick it.
+{
+  "name": "Ukiyo-e: the Great Wave",
+  "description": "Hokusai's Great Wave behind frosted washi paper, Prussian-blue ink, a two-tone window and serif pages.",
+  "appearance.theme": "Builtin Light",
+  "appearance.appTheme": "followTerminal",
+  "colors": {
+    "background": "#f4ecd8",
+    "foreground": "#1d2a3a",
+    "selection": "#ddd0b0",
+    "accent": "#2f5d8a"
+  },
+  "appearance.accent": "theme",
+  "ghostty": [
+    "background = #f4ecd8",
+    "foreground = #1d2a3a",
+    "cursor-color = #2f5d8a",
+    "cursor-text = #f4ecd8",
+    "selection-background = #ddd0b0",
+    "selection-foreground = #1d2a3a",
+    "palette = 0=#1d2a3a",
+    "palette = 1=#a03f3c",
+    "palette = 2=#27762f",
+    "palette = 3=#805e00",
+    "palette = 4=#2863ab",
+    "palette = 5=#8b4486",
+    "palette = 6=#007780",
+    "palette = 7=#66696f",
+    "palette = 8=#83868c",
+    "palette = 9=#b4514c",
+    "palette = 10=#3b8841",
+    "palette = 11=#926f00",
+    "palette = 12=#3a75bf",
+    "palette = 13=#9e5598",
+    "palette = 14=#008a92",
+    "palette = 15=#8f9298"
+  ],
+  "appearance.background": "hokusai-great-wave",
+  "appearance.backgroundBlur": "frosted",
+  "appearance.backgroundOpacity": 0.82,
+  "appearance.chromeStyle": "two-tone"
+}

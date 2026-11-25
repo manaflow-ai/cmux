@@ -10,8 +10,8 @@ ephemeral runner the signing-secret rules allow (tests/test_ci_signing_keychain_
 rule 7), never on Blacksmith.
 
 Each job's runs-on is evaluated for manaflow-ai over sampled attempts, refs, events and picker outputs.
-A picker output that can name a Blacksmith label (nightly_sign_runner.py's picks, the Linux overflow of
-nightly_linux_admission.py and portable_job_placement.py, the visual gate's pick) is set to one; the
+A picker output that can name a Blacksmith label (nightly_sign_runner.py's picks, the visual gate's pick)
+is set to one; the
 result must never be a Blacksmith label, nor empty.
 """
 
@@ -44,22 +44,18 @@ BLACKSMITH_ONLY_OUTPUTS = re.compile(
     r"needs\.pick-nightly-sign-runner\.outputs\.(?:runner|alternate|linux|linux_alternate)\b"
     r"|needs\.pick-nightly-build-runner\.outputs\.blacksmith\b"
     r"|needs\.find-nightly-next-recovery\.outputs\.(?:sign_runner|sign_alternate)\b")
-# Outputs whose producer names only our own runners (glaeda picks, the nightly-only variable, the
-# per-mini placement), so a sample sets them to an owned label or leaves them empty.
+# Outputs whose producer names only our own runners (glaeda picks, the nightly-only variable), so a sample
+# sets them to an owned label or leaves them empty.
 OWNED_OUTPUTS = {
     "needs.pick-nightly-build-runner.outputs.owned", "needs.pick-nightly-build-runner.outputs.trusted",
     "needs.pick-nightly-build-runner.outputs.helper", "needs.pick-nightly-build-runner.outputs.dedicated",
     "needs.pick-nightly-sign-runner.outputs.owned", "needs.pick-nightly-sign-runner.outputs.sign_owned",
     "needs.pick-nightly-sign-runner.outputs.sign_owned_pool",
-    "needs.decide.outputs.early_mini_runner", "needs.build-nightly-app.outputs.light_mini_runner",
 }
-# decide's early placement (nightly_linux_admission.py: a fleet receipt's runner, hosted-light, or its owned
-# OVERFLOW) and build-nightly-app's light placement (fleet Linux or an owned mini).
-OWNED_PLACEMENT = re.compile(r"needs\.decide\.outputs\.early_\w+_runner|needs\.build-nightly-app\.outputs\.light_\w+_runner")
 OWNED_LABEL = '["glaeda-nightly-only-m4pro","glaeda-runner-cmux15-glaeda-nightly-only-3"]'
 # Outputs read as conditions, with the values they take.
 CONDITION_OUTPUTS = {
-    "attempt": ("1", "2", ""), "early_attempt": ("1", "2", ""), "light_attempt": ("1", "2", ""),
+    "attempt": ("1", "2", ""),
     "track": ("nightly-next", "nightly"), "hosted_slow": ("true", "false", ""),
     "result": ("success", "failure", "skipped"), "hit": ("true", "false"),
     "mode": ("off", "gate", ""), "found": ("true", "false"), "accepted": ("true", "false"),
@@ -119,9 +115,7 @@ def sample(source: str, rng: random.Random) -> dict:
             context[ref] = rng.choice(("", "x"))
         elif leaf in CONDITION_OUTPUTS:
             context[ref] = rng.choice(CONDITION_OUTPUTS[leaf])
-        elif leaf.endswith("_jobs"):
-            context[ref] = rng.choice(("", " " + " ".join(JOBS) + " "))
-        elif ref in OWNED_OUTPUTS or OWNED_PLACEMENT.fullmatch(ref):
+        elif ref in OWNED_OUTPUTS:
             context[ref] = rng.choice((OWNED_LABEL, ""))
         else:
             context[ref] = rng.choice((BLACKSMITH, ""))

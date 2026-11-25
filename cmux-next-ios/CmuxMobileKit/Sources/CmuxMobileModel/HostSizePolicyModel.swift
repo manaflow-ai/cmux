@@ -132,6 +132,6 @@ public final class HostSizePolicyModel {
     }
 
     private static func message(_ error: any Error) -> String {
-        UserFacingError.message(error, fallback: "The Mac didn't answer.")
+        UserFacingError.message(error, fallback: "Can't reach your Mac right now. Try again in a moment.")
     }
 }
