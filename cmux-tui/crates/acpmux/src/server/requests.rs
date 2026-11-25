@@ -2233,7 +2233,8 @@ async fn dispatch_request_with_identity(
                 )
                 .with_data(json!({"reason": "stale_generation", "retryable": false})));
             }
-            let prompt_admission = s.prompt_admission.clone().lock_owned().await;
+            // Ordered by the chat's prompt admission from here (`hub/prompt_admission.rs`), bounded.
+            let admission = crate::hub::prompt_admission::admit(&s, &hub.scope).await;
             attach(hub, conn, &s.id);
             if person_asks(conn) {
                 super::lane_parent::person_wrote(hub, &s);
@@ -2499,7 +2500,11 @@ async fn dispatch_request_with_identity(
             // the owner only: a person's prompt neither replaces nor is replaced.
             let supersede = crate::hub::supersede_key(&params)?.filter(|_| !person_message);
             let supersede_set = supersede.is_some();
-            let inbox_on = hub.config.read().await.agent_inbox();
+            let inbox_on =
+                match tokio::time::timeout_at(admission.answer_due(), hub.config.read()).await {
+                    Ok(config) => config.agent_inbox(),
+                    Err(_) => return Err(crate::hub::auto_resume::retry_turn::busy()),
+                };
             // Files uploaded first and named in the prompt get their bytes back here, before
             // anything reads them (`prompt_uploads.rs`). A prompt id the chat took already goes on
             // to `prompt_with`, which answers with its first run even once its uploads are gone
@@ -2517,7 +2522,10 @@ async fn dispatch_request_with_identity(
                         result => result.map(|()| blocks),
                     }
                 });
-                blocks = resolved.await.map_err(|e| RpcError::internal(e.to_string()))??;
+                blocks = match tokio::time::timeout_at(admission.answer_due(), resolved).await {
+                    Ok(result) => result.map_err(|e| RpcError::internal(e.to_string()))??,
+                    Err(_) => return Err(crate::hub::auto_resume::retry_turn::busy()),
+                };
             }
             // Files sent with the message (`acpmux send --attach`), after every check that can
             // refuse it: saved in the session's uploads, and what the agent gets put in their
@@ -2530,7 +2538,10 @@ async fn dispatch_request_with_identity(
                     crate::attach::receive(&id, web, &mut blocks).map(|saved| (blocks, saved))
                 });
                 (blocks, saved) =
-                    received.await.map_err(|e| RpcError::internal(e.to_string()))??;
+                    match tokio::time::timeout_at(admission.answer_due(), received).await {
+                        Ok(result) => result.map_err(|e| RpcError::internal(e.to_string()))??,
+                        Err(_) => return Err(crate::hub::auto_resume::retry_turn::busy()),
+                    };
             }
             // From here the prompt's own uploads go only if the session refuses it.
             let saved = crate::attach::Saved::with_owned(saved, &s.id, owned.take());
@@ -2592,7 +2603,7 @@ async fn dispatch_request_with_identity(
             let on_accepted = super::felt::time_ack(felt_started, on_accepted);
             let mut opts = crate::hub::PromptOptions {
                 race_guard: None,
-                prompt_admission: Some(prompt_admission),
+                admission: Some(admission),
                 cloud_turn,
                 prompt_id,
                 message_id,

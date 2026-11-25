@@ -192,6 +192,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         TerminalHooks(services: services).install()
         DebugTimings.markLaunch("dfl.bind")
         startSettingsAndControl(services: services, launch: settingsRead, bare: launch.kind == .bare)
+        services.newTabSpares.prewarm() // the first agent page loads while the windows build (cx-z9kz0)
         DebugTimings.markLaunch("dfl.settings")
         if services.crashRecovery.recovery.startsUpdaterBeforeWindows { services.updater.start() } // a restart loop: before the daemon and windows, so a build that ends before its first frame can still fetch its fix
         NSApp.mainMenu = MainMenu.make(registry: services.registry, customizations: CustomizationsMenu.item(registry: services.registry, settings: { [weak services] in services?.settings },
@@ -330,7 +331,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// cmux-next.json settings and the tagged control socket (`action.list/describe/run`) over the same registry.
-    private func startSettingsAndControl(services: AppServices, launch: SettingsController.LaunchRead, bare: Bool) {
+    private func startSettingsAndControl(services: AppServices, launch: SettingsController.LaunchRead) {
         // Start the web OTA launch check before any restored or prewarmed page can
         // request its entry document. Otherwise the entry can come from the app
         // bundle while later chunks come from the kept update tree.
@@ -401,7 +402,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Agent-launched builds never take system-wide keys from the person's app, nor a menu bar item.
         if !environment.noActivate { services.globalHotKeys.start(); services.menuBarExtra.follow(settings, background: services.background) }
         services.cache.browserTabs.preference.follow(settings)
-        if settings.snapshot.browserDefaultEngine == .chromium, AgentPaneTunables.chromium.value, !services.crashRecovery.recovery.isSafeRestart { services.cache.cef.initializeAfter(launchReads.chromium.initializeGate(firstFrame)); if !bare { services.cache.cef.preload() } } // bare (nothing restored): no page asks yet, so no framework map at launch (piece 8). A restored chat's page starts Chromium as the window builds: map its framework now, off main; CefInitialize waits for the first frame unless the last quit left a page on screen (CMUX-571)
+        if settings.snapshot.browserDefaultEngine == .chromium, AgentPaneTunables.chromium.value, !services.crashRecovery.recovery.isSafeRestart { services.cache.cef.initializeAfter(launchReads.chromium.initializeGate(firstFrame)); services.cache.cef.preload() } // map the framework now, off main, on every launch: a restored chat's page starts Chromium as the window builds, and a bare launch (piece 8) shows Home, whose Chief page is a Chromium page too (skipping the map there left Home's pane blank about 270 ms longer, mapping after the first frame: NIGHTLY 4557245517201, cef.step.start_called 4112 ms, map_done 4381 ms, first page pixels 5281 ms). CefInitialize still waits for the first frame unless the last quit left a page on screen (CMUX-571)
         BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, cef: services.cache.cef)
         WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)
         BrowserOmnibarPreference.follow(settings, cache: services.cache)
