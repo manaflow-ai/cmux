@@ -159,11 +159,52 @@ def _request(url: str, token: str | None, method: str = "GET", accept: str = "ap
     if token:
         headers["Authorization"] = f"Bearer {token}"
     request = urllib.request.Request(url, method=method, headers=headers, data=b"" if method == "PATCH" else None)
+    where = f"{method} {url.split('?')[0]}"
+    while True:
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return json.loads(response.read() or b"null")
+        except urllib.error.HTTPError as exc:
+            message, wait = _refusal(exc)
+            if wait is None:
+                raise Unreadable(f"{where}: HTTP {exc.code}: {message}") from exc
+            global _rate_waited
+            if _rate_waited + wait > RATE_WAIT_BOUND:
+                raise Unreadable(f"{where}: HTTP {exc.code}: {message} (the rate limit resets in {int(wait)} s, "
+                                 f"past this job's {RATE_WAIT_BOUND} s wait)") from exc
+            print(f"::notice::{where}: HTTP {exc.code}: {message}; waiting {int(wait)} s for the rate limit",
+                  file=sys.stderr)
+            _rate_waited += wait
+            time.sleep(wait)
+        except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+            raise Unreadable(f"{where}: {exc}") from exc
+
+
+# The repo's GITHUB_TOKEN shares one hourly REST budget with every other workflow; when it is spent GitHub answers
+# 403 (or 429) with x-ratelimit-remaining: 0 and the reset time, or retry-after for a secondary limit. One run
+# waits at most this long in all, inside the workflow's timeout-minutes.
+RATE_WAIT_BOUND = 900
+_rate_waited = 0.0
+
+
+def _refusal(exc: urllib.error.HTTPError) -> tuple[str, float | None]:
+    """GitHub's own message, and how long to wait when it is a rate limit (None when it is not)."""
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return json.loads(response.read() or b"null")
-    except (urllib.error.URLError, TimeoutError, ValueError) as exc:
-        raise Unreadable(f"{method} {url.split('?')[0]}: {exc}") from exc
+        body = json.loads(exc.read() or b"null")
+        message = str(body.get("message") or exc.reason) if isinstance(body, dict) else str(exc.reason)
+    except (ValueError, OSError):
+        message = str(exc.reason)
+    headers = exc.headers or {}
+    if exc.code not in (403, 429):
+        return message, None
+    retry_after = headers.get("retry-after")
+    if retry_after and retry_after.strip().isdigit():
+        return message, float(retry_after)
+    if headers.get("x-ratelimit-remaining") == "0" and (headers.get("x-ratelimit-reset") or "").isdigit():
+        return message, max(1.0, float(headers["x-ratelimit-reset"]) - time.time() + 5)
+    if exc.code == 429 or "rate limit" in message.lower():
+        return message, 60.0
+    return message, None
 
 
 class GitHub:
