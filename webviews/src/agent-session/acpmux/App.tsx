@@ -5090,7 +5090,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // A subagent's own pane heads with the subagent, not its chat's title and summary (paneHeading).
   const heading = paneHeading(
     ownSubagentPane && subagentView ? (shownSubagentTitle ?? t("tray.kind.subagent")) : undefined,
-    { title: chatName, summary: snapshot.summary?.rollingSummary },
+    { title: chatName },
   );
   const shownFacts = useMemo(
     () => (shownAgent ? shownSubagentFacts(shownAgent, snapshot.clockOffsetMs ?? 0) : undefined),
