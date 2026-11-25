@@ -74,6 +74,10 @@ path = "tests/test_ci_cargo_affected.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_cdn_user_agent.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_change_areas.py"
 lane = "linux-guard"
 
@@ -166,6 +170,10 @@ path = "tests/test_ci_edit_events_start_no_runner.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_entry_logs.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_ephemeral_pool_readers.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_ci_ephemeral_pool_readers.py yourself after changing the pool readers it reads."
@@ -201,6 +209,11 @@ reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). #30648 regis
 [[test]]
 path = "tests/test_ci_fast_checks_rust_nextest.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fast_tier_current_base.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_fast_tier_current_base.py"
 
 [[test]]
 path = "tests/test_ci_fetch_complexity_base.py"
@@ -551,11 +564,6 @@ path = "tests/test_ci_pool_snapshot_job_cache.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_protocol_skew_check.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_protocol_skew_check.py"
-
-[[test]]
 path = "tests/test_ci_post_merge_checks.py"
 lane = "linux-guard"
 
@@ -595,6 +603,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_production_secrets_protected_env.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_protocol_skew_check.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_protocol_skew_check.py"
 
 [[test]]
 path = "tests/test_ci_prune_media_derived_data.py"
@@ -735,13 +748,13 @@ lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_routed_jobs_check_needs.py"
 
 [[test]]
-path = "tests/test_ci_run_guards.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_ci_router_checkout_mirror.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_router_checkout_mirror.py"
+
+[[test]]
+path = "tests/test_ci_run_guards.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_runner_capability_resolver.py"
@@ -974,11 +987,6 @@ reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Pins scripts
 path = "tests/test_ci_why.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). Pins how scripts/ci-why (an opt-in script for authors, not a gate) reads base_red_excuse.py's verdicts; run python3 tests/test_ci_why.py yourself after changing either (under a second, no network)."
-
-[[test]]
-path = "tests/test_ci_fast_tier_current_base.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_fast_tier_current_base.py"
 
 [[test]]
 path = "tests/test_ci_workflow_file_size.py"
