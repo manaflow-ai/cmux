@@ -65,6 +65,17 @@ impl Config {
             };
             return Ok(());
         }
+        if matches!(
+            key.trim().replace('-', "_").to_ascii_lowercase().as_str(),
+            "iroh_direct" | "irohdirect"
+        ) {
+            self.iroh_direct = match value.trim().to_ascii_lowercase().as_str() {
+                "true" | "on" | "1" => true,
+                "false" | "off" | "0" | "" | "none" => false,
+                _ => anyhow::bail!("iroh_direct must be true or false"),
+            };
+            return Ok(());
+        }
         // The Labs WireGuard transport. It needs `wireguardStatic` (the start check refuses it
         // without); the hub carrier does not need it (`hub_carrier.rs`: the node key alone).
         if matches!(key.trim().to_ascii_lowercase().as_str(), "transport.wireguard") {

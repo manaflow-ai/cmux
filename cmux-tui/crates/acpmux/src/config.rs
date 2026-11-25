@@ -1782,6 +1782,15 @@ pub struct Config {
     /// Set with `acpmux config --set direct_port=PORT`; the carrier takes it at its start.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub direct_port: Option<u16>,
+    /// `irohDirect`: the hub carrier's iroh path (`hub_carrier_iroh.rs`), for two machines with
+    /// no private network between them. On, the carrier binds one iroh endpoint (both ends dial
+    /// out over QUIC, hole punched where the NATs let it), and a machine's dials upgrade to it
+    /// once its kept circuit there is open, with the relay as the first dial's path and the
+    /// fallback. The same Noise XX and node keys as a relay circuit admit it. Off (the default):
+    /// relay only. Set with `acpmux config --set iroh_direct=true`; the carrier takes it at its
+    /// start.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub iroh_direct: bool,
     /// `coderouterClaudeRoute`: the CodeRouter CLI subcommand that runs
     /// Claude Code through a CodeRouter route. When it is set (env
     /// `ACPMUX_CODEROUTER_CLAUDE_ROUTE` wins) and `coderouter` or `cr` is on

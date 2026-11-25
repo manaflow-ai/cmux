@@ -95,6 +95,7 @@ impl Hub {
                 remote_daemon,
                 lane_gh_broker,
                 direct_port,
+                iroh_direct,
                 notify_command,
                 disk_low_bytes,
                 agent_inbox,
@@ -194,6 +195,8 @@ impl Hub {
             // The carrier binds its direct port at its start (`hub_carrier_direct.rs`); a
             // restart applies a change.
             current.direct_port = direct_port;
+            // The iroh endpoint too (`hub_carrier_iroh.rs`).
+            current.iroh_direct = iroh_direct;
             // Each of these is read where it is used, so the next use follows the file.
             current.notify_command = notify_command;
             current.disk_low_bytes = disk_low_bytes;

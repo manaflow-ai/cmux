@@ -103,6 +103,7 @@ dependencies = [
  "hpke",
  "imbl",
  "inotify",
+ "iroh",
  "jsonschema",
  "libc",
  "memchr",
