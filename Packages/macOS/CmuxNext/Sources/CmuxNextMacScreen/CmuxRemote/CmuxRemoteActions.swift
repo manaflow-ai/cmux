@@ -323,7 +323,7 @@ extension CmuxRemoteActionEnvironment {
     /// How a share of another Mac of this account is allowed: by the owner's agent under the
     /// standing permission, by this Mac's own yes (``CmuxRemoteShareConsent``, Z4), or by the person
     /// on the dialog (`ask`), which runs only when neither holds.
-    enum ShareOtherAnswer: Equatable { case agent, consented, asked, declined }
+    nonisolated enum ShareOtherAnswer: Equatable, Sendable { case agent, consented, asked, declined }
 
     static func shareOtherAnswer(agent: Bool, consent: CmuxRemoteShareConsent?,
                                  ask: @MainActor () async -> Bool) async -> ShareOtherAnswer {
