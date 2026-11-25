@@ -263,6 +263,17 @@ class WorkflowShape(unittest.TestCase):
                 self.assertIn("python3 -I scripts/ci/fast_check_route.py route --workflow "
                               ".github/workflows/cmux-next-fast-gates.yml", body)
                 continue
+            if step.get("id") == "pr_receipt":
+                # The green receipt lookup (scripts/ci/pr_receipt.py): the same discipline, its own script included.
+                self.assertTrue(step["if"].replace(" ", "").startswith("${{github.event_name=='pull_request'&&"))
+                self.assertTrue(step["continue-on-error"])
+                body = step["run"]
+                for file in ("scripts/ci/pr_receipt.py", "scripts/ci/fast_check_route.py",
+                             "scripts/ci/fast-check-inputs.json"):
+                    self.assertIn(file, body.split("python3")[0])
+                self.assertIn('"$(git rev-parse "HEAD:$file")" != "$(git rev-parse "HEAD^1:$file")"', body)
+                self.assertIn("python3 -I scripts/ci/pr_receipt.py lookup --check fast-gates", body)
+                continue
             self.assertNotIn("scripts/", step.get("run", ""), step.get("name"))
         self.assertIn("steps.route.outputs.fast_gates", resolve["outputs"]["fast_gates"])
         body = step_named(resolve["steps"], "Resolve")["run"]
@@ -423,7 +434,9 @@ class WorkflowShape(unittest.TestCase):
     def test_permissions_are_minimal(self):
         doc = workflow()
         self.assertEqual(doc["permissions"], {"contents": "read"})
-        self.assertEqual(job(doc, "resolve")["permissions"], {"contents": "read", "pull-requests": "read"})
+        self.assertEqual(job(doc, "resolve")["permissions"], {"contents": "read", "pull-requests": "read",
+                                                               # pr_receipt.py's lookup of an earlier run's receipt.
+                                                               "actions": "read"})
         # The jobs that run pull request code can write nothing; only post can write a status.
         self.assertEqual(job(doc)["permissions"], {"contents": "read"})
         self.assertEqual(job(doc, "panic-ratchet")["permissions"], {"contents": "read"})

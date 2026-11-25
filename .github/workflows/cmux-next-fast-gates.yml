@@ -74,6 +74,8 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      # The green receipt lookup (pr_receipt.py): an earlier run's receipt artifact for these inputs.
+      actions: read
     outputs:
       head_sha: ${{ steps.resolve.outputs.head_sha }}
       base: ${{ steps.resolve.outputs.base }}
@@ -81,6 +83,8 @@ jobs:
       head_tree: ${{ steps.resolve.outputs.head_tree }}
       merge_tree: ${{ steps.resolve.outputs.merge_tree }}
       fast_gates: ${{ steps.route.outputs.fast_gates }}
+      receipt_key: ${{ steps.pr_receipt.outputs.key }}
+      receipt_run: ${{ steps.pr_receipt.outputs.run }}
     steps:
       # A pull request's merge commit and both parents; only git reads it here.
       - name: Checkout the merge ref
@@ -98,6 +102,7 @@ jobs:
             /.github/runners.json
             /scripts/ci/fast_check_route.py
             /scripts/ci/fast-check-inputs.json
+            /scripts/ci/pr_receipt.py
 
       - name: "Pool mirror: checkout the merge ref"
         if: ${{ github.event_name == 'pull_request' && startsWith(runner.name, 'cmux-runner-pool-') }}
@@ -258,6 +263,35 @@ jobs:
           done
           python3 -I scripts/ci/fast_check_route.py route --workflow .github/workflows/cmux-next-fast-gates.yml --labels "$LABELS"
 
+      # A green receipt (scripts/ci/pr_receipt.py): an earlier run of this pull request's branch passed the gates on
+      # these same inputs (the fast-gates inputs at the merge, the change's diff in them, and the router, its map,
+      # the gate runner and this workflow), so the gates are skipped before they take a runner and the post job
+      # reports that pass with the run linked. 606 job-minutes in two days (11-23..24) were these gates on inputs
+      # they had already passed. Only the base's code runs (pr_receipt.py and the router as the base has them,
+      # python3 -I); a fork, the full-ci label (it still records) and a dispatch ask for nothing. Any error is a miss.
+      - name: Look up a green receipt for these inputs (scripts/ci/pr_receipt.py)
+        id: pr_receipt
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && steps.route.outputs.fast_gates != 'false' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_PR_RECEIPTS: ${{ vars.CI_PR_RECEIPTS }}
+          FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          for file in scripts/ci/pr_receipt.py scripts/ci/fast_check_route.py scripts/ci/fast-check-inputs.json; do
+            if [[ "$(git rev-parse "HEAD:$file")" != "$(git rev-parse "HEAD^1:$file")" ]]; then
+              echo "::notice title=fast-gates receipt::the change touches $file, so the gates run"
+              exit 0
+            fi
+          done
+          find=(); [[ "$FULL_CI" == true ]] && find=(--no-find)
+          python3 -I scripts/ci/pr_receipt.py lookup --check fast-gates --branch "$HEAD_REF" --branch "$BASE_REF" \
+            "${find[@]}" --output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+
   # A local test receipt (scripts/ci/ci_receipt.py): a change tested locally counts as a CI pass, and the job is
   # skipped. Only for a same-repository pull request whose body names
   # one (`CI-Receipt: fast-gates <Fast checks run URL>`), so every other run spends no runner and no API call here.
@@ -346,7 +380,7 @@ jobs:
     # Skipped before it takes a runner when the change touches no gate input (resolve's route), or when a valid
     # local test receipt covers it and the receipt job posted its status (a receipt job that failed, the status
     # post included, runs everything), unless audited.
-    if: ${{ (!cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.fast_gates != 'false' && (needs.receipt.result != 'success' || needs.receipt.outputs.valid != 'true' || needs.receipt.outputs.audit == 'true')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (!cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.fast_gates != 'false' && needs.resolve.outputs.receipt_run == '' && (needs.receipt.result != 'success' || needs.receipt.outputs.valid != 'true' || needs.receipt.outputs.audit == 'true')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     outputs:
       ratchet: ${{ steps.prepare.outputs.ratchet }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
@@ -564,6 +598,24 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
+      # This run's pass, for a later head of this pull request with the same inputs (resolve's pr_receipt step).
+      - name: Write the green receipt for later heads
+        if: ${{ success() && github.event_name == 'pull_request' && needs.resolve.outputs.receipt_key != '' }}
+        env:
+          KEY: ${{ needs.resolve.outputs.receipt_key }}
+          HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/pr-receipt"
+          printf '{"check":"fast-gates","key":"%s","run_id":"%s","sha":"%s"}\n' "$KEY" "$GITHUB_RUN_ID" "$HEAD_SHA" > "$RUNNER_TEMP/pr-receipt/receipt.json"
+      - name: Upload the green receipt
+        if: ${{ success() && github.event_name == 'pull_request' && needs.resolve.outputs.receipt_key != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pr-receipt-fast-gates-${{ needs.resolve.outputs.receipt_key }}
+          path: ${{ runner.temp }}/pr-receipt/receipt.json
+          if-no-files-found: ignore
+          retention-days: 7
+
   # Only on a dispatch whose prepare found a lowered panic-ratchet row the PR
   # changes (cmux_next_fast_gates.py ratchet_needed). The clippy setup is
   # cmux-tui-spec.yml's clippy job's, and its cargo cache is read, never saved.
@@ -646,6 +698,8 @@ jobs:
           RATCHET: ${{ needs.panic-ratchet.result }}
           # The route (resolve) skipped the gates: the pull request touches none of their inputs.
           ROUTED_OUT: ${{ needs.resolve.outputs.fast_gates == 'false' }}
+          # An earlier run of this pull request passed the gates on these same inputs (resolve's pr_receipt step).
+          REUSED_RUN: ${{ needs.resolve.outputs.receipt_run }}
           RECEIPT_AUDIT: ${{ needs.receipt.outputs.audit }}
           RECEIPT_RUN: ${{ needs.receipt.outputs.run_url }}
           RECEIPT_PRODUCER: ${{ needs.receipt.outputs.producer }}
@@ -661,9 +715,19 @@ jobs:
             RATCHET=skipped
             echo "- gates skipped: the change touches none of their inputs (scripts/ci/fast-check-inputs.json)" >> "$GITHUB_STEP_SUMMARY"
           fi
+          reused=false
+          if [[ -n "${REUSED_RUN:-}" && "$GATES" == skipped ]]; then
+            # The same verdict that run gave at these inputs; its base differs only outside them.
+            GATES=success
+            RATCHET=skipped
+            reused=true
+            echo "fast gates: these inputs passed in $REUSED_RUN; reported from there, not run again"
+            echo "- gates skipped: these inputs passed in $REUSED_RUN (scripts/ci/pr_receipt.py)" >> "$GITHUB_STEP_SUMMARY"
+          fi
           state=failure
           if [[ "$GATES" == success && ( "$RATCHET" == success || "$RATCHET" == skipped ) ]]; then state=success; fi
           description="base $BASE"
+          [[ "$reused" == true ]] && description="base $BASE; receipt run ${REUSED_RUN##*/}"
           # Only success and failure are verdicts. A gates job that ended any other way (cancelled or timed
           # out, skipped, abandoned because its placed runner never reported, empty, or a result this step
           # does not know) judged nothing, and so did a ratchet that ended any way but success, skipped

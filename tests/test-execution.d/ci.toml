@@ -590,6 +590,10 @@ lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_pr_ran_line.py"
 
 [[test]]
+path = "tests/test_ci_pr_receipt.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_pr_runner_pool.py"
 lane = "linux-guard"
 
