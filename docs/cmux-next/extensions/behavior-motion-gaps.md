@@ -29,14 +29,14 @@ the profiles lane goes here first, then into a PR.
 | --- | --- | --- |
 | Palette commands | Yes: `cmux.palette.scope/1` and the action catalog (`action.run`) | None found |
 | Slash commands in the composer | Yes: `cmux.composer.command/1`, from the manifest alone | None found |
-| Keybindings an extension declares | No: a person sets `keybindings.*` in their own config; a manifest has no `contributes.keybindings` | Add `contributes.keybindings` (`{key, action, when?}`), checked against `catalog.shortcutConflict`. Without it, the claude-code-app profile cannot bind its own Esc and Cmd-K flows |
+| Keybindings an extension declares | Yes: `contributes.keybindings` in keybindings.json form (`{key, command, when?, args?}`, the same parser), an own op or a cmux action, in the app binding layer below the person's keybindings.json; a pair bound twice warns (`keybindings.shortcutConflict`) | Bare keys outside a bare-key `when` stay the person's |
 | Menus and toolbar items | Yes: `contributes.menus`, `contributes.toolbarItems` | None found |
 | Panes and overlays | Yes: `cmux.pane/1` (`presentation.overlay` too), `cmux.section/1`, `cmux.newtab/1` | `cmux.pane/1` has no `onOpen` or `onClose` events or open arguments, so a panel flow (a picker that opens a detail pane and returns a result) has to be put together from storage and palette ops |
 | Pane state that survives a reload | Partly: `app.storage.*`, and `cmux ext dev` hot-reloads the script | Scene state (scroll position, focused field, expanded rows) is lost on a hot reload. There is no `state` export the host keeps and hands back |
 | Composer layout (toolbar, chips, model and reasoning picker) | Yes: `cmux.composer.toolbar/1`, `cmux.composer.chip/1`, `cmux.composer.model.picker/1` | None found |
 | Chat message actions and widgets | Yes: `cmux.chat.action/1`, `cmux.chat.widget/1` | None found |
 | Hover cards and sidebar row decorations | Yes: `cmux.hovercard/1`, `cmux.sidebar.rows/1` | `cmux.sidebar.rows/1.json` was not valid JSON (unescaped quotes in `docs`), so its options schema did not load. Fixed in the same PR as `cmux.motion/1` |
-| Activation | Yes: `activation` (`onStartup`, `onInterface`, `onOp`, `onEvent`) | No `onKeybinding` or `onCommand`, which goes with `contributes.keybindings` |
+| Activation | Yes: `activation` (`onStartup`, `onInterface`, `onOp`, `onEvent`, `onKeybinding`) | No `onCommand` |
 
 ## Gaps from the profiles lane
 
@@ -47,7 +47,7 @@ not written its gaps down. When the lane that adopts it finds one, it adds a row
 
 1. `cmux.motion/1`: one typed and versioned motion contract in Rust (landed with this page).
 2. `agentPane.display.streaming`: the streaming style setting.
-3. `contributes.keybindings` with `onKeybinding` activation.
+3. `contributes.keybindings` with `onKeybinding` activation (landed).
 4. Profile-level motion tokens: a `motion` block in a theme or look, bounded like `cmux.motion/1`.
 5. `cmux.pane/1` open arguments and results, so a pane can return a value (panel flows).
 6. Scene state that survives a hot reload.
