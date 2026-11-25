@@ -5,7 +5,9 @@
 //! (`webviews/src/apps/scene/sceneStyle.ts`) reads the same file, and
 //! `scripts/cmux-next/gen-type-scale.py` writes AppKit's copy (`SceneType` in
 //! `TypeScale.generated.swift`; its `--check` fails when that copy is stale). The design check
-//! reads it here, so what it says a name draws is what both renderers draw.
+//! reads it here, so what it says a name draws is what both renderers draw. Each role names the
+//! app type step it is (`step`, type-scale.json), and cmux-app-host/tools/gen-cmux-global.ts writes
+//! the SDK's `TYPE_ROLES` from it (generated/scene-scales.ts).
 
 use std::sync::OnceLock;
 
@@ -25,6 +27,10 @@ pub(super) struct Style {
     /// For an Apple style name, the role at its size.
     #[serde(default)]
     pub role: Option<String>,
+    /// For a role, the app type step it draws at (`schemas/type-scale/type-scale.json`).
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub step: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -93,15 +99,34 @@ mod tests {
         }
     }
 
-    /// The SDK's `TYPE_ROLES` (tokens.ts) is a copy an extension bundles, so it cannot import the
-    /// table; it must say the same sizes and weights.
+    /// Each role is an app type step at that step's size (type-scale.json), so the SDK's roles and
+    /// the app's chrome are one scale; only `numeral`, a widget's big number, has none.
+    #[test]
+    fn every_role_but_numeral_is_an_app_type_step_at_its_size() {
+        let scale: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../../schemas/type-scale/type-scale.json"
+        ))
+        .unwrap();
+        let steps = scale["steps"].as_array().unwrap();
+        for role in roles() {
+            let Some(step) = role.step.as_deref() else {
+                assert_eq!(role.name, "numeral", "{} names its app step", role.name);
+                continue;
+            };
+            let size = steps.iter().find(|s| s["name"] == step).and_then(|s| s["size"].as_f64());
+            assert_eq!(size, Some(role.size), "{} is the app's {step} step", role.name);
+        }
+    }
+
+    /// The SDK's `TYPE_ROLES` is generated from this table (cmux-app-host generated/scene-scales.ts,
+    /// re-exported by tokens.ts); the committed copy says the same sizes and weights.
     #[test]
     fn the_sdk_type_roles_match_the_table() {
-        let tokens = include_str!("../../../../cmux-extension-sdk/typescript/src/tokens.ts");
+        let tokens = include_str!("../../../../cmux-app-host/generated/scene-scales.ts");
         for role in roles() {
             let row =
                 format!("{}: {{ size: {}, weight: \"{}\" }}", role.name, role.size, role.weight);
-            assert!(tokens.contains(&row), "tokens.ts TYPE_ROLES has `{row}`");
+            assert!(tokens.contains(&row), "scene-scales.ts TYPE_ROLES has `{row}`");
         }
     }
 }

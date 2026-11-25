@@ -121,3 +121,22 @@ fn a_folder_without_a_file_uses_cmuxs_system_and_a_broken_one_says_so() {
     std::fs::write(dir.path().join(FILE), [0xff, 0xfe, 0x00]).unwrap();
     assert_eq!(System::load(dir.path()).1.map(|f| f.check), Some("system"));
 }
+
+/// cmux's spacing is read from design-scale.json `spacing.scene`, the list the SDK's `SPACE` is
+/// generated from (cmux-app-host generated/scene-scales.ts): both say the same 11 steps.
+#[test]
+fn cmux_spacing_is_the_design_scale_scene_list_the_sdk_space_is_generated_from() {
+    let space = System::cmux().space;
+    assert_eq!(space, vec![0.0, 2.0, 4.0, 6.0, 8.0, 12.0, 16.0, 20.0, 24.0, 32.0, 48.0]);
+    let generated = include_str!("../../../../cmux-app-host/generated/scene-scales.ts");
+    let line = generated
+        .lines()
+        .find(|line| line.starts_with("export const SPACE = "))
+        .expect("scene-scales.ts has SPACE");
+    let values: Vec<f64> = line
+        .split(", ")
+        .map(|pair| pair.rsplit(": ").next().unwrap().trim_end_matches(" } as const"))
+        .map(|value| value.parse().unwrap())
+        .collect();
+    assert_eq!(values, space, "generated SPACE is cmux's spacing");
+}

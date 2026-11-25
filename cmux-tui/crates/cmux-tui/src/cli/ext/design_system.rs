@@ -18,8 +18,34 @@ pub(super) const FILE: &str = "cmux-design.json";
 /// The format a design system file declares.
 const FORMAT: &str = "cmux.design/1";
 
-/// cmux's spacing scale, in points (the SDK's `SPACE`): a 4 pt grid with 2 and 6 for tight rows.
-const CMUX_SPACE: [f64; 11] = [0.0, 2.0, 4.0, 6.0, 8.0, 12.0, 16.0, 20.0, 24.0, 32.0, 48.0];
+/// The app's design scale; its `spacing.scene` is the scene DSL's spacing (the SDK's `SPACE`, which
+/// cmux-app-host/tools/gen-cmux-global.ts writes from the same list).
+const DESIGN_SCALE: &str = include_str!("../../../../../../schemas/design-scale/design-scale.json");
+
+/// cmux's spacing scale, in points (the SDK's `SPACE`): each `spacing.scene` step an app spacing
+/// step, a layout gap or a fraction of the 4 pt grid (2 and 6 for tight rows). The file is built in
+/// and read by the tests below; a step that does not read is left out rather than ending the CLI.
+fn cmux_space() -> &'static [f64] {
+    static SPACE: std::sync::OnceLock<Vec<f64>> = std::sync::OnceLock::new();
+    SPACE.get_or_init(|| {
+        let scale: Value = serde_json::from_str(DESIGN_SCALE).unwrap_or(Value::Null);
+        let spacing = &scale["spacing"];
+        let app = spacing["steps"].as_array().map(Vec::as_slice).unwrap_or_default();
+        let px = |name: &str| {
+            app.iter().find(|step| step["name"] == name).and_then(|step| step["px"].as_f64())
+        };
+        let grid = app.first().and_then(|step| step["px"].as_f64()).unwrap_or(4.0);
+        let scene = spacing["scene"]["steps"].as_array().map(Vec::as_slice).unwrap_or_default();
+        scene
+            .iter()
+            .filter_map(|step| match (step["step"].as_str(), step["layout"].as_f64()) {
+                (Some(name), _) => px(name),
+                (None, Some(layout)) => Some(layout),
+                (None, None) => step["grid"].as_f64().map(|units| units * grid),
+            })
+            .collect()
+    })
+}
 
 /// The cmux color roles a person's color names may stand for (the ones that keep contrast).
 const COLOR_ROLES: [&str; 8] =
@@ -81,7 +107,7 @@ impl System {
                     weight: role.weight.clone(),
                 })
                 .collect(),
-            space: CMUX_SPACE.to_vec(),
+            space: cmux_space().to_vec(),
             colors: BTreeMap::new(),
             max_roles: 4,
             max_accents: 2,

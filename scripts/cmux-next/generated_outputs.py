@@ -111,7 +111,7 @@ OUTPUTS: tuple[tuple[tuple[str, ...], str, str], ...] = (
      "bun web/scripts/export-next-docs.ts; only the base autofix writes it"),
     (("cmux-tui/crates/cmux-app-host/generated/*",),
      r"cmux-tui/spec/resource-operations-v2\.json$|backend/catalog/cloud-operations\.json$|first-party-apps/"
-     r"|cmux-tui/crates/cmux-app-host/(tools|schema)/|" + ACTIONS_INPUTS,
+     r"|cmux-tui/crates/cmux-app-host/(tools|schema)/|schemas/(design-scale|type-scale)/|" + ACTIONS_INPUTS,
      "cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts"),
     (("cmux-tui/bindings/*/.cmux-resource-api.json", "cmux-tui/bindings/*.cmux-sdk-manifest.json",
       "cmux-tui/bindings/python/cmux/raw/_generated/*", "cmux-tui/bindings/cpp/include/cmux/raw/generated/*",

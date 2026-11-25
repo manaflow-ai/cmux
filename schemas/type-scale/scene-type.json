@@ -1,13 +1,13 @@
 {
-  "about": "The scene DSL's type: what a scene node's `font` names, drawn the same by every renderer (RFD 0009, goal 3). The web scene renderer (webviews/src/apps/scene/sceneStyle.ts) and the design check (cmux-tui/crates/cmux-tui/src/cli/ext/design_system.rs) read this file; scripts/cmux-next/gen-type-scale.py writes AppKit's copy (TypeScale.generated.swift, `SceneType`). Sizes are points (CSS px on the web) at the default text size; both renderers grow them with Interface Size as they do the chrome steps. `roles` are cmux's type roles, Apple's widget text styles, each drawn by an SDK helper (cmux-extension-sdk widget.ts; their sizes are tokens.ts `TYPE_ROLES`, which must match). `styles` are the Apple text style names a scene may still write, each at one size and weight, and the role at that size: one whose size and weight are a role's is that role by another name; the rest the design check names as a rename (`type-style`).",
+  "about": "The scene DSL's type: what a scene node's `font` names, drawn the same by every renderer (RFD 0009, goal 3). The web scene renderer (webviews/src/apps/scene/sceneStyle.ts) and the design check (cmux-tui/crates/cmux-tui/src/cli/ext/design_system.rs) read this file; scripts/cmux-next/gen-type-scale.py writes AppKit's copy (TypeScale.generated.swift, `SceneType`). Sizes are points (CSS px on the web) at the default text size; both renderers grow them with Interface Size as they do the chrome steps. `roles` are cmux's type roles, Apple's widget text styles, each drawn by an SDK helper (cmux-extension-sdk widget.ts). A role's `step` is the app type step it draws at (schemas/type-scale/type-scale.json; its size must be that step's): the SDK's `caption` is the app's `detail` step and its `footnote` the app's `caption`; `numeral` (34) is a widget's big number, which no app step has. cmux-app-host/tools/gen-cmux-global.ts writes the SDK's `TYPE_ROLES` (generated/scene-scales.ts, which tokens.ts re-exports) from this table. `styles` are the Apple text style names a scene may still write, each at one size and weight, and the role at that size: one whose size and weight are a role's is that role by another name; the rest the design check names as a rename (`type-style`).",
   "roles": [
     { "name": "numeral", "helper": "BigNumber", "size": 34, "weight": "semibold" },
-    { "name": "heading", "helper": "Heading", "size": 20, "weight": "semibold" },
-    { "name": "title", "helper": "Headline", "size": 15, "weight": "semibold" },
-    { "name": "label", "helper": "Label", "size": 13, "weight": "semibold" },
-    { "name": "body", "helper": "Body", "size": 13, "weight": "regular" },
-    { "name": "caption", "helper": "Caption", "size": 12, "weight": "regular" },
-    { "name": "footnote", "helper": "Footnote", "size": 11, "weight": "regular" }
+    { "name": "heading", "helper": "Heading", "size": 20, "weight": "semibold", "step": "heading" },
+    { "name": "title", "helper": "Headline", "size": 15, "weight": "semibold", "step": "title" },
+    { "name": "label", "helper": "Label", "size": 13, "weight": "semibold", "step": "body" },
+    { "name": "body", "helper": "Body", "size": 13, "weight": "regular", "step": "body" },
+    { "name": "caption", "helper": "Caption", "size": 12, "weight": "regular", "step": "detail" },
+    { "name": "footnote", "helper": "Footnote", "size": 11, "weight": "regular", "step": "caption" }
   ],
   "styles": [
     { "name": "largeTitle", "size": 34, "weight": "regular", "role": "numeral" },

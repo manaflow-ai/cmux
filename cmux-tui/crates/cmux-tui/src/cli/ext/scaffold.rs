@@ -127,20 +127,27 @@ const SDK_PATHS: &[(&str, &str)] = &[
     ("../../../cmux-app-host/generated/cmux-app.d.ts", "../../cmux-app.d.ts"),
     ("../../../cmux-app-host/schema/v2/events.json", "../tables/events.json"),
     ("../../../cmux-app-host/generated/scopes.json", "../tables/scopes.json"),
+    ("../../../cmux-app-host/generated/scene-scales.ts", "../tables/scene-scales.ts"),
 ];
+
+/// The SDK's type roles and spacing, generated from the app's scales (`tokens.ts` re-exports them).
+const SDK_SCENE_SCALES: &str = include_str!("../../../../cmux-app-host/generated/scene-scales.ts");
 
 /// `sdk/`: the SDK's files with its imports pointed at the copied tables.
 pub(super) fn runtime_sdk_files() -> Vec<(&'static str, String)> {
-    let index =
-        SDK_PATHS.iter().fold(SDK_INDEX.to_string(), |text, (from, to)| text.replace(from, to));
+    let vendored = |source: &str| {
+        SDK_PATHS.iter().fold(source.to_string(), |text, (from, to)| text.replace(from, to))
+    };
+    let index = vendored(SDK_INDEX);
     vec![
         ("sdk/src/index.ts", index),
         ("sdk/src/widget.ts", SDK_WIDGET.to_string()),
         ("sdk/src/design.ts", SDK_DESIGN.to_string()),
         (
             "sdk/src/tokens.ts",
-            include_str!("../../../../cmux-extension-sdk/typescript/src/tokens.ts").to_owned(),
+            vendored(include_str!("../../../../cmux-extension-sdk/typescript/src/tokens.ts")),
         ),
+        ("sdk/tables/scene-scales.ts", SDK_SCENE_SCALES.to_string()),
         ("sdk/tables/events.json", SDK_EVENTS.to_string()),
         ("sdk/tables/scopes.json", SDK_SCOPES.to_string()),
     ]

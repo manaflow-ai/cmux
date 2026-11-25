@@ -49,7 +49,7 @@ def load_scene():
     roles = {role["name"]: role for role in data["roles"]}
     assert len(roles) == len(data["roles"]), "one row per role"
     for role in data["roles"]:
-        assert set(role) == {"name", "helper", "size", "weight"} and role["weight"] in SCENE_WEIGHTS, role
+        assert set(role) - {"step"} == {"name", "helper", "size", "weight"} and role["weight"] in SCENE_WEIGHTS, role
     for style in data["styles"]:
         assert set(style) == {"name", "size", "weight", "role"} and style["weight"] in SCENE_WEIGHTS, style
         assert style["name"] not in roles, "a role name is the role: %s" % style["name"]

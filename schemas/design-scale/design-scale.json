@@ -11,7 +11,23 @@
       { "name": "5", "px": 24 },
       { "name": "6", "px": 32 }
     ],
-    "layout": [40, 48, 56]
+    "layout": [40, 48, 56],
+    "scene": {
+      "$comment": "The scene DSL's spacing (the SDK's SPACE, the design check's scale): 11 names an extension writes, each one of the app's own: a step above (`step`), a layout gap (`layout`), or a fraction of the 4 pt grid the app's steps skip (`grid`, in grid units: 0, a hairline, the 6 pt tight row and the 20 pt gap). cmux-app-host/tools/gen-cmux-global.ts writes generated/scene-scales.ts from this list and scene-type.json; the SDK's tokens.ts re-exports it.",
+      "steps": [
+        { "name": "none", "grid": 0 },
+        { "name": "hairline", "grid": 0.5 },
+        { "name": "xxs", "step": "1" },
+        { "name": "xs", "grid": 1.5 },
+        { "name": "s", "step": "2" },
+        { "name": "m", "step": "3" },
+        { "name": "l", "step": "4" },
+        { "name": "xl", "grid": 5 },
+        { "name": "xxl", "step": "5" },
+        { "name": "xxxl", "step": "6" },
+        { "name": "huge", "layout": 48 }
+      ]
+    }
   },
   "controls": [
     { "name": "icon", "px": 20, "for": "an icon-only control's box" },
