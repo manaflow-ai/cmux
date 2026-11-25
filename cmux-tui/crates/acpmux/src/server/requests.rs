@@ -3116,11 +3116,9 @@ async fn dispatch_request_with_identity(
             super::peer_status::wireguard_admit(hub, conn.origin, &params).await
         }
         "_acpmux/peer_status" => super::peer_status::peer_status(hub, conn.origin, &params).await,
-        super::vm_host::METHOD => super::vm_host::handle(hub, conn, &params).await,
         super::autocloud_enroll::METHOD => {
             super::autocloud_enroll::handle(hub, conn, &params).await
         }
-        super::host_notice::METHOD => super::host_notice::handle(hub, conn, &params).await,
         // This daemon's copy of a peer session's events (`hub/peer_snapshot.rs`): transcripts
         // this machine's clients read, so for the app and the unix socket only.
         "_acpmux/peer_snapshot" if conn.origin.web_class() => Err(RpcError::invalid_params(
@@ -4628,6 +4626,10 @@ async fn dispatch_request_with_identity(
         // Anything else that names a session goes to the agent untouched, from the unix
         // socket (the app: only a subagent stop); it may spawn or read (`remote_guard.rs`).
         other => {
+            // A method with its own file (`methods/mod.rs`) before the harness gets it.
+            if let Some(reply) = super::methods::dispatch(hub, conn, other, &params).await {
+                return reply;
+            }
             let key = session_key(&params).map_err(|_| match other {
                 method::MUX_SUBAGENT_STOP | method::MUX_STEER_WITHDRAW | method::MUX_STEP_NOW => {
                     RpcError::invalid_params("sessionId is required")

@@ -88,7 +88,7 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     // (`policy_mode.rs`): the chat says so where it happened.
     "policy_unenforced",
     // A line from outside any chat, such as cmux Cloud's after it resized the machine
-    // (`server/host_notice.rs`).
+    // (`server/methods/host_notice.rs`).
     "host_notice",
     // A chat moved to another place from the place menu (`server/place_set.rs`).
     "moved",

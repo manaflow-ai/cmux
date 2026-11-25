@@ -83,10 +83,63 @@ fn pane_files(root: &Path) -> Result<Vec<(String, PathBuf)>> {
     Ok(files)
 }
 
+/// Writes `$OUT_DIR/server_methods.rs` (`src/server/methods/mod.rs`): a module for each
+/// `src/server/methods/<name>.rs` but `mod.rs` and `*_tests.rs`, sorted by name, and `dispatch`,
+/// which runs the one whose `METHOD` is the request's method.
+fn methods_dispatch() -> Result<()> {
+    let folder = std::fs::canonicalize("src/server/methods")?;
+    println!("cargo:rerun-if-changed={}", folder.display());
+    let mut names = Vec::new();
+    for entry in std::fs::read_dir(&folder)? {
+        let path = entry?.path();
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            return Err(Error::other(format!("non-UTF-8 name in {}", folder.display())));
+        };
+        // `mod.rs` holds `dispatch`; a `<name>_tests.rs` is its method file's test module.
+        if let Some(stem) = name.strip_suffix(".rs")
+            && stem != "mod"
+            && !stem.ends_with("_tests")
+        {
+            println!("cargo:rerun-if-changed={}", path.display());
+            names.push((stem.to_owned(), path));
+        }
+    }
+    names.sort();
+    let mut generated = String::new();
+    for (name, path) in &names {
+        let path = path
+            .to_str()
+            .ok_or_else(|| Error::other(format!("non-UTF-8 path {}", path.display())))?;
+        let _ = writeln!(generated, "#[path = {path:?}]\npub(crate) mod {name};");
+    }
+    generated.push_str(concat!(
+        "\n/// The reply of the method file whose `METHOD` is `m`; `None` when no file has it.\n",
+        "pub(super) async fn dispatch(\n",
+        "    hub: &Arc<Hub>,\n",
+        "    conn: &Conn,\n",
+        "    m: &str,\n",
+        "    params: &Value,\n",
+        ") -> Option<Result<Value, RpcError>> {\n",
+        "    match m {\n",
+    ));
+    for (name, _) in &names {
+        let _ = writeln!(
+            generated,
+            "        {name}::METHOD => Some({name}::handle(hub, conn, params).await),"
+        );
+    }
+    generated.push_str("        _ => None,\n    }\n}\n");
+    let out = std::env::var_os("OUT_DIR").ok_or_else(|| Error::other("OUT_DIR is unset"))?;
+    std::fs::write(PathBuf::from(out).join("server_methods.rs"), generated)
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     if let Err(error) = browser_assets() {
         panic!("embedding the production browser pane: {error}");
+    }
+    if let Err(error) = methods_dispatch() {
+        panic!("registering the request methods in src/server/methods: {error}");
     }
     // clap builds the complete acpmux command tree before dispatch. On Windows,
     // that now exceeds the linker's 1 MiB default main-thread stack and the
