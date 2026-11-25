@@ -11,7 +11,7 @@ import "../cloudStart.css";
 export const CloudAgentStartContext = createContext<string | undefined>(undefined);
 
 /// A Cloud chat's queued first prompt on the machine's chat page, while its agent starts: the line the
-/// Mac's start view ended on ("Starting Claude Code · usually a few seconds", CloudStartView
+/// Mac's start view ended on ("Starting Claude Code" and its clock, CloudStartView
 /// StageLine), with its clock, in place of a bare "Thinking". One line in the live line's own box, so
 /// the answer's first words take its place with no shift and no Cancel (Leo, 2026-11-01). Past
 /// AGENT_START_SLOW_MS the usual wait reads "taking longer than usual".
@@ -32,12 +32,14 @@ export function CloudAgentStartLine({ agent, since, below }: { agent: string; si
         </output>
         {clock && <span className="cv-worked__time">{clock}</span>}
       </span>
-      <span className="cv-worked__count acpmux-cloud-start__eta">
-        <span className="cv-worked__sep" aria-hidden="true">
-          ·
+      {stage.detail && (
+        <span className="cv-worked__count acpmux-cloud-start__progress">
+          <span className="cv-worked__sep" aria-hidden="true">
+            ·
+          </span>
+          <span>{stage.detail}</span>
         </span>
-        <span>{stage.eta}</span>
-      </span>
+      )}
     </div>
   );
 }

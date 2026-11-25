@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (agent names), not shipped UI.
 //
 // A Cloud chat's first prompt on the machine's own chat page while its agent starts there
-// (CloudAgentStartLine.tsx): "Starting Claude Code · usually a few seconds" with its clock, where a
+// (CloudAgentStartLine.tsx): "Starting Claude Code" and its clock" with its clock, where a
 // bare "Thinking" stood. `thinking-before` is that old line.
 import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";

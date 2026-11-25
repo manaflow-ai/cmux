@@ -32,6 +32,7 @@
 use crate::net::{Candidate, Later, Net, NetConfig, NetEvent, TurnServer};
 use crate::{EndpointEvent, Event, KeyPair, Role};
 use std::net::{SocketAddr, ToSocketAddrs};
+#[cfg(unix)]
 use std::os::fd::RawFd;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -288,6 +289,7 @@ impl DatagramLink {
     }
 
     /// Readable when [`DatagramLink::poll`] may have something; `None` once ended.
+    #[cfg(unix)]
     pub fn fd(&self) -> Option<RawFd> {
         self.net.as_ref().map(Net::event_fd)
     }

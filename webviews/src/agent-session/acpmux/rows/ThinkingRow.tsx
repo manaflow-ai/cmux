@@ -1,4 +1,4 @@
-import { memo, useContext } from "react";
+import { memo, useContext, useEffect } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { cloudStartQuietLook } from "../cloudStart.experiment";
 import { CloudAgentStartContext, CloudAgentStartLine } from "../conversation/CloudAgentStartLine";
@@ -6,6 +6,7 @@ import { Thinking } from "../conversation/Thinking";
 import { WaitingOnContext } from "../conversation/waitingOn";
 import { LiveLinePulseContext } from "../conversation/liveLinePulse";
 import { LIVE_THINKING } from "../conversation/turns";
+import { glyphTrigger, setLiveGlyphTrigger } from "../conversation/thinkingGlyphModel";
 import { type RowProps } from "./rowProps";
 import { sameLiveWait, sameNames } from "../conversation/liveWait";
 
@@ -20,6 +21,18 @@ export const ThinkingRow = memo(
     const waiting = useContext(WaitingOnContext);
     if (row.queued !== undefined && cloudAgent && !waiting && experimentArm(cloudStartQuietLook) !== "thinking")
       return <CloudAgentStartLine agent={cloudAgent} since={row.at} below={row.below} />;
+    // A look's thinking glyph plays the document's trigger for what the agent does now; the transcript's
+    // live line tells Jump to latest too (thinkingGlyphModel.ts).
+    const trigger = glyphTrigger({
+      starting: row.queued !== undefined,
+      kind: row.doingKind,
+      sendTo: row.doingSendTo,
+      liveState: row.liveState,
+    });
+    const live = row.id === LIVE_THINKING;
+    useEffect(() => {
+      if (live) setLiveGlyphTrigger(trigger);
+    }, [live, trigger]);
     return (
       <Thinking
         starting={row.queued !== undefined}
@@ -52,6 +65,7 @@ export const ThinkingRow = memo(
         command={row.doingCommand}
         retry={row.retry}
         pulse={row.id === LIVE_THINKING ? (pulse ?? undefined) : undefined}
+        glyphTrigger={trigger}
       />
     );
   },
@@ -63,6 +77,7 @@ export const ThinkingRow = memo(
     a.row.doing === b.row.doing &&
     a.row.doingAt === b.row.doingAt &&
     a.row.doingShell === b.row.doingShell &&
+    a.row.doingKind === b.row.doingKind &&
     a.row.doingSendTo === b.row.doingSendTo &&
     a.row.doingSendSession === b.row.doingSendSession &&
     a.row.doingDraft === b.row.doingDraft &&
