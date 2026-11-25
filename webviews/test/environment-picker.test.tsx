@@ -1695,7 +1695,7 @@ test("three pickers: Where's face is where it runs, or the machine picked, with 
 test("three chips: nothing is required to start, and the machine chip shows only for another machine", async () => {
   const calls = await mount(true, { ...shipped, ...alone });
   const strip = host.querySelector(".acpmux-location-leading")!;
-  // Project, then Where; no machine chip on This Mac (the Environment chip's slot is closed, inert).
+  // Project, then Where; no machine chip on This Mac.
   expect(
     [...strip.querySelectorAll(".acpmux-location-button")]
       .filter((button) => !button.closest("[inert]"))
@@ -1754,8 +1754,7 @@ test("three chips: Cloud picked shows no machine chip and no New machine anywher
   ).toEqual([
     t("composer.folder"),
     `${t("composer.environment")}: ${t("composer.cloud")}`,
-    // The Environment chip (on by default, CLOUD_ENVIRONMENTS_ENABLED), on Auto: never a machine.
-    `${t("composer.envCloudLabel")}: ${t("composer.envAuto")}`,
+    // No Environment chip: a Cloud chat's image is Settings > Cloud's Default image (cmux#51731).
   ]);
   expect(machineButton()).toBeUndefined();
   expect(host.textContent ?? "").not.toContain(t("composer.newMachine"));
@@ -1792,17 +1791,14 @@ test("three pickers: Where agrees with Send, a machine picked leaves Cloud and C
     runMode: { mode: "cloud", onMode },
     onComputer: (computer: string) => calls.push(["computer", computer]),
   });
-  // Exactly three pickers: folder, Where, Environment (Default image).
+  // Two pickers, folder and Where: the image is Settings > Cloud's Default image (cmux#51731), never a
+  // composer chip.
   const pickers = () =>
     [...host.querySelectorAll(".acpmux-location-leading .acpmux-location-button")]
       .filter((button) => !button.closest("[inert]"))
       .map((button) => button.getAttribute("aria-label"));
-  expect(pickers()).toEqual([
-    t("composer.folder"),
-    `${t("composer.environment")}: ${t("composer.cloud")}`,
-    `${t("composer.envCloudLabel")}: ${t("composer.envAuto")}`,
-  ]);
-  expect(t("composer.envAuto")).toBe("Default image");
+  expect(pickers()).toEqual([t("composer.folder"), `${t("composer.environment")}: ${t("composer.cloud")}`]);
+  expect(host.querySelector(".acpmux-cloud-env, .acpmux-cloud-env-slot")).toBeNull();
   // Another machine picked from Where while Cloud is the pick: the chat runs there, so Cloud goes.
   await pickDevice("gpu-box");
   expect(calls).toEqual([["project", "/home/dev/model", "gpu-box"]]);

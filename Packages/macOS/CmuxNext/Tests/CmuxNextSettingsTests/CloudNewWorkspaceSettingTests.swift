@@ -20,6 +20,24 @@ struct CloudNewWorkspaceSettingTests {
         #expect(setting.folder(in: bad) == .inherit)
     }
 
+    /// `cloud.defaultImage` (Settings > Cloud > Default Image): Auto unless an environment id is set,
+    /// and the chat page follows it, so a new Cloud chat starts from it.
+    @Test func defaultImageIsAutoUnlessSetAndTheChatFollowsIt() throws {
+        let setting = CloudNewWorkspaceSetting()
+        #expect(setting.defaultImage(in: .object([:])) == "auto")
+        #expect(setting.defaultImage(in: .object(["cloud": .object(["defaultImage": .string("")])])) == "auto")
+        #expect(setting.defaultImage(in: .object(["cloud": .object(["defaultImage": .bool(true)])])) == "auto")
+        let picked = JSONValue.object(["cloud": .object(["defaultImage": .string("env_123")])])
+        #expect(setting.defaultImage(in: picked) == "env_123")
+        let row = try #require(SettingsSchema.all.first { $0.id == "cloud.defaultImage" })
+        #expect(row.section == .machines)
+        #expect(row.defaultValue == .string("auto"))
+        #expect(row.isShownOnSettingsPage)
+        #expect(SettingsSchema.agentSettableKeys.contains("cloud.defaultImage"))
+        #expect(AgentPaneDisplaySetting.followedAppPaths.contains(CloudNewWorkspaceSetting.defaultImagePath))
+        #expect(AgentPaneDisplaySetting(fileRoot: picked).values["cloud.defaultImage"] == .string("env_123"))
+    }
+
     @Test func theToggleIsOnTheSettingsPageAndInThePalette() throws {
         let toggle = try #require(SettingsSchema.all.first { $0.id == "cloud.newWorkspacesInCloud" })
         #expect(toggle.section == .machines)

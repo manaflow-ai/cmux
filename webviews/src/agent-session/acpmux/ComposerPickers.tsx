@@ -57,6 +57,7 @@ import { INSTALL_COMMANDS } from "./harnesses/harnessRows";
 import { installProgress, plainInstallFailure } from "./harnesses/installRetry";
 import { postNative } from "./native";
 import { rememberPick } from "./lastPick";
+import { cloudPickerEntries, openCloudSettings, pickerOnCloud } from "./cloudPickerEntries";
 import { defaultModel } from "./harnessSwitch";
 import { catalogRow } from "./catalogRow";
 import { harnessProfiles } from "./harnessProfiles";
@@ -277,11 +278,33 @@ export function ComposerPickers({
   // A harness acpmux has not listed yet (the first open after launch) keeps the whole list rather
   // than an empty picker. A chat that can fork keeps every harness: a pick of another's model is
   // held for the next message's fork, never a switch in place (Leo 2026-10-22: "can expose as fork").
-  const ownEntries = locked && !fork ? allEntries.filter((entry) => entry.id === summary?.harness) : [];
-  const pickerEntries = ownEntries.length > 0 ? ownEntries : allEntries;
-  // Installed launch configurations are separate from route-backed accounts in the model menu.
-  const profiles = pickerCatalog ? catalogProfiles(snapshot.catalog, pickerCatalog.harnesses) : undefined;
-  const switchHarness = locked ? undefined : onHarness;
+  // With Cloud picked, or in a chat on a Cloud machine (cmux#51731), the picker lists the agents the
+  // machine carries and none of this Mac's profiles (cloudPickerEntries.ts). A started Cloud chat
+  // keeps them all: another agent's pick opens a new Cloud chat on it (`cloudSwitch`), as this chat
+  // cannot fork on its machine.
+  const onCloud = pickerOnCloud(snapshot);
+  const cloudSwitch = onCloud && locked && !fork;
+  const ownEntries =
+    locked && !fork && !cloudSwitch ? allEntries.filter((entry) => entry.id === summary?.harness) : [];
+  const shownEntries = ownEntries.length > 0 ? ownEntries : allEntries;
+  const cloudEntries = onCloud ? cloudPickerEntries(shownEntries) : [];
+  const pickerEntries = cloudEntries.length > 0 ? cloudEntries : shownEntries;
+  // Installed launch configurations are separate from route-backed accounts in the model menu; a
+  // Cloud machine has none of them.
+  const profiles =
+    pickerCatalog && !onCloud ? catalogProfiles(snapshot.catalog, pickerCatalog.harnesses) : undefined;
+  const switchHarness = cloudSwitch
+    ? (picked: string, pickedModel?: string) => {
+        if (picked === summary?.harness) return;
+        // The new chat's tab starts on the pick (lastPick.ts), with Cloud picked, on the person's machine.
+        rememberPick({ harness: picked, ...(pickedModel ? { model: pickedModel } : {}) }, summary?.cwd);
+        void postNative("action.run", { id: "palette.newCloudChat" }).catch(() => undefined);
+      }
+    : locked
+      ? undefined
+      : onHarness;
+  // Its last row opens Settings > Cloud, where more ways to reach models on Cloud are set up.
+  const addAgent = onCloud ? () => openCloudSettings() : onAddAgent;
   // An agent's own default remains an internal sentinel. The picker omits it
   // instead of exposing a separate "Default" row.
   const models: Choice[] = sessionModels(snapshot.catalog, summary);
@@ -1361,9 +1384,10 @@ export function ComposerPickers({
           onCombo={combo}
           onHarnessHint={onHarnessHint}
           onHarnessEnable={onHarnessEnable}
-          onAddAgent={onAddAgent}
+          onAddAgent={addAgent}
+          {...(onCloud ? { addAgentLabel: t("composer.cloudSetUpMore") } : {})}
           onSetUpPick={setUpPick}
-          harnessFixed={locked}
+          harnessFixed={locked && !cloudSwitch}
           {...(signIn ? { signedOut: pickableSignedOut(signIn.signedOut, summary), onLogIn: signIn.logIn } : {})}
           {...(claudeConnect.row ? { claudeConnect: claudeConnect.row } : {})}
           {...(fastMode && (!reasoningMenu || (fastOffered && !held && !switching))

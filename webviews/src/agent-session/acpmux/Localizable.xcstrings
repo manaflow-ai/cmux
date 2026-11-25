@@ -109,6 +109,138 @@
     "turn.failure.usageLimit": {"comment":"Agent pane: a failed turn's note when the agent's account used up a usage limit and the refusal names no reset (cmux#55066); {harness} is the agent's name.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"وصل حساب {harness} إلى حد الاستخدام؛ وتفشل كل رسالة بالطريقة نفسها حتى يُعاد تعيينه. استخدم وكيلًا آخر للمتابعة الآن، أو سجّل الدخول بحساب آخر."}},"bs":{"stringUnit":{"state":"needs_review","value":"Račun za {harness} je dostigao ograničenje korištenja; svaka poruka ne uspijeva na isti način dok se ne resetuje. Koristi drugog agenta da nastaviš odmah ili se prijavi drugim računom."}},"da":{"stringUnit":{"state":"needs_review","value":"{harness}-kontoen har nået sin forbrugsgrænse; hver besked mislykkes på samme måde, indtil den nulstilles. Brug en anden agent for at fortsætte nu, eller log ind med en anden konto."}},"de":{"stringUnit":{"state":"needs_review","value":"Das Konto von {harness} hat sein Nutzungslimit erreicht; bis zum Zurücksetzen scheitert jede Nachricht auf dieselbe Weise. Nutze einen anderen Agenten, um jetzt weiterzumachen, oder melde dich mit einem anderen Konto an."}},"en":{"stringUnit":{"state":"translated","value":"{harness}'s account hit its usage limit; every message fails the same way until it resets. Use another agent to keep going now, or sign in with another account."}},"es":{"stringUnit":{"state":"needs_review","value":"La cuenta de {harness} alcanzó su límite de uso; cada mensaje falla igual hasta que se restablezca. Usa otro agente para seguir ahora o inicia sesión con otra cuenta."}},"fr":{"stringUnit":{"state":"needs_review","value":"Le compte {harness} a atteint sa limite d’utilisation ; chaque message échoue de la même façon jusqu’à sa réinitialisation. Utilisez un autre agent pour continuer maintenant, ou connectez-vous avec un autre compte."}},"it":{"stringUnit":{"state":"needs_review","value":"L’account di {harness} ha raggiunto il limite di utilizzo; ogni messaggio fallisce allo stesso modo finché non si azzera. Usa un altro agente per continuare subito o accedi con un altro account."}},"ja":{"stringUnit":{"state":"needs_review","value":"{harness} のアカウントが使用上限に達しました。リセットされるまで、どのメッセージも同じように失敗します。今すぐ続けるには別のエージェントを使うか、別のアカウントでサインインしてください。"}},"km":{"stringUnit":{"state":"needs_review","value":"គណនី {harness} បានដល់ដែនកំណត់ប្រើប្រាស់; សារនីមួយៗនឹងបរាជ័យដូចគ្នា រហូតដល់វាកំណត់ឡើងវិញ។ ប្រើភ្នាក់ងារផ្សេងដើម្បីបន្តឥឡូវ ឬចូលដោយគណនីផ្សេង។"}},"ko":{"stringUnit":{"state":"needs_review","value":"{harness} 계정이 사용 한도에 도달했습니다. 초기화될 때까지 모든 메시지가 같은 방식으로 실패합니다. 지금 계속하려면 다른 에이전트를 사용하거나 다른 계정으로 로그인하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"{harness}-kontoen har nådd bruksgrensen; hver melding mislykkes på samme måte til den nullstilles. Bruk en annen agent for å fortsette nå, eller logg inn med en annen konto."}},"pl":{"stringUnit":{"state":"needs_review","value":"Konto {harness} osiągnęło limit użycia; każda wiadomość zakończy się tak samo, dopóki się nie zresetuje. Użyj innego agenta, aby kontynuować teraz, albo zaloguj się innym kontem."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"A conta do {harness} atingiu o limite de uso; toda mensagem falha do mesmo jeito até ele ser redefinido. Use outro agente para continuar agora ou entre com outra conta."}},"ru":{"stringUnit":{"state":"needs_review","value":"Аккаунт {harness} исчерпал лимит использования; до сброса каждое сообщение будет завершаться так же. Используйте другого агента, чтобы продолжить сейчас, или войдите в другой аккаунт."}},"th":{"stringUnit":{"state":"needs_review","value":"บัญชี {harness} ใช้งานถึงขีดจำกัดแล้ว ทุกข้อความจะล้มเหลวแบบเดียวกันจนกว่าจะรีเซ็ต ใช้เอเจนต์อื่นเพื่อทำต่อตอนนี้ หรือลงชื่อเข้าใช้ด้วยบัญชีอื่น"}},"tr":{"stringUnit":{"state":"needs_review","value":"{harness} hesabı kullanım sınırına ulaştı; sıfırlanana kadar her mesaj aynı şekilde başarısız olur. Şimdi devam etmek için başka bir ajan kullanın veya başka bir hesapla giriş yapın."}},"uk":{"stringUnit":{"state":"needs_review","value":"Обліковий запис {harness} вичерпав ліміт використання; до скидання кожне повідомлення завершуватиметься так само. Скористайтеся іншим агентом, щоб продовжити зараз, або увійдіть в інший обліковий запис."}},"vi":{"stringUnit":{"state":"needs_review","value":"Tài khoản {harness} đã chạm giới hạn sử dụng; mọi tin nhắn đều thất bại như vậy cho đến khi giới hạn đặt lại. Dùng agent khác để tiếp tục ngay, hoặc đăng nhập bằng tài khoản khác."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{harness} 的账户已达到用量上限；在重置之前每条消息都会以同样方式失败。现在要继续，请使用其他智能体，或用另一个账户登录。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{harness} 的帳戶已達到用量上限；在重設之前每則訊息都會以同樣方式失敗。現在要繼續，請使用其他智慧代理，或以另一個帳戶登入。"}}}},
     "turn.failure.signInAnotherAccount": {"comment":"Agent pane: a failed turn's button when the agent's account is out of usage or turned off (cmux#55066): runs the agent's sign-in so another account can be used.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تسجيل الدخول بحساب آخر"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prijavi se drugim računom"}},"da":{"stringUnit":{"state":"needs_review","value":"Log ind med en anden konto"}},"de":{"stringUnit":{"state":"needs_review","value":"Mit anderem Konto anmelden"}},"en":{"stringUnit":{"state":"translated","value":"Sign in with another account"}},"es":{"stringUnit":{"state":"needs_review","value":"Iniciar sesión con otra cuenta"}},"fr":{"stringUnit":{"state":"needs_review","value":"Se connecter avec un autre compte"}},"it":{"stringUnit":{"state":"needs_review","value":"Accedi con un altro account"}},"ja":{"stringUnit":{"state":"needs_review","value":"別のアカウントでサインイン"}},"km":{"stringUnit":{"state":"needs_review","value":"ចូលដោយគណនីផ្សេង"}},"ko":{"stringUnit":{"state":"needs_review","value":"다른 계정으로 로그인"}},"nb":{"stringUnit":{"state":"needs_review","value":"Logg inn med en annen konto"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zaloguj się innym kontem"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Entrar com outra conta"}},"ru":{"stringUnit":{"state":"needs_review","value":"Войти в другой аккаунт"}},"th":{"stringUnit":{"state":"needs_review","value":"ลงชื่อเข้าใช้ด้วยบัญชีอื่น"}},"tr":{"stringUnit":{"state":"needs_review","value":"Başka hesapla giriş yap"}},"uk":{"stringUnit":{"state":"needs_review","value":"Увійти в інший обліковий запис"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đăng nhập bằng tài khoản khác"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"用另一个账户登录"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"以另一個帳戶登入"}}}},
     "turn.failure.accountDisabled": {"comment":"Agent pane: a failed turn's note when the agent's provider disabled, suspended or banned its account (\"This organization has been disabled.\"; cmux#55066); {harness} is the agent's name.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أوقف مزوّد {harness} هذا الحساب (معطّل أو موقوف)، فلا يمكن تشغيل أي رسالة عليه. استخدم وكيلًا آخر، أو سجّل الدخول بحساب آخر."}},"bs":{"stringUnit":{"state":"needs_review","value":"Pružalac za {harness} je isključio ovaj račun (onemogućen ili suspendovan), pa nijedna poruka ne može raditi na njemu. Koristi drugog agenta ili se prijavi drugim računom."}},"da":{"stringUnit":{"state":"needs_review","value":"{harness}-udbyderen har slået denne konto fra (deaktiveret eller suspenderet), så ingen besked kan køre på den. Brug en anden agent, eller log ind med en anden konto."}},"de":{"stringUnit":{"state":"needs_review","value":"Der Anbieter von {harness} hat dieses Konto abgeschaltet (deaktiviert oder gesperrt), daher kann keine Nachricht darauf laufen. Nutze einen anderen Agenten oder melde dich mit einem anderen Konto an."}},"en":{"stringUnit":{"state":"translated","value":"{harness}'s provider turned this account off (disabled or suspended), so no message can run on it. Use another agent, or sign in with another account."}},"es":{"stringUnit":{"state":"needs_review","value":"El proveedor de {harness} desactivó esta cuenta (deshabilitada o suspendida), así que ningún mensaje puede ejecutarse con ella. Usa otro agente o inicia sesión con otra cuenta."}},"fr":{"stringUnit":{"state":"needs_review","value":"Le fournisseur de {harness} a désactivé ce compte (désactivé ou suspendu) : aucun message ne peut s’y exécuter. Utilisez un autre agent, ou connectez-vous avec un autre compte."}},"it":{"stringUnit":{"state":"needs_review","value":"Il fornitore di {harness} ha disattivato questo account (disabilitato o sospeso), quindi nessun messaggio può essere eseguito. Usa un altro agente o accedi con un altro account."}},"ja":{"stringUnit":{"state":"needs_review","value":"{harness} のプロバイダーがこのアカウントを停止しました（無効化または一時停止）。このアカウントではメッセージを実行できません。別のエージェントを使うか、別のアカウントでサインインしてください。"}},"km":{"stringUnit":{"state":"needs_review","value":"អ្នកផ្តល់សេវា {harness} បានបិទគណនីនេះ (បិទ ឬផ្អាក) ដូច្នេះគ្មានសារណាអាចដំណើរការបានទេ។ ប្រើភ្នាក់ងារផ្សេង ឬចូលដោយគណនីផ្សេង។"}},"ko":{"stringUnit":{"state":"needs_review","value":"{harness} 제공업체가 이 계정을 사용 중지했습니다(비활성화 또는 정지). 이 계정으로는 메시지를 실행할 수 없습니다. 다른 에이전트를 사용하거나 다른 계정으로 로그인하세요."}},"nb":{"stringUnit":{"state":"needs_review","value":"{harness}-leverandøren har slått av denne kontoen (deaktivert eller suspendert), så ingen melding kan kjøre på den. Bruk en annen agent, eller logg inn med en annen konto."}},"pl":{"stringUnit":{"state":"needs_review","value":"Dostawca {harness} wyłączył to konto (dezaktywowane lub zawieszone), więc żadna wiadomość nie może na nim działać. Użyj innego agenta albo zaloguj się innym kontem."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O provedor do {harness} desativou esta conta (desativada ou suspensa), então nenhuma mensagem pode rodar nela. Use outro agente ou entre com outra conta."}},"ru":{"stringUnit":{"state":"needs_review","value":"Провайдер {harness} отключил этот аккаунт (деактивирован или заблокирован), поэтому ни одно сообщение не может в нём выполниться. Используйте другого агента или войдите в другой аккаунт."}},"th":{"stringUnit":{"state":"needs_review","value":"ผู้ให้บริการ {harness} ปิดบัญชีนี้แล้ว (ปิดใช้งานหรือระงับ) จึงไม่มีข้อความใดทำงานได้ ใช้เอเจนต์อื่น หรือลงชื่อเข้าใช้ด้วยบัญชีอื่น"}},"tr":{"stringUnit":{"state":"needs_review","value":"{harness} sağlayıcısı bu hesabı kapattı (devre dışı veya askıya alınmış), bu yüzden hiçbir mesaj çalışamaz. Başka bir ajan kullanın veya başka bir hesapla giriş yapın."}},"uk":{"stringUnit":{"state":"needs_review","value":"Постачальник {harness} вимкнув цей обліковий запис (деактивовано або призупинено), тож жодне повідомлення не може в ньому виконатися. Скористайтеся іншим агентом або увійдіть в інший обліковий запис."}},"vi":{"stringUnit":{"state":"needs_review","value":"Nhà cung cấp {harness} đã tắt tài khoản này (vô hiệu hóa hoặc tạm ngưng), nên không tin nhắn nào chạy được. Dùng agent khác, hoặc đăng nhập bằng tài khoản khác."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{harness} 的服务提供方已停用此账户（已禁用或暂停），因此无法在其上运行任何消息。请使用其他智能体，或用另一个账户登录。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{harness} 的服務提供方已停用此帳戶（已停用或暫停），因此無法在其上執行任何訊息。請使用其他智慧代理，或以另一個帳戶登入。"}}}},
+    "composer.cloudSetUpMore": {
+      "comment": "Agent pane: the model picker's last row with Cloud picked; opens Settings > Cloud",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إعداد المزيد للسحابة…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Postavi još za Cloud…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konfigurer mere til Cloud…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mehr für Cloud einrichten…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set up more for Cloud…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Configurar más para Cloud…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Configurer plus pour Cloud…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Configura altro per Cloud…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud 用にさらに設定…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រៀបចំបន្ថែមសម្រាប់ Cloud…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud용으로 더 설정…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konfigurer mer for Cloud…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skonfiguruj więcej dla Cloud…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Configurar mais para o Cloud…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Настроить ещё для Cloud…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตั้งค่าเพิ่มเติมสำหรับ Cloud…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud için daha fazlasını ayarla…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Налаштувати більше для Cloud…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thiết lập thêm cho Cloud…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "为 Cloud 设置更多…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "為 Cloud 設定更多…"
+          }
+        }
+      }
+    },
     "turn.forkLatestOnly": {
       "comment": "Agent pane: the Fork button's tooltip on an earlier message of a chat whose agent forks only at its end",
       "extractionState": "manual",
@@ -354094,666 +354226,6 @@
         }
       }
     },
-    "composer.envCloudLabel": {
-      "comment": "Agent pane: the Cloud Environment chip's accessible name and tooltip, before its value (\"Cloud environment: Auto\"); its visible text is composer.environment",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "البيئة السحابية"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud okruženje"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud-miljø"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud-Umgebung"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud environment"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Entorno en la nube"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Environnement Cloud"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ambiente Cloud"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud 環境"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បរិស្ថាន Cloud"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud 환경"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud-miljø"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Środowisko Cloud"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ambiente na nuvem"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Облачное окружение"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "สภาพแวดล้อม Cloud"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud ortamı"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Хмарне середовище"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Môi trường Cloud"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud 环境"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud 環境"
-          }
-        }
-      }
-    },
-    "composer.envAuto": {
-      "comment": "Agent pane: the composer's Cloud Environment chip and its drop-up, the default environment: one made for the chat from its folder or repository, with no questions",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "الصورة الافتراضية"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zadana slika"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Standardbillede"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Standard-Image"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Default image"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Imagen predeterminada"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Image par défaut"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Immagine predefinita"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "デフォルトイメージ"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "រូបភាពលំនាំដើម"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "기본 이미지"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Standardbilde"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Domyślny obraz"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Imagem padrão"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Образ по умолчанию"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "อิมเมจเริ่มต้น"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Varsayılan imaj"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Типовий образ"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Image mặc định"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "默认镜像"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "預設映像"
-          }
-        }
-      }
-    },
-    "composer.envNew": {
-      "comment": "Agent pane: the Cloud Environment chip's drop-up, a row that makes a new Cloud environment for the project and opens its settings",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "بيئة جديدة…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Novo okruženje…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nyt miljø…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Neue Umgebung…"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "New environment…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nuevo entorno…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nouvel environnement…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nuovo ambiente…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "新しい環境…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បរិស្ថានថ្មី…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "새 환경…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nytt miljø…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nowe środowisko…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Novo ambiente…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Новое окружение…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "สภาพแวดล้อมใหม่…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yeni ortam…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Нове середовище…"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Môi trường mới…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "新建环境…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "新增環境…"
-          }
-        }
-      }
-    },
-    "composer.envEdit": {
-      "comment": "Agent pane: the Cloud Environment chip's drop-up, a row that opens the current environment's settings (setup script, variables, secrets); {name} is the environment's name",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تعديل {name}…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Uredi {name}…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rediger {name}…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{name} bearbeiten…"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Edit {name}…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Editar {name}…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Modifier {name}…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Modifica {name}…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{name} を編集…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "កែ {name}…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{name} 편집…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rediger {name}…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Edytuj {name}…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Editar {name}…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Изменить {name}…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แก้ไข {name}…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{name} düzenle…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Змінити {name}…"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sửa {name}…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "编辑 {name}…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "編輯 {name}…"
-          }
-        }
-      }
-    },
-    "composer.envNewName": {
-      "comment": "Agent pane: the name a new Cloud environment gets when the chat has no project folder",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "بيئة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Okruženje"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Miljø"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Umgebung"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Environment"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Entorno"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Environnement"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ambiente"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "環境"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បរិស្ថាន"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "환경"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Miljø"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Środowisko"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ambiente"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Окружение"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "สภาพแวดล้อม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ortam"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Середовище"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Môi trường"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "环境"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "環境"
-          }
-        }
-      }
-    },
     "sessionInfo.subagents.limit.queued": {
       "comment": "Agent pane Inspector, Subagents: how many of the chats this chat's agent started wait for a free slot under the running limit. {n} is the count.",
       "extractionState": "manual",
@@ -467059,402 +466531,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "保存為金鑰 {name}"
-          }
-        }
-      }
-    },
-    "composer.envOpenTerminal": {
-      "comment": "Agent pane: the Cloud Environment chip's drop-up, the row that makes a Cloud machine from the picked environment and opens a terminal on it",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud terminal"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "فتح طرفية Cloud"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Otvori Cloud terminal"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Åbn Cloud-terminal"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud-Terminal öffnen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Abrir terminal de Cloud"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ouvrir un terminal Cloud"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Apri terminale Cloud"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud ターミナルを開く"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បើកស្ថានីយ Cloud"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud 터미널 열기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Åpne Cloud-terminal"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Otwórz terminal Cloud"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Abrir terminal do Cloud"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Открыть терминал Cloud"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เปิดเทอร์มินัล Cloud"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud terminalini aç"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Відкрити термінал Cloud"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mở terminal Cloud"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "打开 Cloud 终端"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "開啟 Cloud 終端機"
-          }
-        }
-      }
-    },
-    "composer.envChipHint": {
-      "comment": "Agent pane: the Cloud Environment chip's tooltip, after its name and value (\"Cloud environment: Auto. …\"): what an environment is",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "المصدر الذي يُعدّ منه جهاز الدردشة السحابية: نص الإعداد ومتغيرات البيئة والأسرار"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Odakle se postavlja mašina Cloud razgovora: skripta za postavljanje, varijable okruženja i tajne"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Det, en Cloud-chats maskine sættes op fra: opsætningsscript, miljøvariabler og hemmeligheder"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Woraus die Maschine eines Cloud-Chats eingerichtet wird: Setup-Skript, Umgebungsvariablen und Secrets"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Where a Cloud chat's machine is set up from: setup script, env vars and secrets"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "De dónde se configura la máquina de un chat en la nube: script de configuración, variables de entorno y secretos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ce à partir de quoi la machine d’une discussion Cloud est configurée : script d’installation, variables d’environnement et secrets"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Da dove viene configurata la macchina di una chat Cloud: script di configurazione, variabili d’ambiente e segreti"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud チャットのマシンの設定元：セットアップスクリプト、環境変数、シークレット"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ប្រភពដែលម៉ាស៊ីនរបស់ការជជែក Cloud ត្រូវបានរៀបចំ៖ ស្គ្រីបរៀបចំ អថេរបរិស្ថាន និងអាថ៌កំបាំង"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud 채팅 머신을 설정하는 기준: 설정 스크립트, 환경 변수, 시크릿"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Det en Cloud-chats maskin settes opp fra: oppsettsskript, miljøvariabler og hemmeligheter"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Na podstawie czego przygotowywana jest maszyna czatu w Cloud: skrypt konfiguracji, zmienne środowiskowe i sekrety"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "De onde a máquina de um chat na nuvem é configurada: script de configuração, variáveis de ambiente e segredos"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Из чего настраивается машина облачного чата: скрипт настройки, переменные окружения и секреты"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แหล่งที่ใช้ตั้งค่าเครื่องของแชต Cloud: สคริปต์ตั้งค่า ตัวแปรสภาพแวดล้อม และข้อมูลลับ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bir Cloud sohbetinin makinesinin kurulduğu kaynak: kurulum betiği, ortam değişkenleri ve gizli anahtarlar"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "З чого налаштовується машина хмарного чату: скрипт налаштування, змінні середовища й секрети"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nơi máy của cuộc trò chuyện Cloud được thiết lập: tập lệnh thiết lập, biến môi trường và bí mật"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud 对话的机器从何设置：设置脚本、环境变量和密钥"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud 對話的機器從何設定：設定腳本、環境變數與密鑰"
-          }
-        }
-      }
-    },
-    "composer.envEditCurrent": {
-      "comment": "Agent pane: the Cloud Environment chip's drop-up, the row that opens the picked environment's settings (Auto's: the Default environment it runs in)",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Edit environment…"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تعديل البيئة…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Uredi okruženje…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rediger miljø…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Umgebung bearbeiten…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Editar entorno…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Modifier l’environnement…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Modifica ambiente…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "環境を編集…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "កែសម្រួលបរិស្ថាន…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "환경 편집…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rediger miljø…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Edytuj środowisko…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Editar ambiente…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Изменить окружение…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แก้ไขสภาพแวดล้อม…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ortamı düzenle…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Змінити середовище…"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sửa môi trường…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "编辑环境…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "編輯環境…"
           }
         }
       }

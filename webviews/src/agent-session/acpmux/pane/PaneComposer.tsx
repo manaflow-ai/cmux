@@ -39,6 +39,7 @@ import { SIDE_COMMAND } from "../composer/sendMenuModel";
 import { DictationNotice } from "../DictationNotice";
 import { ACTIVITY_LINE, DATE, THINKING, WORKING } from "../conversation/turns";
 import { switchForks } from "../conversation/messageMenu";
+import { DEFAULT_PICK_MODEL, lastPick } from "../lastPick";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { HarnessStatusCard } from "../HarnessStatusCard";
 import { cloudStartFolder, cloudPickExtras } from "../cloudRun";
@@ -1100,9 +1101,19 @@ export function drawPaneComposer({
                 cloudRetryFolder.current = folder;
                 const held = heldPick(composerSnapshot);
                 const shownModel = composerSnapshot.summary?.model;
+                // Before the picker has a harness (the catalog still listing), the person's last local pick
+                // goes, so a Cloud send never falls back to Claude over the agent they use here (cmux#51731).
+                const remembered = lastPick(composerSnapshot.summary?.cwd);
+                const shownHarness = held.harness || composerSnapshot.summary?.harness || healthHarness;
                 const cloudShownAgent = {
-                  harness: held.harness ?? composerSnapshot.summary?.harness ?? healthHarness,
-                  model: held.model ?? (shownModel && shownModel !== "default" ? shownModel : undefined),
+                  harness: shownHarness || remembered?.harness,
+                  model:
+                    held.model ??
+                    (shownModel && shownModel !== "default"
+                      ? shownModel
+                      : !shownHarness && remembered?.model !== DEFAULT_PICK_MODEL
+                        ? remembered?.model
+                        : undefined),
                 };
                 const started = sendToCloud(
                   text,

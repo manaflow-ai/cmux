@@ -24,6 +24,7 @@
       "keys": [
         "agentPane.links.openCitationsInEditor",
         "cloud.autoCloud",
+        "cloud.defaultImage",
         "window.titlebar"
       ]
     },

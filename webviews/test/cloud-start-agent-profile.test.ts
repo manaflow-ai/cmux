@@ -27,3 +27,43 @@ test("an agent the machine carries is named as is, and UniiChat still leaves the
   expect(cloudStartAgent("unii", "unii")).toEqual({ family: "claude", harness: "claude", named: false });
   expect(cloudSendAgent("unii", "unii", "m")).toEqual({});
 });
+
+// cmux#51731: an agent the machine does not carry (a Mac-only harness) is never sent to it; the
+// machine starts its default instead of refusing the start as `agent_session.harness_missing`.
+test("an agent the Cloud machine does not carry starts the machine's default, unnamed", () => {
+  for (const agent of ["gemini", "amp", "my-local-tool"])
+    expect(cloudStartAgent(agent, agent)).toEqual({ family: "claude", harness: "claude", named: false });
+  expect(cloudSendAgent("gemini", "gemini", "gemini-3-pro")).toEqual({});
+});
+
+// cmux#51731: with Cloud picked the model picker lists the agents a Cloud machine carries, never this
+// Mac's own profiles or a folder's, each pickable whatever this Mac has installed; its last row opens
+// Settings > Cloud.
+test("the Cloud picker lists the machine's agents only, and its set-up row opens Settings > Cloud", async () => {
+  const { cloudPickerEntries, pickerOnCloud, cloudSettingsLink } = await import(
+    "../src/agent-session/acpmux/cloudPickerEntries"
+  );
+  const entry = (id: string, extra: Record<string, unknown> = {}) => ({ id, name: id, models: [], ...extra });
+  const shown = cloudPickerEntries([
+    entry("claude"),
+    entry("claude-sr2", { family: "claude" }),
+    entry("codex", { notInstalled: true, pickable: false }),
+    entry("gemini"),
+    entry("opencode", { unavailable: "not signed in" }),
+    entry("pi"),
+    entry("claude", { folder: { folder: "/src/a", state: "enabled" } }),
+  ] as never);
+  expect(shown.map((each) => each.id)).toEqual(["claude", "codex", "opencode", "pi"]);
+  for (const each of shown) {
+    expect(each.pickable).toBe(true);
+    expect("notInstalled" in each || "unavailable" in each).toBe(false);
+  }
+  const snapshot = (extra: Record<string, unknown>) => ({ rows: [], catalog: [], ...extra }) as never;
+  expect(pickerOnCloud(snapshot({ startsOnCloud: true }))).toBe(true);
+  expect(pickerOnCloud(snapshot({ summary: { hostKind: "cloud" } }))).toBe(true);
+  expect(pickerOnCloud(snapshot({ origin: "remote", ownerCloud: true }))).toBe(true);
+  expect(pickerOnCloud(snapshot({ origin: "remote" }))).toBe(false);
+  expect(pickerOnCloud(snapshot({ summary: { hostKind: "local" } }))).toBe(false);
+  expect(cloudSettingsLink("cmux-dev")).toBe("cmux-dev://settings/cloud");
+  expect(cloudSettingsLink("")).toBeUndefined();
+});
