@@ -5139,6 +5139,14 @@
       "nameLabel": "Name: {value}",
       "hostLabel": "Host: {value}",
       "harnessLabel": "Harness: {value}"
+    },
+    "screen": {
+      "metaTitle": "Open Mac screen in cmux",
+      "metaDescription": "Open a Mac's screen in cmux, view-only, from the web, with install fallback when cmux is not available.",
+      "title": "Open Mac screen",
+      "intro": "This link shows a Mac's screen in cmux, view-only. cmux opens it only if this device can already reach that Mac. The link itself grants no access.",
+      "fallback": "If cmux does not open, install cmux and click Open in cmux again. cmux shows the screen only if you are signed in to the account that owns that Mac.",
+      "ignoredParams": "cmux ignores parameters it does not use: {params}. The screen still opens."
     }
   },
   "download": {
