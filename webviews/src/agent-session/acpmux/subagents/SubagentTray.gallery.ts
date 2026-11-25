@@ -1236,6 +1236,11 @@ export default pinKindsHead(
           await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
           await ctx.click({ selector: ".acpmux-running-tray__head" });
           await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray li[data-finished]").length === 3);
+          // The header's count change rolls (TextRoll, #56303): until the roll ends its title holds the
+          // outgoing copy too ("42 sessions" while 4 rolls out above 2). Read it once the roll has ended.
+          await ctx.waitFor(
+            () => ctx.document.querySelector(".acpmux-running-tray__title [aria-hidden='true']") === null,
+          );
           const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent;
           // Kind by kind (trayHeadKinds.ts): the chats it started read as sessions, and what ended in
           // the list counts after what runs.
