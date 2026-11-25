@@ -85,6 +85,8 @@ impl Hub {
                     ),
                     recap: current_option(draft, crate::claude_stdio::RECAP_OPTION),
                     claude_session_id: Some(fresh_id),
+                    stop_condition: false,
+                    resumes_cut_turn: false,
                 }),
             )
         } else {
@@ -239,6 +241,13 @@ impl Hub {
         };
         let started = async {
             let init = child.request(method::INITIALIZE, initialize_params()).await?;
+            // An agent signed in by its key says so first (`acp_key_auth.rs`).
+            let family = crate::config::derive_family(&draft.harness, &spec.spawn);
+            if let Some(params) = crate::acp_key_auth::authenticate_params(&family, &init, |k| {
+                crate::acp_key_auth::launch_var(&spec.spawn.env, &family, k)
+            }) {
+                child.request(method::AUTHENTICATE, params).await?;
+            }
             let new_result = if claude {
                 None
             } else {
@@ -253,6 +262,7 @@ impl Hub {
                                 None,
                                 &child,
                                 &spec.answer,
+                                &init,
                             ),
                         )
                         .await?,

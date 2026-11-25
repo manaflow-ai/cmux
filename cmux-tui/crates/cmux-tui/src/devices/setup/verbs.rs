@@ -110,7 +110,7 @@ pub(super) fn http_get(url: &str) -> Result<Vec<u8>, String> {
         .enable_all()
         .build()
         .map_err(|error| format!("runtime: {error}"))?;
-    let client = reqwest::Client::builder()
+    let client = cmux_egress::client_builder("cmux_tui::devices::setup::verbs")
         .timeout(std::time::Duration::from_secs(30))
         .user_agent(concat!("cmux-tui/", env!("CARGO_PKG_VERSION"), " device-setup"))
         .build()

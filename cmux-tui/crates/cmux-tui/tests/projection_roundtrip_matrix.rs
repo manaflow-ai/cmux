@@ -414,6 +414,60 @@ impl Trip {
             })
     }
 
+    /// Ends the folder's server and serves the folder again, as after this Mac restarted: the
+    /// machine attaches it to the mount it kept, or mounts the Mac's newer listing. The new
+    /// server, ended when it drops.
+    fn restart_server(&self) -> Server {
+        let stopped =
+            self.mac.cmux().args(["link", "project", "stop", "--at"]).arg(&self.folder).output();
+        assert!(stopped.unwrap().status.success());
+        let mut child = self
+            .mac
+            .cmux()
+            .args(["link", "project", "serve", "--socket"])
+            .arg(&self.machine.dial)
+            .arg("--at")
+            .arg(&self.folder)
+            .args(["--name", &self.projection_name()])
+            .arg(&self.local)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut line = String::new();
+        std::io::BufRead::read_line(
+            &mut std::io::BufReader::new(child.stdout.take().unwrap()),
+            &mut line,
+        )
+        .unwrap();
+        let answer: Value = serde_json::from_str(line.trim()).unwrap_or(Value::Null);
+        assert_eq!(answer["ok"], true, "serve again: {line}");
+        eprintln!("serve again: {line}");
+        Server(child)
+    }
+
+    /// The projection's name, as the folder's server recorded it for Bring Back.
+    fn projection_name(&self) -> String {
+        let mut stack = vec![self.mac.state.clone()];
+        while let Some(dir) = stack.pop() {
+            for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().is_some_and(|ext| ext == "json")
+                    && path.parent().is_some_and(|parent| parent.ends_with("projections"))
+                    && let Ok(record) = serde_json::from_slice::<Value>(&fs::read(&path).unwrap())
+                    && record["remote"].as_str() == self.folder.to_str()
+                    && let Some(name) = record["name"].as_str()
+                {
+                    return name.to_owned();
+                }
+            }
+        }
+        panic!("no projection recorded for {}", self.folder.display());
+    }
+
     fn brought_back(&self) -> Value {
         let answer = self.bring_back();
         assert_eq!(answer["ok"], true, "Bring Back: {answer}");
@@ -578,9 +632,13 @@ fn symlinks_inside_come_back_and_ones_leaving_the_folder_stay() {
     // The Mac's inside link is there, as a link; the one leaving the folder is not projected.
     assert_eq!(fs::read_link(t.at("to-a")).unwrap(), Path::new("src/a.txt"));
     assert_eq!(read(&t.at("to-a")), "alpha\n");
-    t.on_machine("ln -s src/b.txt to-b && ln -s ../../../../outside out");
+    assert!(fs::symlink_metadata(t.at("leaves")).is_err());
+    t.on_machine("ln -s src/b.txt to-b && ln -s missing dangling && ln -s ../../../../outside out");
     let answer = t.brought_back();
     assert_eq!(fs::read_link(t.mac("to-b")).unwrap(), Path::new("src/b.txt"), "{answer}");
+    assert_eq!(fs::read_link(t.mac("dangling")).unwrap(), Path::new("missing"), "{answer}");
+    assert!(!t.mac("missing").exists());
+    assert_eq!(fs::read_link(t.mac("leaves")).unwrap(), Path::new("/etc/hostname"));
     assert!(fs::symlink_metadata(t.mac("out")).is_err(), "a link out of the folder came back");
     assert_eq!(fs::read_link(t.mac("to-a")).unwrap(), Path::new("src/a.txt"));
     let skipped = answer["skipped_files"].to_string();
@@ -688,6 +746,35 @@ fn a_new_name_that_folds_to_a_mac_name_is_a_conflict() {
     assert_eq!(read(&t.mac("README.md")), "# app\n");
 }
 
+#[test]
+fn a_case_only_rename_preserves_a_concurrent_mac_edit_and_names_the_conflict() {
+    let t = trip_or_skip!("case-rename", plain);
+    fs::rename(t.at("README.md"), t.at("Readme.md")).unwrap();
+    write(&t.at("Readme.md"), "machine version\n");
+    write(&t.mac("README.md"), "the Mac edited the original\n");
+    let output = t
+        .mac
+        .cmux()
+        .args(["link", "project", "back", "--socket"])
+        .arg(&t.machine.dial)
+        .arg("--at")
+        .arg(&t.folder)
+        .arg(&t.local)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let answer: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(answer["ok"], true, "{answer}");
+    assert!(
+        answer["conflicts"].as_array().unwrap().iter().any(|conflict| {
+            conflict["path"] == "Readme.md" && conflict["beside"] == "Readme.md.cmux-sync-conflict"
+        }),
+        "{answer}"
+    );
+    assert_eq!(read(&t.mac("README.md")), "the Mac edited the original\n");
+    assert_eq!(read(&t.mac("Readme.md.cmux-sync-conflict")), "machine version\n");
+}
+
 /// A file the Mac changed after the manifest and before the machine read it: the machine reads the
 /// new bytes (hard case 7).
 #[test]
@@ -716,6 +803,31 @@ fn a_second_bring_back_takes_the_later_edits() {
     let again = t.brought_back();
     assert_eq!(again["written"], 0, "{again}");
     assert_eq!(again["deleted"], 0, "{again}");
+}
+
+/// The folder's server restarted after a Bring Back (this Mac restarted, the app relaunched): the
+/// base that Bring Back moved stays, so the next Bring Back takes the later edits instead of
+/// stopping on `sync_base_mismatch`.
+#[test]
+fn a_bring_back_after_the_server_restarted_takes_the_later_edits() {
+    let t = trip_or_skip!("restart", repo);
+    write(&t.at("src/a.txt"), "alpha, first\n");
+    t.brought_back();
+    let _server = t.restart_server();
+    write(&t.at("src/a.txt"), "alpha, second\n");
+    let answer = t.brought_back();
+    assert_eq!(read(&t.mac("src/a.txt")), "alpha, second\n", "{answer}");
+    t.statuses_agree();
+}
+
+/// A server [`Trip::restart_server`] started, ended when it drops.
+struct Server(std::process::Child);
+
+impl Drop for Server {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
 }
 
 /// `~/Projects`' shape (hard case 12): `api` and `web`, two repositories, and `notes.md` beside

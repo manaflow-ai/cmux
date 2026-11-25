@@ -92,7 +92,7 @@ impl Translator {
                     && text("parent_tool_use_id").is_none();
                 let shell = shells.entry(tool.clone()).or_insert_with(|| BackgroundShell {
                     sid: sid.to_owned(),
-                    command: text("description").unwrap_or("").to_owned(),
+                    command: String::new(),
                     description: None,
                     task: None,
                     background: false,
@@ -106,6 +106,16 @@ impl Translator {
                 });
                 // The Bash call's own line usually made the record first: its task_started still
                 // says whose shell it is.
+                // A task event may precede the tool call or be all a workflow shell sends.
+                // Its description sometimes repeats the known command verbatim.
+                if shell.description.is_none() {
+                    shell.description = text("description")
+                        .map(str::trim)
+                        .filter(|description| {
+                            !description.is_empty() && *description != shell.command.trim()
+                        })
+                        .map(str::to_owned);
+                }
                 shell.workflow_owned |= workflow_owned;
                 shell.task = task.map(str::to_owned).or(shell.task.take());
                 shell.output = text("output_file").map(str::to_owned).or(shell.output.take());

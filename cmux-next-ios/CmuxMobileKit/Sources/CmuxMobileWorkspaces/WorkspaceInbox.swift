@@ -173,7 +173,7 @@ public struct WorkspaceInbox: Hashable, Sendable {
     public var isLoading: Bool
     /// An online Mac in scope is linking and its list has not arrived (cached rows may show).
     public var isUpdating: Bool
-    /// Rows from a Mac's last-known list (not the Mac's live answer): dimmed,
+    /// Rows from a Mac's last-known list (not the Mac's live answer): full strength,
     /// and their agent state is not shown (it may be stale).
     public var stale: Set<String>
     /// Scope is All and every Mac is offline.

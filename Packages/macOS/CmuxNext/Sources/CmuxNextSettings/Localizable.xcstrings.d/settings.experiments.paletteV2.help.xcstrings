@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.experiments.paletteV2.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تجمّع النتائج ضمن مساحات العمل والجلسات والأوامر والوكلاء، وتعيد التجميع أثناء الكتابة، مع تحديد أفضل نتيجة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grupiše rezultate pod Radni prostori, Sesije, Naredbe i Agenti, ponovo grupiše dok kucate, a najbolji rezultat je odabran."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grupperer resultater under Arbejdsområder, Sessioner, Kommandoer og Agenter og omgrupperer, mens du skriver, med det bedste match valgt."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gruppiert Ergebnisse unter Arbeitsbereiche, Sitzungen, Befehle und Agenten, gruppiert während der Eingabe neu und wählt den besten Treffer aus."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Groups results under Workspaces, Sessions, Commands and Agents, regrouping as you type, with the top match selected."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agrupa los resultados en Espacios de trabajo, Sesiones, Comandos y Agentes, los reagrupa mientras escribes y selecciona la mejor coincidencia."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Regroupe les résultats sous Espaces de travail, Sessions, Commandes et Agents, les regroupe à mesure que vous saisissez et sélectionne la meilleure correspondance."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Raggruppa i risultati in Spazi di lavoro, Sessioni, Comandi e Agenti, li raggruppa di nuovo mentre scrivi e seleziona la corrispondenza migliore."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "結果を「ワークスペース」「セッション」「コマンド」「エージェント」にグループ化し、入力に合わせて再グループ化して、最も一致するものを選択します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ដាក់ក្រុមលទ្ធផលនៅក្រោមកន្លែងធ្វើការ វគ្គ ពាក្យបញ្ជា និងភ្នាក់ងារ ហើយដាក់ក្រុមឡើងវិញពេលអ្នកវាយ ដោយជ្រើសរើសលទ្ធផលដែលត្រូវគ្នាបំផុត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "결과를 작업 공간, 세션, 명령, 에이전트별로 그룹화하고 입력하는 동안 다시 그룹화하며 가장 일치하는 항목을 선택합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grupperer resultater under Arbeidsområder, Økter, Kommandoer og Agenter, omgrupperer mens du skriver, og velger det beste treffet."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grupuje wyniki w sekcjach Obszary robocze, Sesje, Polecenia i Agenci, przegrupowuje je podczas pisania i zaznacza najlepsze dopasowanie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agrupa os resultados em Espaços de trabalho, Sessões, Comandos e Agentes, reagrupa conforme você digita e seleciona a melhor correspondência."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Группирует результаты по разделам «Рабочие пространства», «Сеансы», «Команды» и «Агенты», перегруппировывает их по мере ввода и выбирает лучшее совпадение."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "จัดกลุ่มผลลัพธ์ภายใต้พื้นที่ทำงาน เซสชัน คำสั่ง และเอเจนต์ จัดกลุ่มใหม่ขณะที่คุณพิมพ์ และเลือกรายการที่ตรงที่สุด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sonuçları Çalışma alanları, Oturumlar, Komutlar ve Ajanlar altında gruplar, siz yazdıkça yeniden gruplar ve en iyi eşleşmeyi seçer."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Групує результати за розділами «Робочі простори», «Сеанси», «Команди» й «Агенти», перегруповує їх під час введення та вибирає найкращий збіг."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nhóm kết quả theo Không gian làm việc, Phiên, Lệnh và Tác nhân, nhóm lại khi bạn nhập và chọn kết quả khớp nhất."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将结果按“工作区”“会话”“命令”和“代理”分组，并在你输入时重新分组，同时选中最佳匹配项。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "將結果依「工作區」、「工作階段」、「命令」和「代理」分組，並在你輸入時重新分組，同時選取最佳符合項目。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
